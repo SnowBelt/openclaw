@@ -17,6 +17,90 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  control-director-remote-proof:
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'codex/control-director-reliability-proof-20260613'
+    name: Control Director reliability proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      IMPLEMENTATION_SHA: cfe23790dcd15f02eba2a465d42aa84bb3400898
+      PROOF_WORKFLOW: .github/workflows/workflow-sanity.yml
+    steps:
+      - name: Checkout proof branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify proof-only branch shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof_sha="$(git rev-parse HEAD)"
+          implementation_parent_sha="$(git rev-parse HEAD^)"
+
+          echo "proof_sha=${proof_sha}"
+          echo "implementation_parent_sha=${implementation_parent_sha}"
+          echo "implementation_expected_sha=${IMPLEMENTATION_SHA}"
+          echo "branch=${GITHUB_REF_NAME}"
+
+          if [ "${implementation_parent_sha}" != "${IMPLEMENTATION_SHA}" ]; then
+            echo "::error::Proof commit parent must be the implementation commit."
+            exit 1
+          fi
+
+          mapfile -t changed_files < <(git diff --name-only "${IMPLEMENTATION_SHA}" "${proof_sha}")
+          printf 'proof_only_changed_files:\n'
+          printf '%s\n' "${changed_files[@]}"
+
+          if [ "${#changed_files[@]}" -ne 1 ] || [ "${changed_files[0]}" != "${PROOF_WORKFLOW}" ]; then
+            echo "::error::Proof branch must differ from implementation only by ${PROOF_WORKFLOW}."
+            exit 1
+          fi
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm 11.2.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.2.2 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Print exact proof commands
+        shell: bash
+        run: |
+          cat <<'COMMANDS'
+          pnpm test test/scripts/control-ui-control-director-no-response-smoke.test.ts src/auto-reply/reply/agent-runner.runreplyagent.e2e.test.ts test/scripts/control-ui-dashboard-smoke-suite.test.ts
+          timeout 15m pnpm ui:smoke:control-director-no-response
+          env CI=1 NODE_OPTIONS=--max-old-space-size=4096 OPENCLAW_TEST_PROJECTS_PARALLEL=6 OPENCLAW_VITEST_MAX_WORKERS=1 OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS=900000 pnpm check:changed scripts/control-director-readiness.mjs scripts/dev/control-ui-control-director-no-response-smoke.ts scripts/dev/control-ui-dashboard-smoke-suite.ts src/agents/agent-command.ts src/agents/control-director-delivery-guards.ts src/auto-reply/reply-payload.ts src/auto-reply/reply/agent-runner.runreplyagent.e2e.test.ts src/auto-reply/reply/agent-runner.ts src/gateway/server-methods/chat.ts test/scripts/control-ui-control-director-no-response-smoke.test.ts test/scripts/control-ui-dashboard-smoke-suite.test.ts
+          COMMANDS
+
+      - name: Targeted Control Director no-response tests
+        run: pnpm test test/scripts/control-ui-control-director-no-response-smoke.test.ts src/auto-reply/reply/agent-runner.runreplyagent.e2e.test.ts test/scripts/control-ui-dashboard-smoke-suite.test.ts
+
+      - name: Web and mobile no-response smoke
+        run: timeout 15m pnpm ui:smoke:control-director-no-response
+
+      - name: Remote changed gate
+        env:
+          CI: '1'
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: '6'
+          OPENCLAW_VITEST_MAX_WORKERS: '1'
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: '900000'
+        run: pnpm check:changed scripts/control-director-readiness.mjs scripts/dev/control-ui-control-director-no-response-smoke.ts scripts/dev/control-ui-dashboard-smoke-suite.ts src/agents/agent-command.ts src/agents/control-director-delivery-guards.ts src/auto-reply/reply-payload.ts src/auto-reply/reply/agent-runner.runreplyagent.e2e.test.ts src/auto-reply/reply/agent-runner.ts src/gateway/server-methods/chat.ts test/scripts/control-ui-control-director-no-response-smoke.test.ts test/scripts/control-ui-dashboard-smoke-suite.test.ts
+
   no-tabs:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
@@ -82,7 +166,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref_name != 'codex/control-director-reliability-proof-20260613'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
