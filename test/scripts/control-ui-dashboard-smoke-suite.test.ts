@@ -19,10 +19,11 @@ describe("control-ui-dashboard-smoke-suite", () => {
     expect(summary.steps.map((step) => step.name)).toEqual([
       "Projects dashboard smoke",
       "Self-Improvement dashboard smoke",
+      "Control Director no-response dashboard smoke",
       "SNES Studio dashboard smoke",
       "SNES Studio hardware proof bundle",
     ]);
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(5);
     expect(calls[0]).toMatchObject({
       args: ["ui:smoke:projects"],
       command: "pnpm",
@@ -38,13 +39,20 @@ describe("control-ui-dashboard-smoke-suite", () => {
       ".artifacts/control-ui-self-improvement/ci",
     );
     expect(calls[2]).toMatchObject({
+      args: ["ui:smoke:control-director-no-response"],
+      command: "pnpm",
+    });
+    expect(calls[2]?.env.OPENCLAW_CONTROL_UI_CONTROL_DIRECTOR_ARTIFACT_DIR).toBe(
+      ".artifacts/control-ui-control-director-no-response/ci",
+    );
+    expect(calls[3]).toMatchObject({
       args: ["ui:smoke:snes-studio"],
       command: "pnpm",
     });
-    expect(calls[2]?.env.OPENCLAW_CONTROL_UI_SNES_STUDIO_ARTIFACT_DIR).toBe(
+    expect(calls[3]?.env.OPENCLAW_CONTROL_UI_SNES_STUDIO_ARTIFACT_DIR).toBe(
       ".artifacts/snes-studio-smoke/ci",
     );
-    expect(calls[3]).toMatchObject({
+    expect(calls[4]).toMatchObject({
       args: ["snes:hardware-proof", "--artifact-dir", ".artifacts/snes-hardware-proof/ci"],
       command: "pnpm",
     });
@@ -103,6 +111,11 @@ describe("control-ui-dashboard-smoke-suite", () => {
         name: "Self-Improvement dashboard smoke",
       },
       {
+        command: ["pnpm", "ui:smoke:control-director-no-response"],
+        exitCode: 0,
+        name: "Control Director no-response dashboard smoke",
+      },
+      {
         command: ["pnpm", "ui:smoke:snes-studio"],
         exitCode: 0,
         name: "SNES Studio dashboard smoke",
@@ -136,5 +149,6 @@ describe("control-ui-dashboard-smoke-suite", () => {
     expect(calls[0]).toBe("pnpm ui:build");
     expect(calls).toContain("pnpm ui:smoke:projects");
     expect(calls).toContain("pnpm ui:smoke:self-improvement");
+    expect(calls).toContain("pnpm ui:smoke:control-director-no-response");
   });
 });

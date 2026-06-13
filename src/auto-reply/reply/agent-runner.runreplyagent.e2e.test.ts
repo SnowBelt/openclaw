@@ -384,6 +384,68 @@ describe("runReplyAgent pending final delivery capture", () => {
     expect(stored.pendingFinalDelivery).toBe(true);
     expect(stored.pendingFinalDeliveryText).toBe("visible final");
   });
+
+  it("synthesizes and records Control Director no-response liveness for WebChat runs", async () => {
+    const sessionEntry: SessionEntry = {
+      sessionId: "session",
+      updatedAt: Date.now(),
+      deliveryContext: { channel: "webchat" },
+    };
+    const sessionStore = { main: sessionEntry };
+    const storePath = await createSessionStoreFile(sessionEntry);
+    state.runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [
+        {
+          text: "⚠️ Agent couldn't generate a response. Please try again.",
+          isError: true,
+        },
+      ],
+      meta: {
+        finalAssistantVisibleText: "⚠️ Agent couldn't generate a response. Please try again.",
+        livenessState: "blocked",
+        replayInvalid: true,
+        agentMeta: { usage: { input: 1, output: 1 } },
+      },
+    });
+
+    const { run } = createMinimalRun({
+      sessionEntry,
+      sessionStore,
+      sessionKey: "main",
+      storePath,
+      sessionCtx: { Provider: "webchat", Surface: "webchat" },
+      runOverrides: { agentId: "main", messageProvider: "webchat" },
+    });
+
+    const result = await run();
+    const payload = Array.isArray(result)
+      ? (result[0] as { text?: string })
+      : (result as { text?: string });
+
+    expect(payload.text).toContain("Control Director liveness watchdog");
+    expect(payload.text).toContain("Verified state:");
+    expect(payload.text).toContain("Next build gap:");
+    expect(payload.text).toContain("Completion Grade:");
+    expect(payload.text).toContain("Criticality:");
+    expect(payload.text).toContain("Status: blocked");
+
+    const stored = await readStoredMainSession(storePath);
+    expect(stored.controlDirectorLivenessAudit?.[0]).toMatchObject({
+      action: "blocked_unsafe_continuation",
+      classification: "empty",
+      nextStatus: "blocked",
+      continuationQueued: false,
+    });
+    expect(stored.controlDirectorMissionLedger?.[0]).toMatchObject({
+      missionId: expect.stringMatching(/^control-director:/u),
+      runId: expect.any(String),
+      status: "blocked",
+      finalStatus: "blocked",
+      continuationCount: 0,
+    });
+    expect(stored.pendingFinalDeliveryText).toContain("Status: blocked");
+    expect(stored.pendingFinalDeliveryText).not.toContain("Status: complete");
+  });
 });
 
 describe("runReplyAgent typing (heartbeat)", () => {

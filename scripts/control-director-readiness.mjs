@@ -166,6 +166,10 @@ function detectControlDirectorExplicitStatusPolicy() {
 function detectControlDirectorRuntimeFinalOutputGuard() {
   try {
     const contractSource = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
+    const deliveryGuardSource = fs.readFileSync(
+      path.join(REPO_ROOT, "src/agents/control-director-delivery-guards.ts"),
+      "utf8",
+    );
     const agentCommandSource = fs.readFileSync(
       path.join(REPO_ROOT, "src/agents/agent-command.ts"),
       "utf8",
@@ -173,8 +177,9 @@ function detectControlDirectorRuntimeFinalOutputGuard() {
     return (
       contractSource.includes("applyControlDirectorFinalOutputGuard") &&
       contractSource.includes("rewrote_unsupported_complete") &&
-      agentCommandSource.includes("applyControlDirectorFinalOutputGuard") &&
-      agentCommandSource.includes("controlDirectorGuardAudit")
+      deliveryGuardSource.includes("applyControlDirectorFinalOutputGuard") &&
+      deliveryGuardSource.includes("controlDirectorGuardAudit") &&
+      agentCommandSource.includes("applyControlDirectorDeliveryGuards")
     );
   } catch {
     return false;
