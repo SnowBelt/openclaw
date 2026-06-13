@@ -469,7 +469,7 @@ export function decideControlDirectorContinuation(params: {
   agentId?: string | undefined | null;
   incomplete: boolean;
   finalStatus?: ControlDirectorFinalStatus | null | undefined;
-  classification?: ControlDirectorLivenessClassification | string | null | undefined;
+  classification?: string | null | undefined;
   continuationCount?: number | undefined;
   missionId?: string | undefined;
   canQueueContinuation?: boolean | undefined;
@@ -621,7 +621,7 @@ export function applyControlDirectorLivenessWatchdog<
   agentId?: string | undefined | null;
   payloads: readonly T[] | undefined;
   finalAssistantVisibleText?: string | undefined;
-  classification?: ControlDirectorLivenessClassification | string | null | undefined;
+  classification?: string | null | undefined;
   continuationCount?: number | undefined;
   missionId?: string | undefined;
   canQueueContinuation?: boolean | undefined;

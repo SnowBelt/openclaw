@@ -455,8 +455,8 @@ function resolveControlDirectorMissionSeed(params: {
   continuationCount: number;
   existing?: SessionControlDirectorMissionLedgerEntry;
 } {
-  const latestQueued = [...(params.sessionEntry?.controlDirectorMissionLedger ?? [])]
-    .reverse()
+  const latestQueued = (params.sessionEntry?.controlDirectorMissionLedger ?? [])
+    .toReversed()
     .find((entry) => entry.status === "continuation_queued");
   const missionId = latestQueued?.missionId ?? `control-director:${params.runId}`;
   return {
