@@ -482,7 +482,9 @@ describe("agentCommand", () => {
         payloads: Array<{ text: string; mediaUrl?: string | null }>;
         meta: { durationMs: number };
       };
-      expect(parsed.payloads[0].text).toBe("json-reply");
+      expect(parsed.payloads[0].text).toContain("json-reply");
+      expect(parsed.payloads[0].text).toContain("Verified state:");
+      expect(parsed.payloads[0].text).toContain("Status: blocked");
       expect(parsed.payloads[0].mediaUrl).toBe("http://x.test/a.jpg");
       expect(parsed.meta.durationMs).toBe(42);
     });
@@ -541,9 +543,20 @@ describe("agentCommand", () => {
         { sendMessageTelegram },
       );
 
-      expect(sendMessageTelegram).toHaveBeenCalledWith("+1222", "assistant-visible", {
-        verbose: false,
-      });
+      expect(sendMessageTelegram).toHaveBeenCalledWith(
+        "+1222",
+        expect.stringContaining("assistant-visible"),
+        expect.objectContaining({
+          verbose: false,
+        }),
+      );
+      const deliveredTelegramText = (
+        sendMessageTelegram.mock.calls[0] as unknown as
+          | [string, string, Record<string, unknown>]
+          | undefined
+      )?.[1];
+      expect(deliveredTelegramText).toContain("Verified state:");
+      expect(deliveredTelegramText).toContain("Status: blocked");
       expect(vi.mocked(attemptExecutionRuntime.persistCliTurnTranscript)).toHaveBeenCalledTimes(1);
       const persistArgs = vi.mocked(attemptExecutionRuntime.persistCliTurnTranscript).mock
         .calls[0]?.[0];

@@ -8,7 +8,13 @@ import {
 } from "../auto-reply/thinking.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { CliDeps } from "../cli/deps.types.js";
-import type { SessionEntry, SessionJudgeGuardAuditEntry } from "../config/sessions/types.js";
+import type {
+  SessionControlDirectorGuardAuditEntry,
+  SessionControlDirectorLivenessAuditEntry,
+  SessionControlDirectorMissionLedgerEntry,
+  SessionEntry,
+  SessionJudgeGuardAuditEntry,
+} from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.js";
 import {
   clearAgentRunContext,
@@ -16,7 +22,9 @@ import {
   registerAgentRunContext,
 } from "../infra/agent-events.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { buildOutboundSessionContext } from "../infra/outbound/session-context.js";
+import { enqueueSystemEvent } from "../infra/system-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   isSubagentSessionKey,
@@ -52,7 +60,17 @@ import {
 import { resolveAgentRunContext } from "./command/run-context.js";
 import { resolveSession } from "./command/session.js";
 import type { AgentCommandIngressOpts, AgentCommandOpts } from "./command/types.js";
-import { resolveControlDirectorThinkingEscalation } from "./control-director-contract.js";
+import {
+  applyControlDirectorLivenessWatchdog,
+  applyControlDirectorFinalOutputGuard,
+  isControlDirectorAgentId,
+  resolveControlDirectorThinkingEscalation,
+  summarizeControlDirectorMissionFinalText,
+  type ControlDirectorFinalOutputGuardAudit,
+  type ControlDirectorLivenessWatchdogAudit,
+  type ControlDirectorMissionSummary,
+  type ControlDirectorContinuationDecision,
+} from "./control-director-contract.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import { resolveFastModeState } from "./fast-mode.js";
 import { ensureSelectedAgentHarnessPlugin } from "./harness/runtime-plugin.js";
@@ -258,6 +276,10 @@ const OVERRIDE_FIELDS_CLEARED_BY_DELETE: OverrideFieldClearedByDelete[] = [
 
 const OVERRIDE_VALUE_MAX_LENGTH = 256;
 const MAX_JUDGE_GUARD_AUDIT_ENTRIES = 20;
+const MAX_CONTROL_DIRECTOR_GUARD_AUDIT_ENTRIES = 20;
+const MAX_CONTROL_DIRECTOR_LIVENESS_AUDIT_ENTRIES = 20;
+const MAX_CONTROL_DIRECTOR_MISSION_LEDGER_ENTRIES = 20;
+const CONTROL_DIRECTOR_REQUEST_SUMMARY_MAX = 240;
 
 async function persistSessionEntry(params: PersistSessionEntryParams): Promise<void> {
   await persistSessionEntryBase({
@@ -283,6 +305,289 @@ function buildSessionJudgeGuardAuditEntry(params: {
     payloadsChecked: params.audit.payloadsChecked,
     payloadsRewritten: params.audit.payloadsRewritten,
   };
+}
+
+function buildSessionControlDirectorGuardAuditEntry(params: {
+  audit: ControlDirectorFinalOutputGuardAudit;
+  runId?: string;
+  ts?: number;
+}): SessionControlDirectorGuardAuditEntry {
+  return {
+    ts: params.ts ?? Date.now(),
+    ...(params.runId ? { runId: params.runId } : {}),
+    action: params.audit.action,
+    originalStatus: params.audit.originalStatus,
+    nextStatus: params.audit.nextStatus,
+    missing: params.audit.missing,
+    payloadsChecked: params.audit.payloadsChecked,
+    payloadsRewritten: params.audit.payloadsRewritten,
+  };
+}
+
+function buildSessionControlDirectorLivenessAuditEntry(params: {
+  audit: ControlDirectorLivenessWatchdogAudit;
+  runId?: string;
+  ts?: number;
+}): SessionControlDirectorLivenessAuditEntry {
+  return {
+    ts: params.ts ?? Date.now(),
+    ...(params.runId ? { runId: params.runId } : {}),
+    action: params.audit.action,
+    reason: params.audit.reason,
+    ...(params.audit.classification ? { classification: params.audit.classification } : {}),
+    nextStatus: params.audit.nextStatus,
+    continuationCount: params.audit.continuationCount,
+    continuationQueued: params.audit.continuationQueued,
+    payloadsChecked: params.audit.payloadsChecked,
+    payloadsSynthesized: params.audit.payloadsSynthesized,
+  };
+}
+
+async function recordControlDirectorGuardAudit(params: {
+  audit: ControlDirectorFinalOutputGuardAudit;
+  runId?: string | undefined;
+  sessionId: string;
+  sessionKey?: string | undefined;
+  sessionEntry?: SessionEntry | undefined;
+  sessionStore?: Record<string, SessionEntry> | undefined;
+  storePath: string;
+}): Promise<SessionEntry | undefined> {
+  const auditEntry = buildSessionControlDirectorGuardAuditEntry({
+    audit: params.audit,
+    runId: params.runId,
+  });
+  if (params.runId) {
+    emitAgentEvent({
+      runId: params.runId,
+      sessionKey: params.sessionKey ?? params.sessionId,
+      stream: "control_director_guard",
+      data: auditEntry,
+    });
+  }
+  if (params.sessionStore && params.sessionKey) {
+    const entry = params.sessionStore[params.sessionKey] ?? params.sessionEntry;
+    if (entry) {
+      const nextAudit = [...(entry.controlDirectorGuardAudit ?? []), auditEntry].slice(
+        -MAX_CONTROL_DIRECTOR_GUARD_AUDIT_ENTRIES,
+      );
+      const next: SessionEntry = {
+        ...entry,
+        controlDirectorGuardAudit: nextAudit,
+        updatedAt: auditEntry.ts,
+      };
+      await persistSessionEntry({
+        sessionStore: params.sessionStore,
+        sessionKey: params.sessionKey,
+        storePath: params.storePath,
+        entry: next,
+      });
+      return next;
+    }
+  }
+  return params.sessionEntry;
+}
+
+async function recordControlDirectorLivenessAudit(params: {
+  audit: ControlDirectorLivenessWatchdogAudit;
+  runId?: string | undefined;
+  sessionId: string;
+  sessionKey?: string | undefined;
+  sessionEntry?: SessionEntry | undefined;
+  sessionStore?: Record<string, SessionEntry> | undefined;
+  storePath: string;
+}): Promise<SessionEntry | undefined> {
+  const auditEntry = buildSessionControlDirectorLivenessAuditEntry({
+    audit: params.audit,
+    runId: params.runId,
+  });
+  if (params.runId) {
+    emitAgentEvent({
+      runId: params.runId,
+      sessionKey: params.sessionKey ?? params.sessionId,
+      stream: "control_director_liveness",
+      data: auditEntry,
+    });
+  }
+  if (params.sessionStore && params.sessionKey) {
+    const entry = params.sessionStore[params.sessionKey] ?? params.sessionEntry;
+    if (entry) {
+      const nextAudit = [...(entry.controlDirectorLivenessAudit ?? []), auditEntry].slice(
+        -MAX_CONTROL_DIRECTOR_LIVENESS_AUDIT_ENTRIES,
+      );
+      const next: SessionEntry = {
+        ...entry,
+        controlDirectorLivenessAudit: nextAudit,
+        updatedAt: auditEntry.ts,
+      };
+      await persistSessionEntry({
+        sessionStore: params.sessionStore,
+        sessionKey: params.sessionKey,
+        storePath: params.storePath,
+        entry: next,
+      });
+      return next;
+    }
+  }
+  return params.sessionEntry;
+}
+
+function summarizeControlDirectorRequest(message: string): string {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (normalized.length <= CONTROL_DIRECTOR_REQUEST_SUMMARY_MAX) {
+    return normalized;
+  }
+  return `${normalized.slice(0, CONTROL_DIRECTOR_REQUEST_SUMMARY_MAX - 1)}…`;
+}
+
+function collectControlDirectorPayloadText(payloads: readonly { text?: unknown }[]): string {
+  return payloads
+    .map((payload) => (typeof payload.text === "string" ? payload.text.trim() : ""))
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
+function resolveControlDirectorMissionSeed(params: {
+  sessionEntry?: SessionEntry | undefined;
+  runId: string;
+}): {
+  missionId: string;
+  continuationCount: number;
+  existing?: SessionControlDirectorMissionLedgerEntry;
+} {
+  const latestQueued = [...(params.sessionEntry?.controlDirectorMissionLedger ?? [])]
+    .reverse()
+    .find((entry) => entry.status === "continuation_queued");
+  const missionId = latestQueued?.missionId ?? `control-director:${params.runId}`;
+  return {
+    missionId,
+    continuationCount: latestQueued?.continuationCount ?? 0,
+    ...(latestQueued ? { existing: latestQueued } : {}),
+  };
+}
+
+function buildSessionControlDirectorMissionLedgerEntry(params: {
+  missionId: string;
+  runId?: string;
+  requestSummary: string;
+  summary: ControlDirectorMissionSummary;
+  continuationCount: number;
+  continuationQueued: boolean;
+  guardActions: string[];
+  watchdogActions: string[];
+  existing?: SessionControlDirectorMissionLedgerEntry;
+  ts?: number;
+}): SessionControlDirectorMissionLedgerEntry {
+  const ts = params.ts ?? Date.now();
+  const status = params.continuationQueued ? "continuation_queued" : params.summary.status;
+  return {
+    missionId: params.missionId,
+    ...(params.runId ? { runId: params.runId } : {}),
+    requestSummary: params.requestSummary,
+    status,
+    startedAt: params.existing?.startedAt ?? ts,
+    updatedAt: ts,
+    continuationCount: params.continuationCount,
+    finalStatus: params.summary.finalStatus,
+    verifiedEvidenceSummary: params.summary.verifiedEvidenceSummary,
+    nextBuildGap: params.summary.nextBuildGap,
+    ...(params.summary.completionGrade !== undefined
+      ? { completionGrade: params.summary.completionGrade }
+      : {}),
+    ...(params.summary.criticality !== undefined
+      ? { criticality: params.summary.criticality }
+      : {}),
+    ...(params.guardActions.length > 0 ? { guardActions: params.guardActions } : {}),
+    ...(params.watchdogActions.length > 0 ? { watchdogActions: params.watchdogActions } : {}),
+  };
+}
+
+async function recordControlDirectorMissionLedger(params: {
+  missionId: string;
+  runId?: string | undefined;
+  sessionId: string;
+  sessionKey?: string | undefined;
+  sessionEntry?: SessionEntry | undefined;
+  sessionStore?: Record<string, SessionEntry> | undefined;
+  storePath: string;
+  requestSummary: string;
+  summary: ControlDirectorMissionSummary;
+  continuationCount: number;
+  continuationQueued: boolean;
+  guardActions: string[];
+  watchdogActions: string[];
+}): Promise<SessionEntry | undefined> {
+  if (!params.sessionStore || !params.sessionKey) {
+    return params.sessionEntry;
+  }
+  const entry = params.sessionStore[params.sessionKey] ?? params.sessionEntry;
+  if (!entry) {
+    return params.sessionEntry;
+  }
+  const existing = entry.controlDirectorMissionLedger?.find(
+    (candidate) => candidate.missionId === params.missionId,
+  );
+  const ledgerEntry = buildSessionControlDirectorMissionLedgerEntry({
+    missionId: params.missionId,
+    runId: params.runId,
+    requestSummary: params.requestSummary,
+    summary: params.summary,
+    continuationCount: params.continuationCount,
+    continuationQueued: params.continuationQueued,
+    guardActions: params.guardActions,
+    watchdogActions: params.watchdogActions,
+    existing,
+  });
+  const nextLedger = [
+    ...(entry.controlDirectorMissionLedger ?? []).filter(
+      (candidate) => candidate.missionId !== ledgerEntry.missionId,
+    ),
+    ledgerEntry,
+  ].slice(-MAX_CONTROL_DIRECTOR_MISSION_LEDGER_ENTRIES);
+  const next: SessionEntry = {
+    ...entry,
+    controlDirectorMissionLedger: nextLedger,
+    updatedAt: ledgerEntry.updatedAt,
+  };
+  await persistSessionEntry({
+    sessionStore: params.sessionStore,
+    sessionKey: params.sessionKey,
+    storePath: params.storePath,
+    entry: next,
+  });
+  if (params.runId) {
+    emitAgentEvent({
+      runId: params.runId,
+      sessionKey: params.sessionKey ?? params.sessionId,
+      stream: "control_director_mission",
+      data: ledgerEntry,
+    });
+  }
+  return next;
+}
+
+function queueControlDirectorContinuation(params: {
+  decision: ControlDirectorContinuationDecision;
+  sessionKey?: string | undefined;
+  sessionAgentId: string;
+  missionId: string;
+}): boolean {
+  if (!params.decision.shouldQueue || !params.decision.prompt || !params.sessionKey) {
+    return false;
+  }
+  const queued = enqueueSystemEvent(params.decision.prompt, {
+    sessionKey: params.sessionKey,
+    contextKey: `${params.missionId}:continuation:${params.decision.nextContinuationCount}`,
+    trusted: true,
+  });
+  requestHeartbeat({
+    source: "other",
+    intent: "immediate",
+    reason: "control-director-continuation",
+    agentId: params.sessionAgentId,
+    sessionKey: params.sessionKey,
+  });
+  return queued;
 }
 
 function containsControlCharacters(value: string): boolean {
@@ -640,7 +945,77 @@ async function agentCommandInternal(
         stopReason,
         abortSignal: opts.abortSignal,
       });
-      const payloads = result.payloads;
+      const controlDirectorGuardedFinalOutput = applyControlDirectorFinalOutputGuard({
+        agentId: sessionAgentId,
+        payloads: result.payloads,
+      });
+      let payloads = controlDirectorGuardedFinalOutput.payloads;
+      if (controlDirectorGuardedFinalOutput.audit) {
+        sessionEntry =
+          (await recordControlDirectorGuardAudit({
+            audit: controlDirectorGuardedFinalOutput.audit,
+            runId: opts.runId,
+            sessionId,
+            sessionKey,
+            sessionEntry,
+            sessionStore,
+            storePath,
+          })) ?? sessionEntry;
+      }
+      const missionSeed = resolveControlDirectorMissionSeed({ sessionEntry, runId });
+      const livenessGuardedFinalOutput = applyControlDirectorLivenessWatchdog({
+        agentId: sessionAgentId,
+        payloads,
+        finalAssistantVisibleText: finalText,
+        continuationCount: missionSeed.continuationCount,
+        missionId: missionSeed.missionId,
+        canQueueContinuation: Boolean(sessionKey),
+        externalAbort: opts.abortSignal?.aborted === true,
+      });
+      payloads = livenessGuardedFinalOutput.payloads;
+      if (livenessGuardedFinalOutput.audit) {
+        sessionEntry =
+          (await recordControlDirectorLivenessAudit({
+            audit: livenessGuardedFinalOutput.audit,
+            runId,
+            sessionId,
+            sessionKey,
+            sessionEntry,
+            sessionStore,
+            storePath,
+          })) ?? sessionEntry;
+      }
+      const continuationQueued = queueControlDirectorContinuation({
+        decision: livenessGuardedFinalOutput.continuation,
+        sessionKey,
+        sessionAgentId,
+        missionId: missionSeed.missionId,
+      });
+      const finalPayloadText = collectControlDirectorPayloadText(payloads);
+      if (isControlDirectorAgentId(sessionAgentId) && finalPayloadText) {
+        sessionEntry =
+          (await recordControlDirectorMissionLedger({
+            missionId: missionSeed.missionId,
+            runId,
+            sessionId,
+            sessionKey,
+            sessionEntry,
+            sessionStore,
+            storePath,
+            requestSummary: summarizeControlDirectorRequest(body),
+            summary: summarizeControlDirectorMissionFinalText(finalPayloadText),
+            continuationCount: livenessGuardedFinalOutput.continuation.shouldQueue
+              ? livenessGuardedFinalOutput.continuation.nextContinuationCount
+              : missionSeed.continuationCount,
+            continuationQueued: livenessGuardedFinalOutput.continuation.shouldQueue,
+            guardActions: controlDirectorGuardedFinalOutput.audit
+              ? [controlDirectorGuardedFinalOutput.audit.action]
+              : [],
+            watchdogActions: livenessGuardedFinalOutput.audit
+              ? [`${livenessGuardedFinalOutput.audit.action}${continuationQueued ? ":queued" : ""}`]
+              : [],
+          })) ?? sessionEntry;
+      }
       const { deliverAgentCommandResult } = await loadDeliveryRuntime();
 
       return await deliverAgentCommandResult({
@@ -1315,7 +1690,7 @@ async function agentCommandInternal(
       payloads: result.payloads ?? [],
       internalEvents: opts.internalEvents,
     });
-    const payloads = guardedFinalOutput.payloads;
+    let payloads = guardedFinalOutput.payloads;
     if (guardedFinalOutput.audit) {
       const auditEntry = buildSessionJudgeGuardAuditEntry({
         audit: guardedFinalOutput.audit,
@@ -1349,6 +1724,81 @@ async function agentCommandInternal(
           sessionEntry = next;
         }
       }
+    }
+
+    const controlDirectorGuardedFinalOutput = applyControlDirectorFinalOutputGuard({
+      agentId: sessionAgentId,
+      payloads,
+    });
+    payloads = controlDirectorGuardedFinalOutput.payloads;
+    if (controlDirectorGuardedFinalOutput.audit) {
+      sessionEntry =
+        (await recordControlDirectorGuardAudit({
+          audit: controlDirectorGuardedFinalOutput.audit,
+          runId: opts.runId,
+          sessionId,
+          sessionKey,
+          sessionEntry,
+          sessionStore,
+          storePath,
+        })) ?? sessionEntry;
+    }
+
+    const missionSeed = resolveControlDirectorMissionSeed({ sessionEntry, runId });
+    const livenessGuardedFinalOutput = applyControlDirectorLivenessWatchdog({
+      agentId: sessionAgentId,
+      payloads,
+      finalAssistantVisibleText: result.meta.finalAssistantVisibleText,
+      classification: result.meta.agentHarnessResultClassification,
+      continuationCount: missionSeed.continuationCount,
+      missionId: missionSeed.missionId,
+      canQueueContinuation: Boolean(sessionKey),
+      externalAbort: result.meta.aborted === true || opts.abortSignal?.aborted === true,
+      approvalPending: Boolean(result.meta.pendingToolCalls?.length),
+    });
+    payloads = livenessGuardedFinalOutput.payloads;
+    if (livenessGuardedFinalOutput.audit) {
+      sessionEntry =
+        (await recordControlDirectorLivenessAudit({
+          audit: livenessGuardedFinalOutput.audit,
+          runId,
+          sessionId,
+          sessionKey,
+          sessionEntry,
+          sessionStore,
+          storePath,
+        })) ?? sessionEntry;
+    }
+    const continuationQueued = queueControlDirectorContinuation({
+      decision: livenessGuardedFinalOutput.continuation,
+      sessionKey,
+      sessionAgentId,
+      missionId: missionSeed.missionId,
+    });
+    const finalPayloadText = collectControlDirectorPayloadText(payloads);
+    if (isControlDirectorAgentId(sessionAgentId) && finalPayloadText) {
+      sessionEntry =
+        (await recordControlDirectorMissionLedger({
+          missionId: missionSeed.missionId,
+          runId,
+          sessionId,
+          sessionKey,
+          sessionEntry,
+          sessionStore,
+          storePath,
+          requestSummary: summarizeControlDirectorRequest(body),
+          summary: summarizeControlDirectorMissionFinalText(finalPayloadText),
+          continuationCount: livenessGuardedFinalOutput.continuation.shouldQueue
+            ? livenessGuardedFinalOutput.continuation.nextContinuationCount
+            : missionSeed.continuationCount,
+          continuationQueued: livenessGuardedFinalOutput.continuation.shouldQueue,
+          guardActions: controlDirectorGuardedFinalOutput.audit
+            ? [controlDirectorGuardedFinalOutput.audit.action]
+            : [],
+          watchdogActions: livenessGuardedFinalOutput.audit
+            ? [`${livenessGuardedFinalOutput.audit.action}${continuationQueued ? ":queued" : ""}`]
+            : [],
+        })) ?? sessionEntry;
     }
 
     // Phase 2: Persist pending final delivery for main sessions before attempting delivery.
