@@ -341,6 +341,17 @@ async function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: num
   ]);
 }
 
+async function stopChildProcess(child: ChildProcessWithoutNullStreams) {
+  if (child.exitCode === null && !child.killed) {
+    child.kill("SIGTERM");
+  }
+  const stopped = await waitForExit(child, 2_000);
+  if (!stopped && child.exitCode === null && !child.killed) {
+    child.kill("SIGKILL");
+    await waitForExit(child, 2_000);
+  }
+}
+
 async function waitForPortOpen(params: {
   child: ChildProcessWithoutNullStreams;
   port: number;
@@ -490,7 +501,12 @@ async function startIsolatedGateway(params: {
   child.stdout.on("data", (chunk) => stdout.push(String(chunk)));
   child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
 
-  await waitForPortOpen({ child, port, stdout, stderr, timeoutMs: 90_000 });
+  try {
+    await waitForPortOpen({ child, port, stdout, stderr, timeoutMs: 300_000 });
+  } catch (error) {
+    await stopChildProcess(child);
+    throw error;
+  }
 
   return {
     artifactDir: params.artifactDir,
@@ -502,16 +518,7 @@ async function startIsolatedGateway(params: {
     stdout,
     token,
     url: `http://127.0.0.1:${port}/`,
-    stop: async () => {
-      if (child.exitCode === null && !child.killed) {
-        child.kill("SIGTERM");
-      }
-      const stopped = await waitForExit(child, 2_000);
-      if (!stopped && child.exitCode === null && !child.killed) {
-        child.kill("SIGKILL");
-        await waitForExit(child, 2_000);
-      }
-    },
+    stop: async () => stopChildProcess(child),
   };
 }
 
