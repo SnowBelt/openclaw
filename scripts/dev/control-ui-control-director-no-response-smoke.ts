@@ -552,8 +552,20 @@ async function sendControlDirectorPrompt(page: Page, prompt: string): Promise<st
     if (!app?.handleSendChat) {
       throw new Error("Control UI chat send handler was not ready");
     }
-    await app.handleSendChat(message);
-    return typeof app.sessionKey === "string" ? app.sessionKey : null;
+    const smokeState = globalThis as Record<string, unknown>;
+    smokeState.__controlDirectorNoResponseSmokeSendError = null;
+    void app.handleSendChat(message).catch((error: unknown) => {
+      smokeState.__controlDirectorNoResponseSmokeSendError =
+        error instanceof Error ? error.message : String(error);
+    });
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 3_000) {
+      if (typeof app.sessionKey === "string" && app.sessionKey.trim()) {
+        return app.sessionKey;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return typeof app.sessionKey === "string" && app.sessionKey.trim() ? app.sessionKey : null;
   }, prompt);
 }
 
@@ -585,6 +597,11 @@ async function waitForVisibleBlockedResponse(page: Page): Promise<string> {
       const app = document.querySelector("openclaw-app") as
         | (HTMLElement & { chatMessages?: unknown[]; chatStream?: string | null })
         | null;
+      const smokeState = globalThis as Record<string, unknown>;
+      const sendError = smokeState.__controlDirectorNoResponseSmokeSendError;
+      if (typeof sendError === "string" && sendError) {
+        throw new Error(`Control UI chat send failed: ${sendError}`);
+      }
       const messageText = (app?.chatMessages ?? [])
         .map((message) => extractText(message))
         .join("\n");
