@@ -691,113 +691,122 @@ async function waitForChatReady(page: Page) {
 }
 
 async function sendControlDirectorPrompt(page: Page, prompt: string): Promise<string | null> {
-  return await page.evaluate(async (message) => {
-    const app = document.querySelector("openclaw-app") as
-      | (HTMLElement & {
-          handleSendChat?: (messageOverride?: string) => Promise<void>;
-          sessionKey?: string;
-        })
-      | null;
-    if (!app?.handleSendChat) {
-      throw new Error("Control UI chat send handler was not ready");
-    }
-    const smokeState = globalThis as Record<string, unknown>;
-    smokeState[SMOKE_SEND_ERROR_KEY] = null;
-    void app.handleSendChat(message).catch((error: unknown) => {
-      smokeState[SMOKE_SEND_ERROR_KEY] = error instanceof Error ? error.message : String(error);
-    });
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < 3_000) {
-      if (typeof app.sessionKey === "string" && app.sessionKey.trim()) {
-        return app.sessionKey;
+  return await page.evaluate(
+    async ({ message, sendErrorKey }) => {
+      const app = document.querySelector("openclaw-app") as
+        | (HTMLElement & {
+            handleSendChat?: (messageOverride?: string) => Promise<void>;
+            sessionKey?: string;
+          })
+        | null;
+      if (!app?.handleSendChat) {
+        throw new Error("Control UI chat send handler was not ready");
       }
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 50);
+      const smokeState = globalThis as Record<string, unknown>;
+      smokeState[sendErrorKey] = null;
+      void app.handleSendChat(message).catch((error: unknown) => {
+        smokeState[sendErrorKey] = error instanceof Error ? error.message : String(error);
       });
-    }
-    return typeof app.sessionKey === "string" && app.sessionKey.trim() ? app.sessionKey : null;
-  }, prompt);
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 3_000) {
+        if (typeof app.sessionKey === "string" && app.sessionKey.trim()) {
+          return app.sessionKey;
+        }
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 50);
+        });
+      }
+      return typeof app.sessionKey === "string" && app.sessionKey.trim() ? app.sessionKey : null;
+    },
+    { message: prompt, sendErrorKey: SMOKE_SEND_ERROR_KEY },
+  );
 }
 
 async function waitForVisibleBlockedResponse(page: Page): Promise<string> {
   const deadline = Date.now() + 300_000;
   let lastVisibleText = "";
   while (Date.now() < deadline) {
-    const result = await page.evaluate(async (markers) => {
-      function extractText(value: unknown): string {
-        if (typeof value === "string") {
-          return value;
-        }
-        if (!value || typeof value !== "object") {
+    const result = await page.evaluate(
+      async ({ markers, sendErrorKey }) => {
+        function extractText(value: unknown): string {
+          if (typeof value === "string") {
+            return value;
+          }
+          if (!value || typeof value !== "object") {
+            return "";
+          }
+          const record = value as Record<string, unknown>;
+          if (typeof record.text === "string") {
+            return record.text;
+          }
+          if (typeof record.content === "string") {
+            return record.content;
+          }
+          if (Array.isArray(record.content)) {
+            return record.content
+              .map((entry) => extractText(entry))
+              .filter(Boolean)
+              .join("\n");
+          }
           return "";
         }
-        const record = value as Record<string, unknown>;
-        if (typeof record.text === "string") {
-          return record.text;
-        }
-        if (typeof record.content === "string") {
-          return record.content;
-        }
-        if (Array.isArray(record.content)) {
-          return record.content
-            .map((entry) => extractText(entry))
+        function collectMessagesText(messages: readonly unknown[]): string {
+          return messages
+            .map((message) => extractText(message))
             .filter(Boolean)
-            .join("\n");
+            .join("\n\n");
         }
-        return "";
-      }
-      function collectMessagesText(messages: readonly unknown[]): string {
-        return messages
-          .map((message) => extractText(message))
-          .filter(Boolean)
-          .join("\n\n");
-      }
-      function hasAllMarkers(text: string): boolean {
-        return markers.every((marker) => text.includes(marker));
-      }
-      const app = document.querySelector("openclaw-app") as
-        | (HTMLElement & {
-            chatMessages?: unknown[];
-            chatRunId?: string | null;
-            chatStream?: string | null;
-            client?: {
-              request?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-            };
-            requestUpdate?: () => void;
-            sessionKey?: string;
-          })
-        | null;
-      const smokeState = globalThis as Record<string, unknown>;
-      const sendError = smokeState[SMOKE_SEND_ERROR_KEY];
-      if (typeof sendError === "string" && sendError) {
-        throw new Error(`Control UI chat send failed: ${sendError}`);
-      }
-      const messageText = collectMessagesText(app?.chatMessages ?? []);
-      const bodyText = document.body.textContent ?? "";
-      const currentVisibleText = `${messageText}\n${app?.chatStream ?? ""}\n${bodyText}`;
-      if (hasAllMarkers(currentVisibleText)) {
-        return { ok: true, text: currentVisibleText };
-      }
-      const sessionKey = typeof app?.sessionKey === "string" ? app.sessionKey.trim() : "";
-      if (!sessionKey || !app?.client?.request) {
-        return { ok: false, text: currentVisibleText };
-      }
-      const history = (await app.client.request("chat.history", {
-        sessionKey,
-        limit: 200,
-        maxChars: 4000,
-      })) as { messages?: unknown[] };
-      const historyMessages = Array.isArray(history.messages) ? history.messages : [];
-      const historyText = collectMessagesText(historyMessages);
-      if (!hasAllMarkers(historyText)) {
-        return { ok: false, text: historyText || currentVisibleText };
-      }
-      app.chatMessages = historyMessages;
-      app.chatStream = null;
-      app.chatRunId = null;
-      app.requestUpdate?.();
-      return { ok: true, text: historyText };
-    }, CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS as string[]);
+        function hasAllMarkers(text: string): boolean {
+          return markers.every((marker) => text.includes(marker));
+        }
+        const app = document.querySelector("openclaw-app") as
+          | (HTMLElement & {
+              chatMessages?: unknown[];
+              chatRunId?: string | null;
+              chatStream?: string | null;
+              client?: {
+                request?: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+              };
+              requestUpdate?: () => void;
+              sessionKey?: string;
+            })
+          | null;
+        const smokeState = globalThis as Record<string, unknown>;
+        const sendError = smokeState[sendErrorKey];
+        if (typeof sendError === "string" && sendError) {
+          throw new Error(`Control UI chat send failed: ${sendError}`);
+        }
+        const messageText = collectMessagesText(app?.chatMessages ?? []);
+        const bodyText = document.body.textContent ?? "";
+        const currentVisibleText = `${messageText}\n${app?.chatStream ?? ""}\n${bodyText}`;
+        if (hasAllMarkers(currentVisibleText)) {
+          return { ok: true, text: currentVisibleText };
+        }
+        const sessionKey = typeof app?.sessionKey === "string" ? app.sessionKey.trim() : "";
+        if (!sessionKey || !app?.client?.request) {
+          return { ok: false, text: currentVisibleText };
+        }
+        const history = (await app.client.request("chat.history", {
+          sessionKey,
+          limit: 200,
+          maxChars: 4000,
+        })) as { messages?: unknown[] };
+        const historyMessages = Array.isArray(history.messages) ? history.messages : [];
+        const historyText = collectMessagesText(historyMessages);
+        if (!hasAllMarkers(historyText)) {
+          return { ok: false, text: historyText || currentVisibleText };
+        }
+        app.chatMessages = historyMessages;
+        app.chatStream = null;
+        app.chatRunId = null;
+        app.requestUpdate?.();
+        return { ok: true, text: historyText };
+      },
+      {
+        markers: CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS as string[],
+        sendErrorKey: SMOKE_SEND_ERROR_KEY,
+      },
+    );
     if (result.ok) {
       return result.text;
     }
