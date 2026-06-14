@@ -593,6 +593,75 @@ describe("sessions view", () => {
     expect(details?.textContent).not.toContain("->");
   });
 
+  it("renders expanded Control Director truth audit details", async () => {
+    const container = document.createElement("div");
+    const onToggleCheckpointDetails = vi.fn();
+    const sessionKey = "agent:main:main";
+    const result = buildResult({
+      key: sessionKey,
+      kind: "direct",
+      updatedAt: Date.now(),
+      controlDirectorTruthAudit: [
+        {
+          ts: Date.now(),
+          runId: "run-truth-audit",
+          status: "blocked",
+          missing: ["command evidence exitCode 0"],
+          payloadsChecked: 1,
+          payloadsRewritten: 1,
+          claims: [
+            {
+              claim: "I verified the dashboard and tests passed.",
+              claimHash: "abcdef1234567890",
+              claimType: "verification",
+              requiredEvidenceType: "command",
+              matchStatus: "missing",
+              missingCondition: "No matching command result with exitCode 0.",
+              rewriteAction: "blocked_unsupported_truth_claim",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(
+      renderSessions({
+        ...buildProps(result),
+        onToggleCheckpointDetails,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.querySelector(".session-compaction-trigger")?.textContent).toContain(
+      "Truth audit",
+    );
+    container
+      .querySelector<HTMLButtonElement>(".session-compaction-trigger")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggleCheckpointDetails).toHaveBeenCalledWith(sessionKey);
+
+    render(
+      renderSessions({
+        ...buildProps(result),
+        expandedCheckpointKey: sessionKey,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    const details = container.querySelector(".session-details-panel");
+    expect(details?.textContent).toContain("Truth audit");
+    expect(details?.textContent).toContain("Blocked");
+    expect(details?.textContent).toContain("Run run-truth-audit");
+    expect(details?.textContent).toContain("verification");
+    expect(details?.textContent).toContain("command");
+    expect(details?.textContent).toContain("abcdef123456");
+    expect(details?.textContent).toContain("command evidence exitCode 0");
+    expect(details?.textContent).toContain("No matching command result with exitCode 0.");
+    expect(details?.textContent).toContain("blocked_unsupported_truth_claim");
+  });
+
   it("does not expand checkpoint details when the row has none or a nested control was used", async () => {
     const container = document.createElement("div");
     const onToggleCheckpointDetails = vi.fn();

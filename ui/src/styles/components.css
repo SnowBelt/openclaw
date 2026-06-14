@@ -3069,6 +3069,58 @@
   outline-offset: -2px;
 }
 
+.session-truth-audit__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session-truth-audit__missing {
+  margin-top: 10px;
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.session-truth-audit__claims {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.session-truth-audit__claim {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.session-truth-audit__claim-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-truth-audit__claim-text {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.session-truth-audit__claim-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
+  gap: 4px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .data-table tbody tr:last-child td {
   border-bottom: none;
 }

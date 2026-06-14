@@ -200,4 +200,58 @@ describe("overview view rendering", () => {
       container.querySelector<HTMLAnchorElement>(".ov-judge-guard__session")?.getAttribute("href"),
     ).toBe(`/ui/chat?session=agent%3Amain%3Amain&runId=run-judge-guard&auditTs=${now}`);
   });
+
+  it("renders recent Truth Audit interventions from session audit rows", async () => {
+    const container = document.createElement("div");
+    const now = Date.now();
+    const props = createOverviewProps({
+      sessionsResult: {
+        ts: now,
+        path: "(multiple)",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: now,
+            displayName: "Control Director",
+            controlDirectorTruthAudit: [
+              {
+                ts: now,
+                runId: "run-truth-audit",
+                status: "blocked",
+                missing: ["missing matching GitHub run success"],
+                payloadsChecked: 1,
+                payloadsRewritten: 1,
+                claims: [
+                  {
+                    claim: "Remote proof passed.",
+                    claimHash: "remotehash123456",
+                    claimType: "remote_proof",
+                    requiredEvidenceType: "github_run",
+                    matchStatus: "missing",
+                    missingCondition: "No matching successful run for the implementation SHA.",
+                    rewriteAction: "blocked_unsupported_truth_claim",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      basePath: "/ui",
+    });
+
+    render(renderOverview(props), container);
+    await Promise.resolve();
+
+    expect(container.textContent).toContain("Truth Audit");
+    expect(container.textContent).toContain("BLOCKED");
+    expect(container.textContent).toContain("Control Director");
+    expect(container.textContent).toContain("missing matching GitHub run success");
+    expect(
+      container.querySelector<HTMLAnchorElement>(".ov-truth-audit__session")?.getAttribute("href"),
+    ).toBe(`/ui/chat?session=agent%3Amain%3Amain&runId=run-truth-audit&truthAuditTs=${now}`);
+  });
 });

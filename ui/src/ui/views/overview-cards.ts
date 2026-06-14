@@ -80,6 +80,11 @@ type JudgeGuardDisplayEntry = {
   audit: SessionJudgeGuardAuditEntry;
 };
 
+type TruthAuditDisplayEntry = {
+  session: GatewaySessionRow;
+  audit: NonNullable<GatewaySessionRow["controlDirectorTruthAudit"]>[number];
+};
+
 function resolveJudgeGuardEntries(
   sessionsResult: SessionsListResult | null,
 ): JudgeGuardDisplayEntry[] {
@@ -92,6 +97,36 @@ function resolveJudgeGuardEntries(
     )
     .toSorted((a, b) => b.audit.ts - a.audit.ts)
     .slice(0, 3);
+}
+
+function resolveTruthAuditEntries(
+  sessionsResult: SessionsListResult | null,
+): TruthAuditDisplayEntry[] {
+  return (sessionsResult?.sessions ?? [])
+    .flatMap((session) =>
+      (session.controlDirectorTruthAudit ?? []).map((audit) => ({
+        session,
+        audit,
+      })),
+    )
+    .filter(
+      ({ audit }) =>
+        audit.status === "blocked" || audit.payloadsRewritten > 0 || audit.missing.length > 0,
+    )
+    .toSorted((a, b) => b.audit.ts - a.audit.ts)
+    .slice(0, 3);
+}
+
+function formatTruthAuditOverviewStatus(status: TruthAuditDisplayEntry["audit"]["status"]): string {
+  switch (status) {
+    case "passed":
+      return t("overview.cards.truthAuditPassed");
+    case "blocked":
+      return t("overview.cards.truthAuditBlocked");
+    case "not_required":
+      return t("overview.cards.truthAuditNotRequired");
+  }
+  return status;
 }
 
 function renderJudgeGuardPanel(params: {
@@ -152,6 +187,76 @@ function renderJudgeGuardPanel(params: {
               </div>
               ${audit.conditions
                 ? html`<div class="ov-judge-guard__conditions">${audit.conditions}</div>`
+                : nothing}
+            </div>
+          `;
+        })}
+      </div>
+    </section>
+  `;
+}
+
+function renderTruthAuditPanel(params: {
+  entries: TruthAuditDisplayEntry[];
+  basePath?: string;
+  onNavigate: (tab: string) => void;
+}) {
+  if (params.entries.length === 0) {
+    return nothing;
+  }
+
+  return html`
+    <section class="ov-judge-guard ov-truth-audit">
+      <div class="ov-judge-guard__header">
+        <div>
+          <h3 class="ov-judge-guard__title">${t("overview.cards.truthAudit")}</h3>
+          <div class="ov-judge-guard__subtitle">${t("overview.cards.truthAuditSubtitle")}</div>
+        </div>
+        <button class="btn btn--sm" type="button" @click=${() => params.onNavigate("sessions")}>
+          ${t("overview.cards.truthAuditOpenSessions")}
+        </button>
+      </div>
+      <div class="ov-judge-guard__list">
+        ${params.entries.map(({ session, audit }) => {
+          const sessionLabel = session.displayName || session.label || session.key;
+          const sessionParams = new URLSearchParams({ session: session.key });
+          if (audit.runId) {
+            sessionParams.set("runId", audit.runId);
+          }
+          sessionParams.set("truthAuditTs", String(audit.ts));
+          const sessionHref = `${pathForTab("chat", params.basePath)}?${sessionParams.toString()}`;
+          const condition =
+            audit.missing[0] ??
+            audit.claims.find((claim) => claim.missingCondition)?.missingCondition ??
+            "";
+          return html`
+            <div class="ov-judge-guard__row ov-truth-audit__row">
+              <div class="ov-judge-guard__main">
+                <span class="ov-judge-guard__verdict ov-truth-audit__status">
+                  ${formatTruthAuditOverviewStatus(audit.status)}
+                </span>
+                <a
+                  class="ov-judge-guard__session ov-truth-audit__session session-link"
+                  href=${sessionHref}
+                  title=${t("overview.cards.truthAuditOpenSession")}
+                  >${blurDigits(sessionLabel)}</a
+                >
+              </div>
+              <div class="ov-judge-guard__meta">
+                <span>${formatRelativeTimestamp(audit.ts)}</span>
+                <span>
+                  ${t("overview.cards.truthAuditClaims", {
+                    count: String(audit.claims.length),
+                  })}
+                </span>
+                <span>
+                  ${t("overview.cards.truthAuditRewrites", {
+                    count: String(audit.payloadsRewritten),
+                  })}
+                </span>
+              </div>
+              ${condition
+                ? html`<div class="ov-judge-guard__conditions">${condition}</div>`
                 : nothing}
             </div>
           `;
@@ -322,12 +427,18 @@ export function renderOverviewCards(props: OverviewCardsProps) {
 
   const sessions = props.sessionsResult?.sessions.slice(0, 5) ?? [];
   const judgeGuardEntries = resolveJudgeGuardEntries(props.sessionsResult);
+  const truthAuditEntries = resolveTruthAuditEntries(props.sessionsResult);
 
   return html`
     <section class="ov-cards">${cards.map((c) => renderStatCard(c, props.onNavigate))}</section>
 
     ${renderJudgeGuardPanel({
       entries: judgeGuardEntries,
+      basePath: props.basePath,
+      onNavigate: props.onNavigate,
+    })}
+    ${renderTruthAuditPanel({
+      entries: truthAuditEntries,
       basePath: props.basePath,
       onNavigate: props.onNavigate,
     })}
