@@ -33,6 +33,7 @@ import {
 import { CHAT_SEND_SESSION_KEY_MAX_LENGTH } from "../../../packages/gateway-protocol/src/schema.js";
 import {
   listAgentIds,
+  resolveAgentConfig,
   resolveDefaultAgentId,
   resolveAgentWorkspaceDir,
   resolveSessionAgentId,
@@ -689,6 +690,12 @@ function resolveRequestedChatAgentId(params: {
     return undefined;
   }
   return normalizeAgentId(parsed.agentId);
+}
+
+function isConfiguredControlDirectorAgent(cfg: OpenClawConfig, agentId: string): boolean {
+  return (
+    resolveAgentConfig(cfg, agentId)?.identity?.name?.trim().toLowerCase() === "control director"
+  );
 }
 
 function resolveChatSendActiveScopeKey(params: {
@@ -4111,6 +4118,9 @@ export const chatHandlers: GatewayRequestHandlers = {
                   const hasFinalReplyText = rawAgentFinalPayloads.some(
                     isUserVisibleFinalReplyPayload,
                   );
+                  const onlyInternalStatusOrErrorPayloads = rawAgentFinalPayloads.every(
+                    (payload) => isReplyPayloadStatusNotice(payload) || payload.isError === true,
+                  );
                   const {
                     storePath: latestStorePath,
                     store: latestStore,
@@ -4120,9 +4130,17 @@ export const chatHandlers: GatewayRequestHandlers = {
                   const controlDirectorGuardResult =
                     await applyControlDirectorDeliveryGuards<ReplyPayload>({
                       agentId,
+                      provider: resolvedSessionModel.provider,
+                      model: resolvedSessionModel.model,
+                      controlDirectorScope: isConfiguredControlDirectorAgent(cfg, agentId)
+                        ? true
+                        : undefined,
                       payloads: rawAgentFinalPayloads,
                       finalAssistantVisibleText: buildTranscriptReplyText(rawAgentFinalPayloads),
-                      classification: hasFinalReplyText ? undefined : "empty",
+                      classification:
+                        hasFinalReplyText && !onlyInternalStatusOrErrorPayloads
+                          ? undefined
+                          : "empty",
                       canQueueContinuation: true,
                       runId: clientRunId,
                       sessionId,

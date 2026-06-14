@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { judgeTaskCompletion } from "../tasks/task-completion-judge.js";
 
 export const CONTROL_DIRECTOR_AGENT_IDS = ["main", "control-director"] as const;
 
@@ -1181,6 +1182,15 @@ export function evaluateControlDirectorJudgeCompletionApproval(params: {
       missing.push(
         `zero missing acceptance criteria (${approval.missingAcceptanceCriteria?.join(", ")})`,
       );
+    }
+    const localJudge = judgeTaskCompletion({
+      userRequest: params.requestBody,
+      finalText: params.finalText,
+      expectedDeliverable: approval.scope,
+      status: "succeeded",
+    });
+    if (!localJudge.approved) {
+      missing.push(`deterministic local Judge approval (${localJudge.verdict.verdict})`);
     }
   }
   return {

@@ -1744,6 +1744,8 @@ export async function runReplyAgent(params: {
           : undefined;
     const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
       agentId: followupRun.run.agentId,
+      provider: runResult.meta?.agentMeta?.provider,
+      model: runResult.meta?.agentMeta?.model,
       payloads: payloadArray,
       finalAssistantVisibleText: runResult.meta?.finalAssistantVisibleText,
       classification: controlDirectorClassification,

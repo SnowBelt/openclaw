@@ -17,6 +17,7 @@ import {
   applyControlDirectorLivenessWatchdog,
   applyControlDirectorTruthGate,
   isControlDirectorAgentId,
+  isControlDirectorPrimaryModelRef,
   summarizeControlDirectorMissionFinalText,
   type ControlDirectorClaimEvidence,
   type ControlDirectorContinuationDecision,
@@ -58,6 +59,55 @@ export type ControlDirectorDeliveryGuardResult<T extends ControlDirectorGuardabl
   judgeCompletionGate?: SessionControlDirectorJudgeCompletionGate;
   truthAudit?: SessionControlDirectorTruthAuditEntry;
 };
+
+function buildNoopControlDirectorContinuation(): ControlDirectorContinuationDecision {
+  return {
+    status: "not_needed",
+    reason: "delivery is outside Control Director scope",
+    shouldQueue: false,
+    continuationCount: 0,
+    nextContinuationCount: 1,
+  };
+}
+
+function looksLikeControlDirectorReport(text: string | undefined): boolean {
+  if (!text?.trim()) {
+    return false;
+  }
+  return (
+    /\bVerified state\s*:/iu.test(text) &&
+    /\bNext build gap\s*:/iu.test(text) &&
+    /\bCompletion Grade\s*:/iu.test(text) &&
+    /\bCriticality\s*:/iu.test(text) &&
+    /\bStatus\s*:/iu.test(text)
+  );
+}
+
+function isControlDirectorDeliveryScope(params: {
+  agentId?: string | undefined;
+  model?: string | null | undefined;
+  explicit?: boolean | undefined;
+  hasRuntimeEvidence?: boolean | undefined;
+  hasJudgeApproval?: boolean | undefined;
+  finalText?: string | undefined;
+}): boolean {
+  if (params.explicit !== undefined) {
+    return params.explicit;
+  }
+  const normalizedAgentId = params.agentId?.trim().toLowerCase();
+  if (normalizedAgentId === "control-director") {
+    return true;
+  }
+  if (normalizedAgentId !== "main") {
+    return false;
+  }
+  return (
+    isControlDirectorPrimaryModelRef(params.model) ||
+    params.hasRuntimeEvidence === true ||
+    params.hasJudgeApproval === true ||
+    looksLikeControlDirectorReport(params.finalText)
+  );
+}
 
 function buildSessionControlDirectorGuardAuditEntry(params: {
   audit: ControlDirectorFinalOutputGuardAudit;
@@ -497,6 +547,9 @@ function queueControlDirectorContinuation(params: {
 export async function applyControlDirectorDeliveryGuards<T extends ControlDirectorGuardablePayload>(
   params: ControlDirectorSessionMutationParams & {
     agentId?: string | null | undefined;
+    provider?: string | null | undefined;
+    model?: string | null | undefined;
+    controlDirectorScope?: boolean | undefined;
     payloads: readonly T[] | undefined;
     requestBody: string;
     finalAssistantVisibleText?: string | undefined;
@@ -513,7 +566,28 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
   },
 ): Promise<ControlDirectorDeliveryGuardResult<T>> {
   const agentId = params.agentId ?? undefined;
+  const activeControlDirectorScope = isControlDirectorDeliveryScope({
+    agentId,
+    model: params.model,
+    explicit: params.controlDirectorScope,
+    hasRuntimeEvidence: Boolean(params.truthEvidence?.length),
+    hasJudgeApproval: Boolean(params.judgeCompletionApproval),
+    finalText:
+      params.finalAssistantVisibleText ?? collectControlDirectorPayloadText(params.payloads ?? []),
+  });
   let sessionEntry = params.sessionEntry;
+  if (!activeControlDirectorScope) {
+    const payloads = [...(params.payloads ?? [])];
+    return {
+      payloads,
+      sessionEntry,
+      finalPayloadText: collectControlDirectorPayloadText(payloads),
+      continuation: buildNoopControlDirectorContinuation(),
+      continuationQueued: false,
+      guardActions: [],
+      watchdogActions: [],
+    };
+  }
   const runId = params.runId ?? params.sessionId;
   const missionSeed = resolveControlDirectorMissionSeed({ sessionEntry, runId });
   const shouldApplyLivenessBeforeFinalGuard = isControlDirectorNoVisibleOutputClassification(

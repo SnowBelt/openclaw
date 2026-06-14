@@ -2095,6 +2095,8 @@ async function agentCommandInternal(
       let payloads = result.payloads ?? [];
       const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
         agentId: sessionAgentId,
+        provider: result.meta.agentMeta?.provider ?? provider,
+        model: result.meta.agentMeta?.model ?? model,
         payloads,
         finalAssistantVisibleText: result.meta.finalAssistantVisibleText,
         classification: result.meta.agentHarnessResultClassification,
