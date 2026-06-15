@@ -21,6 +21,8 @@ minimumReleaseAgeExclude:
   - "libsignal@6.0.0"
   - "openclaw"
   - "protobufjs"
+  - "@vitest/*"
+  - "vitest"
   - "vite"
   - "@cloudflare/workers-types"
   - "@hono/node-server"
