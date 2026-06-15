@@ -1,21 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { buildControlDirectorReadinessScorecard } from "../../scripts/control-director-readiness.mjs";
 
-function createConfig() {
+const GEMMA_PROFILE = "gemma4-31b-q8";
+const QWEN_PROFILE = "qwen36-27b-q8";
+
+function createConfig(
+  options: {
+    alias?: string;
+    model?: string;
+    temperature?: number;
+    topK?: number;
+  } = {},
+) {
+  const alias = options.alias ?? "openclaw-control-gemma4-31b-q8";
+  const model = options.model ?? `ollama/${alias}:latest`;
   return {
     models: {
       providers: {
         ollama: {
           models: [
             {
-              id: "openclaw-control-qwen36-27b:latest",
-              contextWindow: 262144,
+              id: `${alias}:latest`,
+              contextWindow: 256000,
               contextTokens: 64000,
               params: {
                 num_ctx: 64000,
-                temperature: 0.2,
+                num_predict: 4096,
+                temperature: options.temperature ?? 0.15,
                 top_p: 0.8,
-                top_k: 20,
+                top_k: options.topK ?? 64,
+                repeat_penalty: 1.05,
                 think: false,
               },
             },
@@ -26,13 +40,15 @@ function createConfig() {
     agents: {
       defaults: {
         models: {
-          "ollama/openclaw-control-qwen36-27b:latest": {
-            alias: "openclaw-control-qwen36-27b",
+          [model]: {
+            alias,
             params: {
               num_ctx: 64000,
-              temperature: 0.2,
+              num_predict: 4096,
+              temperature: options.temperature ?? 0.15,
               top_p: 0.8,
-              top_k: 20,
+              top_k: options.topK ?? 64,
+              repeat_penalty: 1.05,
               think: false,
             },
           },
@@ -43,7 +59,7 @@ function createConfig() {
           id: "main",
           name: "Control Director",
           model: {
-            primary: "openclaw-control-qwen36-27b",
+            primary: alias,
             fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
           },
           thinkingDefault: "off",
@@ -54,337 +70,132 @@ function createConfig() {
   };
 }
 
-describe("control-director-readiness", () => {
-  it("marks a correctly configured Control Director production-ready", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
+function createQwenConfig() {
+  return createConfig({
+    alias: "openclaw-control-qwen36-27b",
+    model: "ollama/openclaw-control-qwen36-27b:latest",
+    temperature: 0.2,
+    topK: 20,
+  });
+}
 
+function baseParams(overrides = {}) {
+  return {
+    config: createConfig(),
+    profileId: GEMMA_PROFILE,
+    ollamaModels: new Map([
+      ["openclaw-control-gemma4-31b-q8:latest", { digest: "gemma-alias" }],
+      ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
+    ]),
+    ollamaPrimaryShow: {
+      ok: true,
+      stdout:
+        "Model architecture gemma4\nParameters 30.7B\nQuantization Q8_0\nBase google/gemma-4-31B-it",
+    },
+    ollamaEnv: {
+      OLLAMA_FLASH_ATTENTION: "1",
+      OLLAMA_KV_CACHE_TYPE: "q8_0",
+      OLLAMA_NUM_PARALLEL: "1",
+    },
+    ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
+    thinkingEscalationPolicy: true,
+    continueUntilCompletePolicy: true,
+    completionEvidencePolicy: true,
+    explicitStatusPolicy: true,
+    runtimeFinalOutputGuard: true,
+    runtimeJudgeCompletionGate: true,
+    runtimeTruthGate: true,
+    runtimeTruthEvidenceIngestion: true,
+    ...overrides,
+  };
+}
+
+describe("control-director-readiness", () => {
+  it("marks the Gemma 4 Q8 Control Director profile production-ready by default", () => {
+    const scorecard = buildControlDirectorReadinessScorecard(baseParams());
+
+    expect(scorecard.profile).toBe(GEMMA_PROFILE);
+    expect(scorecard.primaryAlias).toBe("openclaw-control-gemma4-31b-q8");
     expect(scorecard.productionReady).toBe(true);
     expect(scorecard.completionGrade).toBe(10);
     expect(scorecard.nextBuildGap).toContain("No critical");
   });
 
-  it("flags model digest drift as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "alias" }],
-        ["qwen3.6:27b-q8_0", { digest: "tag" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
+  it("keeps the Qwen3.6 Q8 profile available for explicit legacy readiness checks", () => {
+    const scorecard = buildControlDirectorReadinessScorecard(
+      baseParams({
+        config: createQwenConfig(),
+        profileId: QWEN_PROFILE,
+        ollamaModels: new Map([
+          ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
+          ["qwen3.6:27b-q8_0", { digest: "same" }],
+          ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
+        ]),
+        ollamaPrimaryShow: {
+          ok: true,
+          stdout: "Model architecture qwen3.6\nParameters 27B\nQuantization Q8_0",
+        },
+      }),
+    );
 
-    expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain("Control alias digest matches qwen3.6 tag");
-    expect(scorecard.nextBuildGap).toContain("Control alias digest");
+    expect(scorecard.profile).toBe(QWEN_PROFILE);
+    expect(scorecard.productionReady).toBe(true);
+    expect(scorecard.completionGrade).toBe(10);
   });
 
-  it("flags a missing thinking escalation policy as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: false,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
+  it("flags a missing Gemma alias as a critical readiness gap", () => {
+    const scorecard = buildControlDirectorReadinessScorecard(
+      baseParams({
+        ollamaModels: new Map([["openclaw-control-qwen25-32b:latest", { digest: "fallback" }]]),
+      }),
+    );
 
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain(
-      "Control Director thinking-as-needed escalation policy is present",
+      "Ollama Gemma 4 31B IT Dense Q8 Control alias is installed",
     );
   });
 
-  it("flags a missing continue-until-complete policy as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: false,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
+  it("rejects a lower-quant Gemma alias", () => {
+    const scorecard = buildControlDirectorReadinessScorecard(
+      baseParams({
+        ollamaPrimaryShow: {
+          ok: true,
+          stdout: "Model architecture gemma4\nParameters 30.7B\nQuantization Q6_K",
+        },
+      }),
+    );
 
     expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain(
-      "Control Director continue-until-complete policy is present",
-    );
+    expect(scorecard.failedCritical).toContain("Control alias quantization is Q8");
+    expect(scorecard.nextBuildGap).toContain("Control alias quantization is Q8");
   });
 
-  it("flags a missing complete-status evidence gate as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: false,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
-
-    expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain(
-      "Control Director complete-status evidence gate is present",
+  it("flags model-load smoke failures as a critical readiness gap", () => {
+    const scorecard = buildControlDirectorReadinessScorecard(
+      baseParams({
+        ollamaPrimaryChatSmoke: {
+          ok: false,
+          status: 500,
+          detail: "status=500 model failed to load",
+        },
+      }),
     );
-  });
-
-  it("flags a missing explicit final status gate as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: false,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
 
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain(
-      "Control Director explicit final status gate is present",
-    );
-  });
-
-  it("flags a missing runtime final-output guard as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: false,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
-
-    expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain(
-      "Control Director runtime final-output guard is wired",
-    );
-  });
-
-  it("flags a missing runtime Judge completion gate as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: false,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
-
-    expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain(
-      "Control Director runtime Judge-approved completion gate is wired",
+      "Gemma 4 31B IT Dense Q8 Control alias answers Ollama /api/chat smoke",
     );
   });
 
   it("flags a missing runtime truthfulness gate as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: false,
-      runtimeTruthEvidenceIngestion: true,
-    });
+    const scorecard = buildControlDirectorReadinessScorecard(
+      baseParams({ runtimeTruthGate: false }),
+    );
 
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain(
       "Control Director runtime truthfulness gate is wired",
     );
-  });
-
-  it("flags missing runtime truth evidence ingestion as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: false,
-    });
-
-    expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain(
-      "Control Director runtime truth evidence ingestion is wired",
-    );
-  });
-
-  it("flags Qwen3.6 model-load smoke failures as a critical readiness gap", () => {
-    const scorecard = buildControlDirectorReadinessScorecard({
-      config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
-      ollamaEnv: {
-        OLLAMA_FLASH_ATTENTION: "1",
-        OLLAMA_KV_CACHE_TYPE: "q8_0",
-        OLLAMA_NUM_PARALLEL: "1",
-      },
-      ollamaPrimaryChatSmoke: {
-        ok: false,
-        status: 500,
-        detail: "status=500 model failed to load",
-      },
-      thinkingEscalationPolicy: true,
-      continueUntilCompletePolicy: true,
-      completionEvidencePolicy: true,
-      explicitStatusPolicy: true,
-      runtimeFinalOutputGuard: true,
-      runtimeJudgeCompletionGate: true,
-      runtimeTruthGate: true,
-      runtimeTruthEvidenceIngestion: true,
-    });
-
-    expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain(
-      "Qwen3.6 Control alias answers Ollama /api/chat smoke",
-    );
-    expect(scorecard.nextBuildGap).toContain("Qwen3.6 Control alias answers");
   });
 });

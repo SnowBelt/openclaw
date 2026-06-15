@@ -53,6 +53,12 @@ Most skills configuration lives under `skills` in
   entries are for custom or third-party skill workflows only.
 </Note>
 
+## Control Director reliability skills
+
+If `agents.defaults.skills` or `agents.list[].skills` is restrictive, explicitly include the reliability skills the Control Director needs for production repair work. A per-agent `agents.list[].skills` list replaces defaults, so include every required reliability skill there.
+
+Recommended Control Director reliability skills: `openclaw-testing`, `openclaw-qa-testing`, and `crabbox`. These support targeted validation, QA lanes, and remote Linux proof without weakening truth or Judge gates.
+
 ## Loading (`skills.load`)
 
 <ParamField path="skills.load.extraDirs" type="string[]">

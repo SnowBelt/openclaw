@@ -16,6 +16,42 @@ For local servers that should start only when a selected model needs them, see
 
 Aim high: **≥2 maxed-out Mac Studios or an equivalent GPU rig (~$30k+)** for a comfortable agent loop. A single **24 GB** GPU works only for lighter prompts at higher latency. Always run the **largest / full-size variant you can host**; small or heavily quantized checkpoints raise prompt-injection risk (see [Security](/gateway/security)).
 
+## Control Director default: Gemma 4 31B Q8
+
+For production-grade local Control Director runs, use **Gemma 4 31B IT Dense Q8** through Ollama as `openclaw-control-gemma4-31b-q8`. The Control Director default expects Q8 precision (`Q8_0` or `Q8_K_XL`); lower-precision Gemma builds are useful for experiments but should not be used as the production Control Director default.
+
+Start with a 64k runtime context even though Gemma 4 advertises a larger native window. Raise to 128k or 256k only after direct `/api/chat`, readiness, recovery, and dashboard smokes are stable. Keep Ollama request timeouts explicit for this model class:
+
+```json5
+{
+  models: {
+    providers: {
+      ollama: {
+        timeoutSeconds: 600,
+        models: [
+          {
+            id: "openclaw-control-gemma4-31b-q8:latest",
+            contextWindow: 256000,
+            contextTokens: 64000,
+            params: {
+              num_ctx: 64000,
+              num_predict: 4096,
+              temperature: 0.15,
+              top_p: 0.8,
+              top_k: 64,
+              repeat_penalty: 1.05,
+              think: false,
+            },
+          },
+        ],
+      },
+    },
+  },
+}
+```
+
+After changing the Control Director model or Ollama settings, run `pnpm control-director:readiness -- --json` and require `completionGrade: 10` with `productionReady: true`.
+
 ## Pick a backend
 
 | Backend                                              | Use when                                                                    |

@@ -6,14 +6,47 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-const PRIMARY_MODEL = "ollama/openclaw-control-qwen36-27b:latest";
-const PRIMARY_OLLAMA_NAME = "openclaw-control-qwen36-27b:latest";
-const UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
 const FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 const EFFECTIVE_CONTEXT = 64_000;
+const DEFAULT_PROFILE_ID = "gemma4-31b-q8";
+
+export const CONTROL_DIRECTOR_READINESS_PROFILES = Object.freeze({
+  "gemma4-31b-q8": Object.freeze({
+    id: "gemma4-31b-q8",
+    label: "Gemma 4 31B IT Dense Q8",
+    alias: "openclaw-control-gemma4-31b-q8",
+    model: "ollama/openclaw-control-gemma4-31b-q8:latest",
+    ollamaName: "openclaw-control-gemma4-31b-q8:latest",
+    sourceTag: "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0",
+    requiredShowPatterns: [/gemma[-_ ]?4/iu, /(?:31|30\.7)\s*b/iu],
+    allowedQuantPatterns: [/\bQ8_0\b/iu, /\bQ8_K_XL\b/iu],
+  }),
+  "qwen36-27b-q8": Object.freeze({
+    id: "qwen36-27b-q8",
+    label: "Qwen3.6 27B Q8_0",
+    alias: "openclaw-control-qwen36-27b",
+    model: "ollama/openclaw-control-qwen36-27b:latest",
+    ollamaName: "openclaw-control-qwen36-27b:latest",
+    sourceTag: "qwen3.6:27b-q8_0",
+    requiredShowPatterns: [/qwen3\.6/iu, /27b/iu],
+    allowedQuantPatterns: [/\bQ8_0\b/iu],
+  }),
+});
+
+function resolveReadinessProfile(profileId = DEFAULT_PROFILE_ID) {
+  const id = (profileId || DEFAULT_PROFILE_ID).trim();
+  const profile = CONTROL_DIRECTOR_READINESS_PROFILES[id];
+  if (!profile) {
+    throw new Error(
+      `Unknown Control Director readiness profile: ${id}. Expected one of: ${Object.keys(
+        CONTROL_DIRECTOR_READINESS_PROFILES,
+      ).join(", ")}`,
+    );
+  }
+  return profile;
+}
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
-const CHAT_SMOKE_TIMEOUT_MS = 180_000;
+const CHAT_SMOKE_TIMEOUT_MS = 300_000;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const CONTROL_DIRECTOR_CONTRACT_SOURCE = path.join(
@@ -31,9 +64,9 @@ const REQUIRED_OLLAMA_ENV = Object.freeze({
 
 function usage() {
   return [
-    "Usage: node scripts/control-director-readiness.mjs [--json] [--config <path>] [--skip-runtime] [--skip-chat-smoke]",
+    "Usage: node scripts/control-director-readiness.mjs [--json] [--config <path>] [--profile <id>] [--skip-runtime] [--skip-chat-smoke]",
     "",
-    "Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and Qwen3.6 model-load smoke.",
+    `Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and ${DEFAULT_PROFILE_ID} model-load smoke.`,
   ].join("\n");
 }
 
@@ -43,6 +76,7 @@ function parseArgs(argv) {
       process.env.OPENCLAW_CONFIG_PATH ??
       path.join(os.homedir(), ".openclaw", "openclaw.director.json"),
     json: false,
+    profileId: process.env.OPENCLAW_CONTROL_DIRECTOR_READINESS_PROFILE ?? DEFAULT_PROFILE_ID,
     skipRuntime: false,
     skipChatSmoke: false,
   };
@@ -58,6 +92,8 @@ function parseArgs(argv) {
       args.skipChatSmoke = true;
     } else if (arg === "--config") {
       args.configPath = argv[++index];
+    } else if (arg === "--profile") {
+      args.profileId = argv[++index];
     } else if (arg === "--help" || arg === "-h") {
       args.help = true;
     } else {
@@ -71,9 +107,9 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-function normalizeModelRef(value) {
+function normalizeModelRef(value, profile) {
   const raw = String(value ?? "").trim();
-  return raw === PRIMARY_ALIAS ? PRIMARY_MODEL : raw;
+  return raw === profile.alias ? profile.model : raw;
 }
 
 function findControlDirectorAgent(config) {
@@ -346,22 +382,23 @@ function fact(id, label, passed, critical, detail) {
 }
 
 export function buildControlDirectorReadinessScorecard(params) {
+  const profile = resolveReadinessProfile(params.profileId);
   const config = params.config;
   const agent = findControlDirectorAgent(config);
   const defaultsModels = config.agents?.defaults?.models ?? {};
   const providerModels = config.models?.providers?.ollama?.models ?? [];
-  const primary = normalizeModelRef(agent?.model?.primary ?? agent?.model);
+  const primary = normalizeModelRef(agent?.model?.primary ?? agent?.model, profile);
   const fallbacks = Array.isArray(agent?.model?.fallbacks) ? agent.model.fallbacks : [];
-  const controlAliasDefaults = defaultsModels[PRIMARY_MODEL];
-  const providerAlias = providerModels.find((entry) => entry?.id === PRIMARY_OLLAMA_NAME);
+  const controlAliasDefaults = defaultsModels[profile.model];
+  const providerAlias = providerModels.find((entry) => entry?.id === profile.ollamaName);
   const facts = [];
 
   facts.push(fact("agent-present", "Control Director agent configured", Boolean(agent), true));
   facts.push(
     fact(
       "primary",
-      "Primary alias is Qwen3.6 Control alias",
-      primary === PRIMARY_MODEL,
+      `Primary alias is ${profile.label} Control alias`,
+      primary === profile.model,
       true,
       `resolved=${primary || "missing"}`,
     ),
@@ -477,36 +514,66 @@ export function buildControlDirectorReadinessScorecard(params) {
   );
 
   if (params.ollamaModels) {
-    const primaryModel = params.ollamaModels.get(PRIMARY_OLLAMA_NAME);
-    const underlying = params.ollamaModels.get(UNDERLYING_OLLAMA_TAG);
+    const primaryModel = params.ollamaModels.get(profile.ollamaName);
+    const underlying = params.ollamaModels.get(profile.sourceTag);
     const fallback = params.ollamaModels.get(FALLBACK_MODEL.replace(/^ollama\//, ""));
     facts.push(
       fact(
         "ollama-primary",
-        "Ollama Qwen3.6 Control alias is installed",
+        `Ollama ${profile.label} Control alias is installed`,
         Boolean(primaryModel),
         true,
       ),
     );
-    facts.push(
-      fact(
-        "ollama-underlying",
-        "Underlying qwen3.6:27b-q8_0 tag is installed",
-        Boolean(underlying),
-        true,
-      ),
-    );
-    facts.push(
-      fact(
-        "ollama-digest",
-        "Control alias digest matches qwen3.6 tag",
-        Boolean(
-          primaryModel?.digest && underlying?.digest && primaryModel.digest === underlying.digest,
+    if (profile.id !== "gemma4-31b-q8") {
+      facts.push(
+        fact(
+          "ollama-underlying",
+          `Underlying ${profile.sourceTag} tag is installed`,
+          Boolean(underlying),
+          true,
         ),
-        true,
-        `alias=${primaryModel?.digest ?? "missing"} tag=${underlying?.digest ?? "missing"}`,
-      ),
-    );
+      );
+    }
+    if (profile.id === "gemma4-31b-q8") {
+      const showText = params.ollamaPrimaryShow?.stdout ?? "";
+      const provenanceOk = profile.requiredShowPatterns.every((pattern) => pattern.test(showText));
+      const quantOk = profile.allowedQuantPatterns.some((pattern) => pattern.test(showText));
+      facts.push(
+        fact(
+          "ollama-provenance",
+          "Control alias provenance identifies Gemma 4 31B",
+          provenanceOk,
+          true,
+          params.ollamaPrimaryShow?.ok === false
+            ? params.ollamaPrimaryShow.error
+            : provenanceOk
+              ? "ollama show provenance matched"
+              : "ollama show missing Gemma 4 31B provenance",
+        ),
+      );
+      facts.push(
+        fact(
+          "ollama-quant",
+          "Control alias quantization is Q8",
+          quantOk,
+          true,
+          quantOk ? "Q8 provenance matched" : "ollama show missing Q8_0 or Q8_K_XL",
+        ),
+      );
+    } else {
+      facts.push(
+        fact(
+          "ollama-digest",
+          `Control alias digest matches ${profile.sourceTag} tag`,
+          Boolean(
+            primaryModel?.digest && underlying?.digest && primaryModel.digest === underlying.digest,
+          ),
+          true,
+          `alias=${primaryModel?.digest ?? "missing"} tag=${underlying?.digest ?? "missing"}`,
+        ),
+      );
+    }
     facts.push(
       fact("ollama-fallback", "Rollback Ollama alias is installed", Boolean(fallback), true),
     );
@@ -514,7 +581,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-primary-chat-smoke",
-        "Qwen3.6 Control alias answers Ollama /api/chat smoke",
+        `${profile.label} Control alias answers Ollama /api/chat smoke`,
         primaryChatSmoke?.ok === true,
         true,
         primaryChatSmoke?.detail ?? "not checked",
@@ -572,9 +639,10 @@ export function buildControlDirectorReadinessScorecard(params) {
     completionGrade,
     criticality: 10,
     productionReady: completionGrade >= 9.5 && failedCritical.length === 0,
-    primaryAlias: PRIMARY_ALIAS,
-    primaryModel: PRIMARY_MODEL,
-    underlyingOllamaTag: UNDERLYING_OLLAMA_TAG,
+    profile: profile.id,
+    primaryAlias: profile.alias,
+    primaryModel: profile.model,
+    underlyingOllamaTag: profile.sourceTag,
     firstFallback: FALLBACK_MODEL,
     facts,
     failedCritical: failedCritical.map((entry) => entry.label),
@@ -603,6 +671,7 @@ function printText(scorecard) {
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
+  const profile = resolveReadinessProfile(args.profileId);
   if (args.help) {
     console.log(usage());
     return 0;
@@ -613,6 +682,7 @@ export async function main(argv = process.argv.slice(2)) {
   let ollamaEnv;
   let ollamaEnvError;
   let ollamaPrimaryChatSmoke;
+  let ollamaPrimaryShow;
   if (!args.skipRuntime) {
     const ollama = runOptional("ollama", ["list"]);
     if (ollama.ok) {
@@ -626,10 +696,13 @@ export async function main(argv = process.argv.slice(2)) {
     } else {
       ollamaEnvError = env.error;
     }
+    if (ollamaModels) {
+      ollamaPrimaryShow = runOptional("ollama", ["show", profile.ollamaName]);
+    }
     if (!args.skipChatSmoke && ollamaModels) {
       ollamaPrimaryChatSmoke = await runOllamaChatSmoke({
         baseUrl: resolveOllamaBaseUrl(config),
-        model: PRIMARY_OLLAMA_NAME,
+        model: profile.ollamaName,
       });
     } else if (ollamaModels) {
       ollamaPrimaryChatSmoke = { ok: false, detail: "skipped" };
@@ -637,11 +710,13 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const scorecard = buildControlDirectorReadinessScorecard({
     config,
+    profileId: profile.id,
     ollamaModels,
     ollamaError,
     ollamaEnv,
     ollamaEnvError,
     ollamaPrimaryChatSmoke,
+    ollamaPrimaryShow,
     thinkingEscalationPolicy: detectControlDirectorThinkingEscalationPolicy(),
     continueUntilCompletePolicy: detectControlDirectorContinueUntilCompletePolicy(),
     completionEvidencePolicy: detectControlDirectorCompletionEvidencePolicy(),

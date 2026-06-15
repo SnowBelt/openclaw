@@ -1029,6 +1029,14 @@ scripts/sandbox-browser-setup.sh   # optional browser image
 
 For npm installs without a source checkout, see [Sandboxing § Images and setup](/gateway/sandboxing#images-and-setup) for inline `docker build` commands.
 
+### Control Director model contract
+
+The production Control Director default is `openclaw-control-gemma4-31b-q8` with `ollama/openclaw-control-qwen25-32b:latest` as the first rollback model. Keep `thinkingDefault: "off"`, `contextTokens: 64000`, and model params aligned with the Ollama provider entry.
+
+`Status: complete` remains a runtime contract, not a model preference: it requires Judge approval and matching evidence. `Status: continuing` means durable recovery was queued and work is not terminal. `Status: blocked` means recovery cannot safely queue or recovery attempts are exhausted.
+
+Run `pnpm control-director:readiness -- --json` after Control Director model, fallback, context, timeout, or Ollama changes.
+
 ### `agents.list` (per-agent overrides)
 
 Use `agents.list[].tts` to give an agent its own TTS provider, voice, model,

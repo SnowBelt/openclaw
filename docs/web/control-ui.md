@@ -72,6 +72,12 @@ The Control UI supports a per-browser personal identity (display name and avatar
 
 The same browser-local pattern applies to the assistant avatar override. Uploaded assistant avatars overlay the gateway-resolved identity on the local browser only and never round-trip through `config.patch`. The shared `ui.assistant.avatar` config field is still available for non-UI clients writing the field directly (such as scripted gateways or custom dashboards).
 
+## Control Director diagnostics
+
+Use session details in the Control UI to inspect Control Director production diagnostics before trusting a final state. The relevant diagnostics are the liveness audit, mission ledger, Judge completion approval, truth audit, and recovery state.
+
+Interpret statuses literally: `continuing` means durable recovery is queued or running; `blocked` means no safe recovery path remains or recovery attempts are exhausted; `complete` is valid only when the Judge approval and truth evidence are present for the same mission.
+
 ## Runtime config endpoint
 
 The Control UI fetches its runtime settings from `/control-ui-config.json`, resolved relative to the gateway's Control UI base path (for example `/__openclaw__/control-ui-config.json` when the UI is served under `/__openclaw__/`). That endpoint is gated by the same gateway auth as the rest of the HTTP surface: unauthenticated browsers cannot fetch it, and a successful fetch requires either an already valid gateway token/password, Tailscale Serve identity, or a trusted-proxy identity.
