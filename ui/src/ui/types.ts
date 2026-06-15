@@ -422,6 +422,53 @@ export type SessionCompactionCheckpointPreview = Pick<
   "checkpointId" | "createdAt" | "reason"
 >;
 
+export type SessionJudgeGuardAuditEntry = {
+  ts: number;
+  runId?: string;
+  action: "rewrote_final_success_claim";
+  verdictStatus: "parsed" | "invalid";
+  verdict?: string;
+  scope?: string;
+  risk?: string;
+  conditions?: string;
+  payloadsChecked: number;
+  payloadsRewritten: number;
+};
+
+export type SessionControlDirectorTruthClaimAudit = {
+  claim: string;
+  claimHash: string;
+  claimType:
+    | "completion"
+    | "verification"
+    | "remote_proof"
+    | "dashboard"
+    | "implementation"
+    | "external_fact";
+  requiredEvidenceType:
+    | "judge_approval"
+    | "command"
+    | "github_run"
+    | "ui_smoke"
+    | "repo_change"
+    | "source_citation";
+  evidenceId?: string;
+  evidenceSource?: string;
+  matchStatus: "matched" | "missing";
+  missingCondition?: string;
+  rewriteAction?: "blocked_unsupported_truth_claim";
+};
+
+export type SessionControlDirectorTruthAuditEntry = {
+  ts: number;
+  runId?: string;
+  status: "passed" | "blocked" | "not_required";
+  claims: SessionControlDirectorTruthClaimAudit[];
+  missing: string[];
+  payloadsChecked: number;
+  payloadsRewritten: number;
+};
+
 export type GatewaySessionRow = {
   key: string;
   spawnedBy?: string;
@@ -464,6 +511,8 @@ export type GatewaySessionRow = {
   compactionCheckpointCount?: number;
   latestCompactionCheckpoint?: SessionCompactionCheckpointPreview;
   goal?: SessionGoal;
+  judgeGuardAudit?: SessionJudgeGuardAuditEntry[];
+  controlDirectorTruthAudit?: SessionControlDirectorTruthAuditEntry[];
 };
 
 export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults, GatewaySessionRow>;

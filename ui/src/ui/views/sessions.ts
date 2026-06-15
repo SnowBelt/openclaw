@@ -412,6 +412,104 @@ function renderSessionGoalChip(goal: GatewaySessionRow["goal"]) {
   `;
 }
 
+function latestTruthAudit(row: GatewaySessionRow) {
+  return row.controlDirectorTruthAudit?.toSorted((a, b) => b.ts - a.ts)[0];
+}
+
+function formatTruthAuditStatus(
+  status: NonNullable<GatewaySessionRow["controlDirectorTruthAudit"]>[number]["status"],
+): string {
+  switch (status) {
+    case "passed":
+      return t("sessionsView.truthAuditPassed");
+    case "blocked":
+      return t("sessionsView.truthAuditBlocked");
+    case "not_required":
+      return t("sessionsView.truthAuditNotRequired");
+  }
+  return status;
+}
+
+function renderTruthAuditDetails(row: GatewaySessionRow) {
+  const audit = latestTruthAudit(row);
+  if (!audit) {
+    return nothing;
+  }
+  return html`
+    <div class="session-details-section session-truth-audit">
+      <div class="session-details-section__header">
+        <div>
+          <div class="session-details-panel__eyebrow">${t("sessionsView.truthAudit")}</div>
+          <div class="session-details-section__title">${formatTruthAuditStatus(audit.status)}</div>
+        </div>
+      </div>
+      <div class="session-truth-audit__meta">
+        <span>${formatRelativeTimestamp(audit.ts)}</span>
+        ${audit.runId
+          ? html`<span>${t("sessionsView.truthAuditRunId")}: ${audit.runId}</span>`
+          : nothing}
+        <span>
+          ${t("sessionsView.truthAuditPayloads", {
+            checked: String(audit.payloadsChecked),
+            rewritten: String(audit.payloadsRewritten),
+          })}
+        </span>
+      </div>
+      ${audit.missing.length > 0
+        ? html`
+            <div class="session-truth-audit__missing">
+              <strong>${t("sessionsView.truthAuditMissing")}:</strong>
+              ${audit.missing.join("; ")}
+            </div>
+          `
+        : nothing}
+      ${audit.claims.length === 0
+        ? html`<div class="muted session-details-empty">
+            ${t("sessionsView.truthAuditNoClaims")}
+          </div>`
+        : html`
+            <div class="session-truth-audit__claims">
+              ${audit.claims.map(
+                (claim) => html`
+                  <div class="session-truth-audit__claim">
+                    <div class="session-truth-audit__claim-text">${claim.claim}</div>
+                    <div class="session-truth-audit__claim-grid">
+                      <span>${t("sessionsView.truthAuditClaimType")}: ${claim.claimType}</span>
+                      <span>
+                        ${t("sessionsView.truthAuditEvidenceType")}: ${claim.requiredEvidenceType}
+                      </span>
+                      <span>${t("sessionsView.truthAuditMatch")}: ${claim.matchStatus}</span>
+                      <span>${t("sessionsView.truthAuditHash")}: ${claim.claimHash}</span>
+                      ${claim.evidenceSource
+                        ? html`<span>
+                            ${t("sessionsView.truthAuditEvidenceSource")}: ${claim.evidenceSource}
+                          </span>`
+                        : nothing}
+                      ${claim.evidenceId
+                        ? html`<span>
+                            ${t("sessionsView.truthAuditEvidenceId")}: ${claim.evidenceId}
+                          </span>`
+                        : nothing}
+                      ${claim.missingCondition
+                        ? html`<span>
+                            ${t("sessionsView.truthAuditMissing")}: ${claim.missingCondition}
+                          </span>`
+                        : nothing}
+                      ${claim.rewriteAction
+                        ? html`<span>
+                            ${t("sessionsView.truthAuditRewrite")}: ${claim.rewriteAction}
+                          </span>`
+                        : nothing}
+                    </div>
+                  </div>
+                `,
+              )}
+            </div>
+          `}
+    </div>
+  `;
+}
+
 function sessionDetailItems(params: {
   row: GatewaySessionRow;
   updated: string;
@@ -436,6 +534,13 @@ function sessionDetailItems(params: {
     details.push({ label: t("sessionsView.goal"), value: formatGoalDetail(row.goal) });
   }
   add(t("sessionsView.goalNote"), row.goal?.lastStatusNote);
+  const audit = latestTruthAudit(row);
+  if (audit) {
+    details.push({
+      label: t("sessionsView.truthAudit"),
+      value: formatTruthAuditStatus(audit.status),
+    });
+  }
   add(t("sessionsView.model"), row.model);
   add(t("sessionsView.provider"), row.modelProvider);
   add(t("sessionsView.runtime"), formatRuntimeMs(row.runtimeMs));
@@ -814,6 +919,8 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
   const checkpointCount = row.compactionCheckpointCount ?? 0;
   const visibleCheckpointCount = Math.max(checkpointCount, latestCheckpoint ? 1 : 0);
   const hasCheckpoints = checkpointCount > 0 || Boolean(latestCheckpoint);
+  const hasTruthAudit = Boolean(latestTruthAudit(row));
+  const hasDetails = hasCheckpoints || hasTruthAudit;
   const isExpanded = props.expandedCheckpointKey === row.key;
   const checkpointItems = props.checkpointItemsByKey[row.key] ?? [];
   const checkpointError = props.checkpointErrorByKey[row.key];
@@ -858,13 +965,13 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
             : "data-table-badge--unknown";
   const rowClass = [
     "session-data-row",
-    hasCheckpoints ? "session-data-row--expandable" : "",
+    hasDetails ? "session-data-row--expandable" : "",
     isExpanded ? "session-data-row--expanded" : "",
   ]
     .filter(Boolean)
     .join(" ");
   const activateCheckpointDetails = () => {
-    if (hasCheckpoints) {
+    if (hasDetails) {
       props.onToggleCheckpointDetails(row.key);
     }
   };
@@ -872,17 +979,17 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
   return [
     html`<tr
       class=${rowClass}
-      tabindex=${hasCheckpoints ? "0" : nothing}
-      aria-expanded=${hasCheckpoints ? String(isExpanded) : nothing}
-      aria-controls=${hasCheckpoints ? detailsId : nothing}
+      tabindex=${hasDetails ? "0" : nothing}
+      aria-expanded=${hasDetails ? String(isExpanded) : nothing}
+      aria-controls=${hasDetails ? detailsId : nothing}
       @click=${(e: MouseEvent) => {
-        if (!hasCheckpoints || isRowControlTarget(e.target)) {
+        if (!hasDetails || isRowControlTarget(e.target)) {
           return;
         }
         activateCheckpointDetails();
       }}
       @keydown=${(e: KeyboardEvent) => {
-        if (!hasCheckpoints || isRowControlTarget(e.target)) {
+        if (!hasDetails || isRowControlTarget(e.target)) {
           return;
         }
         if (e.key === "Enter" || e.key === " ") {
@@ -959,7 +1066,7 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       <td class="session-token-cell">${formatSessionTokens(row)}</td>
       <td class="session-compaction-col">
         <div class="session-compaction-cell">
-          ${hasCheckpoints
+          ${hasDetails
             ? html`
                 <button
                   class="session-compaction-trigger"
@@ -974,7 +1081,9 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                     activateCheckpointDetails();
                   }}
                 >
-                  <span class="session-compaction-count">${checkpointLabel}</span>
+                  <span class="session-compaction-count"
+                    >${hasCheckpoints ? checkpointLabel : t("sessionsView.truthAudit")}</span
+                  >
                 </button>
               `
             : html`<span class="muted session-compaction-count">${t("common.none")}</span>`}
@@ -1070,7 +1179,7 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
           : nothing}
       </td>
     </tr>`,
-    ...(isExpanded && hasCheckpoints
+    ...(isExpanded && hasDetails
       ? [
           html`<tr id=${detailsId} class="session-checkpoint-details-row">
             <td colspan="14">
@@ -1178,6 +1287,7 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
                             </div>
                           `}
                 </div>
+                ${renderTruthAuditDetails(row)}
               </div>
             </td>
           </tr>`,
