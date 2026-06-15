@@ -886,6 +886,31 @@ function enqueueCommitmentExtractionForTurn(params: {
   });
 }
 
+function hasControlDirectorSessionDiagnostics(entry: SessionEntry | undefined): boolean {
+  return Boolean(
+    entry?.controlDirectorGuardAudit?.length ||
+    entry?.controlDirectorLivenessAudit?.length ||
+    entry?.controlDirectorMissionLedger?.length ||
+    entry?.controlDirectorJudgeCompletionApproval ||
+    entry?.controlDirectorTruthAudit?.length,
+  );
+}
+
+function shouldApplyAutoReplyControlDirectorDeliveryGuards(params: {
+  agentId: string | undefined;
+  classification: string | undefined;
+  sessionEntry: SessionEntry | undefined;
+}): boolean {
+  const normalizedAgentId = params.agentId?.trim().toLowerCase();
+  if (normalizedAgentId === "control-director") {
+    return true;
+  }
+  if (params.classification) {
+    return true;
+  }
+  return hasControlDirectorSessionDiagnostics(params.sessionEntry);
+}
+
 function refreshSessionEntryFromStore(params: {
   storePath?: string;
   sessionKey?: string;
@@ -1387,35 +1412,42 @@ export async function runReplyAgent(params: {
               !normalizeOptionalString(runResult.meta?.finalAssistantVisibleText))
           ? "empty"
           : undefined;
-    const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
+    const shouldApplyControlDirectorGuards = shouldApplyAutoReplyControlDirectorDeliveryGuards({
       agentId: followupRun.run.agentId,
-      payloads: payloadArray,
-      finalAssistantVisibleText: runResult.meta?.finalAssistantVisibleText,
       classification: controlDirectorClassification,
-      canQueueContinuation: Boolean(sessionKey),
-      externalAbort: runResult.meta?.aborted === true || opts?.abortSignal?.aborted === true,
-      safeToContinue: runResult.meta?.replayInvalid === true ? false : undefined,
-      runId,
-      sessionId: followupRun.run.sessionId,
-      sessionKey,
       sessionEntry: activeSessionEntry,
-      sessionStore: activeSessionStore,
-      storePath,
-      requestBody: commandBody,
     });
-    payloadArray = controlDirectorGuardResult.payloads;
-    if (
-      controlDirectorGuardResult.guardActions.length > 0 ||
-      controlDirectorGuardResult.watchdogActions.length > 0
-    ) {
-      payloadArray = payloadArray.map((payload) =>
-        setReplyPayloadMetadata(payload, {
-          controlDirectorGuardedFinal: true,
-          deliverDespiteSourceReplySuppression: true,
-        }),
-      );
+    if (shouldApplyControlDirectorGuards) {
+      const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
+        agentId: followupRun.run.agentId,
+        payloads: payloadArray,
+        finalAssistantVisibleText: runResult.meta?.finalAssistantVisibleText,
+        classification: controlDirectorClassification,
+        canQueueContinuation: Boolean(sessionKey),
+        externalAbort: runResult.meta?.aborted === true || opts?.abortSignal?.aborted === true,
+        safeToContinue: runResult.meta?.replayInvalid === true ? false : undefined,
+        runId,
+        sessionId: followupRun.run.sessionId,
+        sessionKey,
+        sessionEntry: activeSessionEntry,
+        sessionStore: activeSessionStore,
+        storePath,
+        requestBody: commandBody,
+      });
+      payloadArray = controlDirectorGuardResult.payloads;
+      if (
+        controlDirectorGuardResult.guardActions.length > 0 ||
+        controlDirectorGuardResult.watchdogActions.length > 0
+      ) {
+        payloadArray = payloadArray.map((payload) =>
+          setReplyPayloadMetadata(payload, {
+            controlDirectorGuardedFinal: true,
+            deliverDespiteSourceReplySuppression: true,
+          }),
+        );
+      }
+      activeSessionEntry = controlDirectorGuardResult.sessionEntry ?? activeSessionEntry;
     }
-    activeSessionEntry = controlDirectorGuardResult.sessionEntry ?? activeSessionEntry;
 
     if (blockReplyPipeline) {
       await blockReplyPipeline.flush({ force: true });

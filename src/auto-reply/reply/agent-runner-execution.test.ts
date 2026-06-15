@@ -72,6 +72,7 @@ vi.mock("../../agents/bootstrap-budget.js", () => ({
 
 vi.mock("../../agents/pi-embedded-helpers.js", () => ({
   BILLING_ERROR_USER_MESSAGE: "billing",
+  classifyFailoverReason: () => undefined,
   formatRateLimitOrOverloadedErrorCopy: (message: string) => {
     if (/model\s+(?:is\s+)?at capacity/i.test(message)) {
       return "⚠️ Selected model is at capacity. Try a different model, or wait and retry.";
