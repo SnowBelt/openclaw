@@ -53,12 +53,6 @@ Most skills configuration lives under `skills` in
   entries are for custom or third-party skill workflows only.
 </Note>
 
-## Control Director reliability skills
-
-If `agents.defaults.skills` or `agents.list[].skills` is restrictive, explicitly include the reliability skills the Control Director needs for production repair work. A per-agent `agents.list[].skills` list replaces defaults, so include every required reliability skill there.
-
-Recommended Control Director reliability skills: `openclaw-testing`, `openclaw-qa-testing`, and `crabbox`. These support targeted validation, QA lanes, and remote Linux proof without weakening truth or Judge gates.
-
 ## Loading (`skills.load`)
 
 <ParamField path="skills.load.extraDirs" type="string[]">
@@ -326,6 +320,37 @@ different visible skill set per agent.
   Explicit final skill set for that agent. Explicit lists **replace** inherited
   defaults — they do not merge. Set to `[]` to expose no skills for that agent.
 </ParamField>
+
+### Control Director reliability skills
+
+If your deployment uses restrictive skill allowlists, include the reliability
+skills the Control Director needs for production investigation and validation.
+For OpenClaw maintainer workspaces, the usual set is:
+
+- `openclaw-testing`: choose and run the right local or CI proof.
+- `openclaw-qa-testing`: run and inspect QA Lab or channel proof.
+- `crabbox`: use remote Linux validation when local proof is insufficient.
+
+Because `agents.list[].skills` replaces `agents.defaults.skills`, put the full
+Control Director skill set on the `main` agent when you override it:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "main",
+        name: "Control Director",
+        skills: ["openclaw-testing", "openclaw-qa-testing", "crabbox"],
+      },
+    ],
+  },
+}
+```
+
+Only list skills that are installed in one of the configured skill roots. If a
+skill is missing, install it first or remove it from the allowlist so the
+Control Director does not plan against unavailable procedures.
 
 ## Workshop (`skills.workshop`)
 

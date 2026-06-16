@@ -16,42 +16,6 @@ For local servers that should start only when a selected model needs them, see
 
 Aim high: **≥2 maxed-out Mac Studios or an equivalent GPU rig (~$30k+)** for a comfortable agent loop. A single **24 GB** GPU works only for lighter prompts at higher latency. Always run the **largest / full-size variant you can host**; small or heavily quantized checkpoints raise prompt-injection risk (see [Security](/gateway/security)).
 
-## Control Director default: Gemma 4 31B Q8
-
-For production-grade local Control Director runs, use **Gemma 4 31B IT Dense Q8** through Ollama as `openclaw-control-gemma4-31b-q8`. The Control Director default expects Q8 precision (`Q8_0` or `Q8_K_XL`); lower-precision Gemma builds are useful for experiments but should not be used as the production Control Director default.
-
-Start with a 64k runtime context even though Gemma 4 advertises a larger native window. Raise to 128k or 256k only after direct `/api/chat`, readiness, recovery, and dashboard smokes are stable. Keep Ollama request timeouts explicit for this model class:
-
-```json5
-{
-  models: {
-    providers: {
-      ollama: {
-        timeoutSeconds: 600,
-        models: [
-          {
-            id: "openclaw-control-gemma4-31b-q8:latest",
-            contextWindow: 256000,
-            contextTokens: 64000,
-            params: {
-              num_ctx: 64000,
-              num_predict: 4096,
-              temperature: 0.15,
-              top_p: 0.8,
-              top_k: 64,
-              repeat_penalty: 1.05,
-              think: false,
-            },
-          },
-        ],
-      },
-    },
-  },
-}
-```
-
-After changing the Control Director model or Ollama settings, run `pnpm control-director:readiness -- --json` and require `completionGrade: 10` with `productionReady: true`.
-
 ## Pick a backend
 
 | Backend                                              | Use when                                                                    |
@@ -236,6 +200,36 @@ servers before raising `agents.defaults.timeoutSeconds`. The provider timeout
 applies only to model HTTP requests, including connect, headers, body streaming,
 and the total guarded-fetch abort. If the agent or run timeout is lower, raise
 that ceiling too because provider timeouts cannot extend the whole agent run.
+
+### Control Director on Ollama
+
+For the Qwen3.6 Control Director alias, prefer an explicit Ollama provider
+timeout before increasing the whole agent runtime timeout:
+
+```json5
+{
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "http://127.0.0.1:11434",
+        timeoutSeconds: 300,
+      },
+    },
+  },
+}
+```
+
+Keep the Ollama service environment aligned with the readiness probe when you
+run the Qwen3.6 Control alias:
+
+- `OLLAMA_NUM_PARALLEL=1`
+- `OLLAMA_FLASH_ATTENTION=1`
+- `OLLAMA_KV_CACHE_TYPE=q8_0`
+
+After changing the model, alias, provider timeout, or service environment, run
+`pnpm control-director:readiness -- --json` and require
+`completionGrade: 10` with `productionReady: true` before treating the Control
+Director as production-ready.
 
 <Note>
 For custom OpenAI-compatible providers, persisting a non-secret local marker such as `apiKey: "ollama-local"` is accepted when `baseUrl` resolves to loopback, a private LAN, `.local`, or a bare hostname. OpenClaw treats it as a valid local credential instead of reporting a missing key. Use a real value for any provider that accepts a public hostname.

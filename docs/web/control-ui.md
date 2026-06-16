@@ -72,12 +72,6 @@ The Control UI supports a per-browser personal identity (display name and avatar
 
 The same browser-local pattern applies to the assistant avatar override. Uploaded assistant avatars overlay the gateway-resolved identity on the local browser only and never round-trip through `config.patch`. The shared `ui.assistant.avatar` config field is still available for non-UI clients writing the field directly (such as scripted gateways or custom dashboards).
 
-## Control Director diagnostics
-
-Use session details in the Control UI to inspect Control Director production diagnostics before trusting a final state. The relevant diagnostics are the liveness audit, mission ledger, Judge completion approval, truth audit, and recovery state.
-
-Interpret statuses literally: `continuing` means durable recovery is queued or running; `blocked` means no safe recovery path remains or recovery attempts are exhausted; `complete` is valid only when the Judge approval and truth evidence are present for the same mission.
-
 ## Runtime config endpoint
 
 The Control UI fetches its runtime settings from `/control-ui-config.json`, resolved relative to the gateway's Control UI base path (for example `/__openclaw__/control-ui-config.json` when the UI is served under `/__openclaw__/`). That endpoint is gated by the same gateway auth as the rest of the HTTP surface: unauthenticated browsers cannot fetch it, and a successful fetch requires either an already valid gateway token/password, Tailscale Serve identity, or a trusted-proxy identity.
@@ -117,6 +111,7 @@ Imported themes are stored only in the current browser profile. They are not wri
     - Channel probe refreshes keep the previous snapshot visible while slow provider checks finish, and partial snapshots are labeled when a probe or audit exceeds its UI budget.
     - Instances: presence list + refresh (`system-presence`).
     - Sessions: list configured-agent sessions by default, fall back from stale unconfigured agent session keys, and apply per-session model/thinking/fast/verbose/trace/reasoning overrides (`sessions.list`, `sessions.patch`).
+    - Control Director diagnostics: session detail rows surface the liveness audit, mission ledger, Judge completion approval, and truth audit when present. Use these fields to tell whether a no-response run is still recovering (`Status: continuing`), has exhausted recovery (`Status: blocked`), or has Judge-approved completion evidence.
     - Dreams: dreaming status, enable/disable toggle, and Dream Diary reader (`doctor.memory.status`, `doctor.memory.dreamDiary`, `config.patch`).
 
   </Accordion>

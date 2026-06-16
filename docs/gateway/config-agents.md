@@ -1029,14 +1029,6 @@ scripts/sandbox-browser-setup.sh   # optional browser image
 
 For npm installs without a source checkout, see [Sandboxing § Images and setup](/gateway/sandboxing#images-and-setup) for inline `docker build` commands.
 
-### Control Director model contract
-
-The production Control Director default is `openclaw-control-gemma4-31b-q8` with `ollama/openclaw-control-qwen25-32b:latest` as the first rollback model. Keep `thinkingDefault: "off"`, `contextTokens: 64000`, and model params aligned with the Ollama provider entry.
-
-`Status: complete` remains a runtime contract, not a model preference: it requires Judge approval and matching evidence. `Status: continuing` means durable recovery was queued and work is not terminal. `Status: blocked` means recovery cannot safely queue or recovery attempts are exhausted.
-
-Run `pnpm control-director:readiness -- --json` after Control Director model, fallback, context, timeout, or Ollama changes.
-
 ### `agents.list` (per-agent overrides)
 
 Use `agents.list[].tts` to give an agent its own TTS provider, voice, model,
@@ -1114,6 +1106,51 @@ for provider examples and precedence.
 - `subagents.allowAgents`: allowlist of configured agent ids for explicit `sessions_spawn.agentId` targets (`["*"]` = any configured target; default: same agent only). Include the requester id when self-targeted `agentId` calls should be allowed. Stale entries whose agent config was deleted are rejected by `sessions_spawn` and omitted from `agents_list`; run `openclaw doctor --fix` to clean them up, or add a minimal `agents.list[]` entry if that target should remain spawnable while inheriting defaults.
 - Sandbox inheritance guard: if the requester session is sandboxed, `sessions_spawn` rejects targets that would run unsandboxed.
 - `subagents.requireAgentId`: when true, block `sessions_spawn` calls that omit `agentId` (forces explicit profile selection; default: false).
+
+### Control Director production contract
+
+The built-in Control Director is the `main` agent when that agent is named or
+used as Control Director. It receives an additional runtime contract: keep
+working while safe progress is possible, avoid unsupported completion claims,
+and make every terminal state explicit.
+
+Control Director status lines are runtime semantics:
+
+- `Status: complete` means the Judge approved the exact completion claim and
+  matching evidence was recorded for that run.
+- `Status: continuing` means a liveness or no-response guard accepted a durable
+  recovery continuation. The current response is not terminal.
+- `Status: blocked` means recovery could not be queued safely, recovery attempts
+  were exhausted, required user input is missing, or required evidence is
+  unavailable.
+- `Status: needs_user_input` means progress is waiting on an operator decision
+  or approval.
+
+For production use, keep the Control Director model policy scoped to `main`:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "main",
+        name: "Control Director",
+        model: {
+          primary: "openclaw-control-qwen36-27b",
+          fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
+        },
+        thinkingDefault: "off",
+        contextTokens: 64000,
+      },
+    ],
+  },
+}
+```
+
+Run `pnpm control-director:readiness -- --json` after model, provider, skill,
+or runtime setting changes. The readiness probe checks the Control Director
+model policy, Ollama alias, rollback chain, context target, thinking policy,
+runtime guard wiring, and required Ollama service environment.
 
 ---
 
