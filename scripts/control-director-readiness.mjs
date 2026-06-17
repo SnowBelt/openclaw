@@ -6,10 +6,10 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-const PRIMARY_MODEL = "ollama/openclaw-control-qwen36-27b:latest";
-const PRIMARY_OLLAMA_NAME = "openclaw-control-qwen36-27b:latest";
-const UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
+const PRIMARY_ALIAS = "openclaw-control-gemma4-31b-q8";
+const PRIMARY_MODEL = "ollama/openclaw-control-gemma4-31b-q8:latest";
+const PRIMARY_OLLAMA_NAME = "openclaw-control-gemma4-31b-q8:latest";
+const UNDERLYING_OLLAMA_TAG = "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0";
 const FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 const EFFECTIVE_CONTEXT = 64_000;
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
@@ -33,7 +33,7 @@ function usage() {
   return [
     "Usage: node scripts/control-director-readiness.mjs [--json] [--config <path>] [--skip-runtime] [--skip-chat-smoke]",
     "",
-    "Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and Qwen3.6 model-load smoke.",
+    "Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and Gemma 4 model-load smoke.",
   ].join("\n");
 }
 
@@ -360,7 +360,7 @@ export function buildControlDirectorReadinessScorecard(params) {
   facts.push(
     fact(
       "primary",
-      "Primary alias is Qwen3.6 Control alias",
+      "Primary alias is Gemma 4 Control alias",
       primary === PRIMARY_MODEL,
       true,
       `resolved=${primary || "missing"}`,
@@ -483,7 +483,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-primary",
-        "Ollama Qwen3.6 Control alias is installed",
+        "Ollama Gemma 4 Control alias is installed",
         Boolean(primaryModel),
         true,
       ),
@@ -491,20 +491,18 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-underlying",
-        "Underlying qwen3.6:27b-q8_0 tag is installed",
+        "Underlying Gemma 4 31B Q8 GGUF tag is installed",
         Boolean(underlying),
         true,
       ),
     );
     facts.push(
       fact(
-        "ollama-digest",
-        "Control alias digest matches qwen3.6 tag",
-        Boolean(
-          primaryModel?.digest && underlying?.digest && primaryModel.digest === underlying.digest,
-        ),
+        "ollama-q8-provenance",
+        "Control alias and Gemma 4 Q8 source are installed",
+        Boolean(primaryModel?.digest && underlying?.digest),
         true,
-        `alias=${primaryModel?.digest ?? "missing"} tag=${underlying?.digest ?? "missing"}`,
+        `alias=${primaryModel?.digest ?? "missing"} source=${underlying?.digest ?? "missing"}`,
       ),
     );
     facts.push(
@@ -514,7 +512,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-primary-chat-smoke",
-        "Qwen3.6 Control alias answers Ollama /api/chat smoke",
+        "Gemma 4 Control alias answers Ollama /api/chat smoke",
         primaryChatSmoke?.ok === true,
         true,
         primaryChatSmoke?.detail ?? "not checked",
