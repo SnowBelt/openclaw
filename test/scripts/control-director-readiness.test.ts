@@ -8,12 +8,14 @@ function createConfig(
   options: {
     alias?: string;
     model?: string;
+    primary?: string;
     temperature?: number;
     topK?: number;
   } = {},
 ) {
   const alias = options.alias ?? "openclaw-control-gemma4-31b-q8";
   const model = options.model ?? `ollama/${alias}:latest`;
+  const primary = options.primary ?? model;
   return {
     models: {
       providers: {
@@ -59,7 +61,7 @@ function createConfig(
           id: "main",
           name: "Control Director",
           model: {
-            primary: alias,
+            primary,
             fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
           },
           thinkingDefault: "off",
@@ -119,6 +121,19 @@ describe("control-director-readiness", () => {
     expect(scorecard.productionReady).toBe(true);
     expect(scorecard.completionGrade).toBe(10);
     expect(scorecard.nextBuildGap).toContain("No critical");
+  });
+
+  it("rejects a bare Gemma primary that would resolve to OpenAI in runtime", () => {
+    const scorecard = buildControlDirectorReadinessScorecard(
+      baseParams({
+        config: createConfig({ primary: "openclaw-control-gemma4-31b-q8" }),
+      }),
+    );
+
+    expect(scorecard.productionReady).toBe(false);
+    expect(scorecard.failedCritical).toContain(
+      "Primary model is canonical Gemma 4 31B IT Dense Q8 Control ref",
+    );
   });
 
   it("keeps the Qwen3.6 Q8 profile available for explicit legacy readiness checks", () => {

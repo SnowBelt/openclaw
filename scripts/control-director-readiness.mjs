@@ -107,9 +107,8 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-function normalizeModelRef(value, profile) {
-  const raw = String(value ?? "").trim();
-  return raw === profile.alias ? profile.model : raw;
+function normalizeModelRef(value) {
+  return String(value ?? "").trim();
 }
 
 function findControlDirectorAgent(config) {
@@ -387,7 +386,7 @@ export function buildControlDirectorReadinessScorecard(params) {
   const agent = findControlDirectorAgent(config);
   const defaultsModels = config.agents?.defaults?.models ?? {};
   const providerModels = config.models?.providers?.ollama?.models ?? [];
-  const primary = normalizeModelRef(agent?.model?.primary ?? agent?.model, profile);
+  const primary = normalizeModelRef(agent?.model?.primary ?? agent?.model);
   const fallbacks = Array.isArray(agent?.model?.fallbacks) ? agent.model.fallbacks : [];
   const controlAliasDefaults = defaultsModels[profile.model];
   const providerAlias = providerModels.find((entry) => entry?.id === profile.ollamaName);
@@ -397,7 +396,7 @@ export function buildControlDirectorReadinessScorecard(params) {
   facts.push(
     fact(
       "primary",
-      `Primary alias is ${profile.label} Control alias`,
+      `Primary model is canonical ${profile.label} Control ref`,
       primary === profile.model,
       true,
       `resolved=${primary || "missing"}`,

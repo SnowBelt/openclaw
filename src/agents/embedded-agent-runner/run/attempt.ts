@@ -1709,7 +1709,7 @@ export async function runEmbeddedAttempt(
       toolsEnabled,
       disableTools: params.disableTools,
     });
-    logAgentRuntimeToolDiagnostics({
+    const providerToolSchemaDiagnostics = logAgentRuntimeToolDiagnostics({
       runtimePlan: params.runtimePlan,
       tools: effectiveTools,
       provider: params.provider,
@@ -1721,6 +1721,22 @@ export async function runEmbeddedAttempt(
       model: params.model,
       runtimeHandle: getProviderRuntimeHandle(),
     });
+    if (providerToolSchemaDiagnostics.length > 0) {
+      const summary = providerToolSchemaDiagnostics
+        .slice(0, 6)
+        .map((diagnostic) => {
+          const firstViolation = diagnostic.violations[0] ?? "provider schema violation";
+          return `${diagnostic.toolName || `tool[${diagnostic.toolIndex}]`}: ${firstViolation}`;
+        })
+        .join("; ");
+      const suffix =
+        providerToolSchemaDiagnostics.length > 6
+          ? `; +${providerToolSchemaDiagnostics.length - 6} more`
+          : "";
+      throw new Error(
+        `LLM request blocked before provider call: provider-compatible tool schema diagnostics remain for ${params.provider}/${params.modelId}: ${summary}${suffix}`,
+      );
+    }
 
     const machineName = await getMachineDisplayName();
     const runtimeChannel = normalizeMessageChannel(params.messageChannel ?? params.messageProvider);

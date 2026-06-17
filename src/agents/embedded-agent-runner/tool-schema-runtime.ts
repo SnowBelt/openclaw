@@ -69,7 +69,9 @@ export function normalizeProviderToolSchemas<
 /**
  * Logs provider-owned tool-schema diagnostics after normalization.
  */
-export function logProviderToolSchemaDiagnostics(params: ProviderToolSchemaParams): void {
+export function logProviderToolSchemaDiagnostics(
+  params: ProviderToolSchemaParams,
+): ProviderToolSchemaDiagnostic[] {
   const provider = params.provider.trim();
   const diagnostics = inspectProviderToolSchemasWithPlugin({
     provider,
@@ -81,10 +83,10 @@ export function logProviderToolSchemaDiagnostics(params: ProviderToolSchemaParam
     context: buildProviderToolSchemaContext(params, provider),
   });
   if (!Array.isArray(diagnostics)) {
-    return;
+    return [];
   }
   if (diagnostics.length === 0) {
-    return;
+    return [];
   }
 
   const summary = summarizeProviderToolSchemaDiagnostics(diagnostics);
@@ -103,6 +105,7 @@ export function logProviderToolSchemaDiagnostics(params: ProviderToolSchemaParam
       })),
     },
   );
+  return diagnostics;
 }
 
 function summarizeProviderToolSchemaDiagnostics(

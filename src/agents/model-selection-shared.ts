@@ -180,35 +180,47 @@ function mergeModelCatalogEntries(params: {
   return merged;
 }
 
-/** Infer a unique provider for a bare model from configured model rows. */
-export function inferUniqueProviderFromConfiguredModels(
+function modelIdMatchesBareConfiguredModel(candidate: string, bareModel: string): boolean {
+  const normalizedCandidate = normalizeLowercaseStringOrEmpty(candidate);
+  const normalizedBare = normalizeLowercaseStringOrEmpty(bareModel);
+  if (normalizedCandidate === normalizedBare) {
+    return true;
+  }
+  if (normalizedCandidate.endsWith(":latest")) {
+    return normalizedCandidate.slice(0, -":latest".length) === normalizedBare;
+  }
+  return false;
+}
+
+export function inferUniqueConfiguredModelRef(
   params: {
     cfg: OpenClawConfig;
     model: string;
     allowManifestNormalization?: boolean;
   } & ModelManifestNormalizationContext,
-): string | undefined {
+): ModelRef | undefined {
   const model = params.model.trim();
   if (!model) {
     return undefined;
   }
-  const normalized = normalizeLowercaseStringOrEmpty(model);
-  const providers = new Set<string>();
-  const addProvider = (provider: string) => {
-    const normalizedProvider = normalizeProviderId(provider);
-    if (!normalizedProvider) {
+  const refs = new Map<string, ModelRef>();
+  const addRef = (ref: ModelRef) => {
+    const provider = normalizeProviderId(ref.provider);
+    const modelId = ref.model.trim();
+    if (!provider || !modelId) {
       return;
     }
-    providers.add(normalizedProvider);
+    refs.set(modelKey(provider, modelId), { provider, model: modelId });
   };
+
   const configuredModels = params.cfg.agents?.defaults?.models;
   if (configuredModels) {
     for (const key of Object.keys(configuredModels)) {
-      const ref = key.trim();
-      if (!ref || !ref.includes("/") || ref.endsWith("/*")) {
+      const raw = key.trim();
+      if (!raw || !raw.includes("/") || raw.endsWith("/*")) {
         continue;
       }
-      const parsed = parseModelRef(ref, DEFAULT_PROVIDER, {
+      const parsed = parseModelRef(raw, DEFAULT_PROVIDER, {
         allowManifestNormalization: params.allowManifestNormalization,
         allowPluginNormalization: false,
         manifestPlugins: params.manifestPlugins,
@@ -216,14 +228,12 @@ export function inferUniqueProviderFromConfiguredModels(
       if (!parsed) {
         continue;
       }
-      if (parsed.model === model || normalizeLowercaseStringOrEmpty(parsed.model) === normalized) {
-        addProvider(parsed.provider);
-        if (providers.size > 1) {
-          return undefined;
-        }
+      if (modelIdMatchesBareConfiguredModel(parsed.model, model)) {
+        addRef(parsed);
       }
     }
   }
+
   const configuredProviders = params.cfg.models?.providers;
   if (configuredProviders) {
     for (const [providerId, providerConfig] of Object.entries(configuredProviders)) {
@@ -241,23 +251,27 @@ export function inferUniqueProviderFromConfiguredModels(
           manifestPlugins: params.manifestPlugins,
         });
         if (
-          modelId === model ||
-          normalizeLowercaseStringOrEmpty(modelId) === normalized ||
-          normalizedModelId === model ||
-          normalizeLowercaseStringOrEmpty(normalizedModelId) === normalized
+          modelIdMatchesBareConfiguredModel(modelId, model) ||
+          modelIdMatchesBareConfiguredModel(normalizedModelId, model)
         ) {
-          addProvider(providerId);
+          addRef({ provider: providerId, model: normalizedModelId });
         }
-      }
-      if (providers.size > 1) {
-        return undefined;
       }
     }
   }
-  if (providers.size !== 1) {
-    return undefined;
-  }
-  return providers.values().next().value;
+
+  return refs.size === 1 ? refs.values().next().value : undefined;
+}
+
+/** Infer a unique provider for a bare model from configured model rows. */
+export function inferUniqueProviderFromConfiguredModels(
+  params: {
+    cfg: OpenClawConfig;
+    model: string;
+    allowManifestNormalization?: boolean;
+  } & ModelManifestNormalizationContext,
+): string | undefined {
+  return inferUniqueConfiguredModelRef(params)?.provider;
 }
 
 /** Infer a unique provider for a bare model from a provider catalog. */
@@ -843,7 +857,7 @@ export function resolveConfiguredModelRef(
         return openrouterCompatRef;
       }
 
-      let inferredProvider = inferUniqueProviderFromConfiguredModels({
+      let inferredRef = inferUniqueConfiguredModelRef({
         cfg: params.cfg,
         model: trimmed,
         allowManifestNormalization: false,
@@ -851,22 +865,22 @@ export function resolveConfiguredModelRef(
       });
       let inferredProviderManifestPlugins = manifestPlugins;
       if (
-        (!inferredProvider || inferredProvider !== "openai") &&
+        (!inferredRef || inferredRef.provider !== "openai") &&
         hasConfiguredRowsNeedingManifestLookup(params.cfg, params.defaultProvider)
       ) {
         // Non-default provider rows may normalize through plugin manifests. Avoid
         // that heavier lookup unless the cheap configured pass was ambiguous.
         inferredProviderManifestPlugins = manifestPluginContext.get();
-        inferredProvider =
-          inferUniqueProviderFromConfiguredModels({
+        inferredRef =
+          inferUniqueConfiguredModelRef({
             cfg: params.cfg,
             model: trimmed,
             allowManifestNormalization: params.allowManifestNormalization,
             manifestPlugins: inferredProviderManifestPlugins,
-          }) ?? inferredProvider;
+          }) ?? inferredRef;
       }
-      if (inferredProvider) {
-        return normalizeModelRef(inferredProvider, trimmed, {
+      if (inferredRef) {
+        return normalizeModelRef(inferredRef.provider, inferredRef.model, {
           allowManifestNormalization: inferredProviderManifestPlugins
             ? params.allowManifestNormalization
             : false,
@@ -1166,13 +1180,14 @@ export function resolveAllowedModelRefFromAliasIndex(
     return { error: "invalid model: empty" };
   }
 
-  const effectiveDefaultProvider = !trimmed.includes("/")
-    ? (inferUniqueProviderFromConfiguredModels({
+  const inferredConfiguredRef = !trimmed.includes("/")
+    ? inferUniqueConfiguredModelRef({
         cfg: params.cfg,
         model: trimmed,
         manifestPlugins: params.manifestPlugins,
-      }) ?? params.defaultProvider)
-    : params.defaultProvider;
+      })
+    : undefined;
+  const effectiveDefaultProvider = inferredConfiguredRef?.provider ?? params.defaultProvider;
 
   const resolved = resolveModelRefFromString({
     cfg: params.cfg,
@@ -1185,12 +1200,13 @@ export function resolveAllowedModelRefFromAliasIndex(
     return { error: `invalid model: ${trimmed}` };
   }
 
-  const status = params.getStatus(resolved.ref);
+  const allowedRef = inferredConfiguredRef ?? resolved.ref;
+  const status = params.getStatus(allowedRef);
   if (!status.allowed) {
     return { error: `model not allowed: ${status.key}` };
   }
 
-  return { ref: resolved.ref, key: status.key };
+  return { ref: allowedRef, key: status.key };
 }
 
 /** True when config contains provider model rows that should seed catalogs. */

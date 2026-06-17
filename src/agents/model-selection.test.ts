@@ -8,6 +8,7 @@ import { isModelKeyAllowedBySet, providerWildcardModelKey } from "./model-select
 import {
   buildAllowedModelSet,
   buildConfiguredModelCatalog,
+  inferUniqueConfiguredModelRef,
   inferUniqueProviderFromConfiguredModels,
   parseModelRef,
   buildModelAliasIndex,
@@ -179,6 +180,49 @@ const CLAUDE_CLI_OPUS_48_CATALOG = [
     reasoning: true,
   },
 ];
+
+function buildGemmaControlConfig(primary: string): OpenClawConfig {
+  return {
+    agents: {
+      defaults: {
+        model: { primary: "openai/gpt-5.5" },
+        models: {
+          "ollama/openclaw-control-gemma4-31b-q8:latest": {},
+          "openai/gpt-5.5": { alias: "gpt-5.5" },
+        },
+      },
+      list: [
+        {
+          id: "main",
+          name: "Control Director",
+          model: {
+            primary,
+            fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
+          },
+        },
+      ],
+    },
+    models: {
+      providers: {
+        ollama: {
+          api: "ollama",
+          baseUrl: "http://127.0.0.1:11434",
+          models: [
+            {
+              id: "openclaw-control-gemma4-31b-q8:latest",
+              name: "OpenClaw Control Gemma 4 31B IT Dense Q8",
+              input: ["text"],
+              reasoning: true,
+              contextWindow: 256_000,
+              maxTokens: 4096,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            },
+          ],
+        },
+      },
+    },
+  } as OpenClawConfig;
+}
 
 function resolveAnthropicOpusThinking(cfg: OpenClawConfig) {
   // Helper keeps thinking-default assertions focused on config differences
@@ -654,6 +698,23 @@ describe("model-selection", () => {
           model: "claude-sonnet-4-6",
         }),
       ).toBe("anthropic");
+    });
+
+    it("infers canonical latest ref for bare configured Ollama model ids", () => {
+      const cfg = buildGemmaControlConfig("openclaw-control-gemma4-31b-q8");
+
+      expect(
+        inferUniqueConfiguredModelRef({ cfg, model: "openclaw-control-gemma4-31b-q8" }),
+      ).toEqual({
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+      });
+      expect(
+        inferUniqueProviderFromConfiguredModels({
+          cfg,
+          model: "openclaw-control-gemma4-31b-q8",
+        }),
+      ).toBe("ollama");
     });
 
     it("returns undefined when configured matches are ambiguous", () => {
@@ -2775,6 +2836,24 @@ describe("resolveDefaultModelForAgent", () => {
     expect(resolveDefaultModelForAgent({ cfg, agentId: "main" })).toEqual({
       provider: "openai",
       model: "gpt-5.5",
+    });
+  });
+
+  it("resolves bare configured Gemma Control Director alias to canonical Ollama latest ref", () => {
+    const cfg = buildGemmaControlConfig("openclaw-control-gemma4-31b-q8");
+
+    expect(resolveDefaultModelForAgent({ cfg, agentId: "main" })).toEqual({
+      provider: "ollama",
+      model: "openclaw-control-gemma4-31b-q8:latest",
+    });
+  });
+
+  it("resolves canonical Gemma Control Director ref without falling back to OpenAI", () => {
+    const cfg = buildGemmaControlConfig("ollama/openclaw-control-gemma4-31b-q8:latest");
+
+    expect(resolveDefaultModelForAgent({ cfg, agentId: "main" })).toEqual({
+      provider: "ollama",
+      model: "openclaw-control-gemma4-31b-q8:latest",
     });
   });
 });

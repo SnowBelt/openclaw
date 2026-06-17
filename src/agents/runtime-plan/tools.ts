@@ -8,6 +8,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ProviderRuntimePluginHandle } from "../../plugins/provider-hook-runtime.js";
 import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.types.js";
 import { copyPluginToolMeta } from "../../plugins/tools.js";
+import type { ProviderToolSchemaDiagnostic } from "../../plugins/types.js";
 import { copyChannelAgentToolMeta } from "../channel-tools.js";
 import {
   logProviderToolSchemaDiagnostics,
@@ -127,13 +128,15 @@ export function normalizeAgentRuntimeTools<
 }
 
 /** Emits runtime-plan or provider fallback diagnostics for normalized tools. */
-export function logAgentRuntimeToolDiagnostics(params: AgentRuntimeToolPolicyParams): void {
+export function logAgentRuntimeToolDiagnostics(
+  params: AgentRuntimeToolPolicyParams,
+): ProviderToolSchemaDiagnostic[] {
   const planContext = runtimePlanToolContext(params);
   if (params.runtimePlan) {
     params.runtimePlan.tools.logDiagnostics(params.tools, planContext);
-    return;
+    return [];
   }
-  logProviderToolSchemaDiagnostics({
+  return logProviderToolSchemaDiagnostics({
     tools: params.tools,
     provider: params.provider,
     config: params.config,

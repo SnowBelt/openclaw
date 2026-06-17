@@ -29,11 +29,12 @@ describe("tool schema runtime diagnostics", () => {
   it("stays quiet when a provider reports no diagnostics", () => {
     mocks.inspectProviderToolSchemasWithPlugin.mockReturnValueOnce([]);
 
-    logProviderToolSchemaDiagnostics({
+    const diagnostics = logProviderToolSchemaDiagnostics({
       provider: "example",
       tools: [{ name: "alpha" }, { name: "beta" }] as never,
     });
 
+    expect(diagnostics).toEqual([]);
     expect(mocks.log.info).not.toHaveBeenCalled();
     expect(mocks.log.warn).not.toHaveBeenCalled();
   });
@@ -67,11 +68,15 @@ describe("tool schema runtime diagnostics", () => {
       { toolName: "beta", toolIndex: 1, violations: ["one"] },
     ]);
 
-    logProviderToolSchemaDiagnostics({
+    const diagnostics = logProviderToolSchemaDiagnostics({
       provider: "example",
       tools: [{ name: "alpha" }, { name: "beta" }] as never,
     });
 
+    expect(diagnostics).toEqual([
+      { toolName: "alpha", toolIndex: 0, violations: ["one", "two"] },
+      { toolName: "beta", toolIndex: 1, violations: ["one"] },
+    ]);
     expect(mocks.log.info).not.toHaveBeenCalled();
     expect(mocks.log.warn).toHaveBeenCalledTimes(1);
     expect(mocks.log.warn).toHaveBeenCalledWith(

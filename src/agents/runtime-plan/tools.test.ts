@@ -336,6 +336,21 @@ describe("AgentRuntimePlan tool policy helpers", () => {
     );
   });
 
+  it("returns provider diagnostics for caller preflight", () => {
+    const tools = [createParameterFreeTool("bad_tool")] as AgentTool[];
+    const diagnostics = [
+      { toolName: "bad_tool", toolIndex: 0, violations: ["bad_tool.parameters.anyOf"] },
+    ];
+    mocks.logProviderToolSchemaDiagnostics.mockReturnValueOnce(diagnostics);
+
+    expect(
+      logAgentRuntimeToolDiagnostics({
+        tools,
+        provider: "google",
+      }),
+    ).toBe(diagnostics);
+  });
+
   it("routes diagnostics through RuntimePlan when a plan is available", () => {
     const tools = [createParameterFreeTool()] as AgentTool[];
     const model = createNativeOpenAIResponsesModel() as never;
@@ -347,7 +362,7 @@ describe("AgentRuntimePlan tool policy helpers", () => {
       },
     } as unknown as AgentRuntimePlan;
 
-    logAgentRuntimeToolDiagnostics({
+    const diagnostics = logAgentRuntimeToolDiagnostics({
       runtimePlan,
       tools,
       provider: "openai",
@@ -357,6 +372,7 @@ describe("AgentRuntimePlan tool policy helpers", () => {
       model,
     });
 
+    expect(diagnostics).toEqual([]);
     expect(logDiagnostics).toHaveBeenCalledWith(tools, {
       workspaceDir: "/tmp/openclaw-runtime-plan-tools",
       modelApi: "openai-responses",
