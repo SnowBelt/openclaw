@@ -397,6 +397,37 @@ describe("Control Director contract", () => {
     expect(guarded.payloads[0]?.text).toContain("Status: blocked");
   });
 
+  it("blocks unsupported public link and tunnel claims without reachability evidence", () => {
+    const guarded = applyControlDirectorTruthGate({
+      agentId: "main",
+      payloads: [
+        {
+          text: [
+            "The ngrok public link works from your MacBook: https://example.ngrok-free.app",
+            "Verified state: I do not have curl reachability evidence.",
+            "Next build gap: verify the public URL before claiming it works.",
+            "Completion Grade: 8/10",
+            "Criticality: 10/10",
+            "Status: blocked",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(guarded.changed).toBe(true);
+    expect(guarded.audit?.claims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "public_link",
+          requiredEvidenceType: "command",
+          matchStatus: "missing",
+        }),
+      ]),
+    );
+    expect(guarded.payloads[0]?.text).toContain("command evidence with exit code 0");
+    expect(guarded.payloads[0]?.text).toContain("Status: blocked");
+  });
+
   it("allows explicit uncertainty without requiring evidence", () => {
     const text = [
       "I cannot verify the remote proof yet.",
@@ -589,7 +620,7 @@ describe("Control Director contract", () => {
     expect(guarded).toEqual({ payloads, changed: false });
   });
 
-  it("turns empty Control Director output into a visible continuing recovery report", () => {
+  it("turns empty Control Director output into a visible blocked report until recovery produces an answer", () => {
     const guarded = applyControlDirectorLivenessWatchdog({
       agentId: "main",
       payloads: [],
@@ -608,14 +639,18 @@ describe("Control Director contract", () => {
     expect(guarded.audit).toMatchObject({
       action: "queued_safe_continuation",
       classification: "empty",
-      continuationQueued: true,
+      continuationQueued: false,
+      nextStatus: "blocked",
       payloadsChecked: 0,
       payloadsSynthesized: 1,
     });
     const payload = guarded.payloads[0] as { text: string } | undefined;
     expect(payload?.text).toContain("Verified state:");
-    expect(payload?.text).toContain("Recovery queued: yes");
-    expect(payload?.text).toContain("Status: continuing");
+    expect(payload?.text).toContain("Root cause:");
+    expect(payload?.text).toContain("Actions attempted:");
+    expect(payload?.text).not.toContain("Recovery queued: yes");
+    expect(payload?.text).not.toContain("Status: continuing");
+    expect(payload?.text).toContain("Status: blocked");
   });
 
   it("blocks Control Director continuation after the safe retry limit", () => {

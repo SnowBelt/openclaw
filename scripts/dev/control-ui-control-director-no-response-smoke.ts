@@ -15,10 +15,12 @@ import {
 export const CONTROL_DIRECTOR_NO_RESPONSE_PROMPT = "empty response exhaustion qa check";
 export const CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS = Object.freeze([
   "Verified state",
+  "Root cause",
+  "Actions attempted",
   "Next build gap",
   "Completion Grade:",
   "Criticality:",
-  "Status: continuing",
+  "Status: blocked",
 ]);
 export const CONTROL_DIRECTOR_NO_RESPONSE_PROOF_SCRIPT = "ui:smoke:control-director-no-response";
 export const MOBILE_WEB_VIEWPORT_PROOF_KIND = "mobile web viewport proof";

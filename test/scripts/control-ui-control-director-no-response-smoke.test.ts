@@ -69,10 +69,12 @@ iPad unavailable (17.5) (0000)`),
   it("requires visible recovery status text and rejects unsupported complete delivery", () => {
     const valid = [
       "Verified state: no user-visible payload was available.",
+      "Root cause: Control Director run ended with empty classification.",
+      "Actions attempted: inline recovery exhausted.",
       "Next build gap: resolve liveness blocker.",
       "Completion Grade: 7/10",
       "Criticality: 10/10",
-      "Status: continuing",
+      "Status: blocked",
     ].join("\n");
 
     expect(validateVisibleBlockedText(valid)).toEqual({ ok: true, missing: [] });
@@ -82,7 +84,7 @@ iPad unavailable (17.5) (0000)`),
         "Next build gap",
         "Completion Grade:",
         "Criticality:",
-        "Status: continuing",
+        "Status: blocked",
         "no unsupported delivered Status: complete",
       ]),
     });
@@ -99,10 +101,12 @@ iPad unavailable (17.5) (0000)`),
               type: "text",
               text: [
                 "Verified state: no user-visible payload was available.",
+                "Root cause: Control Director run ended with empty classification.",
+                "Actions attempted: inline recovery exhausted.",
                 "Next build gap: resolve liveness blocker.",
                 "Completion Grade: 7/10",
                 "Criticality: 10/10",
-                "Status: continuing",
+                "Status: blocked",
               ].join("\n"),
             },
           ],
@@ -120,10 +124,12 @@ iPad unavailable (17.5) (0000)`),
   it("fails when ledger or liveness evidence is missing", () => {
     const visibleText = [
       "Verified state: no user-visible payload was available.",
+      "Root cause: Control Director run ended with empty classification.",
+      "Actions attempted: inline recovery exhausted.",
       "Next build gap: resolve liveness blocker.",
       "Completion Grade: 7/10",
       "Criticality: 10/10",
-      "Status: continuing",
+      "Status: blocked",
     ].join("\n");
     const diagnostics = validateSessionDiagnostics({
       sessionKey: "agent:main",
@@ -149,10 +155,12 @@ iPad unavailable (17.5) (0000)`),
   it("passes evidence validation when visible text, ledger, and liveness audit are present", () => {
     const visibleText = [
       "Verified state: no user-visible payload was available.",
+      "Root cause: Control Director run ended with empty classification.",
+      "Actions attempted: inline recovery exhausted.",
       "Next build gap: resolve liveness blocker.",
       "Completion Grade: 7/10",
       "Criticality: 10/10",
-      "Status: continuing",
+      "Status: blocked",
     ].join("\n");
     const diagnostics = validateSessionDiagnostics({
       sessionKey: "agent:main",

@@ -8,7 +8,7 @@ function createConfig() {
         ollama: {
           models: [
             {
-              id: "openclaw-control-qwen36-27b:latest",
+              id: "openclaw-control-gemma4-31b-q8:latest",
               contextWindow: 262144,
               contextTokens: 64000,
               params: {
@@ -26,8 +26,8 @@ function createConfig() {
     agents: {
       defaults: {
         models: {
-          "ollama/openclaw-control-qwen36-27b:latest": {
-            alias: "openclaw-control-qwen36-27b",
+          "ollama/openclaw-control-gemma4-31b-q8:latest": {
+            alias: "openclaw-control-gemma4-31b-q8",
             params: {
               num_ctx: 64000,
               temperature: 0.2,
@@ -43,7 +43,7 @@ function createConfig() {
           id: "main",
           name: "Control Director",
           model: {
-            primary: "openclaw-control-qwen36-27b",
+            primary: "openclaw-control-gemma4-31b-q8",
             fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
           },
           thinkingDefault: "off",
@@ -59,8 +59,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -84,12 +84,11 @@ describe("control-director-readiness", () => {
     expect(scorecard.nextBuildGap).toContain("No critical");
   });
 
-  it("flags model digest drift as a critical readiness gap", () => {
+  it("flags missing Gemma 4 Q8 source provenance as a critical readiness gap", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "alias" }],
-        ["qwen3.6:27b-q8_0", { digest: "tag" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "alias" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -109,16 +108,16 @@ describe("control-director-readiness", () => {
     });
 
     expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain("Control alias digest matches qwen3.6 tag");
-    expect(scorecard.nextBuildGap).toContain("Control alias digest");
+    expect(scorecard.failedCritical).toContain("Control alias and Gemma 4 Q8 source are installed");
+    expect(scorecard.nextBuildGap).toContain("Underlying Gemma 4 31B Q8 GGUF tag");
   });
 
   it("flags a missing thinking escalation policy as a critical readiness gap", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -147,8 +146,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -177,8 +176,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -207,8 +206,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -237,8 +236,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -267,8 +266,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -297,8 +296,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -327,8 +326,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -353,12 +352,12 @@ describe("control-director-readiness", () => {
     );
   });
 
-  it("flags Qwen3.6 model-load smoke failures as a critical readiness gap", () => {
+  it("flags Gemma 4 model-load smoke failures as a critical readiness gap", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -383,8 +382,8 @@ describe("control-director-readiness", () => {
 
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain(
-      "Qwen3.6 Control alias answers Ollama /api/chat smoke",
+      "Gemma 4 Control alias answers Ollama /api/chat smoke",
     );
-    expect(scorecard.nextBuildGap).toContain("Qwen3.6 Control alias answers");
+    expect(scorecard.nextBuildGap).toContain("Gemma 4 Control alias answers");
   });
 });
