@@ -141,7 +141,7 @@ function runStatic(args) {
     staticConfig = {
       ...config,
       agents: {
-        ...(config.agents ?? {}),
+        ...config.agents,
         list: selected,
       },
     };

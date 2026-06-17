@@ -3,11 +3,11 @@ import { createHash } from "node:crypto";
 export const CONTROL_DIRECTOR_AGENT_IDS = ["main", "control-director"] as const;
 
 export const CONTROL_DIRECTOR_PRIMARY_PROVIDER = "ollama";
-export const CONTROL_DIRECTOR_PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = "openclaw-control-qwen36-27b:latest";
+export const CONTROL_DIRECTOR_PRIMARY_ALIAS = "openclaw-control-gemma4-31b-q8";
+export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = "openclaw-control-gemma4-31b-q8:latest";
 export const CONTROL_DIRECTOR_PRIMARY_MODEL = `${CONTROL_DIRECTOR_PRIMARY_PROVIDER}/${CONTROL_DIRECTOR_PRIMARY_MODEL_ID}`;
-export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
-export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Qwen3.6 27B Q8_0";
+export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0";
+export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Gemma 4 31B IT Q8_0";
 export const CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 export const CONTROL_DIRECTOR_EFFECTIVE_CONTEXT_TOKENS = 64_000;
 
@@ -86,6 +86,7 @@ export type ControlDirectorTruthClaimType =
   | "remote_proof"
   | "dashboard"
   | "implementation"
+  | "public_link"
   | "external_fact";
 
 export type ControlDirectorClaimEvidenceType =
@@ -349,7 +350,7 @@ export function buildControlDirectorSystemPromptSection(
     "When reporting Completion Grade or Criticality, use numeric `/10` values unless the user explicitly asks for another scale.",
     "If the user gives an exact response format, follow that format exactly. Do not ask what task the format applies to when the current prompt itself defines a smoke, verification, or implementation task.",
     "Thinking policy: default to non-thinking for routine turns, but use thinking only as needed for implementation, evaluation, debugging, verification, rollback, model, runtime, service, or production-risk work.",
-    "End task reports with an explicit status line using one of: `Status: complete`, `Status: blocked`, or `Status: needs_user_input`. Runtime recovery/progress handoffs may use `Status: continuing` only when a durable recovery turn has been queued.",
+    "End task reports with an explicit status line using one of: `Status: complete`, `Status: blocked`, or `Status: needs_user_input`. Do not use `Status: continuing` as the final user-visible answer.",
     "",
   ];
 }
@@ -712,29 +713,19 @@ function buildControlDirectorLivenessBlockedText(params: {
   noVisiblePayload: boolean;
 }): string {
   const classificationText = params.classification ?? "none";
-  const queuedText = params.decision.shouldQueue ? "yes" : "no";
   const visibilityText = params.noVisiblePayload
     ? "No user-visible payload was available for delivery."
     : "The harness classified the final turn as non-terminal.";
-  if (params.decision.shouldQueue) {
-    return [
-      "Control Director liveness watchdog prevented a silent or non-terminal final response.",
-      "",
-      `Verified state: ${visibilityText} Classification: ${classificationText}. Recovery queued: ${queuedText}.`,
-      "Next build gap: Run the queued recovery continuation and verify concrete evidence before any complete claim.",
-      "Completion Grade: 7/10",
-      "Criticality: 10/10",
-      "Status: continuing",
-    ].join("\n");
-  }
-  const nextGap = params.decision.shouldQueue
-    ? "Run the queued safe continuation and verify concrete evidence before any complete claim."
-    : `Resolve the liveness blocker before claiming completion. Reason: ${params.decision.reason}.`;
+  const actionsAttempted = params.decision.shouldQueue
+    ? "The runtime classified the mission as recoverable, but no recovered user-visible answer was available before final delivery."
+    : "The runtime could not safely start recovery.";
   return [
     "Control Director liveness watchdog prevented a silent or non-terminal final response.",
     "",
-    `Verified state: ${visibilityText} Classification: ${classificationText}. Safe continuation queued: ${queuedText}.`,
-    `Next build gap: ${nextGap}`,
+    `Verified state: ${visibilityText} Classification: ${classificationText}.`,
+    `Root cause: ${params.decision.reason}.`,
+    `Actions attempted: ${actionsAttempted}`,
+    "Next build gap: rerun recovery with the original request context and deliver a real answer or exact blocker before final response.",
     "Completion Grade: 7/10",
     "Criticality: 10/10",
     "Status: blocked",
@@ -812,9 +803,9 @@ export function applyControlDirectorLivenessWatchdog<
       }),
       reason: decision.reason,
       ...(classification ? { classification } : {}),
-      nextStatus: decision.shouldQueue ? "continuing" : "blocked",
+      nextStatus: "blocked",
       continuationCount: decision.continuationCount,
-      continuationQueued: decision.shouldQueue,
+      continuationQueued: false,
       payloadsChecked: payloads.length,
       payloadsSynthesized: 1,
     },
@@ -980,9 +971,20 @@ function extractControlDirectorTruthClaims(
     if (dashboardClaim) {
       add("dashboard", "ui_smoke");
     }
+    const publicLinkClaim =
+      /\b(ngrok|cloudflared|tunnel|public\s+url|public\s+link|working\s+link|play\s+link|macbook|server\s+is\s+(running|active|live)|port\s+\d+\s+is\s+(active|open|listening)|pid\s+\d+|accessible\s+from)\b/iu.test(
+        line,
+      ) &&
+      /\b(link|url|https?:\/\/|ngrok|cloudflared|tunnel|server|port|pid|accessible|macbook|running|active|live|works?)\b/iu.test(
+        line,
+      );
+    if (publicLinkClaim) {
+      add("public_link", "command");
+    }
     const verificationClaim =
       !remoteProofClaim &&
       !dashboardClaim &&
+      !publicLinkClaim &&
       (/\b(tests?|checks?|smoke|validation|proof|command|readiness|pnpm)\b.*\b(passed|succeeded|verified|tested|green)\b/iu.test(
         line,
       ) ||
@@ -1026,6 +1028,16 @@ function findControlDirectorEvidenceForClaim(params: {
         ["smoke", /\b(smoke)\b/u],
         ["readiness", /\b(readiness|control-director:readiness)\b/u],
         ["pnpm", /\bpnpm\b/u],
+        ["ngrok", /\b(ngrok|tunnel|curl|http|url|link|reachability)\b/u],
+        ["cloudflared", /\b(cloudflared|tunnel|curl|http|url|link|reachability)\b/u],
+        ["tunnel", /\b(tunnel|ngrok|cloudflared|curl|http|url|link|reachability)\b/u],
+        ["public", /\b(public|curl|http|url|link|reachability|tunnel)\b/u],
+        ["link", /\b(link|url|curl|http|reachability)\b/u],
+        ["url", /\b(url|curl|http|reachability)\b/u],
+        ["server", /\b(server|listen|listening|lsof|curl|http|port)\b/u],
+        ["port", /\b(port|listen|listening|lsof|curl|http)\b/u],
+        ["pid", /\b(pid|process|pgrep|lsof)\b/u],
+        ["macbook", /\b(macbook|curl|http|url|link|reachability|tunnel)\b/u],
       ] as const;
       for (const [term, pattern] of requiredCommandTerms) {
         if (claimText.includes(term) && !pattern.test(haystack)) {

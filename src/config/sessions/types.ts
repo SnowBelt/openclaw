@@ -241,6 +241,7 @@ export type SessionControlDirectorTruthClaimAudit = {
     | "remote_proof"
     | "dashboard"
     | "implementation"
+    | "public_link"
     | "external_fact";
   requiredEvidenceType: SessionControlDirectorClaimEvidence["type"];
   evidenceId?: string;

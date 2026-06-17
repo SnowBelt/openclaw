@@ -52,7 +52,11 @@ import {
 import { resolveAgentRunContext } from "./command/run-context.js";
 import { resolveSession } from "./command/session.js";
 import type { AgentCommandIngressOpts, AgentCommandOpts } from "./command/types.js";
-import { resolveControlDirectorThinkingEscalation } from "./control-director-contract.js";
+import {
+  decideControlDirectorContinuation,
+  isControlDirectorAgentId,
+  resolveControlDirectorThinkingEscalation,
+} from "./control-director-contract.js";
 import { applyControlDirectorDeliveryGuards } from "./control-director-delivery-guards.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import { resolveFastModeState } from "./fast-mode.js";
@@ -353,6 +357,58 @@ function resolveControlDirectorEmbeddedClassification(params: {
     return "empty";
   }
   return undefined;
+}
+
+function isGenericControlDirectorRecoveryPrompt(text: string): boolean {
+  return /^(continue|try again|answer me|keep going|go on|resume|finish it|do it)$/iu.test(
+    text.replace(/\s+/gu, " ").trim(),
+  );
+}
+
+function resolveControlDirectorRecoveryOriginalRequest(params: {
+  currentBody: string;
+  sessionEntry?: SessionEntry | undefined;
+}): string {
+  if (!isGenericControlDirectorRecoveryPrompt(params.currentBody)) {
+    return params.currentBody;
+  }
+  const priorRequest = (params.sessionEntry?.controlDirectorMissionLedger ?? [])
+    .toReversed()
+    .map((entry) => entry.requestSummary?.trim())
+    .find((summary) => summary && !isGenericControlDirectorRecoveryPrompt(summary));
+  return priorRequest ?? params.currentBody;
+}
+
+function buildControlDirectorInlineRecoveryBody(params: {
+  currentBody: string;
+  originalBody: string;
+  runId: string;
+  classification: "empty" | "reasoning-only" | "planning-only";
+  attempt: number;
+  maxAttempts: number;
+  reason: string;
+}): string {
+  return [
+    "Control Director inline recovery supervisor request.",
+    `Mission run id: ${params.runId}`,
+    `Original user request: ${params.originalBody}`,
+    params.currentBody === params.originalBody
+      ? undefined
+      : `Latest user retry text: ${params.currentBody}`,
+    `Recovery attempt: ${params.attempt}/${params.maxAttempts}`,
+    `Failure classification: ${params.classification}`,
+    `Failure reason: ${params.reason}`,
+    "You must continue the original user request, not merely explain the liveness failure.",
+    "Inspect existing transcript/tool evidence before repeating any action.",
+    "Do not repeat completed or mutating actions unless the action is idempotent and needed for verification.",
+    "If you can safely continue, do the work now and produce the requested answer.",
+    "If you cannot safely continue, report the exact blocker and the smallest next build gap.",
+    "Do not output only liveness/recovery metadata.",
+    "Verify evidence before claiming complete.",
+    "End with Verified state, Next build gap, Completion Grade: x/10, Criticality: x/10, and Status: complete|blocked|needs_user_input.",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
 async function prepareAgentCommandExecution(
@@ -1294,6 +1350,149 @@ async function agentCommandInternal(
     }
     await fallbackTrajectoryRecorder?.flush();
 
+    let controlDirectorInlineRecoveryAttempted = false;
+    const initialControlDirectorClassification = resolveControlDirectorEmbeddedClassification({
+      payloads: result.payloads,
+      finalAssistantVisibleText: result.meta.finalAssistantVisibleText,
+      livenessState: result.meta.livenessState,
+      classification: result.meta.agentHarnessResultClassification,
+    });
+    if (
+      isControlDirectorAgentId(sessionAgentId) &&
+      initialControlDirectorClassification &&
+      result.meta.aborted !== true &&
+      opts.abortSignal?.aborted !== true &&
+      !result.meta.pendingToolCalls?.length
+    ) {
+      const previousContinuationCount =
+        sessionEntry?.controlDirectorMissionLedger
+          ?.toReversed()
+          .find(
+            (entry) => entry.status === "continuation_queued" || entry.finalStatus === "continuing",
+          )?.continuationCount ?? 0;
+      const recoveryDecision = decideControlDirectorContinuation({
+        agentId: sessionAgentId,
+        incomplete: true,
+        classification: initialControlDirectorClassification,
+        continuationCount: previousContinuationCount,
+        canQueueContinuation: true,
+      });
+      if (recoveryDecision.shouldQueue) {
+        controlDirectorInlineRecoveryAttempted = true;
+        const recoveryBody = buildControlDirectorInlineRecoveryBody({
+          currentBody: body,
+          originalBody: resolveControlDirectorRecoveryOriginalRequest({
+            currentBody: body,
+            sessionEntry,
+          }),
+          runId,
+          classification: initialControlDirectorClassification,
+          attempt: recoveryDecision.nextContinuationCount,
+          maxAttempts: 2,
+          reason: recoveryDecision.reason,
+        });
+        let recoveryFallbackAttemptIndex = 0;
+        const recoveryResult = await runWithModelFallback<AgentAttemptResult>({
+          cfg,
+          provider,
+          model,
+          runId,
+          agentDir,
+          fallbacksOverride: resolveEffectiveModelFallbacks({
+            cfg,
+            agentId: sessionAgentId,
+            hasSessionModelOverride:
+              hasExplicitRunOverride || Boolean(storedProviderOverride || storedModelOverride),
+            modelOverrideSource: hasExplicitRunOverride ? "user" : storedModelOverrideSource,
+          }),
+          onFallbackStep: (step) => {
+            fallbackTrajectoryRecorder?.recordEvent("model.inline_recovery_fallback_step", step);
+          },
+          classifyResult: ({ provider, model, result }) =>
+            classifyEmbeddedPiRunResultForModelFallback({
+              provider,
+              model,
+              result,
+            }),
+          run: async (providerOverride, modelOverride, runOptions) => {
+            const isFallbackRetry = recoveryFallbackAttemptIndex > 0;
+            recoveryFallbackAttemptIndex += 1;
+            return attemptExecutionRuntime.runAgentAttempt({
+              providerOverride,
+              modelOverride,
+              modelFallbacksOverride: resolveEffectiveModelFallbacks({
+                cfg,
+                agentId: sessionAgentId,
+                hasSessionModelOverride:
+                  hasExplicitRunOverride || Boolean(storedProviderOverride || storedModelOverride),
+                modelOverrideSource: hasExplicitRunOverride ? "user" : storedModelOverrideSource,
+              }),
+              originalProvider: provider,
+              cfg,
+              sessionEntry,
+              sessionId,
+              sessionKey,
+              sessionAgentId,
+              sessionFile,
+              workspaceDir,
+              body: recoveryBody,
+              isFallbackRetry,
+              resolvedThinkLevel,
+              fastMode: resolveFastModeState({
+                cfg,
+                provider: providerOverride,
+                model: modelOverride,
+                agentId: sessionAgentId,
+                sessionEntry,
+              }).enabled,
+              timeoutMs,
+              runId,
+              opts,
+              runContext,
+              spawnedBy: normalizedSpawned.spawnedBy ?? sessionEntry?.spawnedBy,
+              messageChannel,
+              skillsSnapshot,
+              resolvedVerboseLevel,
+              agentDir,
+              authProfileProvider: providerForAuthProfileValidation,
+              sessionStore,
+              storePath,
+              allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
+              sessionHasHistory: true,
+              suppressPromptPersistenceOnRetry: true,
+              onAgentEvent: (evt) => {
+                if (
+                  evt.stream === "lifecycle" &&
+                  typeof evt.data?.phase === "string" &&
+                  (evt.data.phase === "end" || evt.data.phase === "error")
+                ) {
+                  lifecycleEnded = true;
+                }
+              },
+            });
+          },
+        });
+        result = recoveryResult.result;
+        fallbackProvider = recoveryResult.provider;
+        fallbackModel = recoveryResult.model;
+        if (recoveryResult.attempts.length > 0 && result.meta.agentMeta) {
+          result = {
+            ...result,
+            meta: {
+              ...result.meta,
+              agentMeta: {
+                ...result.meta.agentMeta,
+                fallbackAttempts: recoveryResult.attempts,
+              },
+            },
+          };
+        }
+      }
+    }
+    if (controlDirectorInlineRecoveryAttempted) {
+      await fallbackTrajectoryRecorder?.flush();
+    }
+
     // Update token+model fields in the session store.
     if (sessionStore && sessionKey) {
       const { updateSessionStoreAfterAgentRun } = await loadSessionStoreRuntime();
@@ -1419,7 +1618,7 @@ async function agentCommandInternal(
         livenessState: result.meta.livenessState,
         classification: result.meta.agentHarnessResultClassification,
       }),
-      canQueueContinuation: Boolean(sessionKey),
+      canQueueContinuation: Boolean(sessionKey) && !controlDirectorInlineRecoveryAttempted,
       externalAbort: result.meta.aborted === true || opts.abortSignal?.aborted === true,
       approvalPending: Boolean(result.meta.pendingToolCalls?.length),
       runId,

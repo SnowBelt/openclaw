@@ -218,10 +218,7 @@ function buildControlDirectorGuardedStatusTextFromSessionEntry(
     .find(
       (candidate) =>
         (!runId || candidate.runId === runId) &&
-        (candidate.status === "blocked" ||
-          candidate.finalStatus === "blocked" ||
-          candidate.status === "continuation_queued" ||
-          candidate.finalStatus === "continuing") &&
+        (candidate.status === "blocked" || candidate.finalStatus === "blocked") &&
         ((candidate.guardActions?.length ?? 0) > 0 || (candidate.watchdogActions?.length ?? 0) > 0),
     );
   if (!liveness || !ledger) {
@@ -237,17 +234,13 @@ function buildControlDirectorGuardedStatusTextFromSessionEntry(
   const completionGrade = typeof ledger.completionGrade === "number" ? ledger.completionGrade : 7;
   const criticality = typeof ledger.criticality === "number" ? ledger.criticality : 10;
   return [
-    ledger.status === "continuation_queued" || ledger.finalStatus === "continuing"
-      ? "Control Director liveness watchdog started recovery for a silent final response."
-      : "Control Director liveness watchdog blocked a silent final response.",
+    "Control Director liveness watchdog blocked a silent final response.",
     "",
     `Verified state: ${verifiedEvidenceSummary}`,
     `Next build gap: ${nextBuildGap}`,
     `Completion Grade: ${completionGrade}/10`,
     `Criticality: ${criticality}/10`,
-    ledger.status === "continuation_queued" || ledger.finalStatus === "continuing"
-      ? "Status: continuing"
-      : "Status: blocked",
+    "Status: blocked",
   ].join("\n");
 }
 
