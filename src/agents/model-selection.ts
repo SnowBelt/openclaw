@@ -16,6 +16,11 @@ import {
   resolveAgentEffectiveModelPrimary,
   resolveAgentModelFallbacksOverride,
 } from "./agent-scope.js";
+import {
+  canonicalizeControlDirectorModelRef,
+  isControlDirectorAgentConfig,
+  isControlDirectorAgentId,
+} from "./control-director-model-ref.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import { findModelInCatalog } from "./model-catalog-lookup.js";
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
@@ -224,8 +229,14 @@ export function resolveDefaultModelForAgent(
   const agentModelOverride = params.agentId
     ? resolveAgentEffectiveModelPrimary(params.cfg, params.agentId)
     : undefined;
+  const normalizedAgentModelOverride =
+    params.agentId &&
+    (isControlDirectorAgentId(params.agentId) ||
+      isControlDirectorAgentConfig(resolveAgentConfig(params.cfg, params.agentId)))
+      ? canonicalizeControlDirectorModelRef(agentModelOverride)
+      : agentModelOverride;
   const cfg =
-    agentModelOverride && agentModelOverride.length > 0
+    normalizedAgentModelOverride && normalizedAgentModelOverride.length > 0
       ? {
           ...params.cfg,
           agents: {
@@ -234,7 +245,7 @@ export function resolveDefaultModelForAgent(
               ...params.cfg.agents?.defaults,
               model: {
                 ...toAgentModelListLike(params.cfg.agents?.defaults?.model),
-                primary: agentModelOverride,
+                primary: normalizedAgentModelOverride,
               },
             },
           },

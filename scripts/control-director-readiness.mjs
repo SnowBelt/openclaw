@@ -73,7 +73,7 @@ function readJson(filePath) {
 
 function normalizeModelRef(value) {
   const raw = String(value ?? "").trim();
-  return raw === PRIMARY_ALIAS ? PRIMARY_MODEL : raw;
+  return raw;
 }
 
 function findControlDirectorAgent(config) {
@@ -388,7 +388,7 @@ export function buildControlDirectorReadinessScorecard(params) {
   facts.push(
     fact(
       "primary",
-      "Primary alias is Gemma 4 Control alias",
+      "Primary model is canonical Ollama Gemma 4 Control ref",
       primary === PRIMARY_MODEL,
       true,
       `resolved=${primary || "missing"}`,

@@ -63,6 +63,11 @@ type ExactConfiguredProviderRefParts = {
   modelRaw: string;
 };
 
+type ConfiguredModelRefMatch = {
+  provider: string;
+  model: string;
+};
+
 function hasSlashFormModelRef(raw: string): boolean {
   const trimmed = raw.trim();
   const slash = trimmed.indexOf("/");
@@ -163,6 +168,110 @@ function sanitizeModelWarningValue(value: string): string {
   return sanitizeForLog(stripped.slice(0, controlBoundary));
 }
 
+function normalizeModelLookupKey(value: string): string {
+  return normalizeLowercaseStringOrEmpty(value);
+}
+
+function configuredModelIdMatchesBareInput(candidate: string, raw: string): boolean {
+  const candidateKey = normalizeModelLookupKey(candidate);
+  const rawKey = normalizeModelLookupKey(raw);
+  return candidateKey === rawKey || candidateKey === `${rawKey}:latest`;
+}
+
+function dedupeConfiguredModelRefMatches(
+  matches: ConfiguredModelRefMatch[],
+): ConfiguredModelRefMatch[] {
+  const seen = new Set<string>();
+  const deduped: ConfiguredModelRefMatch[] = [];
+  for (const match of matches) {
+    const key = modelKey(match.provider, match.model);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(match);
+  }
+  return deduped;
+}
+
+function collectConfiguredModelRefMatches(
+  params: {
+    cfg: OpenClawConfig;
+    model: string;
+    allowManifestNormalization?: boolean;
+  } & ModelManifestNormalizationContext,
+): ConfiguredModelRefMatch[] {
+  const model = params.model.trim();
+  if (!model) {
+    return [];
+  }
+  const matches: ConfiguredModelRefMatch[] = [];
+  const push = (provider: string, matchedModel: string) => {
+    const normalizedProvider = normalizeProviderId(provider);
+    if (!normalizedProvider || !matchedModel.trim()) {
+      return;
+    }
+    matches.push({ provider: normalizedProvider, model: matchedModel.trim() });
+  };
+  const configuredModels = params.cfg.agents?.defaults?.models;
+  if (configuredModels) {
+    for (const keyRaw of Object.keys(configuredModels)) {
+      const ref = keyRaw.trim();
+      if (!ref || !ref.includes("/") || ref.endsWith("/*")) {
+        continue;
+      }
+      const parsed = parseModelRef(ref, DEFAULT_PROVIDER, {
+        allowManifestNormalization: params.allowManifestNormalization,
+        allowPluginNormalization: false,
+        manifestPlugins: params.manifestPlugins,
+      });
+      if (!parsed) {
+        continue;
+      }
+      if (configuredModelIdMatchesBareInput(parsed.model, model)) {
+        push(parsed.provider, parsed.model);
+      }
+    }
+  }
+  const configuredProviders = params.cfg.models?.providers;
+  if (configuredProviders) {
+    for (const [providerId, providerConfig] of Object.entries(configuredProviders)) {
+      const models = providerConfig?.models;
+      if (!Array.isArray(models)) {
+        continue;
+      }
+      for (const entry of models) {
+        const modelId = entry?.id?.trim();
+        if (!modelId) {
+          continue;
+        }
+        const normalizedModelId = normalizeConfiguredProviderCatalogModelId(providerId, modelId, {
+          allowManifestNormalization: params.allowManifestNormalization,
+          manifestPlugins: params.manifestPlugins,
+        });
+        if (
+          configuredModelIdMatchesBareInput(modelId, model) ||
+          configuredModelIdMatchesBareInput(normalizedModelId, model)
+        ) {
+          push(providerId, normalizedModelId);
+        }
+      }
+    }
+  }
+  return dedupeConfiguredModelRefMatches(matches);
+}
+
+function inferUniqueConfiguredModelRef(
+  params: {
+    cfg: OpenClawConfig;
+    model: string;
+    allowManifestNormalization?: boolean;
+  } & ModelManifestNormalizationContext,
+): ConfiguredModelRefMatch | undefined {
+  const matches = collectConfiguredModelRefMatches(params);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function mergeModelCatalogEntries(params: {
   primary: readonly ModelCatalogEntry[];
   secondary: readonly ModelCatalogEntry[];
@@ -188,76 +297,9 @@ export function inferUniqueProviderFromConfiguredModels(
     allowManifestNormalization?: boolean;
   } & ModelManifestNormalizationContext,
 ): string | undefined {
-  const model = params.model.trim();
-  if (!model) {
-    return undefined;
-  }
-  const normalized = normalizeLowercaseStringOrEmpty(model);
-  const providers = new Set<string>();
-  const addProvider = (provider: string) => {
-    const normalizedProvider = normalizeProviderId(provider);
-    if (!normalizedProvider) {
-      return;
-    }
-    providers.add(normalizedProvider);
-  };
-  const configuredModels = params.cfg.agents?.defaults?.models;
-  if (configuredModels) {
-    for (const key of Object.keys(configuredModels)) {
-      const ref = key.trim();
-      if (!ref || !ref.includes("/") || ref.endsWith("/*")) {
-        continue;
-      }
-      const parsed = parseModelRef(ref, DEFAULT_PROVIDER, {
-        allowManifestNormalization: params.allowManifestNormalization,
-        allowPluginNormalization: false,
-        manifestPlugins: params.manifestPlugins,
-      });
-      if (!parsed) {
-        continue;
-      }
-      if (parsed.model === model || normalizeLowercaseStringOrEmpty(parsed.model) === normalized) {
-        addProvider(parsed.provider);
-        if (providers.size > 1) {
-          return undefined;
-        }
-      }
-    }
-  }
-  const configuredProviders = params.cfg.models?.providers;
-  if (configuredProviders) {
-    for (const [providerId, providerConfig] of Object.entries(configuredProviders)) {
-      const models = providerConfig?.models;
-      if (!Array.isArray(models)) {
-        continue;
-      }
-      for (const entry of models) {
-        const modelId = entry?.id?.trim();
-        if (!modelId) {
-          continue;
-        }
-        const normalizedModelId = normalizeConfiguredProviderCatalogModelId(providerId, modelId, {
-          allowManifestNormalization: params.allowManifestNormalization,
-          manifestPlugins: params.manifestPlugins,
-        });
-        if (
-          modelId === model ||
-          normalizeLowercaseStringOrEmpty(modelId) === normalized ||
-          normalizedModelId === model ||
-          normalizeLowercaseStringOrEmpty(normalizedModelId) === normalized
-        ) {
-          addProvider(providerId);
-        }
-      }
-      if (providers.size > 1) {
-        return undefined;
-      }
-    }
-  }
-  if (providers.size !== 1) {
-    return undefined;
-  }
-  return providers.values().next().value;
+  const matches = collectConfiguredModelRefMatches(params);
+  const providers = new Set(matches.map((match) => match.provider));
+  return providers.size === 1 ? providers.values().next().value : undefined;
 }
 
 /** Infer a unique provider for a bare model from a provider catalog. */
@@ -402,10 +444,26 @@ function parseModelRefWithCompatAlias(
         ...params,
         raw: `${params.defaultProvider}/${params.raw}`,
       });
+  const inferredConfiguredRef =
+    params.cfg && !hasSlashFormModelRef(params.raw)
+      ? inferUniqueConfiguredModelRef({
+          cfg: params.cfg,
+          model: params.raw,
+          allowManifestNormalization: params.allowManifestNormalization,
+          manifestPlugins: params.manifestPlugins,
+        })
+      : undefined;
   return (
     resolveConfiguredOpenRouterCompatAlias(params) ??
     exactConfiguredProviderRef ??
     exactDefaultProviderRef ??
+    (inferredConfiguredRef
+      ? normalizeModelRef(inferredConfiguredRef.provider, inferredConfiguredRef.model, {
+          allowManifestNormalization: params.allowManifestNormalization,
+          allowPluginNormalization: params.allowPluginNormalization,
+          manifestPlugins: params.manifestPlugins,
+        })
+      : null) ??
     parseModelRef(params.raw, params.defaultProvider, {
       allowManifestNormalization: params.allowManifestNormalization,
       allowPluginNormalization: params.allowPluginNormalization,
@@ -843,12 +901,13 @@ export function resolveConfiguredModelRef(
         return openrouterCompatRef;
       }
 
-      let inferredProvider = inferUniqueProviderFromConfiguredModels({
+      let inferredConfiguredRef = inferUniqueConfiguredModelRef({
         cfg: params.cfg,
         model: trimmed,
         allowManifestNormalization: false,
         manifestPlugins,
       });
+      let inferredProvider = inferredConfiguredRef?.provider;
       let inferredProviderManifestPlugins = manifestPlugins;
       if (
         (!inferredProvider || inferredProvider !== "openai") &&
@@ -857,16 +916,17 @@ export function resolveConfiguredModelRef(
         // Non-default provider rows may normalize through plugin manifests. Avoid
         // that heavier lookup unless the cheap configured pass was ambiguous.
         inferredProviderManifestPlugins = manifestPluginContext.get();
-        inferredProvider =
-          inferUniqueProviderFromConfiguredModels({
+        inferredConfiguredRef =
+          inferUniqueConfiguredModelRef({
             cfg: params.cfg,
             model: trimmed,
             allowManifestNormalization: params.allowManifestNormalization,
             manifestPlugins: inferredProviderManifestPlugins,
-          }) ?? inferredProvider;
+          }) ?? inferredConfiguredRef;
+        inferredProvider = inferredConfiguredRef?.provider ?? inferredProvider;
       }
-      if (inferredProvider) {
-        return normalizeModelRef(inferredProvider, trimmed, {
+      if (inferredConfiguredRef) {
+        return normalizeModelRef(inferredConfiguredRef.provider, inferredConfiguredRef.model, {
           allowManifestNormalization: inferredProviderManifestPlugins
             ? params.allowManifestNormalization
             : false,

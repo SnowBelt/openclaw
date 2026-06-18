@@ -26,6 +26,7 @@ import {
   type DoctorConfigMutationState,
 } from "./shared/config-mutation-state.js";
 import { maybeRepairContextEngineHostCompatibility } from "./shared/context-engine-host-compat.js";
+import { maybeRepairControlDirectorGemmaModelRefs } from "./shared/control-director-model-ref-repair.js";
 import { scanEmptyAllowlistPolicyWarnings } from "./shared/empty-allowlist-scan.js";
 import { maybeRepairExecSafeBinProfiles } from "./shared/exec-safe-bins.js";
 import { maybeRepairInvalidPluginConfig } from "./shared/invalid-plugin-config.js";
@@ -142,6 +143,7 @@ export async function runDoctorRepairSequence(params: {
   applyMutation(maybeRepairOpenPolicyAllowFrom(state.candidate));
   applyMutation(maybeRepairGroupAllowFromFallback(state.candidate));
   applyMutation(maybeRepairStaleSubagentAllowlists(state.candidate));
+  applyMutation(maybeRepairControlDirectorGemmaModelRefs(state.candidate));
 
   const emptyAllowlistWarnings = scanEmptyAllowlistPolicyWarnings(state.candidate, {
     doctorFixCommand: params.doctorFixCommand,

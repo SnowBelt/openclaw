@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
 import { judgeTaskCompletion } from "../tasks/task-completion-judge.js";
+import {
+  CONTROL_DIRECTOR_PRIMARY_ALIAS,
+  CONTROL_DIRECTOR_PRIMARY_MODEL,
+  CONTROL_DIRECTOR_PRIMARY_MODEL_ID,
+  CONTROL_DIRECTOR_PRIMARY_PROVIDER,
+} from "./control-director-model-ref.js";
+export {
+  CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL,
+  CONTROL_DIRECTOR_PRIMARY_ALIAS,
+  CONTROL_DIRECTOR_PRIMARY_MODEL,
+  CONTROL_DIRECTOR_PRIMARY_MODEL_ID,
+  CONTROL_DIRECTOR_PRIMARY_PROVIDER,
+} from "./control-director-model-ref.js";
 
 export const CONTROL_DIRECTOR_AGENT_IDS = ["main", "control-director"] as const;
 
-export const CONTROL_DIRECTOR_PRIMARY_PROVIDER = "ollama";
-export const CONTROL_DIRECTOR_PRIMARY_ALIAS = "openclaw-control-gemma4-31b-q8";
-export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = "openclaw-control-gemma4-31b-q8:latest";
-export const CONTROL_DIRECTOR_PRIMARY_MODEL = `${CONTROL_DIRECTOR_PRIMARY_PROVIDER}/${CONTROL_DIRECTOR_PRIMARY_MODEL_ID}`;
 export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0";
 export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Gemma 4 31B IT Q8_0";
-export const CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 export const CONTROL_DIRECTOR_EFFECTIVE_CONTEXT_TOKENS = 64_000;
 
 export type ControlDirectorFinalStatus = "complete" | "blocked" | "needs_user_input" | "continuing";
