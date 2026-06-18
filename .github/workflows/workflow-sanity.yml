@@ -10,6 +10,10 @@ on:
         description: "Run the scoped Control Director reliability proof instead of generated docs baselines"
         required: false
         default: "false"
+      chat-work-surface-proof:
+        description: "Run the scoped Chat Work Surface V1 proof instead of generated docs baselines"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -87,7 +91,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-work-surface-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -103,6 +107,64 @@ jobs:
 
       - name: Check plugin SDK API baseline drift
         run: pnpm plugin-sdk:api:check
+
+  chat-work-surface-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-work-surface-proof == 'true'
+    name: Chat Work Surface V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          pnpm-version: "11.2.2"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF'
+          commands:
+          - pnpm test ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-work-surface
+          - pnpm check:changed package.json scripts/dev/control-ui-chat-work-surface-smoke.ts ui/src/ui/chat/work-snapshot.ts ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/controllers/chat.ts ui/src/ui/views/chat.ts ui/src/styles/chat.css ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/ui/app-render.ts .github/workflows/workflow-sanity.yml
+          EOF
+
+      - name: Run targeted Chat Work Surface tests
+        run: pnpm test ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Work Surface smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-work-surface
+
+      - name: Run explicit changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed package.json scripts/dev/control-ui-chat-work-surface-smoke.ts ui/src/ui/chat/work-snapshot.ts ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/controllers/chat.ts ui/src/ui/views/chat.ts ui/src/styles/chat.css ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/ui/app-render.ts .github/workflows/workflow-sanity.yml
 
   control-director-reliability-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof == 'true'
