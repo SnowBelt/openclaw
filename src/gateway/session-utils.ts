@@ -2271,6 +2271,7 @@ export function buildGatewaySessionRow(params: {
     controlDirectorMissionLedger: entry?.controlDirectorMissionLedger,
     controlDirectorJudgeCompletionApproval: entry?.controlDirectorJudgeCompletionApproval,
     controlDirectorTruthAudit: entry?.controlDirectorTruthAudit,
+    controlDirectorProviderRequestAudit: entry?.controlDirectorProviderRequestAudit,
     pluginExtensions: pluginExtensions.length > 0 ? pluginExtensions : undefined,
   };
 }

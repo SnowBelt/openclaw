@@ -22,8 +22,11 @@ vi.mock("./logger.js", () => ({
   log: mocks.log,
 }));
 
-const { logProviderToolSchemaDiagnostics, normalizeProviderToolSchemas } =
-  await import("./tool-schema-runtime.js");
+const {
+  inspectProviderToolSchemaDiagnostics,
+  logProviderToolSchemaDiagnostics,
+  normalizeProviderToolSchemas,
+} = await import("./tool-schema-runtime.js");
 
 describe("tool schema runtime diagnostics", () => {
   it("stays quiet when a provider reports no diagnostics", () => {
@@ -36,6 +39,19 @@ describe("tool schema runtime diagnostics", () => {
 
     expect(mocks.log.info).not.toHaveBeenCalled();
     expect(mocks.log.warn).not.toHaveBeenCalled();
+  });
+
+  it("returns provider tool schema diagnostics for preflight checks", () => {
+    mocks.inspectProviderToolSchemasWithPlugin.mockReturnValueOnce([
+      { toolName: "alpha", toolIndex: 0, violations: ["unsupported anyOf"] },
+    ]);
+
+    expect(
+      inspectProviderToolSchemaDiagnostics({
+        provider: "example",
+        tools: [{ name: "alpha" }] as never,
+      }),
+    ).toEqual([{ toolName: "alpha", toolIndex: 0, violations: ["unsupported anyOf"] }]);
   });
 
   it("passes through provider runtime loading policy for normalization", () => {

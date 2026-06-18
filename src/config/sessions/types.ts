@@ -263,6 +263,28 @@ export type SessionControlDirectorTruthAuditEntry = {
   payloadsRewritten: number;
 };
 
+export type SessionControlDirectorProviderRequestAuditEntry = {
+  ts: number;
+  runId?: string;
+  provider: string;
+  model: string;
+  status: "blocked_preflight" | "provider_rejected";
+  httpStatus?: number;
+  providerErrorHash?: string;
+  providerErrorPreview?: string;
+  diagnosticCount: number;
+  toolNames: string[];
+  diagnostics: Array<{
+    toolName: string;
+    toolIndex?: number;
+    source: "runtime" | "provider";
+    violations: string[];
+    violationCount: number;
+  }>;
+  missingCondition: string;
+  rewriteAction?: "blocked_provider_request";
+};
+
 export type SessionControlDirectorMissionLedgerEntry = {
   missionId: string;
   runId?: string;
@@ -480,6 +502,7 @@ export type SessionEntry = {
   controlDirectorMissionLedger?: SessionControlDirectorMissionLedgerEntry[];
   controlDirectorJudgeCompletionApproval?: SessionControlDirectorJudgeCompletionApproval;
   controlDirectorTruthAudit?: SessionControlDirectorTruthAuditEntry[];
+  controlDirectorProviderRequestAudit?: SessionControlDirectorProviderRequestAuditEntry[];
   /** Durable marker that final user reply delivery still needs a retry/resume pass. */
   pendingFinalDelivery?: boolean;
   pendingFinalDeliveryCreatedAt?: number;

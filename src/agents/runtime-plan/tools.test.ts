@@ -13,17 +13,20 @@ import { logAgentRuntimeToolDiagnostics, normalizeAgentRuntimeTools } from "./to
 import type { AgentRuntimePlan } from "./types.js";
 
 const mocks = vi.hoisted(() => ({
+  inspectProviderToolSchemaDiagnostics: vi.fn(),
   logProviderToolSchemaDiagnostics: vi.fn(),
   normalizeProviderToolSchemas: vi.fn(),
 }));
 
 vi.mock("../embedded-agent-runner/tool-schema-runtime.js", () => ({
+  inspectProviderToolSchemaDiagnostics: mocks.inspectProviderToolSchemaDiagnostics,
   logProviderToolSchemaDiagnostics: mocks.logProviderToolSchemaDiagnostics,
   normalizeProviderToolSchemas: mocks.normalizeProviderToolSchemas,
 }));
 
 describe("AgentRuntimePlan tool policy helpers", () => {
   beforeEach(() => {
+    mocks.inspectProviderToolSchemaDiagnostics.mockReset();
     mocks.logProviderToolSchemaDiagnostics.mockReset();
     mocks.normalizeProviderToolSchemas.mockReset();
   });
