@@ -459,6 +459,7 @@ vi.mock("../replay-history.js", () => ({
 }));
 
 vi.mock("../tool-schema-runtime.js", () => ({
+  inspectProviderToolSchemaDiagnostics: () => [],
   logProviderToolSchemaDiagnostics: () => {},
   normalizeProviderToolSchemas: ({ tools }: { tools: unknown[] }) => tools,
 }));
