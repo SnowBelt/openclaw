@@ -9,6 +9,7 @@ import {
 } from "../chat/heartbeat-display.ts";
 import { extractText } from "../chat/message-extract.ts";
 import type { ChatRunStatus } from "../chat/run-status.ts";
+import type { WorkSurfaceTaskSummary } from "../chat/work-snapshot.ts";
 import { formatConnectError } from "../connect-error.ts";
 import { GatewayRequestError, type GatewayBrowserClient } from "../gateway.ts";
 import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
@@ -257,9 +258,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 type ChatTaskSummary = {
+  id?: string;
+  title?: string;
   status?: string;
+  runtime?: string;
+  kind?: string;
+  sessionKey?: string;
   runId?: string;
   taskId?: string;
+  createdAt?: number | string;
+  updatedAt?: number | string;
+  progressSummary?: string;
   terminalSummary?: string;
   blockedReason?: string;
   error?: string;
@@ -351,6 +360,10 @@ export type ChatState = {
   chatAttachments: ChatAttachment[];
   chatRunId: string | null;
   chatTaskId?: string | null;
+  chatWorkTasks?: WorkSurfaceTaskSummary[];
+  chatWorkLoading?: boolean;
+  chatWorkError?: string | null;
+  chatWorkUpdatedAt?: number | null;
   chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
   chatStream: string | null;
   chatStreamStartedAt: number | null;
@@ -358,6 +371,60 @@ export type ChatState = {
   lastError: string | null;
   resetChatInputHistoryNavigation?: () => void;
 };
+
+export async function loadChatWorkTasks(state: ChatState): Promise<void> {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  state.chatWorkLoading = true;
+  try {
+    const res = await state.client.request<{ tasks?: WorkSurfaceTaskSummary[] }>("tasks.list", {
+      status: ["queued", "running"],
+      limit: 50,
+    });
+    state.chatWorkTasks = Array.isArray(res.tasks) ? res.tasks : [];
+    state.chatWorkError = null;
+    state.chatWorkUpdatedAt = Date.now();
+  } catch (err) {
+    state.chatWorkError = formatConnectError(err);
+    state.chatWorkUpdatedAt = Date.now();
+  } finally {
+    state.chatWorkLoading = false;
+  }
+}
+
+export async function cancelChatWorkTask(state: ChatState, taskId: string): Promise<boolean> {
+  if (!state.client || !state.connected) {
+    return false;
+  }
+  const normalized = taskId.trim();
+  if (!normalized) {
+    return false;
+  }
+  try {
+    await state.client.request("tasks.cancel", {
+      taskId: normalized,
+      reason: "cancelled from Control UI Working Now",
+    });
+    await loadChatWorkTasks(state);
+    return true;
+  } catch (err) {
+    state.chatWorkError = formatConnectError(err);
+    state.chatWorkUpdatedAt = Date.now();
+    return false;
+  }
+}
+
+function maybeRefreshChatWorkTasks(state: ChatState): void {
+  if (
+    "chatWorkTasks" in state ||
+    "chatWorkLoading" in state ||
+    "chatWorkError" in state ||
+    "chatWorkUpdatedAt" in state
+  ) {
+    void loadChatWorkTasks(state);
+  }
+}
 
 export type ChatEventPayload = {
   runId?: string;
@@ -502,6 +569,7 @@ export async function loadChatHistory(
     if (isLatestChatHistoryRequest(state, requestVersion)) {
       state.chatLoading = false;
     }
+    maybeRefreshChatWorkTasks(state);
   }
 }
 
@@ -707,6 +775,7 @@ export async function sendChatMessage(
     if (ack.taskId) {
       state.chatTaskId = ack.taskId;
     }
+    maybeRefreshChatWorkTasks(state);
     if (state.chatRunId === runId) {
       state.chatRunStatus = { phase: "received", runId, updatedAt: Date.now() };
     }
@@ -863,6 +932,7 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     state.chatTaskId = null;
     state.chatStreamStartedAt = null;
     state.chatRunStatus = { phase: "complete", runId: payload.runId, updatedAt: Date.now() };
+    maybeRefreshChatWorkTasks(state);
   } else if (payload.state === "aborted") {
     const normalizedMessage = normalizeAbortedAssistantMessage(payload.message);
     if (normalizedMessage && !shouldHideAssistantChatMessage(normalizedMessage)) {
@@ -889,6 +959,7 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     state.chatTaskId = null;
     state.chatStreamStartedAt = null;
     state.chatRunStatus = { phase: "aborted", runId: payload.runId, updatedAt: Date.now() };
+    maybeRefreshChatWorkTasks(state);
   } else if (payload.state === "error") {
     state.chatStream = null;
     state.chatRunId = null;
@@ -901,6 +972,7 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
       detail: payload.errorMessage ?? "chat error",
       updatedAt: Date.now(),
     };
+    maybeRefreshChatWorkTasks(state);
   }
   return payload.state;
 }

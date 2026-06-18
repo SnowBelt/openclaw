@@ -45,6 +45,12 @@ import {
 } from "../chat/slash-commands.ts";
 import { renderCompactionIndicator, renderFallbackIndicator } from "../chat/status-indicators.ts";
 import { getExpandedToolCards, syncToolCardExpansionState } from "../chat/tool-expansion-state.ts";
+import {
+  buildWorkSurfaceSnapshot,
+  hasActiveWork,
+  type WorkSurfaceItem,
+  type WorkSurfaceTaskSummary,
+} from "../chat/work-snapshot.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
@@ -74,6 +80,9 @@ export type ChatProps = {
   stream: string | null;
   streamStartedAt: number | null;
   runStatus?: ChatRunStatus | null;
+  workTasks?: WorkSurfaceTaskSummary[];
+  workTasksLoading?: boolean;
+  workTasksError?: string | null;
   targetRunId?: string | null;
   targetAuditTs?: number | null;
   targetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
@@ -123,6 +132,7 @@ export type ChatProps = {
   onAbort?: () => void;
   onQueueRemove: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onWorkTaskCancel?: (taskId: string) => void;
   onDismissSideResult?: () => void;
   onNewSession: () => void;
   onClearHistory?: () => void;
@@ -717,6 +727,131 @@ function exportMarkdown(props: ChatProps): void {
   exportChatMarkdown(props.messages, props.assistantName);
 }
 
+function workItemKindLabel(kind: WorkSurfaceItem["kind"]): string {
+  switch (kind) {
+    case "chat_run":
+      return "Chat";
+    case "queued_message":
+      return "Queue";
+    case "task":
+      return "Task";
+    case "active_session":
+      return "Session";
+    default:
+      return "Work";
+  }
+}
+
+function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
+  return html`
+    ${item.actions.includes("stop_run") && props.onAbort
+      ? html`<button class="btn btn--sm" type="button" @click=${props.onAbort}>Stop</button>`
+      : nothing}
+    ${item.actions.includes("remove_queue")
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onQueueRemove(item.id.replace(/^queued:/, ""))}
+          >
+            Remove
+          </button>
+        `
+      : nothing}
+    ${item.actions.includes("open_session") && item.sessionKey && props.onSessionSelect
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onSessionSelect?.(item.sessionKey!)}
+          >
+            Open
+          </button>
+        `
+      : nothing}
+    ${item.actions.includes("cancel_task") && item.taskId && props.onWorkTaskCancel
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onWorkTaskCancel?.(item.taskId!)}
+          >
+            Cancel
+          </button>
+        `
+      : nothing}
+  `;
+}
+
+function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[]) {
+  const hasItems = hasActiveWork(items);
+  const hasError = Boolean(props.workTasksError);
+  const summaryLabel = hasItems
+    ? "Working"
+    : hasError
+      ? "Work status unavailable"
+      : props.workTasksLoading
+        ? "Checking work…"
+        : "Nothing running";
+  return html`
+    <details class="chat-work-surface" data-chat-work-surface>
+      <summary class="chat-work-surface__summary" role="button">
+        <span
+          class="chat-work-surface__dot ${hasItems ? "chat-work-surface__dot--active" : ""}"
+        ></span>
+        <span>${summaryLabel}</span>
+        ${hasItems ? html`<strong>${items.length}</strong>` : nothing}
+      </summary>
+      <div class="chat-work-surface__panel" role="region" aria-label="Working Now">
+        <div class="chat-work-surface__header">
+          <div>
+            <h3>Working Now</h3>
+            <p>${hasItems ? "Current OpenClaw work, newest first." : "Nothing is running."}</p>
+          </div>
+        </div>
+        ${hasError
+          ? html`<div class="chat-work-surface__error">Work status unavailable</div>`
+          : nothing}
+        ${hasItems
+          ? html`
+              <div class="chat-work-surface__list">
+                ${items.map(
+                  (item) => html`
+                    <article class="chat-work-surface__item" data-work-kind=${item.kind}>
+                      <div class="chat-work-surface__item-main">
+                        <div class="chat-work-surface__item-topline">
+                          <span>${workItemKindLabel(item.kind)}</span>
+                          <strong>${item.status}</strong>
+                        </div>
+                        <div class="chat-work-surface__item-title">${item.title}</div>
+                        ${item.detail
+                          ? html`<div class="chat-work-surface__item-detail">${item.detail}</div>`
+                          : nothing}
+                        ${item.projectId || item.sessionKey
+                          ? html`
+                              <div class="chat-work-surface__item-meta">
+                                ${item.projectId
+                                  ? html`<span>Project ${item.projectId}</span>`
+                                  : nothing}
+                                ${item.sessionKey ? html`<span>${item.sessionKey}</span>` : nothing}
+                              </div>
+                            `
+                          : nothing}
+                      </div>
+                      <div class="chat-work-surface__actions">
+                        ${renderWorkItemActions(props, item)}
+                      </div>
+                    </article>
+                  `,
+                )}
+              </div>
+            `
+          : html`<div class="chat-work-surface__empty">Nothing is running.</div>`}
+      </div>
+    </details>
+  `;
+}
+
 function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof nothing {
   if (!vs.searchOpen) {
     return nothing;
@@ -978,6 +1113,15 @@ export function renderChat(props: ChatProps) {
   const splitRatio = props.splitRatio ?? 0.6;
   const sidebarOpen = Boolean(props.sidebarOpen && props.onCloseSidebar);
   const visibleRunStatus = chatRunStatusLabel(props.runStatus, props.assistantName);
+  const workItems = buildWorkSurfaceSnapshot({
+    assistantName: props.assistantName,
+    chatRunId: props.canAbort ? (props.runStatus?.runId ?? null) : null,
+    chatRunStatus: props.runStatus,
+    chatQueue: props.queue,
+    currentSessionKey: props.sessionKey,
+    sessionsResult: props.sessions,
+    tasks: props.workTasks ?? [],
+  });
 
   const handleCodeBlockCopy = (e: Event) => {
     const btn = (e.target as HTMLElement).closest(".code-block-copy");
@@ -1399,6 +1543,7 @@ export function renderChat(props: ChatProps) {
           : nothing}
       </div>
 
+      ${renderWorkingNow(props, workItems)}
       ${renderChatQueue({
         queue: props.queue,
         canAbort: props.canAbort,

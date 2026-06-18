@@ -17,7 +17,7 @@ import { warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { setAssistantAvatarOverride } from "./controllers/assistant-identity.ts";
 import { loadChannels } from "./controllers/channels.ts";
-import { loadChatHistory } from "./controllers/chat.ts";
+import { cancelChatWorkTask, loadChatHistory } from "./controllers/chat.ts";
 import {
   applyConfig,
   loadConfig,
@@ -1583,6 +1583,9 @@ export function renderApp(state: AppViewState) {
                 stream: state.chatStream,
                 streamStartedAt: state.chatStreamStartedAt,
                 runStatus: state.chatRunStatus,
+                workTasks: state.chatWorkTasks,
+                workTasksLoading: state.chatWorkLoading,
+                workTasksError: state.chatWorkError,
                 targetRunId: state.chatTargetRunId ?? null,
                 targetAuditTs: state.chatTargetAuditTs ?? null,
                 targetStatus: state.chatTargetStatus ?? null,
@@ -1646,6 +1649,7 @@ export function renderApp(state: AppViewState) {
                 onAbort: () => void state.handleAbortChat(),
                 onQueueRemove: (id) => state.removeQueuedMessage(id),
                 onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
+                onWorkTaskCancel: (taskId) => void cancelChatWorkTask(state, taskId),
                 onDismissSideResult: () => {
                   state.chatSideResult = null;
                 },

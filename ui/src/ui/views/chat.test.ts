@@ -1247,3 +1247,99 @@ describe("chat session controls", () => {
     expect(thinkingSelect?.title).toBe("Default (adaptive)");
   });
 });
+
+describe("chat Working Now surface", () => {
+  it("renders an idle empty state", () => {
+    const container = renderChatView();
+
+    expect(container.querySelector("[data-chat-work-surface]")?.textContent).toContain(
+      "Nothing running",
+    );
+    expect(container.querySelector("[data-chat-work-surface]")?.textContent).toContain(
+      "Nothing is running.",
+    );
+  });
+
+  it("renders active run, queue, task, and active session actions", () => {
+    const onAbort = vi.fn();
+    const onQueueRemove = vi.fn();
+    const onWorkTaskCancel = vi.fn();
+    const onSessionSelect = vi.fn();
+    const container = renderChatView({
+      canAbort: true,
+      runStatus: { phase: "using_tool", detail: "checking files", runId: "run-1", updatedAt: 100 },
+      queue: [{ id: "queue-1", text: "follow up", createdAt: 90 }],
+      workTasks: [
+        {
+          id: "task-1",
+          taskId: "task-1",
+          title: "Remote proof",
+          status: "running",
+          progressSummary: "Watching CI",
+          updatedAt: 80,
+        },
+      ],
+      sessions: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:main:research",
+            kind: "direct",
+            displayName: "Research lane",
+            updatedAt: 70,
+            hasActiveRun: true,
+          },
+        ],
+      },
+      onAbort,
+      onQueueRemove,
+      onWorkTaskCancel,
+      onSessionSelect,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-work-surface]");
+    expect(surface?.textContent).toContain("Working");
+    expect(surface?.textContent).toContain("Val is checking files");
+    expect(surface?.textContent).toContain("follow up");
+    expect(surface?.textContent).toContain("Remote proof");
+    expect(surface?.textContent).toContain("Watching CI");
+    expect(surface?.textContent).toContain("Research lane");
+
+    const buttons = [...surface!.querySelectorAll<HTMLButtonElement>("button")];
+    buttons.find((button) => button.textContent?.includes("Stop"))?.click();
+    buttons.find((button) => button.textContent?.includes("Remove"))?.click();
+    buttons.find((button) => button.textContent?.includes("Cancel"))?.click();
+    buttons.find((button) => button.textContent?.includes("Open"))?.click();
+
+    expect(onAbort).toHaveBeenCalledTimes(1);
+    expect(onQueueRemove).toHaveBeenCalledWith("queue-1");
+    expect(onWorkTaskCancel).toHaveBeenCalledWith("task-1");
+    expect(onSessionSelect).toHaveBeenCalledWith("agent:main:research");
+  });
+
+  it("renders work status failures without hiding current work", () => {
+    const container = renderChatView({
+      workTasksError: "offline",
+      workTasks: [{ id: "task-1", title: "Still visible", status: "running" }],
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-work-surface]");
+    expect(surface?.textContent).toContain("Work status unavailable");
+    expect(surface?.textContent).toContain("Still visible");
+  });
+
+  it("does not render cancel for tasks without a task id", () => {
+    const container = renderChatView({
+      workTasks: [{ title: "No id task", status: "running" }],
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-work-surface]");
+    expect(surface?.textContent).toContain("No id task");
+    expect(
+      [...surface!.querySelectorAll("button")].map((button) => button.textContent),
+    ).not.toContain("Cancel");
+  });
+});

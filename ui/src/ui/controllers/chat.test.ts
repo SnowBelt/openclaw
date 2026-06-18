@@ -6,7 +6,9 @@ import {
 import { GatewayRequestError } from "../gateway.ts";
 import {
   abortChatRun,
+  cancelChatWorkTask,
   handleChatEvent,
+  loadChatWorkTasks,
   loadChatHistory,
   sendChatMessage,
   type ChatEventPayload,
@@ -36,6 +38,71 @@ function createState(overrides: Partial<ChatState> = {}): ChatState {
 
 afterEach(() => {
   resetChatAttachmentPayloadStoreForTest();
+});
+
+describe("chat work task loading", () => {
+  it("loads queued and running work tasks without blocking chat", async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      tasks: [{ id: "task-1", taskId: "task-1", title: "Build proof", status: "running" }],
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatWorkTasks: [],
+      chatWorkLoading: false,
+      chatWorkError: null,
+    });
+
+    await loadChatWorkTasks(state);
+
+    expect(request).toHaveBeenCalledWith("tasks.list", {
+      status: ["queued", "running"],
+      limit: 50,
+    });
+    expect(state.chatWorkTasks).toEqual([
+      { id: "task-1", taskId: "task-1", title: "Build proof", status: "running" },
+    ]);
+    expect(state.chatWorkError).toBeNull();
+    expect(state.chatWorkLoading).toBe(false);
+  });
+
+  it("records work task load failures without throwing", async () => {
+    const request = vi.fn().mockRejectedValueOnce(new Error("offline"));
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatWorkTasks: [],
+      chatWorkLoading: false,
+      chatWorkError: null,
+    });
+
+    await expect(loadChatWorkTasks(state)).resolves.toBeUndefined();
+
+    expect(state.chatWorkError).toContain("offline");
+    expect(state.chatWorkLoading).toBe(false);
+  });
+
+  it("cancels a work task when a task id exists", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ found: true, cancelled: true })
+      .mockResolvedValueOnce({ tasks: [] });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatWorkTasks: [{ id: "task-1", taskId: "task-1", title: "Build proof" }],
+      chatWorkLoading: false,
+      chatWorkError: null,
+    });
+
+    await expect(cancelChatWorkTask(state, "task-1")).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(1, "tasks.cancel", {
+      taskId: "task-1",
+      reason: "cancelled from Control UI Working Now",
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "tasks.list", {
+      status: ["queued", "running"],
+      limit: 50,
+    });
+  });
 });
 
 function createDeferred<T>() {

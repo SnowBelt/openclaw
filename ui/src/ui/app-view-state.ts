@@ -5,6 +5,7 @@ import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./chat
 import type { RealtimeTalkStatus } from "./chat/realtime-talk.ts";
 import type { ChatRunStatus } from "./chat/run-status.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
+import type { WorkSurfaceTaskSummary } from "./chat/work-snapshot.ts";
 import type {
   AppStudioActionReceipt,
   AppStudioAppleFactsDraft,
@@ -144,6 +145,10 @@ export type AppViewState = {
   chatStreamStartedAt: number | null;
   chatRunId: string | null;
   chatRunStatus?: ChatRunStatus | null;
+  chatWorkTasks?: WorkSurfaceTaskSummary[];
+  chatWorkLoading?: boolean;
+  chatWorkError?: string | null;
+  chatWorkUpdatedAt?: number | null;
   chatTargetRunId?: string | null;
   chatTargetAuditTs?: number | null;
   chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;

@@ -70,6 +70,7 @@ import { exportChatMarkdown } from "./chat/export.ts";
 import { RealtimeTalkSession, type RealtimeTalkStatus } from "./chat/realtime-talk.ts";
 import type { ChatRunStatus } from "./chat/run-status.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
+import type { WorkSurfaceTaskSummary } from "./chat/work-snapshot.ts";
 import {
   loadToolsEffective as loadToolsEffectiveInternal,
   refreshVisibleToolsEffectiveForCurrentSession as refreshVisibleToolsEffectiveForCurrentSessionInternal,
@@ -332,6 +333,10 @@ export class OpenClawApp extends LitElement {
   @state() chatRunId: string | null = null;
   @state() chatTaskId: string | null = null;
   @state() chatRunStatus: ChatRunStatus | null = null;
+  @state() chatWorkTasks: WorkSurfaceTaskSummary[] = [];
+  @state() chatWorkLoading = false;
+  @state() chatWorkError: string | null = null;
+  @state() chatWorkUpdatedAt: number | null = null;
   @state() chatTargetRunId: string | null = null;
   @state() chatTargetAuditTs: number | null = null;
   @state() chatTargetStatus: "exact-run" | "timestamp-fallback" | "not-found" | null = null;
