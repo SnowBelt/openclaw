@@ -733,6 +733,25 @@ describe("model-selection", () => {
       ).toBe("qwen-dashscope");
     });
 
+    it("infers provider from a configured :latest Ollama model when the user omits the tag", () => {
+      const cfg = {
+        models: {
+          providers: {
+            ollama: {
+              models: [{ id: "openclaw-control-gemma4-31b-q8:latest" }],
+            },
+          },
+        },
+      } as unknown as OpenClawConfig;
+
+      expect(
+        inferUniqueProviderFromConfiguredModels({
+          cfg,
+          model: "openclaw-control-gemma4-31b-q8",
+        }),
+      ).toBe("ollama");
+    });
+
     it("infers provider from raw configured ids when manifest policies add prefixes", () => {
       const cfg = {
         models: {
@@ -1749,6 +1768,27 @@ describe("model-selection", () => {
       });
       expect(resolved?.alias).toBe("kimi");
     });
+
+    it("resolves bare configured :latest provider model strings to the canonical configured id", () => {
+      const resolved = resolveModelRefFromString({
+        cfg: {
+          models: {
+            providers: {
+              ollama: {
+                models: [{ id: "openclaw-control-gemma4-31b-q8:latest" }],
+              },
+            },
+          },
+        } as unknown as OpenClawConfig,
+        raw: "openclaw-control-gemma4-31b-q8",
+        defaultProvider: "openai",
+      });
+
+      expect(resolved?.ref).toEqual({
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+      });
+    });
   });
 
   describe("resolveConfiguredModelRef", () => {
@@ -1886,6 +1926,61 @@ describe("model-selection", () => {
       expect(result).toEqual({
         provider: "nvidia",
         model: "nvidia/llama-fast",
+      });
+    });
+
+    it("canonicalizes bare configured :latest model strings instead of defaulting to OpenAI", () => {
+      const cfg = {
+        agents: {
+          defaults: {
+            model: { primary: "openclaw-control-gemma4-31b-q8" },
+          },
+        },
+        models: {
+          providers: {
+            ollama: {
+              models: [{ id: "openclaw-control-gemma4-31b-q8:latest" }],
+            },
+          },
+        },
+      } as unknown as OpenClawConfig;
+
+      const result = resolveConfiguredModelRef({
+        cfg,
+        defaultProvider: "openai",
+        defaultModel: "gpt-5.4",
+      });
+
+      expect(result).toEqual({
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+      });
+    });
+
+    it("canonicalizes the Control Director Gemma alias even when provider rows are incomplete", () => {
+      const cfg = {
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.4" },
+          },
+          list: [
+            {
+              id: "main",
+              name: "Control Director",
+              model: { primary: "openclaw-control-gemma4-31b-q8" },
+            },
+          ],
+        },
+      } as unknown as OpenClawConfig;
+
+      const result = resolveDefaultModelForAgent({
+        cfg,
+        agentId: "main",
+      });
+
+      expect(result).toEqual({
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
       });
     });
 

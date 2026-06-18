@@ -43,7 +43,7 @@ function createConfig() {
           id: "main",
           name: "Control Director",
           model: {
-            primary: "openclaw-control-gemma4-31b-q8",
+            primary: "ollama/openclaw-control-gemma4-31b-q8:latest",
             fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
           },
           thinkingDefault: "off",
@@ -112,6 +112,42 @@ describe("control-director-readiness", () => {
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain("Control alias and Gemma 4 Q8 source are installed");
     expect(scorecard.nextBuildGap).toContain("Underlying Gemma 4 31B Q8 GGUF tag");
+  });
+
+  it("flags bare Gemma Control refs as a canonicalization readiness gap", () => {
+    const config = createConfig();
+    config.agents.list[0].model.primary = "openclaw-control-gemma4-31b-q8";
+    const scorecard = buildControlDirectorReadinessScorecard({
+      config,
+      ollamaModels: new Map([
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
+        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
+      ]),
+      ollamaEnv: {
+        OLLAMA_FLASH_ATTENTION: "1",
+        OLLAMA_KV_CACHE_TYPE: "q8_0",
+        OLLAMA_NUM_PARALLEL: "1",
+      },
+      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
+      thinkingEscalationPolicy: true,
+      continueUntilCompletePolicy: true,
+      completionEvidencePolicy: true,
+      explicitStatusPolicy: true,
+      runtimeFinalOutputGuard: true,
+      runtimeJudgeCompletionGate: true,
+      runtimeTruthGate: true,
+      runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
+    });
+
+    expect(scorecard.productionReady).toBe(false);
+    expect(scorecard.failedCritical).toContain(
+      "Primary model is canonical Ollama Gemma 4 Control ref",
+    );
+    expect(scorecard.nextBuildGap).toContain(
+      "Primary model is canonical Ollama Gemma 4 Control ref",
+    );
   });
 
   it("flags a missing thinking escalation policy as a critical readiness gap", () => {
