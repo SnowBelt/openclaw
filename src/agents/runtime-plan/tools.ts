@@ -10,6 +10,7 @@ import type { ProviderRuntimeModel } from "../../plugins/provider-runtime-model.
 import { copyPluginToolMeta } from "../../plugins/tools.js";
 import { copyChannelAgentToolMeta } from "../channel-tools.js";
 import {
+  inspectProviderToolSchemaDiagnostics,
   logProviderToolSchemaDiagnostics,
   normalizeProviderToolSchemas,
 } from "../embedded-agent-runner/tool-schema-runtime.js";
@@ -134,6 +135,26 @@ export function logAgentRuntimeToolDiagnostics(params: AgentRuntimeToolPolicyPar
     return;
   }
   logProviderToolSchemaDiagnostics({
+    tools: params.tools,
+    provider: params.provider,
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    env: params.env ?? process.env,
+    modelId: params.modelId,
+    modelApi: params.modelApi,
+    model: params.model,
+    runtimeHandle: params.runtimeHandle,
+  });
+}
+
+/** Returns provider fallback diagnostics for final normalized tools. */
+export function inspectAgentRuntimeToolDiagnostics(
+  params: AgentRuntimeToolPolicyParams,
+): ReturnType<typeof inspectProviderToolSchemaDiagnostics> {
+  if (params.runtimePlan) {
+    return [];
+  }
+  return inspectProviderToolSchemaDiagnostics({
     tools: params.tools,
     provider: params.provider,
     config: params.config,

@@ -21,6 +21,7 @@ import {
   bindOwnedSessionTranscriptWrites,
   withOwnedSessionTranscriptWrites,
 } from "../../../config/sessions/transcript-write-context.js";
+import type { SessionControlDirectorProviderRequestAuditEntry } from "../../../config/sessions/types.js";
 import {
   assertContextEngineHostSupport,
   OPENCLAW_EMBEDDED_CONTEXT_ENGINE_HOST,
@@ -141,6 +142,7 @@ import {
   createCodeModeTools,
   resolveCodeModeConfig,
 } from "../../code-mode.js";
+import { isControlDirectorAgentId } from "../../control-director-contract.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawReferencePaths } from "../../docs-path.js";
 import {
@@ -168,9 +170,17 @@ import { supportsModelTools } from "../../model-tool-support.js";
 import { wrapStreamFnTextTransforms } from "../../plugin-text-transforms.js";
 import { resolveAgentPromptSurfaceForSessionKey } from "../../prompt-surface.js";
 import { describeProviderRequestRoutingSummary } from "../../provider-attribution.js";
+import {
+  buildProviderRequestPreflightAudit,
+  buildProviderRequestRejectionAudit,
+  createProviderRequestPreflightError,
+  createProviderRequestRejectionError,
+  normalizeProviderRequestSchemaDiagnostics,
+} from "../../provider-request-preflight.js";
 import { registerProviderStreamForModel } from "../../provider-stream.js";
 import { collectRuntimeChannelCapabilities } from "../../runtime-capabilities.js";
 import {
+  inspectAgentRuntimeToolDiagnostics,
   logAgentRuntimeToolDiagnostics,
   normalizeAgentRuntimeTools,
 } from "../../runtime-plan/tools.js";
@@ -903,6 +913,37 @@ export async function runEmbeddedAttempt(
     config: params.config,
     agentId: params.agentId,
   });
+  const isControlDirectorScope = isControlDirectorAgentId(sessionAgentId);
+  const appendControlDirectorProviderRequestAudit = async (
+    audit: SessionControlDirectorProviderRequestAuditEntry,
+  ) => {
+    if (!isControlDirectorScope || !params.sessionKey) {
+      return;
+    }
+    const storePath = resolveStorePath(params.config?.session?.store, {
+      agentId: sessionAgentId,
+    });
+    try {
+      await updateSessionStoreEntry({
+        storePath,
+        sessionKey: params.sessionKey,
+        skipMaintenance: true,
+        takeCacheOwnership: true,
+        update: async (entry) => {
+          const prior = Array.isArray(entry.controlDirectorProviderRequestAudit)
+            ? entry.controlDirectorProviderRequestAudit
+            : [];
+          return {
+            controlDirectorProviderRequestAudit: [...prior, audit].slice(-10),
+          };
+        },
+      });
+    } catch (err) {
+      log.warn(
+        `[provider-preflight] failed to persist Control Director provider request audit runId=${params.runId}: ${formatErrorMessage(err)}`,
+      );
+    }
+  };
   const effectiveFsWorkspaceOnly = resolveAttemptFsWorkspaceOnly({
     config: params.config,
     sessionAgentId,
@@ -1721,6 +1762,38 @@ export async function runEmbeddedAttempt(
       model: params.model,
       runtimeHandle: getProviderRuntimeHandle(),
     });
+    let providerRequestPreflightError: Error | undefined;
+    const providerToolSchemaDiagnostics = inspectAgentRuntimeToolDiagnostics({
+      runtimePlan: params.runtimePlan,
+      tools: effectiveTools,
+      provider: params.provider,
+      config: params.config,
+      workspaceDir: effectiveWorkspace,
+      env: process.env,
+      modelId: params.modelId,
+      modelApi: params.model.api,
+      model: params.model,
+      runtimeHandle: getProviderRuntimeHandle(),
+    });
+    const providerRequestSchemaDiagnostics = normalizeProviderRequestSchemaDiagnostics({
+      providerDiagnostics: providerToolSchemaDiagnostics,
+    });
+    if (providerRequestSchemaDiagnostics.length > 0) {
+      const audit = buildProviderRequestPreflightAudit({
+        runId: params.runId,
+        provider: params.provider,
+        model: params.modelId,
+        tools: effectiveTools,
+        diagnostics: providerRequestSchemaDiagnostics,
+      });
+      await appendControlDirectorProviderRequestAudit(audit);
+      providerRequestPreflightError = createProviderRequestPreflightError(audit, {
+        controlDirector: isControlDirectorScope,
+      });
+      log.warn(
+        `[provider-preflight] blocked incompatible tool schema payload before provider request runId=${params.runId} provider=${params.provider} model=${params.modelId} diagnostics=${providerRequestSchemaDiagnostics.length}`,
+      );
+    }
 
     const machineName = await getMachineDisplayName();
     const runtimeChannel = normalizeMessageChannel(params.messageChannel ?? params.messageProvider);
@@ -3641,6 +3714,12 @@ export async function runEmbeddedAttempt(
           skipPromptSubmission = true;
           log.warn(`[tools] ${emptyExplicitToolAllowlistError.message}`);
         }
+        if (!skipPromptSubmission && providerRequestPreflightError) {
+          promptError = providerRequestPreflightError;
+          promptErrorSource = "precheck";
+          skipPromptSubmission = true;
+          log.warn(`[provider-preflight] ${providerRequestPreflightError.message.split("\n")[0]}`);
+        }
 
         // Run before_prompt_build hooks to allow plugins to inject prompt context.
         // Legacy compatibility: before_agent_start is also checked for context fields.
@@ -4536,7 +4615,32 @@ export async function runEmbeddedAttempt(
               handleMidTurnPrecheckRequest(err.request);
             });
           } else {
-            promptError = err;
+            const providerRequestRejectionAudit = buildProviderRequestRejectionAudit({
+              runId: params.runId,
+              provider: params.provider,
+              model: params.modelId,
+              tools: effectiveTools,
+              error: err,
+            });
+            if (providerRequestRejectionAudit) {
+              log.warn(
+                `[provider-preflight] provider rejected request schema/tool payload runId=${params.runId} provider=${params.provider} model=${params.modelId} status=${providerRequestRejectionAudit.httpStatus ?? "unknown"}`,
+              );
+              if (isControlDirectorScope) {
+                await appendControlDirectorProviderRequestAudit(providerRequestRejectionAudit);
+                promptError = createProviderRequestRejectionError(
+                  providerRequestRejectionAudit,
+                  err,
+                  {
+                    controlDirector: true,
+                  },
+                );
+              } else {
+                promptError = err;
+              }
+            } else {
+              promptError = err;
+            }
             promptErrorSource = "prompt";
           }
         } finally {

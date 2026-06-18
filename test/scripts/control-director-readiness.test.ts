@@ -77,6 +77,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(true);
@@ -105,6 +106,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -134,6 +136,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -164,6 +167,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -194,6 +198,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -224,6 +229,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -254,6 +260,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -284,6 +291,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: false,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -314,6 +322,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: false,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
@@ -344,11 +353,43 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: false,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain(
       "Control Director runtime truth evidence ingestion is wired",
+    );
+  });
+
+  it("flags missing runtime provider schema preflight as a critical readiness gap", () => {
+    const scorecard = buildControlDirectorReadinessScorecard({
+      config: createConfig(),
+      ollamaModels: new Map([
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "same" }],
+        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
+      ]),
+      ollamaEnv: {
+        OLLAMA_FLASH_ATTENTION: "1",
+        OLLAMA_KV_CACHE_TYPE: "q8_0",
+        OLLAMA_NUM_PARALLEL: "1",
+      },
+      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
+      thinkingEscalationPolicy: true,
+      continueUntilCompletePolicy: true,
+      completionEvidencePolicy: true,
+      explicitStatusPolicy: true,
+      runtimeFinalOutputGuard: true,
+      runtimeJudgeCompletionGate: true,
+      runtimeTruthGate: true,
+      runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: false,
+    });
+
+    expect(scorecard.productionReady).toBe(false);
+    expect(scorecard.failedCritical).toContain(
+      "Control Director provider schema preflight gate is wired",
     );
   });
 
@@ -378,6 +419,7 @@ describe("control-director-readiness", () => {
       runtimeJudgeCompletionGate: true,
       runtimeTruthGate: true,
       runtimeTruthEvidenceIngestion: true,
+      runtimeProviderSchemaPreflight: true,
     });
 
     expect(scorecard.productionReady).toBe(false);

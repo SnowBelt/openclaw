@@ -266,6 +266,34 @@ function detectControlDirectorTruthEvidenceIngestion() {
   }
 }
 
+function detectControlDirectorProviderSchemaPreflight() {
+  try {
+    const preflightSource = fs.readFileSync(
+      path.join(REPO_ROOT, "src/agents/provider-request-preflight.ts"),
+      "utf8",
+    );
+    const attemptSource = fs.readFileSync(
+      path.join(REPO_ROOT, "src/agents/embedded-agent-runner/run/attempt.ts"),
+      "utf8",
+    );
+    const sessionTypesSource = fs.readFileSync(
+      path.join(REPO_ROOT, "src/config/sessions/types.ts"),
+      "utf8",
+    );
+    return (
+      preflightSource.includes("buildProviderRequestPreflightAudit") &&
+      preflightSource.includes("formatControlDirectorProviderRequestBlockedReport") &&
+      preflightSource.includes("isProviderSchemaOrToolPayloadRejection") &&
+      attemptSource.includes("inspectAgentRuntimeToolDiagnostics") &&
+      attemptSource.includes("providerRequestPreflightError") &&
+      attemptSource.includes("appendControlDirectorProviderRequestAudit") &&
+      sessionTypesSource.includes("controlDirectorProviderRequestAudit")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function readOllamaEnvFromLaunchctl() {
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   if (uid === null) {
@@ -445,6 +473,14 @@ export function buildControlDirectorReadinessScorecard(params) {
       "runtime-truth-evidence-ingestion",
       "Control Director runtime truth evidence ingestion is wired",
       params.runtimeTruthEvidenceIngestion === true,
+      true,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-provider-schema-preflight",
+      "Control Director provider schema preflight gate is wired",
+      params.runtimeProviderSchemaPreflight === true,
       true,
     ),
   );
@@ -648,6 +684,7 @@ export async function main(argv = process.argv.slice(2)) {
     runtimeJudgeCompletionGate: detectControlDirectorJudgeCompletionGate(),
     runtimeTruthGate: detectControlDirectorTruthGate(),
     runtimeTruthEvidenceIngestion: detectControlDirectorTruthEvidenceIngestion(),
+    runtimeProviderSchemaPreflight: detectControlDirectorProviderSchemaPreflight(),
   });
   if (args.json) {
     console.log(JSON.stringify(scorecard, null, 2));

@@ -200,6 +200,28 @@ describe("listSessionsFromStore subagent metadata", () => {
             payloadsRewritten: 1,
           },
         ],
+        controlDirectorProviderRequestAudit: [
+          {
+            ts: 10,
+            runId: "run-control-director-liveness",
+            provider: "openai",
+            model: "gpt-5.5",
+            status: "blocked_preflight",
+            diagnosticCount: 1,
+            toolNames: ["bad_tool"],
+            diagnostics: [
+              {
+                toolName: "bad_tool",
+                toolIndex: 0,
+                source: "provider",
+                violations: ["unsupported anyOf"],
+                violationCount: 1,
+              },
+            ],
+            missingCondition: "provider-compatible final tool schema payload",
+            rewriteAction: "blocked_provider_request",
+          },
+        ],
       } as SessionEntry,
     });
 
@@ -238,6 +260,14 @@ describe("listSessionsFromStore subagent metadata", () => {
         runId: "run-control-director-liveness",
         status: "blocked",
         payloadsRewritten: 1,
+      }),
+    ]);
+    expect(row.controlDirectorProviderRequestAudit).toEqual([
+      expect.objectContaining({
+        runId: "run-control-director-liveness",
+        provider: "openai",
+        status: "blocked_preflight",
+        diagnosticCount: 1,
       }),
     ]);
   });
