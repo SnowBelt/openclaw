@@ -124,10 +124,55 @@ describe("generate-dependency-release-evidence", () => {
       resolvePreviousReleaseTag({
         rootDir: "/repo",
         execFileSyncImpl,
+        fallbackRemoteUrl: "",
       }),
     ).toBe("v2026.5.1");
     expect(calls.map(({ args }) => args[0])).toEqual(["describe", "fetch", "describe"]);
-    expect(calls[1].args).toEqual(["fetch", "--tags", "--force", "origin"]);
+    expect(calls[1].args).toEqual(["fetch", "--force", "origin", "+refs/tags/*:refs/tags/*"]);
+  });
+
+  it("falls back to the canonical OpenClaw tag remote when a fork lacks release tags", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let describeCalls = 0;
+    const execFileSyncImpl = (command: string, args: string[] = []) => {
+      calls.push({ command, args });
+      if (command !== "git") {
+        throw new Error(`unexpected command: ${command}`);
+      }
+      if (args[0] === "describe") {
+        describeCalls += 1;
+        if (describeCalls < 3) {
+          throw new Error("tag not found");
+        }
+        return "v2026.4.19-beta.2\n";
+      }
+      if (args[0] === "fetch") {
+        return "";
+      }
+      throw new Error(`unexpected git args: ${args.join(" ")}`);
+    };
+
+    expect(
+      resolvePreviousReleaseTag({
+        rootDir: "/repo",
+        execFileSyncImpl,
+        fallbackRemoteUrl: "https://github.com/openclaw/openclaw.git",
+      }),
+    ).toBe("v2026.4.19-beta.2");
+    expect(calls.map(({ args }) => args[0])).toEqual([
+      "describe",
+      "fetch",
+      "describe",
+      "fetch",
+      "describe",
+    ]);
+    expect(calls[1].args).toEqual(["fetch", "--force", "origin", "+refs/tags/*:refs/tags/*"]);
+    expect(calls[3].args).toEqual([
+      "fetch",
+      "--force",
+      "https://github.com/openclaw/openclaw.git",
+      "+refs/tags/*:refs/tags/*",
+    ]);
   });
 
   it("collects report counts and renders human summaries", async () => {

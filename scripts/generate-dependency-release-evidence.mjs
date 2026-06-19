@@ -41,6 +41,7 @@ export const DEPENDENCY_EVIDENCE_REPORTS = [
 ];
 
 const RELEASE_TAG_PATTERN = "v[0-9]*.[0-9]*.[0-9]*";
+const DEFAULT_RELEASE_TAG_FALLBACK_REMOTE_URL = "https://github.com/openclaw/openclaw.git";
 
 function trimOutput(output) {
   return String(output).trim();
@@ -91,6 +92,8 @@ export function resolvePreviousReleaseTag({
   rootDir = process.cwd(),
   execFileSyncImpl = execFileSync,
   fetchOnMiss = true,
+  fallbackRemoteUrl = process.env.OPENCLAW_RELEASE_TAG_FALLBACK_REMOTE_URL ??
+    DEFAULT_RELEASE_TAG_FALLBACK_REMOTE_URL,
 } = {}) {
   const describeArgs = [
     "describe",
@@ -109,7 +112,10 @@ export function resolvePreviousReleaseTag({
     return localTag;
   }
   if (fetchOnMiss) {
-    runCommand("git", ["fetch", "--tags", "--force", "origin"], { rootDir, execFileSyncImpl });
+    runCommand("git", ["fetch", "--force", "origin", "+refs/tags/*:refs/tags/*"], {
+      rootDir,
+      execFileSyncImpl,
+    });
   }
   const fetchedTag = commandOutput("git", describeArgs, {
     rootDir,
@@ -118,6 +124,20 @@ export function resolvePreviousReleaseTag({
   });
   if (fetchedTag) {
     return fetchedTag;
+  }
+  if (fetchOnMiss && fallbackRemoteUrl) {
+    runCommand("git", ["fetch", "--force", fallbackRemoteUrl, "+refs/tags/*:refs/tags/*"], {
+      rootDir,
+      execFileSyncImpl,
+    });
+  }
+  const fallbackTag = commandOutput("git", describeArgs, {
+    rootDir,
+    execFileSyncImpl,
+    allowFailure: true,
+  });
+  if (fallbackTag) {
+    return fallbackTag;
   }
   throw new Error(
     "Could not resolve a previous reachable release tag for dependency change evidence.",
