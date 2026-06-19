@@ -26,6 +26,10 @@ on:
         description: Run Chat Polish Accessibility V1 proof
         required: false
         default: "false"
+      chat-network-remote-approval-cards-proof:
+        description: Run Chat Network Remote Approval Cards V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -225,7 +229,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -536,3 +540,60 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed package.json scripts/dev/control-ui-chat-polish-a11y-smoke.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/grouped-render.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/chat/tool-cards.ts ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/control-director-diagnostics.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/styles/chat.css ui/src/styles/chat/grouped.css ui/src/styles/chat/tool-cards.css .github/workflows/workflow-sanity.yml
+
+  chat-network-remote-approval-cards-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-network-remote-approval-cards-proof == 'true'
+    name: Chat Network Remote Approval Cards V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test ui/src/ui/controllers/exec-approval.test.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app.exec-approval.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-network-remote-approval-cards
+          - pnpm check:changed src/infra/plugin-approvals.ts ui/src/ui/controllers/exec-approval.ts ui/src/ui/controllers/exec-approval.test.ts ui/src/ui/app.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app.exec-approval.test.ts ui/src/styles/chat.css package.json scripts/dev/control-ui-chat-network-remote-approval-cards-smoke.ts .github/workflows/workflow-sanity.yml
+          EOF_COMMANDS
+
+      - name: Run targeted Chat Network Remote Approval Cards tests
+        run: pnpm test ui/src/ui/controllers/exec-approval.test.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app.exec-approval.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Network Remote Approval Cards smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-network-remote-approval-cards
+
+      - name: Run changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed src/infra/plugin-approvals.ts ui/src/ui/controllers/exec-approval.ts ui/src/ui/controllers/exec-approval.test.ts ui/src/ui/app.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app.exec-approval.test.ts ui/src/styles/chat.css package.json scripts/dev/control-ui-chat-network-remote-approval-cards-smoke.ts .github/workflows/workflow-sanity.yml

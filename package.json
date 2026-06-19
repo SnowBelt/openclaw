@@ -1870,6 +1870,7 @@
     "ui:i18n:sync": "node --import tsx scripts/control-ui-i18n.ts sync --write",
     "ui:install": "node scripts/ui.js install",
     "ui:smoke:chat-approval-cards": "node --import tsx scripts/dev/control-ui-chat-approval-cards-smoke.ts",
+    "ui:smoke:chat-network-remote-approval-cards": "node --import tsx scripts/dev/control-ui-chat-network-remote-approval-cards-smoke.ts",
     "ui:smoke:chat-plan-mode": "node --import tsx scripts/dev/control-ui-chat-plan-mode-smoke.ts",
     "ui:smoke:chat-projects": "node --import tsx scripts/dev/control-ui-chat-projects-smoke.ts",
     "ui:smoke:chat-pursue-goal": "node --import tsx scripts/dev/control-ui-chat-pursue-goal-smoke.ts",

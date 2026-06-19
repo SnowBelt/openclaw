@@ -1357,7 +1357,7 @@ export class OpenClawApp extends LitElement {
     this.execApprovalBusy = true;
     this.execApprovalError = null;
     try {
-      const method = active.kind === "plugin" ? "plugin.approval.resolve" : "exec.approval.resolve";
+      const method = active.kind === "exec" ? "exec.approval.resolve" : "plugin.approval.resolve";
       await this.client.request(method, {
         id: active.id,
         decision,

@@ -1796,14 +1796,47 @@ function renderChatExecApprovalBody(request: ExecApprovalRequestPayload) {
   `;
 }
 
-function renderChatPluginApprovalBody(active: ExecApprovalRequest) {
+function resolveChatApprovalTitle(active: ExecApprovalRequest): string {
+  if (active.kind === "exec") {
+    return "Exec approval needed";
+  }
+  if (active.kind === "network") {
+    return "Network approval needed";
+  }
+  if (active.kind === "remote_proof") {
+    return "Remote proof approval needed";
+  }
+  return active.pluginTitle ?? "Plugin approval needed";
+}
+
+function resolveChatApprovalKindLabel(active: ExecApprovalRequest): string {
+  if (active.kind === "network") {
+    return "Network";
+  }
+  if (active.kind === "remote_proof") {
+    return "Remote proof";
+  }
+  return active.kind === "plugin" ? "Plugin" : "Exec";
+}
+
+function resolveChatApprovalSourceLabel(active: ExecApprovalRequest): string {
+  if (active.kind === "network") {
+    return "Network source";
+  }
+  if (active.kind === "remote_proof") {
+    return "Proof source";
+  }
+  return "Plugin";
+}
+
+function renderChatPluginBackedApprovalBody(active: ExecApprovalRequest) {
   return html`
     ${active.pluginDescription
       ? html`<pre class="chat-approval-card__command mono">${active.pluginDescription}</pre>`
       : nothing}
     <div class="chat-approval-card__meta">
       ${renderChatApprovalMetaRow("Severity", active.pluginSeverity)}
-      ${renderChatApprovalMetaRow("Plugin", active.pluginId)}
+      ${renderChatApprovalMetaRow(resolveChatApprovalSourceLabel(active), active.pluginId)}
       ${renderChatApprovalMetaRow("Agent", active.request.agentId)}
       ${renderChatApprovalMetaRow("Session", active.request.sessionKey)}
     </div>
@@ -1815,15 +1848,15 @@ function renderChatApprovalCard(props: ChatProps) {
   if (!active) {
     return nothing;
   }
-  const isPlugin = active.kind === "plugin";
+  const isExec = active.kind === "exec";
   const queueCount = props.execApprovalQueue?.length ?? 1;
   const remainingMs = active.expiresAtMs - Date.now();
   const remaining =
     remainingMs > 0 ? `Expires in ${formatChatApprovalRemaining(remainingMs)}` : "Approval expired";
-  const title = isPlugin
-    ? (active.pluginTitle ?? "Plugin approval needed")
-    : "Exec approval needed";
-  const summaryDetail = isPlugin ? (active.pluginId ?? "Plugin") : active.request.command;
+  const title = resolveChatApprovalTitle(active);
+  const summaryDetail = isExec
+    ? active.request.command
+    : (active.pluginTitle ?? active.request.command);
   const busy = Boolean(props.execApprovalBusy);
   const decide = (decision: "allow-once" | "allow-always" | "deny") => {
     if (!busy) {
@@ -1834,6 +1867,7 @@ function renderChatApprovalCard(props: ChatProps) {
     <details
       class="chat-approval-card"
       data-chat-approval-card
+      data-approval-kind=${active.kind}
       open
       @keydown=${closeDetailsOnEscape}
     >
@@ -1855,11 +1889,11 @@ function renderChatApprovalCard(props: ChatProps) {
             <h3>${title}</h3>
             <p>${remaining}</p>
           </div>
-          <span class="chat-approval-card__kind">${isPlugin ? "Plugin" : "Exec"}</span>
+          <span class="chat-approval-card__kind">${resolveChatApprovalKindLabel(active)}</span>
         </div>
-        ${isPlugin
-          ? renderChatPluginApprovalBody(active)
-          : renderChatExecApprovalBody(active.request)}
+        ${isExec
+          ? renderChatExecApprovalBody(active.request)
+          : renderChatPluginBackedApprovalBody(active)}
         ${props.execApprovalError
           ? html`<div class="chat-approval-card__error" role="alert">
               ${props.execApprovalError}

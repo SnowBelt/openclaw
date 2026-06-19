@@ -3889,6 +3889,34 @@ describe("chat approval cards", () => {
       ...overrides,
     };
   };
+  const networkApproval = (): ExecApprovalRequest =>
+    pluginApproval({
+      id: "approval-network-1",
+      kind: "network",
+      request: {
+        command: "Allow web search",
+        agentId: "main",
+        sessionKey: "agent:main:chat",
+      },
+      pluginTitle: "Allow web search",
+      pluginDescription: "Connect to the configured search provider.",
+      pluginSeverity: "warning",
+      pluginId: "web-search",
+    });
+  const remoteProofApproval = (): ExecApprovalRequest =>
+    pluginApproval({
+      id: "approval-remote-proof-1",
+      kind: "remote_proof",
+      request: {
+        command: "Run remote proof",
+        agentId: "main",
+        sessionKey: "agent:main:chat",
+      },
+      pluginTitle: "Run remote proof",
+      pluginDescription: "Dispatch Workflow Sanity on SnowBelt.",
+      pluginSeverity: "critical",
+      pluginId: "github-actions",
+    });
 
   it("does not render an intrusive card when no approval is pending", () => {
     const container = renderChatView({ execApprovalQueue: [] });
@@ -3943,6 +3971,42 @@ describe("chat approval cards", () => {
       .querySelector<HTMLButtonElement>("button.danger, .btn.danger")
       ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
+    expect(onExecApprovalDecision).toHaveBeenCalledWith("deny");
+  });
+
+  it("renders network approval details with existing decisions", () => {
+    const onExecApprovalDecision = vi.fn();
+    const container = renderChatView({
+      execApprovalQueue: [networkApproval()],
+      onExecApprovalDecision,
+    });
+
+    const card = container.querySelector<HTMLElement>("[data-chat-approval-card]")!;
+    expect(card.getAttribute("data-approval-kind")).toBe("network");
+    expect(card.textContent).toContain("Network approval needed");
+    expect(card.textContent).toContain("Connect to the configured search provider.");
+    expect(card.textContent).toContain("Network source");
+    expect(card.textContent).toContain("web-search");
+
+    card.querySelector<HTMLButtonElement>("button.primary")?.click();
+    expect(onExecApprovalDecision).toHaveBeenCalledWith("allow-once");
+  });
+
+  it("renders remote-proof approval details with existing decisions", () => {
+    const onExecApprovalDecision = vi.fn();
+    const container = renderChatView({
+      execApprovalQueue: [remoteProofApproval()],
+      onExecApprovalDecision,
+    });
+
+    const card = container.querySelector<HTMLElement>("[data-chat-approval-card]")!;
+    expect(card.getAttribute("data-approval-kind")).toBe("remote_proof");
+    expect(card.textContent).toContain("Remote proof approval needed");
+    expect(card.textContent).toContain("Dispatch Workflow Sanity on SnowBelt.");
+    expect(card.textContent).toContain("Proof source");
+    expect(card.textContent).toContain("github-actions");
+
+    card.querySelector<HTMLButtonElement>("button.danger")?.click();
     expect(onExecApprovalDecision).toHaveBeenCalledWith("deny");
   });
 
