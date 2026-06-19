@@ -3977,6 +3977,118 @@ describe("chat approval cards", () => {
   });
 });
 
+describe("chat polish accessibility", () => {
+  const execApproval = (): ExecApprovalRequest => {
+    const createdAtMs = Date.now();
+    return {
+      id: "approval-exec-polish",
+      kind: "exec",
+      request: {
+        command: "pnpm test ui/src/ui/views/chat.test.ts",
+        agentId: "main",
+        sessionKey: "main",
+      },
+      createdAtMs,
+      expiresAtMs: createdAtMs + 120_000,
+    };
+  };
+
+  it("labels Codex-style chat surfaces and actions for assistive technology", () => {
+    const container = renderChatView({
+      canAbort: true,
+      currentRunId: "run-1",
+      execApprovalQueue: [execApproval()],
+      goalPanelOpen: true,
+      goalDraft: "Polish the chat",
+      projectPickerOpen: true,
+      projectCreateName: "Polish",
+      projectsList: {
+        ok: true as const,
+        ts: 1,
+        count: 1,
+        projects: [
+          {
+            id: "project-polish",
+            name: "Polish Project",
+            memoryMode: "project_only" as const,
+            createdAt: 1,
+            updatedAt: 2,
+            resources: [],
+          },
+        ],
+      },
+      sessions: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [{ key: "main", kind: "direct", updatedAt: 1 }],
+      },
+      workTasks: [{ id: "task-1", taskId: "task-1", title: "Remote proof", status: "running" }],
+    });
+
+    expect(
+      container
+        .querySelector<HTMLElement>(".chat-work-surface__summary")
+        ?.getAttribute("aria-label"),
+    ).toBe("Working Now: Working");
+    expect(
+      container
+        .querySelector<HTMLElement>(".chat-project-picker__summary")
+        ?.getAttribute("aria-label"),
+    ).toBe("Project: No Project");
+    expect(
+      container
+        .querySelector<HTMLElement>(".chat-approval-card__summary")
+        ?.getAttribute("aria-label"),
+    ).toContain("Exec approval needed");
+    expect(
+      container.querySelector<HTMLElement>(".chat-goal__summary")?.getAttribute("aria-label"),
+    ).toContain("Pursue Goal");
+
+    expect(container.querySelector('[aria-label="Stop Val is working…"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Refresh projects"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Allow approval once"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Start pursue goal"]')).toBeTruthy();
+  });
+
+  it("closes open chat panels with Escape and keeps the composer usable", () => {
+    const onProjectPickerToggle = vi.fn();
+    const onGoalPanelToggle = vi.fn();
+    const onSend = vi.fn();
+    const container = renderChatView({
+      draft: "send after close",
+      getDraft: () => "send after close",
+      execApprovalQueue: [execApproval()],
+      goalPanelOpen: true,
+      goalDraft: "Polish the chat",
+      projectPickerOpen: true,
+      onGoalPanelToggle,
+      onProjectPickerToggle,
+      onSend,
+      workTasks: [{ id: "task-1", taskId: "task-1", title: "Remote proof", status: "running" }],
+    });
+
+    for (const selector of [
+      "[data-chat-work-surface]",
+      "[data-chat-project-picker]",
+      "[data-chat-approval-card]",
+      "[data-chat-goal]",
+    ]) {
+      const details = container.querySelector<HTMLDetailsElement>(selector);
+      expect(details).toBeInstanceOf(HTMLDetailsElement);
+      details!.open = true;
+      details!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+      expect(details!.open).toBe(false);
+    }
+
+    expect(onProjectPickerToggle).toHaveBeenCalledWith(false);
+    expect(onGoalPanelToggle).toHaveBeenCalledWith(false);
+    container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("chat Plan Mode cards", () => {
   it("loads a proposed plan into the composer without sending it", () => {
     const onDraftChange = vi.fn();

@@ -1877,6 +1877,7 @@
     "ui:smoke:chat-work-surface": "node --import tsx scripts/dev/control-ui-chat-work-surface-smoke.ts",
     "ui:smoke:chat-multi-agent-work-tree": "node --import tsx scripts/dev/control-ui-chat-multi-agent-work-tree-smoke.ts",
     "ui:smoke:chat-truth-diagnostics": "node --import tsx scripts/dev/control-ui-chat-truth-diagnostics-smoke.ts",
+    "ui:smoke:chat-polish-a11y": "node --import tsx scripts/dev/control-ui-chat-polish-a11y-smoke.ts",
     "verify": "node scripts/verify.mjs"
   },
   "dependencies": {

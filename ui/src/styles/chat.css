@@ -772,18 +772,66 @@
   justify-content: flex-end;
 }
 
+.chat-work-surface__summary,
+.chat-project-picker__summary,
+.chat-approval-card__summary,
+.chat-goal__summary {
+  min-height: 2.75rem;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.chat-work-surface__summary:hover,
+.chat-project-picker__summary:hover,
+.chat-approval-card__summary:hover,
+.chat-goal__summary:hover {
+  transform: translateY(-1px);
+}
+
+.chat-work-surface__summary:focus-visible,
+.chat-project-picker__summary:focus-visible,
+.chat-approval-card__summary:focus-visible,
+.chat-goal__summary:focus-visible,
+.chat-work-surface .btn:focus-visible,
+.chat-project-picker .btn:focus-visible,
+.chat-approval-card .btn:focus-visible,
+.chat-goal .btn:focus-visible,
+.chat-goal textarea:focus-visible,
+.chat-project-picker input:focus-visible,
+.chat-project-picker textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent, #0a84ff) 58%, white);
+  outline-offset: 3px;
+}
+
+.chat-work-surface .btn,
+.chat-project-picker .btn,
+.chat-approval-card .btn,
+.chat-goal .btn {
+  min-height: 2.5rem;
+}
+
+.chat-work-surface__panel,
+.chat-project-picker__panel,
+.chat-approval-card__panel,
+.chat-goal__panel {
+  backdrop-filter: blur(18px);
+}
+
 @media (max-width: 720px) {
   .chat-work-surface[open] .chat-work-surface__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 0;
+    bottom: 5.75rem;
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 0;
+    left: 0.75rem;
     margin: 0;
-    max-height: min(70vh, 34rem);
+    max-height: min(calc(100dvh - 10rem), 34rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: 0;
+    right: 0.75rem;
     z-index: 50;
   }
 
@@ -814,15 +862,15 @@
 
   .chat-project-picker[open] .chat-project-picker__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 0;
+    bottom: 5.75rem;
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 0;
+    left: 0.75rem;
     margin: 0;
-    max-height: min(78vh, 39rem);
+    max-height: min(calc(100dvh - 10rem), 39rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: 0;
+    right: 0.75rem;
     z-index: 55;
   }
 
@@ -837,15 +885,15 @@
 
   .chat-approval-card[open] .chat-approval-card__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 0;
+    bottom: 5.75rem;
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 0;
+    left: 0.75rem;
     margin: 0;
-    max-height: min(78vh, 39rem);
+    max-height: min(calc(100dvh - 10rem), 39rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: 0;
+    right: 0.75rem;
     z-index: 56;
   }
 
@@ -863,16 +911,32 @@
 
   .chat-goal[open] .chat-goal__panel {
     border-radius: 1.2rem 1.2rem 0 0;
-    bottom: 0;
+    bottom: 5.75rem;
     box-shadow: 0 -18px 44px rgb(15 23 42 / 24%);
-    left: 0;
+    left: 0.75rem;
     margin: 0;
-    max-height: min(78vh, 39rem);
+    max-height: min(calc(100dvh - 10rem), 39rem);
     max-width: none;
     overflow: auto;
     position: fixed;
-    right: 0;
+    right: 0.75rem;
     z-index: 57;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-work-surface__summary,
+  .chat-project-picker__summary,
+  .chat-approval-card__summary,
+  .chat-goal__summary {
+    transition: none;
+  }
+
+  .chat-work-surface__summary:hover,
+  .chat-project-picker__summary:hover,
+  .chat-approval-card__summary:hover,
+  .chat-goal__summary:hover {
+    transform: none;
   }
 }
 

@@ -37,9 +37,17 @@
   cursor: pointer;
 }
 
-.chat-tool-card--clickable:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.chat-tool-card--clickable:focus-visible,
+.chat-tool-card__action-btn:focus-visible,
+.chat-tool-card__preview-tab:focus-visible,
+.chat-tool-card__raw-toggle:focus-visible,
+.chat-tool-msg-summary:focus-visible,
+.chat-tool-msg-summary__btn:focus-visible,
+.chat-tools-summary:focus-visible,
+.chat-json-summary:focus-visible,
+.chat-activity-group__summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 58%, white);
+  outline-offset: 3px;
 }
 
 /* Header with title and chevron */
@@ -1170,5 +1178,25 @@
 
   .chat-json-content {
     max-height: 200px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-card,
+  .chat-tool-card__action,
+  .chat-tool-card__action-btn,
+  .chat-tool-msg-summary::before,
+  .chat-tools-summary::before,
+  .chat-json-summary::before,
+  .chat-activity-group__summary::before {
+    transition: none;
+  }
+
+  @keyframes reading-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: none;
+    }
   }
 }

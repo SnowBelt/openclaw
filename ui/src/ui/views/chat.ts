@@ -1426,16 +1426,39 @@ function workItemKindLabel(kind: WorkSurfaceItem["kind"]): string {
   }
 }
 
+function closeDetailsOnEscape(event: KeyboardEvent, onClose?: () => void) {
+  if (event.key !== "Escape") {
+    return;
+  }
+  const details = event.currentTarget;
+  if (!(details instanceof HTMLDetailsElement) || !details.open) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  details.open = false;
+  onClose?.();
+  details.querySelector<HTMLElement>("summary")?.focus();
+}
+
 function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
   return html`
     ${item.actions.includes("stop_run") && props.onAbort
-      ? html`<button class="btn btn--sm" type="button" @click=${props.onAbort}>Stop</button>`
+      ? html`<button
+          class="btn btn--sm"
+          type="button"
+          aria-label=${`Stop ${item.title}`}
+          @click=${props.onAbort}
+        >
+          Stop
+        </button>`
       : nothing}
     ${item.actions.includes("remove_queue")
       ? html`
           <button
             class="btn btn--sm"
             type="button"
+            aria-label=${`Remove queued message ${item.title}`}
             @click=${() => props.onQueueRemove(item.id.replace(/^queued:/, ""))}
           >
             Remove
@@ -1447,6 +1470,7 @@ function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
           <button
             class="btn btn--sm"
             type="button"
+            aria-label=${`Open session ${item.title}`}
             @click=${() => props.onSessionSelect?.(item.sessionKey!)}
           >
             Open
@@ -1458,6 +1482,7 @@ function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
           <button
             class="btn btn--sm"
             type="button"
+            aria-label=${`Cancel task ${item.title}`}
             @click=${() => props.onWorkTaskCancel?.(item.taskId!)}
           >
             Cancel
@@ -1474,6 +1499,7 @@ function renderAgentWorkTreeActions(props: ChatProps, node: AgentWorkTreeNode) {
           <button
             class="btn btn--sm"
             type="button"
+            aria-label=${`Open child session ${node.title}`}
             @click=${() => props.onSessionSelect?.(node.sessionKey)}
           >
             Open
@@ -1485,6 +1511,7 @@ function renderAgentWorkTreeActions(props: ChatProps, node: AgentWorkTreeNode) {
           <button
             class="btn btn--sm"
             type="button"
+            aria-label=${`Cancel child task ${node.title}`}
             @click=${() => props.onWorkTaskCancel?.(node.taskId!)}
           >
             Cancel
@@ -1522,7 +1549,7 @@ function renderAgentWorkTree(props: ChatProps, tree: AgentWorkTreeSnapshot) {
           </p>
         </div>
       </div>
-      <div class="chat-agent-work-tree__list">
+      <div class="chat-agent-work-tree__list" role="list">
         ${nodes.map(
           (node) => html`
             <article
@@ -1530,6 +1557,7 @@ function renderAgentWorkTree(props: ChatProps, tree: AgentWorkTreeSnapshot) {
                 ? "chat-agent-work-tree__node--active"
                 : ""}"
               data-agent-work-tree-node=${node.sessionKey}
+              role="listitem"
               style=${`--agent-work-depth: ${node.depth};`}
             >
               <div class="chat-agent-work-tree__rail" aria-hidden="true"></div>
@@ -1574,10 +1602,15 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
         ? "Checking work…"
         : "Nothing running";
   return html`
-    <details class="chat-work-surface" data-chat-work-surface>
-      <summary class="chat-work-surface__summary" role="button">
+    <details class="chat-work-surface" data-chat-work-surface @keydown=${closeDetailsOnEscape}>
+      <summary
+        class="chat-work-surface__summary"
+        role="button"
+        aria-label=${`Working Now: ${summaryLabel}`}
+      >
         <span
           class="chat-work-surface__dot ${hasItems ? "chat-work-surface__dot--active" : ""}"
+          aria-hidden="true"
         ></span>
         <span>${summaryLabel}</span>
         ${visibleCount > 0 ? html`<strong>${visibleCount}</strong>` : nothing}
@@ -1598,10 +1631,14 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
           : nothing}
         ${hasItems
           ? html`
-              <div class="chat-work-surface__list">
+              <div class="chat-work-surface__list" role="list">
                 ${items.map(
                   (item) => html`
-                    <article class="chat-work-surface__item" data-work-kind=${item.kind}>
+                    <article
+                      class="chat-work-surface__item"
+                      data-work-kind=${item.kind}
+                      role="listitem"
+                    >
                       <div class="chat-work-surface__item-main">
                         <div class="chat-work-surface__item-topline">
                           <span>${workItemKindLabel(item.kind)}</span>
@@ -1646,6 +1683,7 @@ function renderControlDirectorDiagnosticsCard(session: GatewaySessionRow | undef
     <section
       class="chat-control-director-diagnostics chat-control-director-diagnostics--${summary.tone}"
       data-control-director-diagnostics
+      aria-label="Truth and completion diagnostics"
     >
       <div class="chat-control-director-diagnostics__header">
         <div>
@@ -1793,9 +1831,18 @@ function renderChatApprovalCard(props: ChatProps) {
     }
   };
   return html`
-    <details class="chat-approval-card" data-chat-approval-card open>
-      <summary class="chat-approval-card__summary" role="button">
-        <span class="chat-approval-card__dot"></span>
+    <details
+      class="chat-approval-card"
+      data-chat-approval-card
+      open
+      @keydown=${closeDetailsOnEscape}
+    >
+      <summary
+        class="chat-approval-card__summary"
+        role="button"
+        aria-label=${`${title}: ${summaryDetail}`}
+      >
+        <span class="chat-approval-card__dot" aria-hidden="true"></span>
         <span class="chat-approval-card__kicker">Approval needed</span>
         <strong>${summaryDetail}</strong>
         ${queueCount > 1
@@ -1822,6 +1869,7 @@ function renderChatApprovalCard(props: ChatProps) {
           <button
             class="btn btn--sm primary"
             type="button"
+            aria-label="Allow approval once"
             ?disabled=${busy}
             @click=${() => decide("allow-once")}
           >
@@ -1830,6 +1878,7 @@ function renderChatApprovalCard(props: ChatProps) {
           <button
             class="btn btn--sm"
             type="button"
+            aria-label="Always allow this approval"
             ?disabled=${busy}
             @click=${() => decide("allow-always")}
           >
@@ -1838,6 +1887,7 @@ function renderChatApprovalCard(props: ChatProps) {
           <button
             class="btn btn--sm danger"
             type="button"
+            aria-label="Deny approval"
             ?disabled=${busy}
             @click=${() => decide("deny")}
           >
@@ -1896,6 +1946,7 @@ function renderProjectPickerActions(
               class="btn btn--sm"
               type="button"
               data-chat-project-action="attach"
+              aria-label=${`Attach ${project.name} to this chat`}
               ?disabled=${props.projectBusy}
               @click=${() => props.onProjectAttach?.(project.id)}
             >
@@ -1906,6 +1957,7 @@ function renderProjectPickerActions(
         class="btn btn--sm btn--subtle"
         type="button"
         data-chat-project-action="new-chat"
+        aria-label=${`Start a new chat in ${project.name}`}
         ?disabled=${props.projectBusy}
         @click=${() => props.onNewProjectChat?.(project.id)}
       >
@@ -1926,14 +1978,21 @@ function renderChatProjectPicker(props: ChatProps) {
       class="chat-project-picker"
       data-chat-project-picker
       ?open=${Boolean(props.projectPickerOpen)}
+      @keydown=${(event: KeyboardEvent) =>
+        closeDetailsOnEscape(event, () => props.onProjectPickerToggle?.(false))}
       @toggle=${(event: Event) => {
         const target = event.currentTarget as HTMLDetailsElement;
         props.onProjectPickerToggle?.(target.open);
       }}
     >
-      <summary class="chat-project-picker__summary" role="button">
+      <summary
+        class="chat-project-picker__summary"
+        role="button"
+        aria-label=${`Project: ${summaryLabel}`}
+      >
         <span
           class="chat-project-picker__dot ${projectId ? "chat-project-picker__dot--active" : ""}"
+          aria-hidden="true"
         ></span>
         <span class="chat-project-picker__kicker">Project</span>
         <strong>${summaryLabel}</strong>
@@ -1947,6 +2006,7 @@ function renderChatProjectPicker(props: ChatProps) {
           <button
             class="btn btn--sm btn--subtle"
             type="button"
+            aria-label="Refresh projects"
             ?disabled=${props.projectBusy || props.projectsLoading}
             @click=${() => props.onProjectRefresh?.()}
           >
@@ -1965,6 +2025,7 @@ function renderChatProjectPicker(props: ChatProps) {
                 class="btn btn--sm chat-project-picker__detach"
                 type="button"
                 data-chat-project-action="detach"
+                aria-label="Detach this chat from its project"
                 ?disabled=${props.projectBusy}
                 @click=${() => props.onProjectDetach?.()}
               >
@@ -1978,10 +2039,10 @@ function renderChatProjectPicker(props: ChatProps) {
             ? html`<div class="chat-project-picker__empty">Loading projects…</div>`
             : activeProjects.length > 0
               ? html`
-                  <div class="chat-project-picker__list">
+                  <div class="chat-project-picker__list" role="list">
                     ${activeProjects.map(
                       (project) => html`
-                        <article class="chat-project-picker__item">
+                        <article class="chat-project-picker__item" role="listitem">
                           <div class="chat-project-picker__item-main">
                             <strong>${project.name}</strong>
                             ${project.description
@@ -2041,6 +2102,7 @@ function renderChatProjectPicker(props: ChatProps) {
             class="btn"
             type="button"
             data-chat-project-action="create-and-attach"
+            aria-label="Create project and attach this chat"
             ?disabled=${createDisabled}
             @click=${() => props.onProjectCreateAndAttach?.()}
           >
@@ -2093,12 +2155,14 @@ function renderPursueGoal(props: ChatProps) {
       class="chat-goal"
       data-chat-goal
       ?open=${props.goalPanelOpen}
+      @keydown=${(event: KeyboardEvent) =>
+        closeDetailsOnEscape(event, () => props.onGoalPanelToggle?.(false))}
       @toggle=${(event: Event) => {
         const target = event.currentTarget as HTMLDetailsElement;
         props.onGoalPanelToggle?.(target.open);
       }}
     >
-      <summary class="chat-goal__summary">
+      <summary class="chat-goal__summary" aria-label=${`Pursue Goal: ${statusLabel}`}>
         <span class="chat-goal__kicker">Pursue Goal</span>
         <span class="chat-goal__title">${goal?.goal ?? "No goal"}</span>
         <span class="chat-goal__status ${goal ? `chat-goal__status--${goal.status}` : ""}">
@@ -2119,6 +2183,7 @@ function renderPursueGoal(props: ChatProps) {
               <button
                 class="btn btn--subtle btn--sm"
                 type="button"
+                aria-label="Refresh goal status"
                 @click=${() => props.onGoalRefresh?.()}
               >
                 Refresh
@@ -2168,6 +2233,7 @@ function renderPursueGoal(props: ChatProps) {
                 class="btn primary"
                 type="button"
                 data-chat-goal-action="start"
+                aria-label="Start pursue goal"
                 ?disabled=${startDisabled}
                 @click=${() => props.onGoalStart?.()}
               >
@@ -2177,6 +2243,7 @@ function renderPursueGoal(props: ChatProps) {
                 class="btn"
                 type="button"
                 data-chat-goal-action="continue"
+                aria-label="Continue pursue goal"
                 ?disabled=${continueDisabled}
                 @click=${() => props.onGoalContinue?.(flowId)}
               >
@@ -2186,6 +2253,7 @@ function renderPursueGoal(props: ChatProps) {
                 class="btn btn--subtle"
                 type="button"
                 data-chat-goal-action="cancel"
+                aria-label="Cancel pursue goal"
                 ?disabled=${cancelDisabled}
                 @click=${() => props.onGoalCancel?.(flowId)}
               >

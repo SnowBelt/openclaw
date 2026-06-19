@@ -283,7 +283,9 @@ img.chat-avatar {
   pointer-events: auto;
 }
 
-@media (hover: none), (max-width: 768px), (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
+@media (hover: none),
+  (max-width: 768px),
+  (max-width: 932px) and (max-height: 500px) and (orientation: landscape) {
   .chat-bubble-actions {
     opacity: 1;
     pointer-events: auto;
@@ -798,6 +800,16 @@ details.msg-meta:not([open]) .msg-meta__details {
   min-height: 34px;
 }
 
+.chat-proposed-plan .btn:focus-visible,
+.chat-proposed-plan__body:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 58%, white);
+  outline-offset: 3px;
+}
+
+.chat-proposed-plan__body {
+  scrollbar-gutter: stable;
+}
+
 .chat-proposed-plan__use:disabled,
 .chat-proposed-plan__copy:disabled {
   cursor: not-allowed;
@@ -827,5 +839,11 @@ details.msg-meta:not([open]) .msg-meta__details {
   .chat-proposed-plan__actions .btn {
     width: 100%;
     min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-delete-confirm {
+    animation: none;
   }
 }
