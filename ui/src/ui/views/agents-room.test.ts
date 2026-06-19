@@ -42,16 +42,18 @@ describe("agent room shared-service registry", () => {
     expect(metadata.doesNotOwn).toEqual(expect.arrayContaining(["silent background edits"]));
   });
 
-  it("accepts the Qwen3.6 Control Director primary and Qwen2.5 rollback aliases", () => {
-    expect(isControlDirectorModelOk("ollama/openclaw-control-qwen36-27b:latest")).toBe(true);
-    expect(isControlDirectorModelOk("ollama/qwen3.6:27b-q8_0")).toBe(true);
+  it("accepts the Gemma 4 Control Director primary and Qwen2.5 rollback aliases", () => {
+    expect(isControlDirectorModelOk("ollama/openclaw-control-gemma4-31b-q8:latest")).toBe(true);
+    expect(isControlDirectorModelOk("ollama/hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0")).toBe(true);
     expect(isControlDirectorModelOk("ollama/openclaw-control-qwen25-32b:latest")).toBe(true);
     expect(isControlDirectorModelOk("ollama/qwen3.5:27b-q8_0")).toBe(false);
-    expect(isControlDirectorPrimaryModel("ollama/openclaw-control-qwen36-27b:latest")).toBe(true);
-    expect(isControlDirectorPrimaryModel("ollama/qwen3.6:27b-q8_0")).toBe(true);
-    expect(isControlDirectorPrimaryModel("ollama/openclaw-control-qwen25-32b:latest")).toBe(
-      false,
+    expect(isControlDirectorPrimaryModel("ollama/openclaw-control-gemma4-31b-q8:latest")).toBe(
+      true,
     );
+    expect(isControlDirectorPrimaryModel("ollama/hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0")).toBe(
+      true,
+    );
+    expect(isControlDirectorPrimaryModel("ollama/openclaw-control-qwen25-32b:latest")).toBe(false);
   });
 
   it("describes the Control Director thinking-as-needed dashboard policy", () => {

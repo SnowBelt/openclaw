@@ -185,6 +185,7 @@ export type SessionControlDirectorLivenessAuditEntry = {
     | "blocked_continuation_limit"
     | "blocked_unsafe_continuation";
   reason: string;
+  source?: "terminal_empty" | "webchat_timeout_inflight" | "terminal_reconstructed_from_session";
   classification?: "empty" | "reasoning-only" | "planning-only";
   nextStatus: "blocked";
   continuationCount: number;

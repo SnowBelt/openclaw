@@ -274,9 +274,9 @@ const ATTENTION_ACTION_LIMIT = 3;
 const MODEL_RAM_SHARED_HINT =
   "Model RAM is shared by all agents using the same loaded model, so per-agent RAM is shown as a live model footprint, not added per worker.";
 const CONTROL_DIRECTOR_MODEL_OK_RE =
-  /(?:^|[/:-])openclaw-control-qwen36-27b(?::|$)|(?:^|[/:-])qwen3\.6:27b-q8_0(?:$|[@\s])|(?:^|[/:-])openclaw-control-qwen25-32b(?::|$)|(?:^|[/:-])qwen25-32b(?::|$)/i;
+  /(?:^|[/:-])openclaw-control-gemma4-31b-q8(?::|$)|(?:^|[/:-])gemma-4-31b-it-gguf:q8_0(?:$|[@\s])|(?:^|[/:-])openclaw-control-qwen25-32b(?::|$)|(?:^|[/:-])qwen25-32b(?::|$)/i;
 const CONTROL_DIRECTOR_PRIMARY_MODEL_RE =
-  /(?:^|[/:-])openclaw-control-qwen36-27b(?::|$)|(?:^|[/:-])qwen3\.6:27b-q8_0(?:$|[@\s])/i;
+  /(?:^|[/:-])openclaw-control-gemma4-31b-q8(?::|$)|(?:^|[/:-])gemma-4-31b-it-gguf:q8_0(?:$|[@\s])/i;
 
 export function isControlDirectorModelOk(model: string): boolean {
   return CONTROL_DIRECTOR_MODEL_OK_RE.test(model);
@@ -3521,9 +3521,7 @@ function renderDetail(
             ? html`
                 <div>
                   <dt>Primary model check</dt>
-                  <dd>
-                    ${primaryModelOk ? "Qwen3.6 primary configured" : "Expected Qwen3.6 primary"}
-                  </dd>
+                  <dd>${primaryModelOk ? "Gemma primary configured" : "Expected Gemma primary"}</dd>
                 </div>
                 <div>
                   <dt>Rollback model</dt>

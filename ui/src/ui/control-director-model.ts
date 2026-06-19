@@ -1,11 +1,11 @@
 export const CONTROL_DIRECTOR_AGENT_IDS = ["main", "control-director"] as const;
 export const CONTROL_DIRECTOR_PRIMARY_PROVIDER = "ollama";
 export const CONTROL_DIRECTOR_PRIMARY_PROVIDER_LABEL = "Ollama";
-export const CONTROL_DIRECTOR_PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = "openclaw-control-qwen36-27b:latest";
+export const CONTROL_DIRECTOR_PRIMARY_ALIAS = "openclaw-control-gemma4-31b-q8";
+export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = "openclaw-control-gemma4-31b-q8:latest";
 export const CONTROL_DIRECTOR_PRIMARY_MODEL_VALUE = `${CONTROL_DIRECTOR_PRIMARY_PROVIDER}/${CONTROL_DIRECTOR_PRIMARY_MODEL_ID}`;
-export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
-export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Qwen3.6 27B Q8_0";
+export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0";
+export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Gemma 4 31B Q8_0";
 export const CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 
 function normalizeModelCandidate(value: string | undefined | null): string {
@@ -27,17 +27,14 @@ export function isControlDirectorAgentId(agentId: string | undefined | null): bo
 
 export function isControlDirectorPrimaryModelRef(value: string | undefined | null): boolean {
   const normalized = normalizeModelCandidate(value);
-  return (
-    normalized === CONTROL_DIRECTOR_PRIMARY_ALIAS ||
-    normalized === CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG
-  );
+  return normalized === CONTROL_DIRECTOR_PRIMARY_ALIAS || normalized === "gemma-4-31b-it-gguf:q8_0";
 }
 
 export function isControlDirectorAllowedModelRef(value: string | undefined | null): boolean {
   const normalized = normalizeModelCandidate(value);
   return (
     normalized === CONTROL_DIRECTOR_PRIMARY_ALIAS ||
-    normalized === CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG ||
+    normalized === "gemma-4-31b-it-gguf:q8_0" ||
     normalized === "openclaw-control-qwen25-32b" ||
     normalized === "qwen25-32b"
   );

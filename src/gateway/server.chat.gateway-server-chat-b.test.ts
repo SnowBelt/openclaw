@@ -182,7 +182,7 @@ describe("gateway server chat", () => {
     });
   });
 
-  test("chat.send watchdog surfaces Control Director no-response runs when dispatch hangs", async () => {
+  test("chat.send watchdog emits non-final Control Director progress when dispatch is still in flight", async () => {
     vi.useFakeTimers();
     try {
       const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
@@ -272,24 +272,40 @@ describe("gateway server chat", () => {
           expect.objectContaining({
             runId: "run-control-director-hung",
             sessionKey: "agent:main:main",
-            state: "final",
+            state: "delta",
             message: expect.objectContaining({
               content: expect.arrayContaining([
                 expect.objectContaining({
-                  text: expect.stringContaining("Status: blocked"),
+                  text: expect.stringContaining("Control Director is still working"),
                 }),
               ]),
             }),
           }),
+          expect.objectContaining({ dropIfSlow: true }),
         );
       });
+      expect(context.broadcast).not.toHaveBeenCalledWith(
+        "chat",
+        expect.objectContaining({
+          runId: "run-control-director-hung",
+          sessionKey: "agent:main:main",
+          state: "final",
+          message: expect.objectContaining({
+            content: expect.arrayContaining([
+              expect.objectContaining({
+                text: expect.stringContaining("Status: blocked"),
+              }),
+            ]),
+          }),
+        }),
+      );
 
       const stored = JSON.parse(await fs.readFile(testState.sessionStorePath, "utf-8")) as Record<
         string,
         { controlDirectorLivenessAudit?: unknown[]; controlDirectorMissionLedger?: unknown[] }
       >;
-      expect(stored["agent:main:main"]?.controlDirectorLivenessAudit?.length).toBeGreaterThan(0);
-      expect(stored["agent:main:main"]?.controlDirectorMissionLedger?.length).toBeGreaterThan(0);
+      expect(stored["agent:main:main"]?.controlDirectorLivenessAudit).toBeUndefined();
+      expect(stored["agent:main:main"]?.controlDirectorMissionLedger).toBeUndefined();
 
       await fs.rm(sessionDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     } finally {
@@ -299,7 +315,7 @@ describe("gateway server chat", () => {
     }
   });
 
-  test("chat.send watchdog remains armed when dispatch returns before visible final", async () => {
+  test("chat.send synthesizes Control Director liveness only after terminal empty dispatch", async () => {
     vi.useFakeTimers();
     try {
       const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
@@ -378,16 +394,6 @@ describe("gateway server chat", () => {
           error: undefined,
         }),
       );
-      expect(context.broadcast).not.toHaveBeenCalledWith(
-        "chat",
-        expect.objectContaining({
-          runId: "run-control-director-early-return",
-          state: "final",
-          message: expect.objectContaining({}),
-        }),
-      );
-
-      await vi.advanceTimersByTimeAsync(15_000);
       await vi.waitFor(() => {
         expect(context.broadcast).toHaveBeenCalledWith(
           "chat",
@@ -405,6 +411,13 @@ describe("gateway server chat", () => {
           }),
         );
       });
+      const stored = JSON.parse(await fs.readFile(testState.sessionStorePath, "utf-8")) as Record<
+        string,
+        { controlDirectorLivenessAudit?: Array<{ source?: string }> }
+      >;
+      expect(stored["agent:main:main"]?.controlDirectorLivenessAudit?.[0]?.source).toBe(
+        "terminal_empty",
+      );
 
       await fs.rm(sessionDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     } finally {

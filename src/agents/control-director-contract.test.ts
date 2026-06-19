@@ -594,6 +594,7 @@ describe("Control Director contract", () => {
       agentId: "main",
       payloads: [],
       classification: "empty",
+      source: "terminal_empty",
       continuationCount: 0,
       missionId: "mission-1",
       canQueueContinuation: true,
@@ -607,6 +608,7 @@ describe("Control Director contract", () => {
     });
     expect(guarded.audit).toMatchObject({
       action: "queued_safe_continuation",
+      source: "terminal_empty",
       classification: "empty",
       continuationQueued: true,
       payloadsChecked: 0,

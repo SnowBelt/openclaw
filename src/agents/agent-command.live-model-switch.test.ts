@@ -213,6 +213,8 @@ vi.mock("../infra/agent-events.js", () => ({
 }));
 
 vi.mock("../infra/heartbeat-wake.js", () => ({
+  areHeartbeatsEnabled: () => true,
+  hasHeartbeatWakeHandler: () => true,
   requestHeartbeat: (...args: unknown[]) => state.requestHeartbeatMock(...args),
 }));
 

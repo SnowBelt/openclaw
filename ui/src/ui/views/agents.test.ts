@@ -1928,7 +1928,7 @@ describe("renderAgents", () => {
                   safetyPassRate: 0.75,
                   routePreservationRate: 1,
                   p95CompletionMs: 4321,
-                  modelId: "ollama/qwen3.6:27b-q8_0",
+                  modelId: "ollama/hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0",
                   modelTier: "primaryReview",
                   failedCases: ["skill_workshop_pending_only:unsafe_action"],
                   diagnostics: ["unsafe_action:1"],
@@ -2081,7 +2081,7 @@ describe("renderAgents", () => {
               readyTier: "crossCheck",
               readyModelId: "ollama/openclaw-control-qwen3-30b-q6-chatfix:latest",
               reviewPolicy: "local_first",
-              reviewModelId: "ollama/qwen3.6:27b-q8_0",
+              reviewModelId: "ollama/hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0",
               fallbackModelId: "ollama/openclaw-control-qwen3-30b-q6-chatfix:latest",
               strategicModelId: "ollama/openclaw-strategic-qwen3-235b:latest",
               localFirst: true,
@@ -2092,7 +2092,7 @@ describe("renderAgents", () => {
                 {
                   attempt: 1,
                   tier: "primaryReview",
-                  modelId: "ollama/qwen3.6:27b-q8_0",
+                  modelId: "ollama/hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0",
                   status: "blocked",
                   local: true,
                   schemaValidated: false,
@@ -2107,7 +2107,8 @@ describe("renderAgents", () => {
                   preflightStatus: "missing_config",
                   providerConfigured: false,
                   preflightMs: 1,
-                  error: "Local model preflight could not find qwen3.6:27b-q8_0.",
+                  error:
+                    "Local model preflight could not find hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0.",
                   remediationHint:
                     "Verify Ollama is running and the selected local model appears in the local /api/tags catalog, then rerun openclaw self-improvement preflight.",
                 },
@@ -2135,7 +2136,8 @@ describe("renderAgents", () => {
               preflightStatus: "missing_config",
               preflightMs: 7,
               schemaValidated: false,
-              blockedPrimaryReason: "Local model preflight could not find qwen3.6:27b-q8_0.",
+              blockedPrimaryReason:
+                "Local model preflight could not find hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0.",
             },
             productionCheckLoading: false,
             lastProductionCheck: {
@@ -2298,13 +2300,15 @@ describe("renderAgents", () => {
     expect(container.textContent).toContain(
       "ready via crossCheck ollama/openclaw-control-qwen3-30b-q6-chatfix:latest",
     );
-    expect(container.textContent).toContain("primaryReview blocked ollama/qwen3.6:27b-q8_0");
+    expect(container.textContent).toContain(
+      "primaryReview blocked ollama/hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0",
+    );
     expect(container.textContent).toContain("Q8_0");
     expect(container.textContent).toContain("27B");
     expect(container.textContent).toContain("65,536 ctx");
     expect(container.textContent).toContain("timeout 180000ms");
     expect(container.textContent).toContain(
-      "primaryReview: Local model preflight could not find qwen3.6:27b-q8_0.",
+      "primaryReview: Local model preflight could not find hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0.",
     );
     expect(container.textContent).toContain("Next: Verify Ollama is running");
     expect(container.textContent).toContain(
@@ -2372,7 +2376,7 @@ describe("renderAgents", () => {
                 id: "main",
                 name: "Control Director",
                 model: {
-                  primary: "ollama/openclaw-control-qwen36-27b:latest",
+                  primary: "ollama/openclaw-control-gemma4-31b-q8:latest",
                   fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
                 },
               } as never,
@@ -2409,9 +2413,9 @@ describe("renderAgents", () => {
 
     expect(container.textContent).toContain("Thinking as needed");
     expect(container.textContent).toContain("Session override: medium");
-    expect(container.textContent).toContain("Qwen3.6 primary configured");
+    expect(container.textContent).toContain("Gemma primary configured");
     expect(container.textContent).toContain("Primary model");
-    expect(container.textContent).toContain("ollama/openclaw-control-qwen36-27b:latest");
+    expect(container.textContent).toContain("ollama/openclaw-control-gemma4-31b-q8:latest");
     expect(container.textContent).toContain("Rollback model");
     expect(container.textContent).toContain("ollama/openclaw-control-qwen25-32b:latest");
     expect(container.textContent).toContain("Last run model");

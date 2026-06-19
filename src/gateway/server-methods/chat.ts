@@ -146,7 +146,7 @@ type TranscriptAppendResult = {
 
 type AbortOrigin = "rpc" | "stop-command";
 
-function isUserVisibleFinalReplyPayload(payload: ReplyPayload): boolean {
+function isUserVisibleReplyPayload(payload: ReplyPayload): boolean {
   if (
     payload.isError === true ||
     payload.isReasoning === true ||
@@ -155,6 +155,19 @@ function isUserVisibleFinalReplyPayload(payload: ReplyPayload): boolean {
     return false;
   }
   return Boolean((payload.text ?? payload.spokenText ?? "").trim());
+}
+
+function isUserVisibleFinalReplyPayload(payload: ReplyPayload): boolean {
+  return isUserVisibleReplyPayload(payload);
+}
+
+function hasUserVisibleReplyPayload(
+  replies: readonly { payload: ReplyPayload; kind: "block" | "final" }[],
+  opts?: { finalOnly?: boolean },
+): boolean {
+  return replies
+    .filter((entry) => opts?.finalOnly !== true || entry.kind === "final")
+    .some((entry) => isUserVisibleReplyPayload(entry.payload));
 }
 
 function collectFinalTextFromReplyPayloads(
@@ -1779,6 +1792,44 @@ function broadcastChatFinal(params: {
   params.context.agentRunSeq.delete(params.runId);
 }
 
+function broadcastChatDelta(params: {
+  context: Pick<
+    GatewayRequestContext,
+    | "broadcast"
+    | "nodeSendToSession"
+    | "agentRunSeq"
+    | "chatRunBuffers"
+    | "chatDeltaSentAt"
+    | "chatDeltaLastBroadcastLen"
+  >;
+  runId: string;
+  sessionKey: string;
+  text: string;
+}) {
+  const text = params.text.trim();
+  if (!text) {
+    return;
+  }
+  const seq = nextChatSeq({ agentRunSeq: params.context.agentRunSeq }, params.runId);
+  const now = Date.now();
+  const payload = {
+    runId: params.runId,
+    sessionKey: params.sessionKey,
+    seq,
+    state: "delta" as const,
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      timestamp: now,
+    },
+  };
+  params.context.chatRunBuffers.set(params.runId, text);
+  params.context.chatDeltaSentAt.set(params.runId, now);
+  params.context.chatDeltaLastBroadcastLen.set(params.runId, text.length);
+  params.context.broadcast("chat", payload, { dropIfSlow: true });
+  params.context.nodeSendToSession(params.sessionKey, "chat", payload);
+}
+
 function extractChatHistoryMessageText(message: unknown): string {
   if (!message || typeof message !== "object") {
     return "";
@@ -2534,6 +2585,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       let userTranscriptUpdatePromise: Promise<void> | null = null;
       let agentRunStarted = false;
       let controlDirectorFallbackDelivered = false;
+      let controlDirectorInFlightNoticeDelivered = false;
       let controlDirectorFallbackTimer: ReturnType<typeof setTimeout> | undefined;
       const hasBeforeAgentRunGate = getGlobalHookRunner()?.hasHooks("before_agent_run") === true;
       const emitUserTranscriptUpdate = async () => {
@@ -2610,13 +2662,10 @@ export const chatHandlers: GatewayRequestHandlers = {
       };
       const deliverControlDirectorNoResponseFallback = async (reason: string) => {
         if (controlDirectorFallbackDelivered) {
-          return;
+          return false;
         }
-        const hasFinalReplyText = deliveredReplies
-          .filter((entry) => entry.kind === "final")
-          .some((entry) => isUserVisibleFinalReplyPayload(entry.payload));
-        if (hasFinalReplyText) {
-          return;
+        if (hasUserVisibleReplyPayload(deliveredReplies, { finalOnly: true })) {
+          return false;
         }
         controlDirectorFallbackDelivered = true;
         try {
@@ -2631,6 +2680,7 @@ export const chatHandlers: GatewayRequestHandlers = {
             payloads: [],
             finalAssistantVisibleText: "",
             classification: "empty",
+            livenessSource: "terminal_empty",
             canQueueContinuation: true,
             runId: clientRunId,
             sessionId,
@@ -2648,7 +2698,7 @@ export const chatHandlers: GatewayRequestHandlers = {
             );
           if (!guardedStatusText) {
             controlDirectorFallbackDelivered = false;
-            return;
+            return false;
           }
           const guardedEntry = synthesizedGuard.sessionEntry ?? latestEntry;
           const appended = await appendAssistantTranscriptMessage({
@@ -2684,12 +2734,46 @@ export const chatHandlers: GatewayRequestHandlers = {
             sessionKey,
             message,
           });
+          if (controlDirectorFallbackTimer) {
+            clearTimeout(controlDirectorFallbackTimer);
+            controlDirectorFallbackTimer = undefined;
+          }
+          return true;
         } catch (guardErr) {
           controlDirectorFallbackDelivered = false;
           context.logGateway.warn(
             `webchat Control Director ${reason} synthesis failed: ${formatForLog(guardErr)}`,
           );
+          return false;
         }
+      };
+
+      const hasUserVisibleRunOutput = () => {
+        if (hasUserVisibleReplyPayload(deliveredReplies)) {
+          return true;
+        }
+        const bufferedText = context.chatRunBuffers.get(clientRunId)?.trim() ?? "";
+        if (bufferedText) {
+          return true;
+        }
+        return (context.chatDeltaLastBroadcastLen.get(clientRunId) ?? 0) > 0;
+      };
+
+      const broadcastControlDirectorInFlightNotice = (reason: string) => {
+        if (controlDirectorFallbackDelivered || controlDirectorInFlightNoticeDelivered) {
+          return;
+        }
+        if (hasUserVisibleRunOutput()) {
+          return;
+        }
+        controlDirectorInFlightNoticeDelivered = true;
+        context.logGateway.debug(`webchat Control Director ${reason}; run remains in flight`);
+        broadcastChatDelta({
+          context,
+          runId: clientRunId,
+          sessionKey,
+          text: "Control Director is still working. No final answer has been delivered yet.",
+        });
       };
 
       const appendWebchatAgentMediaTranscriptIfNeeded = async (payload: ReplyPayload) => {
@@ -2788,6 +2872,7 @@ export const chatHandlers: GatewayRequestHandlers = {
             case "block":
             case "final":
               deliveredReplies.push({ payload, kind: info.kind });
+              clearControlDirectorFallbackTimerIfUserVisibleOutput();
               await appendWebchatAgentMediaTranscriptIfNeeded(payload);
               break;
             case "tool":
@@ -2799,25 +2884,23 @@ export const chatHandlers: GatewayRequestHandlers = {
                   payload: { ...payload, text: undefined },
                   kind: "final",
                 });
+                clearControlDirectorFallbackTimerIfUserVisibleOutput();
               }
               break;
           }
         },
       });
 
-      const clearControlDirectorFallbackTimerIfVisibleFinal = () => {
-        const hasFinalReplyText = deliveredReplies
-          .filter((entry) => entry.kind === "final")
-          .some((entry) => isUserVisibleFinalReplyPayload(entry.payload));
-        if (!hasFinalReplyText || !controlDirectorFallbackTimer) {
+      function clearControlDirectorFallbackTimerIfUserVisibleOutput() {
+        if (!hasUserVisibleRunOutput() || !controlDirectorFallbackTimer) {
           return;
         }
         clearTimeout(controlDirectorFallbackTimer);
         controlDirectorFallbackTimer = undefined;
-      };
+      }
 
       controlDirectorFallbackTimer = setTimeout(() => {
-        void deliverControlDirectorNoResponseFallback("no-response watchdog timeout");
+        broadcastControlDirectorInFlightNotice("no-response watchdog timeout");
       }, 15_000);
 
       void measureDiagnosticsTimelineSpan(
@@ -2866,7 +2949,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         },
       )
         .then(async () => {
-          clearControlDirectorFallbackTimerIfVisibleFinal();
+          clearControlDirectorFallbackTimerIfUserVisibleOutput();
           await measureDiagnosticsTimelineSpan(
             "gateway.chat_send.post_dispatch",
             async () => {
@@ -2996,6 +3079,17 @@ export const chatHandlers: GatewayRequestHandlers = {
                     mediaMessage?.transcriptText ||
                     buildTranscriptReplyText(finalPayloads) ||
                     displayReply;
+                  if (
+                    !transcriptReply &&
+                    !persistedContentForAppend?.length &&
+                    !assistantContent?.length
+                  ) {
+                    const deliveredControlDirectorFallback =
+                      await deliverControlDirectorNoResponseFallback("terminal empty reply");
+                    if (deliveredControlDirectorFallback) {
+                      return;
+                    }
+                  }
                   let message: Record<string, unknown> | undefined;
                   if (
                     transcriptReply ||
@@ -3120,9 +3214,9 @@ export const chatHandlers: GatewayRequestHandlers = {
                     entry: latestEntry,
                   } = loadSessionEntry(sessionKey);
                   const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-                  const hasFinalReplyText = deliveredReplies
-                    .filter((entry) => entry.kind === "final")
-                    .some((entry) => isUserVisibleFinalReplyPayload(entry.payload));
+                  const hasFinalReplyText = hasUserVisibleReplyPayload(deliveredReplies, {
+                    finalOnly: true,
+                  });
                   const synthesizedGuard = hasFinalReplyText
                     ? undefined
                     : await applyControlDirectorDeliveryGuards<ReplyPayload>({
@@ -3130,6 +3224,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                         payloads: [],
                         finalAssistantVisibleText: "",
                         classification: "empty",
+                        livenessSource: "terminal_empty",
                         canQueueContinuation: true,
                         runId: clientRunId,
                         sessionId,
@@ -3189,7 +3284,7 @@ export const chatHandlers: GatewayRequestHandlers = {
                   });
                 }
               }
-              clearControlDirectorFallbackTimerIfVisibleFinal();
+              clearControlDirectorFallbackTimerIfUserVisibleOutput();
               if (!context.chatAbortedRuns.has(clientRunId)) {
                 const finalText = collectFinalTextFromReplyPayloads(deliveredReplies);
                 const artifactIds = collectArtifactIdsFromReplyPayloads(deliveredReplies);
@@ -3259,15 +3354,16 @@ export const chatHandlers: GatewayRequestHandlers = {
                 entry: latestEntry,
               } = loadSessionEntry(sessionKey);
               const sessionId = latestEntry?.sessionId ?? backingSessionId ?? clientRunId;
-              const hasFinalReplyText = deliveredReplies
-                .filter((entry) => entry.kind === "final")
-                .some((entry) => isUserVisibleFinalReplyPayload(entry.payload));
+              const hasFinalReplyText = hasUserVisibleReplyPayload(deliveredReplies, {
+                finalOnly: true,
+              });
               if (!hasFinalReplyText) {
                 const synthesizedGuard = await applyControlDirectorDeliveryGuards<ReplyPayload>({
                   agentId,
                   payloads: [],
                   finalAssistantVisibleText: "",
                   classification: "empty",
+                  livenessSource: "terminal_empty",
                   canQueueContinuation: true,
                   runId: clientRunId,
                   sessionId,

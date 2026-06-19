@@ -134,6 +134,11 @@ export type ControlDirectorTruthGateResult<T extends ControlDirectorGuardablePay
 
 export type ControlDirectorLivenessClassification = "empty" | "reasoning-only" | "planning-only";
 
+export type ControlDirectorLivenessSource =
+  | "terminal_empty"
+  | "webchat_timeout_inflight"
+  | "terminal_reconstructed_from_session";
+
 export type ControlDirectorLivenessWatchdogAction =
   | "synthesized_blocked_no_visible_output"
   | "synthesized_blocked_incomplete_classification"
@@ -144,6 +149,7 @@ export type ControlDirectorLivenessWatchdogAction =
 export type ControlDirectorLivenessWatchdogAudit = {
   action: ControlDirectorLivenessWatchdogAction;
   reason: string;
+  source?: ControlDirectorLivenessSource;
   classification?: ControlDirectorLivenessClassification;
   nextStatus: "blocked";
   continuationCount: number;
@@ -700,6 +706,7 @@ export function applyControlDirectorLivenessWatchdog<
   payloads: readonly T[] | undefined;
   finalAssistantVisibleText?: string | undefined;
   classification?: string | null | undefined;
+  source?: ControlDirectorLivenessSource | undefined;
   continuationCount?: number | undefined;
   missionId?: string | undefined;
   canQueueContinuation?: boolean | undefined;
@@ -761,6 +768,7 @@ export function applyControlDirectorLivenessWatchdog<
         decision,
       }),
       reason: decision.reason,
+      ...(params.source ? { source: params.source } : {}),
       ...(classification ? { classification } : {}),
       nextStatus: "blocked",
       continuationCount: decision.continuationCount,
