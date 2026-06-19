@@ -19,6 +19,7 @@ import {
   applyControlDirectorLivenessWatchdog,
   applyControlDirectorTruthGate,
   isControlDirectorAgentId,
+  isControlDirectorPrimaryModelRef,
   summarizeControlDirectorMissionFinalText,
   type ControlDirectorClaimEvidence,
   type ControlDirectorContinuationDecision,
@@ -75,12 +76,20 @@ function buildNoopControlDirectorContinuation(): ControlDirectorContinuationDeci
 
 function isControlDirectorDeliveryScope(params: {
   agentId?: string | undefined;
+  model?: string | null | undefined;
   explicit?: boolean | undefined;
 }): boolean {
   if (params.explicit !== undefined) {
     return params.explicit;
   }
-  return isControlDirectorAgentId(params.agentId);
+  const normalizedAgentId = params.agentId?.trim().toLowerCase();
+  if (normalizedAgentId === "control-director") {
+    return true;
+  }
+  if (normalizedAgentId !== "main") {
+    return false;
+  }
+  return isControlDirectorPrimaryModelRef(params.model);
 }
 
 function buildSessionControlDirectorGuardAuditEntry(params: {
@@ -621,6 +630,7 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
   const agentId = params.agentId ?? undefined;
   const activeControlDirectorScope = isControlDirectorDeliveryScope({
     agentId,
+    model: params.model,
     explicit: params.controlDirectorScope,
   });
   let sessionEntry = params.sessionEntry;

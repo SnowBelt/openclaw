@@ -57,7 +57,7 @@ describe("Control Director delivery truth evidence ingestion", () => {
     };
 
     const result = await applyControlDirectorDeliveryGuards({
-      agentId: "main",
+      agentId: "control-director",
       payloads: [{ text }],
       finalAssistantVisibleText: text,
       sessionId: "session-1",
@@ -166,6 +166,25 @@ describe("Control Director delivery truth evidence ingestion", () => {
       payloads: [{ text }],
       finalAssistantVisibleText: text,
       sessionId: "session-main-non-cd",
+      requestBody: "Quote this Control Director report.",
+      queueContinuation: false,
+    });
+
+    expect(result.payloads).toEqual([{ text }]);
+    expect(result.guardActions).toEqual([]);
+    expect(result.watchdogActions).toEqual([]);
+    expect(result.truthAudit).toBeUndefined();
+    expect(result.judgeCompletionGate).toBeUndefined();
+  });
+
+  it("does not opt the main agent into Control Director guards from copied report text alone", async () => {
+    const text = copiedControlDirectorReportText();
+
+    const result = await applyControlDirectorDeliveryGuards({
+      agentId: "main",
+      payloads: [{ text }],
+      finalAssistantVisibleText: text,
+      sessionId: "session-main-ambiguous",
       requestBody: "Quote this Control Director report.",
       queueContinuation: false,
     });
