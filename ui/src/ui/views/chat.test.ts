@@ -16,6 +16,7 @@ import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState } from "../chat/chat-welcome.ts";
 import { renderChatSessionSelect } from "../chat/session-controls.ts";
+import type { ExecApprovalRequest } from "../controllers/exec-approval.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ModelCatalogEntry } from "../types.ts";
 import type { ChatQueueItem } from "../ui-types.ts";
@@ -1353,6 +1354,135 @@ describe("chat Working Now surface", () => {
     expect(
       [...surface!.querySelectorAll("button")].map((button) => button.textContent),
     ).not.toContain("Cancel");
+  });
+});
+
+describe("chat approval cards", () => {
+  const execApproval = (overrides: Partial<ExecApprovalRequest> = {}): ExecApprovalRequest => {
+    const createdAtMs = Date.now();
+    return {
+      id: "approval-exec-1",
+      kind: "exec",
+      request: {
+        command: "pnpm test ui/src/ui/views/chat.test.ts",
+        cwd: "/Users/openclaw/OpenClaw",
+        host: "gateway",
+        security: "allowlist",
+        ask: "on-miss",
+        agentId: "main",
+        resolvedPath: "/Users/openclaw/OpenClaw/node_modules/.bin/pnpm",
+        sessionKey: "agent:main:chat",
+        commandSpans: [{ startIndex: 0, endIndex: 9 }],
+      },
+      createdAtMs,
+      expiresAtMs: createdAtMs + 120_000,
+      ...overrides,
+    };
+  };
+  const pluginApproval = (overrides: Partial<ExecApprovalRequest> = {}): ExecApprovalRequest => {
+    const createdAtMs = Date.now();
+    return {
+      id: "approval-plugin-1",
+      kind: "plugin",
+      request: {
+        command: "Install Calendar plugin",
+        agentId: "main",
+        sessionKey: "agent:main:chat",
+      },
+      pluginTitle: "Install Calendar plugin",
+      pluginDescription: "Calendar access for scheduling tasks.",
+      pluginSeverity: "medium",
+      pluginId: "calendar",
+      createdAtMs,
+      expiresAtMs: createdAtMs + 300_000,
+      ...overrides,
+    };
+  };
+
+  it("does not render an intrusive card when no approval is pending", () => {
+    const container = renderChatView({ execApprovalQueue: [] });
+
+    expect(container.querySelector("[data-chat-approval-card]")).toBeNull();
+  });
+
+  it("renders exec approval metadata, highlighted command, and decisions", () => {
+    const onExecApprovalDecision = vi.fn();
+    const container = renderChatView({
+      execApprovalQueue: [execApproval()],
+      onExecApprovalDecision,
+    });
+
+    const card = container.querySelector<HTMLElement>("[data-chat-approval-card]")!;
+    expect(card.textContent).toContain("Approval needed");
+    expect(card.textContent).toContain("Exec approval needed");
+    expect(card.textContent).toContain("pnpm test ui/src/ui/views/chat.test.ts");
+    expect(card.textContent).toContain("gateway");
+    expect(card.textContent).toContain("main");
+    expect(card.textContent).toContain("agent:main:chat");
+    expect(card.textContent).toContain("allowlist");
+    expect(card.textContent).toContain("on-miss");
+    expect(card.textContent).toContain("Expires in");
+    expect(card.querySelector(".chat-approval-card__command-span")?.textContent).toBe("pnpm test");
+
+    const buttons = [...card.querySelectorAll<HTMLButtonElement>("button")];
+    buttons.find((button) => button.textContent?.includes("Allow once"))?.click();
+    buttons.find((button) => button.textContent?.includes("Always allow"))?.click();
+    buttons.find((button) => button.textContent?.includes("Deny"))?.click();
+
+    expect(onExecApprovalDecision).toHaveBeenNthCalledWith(1, "allow-once");
+    expect(onExecApprovalDecision).toHaveBeenNthCalledWith(2, "allow-always");
+    expect(onExecApprovalDecision).toHaveBeenNthCalledWith(3, "deny");
+  });
+
+  it("renders plugin approval details and queue count", () => {
+    const onExecApprovalDecision = vi.fn();
+    const container = renderChatView({
+      execApprovalQueue: [pluginApproval(), execApproval({ id: "approval-exec-2" })],
+      onExecApprovalDecision,
+    });
+
+    const card = container.querySelector<HTMLElement>("[data-chat-approval-card]")!;
+    expect(card.textContent).toContain("Install Calendar plugin");
+    expect(card.textContent).toContain("Calendar access for scheduling tasks.");
+    expect(card.textContent).toContain("medium");
+    expect(card.textContent).toContain("calendar");
+    expect(card.textContent).toContain("2 pending");
+
+    card
+      .querySelector<HTMLButtonElement>("button.danger, .btn.danger")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onExecApprovalDecision).toHaveBeenCalledWith("deny");
+  });
+
+  it("disables approval buttons while busy", () => {
+    const container = renderChatView({
+      execApprovalQueue: [execApproval()],
+      execApprovalBusy: true,
+    });
+
+    const buttons = [
+      ...container.querySelectorAll<HTMLButtonElement>("[data-chat-approval-card] button"),
+    ];
+    expect(buttons).toHaveLength(3);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+  });
+
+  it("renders errors while keeping the composer usable", () => {
+    const onSend = vi.fn();
+    const container = renderChatView({
+      draft: "continue",
+      getDraft: () => "continue",
+      execApprovalQueue: [execApproval()],
+      execApprovalError: "Approval failed: offline",
+      onSend,
+    });
+
+    expect(container.querySelector("[data-chat-approval-card]")?.textContent).toContain(
+      "Approval failed: offline",
+    );
+    container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();
+    expect(onSend).toHaveBeenCalledTimes(1);
   });
 });
 

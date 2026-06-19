@@ -28,6 +28,7 @@ Docs: https://docs.openclaw.ai
 - CLI/onboarding: improve setup, onboarding, configure, and channel command wayfinding so terminal flows explain the next useful command instead of relying on terse setup labels.
 - Courses: add `openclaw courses create` for Course Creator artifact packages that validate required files, fail closed before source/LMS evidence exists, write deterministic fixture, mock search/crawl, live web-search, live page-crawl with semantic source-claim extraction and multi-module lesson artifacts, or research-pack source snapshots, verified claim maps, QA rubric reports, mocked Moodle staging proof for contract tests, and strict live Moodle staging report ingestion that keeps public publishing blocked until canary approval, high-risk approval evidence, and quality-policy reports for credibility, copyright, contradiction, accessibility, and assessment checks, and report the next build gap in JSON.
 - Control UI/SNES Studio: route live Codex-supervised OpenClaw production checks through Gateway `agent` runs with Codex model selection, `agent.wait`, and `chat.history` patch import so the dashboard distinguishes real live AI proof from local fallback work.
+- Control UI/Chat: add Approval Cards so pending exec and plugin approvals appear directly in Chat with readable metadata, queue count, Allow once, Always allow, and Deny actions while preserving the existing approval modal.
 
 ### Fixes
 

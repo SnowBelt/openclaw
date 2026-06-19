@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
+import { formatApprovalDisplayPath } from "../../../../src/infra/approval-display-paths.ts";
 import { t } from "../../i18n/index.ts";
 import "../../styles/chat.css";
 import type { CompactionStatus, FallbackStatus } from "../app-tool-stream.ts";
@@ -57,6 +58,10 @@ import {
   type WorkSurfaceItem,
   type WorkSurfaceTaskSummary,
 } from "../chat/work-snapshot.ts";
+import type {
+  ExecApprovalRequest,
+  ExecApprovalRequestPayload,
+} from "../controllers/exec-approval.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
@@ -103,6 +108,9 @@ export type ChatProps = {
   projectCreateName?: string;
   projectCreateDescription?: string;
   projectCreateInstructions?: string;
+  execApprovalQueue?: ExecApprovalRequest[];
+  execApprovalBusy?: boolean;
+  execApprovalError?: string | null;
   targetRunId?: string | null;
   targetAuditTs?: number | null;
   targetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
@@ -169,6 +177,9 @@ export type ChatProps = {
   onProjectDetach?: () => void | Promise<void>;
   onNewProjectChat?: (projectId: string) => void | Promise<void>;
   onProjectRefresh?: () => void | Promise<void>;
+  onExecApprovalDecision?: (
+    decision: "allow-once" | "allow-always" | "deny",
+  ) => void | Promise<void>;
   onDismissSideResult?: () => void;
   onNewSession: () => void;
   onClearHistory?: () => void;
@@ -816,6 +827,182 @@ function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
           </button>
         `
       : nothing}
+  `;
+}
+
+function formatChatApprovalRemaining(ms: number): string {
+  const remaining = Math.max(0, ms);
+  const totalSeconds = Math.floor(remaining / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h`;
+}
+
+function renderChatApprovalMetaRow(
+  label: string,
+  value?: string | null,
+  opts?: { path?: boolean },
+) {
+  if (!value) {
+    return nothing;
+  }
+  const displayValue = opts?.path ? formatApprovalDisplayPath(value) : value;
+  return html`<div class="chat-approval-card__meta-row">
+    <span>${label}</span><span>${displayValue}</span>
+  </div>`;
+}
+
+function renderChatApprovalCommandWithSpans(request: ExecApprovalRequestPayload) {
+  const commandSpans = [...(request.commandSpans ?? [])]
+    .filter(
+      (span) =>
+        Number.isSafeInteger(span.startIndex) &&
+        Number.isSafeInteger(span.endIndex) &&
+        span.startIndex >= 0 &&
+        span.endIndex > span.startIndex &&
+        span.endIndex <= request.command.length,
+    )
+    .toSorted((a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex);
+  const accepted: typeof commandSpans = [];
+  let cursor = 0;
+  for (const span of commandSpans) {
+    if (span.startIndex < cursor) {
+      continue;
+    }
+    accepted.push(span);
+    cursor = span.endIndex;
+  }
+  if (accepted.length === 0) {
+    return html`<div class="chat-approval-card__command mono">${request.command}</div>`;
+  }
+  const parts: Array<string | TemplateResult> = [];
+  cursor = 0;
+  for (const span of accepted) {
+    if (span.startIndex > cursor) {
+      parts.push(request.command.slice(cursor, span.startIndex));
+    }
+    parts.push(
+      html`<mark class="chat-approval-card__command-span"
+        >${request.command.slice(span.startIndex, span.endIndex)}</mark
+      >`,
+    );
+    cursor = span.endIndex;
+  }
+  if (cursor < request.command.length) {
+    parts.push(request.command.slice(cursor));
+  }
+  return html`<div class="chat-approval-card__command mono">${parts}</div>`;
+}
+
+function renderChatExecApprovalBody(request: ExecApprovalRequestPayload) {
+  return html`
+    ${renderChatApprovalCommandWithSpans(request)}
+    <div class="chat-approval-card__meta">
+      ${renderChatApprovalMetaRow("Host", request.host)}
+      ${renderChatApprovalMetaRow("Agent", request.agentId)}
+      ${renderChatApprovalMetaRow("Session", request.sessionKey)}
+      ${renderChatApprovalMetaRow("Working folder", request.cwd, { path: true })}
+      ${renderChatApprovalMetaRow("Resolved path", request.resolvedPath, { path: true })}
+      ${renderChatApprovalMetaRow("Security", request.security)}
+      ${renderChatApprovalMetaRow("Ask mode", request.ask)}
+    </div>
+  `;
+}
+
+function renderChatPluginApprovalBody(active: ExecApprovalRequest) {
+  return html`
+    ${active.pluginDescription
+      ? html`<pre class="chat-approval-card__command mono">${active.pluginDescription}</pre>`
+      : nothing}
+    <div class="chat-approval-card__meta">
+      ${renderChatApprovalMetaRow("Severity", active.pluginSeverity)}
+      ${renderChatApprovalMetaRow("Plugin", active.pluginId)}
+      ${renderChatApprovalMetaRow("Agent", active.request.agentId)}
+      ${renderChatApprovalMetaRow("Session", active.request.sessionKey)}
+    </div>
+  `;
+}
+
+function renderChatApprovalCard(props: ChatProps) {
+  const active = props.execApprovalQueue?.[0];
+  if (!active) {
+    return nothing;
+  }
+  const isPlugin = active.kind === "plugin";
+  const queueCount = props.execApprovalQueue?.length ?? 1;
+  const remainingMs = active.expiresAtMs - Date.now();
+  const remaining =
+    remainingMs > 0 ? `Expires in ${formatChatApprovalRemaining(remainingMs)}` : "Approval expired";
+  const title = isPlugin
+    ? (active.pluginTitle ?? "Plugin approval needed")
+    : "Exec approval needed";
+  const summaryDetail = isPlugin ? (active.pluginId ?? "Plugin") : active.request.command;
+  const busy = Boolean(props.execApprovalBusy);
+  const decide = (decision: "allow-once" | "allow-always" | "deny") => {
+    if (!busy) {
+      void props.onExecApprovalDecision?.(decision);
+    }
+  };
+  return html`
+    <details class="chat-approval-card" data-chat-approval-card open>
+      <summary class="chat-approval-card__summary" role="button">
+        <span class="chat-approval-card__dot"></span>
+        <span class="chat-approval-card__kicker">Approval needed</span>
+        <strong>${summaryDetail}</strong>
+        ${queueCount > 1
+          ? html`<span class="chat-approval-card__count">${queueCount} pending</span>`
+          : nothing}
+      </summary>
+      <div class="chat-approval-card__panel" role="region" aria-label="Approval needed">
+        <div class="chat-approval-card__header">
+          <div>
+            <h3>${title}</h3>
+            <p>${remaining}</p>
+          </div>
+          <span class="chat-approval-card__kind">${isPlugin ? "Plugin" : "Exec"}</span>
+        </div>
+        ${isPlugin
+          ? renderChatPluginApprovalBody(active)
+          : renderChatExecApprovalBody(active.request)}
+        ${props.execApprovalError
+          ? html`<div class="chat-approval-card__error" role="alert">
+              ${props.execApprovalError}
+            </div>`
+          : nothing}
+        <div class="chat-approval-card__actions">
+          <button
+            class="btn btn--sm primary"
+            type="button"
+            ?disabled=${busy}
+            @click=${() => decide("allow-once")}
+          >
+            Allow once
+          </button>
+          <button
+            class="btn btn--sm"
+            type="button"
+            ?disabled=${busy}
+            @click=${() => decide("allow-always")}
+          >
+            Always allow
+          </button>
+          <button
+            class="btn btn--sm danger"
+            type="button"
+            ?disabled=${busy}
+            @click=${() => decide("deny")}
+          >
+            Deny
+          </button>
+        </div>
+      </div>
+    </details>
   `;
 }
 
@@ -1941,7 +2128,7 @@ export function renderChat(props: ChatProps) {
           : nothing}
       </div>
 
-      ${renderChatProjectPicker(props)} ${renderPursueGoal(props)}
+      ${renderChatProjectPicker(props)} ${renderChatApprovalCard(props)} ${renderPursueGoal(props)}
       ${renderWorkingNow(props, workItems)}
       ${renderChatQueue({
         queue: props.queue,

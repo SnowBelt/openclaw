@@ -220,6 +220,15 @@ function isTerminalChatState(
   return state === "final" || state === "aborted" || state === "error";
 }
 
+function clearActiveChatRunState(host: GatewayHost) {
+  host.chatRunId = null;
+  host.chatRunStatus = null;
+  host.chatTaskId = null;
+  (host as unknown as { chatStream: string | null }).chatStream = null;
+  (host as unknown as { chatStreamStartedAt: number | null }).chatStreamStartedAt = null;
+  resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
+}
+
 function isChatTurnSessionChangedPayload(payload: unknown): boolean {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return false;
@@ -576,6 +585,10 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
       if (host.pendingAbort) {
         const abort = host.pendingAbort;
         host.pendingAbort = null;
+        const abortMatchesActiveRun =
+          Boolean(host.chatRunId) &&
+          ((abort.runId && host.chatRunId === abort.runId) ||
+            (!abort.runId && abort.sessionKey === host.sessionKey));
         void host.client
           .request(
             "chat.abort",
@@ -588,6 +601,9 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
             // since the run likely completed during the disconnect window anyway.
             console.warn("[openclaw] pending abort failed:", err);
           });
+        if (abortMatchesActiveRun) {
+          clearActiveChatRunState(host);
+        }
       }
       // Reconcile orphaned chat run state from before disconnect. The final
       // event may have been missed while the browser/mobile PWA was offline;
@@ -599,11 +615,7 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
           quiet: true,
         });
       } else {
-        host.chatRunStatus = null;
-        host.chatTaskId = null;
-        (host as unknown as { chatStream: string | null }).chatStream = null;
-        (host as unknown as { chatStreamStartedAt: number | null }).chatStreamStartedAt = null;
-        resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
+        clearActiveChatRunState(host);
       }
       (host as GatewayHostWithSideResults).chatSideResultTerminalRuns?.clear();
       if (shutdownHost.resumeChatQueueAfterReconnect) {

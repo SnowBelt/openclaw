@@ -1612,6 +1612,9 @@ export function renderApp(state: AppViewState) {
                 projectCreateName: state.chatProjectCreateName,
                 projectCreateDescription: state.chatProjectCreateDescription,
                 projectCreateInstructions: state.chatProjectCreateInstructions,
+                execApprovalQueue: state.execApprovalQueue,
+                execApprovalBusy: state.execApprovalBusy,
+                execApprovalError: state.execApprovalError,
                 targetRunId: state.chatTargetRunId ?? null,
                 targetAuditTs: state.chatTargetAuditTs ?? null,
                 targetStatus: state.chatTargetStatus ?? null,
@@ -1772,6 +1775,7 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 onProjectRefresh: () => loadChatProjects(state),
+                onExecApprovalDecision: (decision) => state.handleExecApprovalDecision(decision),
                 onDismissSideResult: () => {
                   state.chatSideResult = null;
                 },
