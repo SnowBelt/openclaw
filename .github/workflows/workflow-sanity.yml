@@ -9,6 +9,11 @@ on:
     paths-ignore:
       - "CHANGELOG.md"
   workflow_dispatch:
+    inputs:
+      chat-tool-proof-artifact-cards-proof:
+        description: "Run the scoped Chat Tool Proof Artifact Cards V1 proof instead of generated docs baselines"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -208,7 +213,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-tool-proof-artifact-cards-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -251,3 +256,51 @@ jobs:
 
       - name: Check plugin SDK API baseline drift
         run: pnpm plugin-sdk:api:check
+
+  chat-tool-proof-artifact-cards-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-tool-proof-artifact-cards-proof == 'true'
+    name: Chat Tool Proof Artifact Cards V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof metadata
+        run: |
+          echo "proof_sha=${GITHUB_SHA}"
+          echo "branch=${GITHUB_REF_NAME}"
+          node --version
+          pnpm --version
+
+      - name: Print exact command list
+        run: |
+          cat <<'EOF'
+          pnpm test ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.test.ts
+          pnpm tsgo:test:ui
+          pnpm ui:smoke:chat-tool-proof-artifact-cards
+          pnpm check:changed CHANGELOG.md package.json scripts/dev/control-ui-chat-tool-proof-artifact-cards-smoke.ts ui/src/ui/chat/tool-cards.ts ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/styles/chat/tool-cards.css .github/workflows/workflow-sanity.yml
+          EOF
+
+      - name: Run targeted UI tests
+        run: pnpm test ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Tool Proof Artifact Cards smoke
+        run: pnpm ui:smoke:chat-tool-proof-artifact-cards
+
+      - name: Run changed gate
+        run: pnpm check:changed CHANGELOG.md package.json scripts/dev/control-ui-chat-tool-proof-artifact-cards-smoke.ts ui/src/ui/chat/tool-cards.ts ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/styles/chat/tool-cards.css .github/workflows/workflow-sanity.yml
+

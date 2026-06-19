@@ -1373,6 +1373,69 @@ describe("grouped chat rendering", () => {
     ).toEqual({ status: "error" });
   });
 
+  it("renders command, proof, and artifact cards through grouped chat bubbles", () => {
+    const container = document.createElement("div");
+    renderAssistantMessage(
+      container,
+      {
+        id: "assistant-tool-proof-artifact",
+        role: "assistant",
+        content: [
+          {
+            type: "toolcall",
+            id: "cmd-1",
+            name: "system.run",
+            arguments: {
+              command: "echo grouped-command-ok",
+              cwd: "/repo",
+            },
+          },
+          {
+            type: "toolresult",
+            id: "cmd-1",
+            name: "system.run",
+            text: JSON.stringify({
+              exitCode: 0,
+              durationMs: 2200,
+              stdout: "grouped-command-ok",
+            }),
+          },
+          {
+            type: "toolresult",
+            id: "proof-1",
+            name: "github.run",
+            text: JSON.stringify({
+              workflow: "Workflow Sanity",
+              runId: "27818122460",
+              runUrl: "https://github.com/SnowBelt/openclaw/actions/runs/27818122460",
+              conclusion: "success",
+            }),
+          },
+          {
+            type: "toolresult",
+            id: "artifact-1",
+            name: "artifacts.write",
+            text: JSON.stringify({
+              title: "Desktop screenshot",
+              artifactPath: ".artifacts/chat-tool-proof/desktop.png",
+              ok: true,
+            }),
+          },
+        ],
+        timestamp: Date.now(),
+      },
+      { isToolExpanded: () => true },
+    );
+
+    expect(container.textContent).toContain("Command");
+    expect(container.textContent).toContain("Passed");
+    expect(container.textContent).toContain("echo grouped-command-ok");
+    expect(container.textContent).toContain("Proof result");
+    expect(container.textContent).toContain("Workflow Sanity");
+    expect(container.textContent).toContain("Artifact");
+    expect(container.textContent).toContain(".artifacts/chat-tool-proof/desktop.png");
+  });
+
   it("collapses an inline tool call while keeping matching tool output visible", () => {
     const container = document.createElement("div");
     const groups = [

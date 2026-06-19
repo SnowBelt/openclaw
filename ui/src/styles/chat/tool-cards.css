@@ -267,6 +267,86 @@
   margin-top: 6px;
 }
 
+.chat-tool-card__evidence {
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--bg) 54%, transparent);
+}
+
+.chat-tool-card__evidence-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chat-tool-card__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chat-tool-card__status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  background: color-mix(in srgb, var(--secondary) 78%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.chat-tool-card__status-pill--passed {
+  border-color: color-mix(in srgb, var(--ok) 34%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok);
+}
+
+.chat-tool-card__status-pill--failed,
+.chat-tool-card__status-pill--blocked {
+  border-color: color-mix(in srgb, var(--danger) 34%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.chat-tool-card__status-pill--running {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.chat-tool-card__facts {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.chat-tool-card__fact {
+  display: contents;
+}
+
+.chat-tool-card__fact dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.chat-tool-card__fact dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 /* Collapsed preview - fixed height with truncation */
 .chat-tools-inline {
   display: grid;

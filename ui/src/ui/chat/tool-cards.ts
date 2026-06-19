@@ -1,8 +1,6 @@
-// Control UI chat module implements tool cards behavior.
 import { html, nothing } from "lit";
 import { keyed } from "lit/directives/keyed.js";
 import { extractCanvasFromText } from "../../../../src/chat/canvas-render.js";
-import { t } from "../../i18n/index.ts";
 import { resolveCanvasIframeUrl } from "../canvas-url.ts";
 import { resolveEmbedSandbox, type EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
@@ -15,33 +13,34 @@ import { formatToolOutputForSidebar, getTruncatedPreview } from "./tool-helpers.
 
 export type ToolPreview = NonNullable<ToolCard["preview"]>;
 
-type FullMessageRequest = NonNullable<SidebarContent["fullMessageRequest"]>;
+type ToolCardKind = "tool" | "command" | "proof" | "artifact";
+type ToolCardStatus = "passed" | "failed" | "running" | "blocked" | "unknown";
+
+type ToolCardFact = {
+  label: string;
+  value: string;
+};
+
+type ToolCardPresentation = {
+  kind: ToolCardKind;
+  eyebrow: string;
+  outputLabel: string;
+  status?: ToolCardStatus;
+  titleOverride?: string;
+  detail?: string;
+  facts: ToolCardFact[];
+  previewText?: string;
+};
 
 function resolveCanvasPreviewSandbox(preview: ToolPreview): string {
   return resolveEmbedSandbox(preview.kind === "canvas" ? "scripts" : "scripts");
-}
-
-function resolveTranscriptMessageId(message: Record<string, unknown>): string | undefined {
-  if (typeof message.messageId === "string" && message.messageId.trim()) {
-    return message.messageId;
-  }
-  const openClawMeta = message["__openclaw"];
-  const transcriptMeta =
-    openClawMeta && typeof openClawMeta === "object" && !Array.isArray(openClawMeta)
-      ? (openClawMeta as Record<string, unknown>)
-      : null;
-  return typeof transcriptMeta?.id === "string" && transcriptMeta.id.trim()
-    ? transcriptMeta.id
-    : undefined;
 }
 
 function normalizeContent(content: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(content)) {
     return [];
   }
-  return content.filter(
-    (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object",
-  );
+  return content.filter(Boolean) as Array<Record<string, unknown>>;
 }
 
 function coerceArgs(value: unknown): unknown {
@@ -82,72 +81,6 @@ function extractToolText(item: Record<string, unknown>): string | undefined {
     }
   }
   return undefined;
-}
-
-function readToolErrorFlag(value: Record<string, unknown>): boolean | undefined {
-  const raw = value.isError ?? value.is_error;
-  return typeof raw === "boolean" ? raw : undefined;
-}
-
-const TOOL_NOT_FOUND_PATTERN = /^tool not found\.?$/i;
-const MAX_ERROR_DETECT_CHARS = 20_000;
-const TOOL_ERROR_STATUSES = new Set(["error", "failed", "timeout"]);
-
-function hasToolErrorStatus(value: unknown): boolean {
-  return typeof value === "string" && TOOL_ERROR_STATUSES.has(value.trim().toLowerCase());
-}
-
-export function isToolErrorOutput(outputText: string | undefined): boolean {
-  if (!outputText) {
-    return false;
-  }
-  const trimmed = outputText.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (TOOL_NOT_FOUND_PATTERN.test(trimmed)) {
-    return true;
-  }
-  if (trimmed.length > MAX_ERROR_DETECT_CHARS) {
-    return false;
-  }
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-    return false;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return false;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return false;
-  }
-  const obj = parsed as Record<string, unknown>;
-  const explicitErrorFlag = readToolErrorFlag(obj);
-  if (explicitErrorFlag !== undefined) {
-    return explicitErrorFlag;
-  }
-  if ("error" in obj) {
-    const value = obj.error;
-    if (typeof value === "string") {
-      return value.trim().length > 0;
-    }
-    if (typeof value === "boolean") {
-      return value;
-    }
-    if (value && typeof value === "object") {
-      return true;
-    }
-  }
-  return hasToolErrorStatus(obj.status);
-}
-
-export function isToolCardError(card: ToolCard): boolean {
-  if (card.isError !== undefined) {
-    return card.isError;
-  }
-  return isToolErrorOutput(card.outputText);
 }
 
 export function extractToolPreview(
@@ -202,6 +135,354 @@ function serializeToolInput(args: unknown): string | undefined {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function parseJsonRecord(text: string | undefined): Record<string, unknown> | undefined {
+  const trimmed = text?.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecord(parsed)) {
+      return parsed;
+    }
+    if (Array.isArray(parsed)) {
+      return { items: parsed };
+    }
+  } catch {}
+  return undefined;
+}
+
+function firstStringFromRecord(
+  record: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function firstNumberFromRecord(
+  record: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): number | undefined {
+  if (!record) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function firstBooleanFromRecord(
+  record: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): boolean | undefined {
+  if (!record) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "boolean") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function normalizeStatus(value: string | undefined): ToolCardStatus | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (
+    ["success", "succeeded", "passed", "pass", "ok", "complete", "completed"].includes(normalized)
+  ) {
+    return "passed";
+  }
+  if (
+    [
+      "failure",
+      "failed",
+      "fail",
+      "error",
+      "errored",
+      "cancelled",
+      "canceled",
+      "timeout",
+      "timed_out",
+    ].includes(normalized)
+  ) {
+    return "failed";
+  }
+  if (
+    ["running", "queued", "pending", "in_progress", "in-progress", "started"].includes(normalized)
+  ) {
+    return "running";
+  }
+  if (["blocked", "needs_user_input", "needs-user-input"].includes(normalized)) {
+    return "blocked";
+  }
+  return undefined;
+}
+
+function statusLabel(status: ToolCardStatus): string {
+  switch (status) {
+    case "passed":
+      return "Passed";
+    case "failed":
+      return "Failed";
+    case "running":
+      return "Running";
+    case "blocked":
+      return "Blocked";
+    case "unknown":
+      return "Status unknown";
+  }
+  return "Status unknown";
+}
+
+function statusFromEvidence(
+  outputRecord: Record<string, unknown> | undefined,
+): ToolCardStatus | undefined {
+  const exitCode = firstNumberFromRecord(outputRecord, ["exitCode", "exit_code", "code"]);
+  if (exitCode !== undefined) {
+    return exitCode === 0 ? "passed" : "failed";
+  }
+  const success = firstBooleanFromRecord(outputRecord, ["ok", "success", "passed"]);
+  if (success !== undefined) {
+    return success ? "passed" : "failed";
+  }
+  const timedOut = firstBooleanFromRecord(outputRecord, ["timedOut", "timed_out", "timeout"]);
+  if (timedOut === true) {
+    return "failed";
+  }
+  const status = normalizeStatus(
+    firstStringFromRecord(outputRecord, ["conclusion", "status", "state", "result"]),
+  );
+  if (status) {
+    return status;
+  }
+  return undefined;
+}
+
+function pushFact(facts: ToolCardFact[], label: string, value: string | number | undefined) {
+  if (value === undefined) {
+    return;
+  }
+  const text = String(value).trim();
+  if (text) {
+    facts.push({ label, value: text });
+  }
+}
+
+function inferToolCardKind(params: {
+  argsRecord?: Record<string, unknown>;
+  command?: string;
+  name: string;
+  outputRecord?: Record<string, unknown>;
+}): ToolCardKind {
+  const toolName = params.name.toLowerCase();
+  const output = params.outputRecord;
+  if (
+    firstStringFromRecord(output, [
+      "artifactId",
+      "artifact_id",
+      "artifactPath",
+      "artifact_path",
+      "filePath",
+      "file_path",
+      "screenshotPath",
+      "screenshot_path",
+      "reportPath",
+      "report_path",
+      "path",
+      "url",
+    ]) ||
+    Array.isArray(output?.artifacts) ||
+    Array.isArray(output?.artifactPaths) ||
+    Array.isArray(output?.artifact_paths) ||
+    toolName.includes("artifact")
+  ) {
+    return "artifact";
+  }
+  const command = params.command?.trim() ?? "";
+  if (
+    firstStringFromRecord(output, [
+      "workflow",
+      "workflowName",
+      "workflow_name",
+      "runUrl",
+      "run_url",
+      "runId",
+      "run_id",
+      "headSha",
+      "head_sha",
+      "proofKind",
+      "proof_kind",
+    ]) ||
+    /\b(pnpm\s+(test|check|tsgo|ui:smoke)|gh\s+(workflow|run)|workflow|proof|ci)\b/i.test(
+      command,
+    ) ||
+    toolName.includes("proof") ||
+    toolName.includes("github") ||
+    toolName.includes("workflow")
+  ) {
+    return "proof";
+  }
+  if (
+    command ||
+    firstStringFromRecord(params.argsRecord, ["cmd", "command", "script"]) ||
+    /(?:^|[._-])(exec|bash|shell|terminal|command|system\.run)(?:$|[._-])/.test(toolName)
+  ) {
+    return "command";
+  }
+  return "tool";
+}
+
+function formatDuration(value: number | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}s`;
+  }
+  return `${value}ms`;
+}
+
+function outputPreviewFromRecord(
+  outputRecord: Record<string, unknown> | undefined,
+): string | undefined {
+  return firstStringFromRecord(outputRecord, [
+    "summary",
+    "evidence",
+    "message",
+    "stdout",
+    "stderr",
+    "output",
+    "text",
+    "log",
+  ]);
+}
+
+export function resolveToolCardPresentation(card: ToolCard): ToolCardPresentation {
+  const argsRecord = isRecord(card.args) ? card.args : parseJsonRecord(card.inputText);
+  const outputRecord = parseJsonRecord(card.outputText);
+  const command =
+    firstStringFromRecord(argsRecord, ["cmd", "command", "script", "shell"]) ??
+    firstStringFromRecord(outputRecord, ["cmd", "command", "script", "shell"]);
+  const kind = inferToolCardKind({
+    argsRecord,
+    command,
+    name: card.name,
+    outputRecord,
+  });
+  const facts: ToolCardFact[] = [];
+  const status = kind === "tool" ? undefined : (statusFromEvidence(outputRecord) ?? "unknown");
+  if (kind === "tool") {
+    return {
+      kind,
+      eyebrow: "Tool",
+      outputLabel: "Tool output",
+      facts,
+    };
+  }
+
+  if (status) {
+    pushFact(facts, "Status", statusLabel(status));
+  }
+  pushFact(facts, "Command", command);
+  pushFact(facts, "Exit", firstNumberFromRecord(outputRecord, ["exitCode", "exit_code", "code"]));
+  pushFact(
+    facts,
+    "Duration",
+    formatDuration(
+      firstNumberFromRecord(outputRecord, ["durationMs", "duration_ms", "elapsedMs", "elapsed_ms"]),
+    ),
+  );
+  pushFact(facts, "CWD", firstStringFromRecord(argsRecord, ["cwd", "path", "dir", "directory"]));
+  pushFact(
+    facts,
+    "Run",
+    firstStringFromRecord(outputRecord, ["runId", "run_id", "databaseId", "database_id"]),
+  );
+  pushFact(facts, "SHA", firstStringFromRecord(outputRecord, ["headSha", "head_sha", "sha"]));
+  pushFact(facts, "URL", firstStringFromRecord(outputRecord, ["runUrl", "run_url", "url"]));
+  pushFact(
+    facts,
+    "Artifact",
+    firstStringFromRecord(outputRecord, [
+      "artifactId",
+      "artifact_id",
+      "artifactPath",
+      "artifact_path",
+      "filePath",
+      "file_path",
+      "screenshotPath",
+      "screenshot_path",
+      "reportPath",
+      "report_path",
+      "path",
+    ]),
+  );
+
+  if (kind === "command") {
+    return {
+      kind,
+      eyebrow: "Command",
+      outputLabel: "Command output",
+      status,
+      titleOverride: "Command",
+      detail: command,
+      facts,
+      previewText: outputPreviewFromRecord(outputRecord),
+    };
+  }
+  if (kind === "proof") {
+    return {
+      kind,
+      eyebrow: "Proof",
+      outputLabel: "Proof evidence",
+      status,
+      titleOverride: "Proof result",
+      detail:
+        firstStringFromRecord(outputRecord, [
+          "workflow",
+          "workflowName",
+          "workflow_name",
+          "proofKind",
+          "proof_kind",
+        ]) ?? command,
+      facts,
+      previewText: outputPreviewFromRecord(outputRecord),
+    };
+  }
+  return {
+    kind,
+    eyebrow: "Artifact",
+    outputLabel: "Artifact details",
+    status,
+    titleOverride: firstStringFromRecord(outputRecord, ["title", "name", "label"]) ?? "Artifact",
+    detail: firstStringFromRecord(outputRecord, ["kind", "type", "mimeType", "mime_type"]),
+    facts,
+    previewText: outputPreviewFromRecord(outputRecord),
+  };
+}
+
 function formatPayloadForSidebar(
   text: string | undefined,
   language: "json" | "text" = "text",
@@ -223,53 +504,23 @@ ${text}
 \`\`\``;
 }
 
-export function formatCollapsedToolSummaryText(value: string | undefined): string | undefined {
-  const normalized = value?.trim().replace(/\s+/g, " ");
-  if (!normalized) {
-    return undefined;
-  }
-  const withoutConnector = normalized.replace(/^with\s+/i, "").trim();
-  return withoutConnector || normalized;
-}
-
-export function formatCollapsedToolPreviewText(value: string | undefined): string | undefined {
-  const normalized = formatCollapsedToolSummaryText(value);
-  if (!normalized) {
-    return undefined;
-  }
-  return normalized.slice(0, 120);
-}
-
-function findFirstUnmatchedCard(
-  cards: ToolCard[],
-  id: string,
-  name: string,
-  fallbackMatchedCards: WeakSet<ToolCard>,
-): ToolCard | undefined {
-  let nameOnlyCandidate: ToolCard | undefined;
-  for (const card of cards) {
-    if (card.id === id) {
+function findLatestCard(cards: ToolCard[], id: string, name: string): ToolCard | undefined {
+  for (let i = cards.length - 1; i >= 0; i--) {
+    const card = cards[i];
+    if (!card) {
+      continue;
+    }
+    if (card.id === id || (card.name === name && !card.outputText)) {
       return card;
     }
-    if (
-      !nameOnlyCandidate &&
-      card.name === name &&
-      card.outputText === undefined &&
-      !fallbackMatchedCards.has(card)
-    ) {
-      nameOnlyCandidate = card;
-    }
   }
-  return nameOnlyCandidate;
+  return undefined;
 }
 
 export function extractToolCards(message: unknown, prefix = "tool"): ToolCard[] {
   const m = message as Record<string, unknown>;
   const content = normalizeContent(m.content);
-  const messageIsError = readToolErrorFlag(m);
   const cards: ToolCard[] = [];
-  const fallbackMatchedCards = new WeakSet<ToolCard>();
-  const transcriptMessageId = resolveTranscriptMessageId(m);
 
   for (let index = 0; index < content.length; index++) {
     const item = content[index] ?? {};
@@ -282,10 +533,9 @@ export function extractToolCards(message: unknown, prefix = "tool"): ToolCard[] 
       const args = coerceArgs(item.arguments ?? item.args ?? item.input);
       cards.push({
         id: resolveToolCardId(item, m, index, prefix),
-        name: typeof item.name === "string" ? item.name : "tool",
+        name: (item.name as string) ?? "tool",
         args,
         inputText: serializeToolInput(args),
-        messageId: transcriptMessageId,
       });
       continue;
     }
@@ -293,25 +543,22 @@ export function extractToolCards(message: unknown, prefix = "tool"): ToolCard[] 
     if (kind === "toolresult" || kind === "tool_result") {
       const name = typeof item.name === "string" ? item.name : "tool";
       const cardId = resolveToolCardId(item, m, index, prefix);
-      const existing = findFirstUnmatchedCard(cards, cardId, name, fallbackMatchedCards);
+      const existing = findLatestCard(cards, cardId, name);
       const text = extractToolText(item);
       const preview = extractToolPreview(text, name);
-      const isError = readToolErrorFlag(item) ?? messageIsError;
       if (existing) {
-        fallbackMatchedCards.add(existing);
         existing.outputText = text;
-        existing.preview = preview;
-        if (isError !== undefined) {
-          existing.isError = isError;
+        if (typeof item.isError === "boolean") {
+          existing.isError = item.isError;
         }
+        existing.preview = preview;
         continue;
       }
       cards.push({
         id: cardId,
         name,
         outputText: text,
-        messageId: transcriptMessageId,
-        ...(isError !== undefined ? { isError } : {}),
+        ...(typeof item.isError === "boolean" ? { isError: item.isError } : {}),
         preview,
       });
     }
@@ -335,13 +582,57 @@ export function extractToolCards(message: unknown, prefix = "tool"): ToolCard[] 
       id: resolveToolCardId({}, m, 0, prefix),
       name,
       outputText: text,
-      messageId: transcriptMessageId,
-      ...(messageIsError !== undefined ? { isError: messageIsError } : {}),
+      ...(typeof m.isError === "boolean" ? { isError: m.isError } : {}),
       preview: extractToolPreview(text, name),
     });
   }
 
   return cards;
+}
+
+function isToolErrorOutput(outputText: string | undefined): boolean {
+  const record = parseJsonRecord(outputText);
+  if (!record) {
+    return false;
+  }
+  const explicitError = firstBooleanFromRecord(record, ["isError", "error"]);
+  if (explicitError !== undefined) {
+    return explicitError;
+  }
+  if ("error" in record) {
+    const errorValue = record.error;
+    if (typeof errorValue === "string") {
+      return errorValue.trim().length > 0;
+    }
+    return Boolean(errorValue);
+  }
+  return (
+    normalizeStatus(firstStringFromRecord(record, ["status", "conclusion", "result"])) === "failed"
+  );
+}
+
+export function isToolCardError(card: ToolCard): boolean {
+  if (card.isError !== undefined) {
+    return card.isError;
+  }
+  const presentationStatus = resolveToolCardPresentation(card).status;
+  if (presentationStatus === "failed" || presentationStatus === "blocked") {
+    return true;
+  }
+  return isToolErrorOutput(card.outputText);
+}
+
+export function formatCollapsedToolSummaryText(value: string | undefined): string | undefined {
+  const normalized = value?.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return undefined;
+  }
+  const withoutConnector = normalized.replace(/^with\s+/i, "").trim();
+  return withoutConnector || normalized;
+}
+
+export function formatCollapsedToolPreviewText(value: string | undefined): string | undefined {
+  return formatCollapsedToolSummaryText(value)?.slice(0, 120);
 }
 
 const toolCardsByMessage = new WeakMap<object, Map<string, ToolCard[]>>();
@@ -364,11 +655,45 @@ export function extractToolCardsCached(message: unknown, prefix = "tool"): ToolC
   return cards;
 }
 
+export function resolveCollapsedToolDetail(
+  card: ToolCard,
+  displayDetail: string | undefined,
+): string | undefined {
+  const directDetail = displayDetail?.trim();
+  if (directDetail) {
+    return displayDetail;
+  }
+  if (typeof card.args !== "string") {
+    return undefined;
+  }
+  const inputText = card.inputText?.trim() ? card.inputText : card.args;
+  return formatCollapsedToolPreviewText(inputText);
+}
+
 export function buildToolCardSidebarContent(card: ToolCard): string {
   const display = resolveToolDisplay({ name: card.name, args: card.args });
+  const presentation = resolveToolCardPresentation(card);
   const detail = formatToolDetail(display);
-  const isError = isToolCardError(card);
-  const sections = [`## ${display.label}`, `**Tool:** \`${display.name}\``];
+  const sections = [
+    `## ${presentation.titleOverride ?? display.label}`,
+    `**Tool:** \`${display.name}\``,
+  ];
+
+  if (presentation.kind !== "tool") {
+    sections.push(`**Kind:** ${presentation.eyebrow}`);
+  }
+
+  if (presentation.status) {
+    sections.push(`**Status:** ${statusLabel(presentation.status)}`);
+  }
+
+  if (presentation.facts.length > 0) {
+    sections.push(
+      `### Evidence\n${presentation.facts
+        .map((fact) => `- **${fact.label}:** ${fact.value}`)
+        .join("\n")}`,
+    );
+  }
 
   if (detail) {
     sections.push(`**Summary:** ${detail}`);
@@ -382,18 +707,50 @@ export function buildToolCardSidebarContent(card: ToolCard): string {
   }
 
   if (card.outputText?.trim()) {
-    sections.push(
-      `### ${isError ? "Tool error" : "Tool output"}\n${formatToolOutputForSidebar(card.outputText)}`,
-    );
+    sections.push(`### Tool output\n${formatToolOutputForSidebar(card.outputText)}`);
   } else {
-    sections.push(
-      isError
-        ? "### Tool error\n*No output — tool failed.*"
-        : "### Tool output\n*No output — tool completed successfully.*",
-    );
+    sections.push(`### Tool output\n*No output — tool completed successfully.*`);
   }
 
   return sections.join("\n\n");
+}
+
+function renderToolCardEvidence(presentation: ToolCardPresentation) {
+  if (presentation.kind === "tool") {
+    return nothing;
+  }
+  return html`
+    <div class="chat-tool-card__evidence" data-tool-card-kind=${presentation.kind}>
+      <div class="chat-tool-card__evidence-header">
+        <span class="chat-tool-card__eyebrow">${presentation.eyebrow}</span>
+        ${presentation.status
+          ? html`<span
+              class="chat-tool-card__status-pill chat-tool-card__status-pill--${presentation.status}"
+              >${statusLabel(presentation.status)}</span
+            >`
+          : nothing}
+      </div>
+      ${presentation.facts.length > 0
+        ? html`<dl class="chat-tool-card__facts">
+            ${presentation.facts.map(
+              (fact) => html`
+                <div class="chat-tool-card__fact">
+                  <dt>${fact.label}</dt>
+                  <dd>${fact.value}</dd>
+                </div>
+              `,
+            )}
+          </dl>`
+        : html`<div class="chat-tool-card__status-text muted">Status unknown</div>`}
+      ${presentation.previewText?.trim()
+        ? renderToolDataBlock({
+            label: "Evidence preview",
+            text: presentation.previewText,
+            expanded: false,
+          })
+        : nothing}
+    </div>
+  `;
 }
 
 function handleRawDetailsToggle(event: Event) {
@@ -476,23 +833,18 @@ export function renderToolPreview(
 
 export function buildSidebarContent(
   value: string,
-  options?: {
-    rawText?: string | null;
-    fullMessageRequest?: FullMessageRequest;
-  },
+  options?: { rawText?: string | null },
 ): SidebarContent {
   return {
     kind: "markdown",
     content: value,
     ...(options?.rawText ? { rawText: options.rawText } : {}),
-    ...(options?.fullMessageRequest ? { fullMessageRequest: options.fullMessageRequest } : {}),
   };
 }
 
 export function buildPreviewSidebarContent(
   preview: ToolPreview,
   rawText?: string | null,
-  options?: { fullMessageRequest?: FullMessageRequest },
 ): SidebarContent | null {
   if (preview.kind !== "canvas" || preview.render !== "url" || !preview.viewId || !preview.url) {
     return null;
@@ -504,20 +856,7 @@ export function buildPreviewSidebarContent(
     ...(preview.title ? { title: preview.title } : {}),
     ...(preview.preferredHeight ? { preferredHeight: preview.preferredHeight } : {}),
     ...(rawText ? { rawText } : {}),
-    ...(options?.fullMessageRequest ? { fullMessageRequest: options.fullMessageRequest } : {}),
   };
-}
-
-function buildToolSidebarFullMessageRequest(
-  card: ToolCard,
-  sessionKey: string | undefined,
-): FullMessageRequest | undefined {
-  if (!sessionKey || !card.messageId) {
-    return undefined;
-  }
-  // A transcript entry can contain multiple tool blocks. Until the request can
-  // identify a specific block, upgrading by message id can show the wrong tool.
-  return undefined;
 }
 
 export function renderRawOutputToggle(text: string) {
@@ -569,15 +908,12 @@ function renderToolDataBlock(params: {
 
 function renderCollapsedToolSummary(params: {
   label: string;
-  icon: ReturnType<typeof html> | undefined;
-  name?: string;
+  name: string;
   expanded: boolean;
   isError?: boolean;
   onToggleExpanded: () => void;
 }) {
-  const { label, icon, name, expanded, isError, onToggleExpanded } = params;
-  const displayLabel = formatCollapsedToolSummaryText(label) ?? label;
-  const displayName = formatCollapsedToolSummaryText(name);
+  const { label, name, expanded, isError, onToggleExpanded } = params;
   return html`
     <button
       class="chat-tool-msg-summary ${isError ? "chat-tool-msg-summary--error" : ""}"
@@ -585,53 +921,12 @@ function renderCollapsedToolSummary(params: {
       aria-expanded=${String(expanded)}
       @click=${() => onToggleExpanded()}
     >
-      <span class="chat-tool-msg-summary__icon">${icon}</span>
-      <span class="chat-tool-msg-summary__label">${displayLabel}</span>
-      ${displayName
-        ? html`<span class="chat-tool-msg-summary__names">${displayName}</span>`
-        : nothing}
-      ${isError
-        ? html`<span class="chat-tool-msg-summary__error-badge" aria-label="Tool returned an error"
-            >${icons.x}<span>Error</span></span
-          >`
-        : nothing}
+      <span class="chat-tool-msg-summary__icon">${icons.zap}</span>
+      <span class="chat-tool-msg-summary__label">${label}</span>
+      <span class="chat-tool-msg-summary__names">${name}</span>
+      ${isError ? html`<span class="chat-tool-msg-summary__error-badge">Error</span>` : nothing}
     </button>
   `;
-}
-
-export function resolveCollapsedToolDetail(card: ToolCard, displayDetail: string | undefined) {
-  const directDetail = displayDetail?.trim();
-  if (directDetail) {
-    return displayDetail;
-  }
-  if (typeof card.args !== "string") {
-    return undefined;
-  }
-  const inputText = card.inputText?.trim() ? card.inputText : card.args;
-  return formatCollapsedToolPreviewText(inputText);
-}
-
-export function resolveCollapsedToolSummaryParts(params: {
-  card: ToolCard;
-  displayLabel: string;
-  displayDetail: string | undefined;
-  isError: boolean;
-}): { label: string; name?: string } {
-  if (params.isError) {
-    return { label: t("chat.toolCards.toolError"), name: params.displayLabel };
-  }
-
-  const displayDetail = params.displayDetail?.trim();
-  if (displayDetail) {
-    return { label: params.displayLabel, name: displayDetail };
-  }
-
-  return {
-    label:
-      typeof params.card.args === "string"
-        ? (resolveCollapsedToolDetail(params.card, undefined) ?? params.displayLabel)
-        : params.displayLabel,
-  };
 }
 
 export function renderToolCard(
@@ -639,22 +934,23 @@ export function renderToolCard(
   opts: {
     expanded: boolean;
     onToggleExpanded: (id: string) => void;
-    sessionKey?: string;
-    agentId?: string;
     onOpenSidebar?: (content: SidebarContent) => void;
     canvasPluginSurfaceUrl?: string | null;
     embedSandboxMode?: EmbedSandboxMode;
     allowExternalEmbedUrls?: boolean;
   },
 ) {
-  const display = resolveToolDisplay({ name: card.name, args: card.args, detailMode: "explain" });
+  const hasOutput = Boolean(card.outputText?.trim());
+  const presentation = resolveToolCardPresentation(card);
   const isError = isToolCardError(card);
-  const summary = resolveCollapsedToolSummaryParts({
-    card,
-    displayLabel: display.label,
-    displayDetail: display.detail,
-    isError,
-  });
+  const previewLabel =
+    presentation.kind === "tool"
+      ? isError
+        ? "Tool error"
+        : hasOutput
+          ? "Tool output"
+          : "Tool call"
+      : presentation.eyebrow;
 
   return html`
     <div
@@ -663,9 +959,8 @@ export function renderToolCard(
         : ""}"
     >
       ${renderCollapsedToolSummary({
-        label: summary.label,
-        icon: icons[display.icon],
-        name: summary.name,
+        label: previewLabel,
+        name: card.name,
         expanded: opts.expanded,
         isError,
         onToggleExpanded: () => opts.onToggleExpanded(card.id),
@@ -675,7 +970,6 @@ export function renderToolCard(
             <div class="chat-tool-msg-body">
               ${renderExpandedToolCardContent(
                 card,
-                opts.sessionKey,
                 opts.onOpenSidebar,
                 opts.canvasPluginSurfaceUrl,
                 opts.embedSandboxMode ?? "scripts",
@@ -690,29 +984,24 @@ export function renderToolCard(
 
 export function renderExpandedToolCardContent(
   card: ToolCard,
-  sessionKey?: string,
   onOpenSidebar?: (content: SidebarContent) => void,
   canvasPluginSurfaceUrl?: string | null,
   embedSandboxMode: EmbedSandboxMode = "scripts",
   allowExternalEmbedUrls = false,
 ) {
   const display = resolveToolDisplay({ name: card.name, args: card.args });
+  const presentation = resolveToolCardPresentation(card);
+  const isError = isToolCardError(card);
   const detail = formatToolDetail(display);
   const hasOutput = Boolean(card.outputText?.trim());
   const hasInput = Boolean(card.inputText?.trim());
-  const isError = isToolCardError(card);
   const canOpenSidebar = Boolean(onOpenSidebar);
-  const fullMessageRequest = buildToolSidebarFullMessageRequest(card, sessionKey);
   const previewSidebarContent =
     card.preview?.kind === "canvas"
-      ? buildPreviewSidebarContent(card.preview, card.outputText, { fullMessageRequest })
+      ? buildPreviewSidebarContent(card.preview, card.outputText)
       : null;
   const sidebarActionContent =
-    previewSidebarContent ??
-    buildSidebarContent(buildToolCardSidebarContent(card), {
-      fullMessageRequest,
-      rawText: card.outputText ?? null,
-    });
+    previewSidebarContent ?? buildSidebarContent(buildToolCardSidebarContent(card));
   const visiblePreview = card.preview
     ? renderToolPreview(card.preview, "chat_tool", {
         onOpenSidebar,
@@ -724,16 +1013,11 @@ export function renderExpandedToolCardContent(
     : nothing;
 
   return html`
-    <div class="chat-tool-card chat-tool-card--expanded ${isError ? "chat-tool-card--error" : ""}">
+    <div class="chat-tool-card chat-tool-card--expanded">
       <div class="chat-tool-card__header">
         <div class="chat-tool-card__title">
           <span class="chat-tool-card__icon">${icons[display.icon]}</span>
-          <span>${display.label}</span>
-          ${isError
-            ? html`<span class="chat-tool-card__status-badge" role="status"
-                >${icons.x}<span>Error</span></span
-              >`
-            : nothing}
+          <span>${presentation.titleOverride ?? display.label}</span>
         </div>
         ${canOpenSidebar
           ? html`
@@ -751,7 +1035,10 @@ export function renderExpandedToolCardContent(
             `
           : nothing}
       </div>
-      ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
+      ${presentation.detail || detail
+        ? html`<div class="chat-tool-card__detail">${presentation.detail ?? detail}</div>`
+        : nothing}
+      ${renderToolCardEvidence(presentation)}
       ${hasInput
         ? renderToolDataBlock({
             label: "Tool input",
@@ -763,7 +1050,8 @@ export function renderExpandedToolCardContent(
         ? card.preview
           ? html`${visiblePreview} ${renderRawOutputToggle(card.outputText!)}`
           : renderToolDataBlock({
-              label: isError ? "Tool error" : "Tool output",
+              label:
+                presentation.kind === "tool" && isError ? "Tool error" : presentation.outputLabel,
               text: card.outputText!,
               expanded: true,
             })
@@ -777,41 +1065,27 @@ export function renderToolCardSidebar(
   onOpenSidebar?: (content: SidebarContent) => void,
   canvasPluginSurfaceUrl?: string | null,
   embedSandboxMode: EmbedSandboxMode = "scripts",
-  options?: { sessionKey?: string; agentId?: string },
 ) {
   const display = resolveToolDisplay({ name: card.name, args: card.args });
   const detail = formatToolDetail(display);
   const preview = card.preview;
   const hasText = Boolean(card.outputText?.trim());
   const hasPreview = Boolean(preview);
-  const isError = isToolCardError(card);
-  const fullMessageRequest = buildToolSidebarFullMessageRequest(card, options?.sessionKey);
   const sidebarContent =
     preview?.kind === "canvas"
-      ? buildPreviewSidebarContent(preview, card.outputText, { fullMessageRequest })
-      : buildSidebarContent(buildToolCardSidebarContent(card), {
-          fullMessageRequest,
-          rawText: card.outputText ?? null,
-        });
-  const actionContent =
-    sidebarContent ??
-    buildSidebarContent(buildToolCardSidebarContent(card), {
-      fullMessageRequest,
-      rawText: card.outputText ?? null,
-    });
+      ? buildPreviewSidebarContent(preview, card.outputText)
+      : buildSidebarContent(buildToolCardSidebarContent(card));
+  const actionContent = sidebarContent ?? buildSidebarContent(buildToolCardSidebarContent(card));
   const canClick = Boolean(onOpenSidebar);
   const handleClick = canClick ? () => onOpenSidebar?.(actionContent) : undefined;
   const isShort = hasText && !hasPreview && (card.outputText?.length ?? 0) <= 240;
   const showCollapsed = hasText && !hasPreview && !isShort;
   const showInline = hasText && !hasPreview && isShort;
   const isEmpty = !hasText && !hasPreview;
-  const statusIcon = isError ? icons.x : icons.check;
 
   return html`
     <div
-      class="chat-tool-card ${canClick ? "chat-tool-card--clickable" : ""} ${isError
-        ? "chat-tool-card--error"
-        : ""}"
+      class="chat-tool-card ${canClick ? "chat-tool-card--clickable" : ""}"
       @click=${handleClick}
       role=${canClick ? "button" : nothing}
       tabindex=${canClick ? "0" : nothing}
@@ -831,28 +1105,16 @@ export function renderToolCardSidebar(
           <span>${display.label}</span>
         </div>
         ${canClick
-          ? html`<span
-              class="chat-tool-card__action ${isError ? "chat-tool-card__action--error" : ""}"
-              >${isError ? "View error" : hasText || hasPreview ? "View" : ""} ${statusIcon}</span
+          ? html`<span class="chat-tool-card__action"
+              >${hasText || hasPreview ? "View" : ""} ${icons.check}</span
             >`
           : nothing}
         ${isEmpty && !canClick
-          ? html`<span
-              class="chat-tool-card__status ${isError ? "chat-tool-card__status--error" : ""}"
-              >${statusIcon}</span
-            >`
+          ? html`<span class="chat-tool-card__status">${icons.check}</span>`
           : nothing}
       </div>
       ${detail ? html`<div class="chat-tool-card__detail">${detail}</div>` : nothing}
-      ${isEmpty
-        ? html`<div
-            class="chat-tool-card__status-text ${isError
-              ? "chat-tool-card__status-text--error"
-              : "muted"}"
-          >
-            ${isError ? "Failed" : "Completed"}
-          </div>`
-        : nothing}
+      ${isEmpty ? html`<div class="chat-tool-card__status-text muted">Completed</div>` : nothing}
       ${preview
         ? html`${renderToolPreview(preview, "chat_tool", {
             onOpenSidebar,
