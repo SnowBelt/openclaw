@@ -1,5 +1,19 @@
 ﻿# Changelog
 
+## 2026.6.19
+
+### Highlights
+
+- Control Director is now production-grade for reliability-sensitive OpenClaw operations: completion is Judge/evidence gated, unsupported truth claims are blocked, no-response runs recover before final delivery, provider schema failures become actionable blockers, Gemma 4 Q8 model references are canonicalized, and normal agents remain outside Control Director-only guards.
+
+### Changes
+
+- Control Director: add durable recovery supervision, provider schema preflight diagnostics, Gemma/Ollama canonical model repair, Dashboard/operator guidance, and package-proof workflow hardening so production operators can verify exact status without accepting placeholder replies.
+
+### Fixes
+
+- Control Director: prevent placeholder liveness replies, unsupported public-link/server claims, stale generic continuation missions, bare Gemma refs resolving to OpenAI, provider schema rejections surfacing as raw model errors, and Control Director-only guard rewrites leaking into non-Control-Director agents.
+
 Docs: https://docs.openclaw.ai
 
 ## 2026.6.6
