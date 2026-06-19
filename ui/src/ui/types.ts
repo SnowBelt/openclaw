@@ -425,6 +425,12 @@ export type SessionCompactionCheckpointPreview = Pick<
 export type GatewaySessionRow = {
   key: string;
   spawnedBy?: string;
+  spawnedWorkspaceDir?: string;
+  spawnedCwd?: string;
+  forkedFromParent?: boolean;
+  spawnDepth?: number;
+  subagentRole?: "orchestrator" | "leaf";
+  subagentControlScope?: "children" | "none";
   kind: "cron" | "direct" | "group" | "global" | "unknown";
   label?: string;
   displayName?: string;
@@ -458,6 +464,7 @@ export type GatewaySessionRow = {
   startedAt?: number;
   endedAt?: number;
   runtimeMs?: number;
+  parentSessionKey?: string;
   childSessions?: string[];
   projectId?: string;
   model?: string;

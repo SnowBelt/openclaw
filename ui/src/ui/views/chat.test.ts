@@ -596,6 +596,101 @@ function renderChatView(overrides: Partial<Parameters<typeof renderChat>[0]> = {
   return container;
 }
 
+describe("chat multi-agent work tree", () => {
+  it("renders active child agents in the Working Now panel", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 3,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            childSessions: ["agent:main:subagent:research"],
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+          },
+          {
+            displayName: "Research agent",
+            hasActiveRun: true,
+            key: "agent:main:subagent:research",
+            kind: "direct",
+            lastMessagePreview: "Reading source evidence",
+            spawnedBy: "agent:main:main",
+            updatedAt: 90,
+          },
+          {
+            displayName: "Other worker",
+            hasActiveRun: true,
+            key: "agent:other:subagent:worker",
+            kind: "direct",
+            spawnedBy: "agent:other:main",
+            updatedAt: 120,
+          },
+        ],
+        ts: 0,
+      },
+    });
+
+    const tree = container.querySelector(".chat-agent-work-tree");
+    expect(tree?.textContent).toContain("Agent Work Tree");
+    expect(tree?.textContent).toContain("Research agent");
+    expect(tree?.textContent).toContain("Reading source evidence");
+    expect(tree?.textContent).not.toContain("Other worker");
+  });
+
+  it("opens child sessions and cancels matching child tasks", () => {
+    const onSessionSelect = vi.fn();
+    const onWorkTaskCancel = vi.fn();
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 2,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+          },
+          {
+            displayName: "Research agent",
+            key: "agent:main:subagent:research",
+            kind: "direct",
+            spawnedBy: "agent:main:main",
+            updatedAt: 90,
+          },
+        ],
+        ts: 0,
+      },
+      workTasks: [
+        {
+          id: "task-research",
+          taskId: "task-research",
+          sessionKey: "agent:main:subagent:research",
+          status: "running",
+        },
+      ],
+      onSessionSelect,
+      onWorkTaskCancel,
+    });
+
+    const child = container.querySelector<HTMLElement>(
+      '[data-agent-work-tree-node="agent:main:subagent:research"]',
+    );
+    expect(child?.textContent).toContain("Research agent");
+
+    const buttons = Array.from(child!.querySelectorAll<HTMLButtonElement>("button"));
+    buttons.find((button) => button.textContent?.includes("Open"))?.click();
+    buttons.find((button) => button.textContent?.includes("Cancel"))?.click();
+
+    expect(onSessionSelect).toHaveBeenCalledWith("agent:main:subagent:research");
+    expect(onWorkTaskCancel).toHaveBeenCalledWith("task-research");
+  });
+});
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (error?: unknown) => void;

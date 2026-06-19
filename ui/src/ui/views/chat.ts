@@ -66,6 +66,11 @@ import {
   type WorkSurfaceItem,
   type WorkSurfaceTaskSummary,
 } from "../chat/work-snapshot.ts";
+import {
+  buildAgentWorkTreeSnapshot,
+  type AgentWorkTreeNode,
+  type AgentWorkTreeSnapshot,
+} from "../chat/work-tree.ts";
 import type {
   ExecApprovalRequest,
   ExecApprovalRequestPayload,
@@ -1460,10 +1465,106 @@ function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
   `;
 }
 
-function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[]) {
+function renderAgentWorkTreeActions(props: ChatProps, node: AgentWorkTreeNode) {
+  return html`
+    ${node.actions.includes("open_session") && props.onSessionSelect
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onSessionSelect?.(node.sessionKey)}
+          >
+            Open
+          </button>
+        `
+      : nothing}
+    ${node.actions.includes("cancel_task") && node.taskId && props.onWorkTaskCancel
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onWorkTaskCancel?.(node.taskId!)}
+          >
+            Cancel
+          </button>
+        `
+      : nothing}
+  `;
+}
+
+function renderAgentWorkTree(props: ChatProps, tree: AgentWorkTreeSnapshot) {
+  const nodes = tree.flat;
+  if (nodes.length === 0) {
+    return html`
+      <section class="chat-agent-work-tree" aria-label="Agent Work Tree">
+        <div class="chat-agent-work-tree__header">
+          <div>
+            <h4>Agent Work Tree</h4>
+            <p>No child agents running.</p>
+          </div>
+        </div>
+        <div class="chat-agent-work-tree__empty">No child agents running.</div>
+      </section>
+    `;
+  }
+
+  return html`
+    <section class="chat-agent-work-tree" aria-label="Agent Work Tree">
+      <div class="chat-agent-work-tree__header">
+        <div>
+          <h4>Agent Work Tree</h4>
+          <p>
+            ${tree.activeChildCount > 0
+              ? `${tree.activeChildCount} active child ${tree.activeChildCount === 1 ? "agent" : "agents"}.`
+              : "Child agents are idle."}
+          </p>
+        </div>
+      </div>
+      <div class="chat-agent-work-tree__list">
+        ${nodes.map(
+          (node) => html`
+            <article
+              class="chat-agent-work-tree__node ${node.isActive
+                ? "chat-agent-work-tree__node--active"
+                : ""}"
+              data-agent-work-tree-node=${node.sessionKey}
+              style=${`--agent-work-depth: ${node.depth};`}
+            >
+              <div class="chat-agent-work-tree__rail" aria-hidden="true"></div>
+              <div class="chat-agent-work-tree__main">
+                <div class="chat-agent-work-tree__topline">
+                  <span>${node.depth === 0 ? "Parent" : "Child agent"}</span>
+                  <strong>${node.status}</strong>
+                  ${node.activeDescendants > 0
+                    ? html`<em>${node.activeDescendants} active below</em>`
+                    : nothing}
+                </div>
+                <div class="chat-agent-work-tree__title">${node.title}</div>
+                ${node.detail
+                  ? html`<div class="chat-agent-work-tree__detail">${node.detail}</div>`
+                  : nothing}
+                <div class="chat-agent-work-tree__meta">
+                  <span>${node.sessionKey}</span>
+                </div>
+              </div>
+              <div class="chat-agent-work-tree__actions">
+                ${renderAgentWorkTreeActions(props, node)}
+              </div>
+            </article>
+          `,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: AgentWorkTreeSnapshot) {
   const hasItems = hasActiveWork(items);
+  const hasTree = tree.flat.length > 0;
+  const visibleCount = items.length + tree.childCount;
+  const hasActiveWorkVisible = hasItems || tree.activeChildCount > 0;
   const hasError = Boolean(props.workTasksError);
-  const summaryLabel = hasItems
+  const summaryLabel = hasActiveWorkVisible
     ? "Working"
     : hasError
       ? "Work status unavailable"
@@ -1477,13 +1578,17 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[]) {
           class="chat-work-surface__dot ${hasItems ? "chat-work-surface__dot--active" : ""}"
         ></span>
         <span>${summaryLabel}</span>
-        ${hasItems ? html`<strong>${items.length}</strong>` : nothing}
+        ${visibleCount > 0 ? html`<strong>${visibleCount}</strong>` : nothing}
       </summary>
       <div class="chat-work-surface__panel" role="region" aria-label="Working Now">
         <div class="chat-work-surface__header">
           <div>
             <h3>Working Now</h3>
-            <p>${hasItems ? "Current OpenClaw work, newest first." : "Nothing is running."}</p>
+            <p>
+              ${hasItems || hasTree
+                ? "Current OpenClaw work and child agents."
+                : "Nothing is running."}
+            </p>
           </div>
         </div>
         ${hasError
@@ -1524,6 +1629,7 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[]) {
               </div>
             `
           : html`<div class="chat-work-surface__empty">Nothing is running.</div>`}
+        ${renderAgentWorkTree(props, tree)}
       </div>
     </details>
   `;
@@ -2340,6 +2446,11 @@ export function renderChat(props: ChatProps) {
     sessionsResult: props.sessions,
     tasks: props.workTasks ?? [],
   });
+  const workTree = buildAgentWorkTreeSnapshot({
+    currentSessionKey: props.sessionKey,
+    sessionsResult: props.sessions,
+    tasks: props.workTasks ?? [],
+  });
   const displayStream = props.stream ?? null;
   const historyRenderLimit = resolveChatHistoryRenderWindow(props);
 
@@ -2834,7 +2945,7 @@ export function renderChat(props: ChatProps) {
       </div>
 
       ${renderChatProjectPicker(props)} ${renderChatApprovalCard(props)} ${renderPursueGoal(props)}
-      ${renderWorkingNow(props, workItems)}
+      ${renderWorkingNow(props, workItems, workTree)}
       ${renderChatQueue({
         queue: props.queue,
         canAbort: showAbortableUi,

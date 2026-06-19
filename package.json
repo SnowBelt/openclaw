@@ -1875,6 +1875,7 @@
     "ui:smoke:chat-pursue-goal": "node --import tsx scripts/dev/control-ui-chat-pursue-goal-smoke.ts",
     "ui:smoke:chat-tool-proof-artifact-cards": "node --import tsx scripts/dev/control-ui-chat-tool-proof-artifact-cards-smoke.ts",
     "ui:smoke:chat-work-surface": "node --import tsx scripts/dev/control-ui-chat-work-surface-smoke.ts",
+    "ui:smoke:chat-multi-agent-work-tree": "node --import tsx scripts/dev/control-ui-chat-multi-agent-work-tree-smoke.ts",
     "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
