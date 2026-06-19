@@ -6,8 +6,13 @@ import {
 import { GatewayRequestError } from "../gateway.ts";
 import {
   abortChatRun,
+  attachChatSessionToProject,
   cancelChatWorkTask,
+  createAndAttachChatProject,
+  createChatSessionInProject,
+  detachChatSessionFromProject,
   handleChatEvent,
+  loadChatProjects,
   loadChatWorkTasks,
   loadChatHistory,
   sendChatMessage,
@@ -102,6 +107,127 @@ describe("chat work task loading", () => {
       status: ["queued", "running"],
       limit: 50,
     });
+  });
+});
+
+describe("chat project actions", () => {
+  it("loads projects without blocking chat", async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      ts: 1,
+      count: 1,
+      projects: [{ id: "project-1", name: "Project 1", resources: [] }],
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      projectsList: null,
+      projectsLoading: false,
+    });
+
+    await loadChatProjects(state);
+
+    expect(request).toHaveBeenCalledWith("projects.list", { includeArchived: true });
+    expect(state.projectsList?.projects[0]?.id).toBe("project-1");
+    expect(state.chatProjectError).toBeNull();
+    expect(state.projectsLoading).toBe(false);
+  });
+
+  it("creates a project and attaches the active chat session", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        project: {
+          id: "project-new",
+          name: "New Project",
+          memoryMode: "project_only",
+          createdAt: 1,
+          updatedAt: 1,
+          resources: [],
+        },
+      })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true, ts: 2, count: 1, projects: [] });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatProjectCreateName: " New Project ",
+      chatProjectCreateDescription: " Research ",
+      chatProjectCreateInstructions: " Be precise ",
+      chatProjectPickerOpen: true,
+    });
+
+    await expect(createAndAttachChatProject(state)).resolves.toBe("project-new");
+
+    expect(request).toHaveBeenNthCalledWith(1, "projects.create", {
+      name: "New Project",
+      description: "Research",
+      instructions: "Be precise",
+      memoryMode: "project_only",
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "projects.sessions.attach", {
+      projectId: "project-new",
+      key: "main",
+    });
+    expect(state.chatProjectCreateName).toBe("");
+    expect(state.chatProjectPickerOpen).toBe(false);
+    expect(state.chatProjectBusy).toBe(false);
+  });
+
+  it("attaches and detaches the active chat session", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true, ts: 1, count: 0, projects: [] })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true, ts: 2, count: 0, projects: [] });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatProjectPickerOpen: true,
+    });
+
+    await expect(attachChatSessionToProject(state, "project-1")).resolves.toBe(true);
+    state.chatProjectPickerOpen = true;
+    await expect(detachChatSessionFromProject(state)).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(1, "projects.sessions.attach", {
+      projectId: "project-1",
+      key: "main",
+    });
+    expect(request).toHaveBeenNthCalledWith(3, "projects.sessions.detach", { key: "main" });
+    expect(state.chatProjectPickerOpen).toBe(false);
+  });
+
+  it("creates a new chat inside a selected project", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, key: "project:project-1:chat" })
+      .mockResolvedValueOnce({ ok: true, ts: 1, count: 0, projects: [] });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatProjectPickerOpen: true,
+    });
+
+    await expect(createChatSessionInProject(state, "project-1")).resolves.toBe(
+      "project:project-1:chat",
+    );
+
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.create", {
+      projectId: "project-1",
+    });
+    expect(state.chatProjectPickerOpen).toBe(false);
+  });
+
+  it("records project API failures without throwing", async () => {
+    const request = vi.fn().mockRejectedValueOnce(new Error("offline"));
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatProjectCreateName: "Project",
+    });
+
+    await expect(createAndAttachChatProject(state)).resolves.toBeNull();
+
+    expect(state.chatProjectError).toContain("offline");
+    expect(state.chatProjectBusy).toBe(false);
   });
 });
 

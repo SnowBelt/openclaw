@@ -190,7 +190,9 @@ export async function refreshActiveTabImpl(host: SettingsHost) {
       case "chat":
         {
           const { refreshChat } = await import("./app-chat.ts");
+          const { loadChatProjects } = await import("./controllers/chat.ts");
           await refreshChat(host as unknown as Parameters<typeof refreshChat>[0]);
+          void loadChatProjects(host as unknown as Parameters<typeof loadChatProjects>[0]);
           scheduleChatScroll(
             host as unknown as Parameters<typeof scheduleChatScroll>[0],
             !host.chatHasAutoScrolled,

@@ -55,7 +55,7 @@ import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
 import { detectTextDirection } from "../text-direction.ts";
-import type { SessionsListResult } from "../types.ts";
+import type { ProjectRecord, ProjectsListResult, SessionsListResult } from "../types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { resolveLocalUserName } from "../user-identity.ts";
 import { chatEphemeralState as vs, resetChatViewState } from "./chat-view-state.ts";
@@ -83,6 +83,14 @@ export type ChatProps = {
   workTasks?: WorkSurfaceTaskSummary[];
   workTasksLoading?: boolean;
   workTasksError?: string | null;
+  projectsList?: ProjectsListResult | null;
+  projectsLoading?: boolean;
+  projectPickerOpen?: boolean;
+  projectBusy?: boolean;
+  projectError?: string | null;
+  projectCreateName?: string;
+  projectCreateDescription?: string;
+  projectCreateInstructions?: string;
   targetRunId?: string | null;
   targetAuditTs?: number | null;
   targetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
@@ -133,6 +141,16 @@ export type ChatProps = {
   onQueueRemove: (id: string) => void;
   onQueueSteer?: (id: string) => void;
   onWorkTaskCancel?: (taskId: string) => void;
+  onProjectPickerToggle?: (open: boolean) => void;
+  onProjectCreateFieldChange?: (
+    field: "name" | "description" | "instructions",
+    value: string,
+  ) => void;
+  onProjectCreateAndAttach?: () => void | Promise<void>;
+  onProjectAttach?: (projectId: string) => void | Promise<void>;
+  onProjectDetach?: () => void | Promise<void>;
+  onNewProjectChat?: (projectId: string) => void | Promise<void>;
+  onProjectRefresh?: () => void | Promise<void>;
   onDismissSideResult?: () => void;
   onNewSession: () => void;
   onClearHistory?: () => void;
@@ -852,6 +870,209 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[]) {
   `;
 }
 
+function activeChatProjects(projectsList: ProjectsListResult | null | undefined): ProjectRecord[] {
+  return (projectsList?.projects ?? []).filter((project) => project.archived !== true);
+}
+
+function resolveCurrentChatProject(props: ChatProps): {
+  projectId: string | null;
+  project: ProjectRecord | null;
+} {
+  const activeSession = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
+  const projectId =
+    typeof activeSession?.projectId === "string" && activeSession.projectId.trim()
+      ? activeSession.projectId.trim()
+      : null;
+  if (!projectId) {
+    return { projectId: null, project: null };
+  }
+  const project =
+    activeChatProjects(props.projectsList).find((entry) => entry.id === projectId) ?? null;
+  return { projectId, project };
+}
+
+function renderProjectSummaryLabel(props: ChatProps): string {
+  const { project, projectId } = resolveCurrentChatProject(props);
+  if (project?.name?.trim()) {
+    return project.name.trim();
+  }
+  if (projectId) {
+    return "Project attached";
+  }
+  return "No Project";
+}
+
+function renderProjectPickerActions(
+  props: ChatProps,
+  project: ProjectRecord,
+  currentId: string | null,
+) {
+  const isCurrent = project.id === currentId;
+  return html`
+    <div class="chat-project-picker__actions">
+      ${isCurrent
+        ? html`<span class="chat-project-picker__badge">Attached</span>`
+        : html`
+            <button
+              class="btn btn--sm"
+              type="button"
+              data-chat-project-action="attach"
+              ?disabled=${props.projectBusy}
+              @click=${() => props.onProjectAttach?.(project.id)}
+            >
+              Attach
+            </button>
+          `}
+      <button
+        class="btn btn--sm btn--subtle"
+        type="button"
+        data-chat-project-action="new-chat"
+        ?disabled=${props.projectBusy}
+        @click=${() => props.onNewProjectChat?.(project.id)}
+      >
+        New chat
+      </button>
+    </div>
+  `;
+}
+
+function renderChatProjectPicker(props: ChatProps) {
+  const activeProjects = activeChatProjects(props.projectsList);
+  const { projectId } = resolveCurrentChatProject(props);
+  const summaryLabel = renderProjectSummaryLabel(props);
+  const hasError = Boolean(props.projectError);
+  const createDisabled = Boolean(props.projectBusy) || !(props.projectCreateName ?? "").trim();
+  return html`
+    <details
+      class="chat-project-picker"
+      data-chat-project-picker
+      ?open=${Boolean(props.projectPickerOpen)}
+      @toggle=${(event: Event) => {
+        const target = event.currentTarget as HTMLDetailsElement;
+        props.onProjectPickerToggle?.(target.open);
+      }}
+    >
+      <summary class="chat-project-picker__summary" role="button">
+        <span
+          class="chat-project-picker__dot ${projectId ? "chat-project-picker__dot--active" : ""}"
+        ></span>
+        <span class="chat-project-picker__kicker">Project</span>
+        <strong>${summaryLabel}</strong>
+      </summary>
+      <div class="chat-project-picker__panel" role="region" aria-label="Chat project">
+        <div class="chat-project-picker__header">
+          <div>
+            <h3>Project</h3>
+            <p>Attach this chat to shared project memory.</p>
+          </div>
+          <button
+            class="btn btn--sm btn--subtle"
+            type="button"
+            ?disabled=${props.projectBusy || props.projectsLoading}
+            @click=${() => props.onProjectRefresh?.()}
+          >
+            Refresh
+          </button>
+        </div>
+        ${hasError
+          ? html`<div class="chat-project-picker__error" role="alert">
+              <strong>Project status unavailable</strong>
+              <span>${props.projectError}</span>
+            </div>`
+          : nothing}
+        ${projectId && props.onProjectDetach
+          ? html`
+              <button
+                class="btn btn--sm chat-project-picker__detach"
+                type="button"
+                data-chat-project-action="detach"
+                ?disabled=${props.projectBusy}
+                @click=${() => props.onProjectDetach?.()}
+              >
+                Detach from project
+              </button>
+            `
+          : nothing}
+        <div class="chat-project-picker__section">
+          <h4>Choose a project</h4>
+          ${props.projectsLoading
+            ? html`<div class="chat-project-picker__empty">Loading projects…</div>`
+            : activeProjects.length > 0
+              ? html`
+                  <div class="chat-project-picker__list">
+                    ${activeProjects.map(
+                      (project) => html`
+                        <article class="chat-project-picker__item">
+                          <div class="chat-project-picker__item-main">
+                            <strong>${project.name}</strong>
+                            ${project.description
+                              ? html`<p>${project.description}</p>`
+                              : html`<p>Use this project for the current chat.</p>`}
+                          </div>
+                          ${renderProjectPickerActions(props, project, projectId)}
+                        </article>
+                      `,
+                    )}
+                  </div>
+                `
+              : html`<div class="chat-project-picker__empty">No projects yet.</div>`}
+        </div>
+        <div class="chat-project-picker__section chat-project-picker__create">
+          <h4>Create a project</h4>
+          <label>
+            <span>Name</span>
+            <input
+              type="text"
+              placeholder="Project name"
+              .value=${props.projectCreateName ?? ""}
+              @input=${(event: Event) =>
+                props.onProjectCreateFieldChange?.(
+                  "name",
+                  (event.currentTarget as HTMLInputElement).value,
+                )}
+            />
+          </label>
+          <label>
+            <span>Description</span>
+            <input
+              type="text"
+              placeholder="Optional description"
+              .value=${props.projectCreateDescription ?? ""}
+              @input=${(event: Event) =>
+                props.onProjectCreateFieldChange?.(
+                  "description",
+                  (event.currentTarget as HTMLInputElement).value,
+                )}
+            />
+          </label>
+          <label>
+            <span>Instructions</span>
+            <input
+              type="text"
+              placeholder="Optional project instructions"
+              .value=${props.projectCreateInstructions ?? ""}
+              @input=${(event: Event) =>
+                props.onProjectCreateFieldChange?.(
+                  "instructions",
+                  (event.currentTarget as HTMLInputElement).value,
+                )}
+            />
+          </label>
+          <button
+            class="btn"
+            type="button"
+            data-chat-project-action="create-and-attach"
+            ?disabled=${createDisabled}
+            @click=${() => props.onProjectCreateAndAttach?.()}
+          >
+            Create and attach
+          </button>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
 function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof nothing {
   if (!vs.searchOpen) {
     return nothing;
@@ -1543,7 +1764,7 @@ export function renderChat(props: ChatProps) {
           : nothing}
       </div>
 
-      ${renderWorkingNow(props, workItems)}
+      ${renderChatProjectPicker(props)} ${renderWorkingNow(props, workItems)}
       ${renderChatQueue({
         queue: props.queue,
         canAbort: props.canAbort,

@@ -149,6 +149,12 @@ export type AppViewState = {
   chatWorkLoading?: boolean;
   chatWorkError?: string | null;
   chatWorkUpdatedAt?: number | null;
+  chatProjectPickerOpen: boolean;
+  chatProjectCreateName: string;
+  chatProjectCreateDescription: string;
+  chatProjectCreateInstructions: string;
+  chatProjectBusy: boolean;
+  chatProjectError: string | null;
   chatTargetRunId?: string | null;
   chatTargetAuditTs?: number | null;
   chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;

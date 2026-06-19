@@ -13,6 +13,7 @@ import type { WorkSurfaceTaskSummary } from "../chat/work-snapshot.ts";
 import { formatConnectError } from "../connect-error.ts";
 import { GatewayRequestError, type GatewayBrowserClient } from "../gateway.ts";
 import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
+import type { ProjectRecord, ProjectsListResult } from "../types.ts";
 import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
 import {
@@ -364,6 +365,14 @@ export type ChatState = {
   chatWorkLoading?: boolean;
   chatWorkError?: string | null;
   chatWorkUpdatedAt?: number | null;
+  chatProjectPickerOpen?: boolean;
+  chatProjectCreateName?: string;
+  chatProjectCreateDescription?: string;
+  chatProjectCreateInstructions?: string;
+  chatProjectBusy?: boolean;
+  chatProjectError?: string | null;
+  projectsLoading?: boolean;
+  projectsList?: ProjectsListResult | null;
   chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
   chatStream: string | null;
   chatStreamStartedAt: number | null;
@@ -371,6 +380,175 @@ export type ChatState = {
   lastError: string | null;
   resetChatInputHistoryNavigation?: () => void;
 };
+
+type ChatProjectCreateResponse = {
+  ok: true;
+  project?: ProjectRecord;
+};
+
+type ChatProjectSessionCreateResponse = {
+  ok: true;
+  key?: string;
+};
+
+function requireConnectedChatClient(state: ChatState): GatewayBrowserClient {
+  if (!state.client || !state.connected) {
+    throw new Error("Gateway is not connected.");
+  }
+  return state.client;
+}
+
+function normalizeOptionalText(value: string | undefined | null): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function currentChatSessionKey(state: ChatState): string {
+  const normalized = state.sessionKey.trim();
+  if (!normalized) {
+    throw new Error("No active chat session.");
+  }
+  return normalized;
+}
+
+function setChatProjectError(state: ChatState, err: unknown): void {
+  state.chatProjectError = formatConnectError(err);
+}
+
+function clearChatProjectDraft(state: ChatState): void {
+  state.chatProjectCreateName = "";
+  state.chatProjectCreateDescription = "";
+  state.chatProjectCreateInstructions = "";
+}
+
+export async function loadChatProjects(state: ChatState): Promise<void> {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  state.projectsLoading = true;
+  try {
+    const res = await state.client.request<ProjectsListResult>("projects.list", {
+      includeArchived: true,
+    });
+    state.projectsList = res ?? { ok: true, ts: Date.now(), count: 0, projects: [] };
+    state.chatProjectError = null;
+  } catch (err) {
+    setChatProjectError(state, err);
+  } finally {
+    state.projectsLoading = false;
+  }
+}
+
+export async function createAndAttachChatProject(state: ChatState): Promise<string | null> {
+  state.chatProjectBusy = true;
+  state.chatProjectError = null;
+  try {
+    const client = requireConnectedChatClient(state);
+    const name = normalizeOptionalText(state.chatProjectCreateName);
+    if (!name) {
+      throw new Error("Project name is required.");
+    }
+    const response = await client.request<ChatProjectCreateResponse>("projects.create", {
+      name,
+      description: normalizeOptionalText(state.chatProjectCreateDescription),
+      instructions: normalizeOptionalText(state.chatProjectCreateInstructions),
+      memoryMode: "project_only",
+    });
+    const projectId = response?.project?.id?.trim();
+    if (!projectId) {
+      throw new Error("Project was created without an id.");
+    }
+    await client.request("projects.sessions.attach", {
+      projectId,
+      key: currentChatSessionKey(state),
+    });
+    clearChatProjectDraft(state);
+    state.chatProjectPickerOpen = false;
+    await loadChatProjects(state);
+    return projectId;
+  } catch (err) {
+    setChatProjectError(state, err);
+    return null;
+  } finally {
+    state.chatProjectBusy = false;
+  }
+}
+
+export async function attachChatSessionToProject(
+  state: ChatState,
+  projectId: string,
+): Promise<boolean> {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId) {
+    return false;
+  }
+  state.chatProjectBusy = true;
+  state.chatProjectError = null;
+  try {
+    const client = requireConnectedChatClient(state);
+    await client.request("projects.sessions.attach", {
+      projectId: normalizedProjectId,
+      key: currentChatSessionKey(state),
+    });
+    state.chatProjectPickerOpen = false;
+    await loadChatProjects(state);
+    return true;
+  } catch (err) {
+    setChatProjectError(state, err);
+    return false;
+  } finally {
+    state.chatProjectBusy = false;
+  }
+}
+
+export async function detachChatSessionFromProject(state: ChatState): Promise<boolean> {
+  state.chatProjectBusy = true;
+  state.chatProjectError = null;
+  try {
+    const client = requireConnectedChatClient(state);
+    await client.request("projects.sessions.detach", {
+      key: currentChatSessionKey(state),
+    });
+    state.chatProjectPickerOpen = false;
+    await loadChatProjects(state);
+    return true;
+  } catch (err) {
+    setChatProjectError(state, err);
+    return false;
+  } finally {
+    state.chatProjectBusy = false;
+  }
+}
+
+export async function createChatSessionInProject(
+  state: ChatState,
+  projectId: string,
+): Promise<string | null> {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId) {
+    return null;
+  }
+  state.chatProjectBusy = true;
+  state.chatProjectError = null;
+  try {
+    const client = requireConnectedChatClient(state);
+    const response = await client.request<ChatProjectSessionCreateResponse>("sessions.create", {
+      projectId: normalizedProjectId,
+    });
+    const nextSessionKey = response?.key?.trim() ?? "";
+    if (!nextSessionKey) {
+      throw new Error("Project chat was created without a session key.");
+    }
+    state.chatProjectPickerOpen = false;
+    await loadChatProjects(state);
+    return nextSessionKey;
+  } catch (err) {
+    setChatProjectError(state, err);
+    return null;
+  } finally {
+    state.chatProjectBusy = false;
+  }
+}
 
 export async function loadChatWorkTasks(state: ChatState): Promise<void> {
   if (!state.client || !state.connected) {

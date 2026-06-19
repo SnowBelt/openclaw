@@ -17,7 +17,15 @@ import { warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { setAssistantAvatarOverride } from "./controllers/assistant-identity.ts";
 import { loadChannels } from "./controllers/channels.ts";
-import { cancelChatWorkTask, loadChatHistory } from "./controllers/chat.ts";
+import {
+  attachChatSessionToProject,
+  cancelChatWorkTask,
+  createAndAttachChatProject,
+  createChatSessionInProject,
+  detachChatSessionFromProject,
+  loadChatHistory,
+  loadChatProjects,
+} from "./controllers/chat.ts";
 import {
   applyConfig,
   loadConfig,
@@ -1586,6 +1594,14 @@ export function renderApp(state: AppViewState) {
                 workTasks: state.chatWorkTasks,
                 workTasksLoading: state.chatWorkLoading,
                 workTasksError: state.chatWorkError,
+                projectsList: state.projectsList,
+                projectsLoading: state.projectsLoading,
+                projectPickerOpen: state.chatProjectPickerOpen,
+                projectBusy: state.chatProjectBusy,
+                projectError: state.chatProjectError,
+                projectCreateName: state.chatProjectCreateName,
+                projectCreateDescription: state.chatProjectCreateDescription,
+                projectCreateInstructions: state.chatProjectCreateInstructions,
                 targetRunId: state.chatTargetRunId ?? null,
                 targetAuditTs: state.chatTargetAuditTs ?? null,
                 targetStatus: state.chatTargetStatus ?? null,
@@ -1650,6 +1666,70 @@ export function renderApp(state: AppViewState) {
                 onQueueRemove: (id) => state.removeQueuedMessage(id),
                 onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
                 onWorkTaskCancel: (taskId) => void cancelChatWorkTask(state, taskId),
+                onProjectPickerToggle: (open) => {
+                  state.chatProjectPickerOpen = open;
+                  if (open) {
+                    void loadChatProjects(state);
+                  }
+                },
+                onProjectCreateFieldChange: (field, value) => {
+                  if (field === "name") {
+                    state.chatProjectCreateName = value;
+                  } else if (field === "description") {
+                    state.chatProjectCreateDescription = value;
+                  } else {
+                    state.chatProjectCreateInstructions = value;
+                  }
+                },
+                onProjectCreateAndAttach: async () => {
+                  const projectId = await createAndAttachChatProject(state);
+                  if (!projectId) {
+                    return;
+                  }
+                  await loadSessions(state, {
+                    activeMinutes: 0,
+                    limit: 0,
+                    includeGlobal: true,
+                    includeUnknown: true,
+                  });
+                },
+                onProjectAttach: async (projectId) => {
+                  const attached = await attachChatSessionToProject(state, projectId);
+                  if (!attached) {
+                    return;
+                  }
+                  await loadSessions(state, {
+                    activeMinutes: 0,
+                    limit: 0,
+                    includeGlobal: true,
+                    includeUnknown: true,
+                  });
+                },
+                onProjectDetach: async () => {
+                  const detached = await detachChatSessionFromProject(state);
+                  if (!detached) {
+                    return;
+                  }
+                  await loadSessions(state, {
+                    activeMinutes: 0,
+                    limit: 0,
+                    includeGlobal: true,
+                    includeUnknown: true,
+                  });
+                },
+                onNewProjectChat: async (projectId) => {
+                  const nextKey = await createChatSessionInProject(state, projectId);
+                  if (nextKey) {
+                    await loadSessions(state, {
+                      activeMinutes: 0,
+                      limit: 0,
+                      includeGlobal: true,
+                      includeUnknown: true,
+                    });
+                    switchChatSession(state, nextKey);
+                  }
+                },
+                onProjectRefresh: () => loadChatProjects(state),
                 onDismissSideResult: () => {
                   state.chatSideResult = null;
                 },

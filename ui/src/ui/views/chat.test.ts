@@ -1343,3 +1343,136 @@ describe("chat Working Now surface", () => {
     ).not.toContain("Cancel");
   });
 });
+
+describe("chat project picker", () => {
+  const projectsList = {
+    ok: true as const,
+    ts: 1,
+    count: 2,
+    projects: [
+      {
+        id: "project-alpha",
+        name: "Alpha Project",
+        description: "Research context",
+        memoryMode: "project_only" as const,
+        createdAt: 1,
+        updatedAt: 2,
+        resources: [],
+      },
+      {
+        id: "project-beta",
+        name: "Beta Project",
+        memoryMode: "project_only" as const,
+        createdAt: 1,
+        updatedAt: 3,
+        resources: [],
+      },
+    ],
+  };
+
+  it("renders No Project when the active chat has no project id", () => {
+    const container = renderChatView({
+      projectsList,
+      sessions: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [{ key: "main", kind: "direct", updatedAt: 1 }],
+      },
+    });
+
+    expect(container.querySelector("[data-chat-project-picker]")?.textContent).toContain(
+      "No Project",
+    );
+  });
+
+  it("renders the current project name from the active session row", () => {
+    const container = renderChatView({
+      projectsList,
+      sessions: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "main",
+            kind: "direct",
+            updatedAt: 1,
+            projectId: "project-alpha",
+          },
+        ],
+      },
+    });
+
+    expect(container.querySelector("[data-chat-project-picker]")?.textContent).toContain(
+      "Alpha Project",
+    );
+  });
+
+  it("exposes attach, detach, new-chat, and create actions", () => {
+    const onProjectAttach = vi.fn();
+    const onProjectDetach = vi.fn();
+    const onNewProjectChat = vi.fn();
+    const onProjectCreateAndAttach = vi.fn();
+    const onProjectCreateFieldChange = vi.fn();
+    const container = renderChatView({
+      projectPickerOpen: true,
+      projectCreateName: "New plan",
+      projectsList,
+      sessions: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "main",
+            kind: "direct",
+            updatedAt: 1,
+            projectId: "project-alpha",
+          },
+        ],
+      },
+      onProjectAttach,
+      onProjectDetach,
+      onNewProjectChat,
+      onProjectCreateAndAttach,
+      onProjectCreateFieldChange,
+    });
+
+    const picker = container.querySelector<HTMLElement>("[data-chat-project-picker]")!;
+    picker.querySelector<HTMLButtonElement>('[data-chat-project-action="attach"]')?.click();
+    picker.querySelector<HTMLButtonElement>('[data-chat-project-action="detach"]')?.click();
+    picker.querySelector<HTMLButtonElement>('[data-chat-project-action="new-chat"]')?.click();
+    picker
+      .querySelector<HTMLButtonElement>('[data-chat-project-action="create-and-attach"]')
+      ?.click();
+    const nameInput = picker.querySelector<HTMLInputElement>('input[placeholder="Project name"]')!;
+    nameInput.value = "Edited plan";
+    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(onProjectAttach).toHaveBeenCalledWith("project-beta");
+    expect(onProjectDetach).toHaveBeenCalledTimes(1);
+    expect(onNewProjectChat).toHaveBeenCalledWith("project-alpha");
+    expect(onProjectCreateAndAttach).toHaveBeenCalledTimes(1);
+    expect(onProjectCreateFieldChange).toHaveBeenCalledWith("name", "Edited plan");
+  });
+
+  it("renders project loading failures without disabling chat", () => {
+    const onSend = vi.fn();
+    const container = renderChatView({
+      projectPickerOpen: true,
+      projectError: "offline",
+      draft: "hello",
+      getDraft: () => "hello",
+      onSend,
+    });
+
+    const picker = container.querySelector<HTMLElement>("[data-chat-project-picker]");
+    expect(picker?.textContent).toContain("Project status unavailable");
+    container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});

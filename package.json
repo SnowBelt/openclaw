@@ -1858,7 +1858,8 @@
     "ui:smoke:chat-work-surface": "node --import tsx scripts/dev/control-ui-chat-work-surface-smoke.ts",
     "ui:smoke:snes-studio": "node --import tsx scripts/dev/control-ui-snes-studio-smoke.ts",
     "ui:smoke:dashboard": "node --import tsx scripts/dev/control-ui-dashboard-smoke-suite.ts",
-    "ui:smoke:control-director-no-response": "node --import tsx scripts/dev/control-ui-control-director-no-response-smoke.ts"
+    "ui:smoke:control-director-no-response": "node --import tsx scripts/dev/control-ui-control-director-no-response-smoke.ts",
+    "ui:smoke:chat-projects": "node --import tsx scripts/dev/control-ui-chat-projects-smoke.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",

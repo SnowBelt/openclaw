@@ -337,6 +337,12 @@ export class OpenClawApp extends LitElement {
   @state() chatWorkLoading = false;
   @state() chatWorkError: string | null = null;
   @state() chatWorkUpdatedAt: number | null = null;
+  @state() chatProjectPickerOpen = false;
+  @state() chatProjectCreateName = "";
+  @state() chatProjectCreateDescription = "";
+  @state() chatProjectCreateInstructions = "";
+  @state() chatProjectBusy = false;
+  @state() chatProjectError: string | null = null;
   @state() chatTargetRunId: string | null = null;
   @state() chatTargetAuditTs: number | null = null;
   @state() chatTargetStatus: "exact-run" | "timestamp-fallback" | "not-found" | null = null;
