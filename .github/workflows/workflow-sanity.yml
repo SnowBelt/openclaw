@@ -490,7 +490,7 @@ jobs:
         timeout-minutes: 10
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Setup Node 24 and pnpm 11.2.2
         uses: ./.github/actions/setup-node-env
