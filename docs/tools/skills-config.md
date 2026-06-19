@@ -321,6 +321,37 @@ different visible skill set per agent.
   defaults — they do not merge. Set to `[]` to expose no skills for that agent.
 </ParamField>
 
+### Control Director reliability skills
+
+If your deployment uses restrictive skill allowlists, include the reliability
+skills the Control Director needs for production investigation and validation.
+For OpenClaw maintainer workspaces, the usual set is:
+
+- `openclaw-testing`: choose and run the right local or CI proof.
+- `openclaw-qa-testing`: run and inspect QA Lab or channel proof.
+- `crabbox`: use remote Linux validation when local proof is insufficient.
+
+Because `agents.list[].skills` replaces `agents.defaults.skills`, put the full
+Control Director skill set on the `main` agent when you override it:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "main",
+        identity: { name: "Control Director" },
+        skills: ["openclaw-testing", "openclaw-qa-testing", "crabbox"],
+      },
+    ],
+  },
+}
+```
+
+Only list skills that are installed in one of the configured skill roots. If a
+skill is missing, install it first or remove it from the allowlist so the
+Control Director does not plan against unavailable procedures.
+
 ## Workshop (`skills.workshop`)
 
 <ParamField path="skills.workshop.autonomous.enabled" type="boolean" default="false">

@@ -201,6 +201,42 @@ applies only to model HTTP requests, including connect, headers, body streaming,
 and the total guarded-fetch abort. If the agent or run timeout is lower, raise
 that ceiling too because provider timeouts cannot extend the whole agent run.
 
+### Control Director on Ollama
+
+For the Gemma 4 Control Director alias, prefer an explicit Ollama provider
+timeout before increasing the whole agent runtime timeout:
+
+```json5
+{
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "http://127.0.0.1:11434",
+        timeoutSeconds: 600,
+      },
+    },
+  },
+}
+```
+
+Production Control Director readiness expects the canonical primary ref
+`ollama/openclaw-control-gemma4-31b-q8:latest`, a Q8 Gemma 4 alias, and
+`ollama/openclaw-control-qwen25-32b:latest` as the first rollback fallback.
+Start with a 64K effective context target; larger Gemma contexts should be
+soak-tested separately before becoming the default.
+
+Keep the Ollama service environment aligned with the readiness probe when you
+run the Gemma 4 Control alias:
+
+- `OLLAMA_NUM_PARALLEL=1`
+- `OLLAMA_FLASH_ATTENTION=1`
+- `OLLAMA_KV_CACHE_TYPE=q8_0`
+
+After changing the model, alias, provider timeout, or service environment, run
+`pnpm control-director:readiness -- --json` and require
+`completionGrade: 10` with `productionReady: true` before treating the Control
+Director as production-ready.
+
 <Note>
 For custom OpenAI-compatible providers, persisting a non-secret local marker such as `apiKey: "ollama-local"` is accepted when `baseUrl` resolves to loopback, a private LAN, `.local`, or a bare hostname. OpenClaw treats it as a valid local credential instead of reporting a missing key. Use a real value for any provider that accepts a public hostname.
 </Note>

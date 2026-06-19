@@ -111,6 +111,7 @@ Imported themes are stored only in the current browser profile. They are not wri
     - Channel probe refreshes keep the previous snapshot visible while slow provider checks finish, and partial snapshots are labeled when a probe or audit exceeds its UI budget.
     - Instances: presence list + refresh (`system-presence`).
     - Sessions: list configured-agent sessions by default, fall back from stale unconfigured agent session keys, and apply per-session model/thinking/fast/verbose/trace/reasoning overrides (`sessions.list`, `sessions.patch`).
+    - Control Director diagnostics: session detail rows surface the liveness audit, mission ledger, Judge completion approval, truth audit, provider preflight, and recovery state when present. Use these fields to tell whether a no-response run is still recovering (`Status: continuing`), has exhausted recovery (`Status: blocked`), or has Judge-approved completion evidence (`Status: complete`).
     - Dreams: dreaming status, enable/disable toggle, and Dream Diary reader (`doctor.memory.status`, `doctor.memory.dreamDiary`, `config.patch`).
 
   </Accordion>
