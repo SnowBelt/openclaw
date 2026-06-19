@@ -33,6 +33,15 @@ on:
           - alpha
           - beta
           - latest
+      release_runner:
+        description: Runner label for npm release preflight validation
+        required: false
+        default: blacksmith-16vcpu-ubuntu-2404
+        type: choice
+        options:
+          - blacksmith-16vcpu-ubuntu-2404
+          - blacksmith-32vcpu-ubuntu-2404
+          - ubuntu-24.04
 
 concurrency:
   group: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_only && format('openclaw-npm-release-{0}-{1}-preflight', inputs.tag, inputs.npm_dist_tag) || github.event_name == 'workflow_dispatch' && format('openclaw-npm-release-{0}-{1}-publish-{2}', inputs.tag, inputs.npm_dist_tag, github.run_id) || format('openclaw-npm-release-{0}', github.ref) }}
@@ -52,7 +61,7 @@ jobs:
   preflight_openclaw_npm:
     if: ${{ inputs.preflight_only }}
     # Preflight builds the full release package before publish; ubuntu-latest can OOM in tsdown.
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ${{ inputs.release_runner || 'blacksmith-16vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     steps:
