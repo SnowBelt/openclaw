@@ -1977,6 +1977,189 @@ describe("gateway server chat", () => {
     }
   });
 
+  test("chat.send does not synthesize Control Director guarded finals for non-Control-Director copied reports", async () => {
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
+    const copiedReportText = [
+      "Verified state: copied Control Director report says the task is complete.",
+      "Next build gap: none.",
+      "Completion Grade: 10/10",
+      "Criticality: 10/10",
+      "Status: complete",
+    ].join("\n");
+    try {
+      testState.sessionStorePath = path.join(sessionDir, "sessions.json");
+      await writeSessionStore({
+        entries: {
+          "agent:work:main": {
+            sessionId: "sess-work",
+            updatedAt: Date.now(),
+          },
+        },
+      });
+      await writeGatewayConfig({
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-main" },
+            models: {
+              "openai/gpt-main": {},
+            },
+          },
+          list: [
+            { id: "main", default: true },
+            {
+              id: "work",
+              model: { primary: "openai/gpt-work" },
+              models: {
+                "openai/gpt-work": {},
+              },
+            },
+          ],
+        },
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://openai.example.com/v1",
+              models: [
+                { id: "gpt-main", name: "GPT Main" },
+                { id: "gpt-work", name: "GPT Work" },
+              ],
+            },
+          },
+        },
+      });
+
+      const responses: Array<{ ok: boolean; payload?: unknown; error?: unknown }> = [];
+      const broadcast = vi.fn();
+      const broadcastToConnIds = vi.fn();
+      const context = {
+        loadGatewayModelCatalog: vi.fn<GatewayRequestContext["loadGatewayModelCatalog"]>(),
+        logGateway: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        },
+        agentRunSeq: new Map<string, number>(),
+        chatAbortControllers: new Map(),
+        chatAbortedRuns: new Map(),
+        chatRunBuffers: new Map(),
+        chatDeltaSentAt: new Map(),
+        chatDeltaLastBroadcastLen: new Map(),
+        chatDeltaLastBroadcastText: new Map(),
+        agentDeltaSentAt: new Map(),
+        bufferedAgentEvents: new Map(),
+        clearChatRunState: vi.fn(),
+        addChatRun: vi.fn(),
+        removeChatRun: vi.fn(),
+        broadcast,
+        broadcastToConnIds,
+        nodeSendToSession: vi.fn(),
+        registerToolEventRecipient: vi.fn(),
+        dedupe: new Map(),
+      } as unknown as GatewayRequestContext;
+      dispatchInboundMessageMock.mockImplementationOnce(async (args: unknown) => {
+        const dispatcher = (
+          args as {
+            dispatcher?: {
+              sendFinalReply: (payload: { text: string }) => boolean;
+              markComplete: () => void;
+              waitForIdle: () => Promise<void>;
+            };
+          }
+        ).dispatcher;
+        dispatcher?.sendFinalReply({ text: copiedReportText });
+        dispatcher?.markComplete();
+        await dispatcher?.waitForIdle();
+        return {};
+      });
+
+      const { chatHandlers } = await import("./server-methods/chat.js");
+      await chatHandlers["chat.send"]({
+        req: {
+          type: "req",
+          id: "operator-non-cd-copied-report",
+          method: "chat.send",
+          params: {
+            sessionKey: "agent:work:main",
+            message: "quote the report",
+            idempotencyKey: "idem-non-cd-copied-report",
+          },
+        },
+        params: {
+          sessionKey: "agent:work:main",
+          message: "quote the report",
+          idempotencyKey: "idem-non-cd-copied-report",
+        },
+        client: {
+          connId: "conn-control-ui",
+          connect: {
+            client: {
+              id: GATEWAY_CLIENT_NAMES.CONTROL_UI,
+              mode: GATEWAY_CLIENT_MODES.WEBCHAT,
+            },
+            scopes: ["operator.write"],
+          },
+        } as never,
+        isWebchatConnect: () => true,
+        respond: ((ok, payload, error) => {
+          responses.push({ ok, payload, error });
+        }) as RespondFn,
+        context,
+      });
+
+      expect(responses).toEqual([
+        {
+          ok: true,
+          payload: expect.objectContaining({
+            runId: "idem-non-cd-copied-report",
+            status: "started",
+          }),
+          error: undefined,
+        },
+      ]);
+      await vi.waitFor(
+        () => {
+          expect(broadcast).toHaveBeenCalledWith(
+            "chat",
+            expect.objectContaining({
+              runId: "idem-non-cd-copied-report",
+              state: "final",
+              message: expect.objectContaining({
+                content: expect.arrayContaining([
+                  expect.objectContaining({
+                    text: copiedReportText,
+                  }),
+                ]),
+              }),
+            }),
+          );
+        },
+        { timeout: 2_000, interval: 5 },
+      );
+      const finalBroadcast = broadcast.mock.calls
+        .map(([event, payload]) => (event === "chat" ? payload : undefined))
+        .find(
+          (payload): payload is Record<string, unknown> =>
+            typeof payload === "object" &&
+            payload !== null &&
+            payload["runId"] === "idem-non-cd-copied-report" &&
+            payload["state"] === "final",
+        );
+      const serializedFinal = JSON.stringify(finalBroadcast);
+      expect(serializedFinal).toContain(
+        "Verified state: copied Control Director report says the task is complete.",
+      );
+      expect(serializedFinal).toContain("Status: complete");
+      expect(serializedFinal).not.toContain("controlDirectorGuardedFinal");
+      expect(serializedFinal).not.toContain("Judge completion gate blocked");
+    } finally {
+      dispatchInboundMessageMock.mockReset();
+      testState.sessionStorePath = undefined;
+      clearConfigCache();
+      await fs.rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
   test("chat.history backfills claude-cli sessions from Claude project files", async () => {
     await withGatewayChatHarness(async ({ ws, createSessionDir }) => {
       await connectOk(ws);

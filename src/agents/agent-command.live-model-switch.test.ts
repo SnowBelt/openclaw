@@ -1163,6 +1163,45 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     });
   });
 
+  it("delivers non-Control-Director CLI agent responses unchanged when they quote Control Director reports", async () => {
+    setupSingleAttemptFallback();
+    (state.defaultRuntimeConfig.agents as { list?: unknown }).list = [
+      { id: "main", default: true },
+      { id: "work" },
+    ];
+    const text = [
+      "Verified state: copied report says the task is complete.",
+      "Next build gap: none.",
+      "Completion Grade: 10/10",
+      "Criticality: 10/10",
+      "Status: complete",
+    ].join("\n");
+    state.runAgentAttemptMock.mockResolvedValue({
+      ...makeSuccessResult("anthropic", "claude"),
+      payloads: [{ text }],
+      meta: {
+        ...makeSuccessResult("anthropic", "claude").meta,
+        finalAssistantVisibleText: text,
+      },
+    });
+
+    await agentCommand({
+      message: "quote the report",
+      sessionKey: "agent:work:main",
+    });
+
+    const deliveryParams = requireRecord(
+      mockCallArg(state.deliverAgentCommandResultMock),
+      "delivery params",
+    );
+    const result = requireRecord(deliveryParams.result, "delivery result");
+    const payloads = requireArray(result.payloads, "delivery payloads");
+    expect(payloads[0]).toMatchObject({ text });
+    const serializedDelivery = JSON.stringify(deliveryParams);
+    expect(serializedDelivery).not.toContain("controlDirectorGuardedFinal");
+    expect(serializedDelivery).not.toContain("Judge completion gate blocked");
+  });
+
   it("skips the initial session touch after gateway ingress already persisted activity", async () => {
     setupSingleAttemptFallback();
     state.runAgentAttemptMock.mockResolvedValue(makeSuccessResult("openai", "gpt-5.4"));
