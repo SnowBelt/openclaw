@@ -99,6 +99,11 @@ on:
         required: false
         default: ""
         type: string
+      use_github_hosted_runners:
+        description: Use GitHub-hosted runners for package Telegram QA instead of Blacksmith
+        required: false
+        default: false
+        type: boolean
       advisory:
         description: Treat acceptance failures as advisory for the caller
         required: false
@@ -190,6 +195,11 @@ on:
         required: false
         default: ""
         type: string
+      use_github_hosted_runners:
+        description: Use GitHub-hosted runners for package Telegram QA instead of Blacksmith
+        required: false
+        default: false
+        type: boolean
     secrets:
       OPENCLAW_TRUSTED_PACKAGE_TOKEN:
         required: false
@@ -643,6 +653,7 @@ jobs:
       harness_ref: ${{ needs.resolve_package.outputs.package_source_sha || inputs.workflow_ref }}
       provider_mode: ${{ needs.resolve_package.outputs.telegram_mode }}
       scenario: ${{ inputs.telegram_scenarios }}
+      use_github_hosted_runners: ${{ inputs.use_github_hosted_runners }}
     secrets:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENCLAW_QA_CONVEX_SITE_URL: ${{ secrets.OPENCLAW_QA_CONVEX_SITE_URL }}

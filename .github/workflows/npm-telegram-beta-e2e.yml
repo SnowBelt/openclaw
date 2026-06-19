@@ -45,6 +45,11 @@ on:
         required: false
         default: false
         type: boolean
+      use_github_hosted_runners:
+        description: Use GitHub-hosted runners instead of Blacksmith for package Telegram QA
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       advisory:
@@ -86,6 +91,11 @@ on:
         required: false
         default: ""
         type: string
+      use_github_hosted_runners:
+        description: Use GitHub-hosted runners instead of Blacksmith for package Telegram QA
+        required: false
+        default: false
+        type: boolean
     secrets:
       OPENAI_API_KEY:
         required: false
@@ -108,7 +118,7 @@ env:
 jobs:
   run_package_telegram_e2e:
     name: Run package Telegram E2E
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ inputs.use_github_hosted_runners && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     continue-on-error: ${{ inputs.advisory }}
     timeout-minutes: 60
     environment: qa-live-shared
