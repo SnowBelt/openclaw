@@ -30,6 +30,10 @@ on:
         description: "Run the scoped Chat Approval Cards V1 proof instead of generated docs baselines"
         required: false
         default: "false"
+      chat-tool-proof-artifact-cards-proof:
+        description: "Run the scoped Chat Tool Proof Artifact Cards V1 proof instead of generated docs baselines"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -107,7 +111,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-work-surface-proof != 'true' && inputs.chat-projects-proof != 'true' && inputs.chat-plan-mode-proof != 'true' && inputs.chat-pursue-goal-proof != 'true' && inputs.chat-approval-cards-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-work-surface-proof != 'true' && inputs.chat-projects-proof != 'true' && inputs.chat-plan-mode-proof != 'true' && inputs.chat-pursue-goal-proof != 'true' && inputs.chat-approval-cards-proof != 'true' && inputs.chat-tool-proof-artifact-cards-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -413,6 +417,64 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed CHANGELOG.md package.json scripts/dev/control-ui-chat-approval-cards-smoke.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-render.ts ui/src/ui/app-chat.test.ts ui/src/ui/app-gateway.ts ui/src/ui/app-gateway.node.test.ts ui/src/styles/chat.css .github/workflows/workflow-sanity.yml
+
+  chat-tool-proof-artifact-cards-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-tool-proof-artifact-cards-proof == 'true'
+    name: Chat Tool Proof Artifact Cards V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          pnpm-version: "11.2.2"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF'
+          commands:
+          - pnpm test ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-tool-proof-artifact-cards
+          - pnpm check:changed CHANGELOG.md package.json scripts/dev/control-ui-chat-tool-proof-artifact-cards-smoke.ts ui/src/ui/chat/tool-cards.ts ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/styles/chat/tool-cards.css .github/workflows/workflow-sanity.yml
+          EOF
+
+      - name: Run targeted Chat Tool Proof Artifact Cards tests
+        run: pnpm test ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Tool Proof Artifact Cards smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-tool-proof-artifact-cards
+
+      - name: Run explicit changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed CHANGELOG.md package.json scripts/dev/control-ui-chat-tool-proof-artifact-cards-smoke.ts ui/src/ui/chat/tool-cards.ts ui/src/ui/chat/tool-cards.test.ts ui/src/ui/chat/grouped-render.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/styles/chat/tool-cards.css .github/workflows/workflow-sanity.yml
 
   control-director-reliability-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof == 'true'
