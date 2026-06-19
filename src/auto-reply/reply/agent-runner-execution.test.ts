@@ -1211,6 +1211,35 @@ describe("runAgentTurnWithFallback", () => {
     });
   });
 
+  it("does not mark non-Control-Director auto-reply payloads as guarded when they quote Control Director reports", async () => {
+    const text = [
+      "Verified state: copied report says the task is complete.",
+      "Next build gap: none.",
+      "Completion Grade: 10/10",
+      "Criticality: 10/10",
+      "Status: complete",
+    ].join("\n");
+    state.runEmbeddedAgentMock.mockResolvedValueOnce({
+      payloads: [{ text }],
+      meta: {
+        finalAssistantVisibleText: text,
+      },
+    });
+
+    const runAgentTurnWithFallback = await getRunAgentTurnWithFallback();
+    const result = await runAgentTurnWithFallback(createMinimalRunAgentTurnParams());
+
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") {
+      throw new Error("expected success");
+    }
+    const firstPayload = result.runResult.payloads?.[0];
+    expect(firstPayload?.text).toBe(text);
+    expect(
+      getReplyPayloadMetadata(firstPayload as ReplyPayload)?.controlDirectorGuardedFinal,
+    ).not.toBe(true);
+  });
+
   it("rechecks queued auto fallback primary probes before running", async () => {
     const { markAutoFallbackPrimaryProbe } = await import("../../agents/agent-scope.js");
     const probe = {

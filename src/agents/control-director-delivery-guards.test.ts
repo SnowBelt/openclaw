@@ -24,6 +24,16 @@ function commandRecord(command: string, exitCode: number): unknown {
   };
 }
 
+function copiedControlDirectorReportText(status = "complete"): string {
+  return [
+    "Verified state: copied Control Director report says the work is complete.",
+    "Next build gap: none.",
+    "Completion Grade: 10/10",
+    "Criticality: 10/10",
+    `Status: ${status}`,
+  ].join("\n");
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -105,5 +115,82 @@ describe("Control Director delivery truth evidence ingestion", () => {
       payloadsChecked: 1,
       payloadsRewritten: 1,
     });
+  });
+
+  it("does not rewrite non-Control-Director agent text that copies Control Director wording", async () => {
+    const text = copiedControlDirectorReportText();
+
+    const result = await applyControlDirectorDeliveryGuards({
+      agentId: "research-agent",
+      payloads: [{ text }],
+      finalAssistantVisibleText: text,
+      sessionId: "session-non-cd",
+      requestBody: "Quote this Control Director report.",
+      truthEvidence: [
+        {
+          type: "command",
+          id: "cmd-1",
+          source: "unit-test",
+          summary: "Evidence supplied by caller must not opt a non-Control-Director into guards.",
+          status: "passed",
+          exitCode: 0,
+        },
+      ],
+      judgeCompletionApproval: {
+        judgeStatus: "approved",
+        judgeVerdict: "APPROVE",
+        judgeRunId: "judge-1",
+        missionId: "mission-1",
+        evidenceSummary:
+          "Judge metadata supplied by caller must not opt a non-Control-Director into guards.",
+        missingAcceptanceCriteria: [],
+      },
+      queueContinuation: false,
+    });
+
+    expect(result.payloads).toEqual([{ text }]);
+    expect(result.finalPayloadText).toBe(text);
+    expect(result.guardActions).toEqual([]);
+    expect(result.watchdogActions).toEqual([]);
+    expect(result.truthAudit).toBeUndefined();
+    expect(result.judgeCompletionGate).toBeUndefined();
+    expect(result.continuationQueued).toBe(false);
+  });
+
+  it("honors an explicit non-Control-Director scope override even for the main agent id", async () => {
+    const text = copiedControlDirectorReportText();
+
+    const result = await applyControlDirectorDeliveryGuards({
+      agentId: "main",
+      controlDirectorScope: false,
+      payloads: [{ text }],
+      finalAssistantVisibleText: text,
+      sessionId: "session-main-non-cd",
+      requestBody: "Quote this Control Director report.",
+      queueContinuation: false,
+    });
+
+    expect(result.payloads).toEqual([{ text }]);
+    expect(result.guardActions).toEqual([]);
+    expect(result.watchdogActions).toEqual([]);
+    expect(result.truthAudit).toBeUndefined();
+    expect(result.judgeCompletionGate).toBeUndefined();
+  });
+
+  it("still blocks unsupported Control Director completion claims", async () => {
+    const text = copiedControlDirectorReportText();
+
+    const result = await applyControlDirectorDeliveryGuards({
+      agentId: "control-director",
+      payloads: [{ text }],
+      finalAssistantVisibleText: text,
+      sessionId: "session-cd",
+      requestBody: "Complete the mission.",
+      queueContinuation: false,
+    });
+
+    expect(result.payloads[0]?.text).toContain("Judge completion gate blocked");
+    expect(result.payloads[0]?.text).toContain("Status: blocked");
+    expect(result.guardActions).toContain("blocked_missing_judge_approval");
   });
 });
