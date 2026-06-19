@@ -21,6 +21,13 @@ import { renderChatAvatar } from "./chat-avatar.ts";
 import { renderCopyAsMarkdownButton } from "./copy-as-markdown.ts";
 import { extractThinkingCached, formatReasoningMarkdown } from "./message-extract.ts";
 import { isToolResultMessage, normalizeMessage } from "./message-normalizer.ts";
+import {
+  hasProposedPlanSegment,
+  parseProposedPlanSegments,
+  stripProposedPlanTagsForMarkdown,
+  type ProposedPlanCardSegment,
+  type ProposedPlanSegment,
+} from "./proposed-plan.ts";
 import { normalizeRoleForGrouping } from "./role-normalizer.ts";
 import {
   extractToolCards,
@@ -401,6 +408,8 @@ export function renderMessageGroup(
     contextWindow?: number | null;
     targetRunId?: string | null;
     targetTranscriptSeq?: number | null;
+    proposedPlanDraft?: string | null;
+    onUseProposedPlan?: (prompt: string) => void;
     onDelete?: () => void;
   },
 ) {
@@ -469,6 +478,8 @@ export function renderMessageGroup(
               embedSandboxMode: opts.embedSandboxMode,
               targetRunId: opts.targetRunId,
               targetTranscriptSeq: opts.targetTranscriptSeq,
+              proposedPlanDraft: opts.proposedPlanDraft,
+              onUseProposedPlan: opts.onUseProposedPlan,
             },
             opts.onOpenSidebar,
           ),
@@ -1399,6 +1410,124 @@ function extractOpenClawTranscriptSeq(message: unknown): number | null {
   return typeof seq === "number" && Number.isInteger(seq) && seq > 0 ? seq : null;
 }
 
+function proposedPlanStatusLabel(status: ProposedPlanCardSegment["status"]): string {
+  switch (status) {
+    case "drafting":
+      return "Drafting";
+    case "awaiting_approval":
+      return "Awaiting approval";
+    case "ready":
+      return "Ready to send";
+    case "blocked":
+      return "Blocked";
+  }
+  return "Awaiting approval";
+}
+
+function proposedPlanStatusDetail(segment: ProposedPlanCardSegment): string {
+  if (segment.status === "drafting") {
+    return "OpenClaw is still writing this plan.";
+  }
+  if (segment.status === "ready") {
+    return "The implementation prompt is loaded in the composer.";
+  }
+  if (segment.status === "blocked") {
+    if (segment.missingCloseTag) {
+      return "This plan block is missing its closing tag.";
+    }
+    if (segment.unmatchedCloseTag) {
+      return "This plan block has a closing tag before an opening tag.";
+    }
+    return "This plan block is malformed.";
+  }
+  return "Review the plan, then choose Use plan to load it into the composer.";
+}
+
+function copyProposedPlanMarkdown(markdown: string): void {
+  void navigator.clipboard?.writeText(markdown).catch(() => undefined);
+}
+
+function renderProposedPlanCard(
+  segment: ProposedPlanCardSegment,
+  opts: {
+    onUseProposedPlan?: (prompt: string) => void;
+  },
+) {
+  const canUsePlan = segment.status === "awaiting_approval";
+  const canCopyPlan = segment.status !== "drafting" && segment.markdown.trim().length > 0;
+  return html`
+    <article
+      class="chat-proposed-plan chat-proposed-plan--${segment.status}"
+      data-proposed-plan-card=${segment.id}
+    >
+      <div class="chat-proposed-plan__header">
+        <div>
+          <div class="chat-proposed-plan__eyebrow">Plan Mode</div>
+          <h3 class="chat-proposed-plan__title">Proposed Plan</h3>
+        </div>
+        <span class="chat-proposed-plan__status">${proposedPlanStatusLabel(segment.status)}</span>
+      </div>
+      <p class="chat-proposed-plan__detail">${proposedPlanStatusDetail(segment)}</p>
+      ${segment.markdown.trim()
+        ? html`<div class="chat-proposed-plan__body" dir=${detectTextDirection(segment.markdown)}>
+            ${unsafeHTML(toSanitizedMarkdownHtml(segment.markdown))}
+          </div>`
+        : html`<div class="chat-proposed-plan__body chat-proposed-plan__body--empty">
+            No plan content is available yet.
+          </div>`}
+      <div class="chat-proposed-plan__actions">
+        <button
+          class="btn btn--sm chat-proposed-plan__use"
+          type="button"
+          ?disabled=${!canUsePlan}
+          @click=${() => {
+            if (canUsePlan) {
+              opts.onUseProposedPlan?.(segment.implementationPrompt);
+            }
+          }}
+        >
+          ${segment.status === "ready" ? "Plan loaded" : "Use plan"}
+        </button>
+        <button
+          class="btn btn--subtle btn--sm chat-proposed-plan__copy"
+          type="button"
+          ?disabled=${!canCopyPlan}
+          @click=${() => {
+            if (canCopyPlan) {
+              copyProposedPlanMarkdown(segment.markdown);
+            }
+          }}
+        >
+          Copy plan
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function renderMarkdownOrProposedPlanSegments(
+  markdown: string,
+  segments: readonly ProposedPlanSegment[],
+  opts: {
+    onUseProposedPlan?: (prompt: string) => void;
+  },
+) {
+  if (!hasProposedPlanSegment(segments)) {
+    return html`<div class="chat-text" dir="${detectTextDirection(markdown)}">
+      ${unsafeHTML(toSanitizedMarkdownHtml(markdown))}
+    </div>`;
+  }
+  return html`${segments.map((segment) =>
+    segment.kind === "markdown"
+      ? segment.markdown.trim()
+        ? html`<div class="chat-text" dir="${detectTextDirection(segment.markdown)}">
+            ${unsafeHTML(toSanitizedMarkdownHtml(segment.markdown))}
+          </div>`
+        : nothing
+      : renderProposedPlanCard(segment, opts),
+  )}`;
+}
+
 function renderGroupedMessage(
   message: unknown,
   messageKey: string,
@@ -1421,6 +1550,8 @@ function renderGroupedMessage(
     allowExternalEmbedUrls?: boolean;
     targetRunId?: string | null;
     targetTranscriptSeq?: number | null;
+    proposedPlanDraft?: string | null;
+    onUseProposedPlan?: (prompt: string) => void;
   },
   onOpenSidebar?: (content: SidebarContent) => void,
 ) {
@@ -1467,11 +1598,22 @@ function renderGroupedMessage(
   const markdownBase = extractedText?.trim() ? extractedText : null;
   const reasoningMarkdown = extractedThinking ? formatReasoningMarkdown(extractedThinking) : null;
   const markdown = markdownBase;
-  const canCopyMarkdown = role === "assistant" && Boolean(markdown?.trim());
-  const canExpand = role === "assistant" && Boolean(onOpenSidebar && markdown?.trim());
+  const proposedPlanSegments =
+    role === "assistant" && markdown
+      ? parseProposedPlanSegments(markdown, {
+          isStreaming: opts.isStreaming,
+          composerDraft: opts.proposedPlanDraft,
+        })
+      : [];
+  const hasProposedPlan = hasProposedPlanSegment(proposedPlanSegments);
+  const displayMarkdown =
+    markdown && hasProposedPlan ? stripProposedPlanTagsForMarkdown(markdown) : markdown;
+  const canCopyMarkdown = role === "assistant" && Boolean(displayMarkdown?.trim());
+  const canExpand = role === "assistant" && Boolean(onOpenSidebar && displayMarkdown?.trim());
 
   // Detect pure-JSON messages and render as collapsible block
-  const jsonResult = markdown && !opts.isStreaming ? detectJson(markdown) : null;
+  const jsonResult =
+    markdown && !opts.isStreaming && !hasProposedPlan ? detectJson(markdown) : null;
 
   const isToolMessage = normalizedRole === "tool" || isToolResult;
   const bubbleClasses = [
@@ -1534,8 +1676,8 @@ function renderGroupedMessage(
       ${renderReplyPill(normalizedMessage.replyTarget)}
       ${hasActions
         ? html`<div class="chat-bubble-actions">
-            ${canExpand ? renderExpandButton(markdown!, onOpenSidebar!) : nothing}
-            ${canCopyMarkdown ? renderCopyAsMarkdownButton(markdown!) : nothing}
+            ${canExpand ? renderExpandButton(displayMarkdown!, onOpenSidebar!) : nothing}
+            ${canCopyMarkdown ? renderCopyAsMarkdownButton(displayMarkdown!) : nothing}
           </div>`
         : nothing}
       ${isToolMessage
@@ -1589,9 +1731,9 @@ function renderGroupedMessage(
                             <pre class="chat-json-content"><code>${jsonResult.pretty}</code></pre>
                           </details>`
                         : markdown
-                          ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">
-                              ${unsafeHTML(toSanitizedMarkdownHtml(markdown))}
-                            </div>`
+                          ? renderMarkdownOrProposedPlanSegments(markdown, proposedPlanSegments, {
+                              onUseProposedPlan: opts.onUseProposedPlan,
+                            })
                           : nothing}
                       ${hasToolCards
                         ? singleToolCard && !markdown && !hasImages
@@ -1651,9 +1793,9 @@ function renderGroupedMessage(
                   <pre class="chat-json-content"><code>${jsonResult.pretty}</code></pre>
                 </details>`
               : markdown
-                ? html`<div class="chat-text" dir="${detectTextDirection(markdown)}">
-                    ${unsafeHTML(toSanitizedMarkdownHtml(markdown))}
-                  </div>`
+                ? renderMarkdownOrProposedPlanSegments(markdown, proposedPlanSegments, {
+                    onUseProposedPlan: opts.onUseProposedPlan,
+                  })
                 : nothing}
             ${hasToolCards
               ? renderInlineToolCards(toolCards, {

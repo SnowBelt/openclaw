@@ -110,7 +110,10 @@ vi.mock("../chat/build-chat-items.ts", () => ({
 vi.mock("../chat/grouped-render.ts", () => ({
   renderMessageGroup: (
     group: { messages: Array<{ message: unknown }> },
-    opts: { targetTranscriptSeq?: number | null } = {},
+    opts: {
+      targetTranscriptSeq?: number | null;
+      onUseProposedPlan?: (prompt: string) => void;
+    } = {},
   ) => {
     const element = document.createElement("div");
     const matchesTarget = group.messages.some(({ message }) => {
@@ -133,6 +136,15 @@ vi.mock("../chat/grouped-render.ts", () => ({
         return String(message);
       })
       .join("\n");
+    if (element.textContent.includes("<proposed_plan>")) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Use plan";
+      button.addEventListener("click", () => {
+        opts.onUseProposedPlan?.("PLEASE IMPLEMENT THIS PLAN:\n# Plan");
+      });
+      element.append(button);
+    }
     return element;
   },
   renderReadingIndicatorGroup: () => {
@@ -1341,6 +1353,32 @@ describe("chat Working Now surface", () => {
     expect(
       [...surface!.querySelectorAll("button")].map((button) => button.textContent),
     ).not.toContain("Cancel");
+  });
+});
+
+describe("chat Plan Mode cards", () => {
+  it("loads a proposed plan into the composer without sending it", () => {
+    const onDraftChange = vi.fn();
+    const onSend = vi.fn();
+    const container = renderChatView({
+      messages: [
+        {
+          role: "assistant",
+          content: "<proposed_plan>\n# Plan\n</proposed_plan>",
+        },
+      ],
+      onDraftChange,
+      onSend,
+    });
+
+    const usePlanButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Use plan"),
+    );
+    expect(usePlanButton).toBeInstanceOf(HTMLButtonElement);
+    usePlanButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onDraftChange).toHaveBeenCalledWith("PLEASE IMPLEMENT THIS PLAN:\n# Plan");
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
 

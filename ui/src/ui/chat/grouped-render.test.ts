@@ -447,6 +447,136 @@ afterEach(() => {
 });
 
 describe("grouped chat rendering", () => {
+  it("renders valid proposed plan blocks as plan cards and hides raw tags", () => {
+    const container = document.createElement("div");
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content:
+        "Before text.\n<proposed_plan>\n# Plan\n- Verify the UI.\n</proposed_plan>\nAfter text.",
+      timestamp: 1,
+    });
+
+    const card = expectElement(container, "[data-proposed-plan-card]", HTMLElement);
+    expect(card.textContent).toContain("Proposed Plan");
+    expect(card.textContent).toContain("Awaiting approval");
+    expect(card.textContent).toContain("# Plan");
+    expect(card.textContent).toContain("Verify the UI.");
+    expect(container.textContent).toContain("Before text.");
+    expect(container.textContent).toContain("After text.");
+    expect(container.textContent).not.toContain("<proposed_plan>");
+    expect(container.textContent).not.toContain("</proposed_plan>");
+  });
+
+  it("loads the implementation prompt into the composer without sending", () => {
+    const container = document.createElement("div");
+    const onUseProposedPlan = vi.fn();
+    renderAssistantMessage(
+      container,
+      {
+        role: "assistant",
+        content: "<proposed_plan>\n# Plan\n- Do the work.\n</proposed_plan>",
+        timestamp: 1,
+      },
+      { onUseProposedPlan },
+    );
+
+    const useButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Use plan"),
+    );
+    expect(useButton).toBeInstanceOf(HTMLButtonElement);
+    useButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onUseProposedPlan).toHaveBeenCalledWith(
+      "PLEASE IMPLEMENT THIS PLAN:\n# Plan\n- Do the work.",
+    );
+  });
+
+  it("copies only the proposed plan markdown", () => {
+    const container = document.createElement("div");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content: "Intro\n<proposed_plan>\n# Plan\n- Copy this.\n</proposed_plan>",
+      timestamp: 1,
+    });
+
+    const copyButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Copy plan"),
+    );
+    expect(copyButton).toBeInstanceOf(HTMLButtonElement);
+    copyButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(writeText).toHaveBeenCalledWith("# Plan\n- Copy this.");
+  });
+
+  it("shows drafting for streaming incomplete proposed plans", () => {
+    const container = document.createElement("div");
+    const group: MessageGroup = {
+      kind: "group",
+      key: "assistant-streaming-plan",
+      role: "assistant",
+      messages: [
+        {
+          key: "assistant-streaming-plan-message",
+          message: {
+            role: "assistant",
+            content: "<proposed_plan>\n# Still drafting",
+            timestamp: 1,
+          },
+        },
+      ],
+      timestamp: 1,
+      isStreaming: true,
+    };
+    render(
+      renderMessageGroup(group, {
+        showReasoning: true,
+        showToolCalls: true,
+        assistantName: "OpenClaw",
+        assistantAvatar: null,
+      }),
+      container,
+    );
+
+    const card = expectElement(container, "[data-proposed-plan-card]", HTMLElement);
+    expect(card.textContent).toContain("Drafting");
+    const useButton = [...card.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Use plan"),
+    );
+    expect(useButton?.disabled).toBe(true);
+  });
+
+  it("shows blocked for malformed final proposed plans", () => {
+    const container = document.createElement("div");
+    renderAssistantMessage(container, {
+      role: "assistant",
+      content: "Before\n<proposed_plan>\n# Missing close",
+      timestamp: 1,
+    });
+
+    const card = expectElement(container, "[data-proposed-plan-card]", HTMLElement);
+    expect(card.textContent).toContain("Blocked");
+    expect(card.textContent).toContain("missing its closing tag");
+  });
+
+  it("shows ready when the implementation prompt is already loaded", () => {
+    const container = document.createElement("div");
+    renderAssistantMessage(
+      container,
+      {
+        role: "assistant",
+        content: "<proposed_plan>\n# Plan\n- Ready.\n</proposed_plan>",
+        timestamp: 1,
+      },
+      { proposedPlanDraft: "PLEASE IMPLEMENT THIS PLAN:\n# Plan\n- Ready." },
+    );
+
+    const card = expectElement(container, "[data-proposed-plan-card]", HTMLElement);
+    expect(card.textContent).toContain("Ready to send");
+    expect(card.textContent).toContain("Plan loaded");
+  });
+
   it("renders a compact count for collapsed duplicate messages", () => {
     const container = document.createElement("div");
     renderAssistantMessageEntries(container, [

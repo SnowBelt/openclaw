@@ -1539,6 +1539,16 @@ export function renderChat(props: ChatProps) {
                 allowExternalEmbedUrls: props.allowExternalEmbedUrls ?? false,
                 targetRunId: props.targetRunId ?? null,
                 targetTranscriptSeq,
+                proposedPlanDraft: props.draft,
+                onUseProposedPlan: (prompt: string) => {
+                  props.onDraftChange(prompt);
+                  requestUpdate();
+                  requestAnimationFrame(() => {
+                    document
+                      .querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox textarea")
+                      ?.focus();
+                  });
+                },
                 contextWindow:
                   activeSession?.contextTokens ?? props.sessions?.defaults?.contextTokens ?? null,
                 onDelete: () => {
