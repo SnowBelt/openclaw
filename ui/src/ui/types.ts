@@ -1,6 +1,13 @@
 // Control UI type declarations define types contracts.
 export type UpdateAvailable = import("../../../src/infra/update-startup.js").UpdateAvailable;
-import type { SessionGoal } from "../../../src/config/sessions/types.js";
+import type {
+  SessionControlDirectorGuardAuditEntry,
+  SessionControlDirectorJudgeCompletionApproval,
+  SessionControlDirectorLivenessAuditEntry,
+  SessionControlDirectorMissionLedgerEntry,
+  SessionControlDirectorTruthAuditEntry,
+  SessionGoal,
+} from "../../../src/config/sessions/types.js";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type {
@@ -466,6 +473,11 @@ export type GatewaySessionRow = {
   runtimeMs?: number;
   parentSessionKey?: string;
   childSessions?: string[];
+  controlDirectorGuardAudit?: SessionControlDirectorGuardAuditEntry[];
+  controlDirectorLivenessAudit?: SessionControlDirectorLivenessAuditEntry[];
+  controlDirectorMissionLedger?: SessionControlDirectorMissionLedgerEntry[];
+  controlDirectorJudgeCompletionApproval?: SessionControlDirectorJudgeCompletionApproval;
+  controlDirectorTruthAudit?: SessionControlDirectorTruthAuditEntry[];
   projectId?: string;
   model?: string;
   modelProvider?: string;

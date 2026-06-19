@@ -691,6 +691,73 @@ describe("chat multi-agent work tree", () => {
   });
 });
 
+describe("chat Control Director diagnostics", () => {
+  it("renders blocked truth and completion diagnostics for the active session", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+            controlDirectorTruthAudit: [
+              {
+                ts: 10,
+                status: "blocked",
+                runId: "run-1",
+                missing: ["matching command exit code 0"],
+                payloadsChecked: 1,
+                payloadsRewritten: 1,
+                claims: [
+                  {
+                    claim: "tests passed",
+                    claimHash: "hash-1",
+                    claimType: "verification",
+                    requiredEvidenceType: "command",
+                    matchStatus: "missing",
+                    missingCondition: "missing command evidence with exit code 0",
+                    rewriteAction: "blocked_unsupported_truth_claim",
+                  },
+                ],
+              },
+            ],
+            controlDirectorMissionLedger: [
+              {
+                missionId: "mission-1",
+                runId: "run-1",
+                requestSummary: "finish diagnostics",
+                status: "blocked",
+                startedAt: 1,
+                updatedAt: 10,
+                continuationCount: 0,
+                finalStatus: "blocked",
+                completionGrade: 8,
+                criticality: 10,
+                nextBuildGap: "collect command proof",
+              },
+            ],
+          },
+        ],
+        ts: 0,
+      },
+    });
+
+    const card = container.querySelector("[data-control-director-diagnostics]");
+    expect(card?.textContent).toContain("Truth & Completion");
+    expect(card?.textContent).toContain("Blocked unsupported claim");
+    expect(card?.textContent).toContain("missing command evidence with exit code 0");
+    expect(card?.textContent).toContain("Required evidence");
+    expect(card?.textContent).toContain("command");
+    expect(card?.textContent).toContain("Completion Grade");
+    expect(card?.textContent).toContain("8/10");
+    expect(card?.textContent).not.toContain("Status: complete");
+  });
+});
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (error?: unknown) => void;

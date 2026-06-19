@@ -21,6 +21,7 @@ import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "../chat/chat-welcome.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
+import { summarizeControlDirectorDiagnostics } from "../chat/control-director-diagnostics.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
 import { exportChatMarkdown } from "../chat/export.ts";
 import {
@@ -87,6 +88,7 @@ import type {
   ProjectsListResult,
   SessionGoal,
   SessionsListResult,
+  GatewaySessionRow,
 } from "../types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { resolveLocalUserName } from "../user-identity.ts";
@@ -1635,6 +1637,42 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
   `;
 }
 
+function renderControlDirectorDiagnosticsCard(session: GatewaySessionRow | undefined) {
+  const summary = summarizeControlDirectorDiagnostics(session);
+  if (!summary.hasDiagnostics) {
+    return nothing;
+  }
+  return html`
+    <section
+      class="chat-control-director-diagnostics chat-control-director-diagnostics--${summary.tone}"
+      data-control-director-diagnostics
+    >
+      <div class="chat-control-director-diagnostics__header">
+        <div>
+          <div class="chat-control-director-diagnostics__eyebrow">Control Director</div>
+          <h3>${summary.title}</h3>
+        </div>
+        <span class="chat-control-director-diagnostics__status">${summary.status}</span>
+      </div>
+      <p class="chat-control-director-diagnostics__summary">${summary.detail}</p>
+      ${summary.details.length > 0
+        ? html`
+            <dl class="chat-control-director-diagnostics__grid">
+              ${summary.details.slice(0, 8).map(
+                (detail) => html`
+                  <div>
+                    <dt>${detail.label}</dt>
+                    <dd>${detail.value}</dd>
+                  </div>
+                `,
+              )}
+            </dl>
+          `
+        : nothing}
+    </section>
+  `;
+}
+
 function formatChatApprovalRemaining(ms: number): string {
   const remaining = Math.max(0, ms);
   const totalSeconds = Math.floor(remaining / 1000);
@@ -2945,6 +2983,7 @@ export function renderChat(props: ChatProps) {
       </div>
 
       ${renderChatProjectPicker(props)} ${renderChatApprovalCard(props)} ${renderPursueGoal(props)}
+      ${renderControlDirectorDiagnosticsCard(activeSession)}
       ${renderWorkingNow(props, workItems, workTree)}
       ${renderChatQueue({
         queue: props.queue,

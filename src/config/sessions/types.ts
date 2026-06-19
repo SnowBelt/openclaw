@@ -201,6 +201,124 @@ export type SessionGoal = {
   budgetLimitedAt?: number;
 };
 
+export type SessionControlDirectorGuardAuditEntry = {
+  ts: number;
+  runId?: string;
+  action:
+    | "rewrote_unsupported_complete"
+    | "repaired_missing_required_fields"
+    | "blocked_missing_judge_approval"
+    | "blocked_invalid_judge_approval";
+  originalStatus?: "complete" | "blocked" | "needs_user_input" | null;
+  nextStatus: "complete" | "blocked" | "needs_user_input";
+  missing: string[];
+  payloadsChecked: number;
+  payloadsRewritten: number;
+};
+
+export type SessionControlDirectorLivenessAuditEntry = {
+  ts: number;
+  runId?: string;
+  action:
+    | "synthesized_blocked_no_visible_output"
+    | "synthesized_blocked_incomplete_classification"
+    | "queued_safe_continuation"
+    | "blocked_continuation_limit"
+    | "blocked_unsafe_continuation";
+  reason: string;
+  source?: "terminal_empty" | "webchat_timeout_inflight" | "terminal_reconstructed_from_session";
+  classification?: "empty" | "reasoning-only" | "planning-only";
+  nextStatus: "blocked";
+  continuationCount: number;
+  continuationQueued: boolean;
+  payloadsChecked: number;
+  payloadsSynthesized: number;
+};
+
+export type SessionControlDirectorJudgeCompletionApproval = {
+  judgeStatus: "pending" | "approved" | "rejected" | "invalid";
+  judgeVerdict?: string;
+  judgeRunId?: string;
+  missionId: string;
+  approvedClaimHash?: string;
+  evidenceSummary?: string;
+  scope?: string;
+  approvedAt?: number;
+  missingAcceptanceCriteria?: string[];
+};
+
+export type SessionControlDirectorJudgeCompletionGate = {
+  status: "approved" | "blocked" | "not_required";
+  reason: string;
+  expectedClaimHash?: string;
+  judgeRunId?: string;
+  missing?: string[];
+};
+
+export type SessionControlDirectorClaimEvidence = {
+  type:
+    | "judge_approval"
+    | "command"
+    | "github_run"
+    | "ui_smoke"
+    | "repo_change"
+    | "source_citation";
+  id: string;
+  source: string;
+  summary: string;
+  status: "passed" | "failed" | "unknown";
+  exitCode?: number;
+  sha?: string;
+};
+
+export type SessionControlDirectorTruthClaimAudit = {
+  claim: string;
+  claimHash: string;
+  claimType:
+    | "completion"
+    | "verification"
+    | "remote_proof"
+    | "dashboard"
+    | "implementation"
+    | "external_fact";
+  requiredEvidenceType: SessionControlDirectorClaimEvidence["type"];
+  evidenceId?: string;
+  evidenceSource?: string;
+  matchStatus: "matched" | "missing";
+  missingCondition?: string;
+  rewriteAction?: "blocked_unsupported_truth_claim";
+};
+
+export type SessionControlDirectorTruthAuditEntry = {
+  ts: number;
+  runId?: string;
+  status: "passed" | "blocked" | "not_required";
+  claims: SessionControlDirectorTruthClaimAudit[];
+  missing: string[];
+  payloadsChecked: number;
+  payloadsRewritten: number;
+};
+
+export type SessionControlDirectorMissionLedgerEntry = {
+  missionId: string;
+  runId?: string;
+  requestSummary: string;
+  status: "running" | "complete" | "blocked" | "needs_user_input" | "continuation_queued";
+  startedAt: number;
+  updatedAt: number;
+  continuationCount: number;
+  finalStatus?: "complete" | "blocked" | "needs_user_input" | null;
+  verifiedEvidenceSummary?: string;
+  nextBuildGap?: string;
+  completionGrade?: number;
+  criticality?: number;
+  judgeCompletionApproval?: SessionControlDirectorJudgeCompletionApproval;
+  judgeCompletionGate?: SessionControlDirectorJudgeCompletionGate;
+  truthAudit?: SessionControlDirectorTruthAuditEntry;
+  guardActions?: string[];
+  watchdogActions?: string[];
+};
+
 export type SessionEntry = {
   /**
    * Last delivered heartbeat payload (used to suppress duplicate heartbeat notifications).
@@ -223,6 +341,16 @@ export type SessionEntry = {
   pluginExtensionSlotKeys?: Record<string, Record<string, string>>;
   /** Durable one-shot prompt additions drained before the next agent turn. */
   pluginNextTurnInjections?: Record<string, SessionPluginNextTurnInjection[]>;
+  /** Capped audit trail for Control Director final-output guard interventions. */
+  controlDirectorGuardAudit?: SessionControlDirectorGuardAuditEntry[];
+  /** Capped audit trail for Control Director liveness watchdog interventions. */
+  controlDirectorLivenessAudit?: SessionControlDirectorLivenessAuditEntry[];
+  /** Capped mission ledger for Control Director run status, proof, and continuation state. */
+  controlDirectorMissionLedger?: SessionControlDirectorMissionLedgerEntry[];
+  /** Latest Judge completion approval available to Control Director delivery guards. */
+  controlDirectorJudgeCompletionApproval?: SessionControlDirectorJudgeCompletionApproval;
+  /** Capped audit trail for Control Director runtime truth-claim rewrites. */
+  controlDirectorTruthAudit?: SessionControlDirectorTruthAuditEntry[];
   sessionId: string;
   updatedAt: number;
   sessionFile?: string;

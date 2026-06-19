@@ -86,6 +86,11 @@ export type GatewaySessionRow = {
   runtimeMs?: number;
   parentSessionKey?: string;
   childSessions?: string[];
+  controlDirectorGuardAudit?: SessionEntry["controlDirectorGuardAudit"];
+  controlDirectorLivenessAudit?: SessionEntry["controlDirectorLivenessAudit"];
+  controlDirectorMissionLedger?: SessionEntry["controlDirectorMissionLedger"];
+  controlDirectorJudgeCompletionApproval?: SessionEntry["controlDirectorJudgeCompletionApproval"];
+  controlDirectorTruthAudit?: SessionEntry["controlDirectorTruthAudit"];
   responseUsage?: "on" | "off" | "tokens" | "full";
   modelProvider?: string;
   model?: string;

@@ -18,6 +18,10 @@ on:
         description: Run Chat Multi-agent Work Tree V1 proof
         required: false
         default: "false"
+      chat-truth-diagnostics-proof:
+        description: Run Chat Truth Diagnostics V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -217,7 +221,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -277,7 +281,6 @@ jobs:
         uses: ./.github/actions/setup-node-env
         with:
           node-version: "24.x"
-          pnpm-version: "11.2.2"
           install-bun: "false"
           frozen-lockfile: "true"
 
@@ -375,7 +378,6 @@ jobs:
         uses: ./.github/actions/setup-node-env
         with:
           node-version: "24.x"
-          pnpm-version: "11.2.2"
           install-bun: "false"
           frozen-lockfile: "true"
 
@@ -416,3 +418,60 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed package.json scripts/dev/control-ui-chat-multi-agent-work-tree-smoke.ts ui/src/ui/chat/work-tree.ts ui/src/ui/chat/work-tree.test.ts ui/src/ui/chat/work-snapshot.ts ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/types.ts ui/src/styles/chat.css .github/workflows/workflow-sanity.yml
+
+  chat-truth-diagnostics-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-truth-diagnostics-proof == 'true'
+    name: Chat Truth Diagnostics V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF'
+          commands:
+          - pnpm test src/gateway/session-utils.subagent.test.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/views/sessions.test.ts ui/src/ui/views/overview.render.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-truth-diagnostics
+          - pnpm check:changed src/config/sessions/types.ts src/gateway/session-utils.ts src/gateway/session-utils.types.ts src/gateway/session-utils.subagent.test.ts src/plugins/session-entry-slot-keys.ts ui/src/ui/types.ts ui/src/ui/chat/control-director-diagnostics.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/views/sessions.ts ui/src/ui/views/sessions.test.ts ui/src/ui/views/overview-cards.ts ui/src/ui/views/overview.render.test.ts ui/src/styles/chat.css package.json scripts/dev/control-ui-chat-truth-diagnostics-smoke.ts .github/workflows/workflow-sanity.yml
+          EOF
+
+      - name: Run targeted Chat Truth Diagnostics tests
+        run: pnpm test src/gateway/session-utils.subagent.test.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/views/sessions.test.ts ui/src/ui/views/overview.render.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Truth Diagnostics smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-truth-diagnostics
+
+      - name: Run changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed src/config/sessions/types.ts src/gateway/session-utils.ts src/gateway/session-utils.types.ts src/gateway/session-utils.subagent.test.ts src/plugins/session-entry-slot-keys.ts ui/src/ui/types.ts ui/src/ui/chat/control-director-diagnostics.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/views/sessions.ts ui/src/ui/views/sessions.test.ts ui/src/ui/views/overview-cards.ts ui/src/ui/views/overview.render.test.ts ui/src/styles/chat.css package.json scripts/dev/control-ui-chat-truth-diagnostics-smoke.ts .github/workflows/workflow-sanity.yml
