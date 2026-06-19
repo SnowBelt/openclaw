@@ -152,6 +152,7 @@ function setChatError(host: ChatHost, error: string | null) {
 
 export type ChatSendOptions = {
   confirmReset?: boolean;
+  flowId?: string;
   restoreDraft?: boolean;
   skillWorkshopRevision?: ChatQueueSkillWorkshopRevision;
 };
@@ -988,6 +989,7 @@ async function sendQueuedChatMessage(
   host: ChatHost,
   id: string,
   opts?: {
+    flowId?: string;
     previousAttachments?: ChatAttachment[];
     previousDraft?: string;
   },
@@ -1066,6 +1068,7 @@ async function sendQueuedChatMessage(
           runId,
           sessionKey,
           agentId: prepared.agentId,
+          ...(opts?.flowId ? { flowId: opts.flowId } : {}),
         });
     updateChatSendAckTiming(host, runId, ack, sendingItem, requestStartedAtMs);
     recordChatSendTiming(host, sendingItem, "ack", sendingItem.sendSubmittedAtMs, {
@@ -1164,6 +1167,7 @@ async function sendChatMessageNow(
   host: ChatHost,
   message: string,
   opts?: {
+    flowId?: string;
     queueItemId?: string;
     previousDraft?: string;
     restoreDraft?: boolean;
@@ -1192,6 +1196,7 @@ async function sendChatMessageNow(
   }
   const queuedSessionKey = queued.sessionKey ?? host.sessionKey;
   const result = await sendQueuedChatMessage(host, queued.id, {
+    flowId: opts?.flowId,
     previousDraft: opts?.previousDraft,
     previousAttachments: opts?.previousAttachments,
   });
@@ -1842,6 +1847,14 @@ export async function handleSendChat(
     }
 
     if (isChatBusy(host)) {
+      if (opts?.flowId) {
+        cancelPendingSendBeforeRequest(host, queued, {
+          previousDraft: cleared.previousDraft,
+          previousAttachments: cleared.previousAttachments,
+        });
+        setChatError(host, "Wait for the current chat run to finish before continuing a goal.");
+        return;
+      }
       updateQueuedMessage(host, queued.id, (item) => ({
         ...item,
         sendError: undefined,
@@ -1852,6 +1865,7 @@ export async function handleSendChat(
     }
 
     await sendChatMessageNow(host, message, {
+      flowId: opts?.flowId,
       queueItemId: queued.id,
       previousDraft: cleared.previousDraft,
       restoreDraft: Boolean(messageOverride && opts?.restoreDraft),

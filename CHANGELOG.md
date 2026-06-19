@@ -21,6 +21,8 @@ Docs: https://docs.openclaw.ai
 - Memory/providers: move the local llama.cpp runtime into its provider plugin, batch embeddings across files, persist the agent model catalog cache, and keep QMD JSON search one-shot while filtering stale REM recall previews. (#91324, #89138, #90457, #91837, #91851) Thanks @osolmaz, @mushuiyu886, @ai-hpc, and @TurboTheTurtle.
 - Channels/mobile: add the QQBot group mention toggle, improve iPad and iPhone control surfaces, and expose the active connection host in the TUI footer. (#91423, #91557, #89909) Thanks @cxyhhhhh, @Solvely-Colin, and @baskduf.
 - Performance: prewarm TUI runtime plugins, deduplicate plugin auto-enable fanout, trim dense text-delta snapshots, and reuse prepared startup model metadata. (#90782, #89978, #91580, #91531) Thanks @RomneyDa and @ai-hpc.
+- Control UI/Chat: add Approval Cards so pending exec and plugin approvals appear directly in Chat with readable metadata, queue count, Allow once, Always allow, and Deny actions while preserving the existing approval modal.
+- Control UI/Chat: render command, proof, and artifact tool results as readable cards with verified status evidence, run metadata, artifact paths, and raw details instead of dense raw tool payloads.
 
 ### Fixes
 

@@ -4,6 +4,7 @@ import { guard } from "lit/directives/guard.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
+import { formatApprovalDisplayPath } from "../../../../src/infra/approval-display-paths.ts";
 import { t } from "../../i18n/index.ts";
 import type { CompactionStatus, FallbackStatus } from "../app-tool-stream.ts";
 import {
@@ -32,6 +33,12 @@ import { CHAT_HISTORY_RENDER_LIMIT } from "../chat/history-limits.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "../chat/input-history.ts";
 import { PinnedMessages } from "../chat/pinned-messages.ts";
 import { getPinnedMessageSummary } from "../chat/pinned-summary.ts";
+import {
+  chatGoalStatusLabel,
+  isActiveChatGoal,
+  resolveCurrentChatGoal,
+  type ChatGoalFlowSummary,
+} from "../chat/pursue-goal.ts";
 import type { RealtimeTalkConversationEntry } from "../chat/realtime-talk-conversation.ts";
 import type { RealtimeTalkStatus } from "../chat/realtime-talk.ts";
 import { renderChatRunControls } from "../chat/run-controls.ts";
@@ -53,6 +60,16 @@ import {
   renderFallbackIndicator,
 } from "../chat/status-indicators.ts";
 import { getExpandedToolCards, syncToolCardExpansionState } from "../chat/tool-expansion-state.ts";
+import {
+  buildWorkSurfaceSnapshot,
+  hasActiveWork,
+  type WorkSurfaceItem,
+  type WorkSurfaceTaskSummary,
+} from "../chat/work-snapshot.ts";
+import type {
+  ExecApprovalRequest,
+  ExecApprovalRequestPayload,
+} from "../controllers/exec-approval.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
 import { formatGoalDetail, formatGoalSummary } from "../session-goal.ts";
@@ -61,6 +78,8 @@ import { detectTextDirection } from "../text-direction.ts";
 import type {
   AgentFileEntry,
   AgentsFilesListResult,
+  ProjectRecord,
+  ProjectsListResult,
   SessionGoal,
   SessionsListResult,
 } from "../types.ts";
@@ -117,6 +136,27 @@ export type ChatProps = {
   streamSegments: Array<{ text: string; ts: number }>;
   stream: string | null;
   streamStartedAt: number | null;
+  currentRunId?: string | null;
+  workTasks?: WorkSurfaceTaskSummary[];
+  workTasksLoading?: boolean;
+  workTasksError?: string | null;
+  goalFlows?: ChatGoalFlowSummary[];
+  goalLoading?: boolean;
+  goalBusy?: boolean;
+  goalError?: string | null;
+  goalDraft?: string;
+  goalPanelOpen?: boolean;
+  projectsList?: ProjectsListResult | null;
+  projectsLoading?: boolean;
+  projectPickerOpen?: boolean;
+  projectBusy?: boolean;
+  projectError?: string | null;
+  projectCreateName?: string;
+  projectCreateDescription?: string;
+  projectCreateInstructions?: string;
+  execApprovalQueue?: ExecApprovalRequest[];
+  execApprovalBusy?: boolean;
+  execApprovalError?: string | null;
   assistantAvatarUrl?: string | null;
   draft: string;
   queue: ChatQueueItem[];
@@ -180,6 +220,26 @@ export type ChatProps = {
   onQueueRemove: (id: string) => void;
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
+  onWorkTaskCancel?: (taskId: string) => void;
+  onGoalPanelToggle?: (open: boolean) => void;
+  onGoalDraftChange?: (value: string) => void;
+  onGoalStart?: () => void | Promise<void>;
+  onGoalContinue?: (flowId: string) => void | Promise<void>;
+  onGoalCancel?: (flowId: string) => void | Promise<void>;
+  onGoalRefresh?: () => void | Promise<void>;
+  onProjectPickerToggle?: (open: boolean) => void;
+  onProjectCreateFieldChange?: (
+    field: "name" | "description" | "instructions",
+    value: string,
+  ) => void;
+  onProjectCreateAndAttach?: () => void | Promise<void>;
+  onProjectAttach?: (projectId: string) => void | Promise<void>;
+  onProjectDetach?: () => void | Promise<void>;
+  onNewProjectChat?: (projectId: string) => void | Promise<void>;
+  onProjectRefresh?: () => void | Promise<void>;
+  onExecApprovalDecision?: (
+    decision: "allow-once" | "allow-always" | "deny",
+  ) => void | Promise<void>;
   onDismissSideResult?: () => void;
   onNewSession: () => void;
   onClearHistory?: () => void;
@@ -1344,6 +1404,659 @@ function exportMarkdown(props: ChatProps): void {
   exportChatMarkdown(props.messages, props.assistantName);
 }
 
+function workItemKindLabel(kind: WorkSurfaceItem["kind"]): string {
+  switch (kind) {
+    case "chat_run":
+      return "Chat";
+    case "queued_message":
+      return "Queue";
+    case "task":
+      return "Task";
+    case "active_session":
+      return "Session";
+    default:
+      return "Work";
+  }
+}
+
+function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
+  return html`
+    ${item.actions.includes("stop_run") && props.onAbort
+      ? html`<button class="btn btn--sm" type="button" @click=${props.onAbort}>Stop</button>`
+      : nothing}
+    ${item.actions.includes("remove_queue")
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onQueueRemove(item.id.replace(/^queued:/, ""))}
+          >
+            Remove
+          </button>
+        `
+      : nothing}
+    ${item.actions.includes("open_session") && item.sessionKey && props.onSessionSelect
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onSessionSelect?.(item.sessionKey!)}
+          >
+            Open
+          </button>
+        `
+      : nothing}
+    ${item.actions.includes("cancel_task") && item.taskId && props.onWorkTaskCancel
+      ? html`
+          <button
+            class="btn btn--sm"
+            type="button"
+            @click=${() => props.onWorkTaskCancel?.(item.taskId!)}
+          >
+            Cancel
+          </button>
+        `
+      : nothing}
+  `;
+}
+
+function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[]) {
+  const hasItems = hasActiveWork(items);
+  const hasError = Boolean(props.workTasksError);
+  const summaryLabel = hasItems
+    ? "Working"
+    : hasError
+      ? "Work status unavailable"
+      : props.workTasksLoading
+        ? "Checking work…"
+        : "Nothing running";
+  return html`
+    <details class="chat-work-surface" data-chat-work-surface>
+      <summary class="chat-work-surface__summary" role="button">
+        <span
+          class="chat-work-surface__dot ${hasItems ? "chat-work-surface__dot--active" : ""}"
+        ></span>
+        <span>${summaryLabel}</span>
+        ${hasItems ? html`<strong>${items.length}</strong>` : nothing}
+      </summary>
+      <div class="chat-work-surface__panel" role="region" aria-label="Working Now">
+        <div class="chat-work-surface__header">
+          <div>
+            <h3>Working Now</h3>
+            <p>${hasItems ? "Current OpenClaw work, newest first." : "Nothing is running."}</p>
+          </div>
+        </div>
+        ${hasError
+          ? html`<div class="chat-work-surface__error">Work status unavailable</div>`
+          : nothing}
+        ${hasItems
+          ? html`
+              <div class="chat-work-surface__list">
+                ${items.map(
+                  (item) => html`
+                    <article class="chat-work-surface__item" data-work-kind=${item.kind}>
+                      <div class="chat-work-surface__item-main">
+                        <div class="chat-work-surface__item-topline">
+                          <span>${workItemKindLabel(item.kind)}</span>
+                          <strong>${item.status}</strong>
+                        </div>
+                        <div class="chat-work-surface__item-title">${item.title}</div>
+                        ${item.detail
+                          ? html`<div class="chat-work-surface__item-detail">${item.detail}</div>`
+                          : nothing}
+                        ${item.projectId || item.sessionKey
+                          ? html`
+                              <div class="chat-work-surface__item-meta">
+                                ${item.projectId
+                                  ? html`<span>Project ${item.projectId}</span>`
+                                  : nothing}
+                                ${item.sessionKey ? html`<span>${item.sessionKey}</span>` : nothing}
+                              </div>
+                            `
+                          : nothing}
+                      </div>
+                      <div class="chat-work-surface__actions">
+                        ${renderWorkItemActions(props, item)}
+                      </div>
+                    </article>
+                  `,
+                )}
+              </div>
+            `
+          : html`<div class="chat-work-surface__empty">Nothing is running.</div>`}
+      </div>
+    </details>
+  `;
+}
+
+function formatChatApprovalRemaining(ms: number): string {
+  const remaining = Math.max(0, ms);
+  const totalSeconds = Math.floor(remaining / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h`;
+}
+
+function renderChatApprovalMetaRow(
+  label: string,
+  value?: string | null,
+  opts?: { path?: boolean },
+) {
+  if (!value) {
+    return nothing;
+  }
+  const displayValue = opts?.path ? formatApprovalDisplayPath(value) : value;
+  return html`<div class="chat-approval-card__meta-row">
+    <span>${label}</span><span>${displayValue}</span>
+  </div>`;
+}
+
+function renderChatApprovalCommandWithSpans(request: ExecApprovalRequestPayload) {
+  const commandSpans = [...(request.commandSpans ?? [])]
+    .filter(
+      (span) =>
+        Number.isSafeInteger(span.startIndex) &&
+        Number.isSafeInteger(span.endIndex) &&
+        span.startIndex >= 0 &&
+        span.endIndex > span.startIndex &&
+        span.endIndex <= request.command.length,
+    )
+    .toSorted((a, b) => a.startIndex - b.startIndex || b.endIndex - a.endIndex);
+  const accepted: typeof commandSpans = [];
+  let cursor = 0;
+  for (const span of commandSpans) {
+    if (span.startIndex < cursor) {
+      continue;
+    }
+    accepted.push(span);
+    cursor = span.endIndex;
+  }
+  if (accepted.length === 0) {
+    return html`<div class="chat-approval-card__command mono">${request.command}</div>`;
+  }
+  const parts: Array<string | TemplateResult> = [];
+  cursor = 0;
+  for (const span of accepted) {
+    if (span.startIndex > cursor) {
+      parts.push(request.command.slice(cursor, span.startIndex));
+    }
+    parts.push(
+      html`<mark class="chat-approval-card__command-span"
+        >${request.command.slice(span.startIndex, span.endIndex)}</mark
+      >`,
+    );
+    cursor = span.endIndex;
+  }
+  if (cursor < request.command.length) {
+    parts.push(request.command.slice(cursor));
+  }
+  return html`<div class="chat-approval-card__command mono">${parts}</div>`;
+}
+
+function renderChatExecApprovalBody(request: ExecApprovalRequestPayload) {
+  return html`
+    ${renderChatApprovalCommandWithSpans(request)}
+    <div class="chat-approval-card__meta">
+      ${renderChatApprovalMetaRow("Host", request.host)}
+      ${renderChatApprovalMetaRow("Agent", request.agentId)}
+      ${renderChatApprovalMetaRow("Session", request.sessionKey)}
+      ${renderChatApprovalMetaRow("Working folder", request.cwd, { path: true })}
+      ${renderChatApprovalMetaRow("Resolved path", request.resolvedPath, { path: true })}
+      ${renderChatApprovalMetaRow("Security", request.security)}
+      ${renderChatApprovalMetaRow("Ask mode", request.ask)}
+    </div>
+  `;
+}
+
+function renderChatPluginApprovalBody(active: ExecApprovalRequest) {
+  return html`
+    ${active.pluginDescription
+      ? html`<pre class="chat-approval-card__command mono">${active.pluginDescription}</pre>`
+      : nothing}
+    <div class="chat-approval-card__meta">
+      ${renderChatApprovalMetaRow("Severity", active.pluginSeverity)}
+      ${renderChatApprovalMetaRow("Plugin", active.pluginId)}
+      ${renderChatApprovalMetaRow("Agent", active.request.agentId)}
+      ${renderChatApprovalMetaRow("Session", active.request.sessionKey)}
+    </div>
+  `;
+}
+
+function renderChatApprovalCard(props: ChatProps) {
+  const active = props.execApprovalQueue?.[0];
+  if (!active) {
+    return nothing;
+  }
+  const isPlugin = active.kind === "plugin";
+  const queueCount = props.execApprovalQueue?.length ?? 1;
+  const remainingMs = active.expiresAtMs - Date.now();
+  const remaining =
+    remainingMs > 0 ? `Expires in ${formatChatApprovalRemaining(remainingMs)}` : "Approval expired";
+  const title = isPlugin
+    ? (active.pluginTitle ?? "Plugin approval needed")
+    : "Exec approval needed";
+  const summaryDetail = isPlugin ? (active.pluginId ?? "Plugin") : active.request.command;
+  const busy = Boolean(props.execApprovalBusy);
+  const decide = (decision: "allow-once" | "allow-always" | "deny") => {
+    if (!busy) {
+      void props.onExecApprovalDecision?.(decision);
+    }
+  };
+  return html`
+    <details class="chat-approval-card" data-chat-approval-card open>
+      <summary class="chat-approval-card__summary" role="button">
+        <span class="chat-approval-card__dot"></span>
+        <span class="chat-approval-card__kicker">Approval needed</span>
+        <strong>${summaryDetail}</strong>
+        ${queueCount > 1
+          ? html`<span class="chat-approval-card__count">${queueCount} pending</span>`
+          : nothing}
+      </summary>
+      <div class="chat-approval-card__panel" role="region" aria-label="Approval needed">
+        <div class="chat-approval-card__header">
+          <div>
+            <h3>${title}</h3>
+            <p>${remaining}</p>
+          </div>
+          <span class="chat-approval-card__kind">${isPlugin ? "Plugin" : "Exec"}</span>
+        </div>
+        ${isPlugin
+          ? renderChatPluginApprovalBody(active)
+          : renderChatExecApprovalBody(active.request)}
+        ${props.execApprovalError
+          ? html`<div class="chat-approval-card__error" role="alert">
+              ${props.execApprovalError}
+            </div>`
+          : nothing}
+        <div class="chat-approval-card__actions">
+          <button
+            class="btn btn--sm primary"
+            type="button"
+            ?disabled=${busy}
+            @click=${() => decide("allow-once")}
+          >
+            Allow once
+          </button>
+          <button
+            class="btn btn--sm"
+            type="button"
+            ?disabled=${busy}
+            @click=${() => decide("allow-always")}
+          >
+            Always allow
+          </button>
+          <button
+            class="btn btn--sm danger"
+            type="button"
+            ?disabled=${busy}
+            @click=${() => decide("deny")}
+          >
+            Deny
+          </button>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function activeChatProjects(projectsList: ProjectsListResult | null | undefined): ProjectRecord[] {
+  return (projectsList?.projects ?? []).filter((project) => project.archived !== true);
+}
+
+function resolveCurrentChatProject(props: ChatProps): {
+  projectId: string | null;
+  project: ProjectRecord | null;
+} {
+  const activeSession = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
+  const projectId =
+    typeof activeSession?.projectId === "string" && activeSession.projectId.trim()
+      ? activeSession.projectId.trim()
+      : null;
+  if (!projectId) {
+    return { projectId: null, project: null };
+  }
+  const project =
+    activeChatProjects(props.projectsList).find((entry) => entry.id === projectId) ?? null;
+  return { projectId, project };
+}
+
+function renderProjectSummaryLabel(props: ChatProps): string {
+  const { project, projectId } = resolveCurrentChatProject(props);
+  if (project?.name?.trim()) {
+    return project.name.trim();
+  }
+  if (projectId) {
+    return "Project attached";
+  }
+  return "No Project";
+}
+
+function renderProjectPickerActions(
+  props: ChatProps,
+  project: ProjectRecord,
+  currentId: string | null,
+) {
+  const isCurrent = project.id === currentId;
+  return html`
+    <div class="chat-project-picker__actions">
+      ${isCurrent
+        ? html`<span class="chat-project-picker__badge">Attached</span>`
+        : html`
+            <button
+              class="btn btn--sm"
+              type="button"
+              data-chat-project-action="attach"
+              ?disabled=${props.projectBusy}
+              @click=${() => props.onProjectAttach?.(project.id)}
+            >
+              Attach
+            </button>
+          `}
+      <button
+        class="btn btn--sm btn--subtle"
+        type="button"
+        data-chat-project-action="new-chat"
+        ?disabled=${props.projectBusy}
+        @click=${() => props.onNewProjectChat?.(project.id)}
+      >
+        New chat
+      </button>
+    </div>
+  `;
+}
+
+function renderChatProjectPicker(props: ChatProps) {
+  const activeProjects = activeChatProjects(props.projectsList);
+  const { projectId } = resolveCurrentChatProject(props);
+  const summaryLabel = renderProjectSummaryLabel(props);
+  const hasError = Boolean(props.projectError);
+  const createDisabled = Boolean(props.projectBusy) || !(props.projectCreateName ?? "").trim();
+  return html`
+    <details
+      class="chat-project-picker"
+      data-chat-project-picker
+      ?open=${Boolean(props.projectPickerOpen)}
+      @toggle=${(event: Event) => {
+        const target = event.currentTarget as HTMLDetailsElement;
+        props.onProjectPickerToggle?.(target.open);
+      }}
+    >
+      <summary class="chat-project-picker__summary" role="button">
+        <span
+          class="chat-project-picker__dot ${projectId ? "chat-project-picker__dot--active" : ""}"
+        ></span>
+        <span class="chat-project-picker__kicker">Project</span>
+        <strong>${summaryLabel}</strong>
+      </summary>
+      <div class="chat-project-picker__panel" role="region" aria-label="Chat project">
+        <div class="chat-project-picker__header">
+          <div>
+            <h3>Project</h3>
+            <p>Attach this chat to shared project memory.</p>
+          </div>
+          <button
+            class="btn btn--sm btn--subtle"
+            type="button"
+            ?disabled=${props.projectBusy || props.projectsLoading}
+            @click=${() => props.onProjectRefresh?.()}
+          >
+            Refresh
+          </button>
+        </div>
+        ${hasError
+          ? html`<div class="chat-project-picker__error" role="alert">
+              <strong>Project status unavailable</strong>
+              <span>${props.projectError}</span>
+            </div>`
+          : nothing}
+        ${projectId && props.onProjectDetach
+          ? html`
+              <button
+                class="btn btn--sm chat-project-picker__detach"
+                type="button"
+                data-chat-project-action="detach"
+                ?disabled=${props.projectBusy}
+                @click=${() => props.onProjectDetach?.()}
+              >
+                Detach from project
+              </button>
+            `
+          : nothing}
+        <div class="chat-project-picker__section">
+          <h4>Choose a project</h4>
+          ${props.projectsLoading
+            ? html`<div class="chat-project-picker__empty">Loading projects…</div>`
+            : activeProjects.length > 0
+              ? html`
+                  <div class="chat-project-picker__list">
+                    ${activeProjects.map(
+                      (project) => html`
+                        <article class="chat-project-picker__item">
+                          <div class="chat-project-picker__item-main">
+                            <strong>${project.name}</strong>
+                            ${project.description
+                              ? html`<p>${project.description}</p>`
+                              : html`<p>Use this project for the current chat.</p>`}
+                          </div>
+                          ${renderProjectPickerActions(props, project, projectId)}
+                        </article>
+                      `,
+                    )}
+                  </div>
+                `
+              : html`<div class="chat-project-picker__empty">No projects yet.</div>`}
+        </div>
+        <div class="chat-project-picker__section chat-project-picker__create">
+          <h4>Create a project</h4>
+          <label>
+            <span>Name</span>
+            <input
+              type="text"
+              placeholder="Project name"
+              .value=${props.projectCreateName ?? ""}
+              @input=${(event: Event) =>
+                props.onProjectCreateFieldChange?.(
+                  "name",
+                  (event.currentTarget as HTMLInputElement).value,
+                )}
+            />
+          </label>
+          <label>
+            <span>Description</span>
+            <input
+              type="text"
+              placeholder="Optional description"
+              .value=${props.projectCreateDescription ?? ""}
+              @input=${(event: Event) =>
+                props.onProjectCreateFieldChange?.(
+                  "description",
+                  (event.currentTarget as HTMLInputElement).value,
+                )}
+            />
+          </label>
+          <label>
+            <span>Instructions</span>
+            <input
+              type="text"
+              placeholder="Optional project instructions"
+              .value=${props.projectCreateInstructions ?? ""}
+              @input=${(event: Event) =>
+                props.onProjectCreateFieldChange?.(
+                  "instructions",
+                  (event.currentTarget as HTMLInputElement).value,
+                )}
+            />
+          </label>
+          <button
+            class="btn"
+            type="button"
+            data-chat-project-action="create-and-attach"
+            ?disabled=${createDisabled}
+            @click=${() => props.onProjectCreateAndAttach?.()}
+          >
+            Create and attach
+          </button>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function renderPursueGoal(props: ChatProps) {
+  const goal = resolveCurrentChatGoal(props.goalFlows);
+  const statusLabel = chatGoalStatusLabel(goal);
+  const flowId = goal?.flowId ?? goal?.id ?? "";
+  const activeTask =
+    goal?.tasks?.find((task) => task.status === "running" || task.status === "queued") ??
+    goal?.tasks?.[0];
+  const detail =
+    goal?.blockedSummary ??
+    activeTask?.progressSummary ??
+    activeTask?.terminalSummary ??
+    goal?.currentStep ??
+    (goal ? "Goal is saved in this chat." : "Turn a request into durable work.");
+  const startText = (props.goalDraft?.trim() || props.draft.trim()).trim();
+  const startDisabled =
+    !props.connected ||
+    props.sending ||
+    Boolean(props.goalBusy) ||
+    Boolean(props.canAbort) ||
+    !startText;
+  const continueDisabled =
+    !props.connected ||
+    props.sending ||
+    Boolean(props.goalBusy) ||
+    Boolean(props.canAbort) ||
+    !goal ||
+    !flowId ||
+    !isActiveChatGoal(goal.status) ||
+    Boolean(goal.cancelRequestedAt);
+  const cancelDisabled =
+    !props.connected ||
+    Boolean(props.goalBusy) ||
+    !goal ||
+    !flowId ||
+    !isActiveChatGoal(goal.status) ||
+    Boolean(goal.cancelRequestedAt);
+  return html`
+    <details
+      class="chat-goal"
+      data-chat-goal
+      ?open=${props.goalPanelOpen}
+      @toggle=${(event: Event) => {
+        const target = event.currentTarget as HTMLDetailsElement;
+        props.onGoalPanelToggle?.(target.open);
+      }}
+    >
+      <summary class="chat-goal__summary">
+        <span class="chat-goal__kicker">Pursue Goal</span>
+        <span class="chat-goal__title">${goal?.goal ?? "No goal"}</span>
+        <span class="chat-goal__status ${goal ? `chat-goal__status--${goal.status}` : ""}">
+          ${statusLabel}
+        </span>
+      </summary>
+      ${props.goalPanelOpen
+        ? html`<div class="chat-goal__panel">
+            <div class="chat-goal__header">
+              <div>
+                <h3>Pursue Goal</h3>
+                <p>
+                  ${goal
+                    ? detail
+                    : "Create durable work from the current request, then continue it with evidence."}
+                </p>
+              </div>
+              <button
+                class="btn btn--subtle btn--sm"
+                type="button"
+                @click=${() => props.onGoalRefresh?.()}
+              >
+                Refresh
+              </button>
+            </div>
+            ${props.goalError
+              ? html`
+                  <div class="callout danger" role="alert">
+                    <strong>Goal status unavailable</strong>
+                    <span>${props.goalError}</span>
+                  </div>
+                `
+              : nothing}
+            ${goal
+              ? html`
+                  <div class="chat-goal__card">
+                    <div>
+                      <span class="chat-goal__eyebrow">Current goal</span>
+                      <strong>${goal.goal}</strong>
+                      <p>${detail}</p>
+                    </div>
+                    ${activeTask
+                      ? html`
+                          <div class="chat-goal__meta">
+                            <span>Task ${activeTask.status ?? "unknown"}</span>
+                            ${activeTask.judgeStatus
+                              ? html`<span>Judge ${activeTask.judgeStatus}</span>`
+                              : nothing}
+                          </div>
+                        `
+                      : nothing}
+                  </div>
+                `
+              : nothing}
+            <label class="chat-goal__field">
+              <span>Goal</span>
+              <textarea
+                rows="2"
+                placeholder="Describe what OpenClaw should pursue until verified."
+                .value=${props.goalDraft ?? ""}
+                @input=${(event: Event) =>
+                  props.onGoalDraftChange?.((event.currentTarget as HTMLTextAreaElement).value)}
+              ></textarea>
+            </label>
+            <div class="chat-goal__actions">
+              <button
+                class="btn primary"
+                type="button"
+                data-chat-goal-action="start"
+                ?disabled=${startDisabled}
+                @click=${() => props.onGoalStart?.()}
+              >
+                Start goal
+              </button>
+              <button
+                class="btn"
+                type="button"
+                data-chat-goal-action="continue"
+                ?disabled=${continueDisabled}
+                @click=${() => props.onGoalContinue?.(flowId)}
+              >
+                Continue
+              </button>
+              <button
+                class="btn btn--subtle"
+                type="button"
+                data-chat-goal-action="cancel"
+                ?disabled=${cancelDisabled}
+                @click=${() => props.onGoalCancel?.(flowId)}
+              >
+                Cancel
+              </button>
+            </div>
+            ${props.goalLoading
+              ? html`<div class="chat-goal__loading">Loading goal status...</div>`
+              : nothing}
+          </div>`
+        : nothing}
+    </details>
+  `;
+}
+
 function renderSearchBar(requestUpdate: () => void): TemplateResult | typeof nothing {
   if (!vs.searchOpen) {
     return nothing;
@@ -1618,6 +2331,15 @@ export function renderChat(props: ChatProps) {
   const requestUpdate = props.onRequestUpdate ?? (() => {});
   const splitRatio = props.splitRatio ?? 0.6;
   const sidebarOpen = Boolean(props.sidebarOpen && props.onCloseSidebar);
+  const workItems = buildWorkSurfaceSnapshot({
+    assistantName: props.assistantName,
+    chatRunId: props.canAbort ? (props.currentRunId ?? null) : null,
+    chatRunStatus: props.runStatus,
+    chatQueue: props.queue,
+    currentSessionKey: props.sessionKey,
+    sessionsResult: props.sessions,
+    tasks: props.workTasks ?? [],
+  });
   const displayStream = props.stream ?? null;
   const historyRenderLimit = resolveChatHistoryRenderWindow(props);
 
@@ -1838,6 +2560,18 @@ export function renderChat(props: ChatProps) {
                     canvasPluginSurfaceUrl: props.canvasPluginSurfaceUrl,
                     embedSandboxMode: props.embedSandboxMode ?? "scripts",
                     allowExternalEmbedUrls: props.allowExternalEmbedUrls ?? false,
+                    proposedPlanDraft: props.draft,
+                    onUseProposedPlan: (prompt: string) => {
+                      props.onDraftChange(prompt);
+                      requestUpdate();
+                      requestAnimationFrame(() => {
+                        document
+                          .querySelector<HTMLTextAreaElement>(
+                            ".agent-chat__composer-combobox textarea",
+                          )
+                          ?.focus();
+                      });
+                    },
                     contextWindow: threadContextWindow,
                     onDelete: () => {
                       deleted.delete(item.key);
@@ -2099,6 +2833,8 @@ export function renderChat(props: ChatProps) {
         ${renderWorkspaceFileRail(props.workspaceFiles)}
       </div>
 
+      ${renderChatProjectPicker(props)} ${renderChatApprovalCard(props)} ${renderPursueGoal(props)}
+      ${renderWorkingNow(props, workItems)}
       ${renderChatQueue({
         queue: props.queue,
         canAbort: showAbortableUi,

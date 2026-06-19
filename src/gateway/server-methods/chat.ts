@@ -91,7 +91,13 @@ import {
   type UserTurnInput,
   type UserTurnTranscriptRecorder,
 } from "../../sessions/user-turn-transcript.js";
-import { deliveryContextFromSession } from "../../utils/delivery-context.shared.js";
+import { createRunningTaskRun } from "../../tasks/detached-task-runtime.js";
+import type { TaskFlowRecord } from "../../tasks/task-flow-registry.types.js";
+import { getTaskFlowById } from "../../tasks/task-flow-runtime-internal.js";
+import {
+  deliveryContextFromSession,
+  normalizeDeliveryContext,
+} from "../../utils/delivery-context.shared.js";
 import {
   stripInlineDirectiveTagsForDisplay,
   sanitizeReplyDirectiveId,
@@ -1862,6 +1868,12 @@ function normalizeOptionalText(value?: string | null): string | undefined {
   return trimmed || undefined;
 }
 
+function isTerminalTaskFlowStatus(status: TaskFlowRecord["status"]): boolean {
+  return (
+    status === "succeeded" || status === "failed" || status === "cancelled" || status === "lost"
+  );
+}
+
 function normalizeExplicitChatSendOrigin(
   params: ChatSendExplicitOrigin,
 ): { ok: true; value?: ChatSendExplicitOrigin } | { ok: false; error: string } {
@@ -2977,6 +2989,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         fileName?: string;
         content?: unknown;
       }>;
+      flowId?: string;
       timeoutMs?: number;
       systemInputProvenance?: InputProvenance;
       systemProvenanceReceipt?: string;
@@ -3053,6 +3066,34 @@ export const chatHandlers: GatewayRequestHandlers = {
       requestedSessionKey: rawSessionKey,
       agentId: agentIdOverride,
     });
+    const parentFlowId = normalizeOptionalText(p.flowId);
+    if (parentFlowId) {
+      const parentFlow = getTaskFlowById(parentFlowId);
+      if (!parentFlow) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, `task flow not found: ${parentFlowId}`),
+        );
+        return;
+      }
+      if (normalizeOptionalText(parentFlow.ownerKey) !== normalizeOptionalText(rawSessionKey)) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "task flow owner does not match chat session"),
+        );
+        return;
+      }
+      if (parentFlow.cancelRequestedAt != null || isTerminalTaskFlowStatus(parentFlow.status)) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "task flow is not accepting new chat work"),
+        );
+        return;
+      }
+    }
     const sessionLoadOptions = requestedAgentId ? { agentId: requestedAgentId } : undefined;
     const sessionLoadStartedAtMs = performance.now();
     const sessionLoadResult = measureDiagnosticsTimelineSpanSync(
@@ -3261,11 +3302,41 @@ export const chatHandlers: GatewayRequestHandlers = {
       });
       return;
     }
+    let trackedTaskId: string | undefined;
+    try {
+      const trackedTask = createRunningTaskRun({
+        runtime: "cli",
+        taskKind: "chat",
+        sourceId: clientRunId,
+        requesterSessionKey: rawSessionKey,
+        ownerKey: rawSessionKey,
+        scopeKind: "session",
+        ...(parentFlowId ? { parentFlowId } : {}),
+        requesterOrigin: normalizeDeliveryContext({
+          channel: originatingRoute.originatingChannel,
+          to: originatingRoute.originatingTo,
+          accountId: originatingRoute.accountId,
+          threadId: originatingRoute.messageThreadId,
+        }),
+        childSessionKey: sessionKey,
+        agentId: selectedAgent.agentId,
+        runId: clientRunId,
+        task: parsedMessage,
+        label: "Assistant chat work item",
+        deliveryStatus: "pending",
+        notifyPolicy: "silent",
+        startedAt: now,
+        progressSummary: "Assistant accepted the request and is working on it.",
+      });
+      trackedTaskId = trackedTask?.taskId;
+    } catch {
+      // Best-effort only: chat delivery must not depend on task tracking.
+    }
     if (activeChatSendDedupeKey) {
       context.dedupe.set(activeChatSendDedupeKey, {
         ts: now,
         ok: true,
-        payload: { runId: clientRunId },
+        payload: { runId: clientRunId, ...(trackedTaskId ? { taskId: trackedTaskId } : {}) },
       });
     }
     const explicitOriginTargetsPlugin = explicitOriginTargetsPluginBinding(

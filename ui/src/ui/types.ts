@@ -428,6 +428,8 @@ export type GatewaySessionRow = {
   kind: "cron" | "direct" | "group" | "global" | "unknown";
   label?: string;
   displayName?: string;
+  derivedTitle?: string;
+  lastMessagePreview?: string;
   surface?: string;
   subject?: string;
   room?: string;
@@ -457,6 +459,7 @@ export type GatewaySessionRow = {
   endedAt?: number;
   runtimeMs?: number;
   childSessions?: string[];
+  projectId?: string;
   model?: string;
   modelProvider?: string;
   agentRuntime?: GatewayAgentRuntime;
@@ -467,6 +470,44 @@ export type GatewaySessionRow = {
 };
 
 export type SessionsListResult = SessionsListResultBase<GatewaySessionsDefaults, GatewaySessionRow>;
+
+export type ProjectRecord = {
+  id: string;
+  name: string;
+  description?: string;
+  instructions?: string;
+  memoryMode?: string;
+  archived?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  resources?: unknown[];
+};
+
+export type ProjectResourceRecord = {
+  id?: string;
+  path?: string;
+  name?: string;
+  note?: string;
+};
+
+export type ProjectContextPreview = {
+  entries?: unknown[];
+  summary?: string;
+};
+
+export type ProjectsListResult = {
+  ok: true;
+  ts: number;
+  count: number;
+  projects: ProjectRecord[];
+};
+
+export type ProjectsGetResult = {
+  ok: true;
+  project: ProjectRecord;
+  sessions?: SessionsListResult;
+  contextPreview?: ProjectContextPreview;
+};
 
 export type SessionsCompactionListResult = {
   ok: true;

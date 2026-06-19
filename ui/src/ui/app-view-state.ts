@@ -4,10 +4,12 @@ import type { ChatAbortOptions, ChatSendOptions } from "./app-chat.ts";
 import type { EventLogEntry } from "./app-events.ts";
 import type { CompactionStatus, FallbackStatus } from "./app-tool-stream.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./chat/input-history.ts";
+import type { ChatGoalFlowSummary } from "./chat/pursue-goal.ts";
 import type { RealtimeTalkConversationEntry } from "./chat/realtime-talk-conversation.ts";
 import type { RealtimeTalkStatus } from "./chat/realtime-talk.ts";
 import type { ChatRunUiStatus } from "./chat/run-lifecycle.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
+import type { WorkSurfaceTaskSummary } from "./chat/work-snapshot.ts";
 import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
@@ -42,6 +44,7 @@ import type {
   ModelCatalogEntry,
   NostrProfile,
   PresenceEntry,
+  ProjectsListResult,
   SessionsUsageResult,
   CostUsageSummary,
   SessionUsageTimeSeries,
@@ -112,6 +115,26 @@ export type AppViewState = {
   chatStream: string | null;
   chatStreamStartedAt: number | null;
   chatRunId: string | null;
+  chatWorkTasks?: WorkSurfaceTaskSummary[];
+  chatWorkLoading?: boolean;
+  chatWorkError?: string | null;
+  chatWorkUpdatedAt?: number | null;
+  chatProjectPickerOpen?: boolean;
+  chatProjectCreateName?: string;
+  chatProjectCreateDescription?: string;
+  chatProjectCreateInstructions?: string;
+  chatProjectBusy?: boolean;
+  chatProjectError?: string | null;
+  chatGoalPanelOpen?: boolean;
+  chatGoalDraft?: string;
+  chatGoalFlows?: ChatGoalFlowSummary[];
+  chatGoalLoading?: boolean;
+  chatGoalBusy?: boolean;
+  chatGoalError?: string | null;
+  chatGoalUpdatedAt?: number | null;
+  chatTargetRunId?: string | null;
+  chatTargetAuditTs?: number | null;
+  chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
   chatSideResult: ChatSideResult | null;
   chatSideResultTerminalRuns: Set<string>;
   compactionStatus: CompactionStatus | null;
@@ -136,6 +159,8 @@ export type AppViewState = {
   chatSessionPickerLoading: boolean;
   chatSessionPickerError: string | null;
   chatSessionPickerResult: SessionsListResult | null;
+  projectsLoading?: boolean;
+  projectsList?: ProjectsListResult | null;
   sessionsResultAgentId?: string | null;
   chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
   announceSessionSwitch?: (sessionKey: string, label: string) => void;

@@ -9,6 +9,11 @@ on:
     paths-ignore:
       - "CHANGELOG.md"
   workflow_dispatch:
+    inputs:
+      chat-codex-stack-proof:
+        description: Run Chat Codex Stack V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -208,7 +213,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-codex-stack-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -251,3 +256,102 @@ jobs:
 
       - name: Check plugin SDK API baseline drift
         run: pnpm plugin-sdk:api:check
+
+  chat-codex-stack-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-codex-stack-proof == 'true'
+    name: Chat Codex Stack V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          pnpm-version: "11.2.2"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF'
+          commands:
+          - pnpm test ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts ui/src/ui/controllers/projects.test.ts ui/src/ui/chat/proposed-plan.test.ts ui/src/ui/chat/grouped-render.test.ts src/gateway/server-methods/tasks.test.ts src/gateway/server.chat.gateway-server-chat.test.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/chat/tool-cards.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-work-surface
+          - pnpm ui:smoke:chat-projects
+          - pnpm ui:smoke:chat-plan-mode
+          - pnpm ui:smoke:chat-pursue-goal
+          - pnpm ui:smoke:chat-approval-cards
+          - pnpm ui:smoke:chat-tool-proof-artifact-cards
+          - pnpm check:changed
+          EOF
+
+      - name: Run targeted Chat Codex Stack tests
+        run: pnpm test ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts ui/src/ui/controllers/projects.test.ts ui/src/ui/chat/proposed-plan.test.ts ui/src/ui/chat/grouped-render.test.ts src/gateway/server-methods/tasks.test.ts src/gateway/server.chat.gateway-server-chat.test.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/chat/tool-cards.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Work Surface smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-work-surface
+
+      - name: Run Chat Projects smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-projects
+
+      - name: Run Chat Plan Mode smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-plan-mode
+
+      - name: Run Chat Pursue Goal smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-pursue-goal
+
+      - name: Run Chat Approval Cards smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-approval-cards
+
+      - name: Run Chat Tool Proof Artifact Cards smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-tool-proof-artifact-cards
+
+      - name: Run changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed
+

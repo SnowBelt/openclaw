@@ -1380,6 +1380,32 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("");
   });
 
+  it("passes a Pursue Goal flow id to chat.send", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { status: "started", runId: "goal-run" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "finish the milestone",
+      sessionKey: "agent:main",
+    });
+
+    await handleSendChat(host, undefined, { flowId: "flow-1" });
+
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        sessionKey: "agent:main",
+        message: "finish the milestone",
+        flowId: "flow-1",
+      }),
+    );
+    expect(host.chatMessage).toBe("");
+  });
+
   it("records visible send timing phases for a normal chat send", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "chat.send") {
