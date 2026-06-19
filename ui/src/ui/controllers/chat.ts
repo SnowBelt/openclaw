@@ -8,6 +8,11 @@ import {
   stripHeartbeatTokenForDisplay,
 } from "../chat/heartbeat-display.ts";
 import { extractText } from "../chat/message-extract.ts";
+import {
+  buildChatGoalContinuationPrompt,
+  resolveCurrentChatGoal,
+  type ChatGoalFlowSummary,
+} from "../chat/pursue-goal.ts";
 import type { ChatRunStatus } from "../chat/run-status.ts";
 import type { WorkSurfaceTaskSummary } from "../chat/work-snapshot.ts";
 import { formatConnectError } from "../connect-error.ts";
@@ -371,6 +376,13 @@ export type ChatState = {
   chatProjectCreateInstructions?: string;
   chatProjectBusy?: boolean;
   chatProjectError?: string | null;
+  chatGoalPanelOpen?: boolean;
+  chatGoalDraft?: string;
+  chatGoalFlows?: ChatGoalFlowSummary[];
+  chatGoalLoading?: boolean;
+  chatGoalBusy?: boolean;
+  chatGoalError?: string | null;
+  chatGoalUpdatedAt?: number | null;
   projectsLoading?: boolean;
   projectsList?: ProjectsListResult | null;
   chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
@@ -389,6 +401,14 @@ type ChatProjectCreateResponse = {
 type ChatProjectSessionCreateResponse = {
   ok: true;
   key?: string;
+};
+
+type ChatGoalFlowResponse = {
+  flow?: ChatGoalFlowSummary;
+};
+
+type ChatGoalFlowsResponse = {
+  flows?: ChatGoalFlowSummary[];
 };
 
 function requireConnectedChatClient(state: ChatState): GatewayBrowserClient {
@@ -421,6 +441,11 @@ function clearChatProjectDraft(state: ChatState): void {
   state.chatProjectCreateInstructions = "";
 }
 
+function setChatGoalError(state: ChatState, err: unknown): void {
+  state.chatGoalError = formatConnectError(err);
+  state.chatGoalUpdatedAt = Date.now();
+}
+
 export async function loadChatProjects(state: ChatState): Promise<void> {
   if (!state.client || !state.connected) {
     return;
@@ -437,6 +462,97 @@ export async function loadChatProjects(state: ChatState): Promise<void> {
   } finally {
     state.projectsLoading = false;
   }
+}
+
+export async function loadChatGoals(state: ChatState): Promise<void> {
+  if (!state.client || !state.connected) {
+    return;
+  }
+  state.chatGoalLoading = true;
+  try {
+    const res = await state.client.request<ChatGoalFlowsResponse>("taskFlows.list", {
+      sessionKey: state.sessionKey,
+      limit: 20,
+    });
+    state.chatGoalFlows = Array.isArray(res.flows) ? res.flows : [];
+    state.chatGoalError = null;
+    state.chatGoalUpdatedAt = Date.now();
+  } catch (err) {
+    setChatGoalError(state, err);
+  } finally {
+    state.chatGoalLoading = false;
+  }
+}
+
+export async function createChatGoal(
+  state: ChatState,
+  goalText?: string,
+): Promise<ChatGoalFlowSummary | null> {
+  const goal =
+    normalizeOptionalText(goalText) ??
+    normalizeOptionalText(state.chatGoalDraft) ??
+    normalizeOptionalText(state.chatMessage);
+  if (!goal) {
+    state.chatGoalError = "Enter a goal first.";
+    state.chatGoalUpdatedAt = Date.now();
+    return null;
+  }
+  state.chatGoalBusy = true;
+  state.chatGoalError = null;
+  try {
+    const client = requireConnectedChatClient(state);
+    const response = await client.request<ChatGoalFlowResponse>("taskFlows.create", {
+      sessionKey: currentChatSessionKey(state),
+      goal,
+      currentStep: "Goal started from Chat.",
+    });
+    if (!response.flow?.id) {
+      throw new Error("Goal was created without an id.");
+    }
+    state.chatGoalDraft = "";
+    state.chatGoalPanelOpen = true;
+    await loadChatGoals(state);
+    return response.flow;
+  } catch (err) {
+    setChatGoalError(state, err);
+    return null;
+  } finally {
+    state.chatGoalBusy = false;
+  }
+}
+
+export async function cancelChatGoal(state: ChatState, flowId: string): Promise<boolean> {
+  const normalized = flowId.trim();
+  if (!normalized) {
+    return false;
+  }
+  state.chatGoalBusy = true;
+  state.chatGoalError = null;
+  try {
+    const client = requireConnectedChatClient(state);
+    await client.request("taskFlows.cancel", {
+      flowId: normalized,
+      sessionKey: currentChatSessionKey(state),
+      reason: "cancelled from Control UI Pursue Goal",
+    });
+    await loadChatGoals(state);
+    return true;
+  } catch (err) {
+    setChatGoalError(state, err);
+    return false;
+  } finally {
+    state.chatGoalBusy = false;
+  }
+}
+
+export function buildCurrentChatGoalContinuationPrompt(
+  state: ChatState,
+  flowId: string,
+): string | null {
+  const flow =
+    (state.chatGoalFlows ?? []).find((entry) => entry.id === flowId || entry.flowId === flowId) ??
+    resolveCurrentChatGoal(state.chatGoalFlows);
+  return flow ? buildChatGoalContinuationPrompt(flow) : null;
 }
 
 export async function createAndAttachChatProject(state: ChatState): Promise<string | null> {
@@ -748,6 +864,9 @@ export async function loadChatHistory(
       state.chatLoading = false;
     }
     maybeRefreshChatWorkTasks(state);
+    if (state.chatGoalPanelOpen || (state.chatGoalFlows?.length ?? 0) > 0) {
+      void loadChatGoals(state);
+    }
   }
 }
 
@@ -803,7 +922,7 @@ function buildApiAttachments(attachments?: ChatAttachment[]) {
 
 async function requestChatSend(
   state: ChatState,
-  params: { message: string; attachments?: ChatAttachment[]; runId: string },
+  params: { message: string; attachments?: ChatAttachment[]; runId: string; flowId?: string },
 ): Promise<ChatSendAck> {
   const sessionId =
     typeof state.currentSessionId === "string" && state.currentSessionId.trim()
@@ -815,6 +934,7 @@ async function requestChatSend(
     message: params.message,
     deliver: false,
     idempotencyKey: params.runId,
+    ...(params.flowId ? { flowId: params.flowId } : {}),
     attachments: buildApiAttachments(params.attachments),
   });
 }
@@ -872,6 +992,7 @@ export async function sendChatMessage(
   state: ChatState,
   message: string,
   attachments?: ChatAttachment[],
+  opts?: { flowId?: string },
 ): Promise<string | null> {
   if (!state.client || !state.connected) {
     return null;
@@ -949,11 +1070,19 @@ export async function sendChatMessage(
   state.chatRunStatus = { phase: "sent", runId, updatedAt: now };
 
   try {
-    const ack = await requestChatSend(state, { message: msg, attachments, runId });
+    const ack = await requestChatSend(state, {
+      message: msg,
+      attachments,
+      runId,
+      flowId: opts?.flowId,
+    });
     if (ack.taskId) {
       state.chatTaskId = ack.taskId;
     }
     maybeRefreshChatWorkTasks(state);
+    if (opts?.flowId || state.chatGoalPanelOpen || (state.chatGoalFlows?.length ?? 0) > 0) {
+      void loadChatGoals(state);
+    }
     if (state.chatRunId === runId) {
       state.chatRunStatus = { phase: "received", runId, updatedAt: Date.now() };
     }

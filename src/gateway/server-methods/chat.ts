@@ -45,6 +45,8 @@ import { normalizeInputProvenance, type InputProvenance } from "../../sessions/i
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { emitSessionTranscriptUpdate } from "../../sessions/transcript-events.js";
+import type { TaskFlowRecord } from "../../tasks/task-flow-registry.types.js";
+import { getTaskFlowById } from "../../tasks/task-flow-runtime-internal.js";
 import {
   createUserVisibleWorkRun,
   finalizeUserVisibleWorkRun,
@@ -1614,6 +1616,12 @@ function normalizeOptionalText(value?: string | null): string | undefined {
   return trimmed || undefined;
 }
 
+function isTerminalTaskFlowStatus(status: TaskFlowRecord["status"]): boolean {
+  return (
+    status === "succeeded" || status === "failed" || status === "cancelled" || status === "lost"
+  );
+}
+
 function normalizeExplicitChatSendOrigin(
   params: ChatSendExplicitOrigin,
 ): { ok: true; value?: ChatSendExplicitOrigin } | { ok: false; error: string } {
@@ -2112,6 +2120,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         fileName?: string;
         content?: unknown;
       }>;
+      flowId?: string;
       timeoutMs?: number;
       systemInputProvenance?: InputProvenance;
       systemProvenanceReceipt?: string;
@@ -2172,6 +2181,34 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
     const rawSessionKey = p.sessionKey;
+    const parentFlowId = normalizeOptionalText(p.flowId);
+    if (parentFlowId) {
+      const parentFlow = getTaskFlowById(parentFlowId);
+      if (!parentFlow) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, `task flow not found: ${parentFlowId}`),
+        );
+        return;
+      }
+      if (normalizeOptionalText(parentFlow.ownerKey) !== normalizeOptionalText(rawSessionKey)) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "task flow owner does not match chat session"),
+        );
+        return;
+      }
+      if (parentFlow.cancelRequestedAt != null || isTerminalTaskFlowStatus(parentFlow.status)) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, "task flow is not accepting new chat work"),
+        );
+        return;
+      }
+    }
     const {
       cfg,
       entry,
@@ -2405,6 +2442,7 @@ export const chatHandlers: GatewayRequestHandlers = {
           requesterSessionKey: rawSessionKey,
           ownerKey: rawSessionKey,
           scopeKind: "session",
+          ...(parentFlowId ? { parentFlowId } : {}),
           requesterOrigin: normalizeDeliveryContext({
             channel: originatingRoute.originatingChannel,
             to: originatingRoute.originatingTo,

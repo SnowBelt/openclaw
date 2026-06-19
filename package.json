@@ -1860,7 +1860,8 @@
     "ui:smoke:dashboard": "node --import tsx scripts/dev/control-ui-dashboard-smoke-suite.ts",
     "ui:smoke:control-director-no-response": "node --import tsx scripts/dev/control-ui-control-director-no-response-smoke.ts",
     "ui:smoke:chat-projects": "node --import tsx scripts/dev/control-ui-chat-projects-smoke.ts",
-    "ui:smoke:chat-plan-mode": "node --import tsx scripts/dev/control-ui-chat-plan-mode-smoke.ts"
+    "ui:smoke:chat-plan-mode": "node --import tsx scripts/dev/control-ui-chat-plan-mode-smoke.ts",
+    "ui:smoke:chat-pursue-goal": "node --import tsx scripts/dev/control-ui-chat-pursue-goal-smoke.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",

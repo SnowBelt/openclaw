@@ -417,6 +417,28 @@ import {
   SessionsSendParamsSchema,
   type SessionsUsageParams,
   SessionsUsageParamsSchema,
+  type TaskFlowDetail,
+  TaskFlowDetailSchema,
+  type TaskFlowsCancelParams,
+  TaskFlowsCancelParamsSchema,
+  type TaskFlowsCancelResult,
+  TaskFlowsCancelResultSchema,
+  type TaskFlowsCreateParams,
+  TaskFlowsCreateParamsSchema,
+  type TaskFlowsCreateResult,
+  TaskFlowsCreateResultSchema,
+  type TaskFlowsGetParams,
+  TaskFlowsGetParamsSchema,
+  type TaskFlowsGetResult,
+  TaskFlowsGetResultSchema,
+  type TaskFlowsListParams,
+  TaskFlowsListParamsSchema,
+  type TaskFlowsListResult,
+  TaskFlowsListResultSchema,
+  type TaskFlowStatus,
+  TaskFlowStatusSchema,
+  type TaskFlowSummary,
+  TaskFlowSummarySchema,
   type TaskSummary,
   TaskSummarySchema,
   type TasksCancelParams,
@@ -652,6 +674,15 @@ export const validateSessionsCompactionRestoreParams = ajv.compile<SessionsCompa
 );
 export const validateSessionsUsageParams =
   ajv.compile<SessionsUsageParams>(SessionsUsageParamsSchema);
+export const validateTaskFlowsListParams =
+  ajv.compile<TaskFlowsListParams>(TaskFlowsListParamsSchema);
+export const validateTaskFlowsGetParams = ajv.compile<TaskFlowsGetParams>(TaskFlowsGetParamsSchema);
+export const validateTaskFlowsCreateParams = ajv.compile<TaskFlowsCreateParams>(
+  TaskFlowsCreateParamsSchema,
+);
+export const validateTaskFlowsCancelParams = ajv.compile<TaskFlowsCancelParams>(
+  TaskFlowsCancelParamsSchema,
+);
 export const validateTasksListParams = ajv.compile<TasksListParams>(TasksListParamsSchema);
 export const validateTasksGetParams = ajv.compile<TasksGetParams>(TasksGetParamsSchema);
 export const validateTasksCancelParams = ajv.compile<TasksCancelParams>(TasksCancelParamsSchema);
@@ -1039,6 +1070,17 @@ export {
   ArtifactsListParamsSchema,
   ArtifactsGetParamsSchema,
   ArtifactsDownloadParamsSchema,
+  TaskFlowStatusSchema,
+  TaskFlowSummarySchema,
+  TaskFlowDetailSchema,
+  TaskFlowsListParamsSchema,
+  TaskFlowsListResultSchema,
+  TaskFlowsGetParamsSchema,
+  TaskFlowsGetResultSchema,
+  TaskFlowsCreateParamsSchema,
+  TaskFlowsCreateResultSchema,
+  TaskFlowsCancelParamsSchema,
+  TaskFlowsCancelResultSchema,
   TaskSummarySchema,
   TasksListParamsSchema,
   TasksListResultSchema,
@@ -1358,6 +1400,17 @@ export type {
   SessionsDeleteParams,
   SessionsCompactParams,
   SessionsUsageParams,
+  TaskFlowStatus,
+  TaskFlowSummary,
+  TaskFlowDetail,
+  TaskFlowsListParams,
+  TaskFlowsListResult,
+  TaskFlowsGetParams,
+  TaskFlowsGetResult,
+  TaskFlowsCreateParams,
+  TaskFlowsCreateResult,
+  TaskFlowsCancelParams,
+  TaskFlowsCancelResult,
   TaskSummary,
   TasksListParams,
   TasksListResult,

@@ -951,6 +951,67 @@ describe("gateway server chat", () => {
     });
   });
 
+  test("chat.send links user-visible work to a task flow", async () => {
+    await withMainSessionStore(async () => {
+      const flowRes = await rpcReq<{ flow?: { id?: string } }>(ws, "taskFlows.create", {
+        sessionKey: "main",
+        goal: "Verify the build",
+      });
+      expect(flowRes.ok).toBe(true);
+      const flowId = flowRes.payload?.flow?.id;
+      expect(flowId).toEqual(expect.any(String));
+
+      dispatchInboundMessageMock.mockImplementationOnce(async (...args: unknown[]) => {
+        const [params] = args as [
+          {
+            dispatcher: {
+              sendFinalReply: (payload: { text: string }) => boolean;
+              markComplete: () => void;
+              waitForIdle: () => Promise<void>;
+              getQueuedCounts: () => { final: number; block: number; tool: number };
+            };
+          },
+        ];
+        params.dispatcher.sendFinalReply({ text: "Verified and done." });
+        params.dispatcher.markComplete();
+        await params.dispatcher.waitForIdle();
+        return { queuedFinal: true, counts: params.dispatcher.getQueuedCounts() };
+      });
+
+      const finalPromise = onceMessage(
+        ws,
+        (o) =>
+          o.type === "event" &&
+          o.event === "chat" &&
+          o.payload?.state === "final" &&
+          o.payload?.runId === "idem-chat-flow-ok",
+        8000,
+      );
+      const res = await rpcReq(ws, "chat.send", {
+        sessionKey: "main",
+        message: "verify the build",
+        idempotencyKey: "idem-chat-flow-ok",
+        flowId,
+      });
+      expect(res.ok).toBe(true);
+      await finalPromise;
+
+      await vi.waitFor(async () => {
+        const tasks = await rpcReq<{ tasks?: Array<Record<string, unknown>> }>(ws, "tasks.list", {
+          sessionKey: "main",
+          runId: "idem-chat-flow-ok",
+          limit: 1,
+        });
+        expect(tasks.ok).toBe(true);
+        expect(tasks.payload?.tasks?.[0]).toMatchObject({
+          flowId,
+          runId: "idem-chat-flow-ok",
+          kind: "chat",
+        });
+      });
+    });
+  });
+
   test("chat.send marks working-only final replies as blocked tasks", async () => {
     await withMainSessionStore(async () => {
       dispatchInboundMessageMock.mockImplementationOnce(async (...args: unknown[]) => {

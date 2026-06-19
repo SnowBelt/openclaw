@@ -1514,3 +1514,121 @@ describe("chat project picker", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("chat Pursue Goal surface", () => {
+  it("renders no-goal state and starts from the draft", () => {
+    const onGoalStart = vi.fn();
+    const onGoalDraftChange = vi.fn();
+    const container = renderChatView({
+      draft: "Fix the flaky proof",
+      getDraft: () => "Fix the flaky proof",
+      goalPanelOpen: true,
+      goalDraft: "Ship the feature with proof",
+      onGoalStart,
+      onGoalDraftChange,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-goal]");
+    expect(surface?.textContent).toContain("Pursue Goal");
+    expect(surface?.textContent).toContain("No goal");
+    expect(surface?.textContent).toContain("Create durable work from the current request");
+
+    surface?.querySelector<HTMLButtonElement>('[data-chat-goal-action="start"]')?.click();
+    expect(onGoalStart).toHaveBeenCalledTimes(1);
+
+    const goalInput = surface?.querySelector<HTMLTextAreaElement>("textarea");
+    goalInput!.value = "Updated goal";
+    goalInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(onGoalDraftChange).toHaveBeenCalledWith("Updated goal");
+  });
+
+  it("renders running goal details and exposes continue and cancel actions", () => {
+    const onGoalContinue = vi.fn();
+    const onGoalCancel = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      goalFlows: [
+        {
+          id: "flow-1",
+          flowId: "flow-1",
+          status: "running",
+          goal: "Finish Pursue Goal V1",
+          currentStep: "Running local proof.",
+          tasks: [
+            {
+              taskId: "task-1",
+              status: "running",
+              progressSummary: "Testing gateway linkage",
+              judgeStatus: "pending",
+            },
+          ],
+        },
+      ],
+      onGoalContinue,
+      onGoalCancel,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
+    expect(surface.textContent).toContain("Finish Pursue Goal V1");
+    expect(surface.textContent).toContain("Pursuing");
+    expect(surface.textContent).toContain("Testing gateway linkage");
+    expect(surface.textContent).toContain("Judge pending");
+
+    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="continue"]')?.click();
+    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="cancel"]')?.click();
+
+    expect(onGoalContinue).toHaveBeenCalledWith("flow-1");
+    expect(onGoalCancel).toHaveBeenCalledWith("flow-1");
+  });
+
+  it("shows blocked and cancelled states without enabling unsafe continuation", () => {
+    const blocked = renderChatView({
+      goalPanelOpen: true,
+      goalFlows: [
+        {
+          id: "flow-blocked",
+          status: "blocked",
+          goal: "Collect remote proof",
+          blockedSummary: "Waiting for GitHub Actions result.",
+        },
+      ],
+    });
+    expect(blocked.querySelector("[data-chat-goal]")?.textContent).toContain("Blocked");
+    expect(blocked.querySelector("[data-chat-goal]")?.textContent).toContain(
+      "Waiting for GitHub Actions result.",
+    );
+
+    const cancelled = renderChatView({
+      goalPanelOpen: true,
+      goalFlows: [
+        {
+          id: "flow-cancelled",
+          status: "cancelled",
+          goal: "Old goal",
+          cancelRequestedAt: 1,
+        },
+      ],
+    });
+    const continueButton = cancelled.querySelector<HTMLButtonElement>(
+      '[data-chat-goal-action="continue"]',
+    );
+    expect(cancelled.querySelector("[data-chat-goal]")?.textContent).toContain("Cancelled");
+    expect(continueButton?.disabled).toBe(true);
+  });
+
+  it("renders goal loading failures while keeping chat usable", () => {
+    const onSend = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      goalError: "offline",
+      draft: "hello",
+      getDraft: () => "hello",
+      onSend,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-goal]");
+    expect(surface?.textContent).toContain("Goal status unavailable");
+    container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});

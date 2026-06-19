@@ -7,11 +7,15 @@ import { GatewayRequestError } from "../gateway.ts";
 import {
   abortChatRun,
   attachChatSessionToProject,
+  buildCurrentChatGoalContinuationPrompt,
+  cancelChatGoal,
   cancelChatWorkTask,
   createAndAttachChatProject,
   createChatSessionInProject,
+  createChatGoal,
   detachChatSessionFromProject,
   handleChatEvent,
+  loadChatGoals,
   loadChatProjects,
   loadChatWorkTasks,
   loadChatHistory,
@@ -228,6 +232,108 @@ describe("chat project actions", () => {
 
     expect(state.chatProjectError).toContain("offline");
     expect(state.chatProjectBusy).toBe(false);
+  });
+});
+
+describe("chat pursue goal actions", () => {
+  it("loads task flows for the current chat session", async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      flows: [{ id: "flow-1", goal: "Ship proof", status: "running" }],
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [],
+      chatGoalLoading: false,
+      chatGoalError: null,
+    });
+
+    await loadChatGoals(state);
+
+    expect(request).toHaveBeenCalledWith("taskFlows.list", {
+      sessionKey: "main",
+      limit: 20,
+    });
+    expect(state.chatGoalFlows).toEqual([{ id: "flow-1", goal: "Ship proof", status: "running" }]);
+    expect(state.chatGoalError).toBeNull();
+    expect(state.chatGoalLoading).toBe(false);
+  });
+
+  it("creates a goal from the composer draft", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        flow: { id: "flow-new", goal: "Finish the milestone", status: "running" },
+      })
+      .mockResolvedValueOnce({ flows: [] });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatMessage: " Finish the milestone ",
+      chatGoalDraft: "",
+      chatGoalPanelOpen: false,
+    });
+
+    await expect(createChatGoal(state)).resolves.toMatchObject({ id: "flow-new" });
+
+    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.create", {
+      sessionKey: "main",
+      goal: "Finish the milestone",
+      currentStep: "Goal started from Chat.",
+    });
+    expect(state.chatGoalDraft).toBe("");
+    expect(state.chatGoalPanelOpen).toBe(true);
+    expect(state.chatGoalBusy).toBe(false);
+  });
+
+  it("builds a continuation prompt for the selected goal", () => {
+    const state = createState({
+      chatGoalFlows: [{ id: "flow-1", goal: "Finish the milestone", status: "running" }],
+    });
+
+    expect(buildCurrentChatGoalContinuationPrompt(state, "flow-1")).toContain(
+      "Continue pursuing this goal",
+    );
+    expect(buildCurrentChatGoalContinuationPrompt(state, "flow-1")).toContain(
+      "Finish the milestone",
+    );
+  });
+
+  it("cancels a goal and refreshes goal state", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ found: true, cancelled: true })
+      .mockResolvedValueOnce({
+        flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
+      });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
+    });
+
+    await expect(cancelChatGoal(state, "flow-1")).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.cancel", {
+      flowId: "flow-1",
+      sessionKey: "main",
+      reason: "cancelled from Control UI Pursue Goal",
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "taskFlows.list", {
+      sessionKey: "main",
+      limit: 20,
+    });
+    expect(state.chatGoalFlows?.[0]?.status).toBe("cancelled");
+  });
+
+  it("records goal API failures without throwing", async () => {
+    const request = vi.fn().mockRejectedValueOnce(new Error("offline"));
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalDraft: "Finish",
+    });
+
+    await expect(createChatGoal(state)).resolves.toBeNull();
+
+    expect(state.chatGoalError).toContain("offline");
+    expect(state.chatGoalBusy).toBe(false);
   });
 });
 

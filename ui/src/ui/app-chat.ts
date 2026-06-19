@@ -76,6 +76,7 @@ export type ChatHost = ChatInputHistoryState & {
 
 export type ChatSendOptions = {
   confirmReset?: boolean;
+  flowId?: string;
   restoreDraft?: boolean;
 };
 
@@ -297,6 +298,7 @@ async function sendChatMessageNow(
   host: ChatHost,
   message: string,
   opts?: {
+    flowId?: string;
     previousDraft?: string;
     restoreDraft?: boolean;
     attachments?: ChatAttachment[];
@@ -308,7 +310,9 @@ async function sendChatMessageNow(
   resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
   // Reset scroll state before sending to ensure auto-scroll works for the response
   resetChatScroll(host as unknown as Parameters<typeof resetChatScroll>[0]);
-  const runId = await sendChatMessage(host as unknown as ChatState, message, opts?.attachments);
+  const runId = await sendChatMessage(host as unknown as ChatState, message, opts?.attachments, {
+    flowId: opts?.flowId,
+  });
   const ok = Boolean(runId);
   if (!ok && opts?.previousDraft != null) {
     host.chatMessage = opts.previousDraft;
@@ -683,6 +687,10 @@ export async function handleSendChat(
         : {};
 
     if (isChatBusy(host)) {
+      if (opts?.flowId) {
+        host.lastError = "Wait for the current chat run to finish before continuing a goal.";
+        return;
+      }
       if (messageOverride == null) {
         recordNonTranscriptInputHistory(host, message);
       }
@@ -691,6 +699,7 @@ export async function handleSendChat(
     }
 
     await sendChatMessageNow(host, message, {
+      flowId: opts?.flowId,
       previousDraft: cleared.previousDraft,
       restoreDraft: Boolean(messageOverride && opts?.restoreDraft),
       attachments: hasAttachments ? attachmentsToSend : undefined,

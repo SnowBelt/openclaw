@@ -67,6 +67,7 @@ import {
 import type { AppViewState } from "./app-view-state.ts";
 import { normalizeAssistantIdentity } from "./assistant-identity.ts";
 import { exportChatMarkdown } from "./chat/export.ts";
+import type { ChatGoalFlowSummary } from "./chat/pursue-goal.ts";
 import { RealtimeTalkSession, type RealtimeTalkStatus } from "./chat/realtime-talk.ts";
 import type { ChatRunStatus } from "./chat/run-status.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
@@ -343,6 +344,13 @@ export class OpenClawApp extends LitElement {
   @state() chatProjectCreateInstructions = "";
   @state() chatProjectBusy = false;
   @state() chatProjectError: string | null = null;
+  @state() chatGoalPanelOpen = false;
+  @state() chatGoalDraft = "";
+  @state() chatGoalFlows: ChatGoalFlowSummary[] = [];
+  @state() chatGoalLoading = false;
+  @state() chatGoalBusy = false;
+  @state() chatGoalError: string | null = null;
+  @state() chatGoalUpdatedAt: number | null = null;
   @state() chatTargetRunId: string | null = null;
   @state() chatTargetAuditTs: number | null = null;
   @state() chatTargetStatus: "exact-run" | "timestamp-fallback" | "not-found" | null = null;

@@ -19,11 +19,15 @@ import { setAssistantAvatarOverride } from "./controllers/assistant-identity.ts"
 import { loadChannels } from "./controllers/channels.ts";
 import {
   attachChatSessionToProject,
+  buildCurrentChatGoalContinuationPrompt,
+  cancelChatGoal,
   cancelChatWorkTask,
   createAndAttachChatProject,
   createChatSessionInProject,
+  createChatGoal,
   detachChatSessionFromProject,
   loadChatHistory,
+  loadChatGoals,
   loadChatProjects,
 } from "./controllers/chat.ts";
 import {
@@ -1594,6 +1598,12 @@ export function renderApp(state: AppViewState) {
                 workTasks: state.chatWorkTasks,
                 workTasksLoading: state.chatWorkLoading,
                 workTasksError: state.chatWorkError,
+                goalFlows: state.chatGoalFlows,
+                goalLoading: state.chatGoalLoading,
+                goalBusy: state.chatGoalBusy,
+                goalError: state.chatGoalError,
+                goalDraft: state.chatGoalDraft,
+                goalPanelOpen: state.chatGoalPanelOpen,
                 projectsList: state.projectsList,
                 projectsLoading: state.projectsLoading,
                 projectPickerOpen: state.chatProjectPickerOpen,
@@ -1666,6 +1676,38 @@ export function renderApp(state: AppViewState) {
                 onQueueRemove: (id) => state.removeQueuedMessage(id),
                 onQueueSteer: (id) => void state.steerQueuedChatMessage(id),
                 onWorkTaskCancel: (taskId) => void cancelChatWorkTask(state, taskId),
+                onGoalPanelToggle: (open) => {
+                  state.chatGoalPanelOpen = open;
+                  if (open) {
+                    void loadChatGoals(state);
+                  }
+                },
+                onGoalDraftChange: (value) => {
+                  state.chatGoalDraft = value;
+                },
+                onGoalStart: async () => {
+                  const goalText = state.chatGoalDraft.trim() || state.chatMessage.trim();
+                  const flow = await createChatGoal(state, goalText);
+                  if (!flow) {
+                    return;
+                  }
+                  state.chatMessage = goalText;
+                  await state.handleSendChat(undefined, { flowId: flow.id });
+                  await loadChatGoals(state);
+                },
+                onGoalContinue: async (flowId) => {
+                  const prompt = buildCurrentChatGoalContinuationPrompt(state, flowId);
+                  if (!prompt) {
+                    state.chatGoalError = "Goal is unavailable.";
+                    return;
+                  }
+                  await state.handleSendChat(prompt, { flowId });
+                  await loadChatGoals(state);
+                },
+                onGoalCancel: async (flowId) => {
+                  await cancelChatGoal(state, flowId);
+                },
+                onGoalRefresh: () => loadChatGoals(state),
                 onProjectPickerToggle: (open) => {
                   state.chatProjectPickerOpen = open;
                   if (open) {
