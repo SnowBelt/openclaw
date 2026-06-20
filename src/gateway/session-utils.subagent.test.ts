@@ -126,6 +126,16 @@ describe("listSessionsFromStore subagent metadata", () => {
             payloadsSynthesized: 1,
           },
         ],
+        controlDirectorGuardedFinalSuppression: [
+          {
+            ts: 10,
+            runId: "run-control-director-liveness",
+            reason: "visible_answer_already_exists",
+            sessionKey: "agent:main:main",
+            targetUserTextHash: "target-hash",
+            latestUserTextHash: "latest-hash",
+          },
+        ],
         controlDirectorMissionLedger: [
           {
             missionId: "control-director:run-control-director-liveness",
@@ -230,6 +240,13 @@ describe("listSessionsFromStore subagent metadata", () => {
         runId: "run-control-director-liveness",
         action: "queued_safe_continuation",
         continuationQueued: true,
+      }),
+    ]);
+    expect(row.controlDirectorGuardedFinalSuppression).toEqual([
+      expect.objectContaining({
+        runId: "run-control-director-liveness",
+        reason: "visible_answer_already_exists",
+        targetUserTextHash: "target-hash",
       }),
     ]);
     expect(row.controlDirectorMissionLedger).toEqual([

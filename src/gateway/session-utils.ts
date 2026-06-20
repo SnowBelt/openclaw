@@ -2268,6 +2268,7 @@ export function buildGatewaySessionRow(params: {
     judgeGuardAudit: entry?.judgeGuardAudit,
     controlDirectorGuardAudit: entry?.controlDirectorGuardAudit,
     controlDirectorLivenessAudit: entry?.controlDirectorLivenessAudit,
+    controlDirectorGuardedFinalSuppression: entry?.controlDirectorGuardedFinalSuppression,
     controlDirectorMissionLedger: entry?.controlDirectorMissionLedger,
     controlDirectorJudgeCompletionApproval: entry?.controlDirectorJudgeCompletionApproval,
     controlDirectorTruthAudit: entry?.controlDirectorTruthAudit,

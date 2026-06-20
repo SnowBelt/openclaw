@@ -13,6 +13,7 @@
 ### Fixes
 
 - Control Director: prevent placeholder liveness replies, unsupported public-link/server claims, stale generic continuation missions, bare Gemma refs resolving to OpenAI, provider schema rejections surfacing as raw model errors, and Control Director-only guard rewrites leaking into non-Control-Director agents.
+- Control Director: suppress stale WebChat guarded-final liveness fallbacks after newer user or assistant turns so operators see a recovered answer or a specific blocker instead of watchdog placeholder text.
 
 Docs: https://docs.openclaw.ai
 
