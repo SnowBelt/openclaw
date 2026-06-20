@@ -176,7 +176,7 @@ export function resolveControlDirectorModelSelectionPreflight(
   });
   const isDefault =
     modelKey(resolved.ref.provider, resolved.ref.model) === CONTROL_DIRECTOR_PRIMARY_MODEL;
-  if (!entry && !isDefault) {
+  if (!entry && !isDefault && params.catalog.length > 0) {
     return {
       ok: false,
       code: "model_not_cataloged",
@@ -191,12 +191,19 @@ export function resolveControlDirectorModelSelectionPreflight(
   }
 
   const contextTokens = resolveContextTokens(entry);
-  const warnings =
-    contextTokens !== undefined && contextTokens < CONTROL_DIRECTOR_MIN_RECOMMENDED_CONTEXT_TOKENS
+  const warnings = [
+    ...(contextTokens !== undefined &&
+    contextTokens < CONTROL_DIRECTOR_MIN_RECOMMENDED_CONTEXT_TOKENS
       ? [
           `Selected model advertises ${contextTokens} context tokens; Control Director reliability is best at ${CONTROL_DIRECTOR_MIN_RECOMMENDED_CONTEXT_TOKENS}+ tokens.`,
         ]
-      : [];
+      : []),
+    ...(!entry && !isDefault && providerQualified && params.catalog.length === 0
+      ? [
+          "Model catalog was empty; accepted explicit provider/model selection without catalog metadata.",
+        ]
+      : []),
+  ];
   return {
     ok: true,
     provider: resolved.ref.provider,
