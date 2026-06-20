@@ -526,6 +526,48 @@ describe("gateway sessions patch", () => {
     expectModelSelection(entry, "anthropic", ANTHROPIC_SONNET_ID);
   });
 
+  test("blocks unknown bare Control Director model selections before they default to OpenAI", async () => {
+    expectPatchError(
+      await runPatch({
+        patch: { key: MAIN_SESSION_KEY, model: "openclaw-control-typo" },
+        loadGatewayModelCatalog: async () => [],
+      }),
+      "not provider-qualified",
+    );
+  });
+
+  test("accepts cataloged alternate Control Director model selections", async () => {
+    const entry = expectPatchOk(
+      await runPatch({
+        patch: { key: MAIN_SESSION_KEY, model: ANTHROPIC_SONNET_MODEL },
+        loadGatewayModelCatalog: async () => [
+          {
+            provider: "anthropic",
+            id: ANTHROPIC_SONNET_ID,
+            name: "Claude Sonnet 4.6",
+            contextTokens: 200000,
+          },
+        ],
+      }),
+    );
+
+    expectModelSelection(entry, "anthropic", ANTHROPIC_SONNET_ID);
+    expect(entry.liveModelSwitchPending).toBe(true);
+  });
+
+  test("leaves non-Control-Director model patch behavior unchanged", async () => {
+    const entry = expectPatchOk(
+      await runPatch({
+        agentId: "worker",
+        storeKey: "agent:worker:main",
+        patch: { key: "agent:worker:main", model: "worker-custom" },
+        loadGatewayModelCatalog: async () => [],
+      }),
+    );
+
+    expectModelSelection(entry, "openai", "worker-custom");
+  });
+
   test("sets spawnDepth for subagent sessions", async () => {
     const entry = expectPatchOk(
       await runPatch({

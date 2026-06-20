@@ -11,6 +11,8 @@ import {
   type SessionsPatchParams,
 } from "../../packages/gateway-protocol/src/index.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { isControlDirectorAgentId } from "../agents/control-director-model-ref.js";
+import { resolveControlDirectorModelSelectionPreflight } from "../agents/control-director-model-selection.js";
 import {
   normalizeInheritedToolAllowlist,
   normalizeInheritedToolDenylist,
@@ -555,13 +557,33 @@ export async function applySessionsPatchToStore(params: {
       }
       const { model: modelWithoutProfile, profile: trailingProfile } =
         splitTrailingAuthProfile(trimmed);
-      const resolved = resolveAllowedModelRef({
-        cfg,
-        catalog,
-        raw: modelWithoutProfile,
-        defaultProvider: resolvedDefault.provider,
-        defaultModel: subagentModelHint ?? resolvedDefault.model,
-      });
+      const controlDirectorPreflight = isControlDirectorAgentId(sessionAgentId)
+        ? resolveControlDirectorModelSelectionPreflight({
+            cfg,
+            catalog,
+            raw: modelWithoutProfile,
+            defaultProvider: resolvedDefault.provider,
+            defaultModel: subagentModelHint ?? resolvedDefault.model,
+          })
+        : undefined;
+      if (controlDirectorPreflight && !controlDirectorPreflight.ok) {
+        return invalid(controlDirectorPreflight.error);
+      }
+      const resolved = controlDirectorPreflight?.ok
+        ? {
+            ref: {
+              provider: controlDirectorPreflight.provider,
+              model: controlDirectorPreflight.model,
+            },
+            key: controlDirectorPreflight.key,
+          }
+        : resolveAllowedModelRef({
+            cfg,
+            catalog,
+            raw: modelWithoutProfile,
+            defaultProvider: resolvedDefault.provider,
+            defaultModel: subagentModelHint ?? resolvedDefault.model,
+          });
       if ("error" in resolved) {
         return invalid(resolved.error);
       }

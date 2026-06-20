@@ -1147,6 +1147,22 @@ For production use, keep the Control Director model policy scoped to `main`:
 }
 ```
 
+Gemma 4 31B Q8 remains the recommended default, but the Dashboard model picker
+can pin a Control Director session to another model. Treat that as a production
+routing change: use the exact provider-qualified ref shown by the picker, or a
+bare id only when it uniquely matches a configured/cataloged model. Unknown bare
+ids are blocked before they can fall through to the default OpenAI provider.
+
+Before relying on a new Control Director model, run:
+
+```bash
+pnpm control-director:model-check -- --model openai/gpt-5.5 --json
+```
+
+The check must pass before the model is used for Control Director work. Small
+context windows are allowed only with an explicit warning; provider schema,
+Judge, truth, liveness, and recovery gates still run after the model selection.
+
 Run `pnpm control-director:readiness -- --json` after model, provider, skill,
 or runtime setting changes. The readiness probe checks the Control Director
 model policy, Ollama alias, rollback chain, context target, thinking policy,
