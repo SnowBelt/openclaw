@@ -2160,6 +2160,69 @@ describe("gateway server chat", () => {
     }
   });
 
+  test("Control Director guarded-final freshness detects newer WebChat turns", async () => {
+    const sessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
+    const transcriptPath = path.join(sessionDir, "sess-main.jsonl");
+    try {
+      testState.sessionStorePath = path.join(sessionDir, "sessions.json");
+      await writeSessionStore({
+        entries: {
+          main: {
+            sessionId: "sess-main",
+            sessionFile: transcriptPath,
+            updatedAt: Date.now(),
+          },
+        },
+      });
+      await fs.writeFile(
+        transcriptPath,
+        [
+          JSON.stringify({
+            id: "old-user",
+            timestamp: new Date().toISOString(),
+            message: { role: "user", content: "old request" },
+          }),
+          JSON.stringify({
+            id: "new-user",
+            timestamp: new Date().toISOString(),
+            message: { role: "user", content: "newer request" },
+          }),
+          JSON.stringify({
+            id: "new-assistant",
+            timestamp: new Date().toISOString(),
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "newer visible answer" }],
+            },
+          }),
+        ].join("\n") + "\n",
+        "utf-8",
+      );
+
+      const { resolveControlDirectorGuardedFinalFreshness } =
+        await import("./server-methods/chat.js");
+      await expect(
+        resolveControlDirectorGuardedFinalFreshness({
+          sessionId: "sess-main",
+          storePath: testState.sessionStorePath,
+          sessionFile: transcriptPath,
+          requestBody: "old request",
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          reason: "superseded_by_newer_turn",
+          targetUserTextHash: expect.any(String),
+          latestUserTextHash: expect.any(String),
+        }),
+      );
+    } finally {
+      testState.sessionStorePath = undefined;
+      clearConfigCache();
+      await fs.rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
   test("chat.history backfills claude-cli sessions from Claude project files", async () => {
     await withGatewayChatHarness(async ({ ws, createSessionDir }) => {
       await connectOk(ws);

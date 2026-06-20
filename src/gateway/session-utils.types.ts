@@ -102,6 +102,7 @@ export type GatewaySessionRow = {
   judgeGuardAudit?: SessionEntry["judgeGuardAudit"];
   controlDirectorGuardAudit?: SessionEntry["controlDirectorGuardAudit"];
   controlDirectorLivenessAudit?: SessionEntry["controlDirectorLivenessAudit"];
+  controlDirectorGuardedFinalSuppression?: SessionEntry["controlDirectorGuardedFinalSuppression"];
   controlDirectorMissionLedger?: SessionEntry["controlDirectorMissionLedger"];
   controlDirectorJudgeCompletionApproval?: SessionEntry["controlDirectorJudgeCompletionApproval"];
   controlDirectorTruthAudit?: SessionEntry["controlDirectorTruthAudit"];

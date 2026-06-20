@@ -198,6 +198,15 @@ export type SessionControlDirectorLivenessAuditEntry = {
   payloadsSynthesized: number;
 };
 
+export type SessionControlDirectorGuardedFinalSuppressionEntry = {
+  ts: number;
+  runId?: string;
+  reason: "superseded_by_newer_turn" | "visible_answer_already_exists";
+  sessionKey?: string;
+  targetUserTextHash?: string;
+  latestUserTextHash?: string;
+};
+
 export type SessionControlDirectorJudgeCompletionApproval = {
   judgeStatus: "pending" | "approved" | "rejected" | "invalid";
   judgeVerdict?: string;
@@ -499,6 +508,7 @@ export type SessionEntry = {
   judgeGuardAudit?: SessionJudgeGuardAuditEntry[];
   controlDirectorGuardAudit?: SessionControlDirectorGuardAuditEntry[];
   controlDirectorLivenessAudit?: SessionControlDirectorLivenessAuditEntry[];
+  controlDirectorGuardedFinalSuppression?: SessionControlDirectorGuardedFinalSuppressionEntry[];
   controlDirectorMissionLedger?: SessionControlDirectorMissionLedgerEntry[];
   controlDirectorJudgeCompletionApproval?: SessionControlDirectorJudgeCompletionApproval;
   controlDirectorTruthAudit?: SessionControlDirectorTruthAuditEntry[];

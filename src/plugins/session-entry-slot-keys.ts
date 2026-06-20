@@ -82,6 +82,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "controlDirectorJudgeCompletionApproval",
   "controlDirectorTruthAudit",
   "controlDirectorProviderRequestAudit",
+  "controlDirectorGuardedFinalSuppression",
   "pendingFinalDelivery",
   "pendingFinalDeliveryCreatedAt",
   "pendingFinalDeliveryLastAttemptAt",

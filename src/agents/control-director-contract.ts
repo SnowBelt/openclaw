@@ -719,21 +719,24 @@ function buildControlDirectorLivenessBlockedText(params: {
   classification?: ControlDirectorLivenessClassification;
   decision: ControlDirectorContinuationDecision;
   noVisiblePayload: boolean;
+  requestBody?: string | undefined;
 }): string {
   const classificationText = params.classification ?? "none";
   const visibilityText = params.noVisiblePayload
     ? "No user-visible payload was available for delivery."
     : "The harness classified the final turn as non-terminal.";
   const actionsAttempted = params.decision.shouldQueue
-    ? "The runtime classified the mission as recoverable, but no recovered user-visible answer was available before final delivery."
-    : "The runtime could not safely start recovery.";
+    ? "The runtime classified the mission as recoverable and attempted to prepare recovery, but the current run still ended without a usable final answer."
+    : "The runtime could not safely start or continue recovery.";
+  const originalRequest = params.requestBody?.replace(/\s+/gu, " ").trim();
   return [
-    "Control Director liveness watchdog prevented a silent or non-terminal final response.",
+    "Control Director could not produce a usable final answer for this turn.",
     "",
+    ...(originalRequest ? [`Original request: ${originalRequest}`] : []),
     `Verified state: ${visibilityText} Classification: ${classificationText}.`,
     `Root cause: ${params.decision.reason}.`,
     `Actions attempted: ${actionsAttempted}`,
-    "Next build gap: rerun recovery with the original request context and deliver a real answer or exact blocker before final response.",
+    "Next build gap: rerun recovery with the original request context and deliver the requested answer, or report the specific blocker discovered while trying to continue.",
     "Completion Grade: 7/10",
     "Criticality: 10/10",
     "Status: blocked",
@@ -794,6 +797,7 @@ export function applyControlDirectorLivenessWatchdog<
     classification,
     decision,
     noVisiblePayload,
+    requestBody: params.requestBody,
   });
   const nextPayloads =
     payloads.length > 0

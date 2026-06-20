@@ -88,6 +88,26 @@ iPad unavailable (17.5) (0000)`),
         "no unsupported delivered Status: complete",
       ]),
     });
+    expect(
+      validateVisibleBlockedText(
+        [
+          "Control Director liveness watchdog prevented a silent or non-terminal final response.",
+          "Verified state: no user-visible payload was available.",
+          "Root cause: Control Director run ended with empty classification.",
+          "Actions attempted: no recovered user-visible answer was available before final delivery.",
+          "Next build gap: resolve liveness blocker.",
+          "Completion Grade: 7/10",
+          "Criticality: 10/10",
+          "Status: blocked",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      ok: false,
+      missing: expect.arrayContaining([
+        "no delivered Control Director liveness watchdog",
+        "no delivered no recovered user-visible answer was available before final delivery",
+      ]),
+    });
   });
 
   it("extracts persisted history text for the no-response fallback", () => {
