@@ -1487,6 +1487,7 @@
     "config:schema:check": "node --import tsx scripts/generate-base-config-schema.ts --check",
     "config:schema:gen": "node --import tsx scripts/generate-base-config-schema.ts --write",
     "control-director:readiness": "node scripts/control-director-readiness.mjs",
+    "control-director:model-check": "node --import tsx scripts/control-director-model-check.ts",
     "crabbox:hydrate": "node scripts/crabbox-wrapper.mjs actions hydrate",
     "crabbox:run": "node scripts/crabbox-wrapper.mjs run",
     "crabbox:stop": "node scripts/crabbox-wrapper.mjs stop",
