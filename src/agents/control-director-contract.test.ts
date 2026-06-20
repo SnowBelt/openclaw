@@ -648,6 +648,10 @@ describe("Control Director contract", () => {
     expect(payload?.text).toContain("Verified state:");
     expect(payload?.text).toContain("Root cause:");
     expect(payload?.text).toContain("Actions attempted:");
+    expect(payload?.text).not.toContain("Control Director liveness watchdog");
+    expect(payload?.text).not.toContain(
+      "no recovered user-visible answer was available before final delivery",
+    );
     expect(payload?.text).not.toContain("Recovery queued: yes");
     expect(payload?.text).not.toContain("Status: continuing");
     expect(payload?.text).toContain("Status: blocked");

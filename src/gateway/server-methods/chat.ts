@@ -59,6 +59,7 @@ import { stageSandboxMedia } from "../../auto-reply/reply/stage-sandbox-media.js
 import type { MsgContext, TemplateContext } from "../../auto-reply/templating.js";
 import { resolveSessionFilePath, updateSessionStoreEntry } from "../../config/sessions.js";
 import { resolveMirroredTranscriptText } from "../../config/sessions/transcript-mirror.js";
+import type { SessionEntry } from "../../config/sessions/types.js";
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
@@ -1002,6 +1003,158 @@ function hasVisibleAssistantFinalMessage(message: Record<string, unknown> | unde
     }
     return true;
   });
+}
+
+const CONTROL_DIRECTOR_LIVENESS_FINAL_TEXT_RE =
+  /Control Director liveness watchdog prevented|no recovered user-visible answer was available before final delivery/iu;
+
+function isControlDirectorLivenessFinalText(text: string | undefined): boolean {
+  return Boolean(text && CONTROL_DIRECTOR_LIVENESS_FINAL_TEXT_RE.test(text));
+}
+
+function shortControlDirectorTextHash(text: string | undefined): string | undefined {
+  const normalized = text?.replace(/\s+/gu, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return createHash("sha256").update(normalized).digest("hex").slice(0, 16);
+}
+
+function extractTranscriptMessageRecord(message: unknown): Record<string, unknown> | undefined {
+  const record = asOptionalRecord(message);
+  return asOptionalRecord(record?.message) ?? record;
+}
+
+function extractTranscriptMessageRole(message: unknown): string | undefined {
+  const record = extractTranscriptMessageRecord(message);
+  return typeof record?.role === "string" ? record.role : undefined;
+}
+
+function extractTranscriptMessageText(message: unknown): string {
+  const record = extractTranscriptMessageRecord(message);
+  const directText = typeof record?.text === "string" ? record.text : "";
+  const content = record?.content;
+  const contentText =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((block) => {
+              const blockRecord = asOptionalRecord(block);
+              return typeof blockRecord?.text === "string" ? blockRecord.text : "";
+            })
+            .filter(Boolean)
+            .join("\n\n")
+        : "";
+  return [directText, contentText].filter(Boolean).join("\n\n").trim();
+}
+
+function hasVisibleNonLivenessAssistantText(message: unknown): boolean {
+  if (extractTranscriptMessageRole(message) !== "assistant") {
+    return false;
+  }
+  const text = extractTranscriptMessageText(message);
+  return Boolean(text && !isControlDirectorLivenessFinalText(text));
+}
+
+type ControlDirectorGuardedFinalFreshness =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "superseded_by_newer_turn" | "visible_answer_already_exists";
+      targetUserTextHash?: string;
+      latestUserTextHash?: string;
+    };
+
+export async function resolveControlDirectorGuardedFinalFreshness(params: {
+  sessionId: string;
+  storePath: string | undefined;
+  sessionFile: string | undefined;
+  requestBody: string;
+}): Promise<ControlDirectorGuardedFinalFreshness> {
+  const requestHash = shortControlDirectorTextHash(params.requestBody);
+  const messages = await readRecentSessionMessagesAsync(
+    params.sessionId,
+    params.storePath,
+    params.sessionFile,
+    {
+      maxMessages: 40,
+      maxBytes: 256_000,
+      maxLines: 400,
+    },
+  );
+  if (messages.length === 0) {
+    return { ok: true };
+  }
+  const userIndexes = messages
+    .map((message, index) => ({ index, text: extractTranscriptMessageText(message) }))
+    .filter((entry) => extractTranscriptMessageRole(messages[entry.index]) === "user");
+  const matchingUser = userIndexes
+    .toReversed()
+    .find((entry) => shortControlDirectorTextHash(entry.text) === requestHash);
+  const latestUser = userIndexes.at(-1);
+  if (!matchingUser || !latestUser) {
+    return { ok: true };
+  }
+  if (latestUser.index > matchingUser.index) {
+    return {
+      ok: false,
+      reason: "superseded_by_newer_turn",
+      targetUserTextHash: requestHash,
+      latestUserTextHash: shortControlDirectorTextHash(latestUser.text),
+    };
+  }
+  const messagesAfterTarget = messages.slice(matchingUser.index + 1);
+  if (messagesAfterTarget.some(hasVisibleNonLivenessAssistantText)) {
+    return {
+      ok: false,
+      reason: "visible_answer_already_exists",
+      targetUserTextHash: requestHash,
+      latestUserTextHash: shortControlDirectorTextHash(latestUser.text),
+    };
+  }
+  return { ok: true };
+}
+
+async function recordControlDirectorGuardedFinalSuppression(params: {
+  storePath: string | undefined;
+  sessionKey: string;
+  sessionId: string;
+  runId: string;
+  freshness: Exclude<ControlDirectorGuardedFinalFreshness, { ok: true }>;
+}): Promise<SessionEntry | undefined> {
+  if (!params.storePath) {
+    return undefined;
+  }
+  const ts = Date.now();
+  const entry = await updateSessionStoreEntry({
+    storePath: params.storePath,
+    sessionKey: params.sessionKey,
+    update: (current) => {
+      if (current.sessionId !== params.sessionId) {
+        return null;
+      }
+      return {
+        controlDirectorGuardedFinalSuppression: [
+          ...(current.controlDirectorGuardedFinalSuppression ?? []),
+          {
+            ts,
+            runId: params.runId,
+            reason: params.freshness.reason,
+            sessionKey: params.sessionKey,
+            ...(params.freshness.targetUserTextHash
+              ? { targetUserTextHash: params.freshness.targetUserTextHash }
+              : {}),
+            ...(params.freshness.latestUserTextHash
+              ? { latestUserTextHash: params.freshness.latestUserTextHash }
+              : {}),
+          },
+        ].slice(-20),
+        updatedAt: ts,
+      };
+    },
+  });
+  return entry ?? undefined;
 }
 
 function hasManagedOutgoingAssistantContent(
@@ -4171,44 +4324,64 @@ export const chatHandlers: GatewayRequestHandlers = {
                     const transcriptReply = buildTranscriptReplyText(finalPayloads);
                     if (transcriptReply) {
                       const guardedEntry = controlDirectorGuardResult.sessionEntry ?? latestEntry;
-                      const appended = await appendAssistantTranscriptMessage({
-                        sessionKey,
-                        message: transcriptReply,
+                      const freshness = await resolveControlDirectorGuardedFinalFreshness({
                         sessionId,
                         storePath: latestStorePath,
-                        sessionFile: guardedEntry?.sessionFile,
-                        agentId,
-                        createIfMissing: true,
-                        idempotencyKey: `${clientRunId}:control-director-guarded-final`,
-                        cfg,
+                        sessionFile: guardedEntry?.sessionFile ?? latestEntry?.sessionFile,
+                        requestBody: parsedMessage,
                       });
-                      const nowValue = Date.now();
-                      const message = appended.ok
-                        ? appended.message
-                        : {
-                            role: "assistant",
-                            content: [{ type: "text", text: transcriptReply }],
-                            text: transcriptReply,
-                            timestamp: nowValue,
-                            stopReason: "stop",
-                            usage: { input: 0, output: 0, totalTokens: 0 },
-                          };
-                      if (!appended.ok) {
+                      if (!freshness.ok) {
+                        await recordControlDirectorGuardedFinalSuppression({
+                          storePath: latestStorePath,
+                          sessionKey,
+                          sessionId,
+                          runId: clientRunId,
+                          freshness,
+                        });
                         context.logGateway.warn(
-                          `webchat Control Director guarded final transcript append failed: ${appended.error ?? "unknown error"}`,
+                          `webchat Control Director guarded final suppressed: ${freshness.reason}`,
                         );
+                        broadcastedControlDirectorGuardedFinal = true;
+                      } else {
+                        const appended = await appendAssistantTranscriptMessage({
+                          sessionKey,
+                          message: transcriptReply,
+                          sessionId,
+                          storePath: latestStorePath,
+                          sessionFile: guardedEntry?.sessionFile,
+                          agentId,
+                          createIfMissing: true,
+                          idempotencyKey: `${clientRunId}:control-director-guarded-final`,
+                          cfg,
+                        });
+                        const nowValue = Date.now();
+                        const message = appended.ok
+                          ? appended.message
+                          : {
+                              role: "assistant",
+                              content: [{ type: "text", text: transcriptReply }],
+                              text: transcriptReply,
+                              timestamp: nowValue,
+                              stopReason: "stop",
+                              usage: { input: 0, output: 0, totalTokens: 0 },
+                            };
+                        if (!appended.ok) {
+                          context.logGateway.warn(
+                            `webchat Control Director guarded final transcript append failed: ${appended.error ?? "unknown error"}`,
+                          );
+                        }
+                        if (hasVisibleAssistantFinalMessage(message)) {
+                          emitFirstAssistantServerTiming();
+                        }
+                        broadcastChatFinal({
+                          context,
+                          runId: clientRunId,
+                          sessionKey,
+                          agentId,
+                          message,
+                        });
+                        broadcastedControlDirectorGuardedFinal = true;
                       }
-                      if (hasVisibleAssistantFinalMessage(message)) {
-                        emitFirstAssistantServerTiming();
-                      }
-                      broadcastChatFinal({
-                        context,
-                        runId: clientRunId,
-                        sessionKey,
-                        agentId,
-                        message,
-                      });
-                      broadcastedControlDirectorGuardedFinal = true;
                     }
                   }
                 }

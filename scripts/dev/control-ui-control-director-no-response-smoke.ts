@@ -22,6 +22,10 @@ export const CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS = Object.freeze([
   "Criticality:",
   "Status: blocked",
 ]);
+export const CONTROL_DIRECTOR_DISALLOWED_VISIBLE_MARKERS = Object.freeze([
+  "Control Director liveness watchdog",
+  "no recovered user-visible answer was available before final delivery",
+]);
 export const CONTROL_DIRECTOR_NO_RESPONSE_PROOF_SCRIPT = "ui:smoke:control-director-no-response";
 export const MOBILE_WEB_VIEWPORT_PROOF_KIND = "mobile web viewport proof";
 export const NATIVE_MOBILE_DEVICE_PROOF_KIND = "native mobile device proof";
@@ -260,6 +264,11 @@ export function validateVisibleBlockedText(
   const missing = CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS.filter(
     (marker) => !text.includes(marker),
   );
+  for (const marker of CONTROL_DIRECTOR_DISALLOWED_VISIBLE_MARKERS) {
+    if (text.includes(marker)) {
+      missing.push(`no delivered ${marker}`);
+    }
+  }
   if (/\bStatus\s*:\s*complete\b/iu.test(text)) {
     missing.push("no unsupported delivered Status: complete");
   }
