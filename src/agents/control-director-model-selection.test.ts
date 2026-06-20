@@ -66,8 +66,11 @@ describe("Control Director model selection preflight", () => {
     });
   });
 
-  test("blocks provider-qualified refs missing from the catalog", () => {
-    const result = preflight({ raw: "openai/not-installed" });
+  test("blocks provider-qualified refs missing from a populated catalog", () => {
+    const result = preflight({
+      raw: "openai/not-installed",
+      catalog: [{ provider: "openai", id: "gpt-5.5", name: "GPT-5.5" }],
+    });
 
     expect(result).toMatchObject({
       ok: false,
@@ -75,6 +78,17 @@ describe("Control Director model selection preflight", () => {
       provider: "openai",
       model: "not-installed",
     });
+  });
+
+  test("accepts explicit provider-qualified refs when the runtime catalog is empty", () => {
+    const result = preflight({ raw: "nvidia/moonshotai/kimi-k2.5" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "nvidia",
+      model: "moonshotai/kimi-k2.5",
+    });
+    expect(result.ok && result.warnings[0]).toContain("Model catalog was empty");
   });
 
   test("warns on very small context windows without blocking cataloged models", () => {
