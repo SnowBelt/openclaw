@@ -4,6 +4,7 @@ import {
   applyControlDirectorJudgeCompletionGate,
   applyControlDirectorLivenessWatchdog,
   applyControlDirectorTruthGate,
+  buildControlDirectorNeedsUserInputText,
   buildControlDirectorJudgeClaimHash,
   buildControlDirectorSystemPromptSection,
   decideControlDirectorContinuation,
@@ -569,12 +570,44 @@ describe("Control Director contract", () => {
     });
   });
 
-  it("repairs missing Control Director report fields without changing truthful blocked status", () => {
+  it("formats approval-only blockers as needs_user_input with copy-paste approval text", () => {
     const guarded = applyControlDirectorFinalOutputGuard({
       agentId: "main",
       payloads: [
         {
           text: "Status: blocked\nWaiting for user approval before running external validation.",
+        },
+      ],
+    });
+
+    expect(guarded.changed).toBe(true);
+    expect(guarded.audit).toMatchObject({
+      action: "repaired_missing_required_fields",
+      originalStatus: "blocked",
+      nextStatus: "needs_user_input",
+    });
+    expect(guarded.payloads[0]?.text).toContain("Status: needs_user_input");
+    expect(guarded.payloads[0]?.text).toContain("Copy/paste approval:");
+    expect(guarded.payloads[0]?.text).toContain("What happens after approval:");
+  });
+
+  it("builds a reusable Codex-style needs-user-input report", () => {
+    const text = buildControlDirectorNeedsUserInputText({
+      originalText: "Need approval to dispatch Workflow Sanity.",
+    });
+
+    expect(text).toContain("Status: needs_user_input");
+    expect(text).toContain("Copy/paste approval:");
+    expect(text).toContain("Completion Grade: 8/10");
+    expect(text).not.toContain("Status: blocked");
+  });
+
+  it("repairs missing Control Director report fields without changing truthful blocked status", () => {
+    const guarded = applyControlDirectorFinalOutputGuard({
+      agentId: "main",
+      payloads: [
+        {
+          text: "Status: blocked\nRuntime validation failed because provider schema diagnostics were missing.",
         },
       ],
     });

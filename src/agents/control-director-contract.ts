@@ -874,6 +874,44 @@ function buildControlDirectorBlockedCompletionText(params: {
   ].join("\n");
 }
 
+function isControlDirectorApprovalOnlyBlocker(text: string): boolean {
+  return (
+    /\b(approval|approve|permission|authorize|confirm|user action|user input)\b/iu.test(text) &&
+    !/\b(error|exception|failed|crash|invalid|unsupported|missing evidence|schema rejected)\b/iu.test(
+      text,
+    )
+  );
+}
+
+function summarizeControlDirectorApprovalRequest(text: string): string {
+  const normalized = summarizeControlDirectorOriginalText(text)
+    .replace(/\bstatus\s*:\s*(blocked|needs_user_input|complete|continuing)\b/giu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return normalized || "Approval is required before the Control Director can continue safely.";
+}
+
+export function buildControlDirectorNeedsUserInputText(params: {
+  originalText: string;
+  requestedAction?: string | undefined;
+}): string {
+  const requestedAction =
+    params.requestedAction?.replace(/\s+/gu, " ").trim() ||
+    summarizeControlDirectorApprovalRequest(params.originalText);
+  return [
+    "Control Director needs your approval before continuing.",
+    "",
+    "Verified state: The next action requires explicit user permission; no completion claim was delivered.",
+    `Blocked action: ${requestedAction}`,
+    "Copy/paste approval: I approve Codex to continue with the blocked action described above, limited to this Control Director task, and to report the verified result before claiming completion.",
+    "What happens after approval: Control Director will retry the exact blocked action, inspect evidence, and then return either a verified result or a specific blocker.",
+    "Next build gap: provide the approval text above or modify the requested action.",
+    "Completion Grade: 8/10",
+    "Criticality: 10/10",
+    "Status: needs_user_input",
+  ].join("\n");
+}
+
 function buildControlDirectorRepairedReportText(params: {
   originalText: string;
   evaluation: ControlDirectorResponseEvaluation;
@@ -1395,6 +1433,16 @@ function guardControlDirectorFinalText(text: string): {
       action: "rewrote_unsupported_complete",
       originalStatus: evaluation.status,
       nextStatus: "blocked",
+      missing: evaluation.missing,
+    };
+  }
+  if (isControlDirectorApprovalOnlyBlocker(text)) {
+    return {
+      text: buildControlDirectorNeedsUserInputText({ originalText: text }),
+      changed: true,
+      action: "repaired_missing_required_fields",
+      originalStatus: evaluation.status,
+      nextStatus: "needs_user_input",
       missing: evaluation.missing,
     };
   }
