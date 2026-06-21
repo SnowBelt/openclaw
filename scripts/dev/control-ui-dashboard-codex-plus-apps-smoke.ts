@@ -102,18 +102,45 @@ async function checkLivePage(input: {
   await page.waitForTimeout(2_000);
   const title = await page.title();
   const appPresent = (await page.locator("openclaw-app, #root").count()) > 0;
-  const authScreen = (await page.getByText("Auth required").count()) > 0;
-  const fallback = (await page.getByText("Control UI did not start").count()) > 0;
+  const visibleText =
+    (await page
+      .locator("body")
+      .evaluate((body) => {
+        const isVisible = (node: Element): boolean => {
+          const style = window.getComputedStyle(node);
+          if (style.display === "none" || style.visibility === "hidden") {
+            return false;
+          }
+          const rect = node.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        const texts: string[] = [];
+        let node = walker.nextNode();
+        while (node) {
+          const text = node.textContent?.trim();
+          const parent = node.parentElement;
+          if (text && parent && isVisible(parent)) {
+            texts.push(text);
+          }
+          node = walker.nextNode();
+        }
+        return texts.join("\n");
+      })
+      .catch(() => "")) ?? "";
+  const textSnapshot =
+    (await page
+      .locator("body")
+      .textContent()
+      .catch(() => "")) ?? "";
+  const authScreen = visibleText.includes("Auth required");
+  const fallback = visibleText.includes("Control UI did not start");
   const selectorCounts = Object.fromEntries(
     await Promise.all(
       selectors.map(async (selector) => [selector, await page.locator(selector).count()] as const),
     ),
   );
-  const textPreview =
-    (await page
-      .locator("body")
-      .textContent()
-      .catch(() => "")) ?? "";
+  const textPreview = textSnapshot;
   await page.screenshot({ path: screenshotPath, fullPage: true });
   const textOk = requiredText.every((expected) => textPreview.includes(expected));
   const selectorOk = selectors.every((selector) => selectorCounts[selector] > 0);
