@@ -1415,6 +1415,148 @@ describe("runCliTurnCompactionLifecycle", () => {
     );
   });
 
+  it("treats thrown already-compacted CLI transcript compaction as a non-fatal skip", async () => {
+    const sessionKey = "agent:main:cli-already-compacted-throw";
+    const sessionId = "session-cli-already-compacted-throw";
+    const sessionFile = path.join(tmpDir, "session-already-compacted-throw.jsonl");
+    const storePath = path.join(tmpDir, "sessions-already-compacted-throw.json");
+    await writeSessionFile({ sessionFile, sessionId });
+
+    const sessionEntry: SessionEntry = {
+      sessionId,
+      updatedAt: Date.now(),
+      sessionFile,
+      contextTokens: 1_000,
+      totalTokens: 950,
+      totalTokensFresh: true,
+    };
+    const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
+    await fs.writeFile(storePath, JSON.stringify(sessionStore, null, 2), "utf-8");
+
+    const compactCalls: Array<Parameters<ContextEngine["compact"]>[0]> = [];
+    const maintenance = vi.fn(async () => ({ changed: false, bytesFreed: 0, rewrittenEntries: 0 }));
+    const recordCliCompactionInStore = vi.fn();
+    setCliCompactionTestDeps({
+      resolveContextEngine: async () => ({
+        ...buildContextEngine({ compactCalls }),
+        async compact(compactParams) {
+          compactCalls.push(compactParams);
+          throw new Error("Already compacted");
+        },
+      }),
+      createPreparedEmbeddedAgentSettingsManager: async () => ({
+        getCompactionReserveTokens: () => 200,
+        getCompactionKeepRecentTokens: () => 0,
+        applyOverrides: () => {},
+      }),
+      shouldPreemptivelyCompactBeforePrompt: () => ({
+        route: "compact_only",
+        shouldCompact: true,
+        estimatedPromptTokens: 1_100,
+        promptBudgetBeforeReserve: 800,
+        overflowTokens: 300,
+        toolResultReducibleChars: 0,
+        effectiveReserveTokens: 200,
+      }),
+      resolveLiveToolResultMaxChars: () => 20_000,
+      runContextEngineMaintenance: maintenance,
+      recordCliCompactionInStore,
+    });
+
+    await expect(
+      runCliTurnCompactionLifecycle({
+        cfg: {} as OpenClawConfig,
+        sessionId,
+        sessionKey,
+        sessionEntry,
+        sessionStore,
+        storePath,
+        sessionAgentId: "main",
+        workspaceDir: tmpDir,
+        agentDir: tmpDir,
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+      }),
+    ).resolves.toBe(sessionEntry);
+
+    expect(compactCalls).toHaveLength(1);
+    expect(maintenance).not.toHaveBeenCalled();
+    expect(recordCliCompactionInStore).not.toHaveBeenCalled();
+  });
+
+  it("treats returned already-compacted CLI transcript compaction as a non-fatal skip", async () => {
+    const sessionKey = "agent:main:cli-already-compacted-result";
+    const sessionId = "session-cli-already-compacted-result";
+    const sessionFile = path.join(tmpDir, "session-already-compacted-result.jsonl");
+    const storePath = path.join(tmpDir, "sessions-already-compacted-result.json");
+    await writeSessionFile({ sessionFile, sessionId });
+
+    const sessionEntry: SessionEntry = {
+      sessionId,
+      updatedAt: Date.now(),
+      sessionFile,
+      contextTokens: 1_000,
+      totalTokens: 950,
+      totalTokensFresh: true,
+    };
+    const sessionStore: Record<string, SessionEntry> = { [sessionKey]: sessionEntry };
+    await fs.writeFile(storePath, JSON.stringify(sessionStore, null, 2), "utf-8");
+
+    const compactCalls: Array<Parameters<ContextEngine["compact"]>[0]> = [];
+    const maintenance = vi.fn(async () => ({ changed: false, bytesFreed: 0, rewrittenEntries: 0 }));
+    const recordCliCompactionInStore = vi.fn();
+    setCliCompactionTestDeps({
+      resolveContextEngine: async () => ({
+        ...buildContextEngine({ compactCalls }),
+        async compact(compactParams) {
+          compactCalls.push(compactParams);
+          return {
+            ok: false,
+            compacted: false,
+            reason: "already_compacted_recently",
+          };
+        },
+      }),
+      createPreparedEmbeddedAgentSettingsManager: async () => ({
+        getCompactionReserveTokens: () => 200,
+        getCompactionKeepRecentTokens: () => 0,
+        applyOverrides: () => {},
+      }),
+      shouldPreemptivelyCompactBeforePrompt: () => ({
+        route: "compact_only",
+        shouldCompact: true,
+        estimatedPromptTokens: 1_100,
+        promptBudgetBeforeReserve: 800,
+        overflowTokens: 300,
+        toolResultReducibleChars: 0,
+        effectiveReserveTokens: 200,
+      }),
+      resolveLiveToolResultMaxChars: () => 20_000,
+      runContextEngineMaintenance: maintenance,
+      recordCliCompactionInStore,
+    });
+
+    await expect(
+      runCliTurnCompactionLifecycle({
+        cfg: {} as OpenClawConfig,
+        sessionId,
+        sessionKey,
+        sessionEntry,
+        sessionStore,
+        storePath,
+        sessionAgentId: "main",
+        workspaceDir: tmpDir,
+        agentDir: tmpDir,
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+      }),
+    ).resolves.toBe(sessionEntry);
+
+    expect(compactCalls).toHaveLength(1);
+    expect(maintenance).not.toHaveBeenCalled();
+    expect(recordCliCompactionInStore).not.toHaveBeenCalled();
+  });
+
   it("skips compaction when backend declares ownsNativeCompaction and has no harness endpoint", async () => {
     const sessionKey = "agent:main:claude-owns-compaction";
     const sessionId = "session-claude-owns";
