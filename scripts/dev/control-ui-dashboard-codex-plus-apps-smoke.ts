@@ -109,18 +109,13 @@ async function checkLivePage(input: {
       selectors.map(async (selector) => [selector, await page.locator(selector).count()] as const),
     ),
   );
-  const requiredTextMatches = await Promise.all(
-    requiredText.map(
-      async (expected) => [expected, await page.getByText(expected).count()] as const,
-    ),
-  );
   const textPreview =
     (await page
       .locator("body")
       .textContent()
       .catch(() => "")) ?? "";
   await page.screenshot({ path: screenshotPath, fullPage: true });
-  const textOk = requiredTextMatches.every(([, count]) => count > 0);
+  const textOk = requiredText.every((expected) => textPreview.includes(expected));
   const selectorOk = selectors.every((selector) => selectorCounts[selector] > 0);
   const ok =
     title === "OpenClaw Control" && appPresent && !fallback && !authScreen && textOk && selectorOk;
