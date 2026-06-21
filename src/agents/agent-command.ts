@@ -2171,9 +2171,11 @@ async function agentCommandInternal(
         classification: result.meta.agentHarnessResultClassification,
       });
       const isRecoverableStuckAbort = result.meta.agentRunFailure?.kind === "stuck_recovery_abort";
+      const controlDirectorRecoveryClassification =
+        initialControlDirectorClassification ?? (isRecoverableStuckAbort ? "empty" : undefined);
       if (
         isControlDirectorAgentId(sessionAgentId) &&
-        initialControlDirectorClassification &&
+        controlDirectorRecoveryClassification &&
         (result.meta.aborted !== true || isRecoverableStuckAbort) &&
         opts.abortSignal?.aborted !== true &&
         !result.meta.pendingToolCalls?.length
@@ -2188,7 +2190,7 @@ async function agentCommandInternal(
         const recoveryDecision = decideControlDirectorContinuation({
           agentId: sessionAgentId,
           incomplete: true,
-          classification: initialControlDirectorClassification,
+          classification: controlDirectorRecoveryClassification,
           continuationCount: previousContinuationCount,
           canQueueContinuation: true,
         });
@@ -2232,7 +2234,7 @@ async function agentCommandInternal(
                 sessionEntry,
               }),
               runId,
-              classification: initialControlDirectorClassification,
+              classification: controlDirectorRecoveryClassification,
               attempt: recoveryDecision.nextContinuationCount,
               maxAttempts: 2,
               reason: recoveryDecision.reason,
