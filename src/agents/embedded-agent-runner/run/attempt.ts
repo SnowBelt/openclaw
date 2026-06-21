@@ -87,6 +87,11 @@ import {
   materializeBundleMcpToolsForRun,
 } from "../../agent-bundle-mcp-tools.js";
 import { createPreparedEmbeddedAgentSettingsManager } from "../../agent-project-settings.js";
+import {
+  buildAgentRunFailureDiagnostic,
+  classifyAgentRunFailureKind,
+  type AgentRunFailureDiagnostic,
+} from "../../agent-run-failure-diagnostics.js";
 import { resolveAgentDir, resolveSessionAgentIds } from "../../agent-scope.js";
 import {
   applyAgentAutoCompactionGuard,
@@ -958,6 +963,7 @@ export async function runEmbeddedAttempt(
   let timedOutDuringCompaction = false;
   let timedOutDuringToolExecution = false;
   let promptError: unknown = null;
+  let agentRunFailure: AgentRunFailureDiagnostic | undefined;
   let emitDiagnosticRunCompleted:
     | ((
         outcome: "completed" | "aborted" | "blocked" | "error",
@@ -994,6 +1000,30 @@ export async function runEmbeddedAttempt(
     const err = new Error("request timed out");
     err.name = "TimeoutError";
     return err;
+  };
+  const rememberAgentRunFailure = (paramsLocal: {
+    reason?: unknown;
+    timedOut?: boolean;
+    kind?: AgentRunFailureDiagnostic["kind"];
+  }) => {
+    const kind =
+      paramsLocal.kind ??
+      classifyAgentRunFailureKind({
+        reason: paramsLocal.reason,
+        timedOut: paramsLocal.timedOut,
+      });
+    if (!kind) {
+      return;
+    }
+    agentRunFailure = buildAgentRunFailureDiagnostic({
+      kind,
+      reason: paramsLocal.reason,
+      provider: params.provider,
+      model: params.modelId,
+      runId: params.runId,
+      sessionId: params.sessionId,
+      sessionKey: params.sessionKey,
+    });
   };
   const cleanupEmbeddedPrepResourcesAfterEarlyExit = async () => {
     if (toolSearchCatalogApplied) {
@@ -1043,6 +1073,7 @@ export async function runEmbeddedAttempt(
       return;
     }
     aborted = true;
+    rememberAgentRunFailure({ reason, timedOut: timeout });
     if (timeout) {
       timedOut = true;
       if (!timedOutDuringCompaction && countActiveToolExecutions(params.runId) > 0) {
@@ -1075,6 +1106,7 @@ export async function runEmbeddedAttempt(
       const abortError = createAttemptAbortError(params.abortSignal);
       aborted = true;
       externalAbort = true;
+      rememberAgentRunFailure({ reason: getAbortReason(params.abortSignal) });
       promptError = abortError;
       await cleanupEmbeddedPrepResourcesAfterEarlyExit();
       throw abortError;
@@ -3201,6 +3233,7 @@ export async function runEmbeddedAttempt(
       };
       const abortRun = (isTimeout = false, reason?: unknown) => {
         aborted = true;
+        rememberAgentRunFailure({ reason, timedOut: isTimeout });
         if (isTimeout) {
           timedOut = true;
           if (!timedOutDuringCompaction && countActiveToolExecutions(params.runId) > 0) {
@@ -3499,9 +3532,9 @@ export async function runEmbeddedAttempt(
         }
       };
 
-      const abortActiveRunExternally = () => {
+      const abortActiveRunExternally = (reason?: unknown) => {
         externalAbort = true;
-        abortRun();
+        abortRun(false, reason);
       };
       const queueHandle: EmbeddedAgentQueueHandle & {
         kind: "embedded";
@@ -5370,6 +5403,7 @@ export async function runEmbeddedAttempt(
         timedOutDuringCompaction,
         timedOutDuringToolExecution,
         promptError,
+        agentRunFailure,
         promptErrorSource,
         preflightRecovery,
         sessionIdUsed,

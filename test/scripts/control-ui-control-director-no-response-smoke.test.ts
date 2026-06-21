@@ -91,8 +91,10 @@ iPad unavailable (17.5) (0000)`),
     expect(
       validateVisibleBlockedText(
         [
+          "Control Director could not produce a usable final answer for this turn.",
           "Control Director liveness watchdog prevented a silent or non-terminal final response.",
           "Verified state: no user-visible payload was available.",
+          "Classification: empty.",
           "Root cause: Control Director run ended with empty classification.",
           "Actions attempted: no recovered user-visible answer was available before final delivery.",
           "Next build gap: resolve liveness blocker.",
@@ -105,7 +107,9 @@ iPad unavailable (17.5) (0000)`),
       ok: false,
       missing: expect.arrayContaining([
         "no delivered Control Director liveness watchdog",
+        "no delivered Control Director could not produce a usable final answer",
         "no delivered no recovered user-visible answer was available before final delivery",
+        "no delivered Classification: empty",
       ]),
     });
   });

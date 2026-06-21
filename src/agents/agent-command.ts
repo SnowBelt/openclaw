@@ -1,6 +1,7 @@
 /** Main agent command orchestration for sessions, model selection, delivery, and attempts. */
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
+import { setReplyPayloadMetadata } from "../auto-reply/reply-payload.js";
 import { resolveInlineAgentImageAttachments } from "../auto-reply/reply/agent-turn-attachments.js";
 import { sanitizePendingFinalDeliveryText } from "../auto-reply/reply/pending-final-delivery.js";
 import {
@@ -225,6 +226,84 @@ function parseAgentCommandModelRef(
   return parsed
     ? normalizeAgentCommandModelRef(cfg, parsed.provider, parsed.model, modelManifestContext)
     : null;
+}
+
+function formatModelRefString(provider: string, model: string): string {
+  return `${provider}/${model}`;
+}
+
+function parseRecoveryFallbackModelRef(params: {
+  cfg: OpenClawConfig;
+  raw: string;
+  defaultProvider: string;
+  modelManifestContext: ModelManifestNormalizationContext;
+}): { provider: string; model: string } | null {
+  const parsed = parseAgentCommandModelRef(
+    params.cfg,
+    params.raw,
+    params.defaultProvider,
+    params.modelManifestContext,
+  );
+  if (parsed) {
+    return parsed;
+  }
+  const slashIndex = params.raw.indexOf("/");
+  if (slashIndex <= 0 || slashIndex >= params.raw.length - 1) {
+    return null;
+  }
+  return normalizeAgentCommandModelRef(
+    params.cfg,
+    params.raw.slice(0, slashIndex),
+    params.raw.slice(slashIndex + 1),
+    params.modelManifestContext,
+  );
+}
+
+function resolveStuckAbortRecoveryModelSelection(params: {
+  cfg: OpenClawConfig;
+  provider: string;
+  model: string;
+  fallbacksOverride: string[] | undefined;
+  modelManifestContext: ModelManifestNormalizationContext;
+}): {
+  provider: string;
+  model: string;
+  fallbacksOverride: string[];
+} | null {
+  const current = normalizeAgentCommandModelRef(
+    params.cfg,
+    params.provider,
+    params.model,
+    params.modelManifestContext,
+  );
+  const currentKey = modelKey(current.provider, current.model);
+  const resolvedFallbacks = (params.fallbacksOverride ?? [])
+    .map((fallback) =>
+      parseRecoveryFallbackModelRef({
+        cfg: params.cfg,
+        raw: fallback,
+        defaultProvider: params.provider,
+        modelManifestContext: params.modelManifestContext,
+      }),
+    )
+    .filter((candidate): candidate is { provider: string; model: string } => Boolean(candidate));
+  const primary = resolvedFallbacks.find(
+    (candidate) => modelKey(candidate.provider, candidate.model) !== currentKey,
+  );
+  if (!primary) {
+    return null;
+  }
+  const remaining = resolvedFallbacks.filter(
+    (candidate) =>
+      candidate !== primary && modelKey(candidate.provider, candidate.model) !== currentKey,
+  );
+  return {
+    provider: primary.provider,
+    model: primary.model,
+    fallbacksOverride: remaining.map((candidate) =>
+      formatModelRefString(candidate.provider, candidate.model),
+    ),
+  };
 }
 
 type AttemptExecutionRuntime = typeof import("./command/attempt-execution.runtime.js");
@@ -2091,10 +2170,11 @@ async function agentCommandInternal(
         livenessState: result.meta.livenessState,
         classification: result.meta.agentHarnessResultClassification,
       });
+      const isRecoverableStuckAbort = result.meta.agentRunFailure?.kind === "stuck_recovery_abort";
       if (
         isControlDirectorAgentId(sessionAgentId) &&
         initialControlDirectorClassification &&
-        result.meta.aborted !== true &&
+        (result.meta.aborted !== true || isRecoverableStuckAbort) &&
         opts.abortSignal?.aborted !== true &&
         !result.meta.pendingToolCalls?.length
       ) {
@@ -2113,21 +2193,7 @@ async function agentCommandInternal(
           canQueueContinuation: true,
         });
         if (recoveryDecision.shouldQueue) {
-          controlDirectorInlineRecoveryAttempted = true;
-          const recoveryBody = buildControlDirectorInlineRecoveryBody({
-            currentBody: body,
-            originalBody: resolveControlDirectorRecoveryOriginalRequest({
-              currentBody: body,
-              sessionEntry,
-            }),
-            runId,
-            classification: initialControlDirectorClassification,
-            attempt: recoveryDecision.nextContinuationCount,
-            maxAttempts: 2,
-            reason: recoveryDecision.reason,
-          });
-          let recoveryFallbackAttemptIndex = 0;
-          const recoveryFallbacksOverride = resolveEffectiveModelFallbacks({
+          const baseRecoveryFallbacksOverride = resolveEffectiveModelFallbacks({
             cfg,
             agentId: sessionAgentId,
             sessionKey,
@@ -2138,97 +2204,142 @@ async function agentCommandInternal(
               ? false
               : hasStoredAutoFallbackProvenance,
           });
-          const recoveryResult = await runWithModelFallback<AgentAttemptResult>({
-            cfg,
-            provider,
-            model,
-            ...modelManifestContext,
-            runId,
-            agentDir,
-            agentId: sessionAgentId,
-            sessionId,
-            sessionKey: sessionKey ?? sessionId,
-            fallbacksOverride: recoveryFallbacksOverride,
-            onFallbackStep: (step) => {
-              fallbackTrajectoryRecorder?.recordEvent("model.inline_recovery_fallback_step", step);
-            },
-            classifyResult: ({ provider: providerLocal, model: modelLocal, result: resultLocal }) =>
-              classifyEmbeddedAgentRunResultForModelFallback({
+          const recoveryModelSelection = isRecoverableStuckAbort
+            ? resolveStuckAbortRecoveryModelSelection({
+                cfg,
+                provider,
+                model,
+                fallbacksOverride: baseRecoveryFallbacksOverride,
+                modelManifestContext,
+              })
+            : {
+                provider,
+                model,
+                fallbacksOverride: baseRecoveryFallbacksOverride,
+              };
+          if (!recoveryModelSelection) {
+            fallbackTrajectoryRecorder?.recordEvent("model.inline_recovery_skipped", {
+              reason: "stuck_recovery_no_callable_fallback",
+              stalledProvider: provider,
+              stalledModel: model,
+            });
+          } else {
+            controlDirectorInlineRecoveryAttempted = true;
+            const recoveryBody = buildControlDirectorInlineRecoveryBody({
+              currentBody: body,
+              originalBody: resolveControlDirectorRecoveryOriginalRequest({
+                currentBody: body,
+                sessionEntry,
+              }),
+              runId,
+              classification: initialControlDirectorClassification,
+              attempt: recoveryDecision.nextContinuationCount,
+              maxAttempts: 2,
+              reason: recoveryDecision.reason,
+            });
+            let recoveryFallbackAttemptIndex = 0;
+            const recoveryFallbacksOverride = recoveryModelSelection.fallbacksOverride;
+            const recoveryResult = await runWithModelFallback<AgentAttemptResult>({
+              cfg,
+              provider: recoveryModelSelection.provider,
+              model: recoveryModelSelection.model,
+              ...modelManifestContext,
+              runId,
+              agentDir,
+              agentId: sessionAgentId,
+              sessionId,
+              sessionKey: sessionKey ?? sessionId,
+              fallbacksOverride: recoveryFallbacksOverride,
+              onFallbackStep: (step) => {
+                fallbackTrajectoryRecorder?.recordEvent(
+                  "model.inline_recovery_fallback_step",
+                  step,
+                );
+              },
+              classifyResult: ({
                 provider: providerLocal,
                 model: modelLocal,
                 result: resultLocal,
-              }),
-            abortSignal: opts.abortSignal,
-            run: async (providerOverride, modelOverride, runOptions) => {
-              const isFallbackRetry = recoveryFallbackAttemptIndex > 0;
-              recoveryFallbackAttemptIndex += 1;
-              opts.onActiveModelSelected?.({
-                provider: providerOverride,
-                model: modelOverride,
-              });
-              return attemptExecutionRuntime.runAgentAttempt({
-                providerOverride,
-                modelOverride,
-                modelFallbacksOverride: recoveryFallbacksOverride,
-                originalProvider: provider,
-                cfg,
-                sessionEntry,
-                sessionId,
-                sessionKey,
-                sessionAgentId,
-                sessionFile: attemptSessionFile,
-                workspaceDir,
-                cwd,
-                body: recoveryBody,
-                isFallbackRetry,
-                resolvedThinkLevel,
-                fastMode: resolveFastModeState({
-                  cfg,
+              }) =>
+                classifyEmbeddedAgentRunResultForModelFallback({
+                  provider: providerLocal,
+                  model: modelLocal,
+                  result: resultLocal,
+                }),
+              abortSignal: opts.abortSignal,
+              run: async (providerOverride, modelOverride, runOptions) => {
+                const isFallbackRetry = recoveryFallbackAttemptIndex > 0;
+                recoveryFallbackAttemptIndex += 1;
+                opts.onActiveModelSelected?.({
                   provider: providerOverride,
                   model: modelOverride,
-                  agentId: sessionAgentId,
+                });
+                return attemptExecutionRuntime.runAgentAttempt({
+                  providerOverride,
+                  modelOverride,
+                  modelFallbacksOverride: recoveryFallbacksOverride,
+                  originalProvider: provider,
+                  cfg,
                   sessionEntry,
-                }).enabled,
-                timeoutMs,
-                runTimeoutOverrideMs,
-                runId,
-                opts,
-                runContext,
-                spawnedBy: normalizedSpawned.spawnedBy ?? sessionEntry?.spawnedBy,
-                messageChannel,
-                skillsSnapshot,
-                resolvedVerboseLevel,
-                agentDir,
-                authProfileProvider: providerForAuthProfileValidation,
-                sessionStore: suppressVisibleSessionEffects ? undefined : sessionStore,
-                storePath: suppressVisibleSessionEffects ? undefined : storePath,
-                pluginsEnabled,
-                ...(manifestMetadataSnapshot ? { metadataSnapshot: manifestMetadataSnapshot } : {}),
-                allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
-                sessionHasHistory: true,
-                suppressPromptPersistenceOnRetry: true,
-                onUserMessagePersisted: attemptLifecycleCallbacks.onUserMessagePersisted,
-                onAgentEvent: attemptLifecycleCallbacks.onAgentEvent,
-                deferTerminalLifecycleEnd: true,
-              });
-            },
-          });
-          result = recoveryResult.result;
-          fallbackProvider = recoveryResult.provider;
-          fallbackModel = recoveryResult.model;
-          if (recoveryResult.attempts.length > 0 && result.meta.agentMeta) {
-            result = {
-              ...result,
-              meta: {
-                ...result.meta,
-                agentMeta: {
-                  ...result.meta.agentMeta,
-                  fallbackAttempts: recoveryResult.attempts,
-                },
+                  sessionId,
+                  sessionKey,
+                  sessionAgentId,
+                  sessionFile: attemptSessionFile,
+                  workspaceDir,
+                  cwd,
+                  body: recoveryBody,
+                  isFallbackRetry,
+                  resolvedThinkLevel,
+                  fastMode: resolveFastModeState({
+                    cfg,
+                    provider: providerOverride,
+                    model: modelOverride,
+                    agentId: sessionAgentId,
+                    sessionEntry,
+                  }).enabled,
+                  timeoutMs,
+                  runTimeoutOverrideMs,
+                  runId,
+                  opts,
+                  runContext,
+                  spawnedBy: normalizedSpawned.spawnedBy ?? sessionEntry?.spawnedBy,
+                  messageChannel,
+                  skillsSnapshot,
+                  resolvedVerboseLevel,
+                  agentDir,
+                  authProfileProvider: providerForAuthProfileValidation,
+                  sessionStore: suppressVisibleSessionEffects ? undefined : sessionStore,
+                  storePath: suppressVisibleSessionEffects ? undefined : storePath,
+                  pluginsEnabled,
+                  ...(manifestMetadataSnapshot
+                    ? { metadataSnapshot: manifestMetadataSnapshot }
+                    : {}),
+                  allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
+                  sessionHasHistory: true,
+                  suppressPromptPersistenceOnRetry: true,
+                  onUserMessagePersisted: attemptLifecycleCallbacks.onUserMessagePersisted,
+                  onAgentEvent: attemptLifecycleCallbacks.onAgentEvent,
+                  deferTerminalLifecycleEnd: true,
+                });
               },
-            };
+            });
+            result = recoveryResult.result;
+            fallbackProvider = recoveryResult.provider;
+            fallbackModel = recoveryResult.model;
+            if (recoveryResult.attempts.length > 0 && result.meta.agentMeta) {
+              result = {
+                ...result,
+                meta: {
+                  ...result.meta,
+                  agentMeta: {
+                    ...result.meta.agentMeta,
+                    fallbackAttempts: recoveryResult.attempts,
+                  },
+                },
+              };
+            }
+            await fallbackTrajectoryRecorder?.flush();
           }
-          await fallbackTrajectoryRecorder?.flush();
         }
       }
 
@@ -2334,6 +2445,11 @@ async function agentCommandInternal(
       }
 
       let payloads = result.payloads ?? [];
+      if (result.meta.agentRunFailure) {
+        payloads = payloads.map((payload) =>
+          setReplyPayloadMetadata(payload, { agentRunFailure: result.meta.agentRunFailure }),
+        );
+      }
       const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
         agentId: sessionAgentId,
         provider: result.meta.agentMeta?.provider ?? provider,
@@ -2348,6 +2464,7 @@ async function agentCommandInternal(
         }),
         canQueueContinuation: Boolean(sessionKey) && !controlDirectorInlineRecoveryAttempted,
         externalAbort: result.meta.aborted === true || opts.abortSignal?.aborted === true,
+        agentRunFailure: result.meta.agentRunFailure,
         approvalPending: Boolean(result.meta.pendingToolCalls?.length),
         runId,
         sessionId: effectiveSessionId,

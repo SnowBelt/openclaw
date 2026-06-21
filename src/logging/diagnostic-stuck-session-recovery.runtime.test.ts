@@ -34,7 +34,7 @@ vi.mock("../agents/embedded-agent-runner/runs.js", () => ({
     forceClear?: boolean;
     reason?: string;
   }) => {
-    const aborted = mocks.abortEmbeddedAgentRun(params.sessionId);
+    const aborted = mocks.abortEmbeddedAgentRun(params.sessionId, { reason: params.reason });
     const drained = aborted
       ? await mocks.waitForEmbeddedAgentRunEnd(params.sessionId, params.settleMs)
       : false;
@@ -180,7 +180,9 @@ describe("stuck session recovery", () => {
       queueDepth: 1,
     });
 
-    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("session-1");
+    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("session-1", {
+      reason: "stuck_recovery",
+    });
     expect(outcome.status).toBe("aborted");
     expect(warnLogMessages().some((m) => m.includes("reclaiming stale active run"))).toBe(true);
   });
@@ -196,7 +198,9 @@ describe("stuck session recovery", () => {
       allowActiveAbort: true,
     });
 
-    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("session-1");
+    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("session-1", {
+      reason: "stuck_recovery",
+    });
     expect(mocks.waitForEmbeddedAgentRunEnd).toHaveBeenCalledWith("session-1", 15_000);
     expect(mocks.forceClearEmbeddedAgentRun).not.toHaveBeenCalled();
     expect(mocks.resetCommandLane).not.toHaveBeenCalled();
@@ -228,7 +232,9 @@ describe("stuck session recovery", () => {
       forceCleared: false,
       released: 1,
     });
-    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("session-tool");
+    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("session-tool", {
+      reason: "stuck_recovery",
+    });
     expect(mocks.waitForEmbeddedAgentRunEnd).toHaveBeenCalledWith("session-tool", 15_000);
     expect(mocks.resetCommandLane).toHaveBeenCalledWith(
       "session:agent:main:telegram:group:-1003821464158:topic:4836",
@@ -435,7 +441,9 @@ describe("stuck session recovery", () => {
       allowActiveAbort: true,
     });
 
-    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("queued-reply-session");
+    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("queued-reply-session", {
+      reason: "stuck_recovery",
+    });
     expect(mocks.waitForEmbeddedAgentRunEnd).toHaveBeenCalledWith("queued-reply-session", 15_000);
     expect(mocks.forceClearEmbeddedAgentRun).not.toHaveBeenCalled();
     expect(mocks.resetCommandLane).toHaveBeenCalledWith("session:agent:main:main");
@@ -471,7 +479,9 @@ describe("stuck session recovery", () => {
       allowActiveAbort: true,
     });
 
-    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("ghost-run-session");
+    expect(mocks.abortEmbeddedAgentRun).toHaveBeenCalledWith("ghost-run-session", {
+      reason: "stuck_recovery",
+    });
     expect(mocks.resetCommandLane).toHaveBeenCalledWith("session:agent:ghost:ghost");
     expect(outcome).toMatchObject({
       status: "aborted",

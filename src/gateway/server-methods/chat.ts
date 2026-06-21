@@ -1006,7 +1006,7 @@ function hasVisibleAssistantFinalMessage(message: Record<string, unknown> | unde
 }
 
 const CONTROL_DIRECTOR_LIVENESS_FINAL_TEXT_RE =
-  /Control Director liveness watchdog prevented|no recovered user-visible answer was available before final delivery/iu;
+  /Control Director liveness watchdog prevented|Control Director could not produce a usable final answer|no recovered user-visible answer was available before final delivery/iu;
 
 function isControlDirectorLivenessFinalText(text: string | undefined): boolean {
   return Boolean(text && CONTROL_DIRECTOR_LIVENESS_FINAL_TEXT_RE.test(text));
@@ -4274,6 +4274,9 @@ export const chatHandlers: GatewayRequestHandlers = {
                   const onlyInternalStatusOrErrorPayloads = rawAgentFinalPayloads.every(
                     (payload) => isReplyPayloadStatusNotice(payload) || payload.isError === true,
                   );
+                  const agentRunFailure = rawAgentFinalPayloads
+                    .map((payload) => getReplyPayloadMetadata(payload)?.agentRunFailure)
+                    .find(Boolean);
                   const {
                     storePath: latestStorePath,
                     store: latestStore,
@@ -4295,6 +4298,8 @@ export const chatHandlers: GatewayRequestHandlers = {
                           ? undefined
                           : "empty",
                       canQueueContinuation: true,
+                      externalAbort: Boolean(agentRunFailure),
+                      agentRunFailure,
                       runId: clientRunId,
                       sessionId,
                       sessionKey,

@@ -24,7 +24,9 @@ export const CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS = Object.freeze([
 ]);
 export const CONTROL_DIRECTOR_DISALLOWED_VISIBLE_MARKERS = Object.freeze([
   "Control Director liveness watchdog",
+  "Control Director could not produce a usable final answer",
   "no recovered user-visible answer was available before final delivery",
+  "Classification: empty",
 ]);
 export const CONTROL_DIRECTOR_NO_RESPONSE_PROOF_SCRIPT = "ui:smoke:control-director-no-response";
 export const MOBILE_WEB_VIEWPORT_PROOF_KIND = "mobile web viewport proof";

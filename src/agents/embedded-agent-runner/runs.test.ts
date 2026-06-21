@@ -46,7 +46,7 @@ type RunHandle = Parameters<typeof setActiveEmbeddedRun>[1];
 
 function createRunHandle(
   overrides: {
-    abort?: () => void;
+    abort?: (reason?: unknown) => void;
     isCompacting?: boolean;
     isStreaming?: boolean;
     supportsTranscriptCommitWait?: boolean;
@@ -356,7 +356,7 @@ describe("embedded-agent runner run registry", () => {
       const result = await resultPromise;
 
       expect(result).toEqual({ aborted: true, drained: false, forceCleared: true });
-      expect(abortRun).toHaveBeenCalledTimes(1);
+      expect(abortRun).toHaveBeenCalledWith("test_timeout");
       expect(isEmbeddedAgentRunHandleActive("session-stuck")).toBe(false);
       expect(resolveActiveEmbeddedRunHandleSessionId("agent:main")).toBeUndefined();
     } finally {
