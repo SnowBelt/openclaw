@@ -869,6 +869,25 @@ function makeStuckRecoveryAbortResult(provider: string, model: string) {
   };
 }
 
+function makeStuckTimeoutAbortResult(provider: string, model: string) {
+  return {
+    payloads: [{ text: "LLM request timed out." }],
+    meta: {
+      durationMs: 390_000,
+      aborted: true,
+      stopReason: "aborted",
+      livenessState: "working",
+      agentMeta: { provider, model },
+      agentRunFailure: {
+        kind: "stuck_recovery_abort",
+        provider,
+        model,
+        abortReason: "stuck_recovery",
+      },
+    },
+  };
+}
+
 function setupModelSwitchRetry(switchOptions: ModelSwitchOptions) {
   let invocation = 0;
   state.runWithModelFallbackMock.mockImplementation(async (params: FallbackRunnerParams) => {
@@ -2893,6 +2912,47 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     expect(JSON.stringify(payloads)).not.toContain(
       "Control Director could not produce a usable final answer",
     );
+  });
+
+  it("recovers a Control Director stuck timeout payload instead of delivering the timeout text", async () => {
+    state.resolvedAgentIdMock = "main";
+    (state.defaultRuntimeConfig.agents as { list?: unknown }).list = [
+      { id: "main", default: true },
+    ];
+    state.resolveEffectiveModelFallbacksMock.mockReturnValue(["openai/gpt-5.4"]);
+    state.runWithModelFallbackMock.mockImplementation(async (params: FallbackRunnerParams) => {
+      const result = await params.run(params.provider, params.model);
+      return {
+        result,
+        provider: params.provider,
+        model: params.model,
+        attempts: [],
+      };
+    });
+    state.runAgentAttemptMock
+      .mockResolvedValueOnce(
+        makeStuckTimeoutAbortResult("ollama", "openclaw-control-gemma4-31b-q8:latest"),
+      )
+      .mockResolvedValueOnce(makeSuccessResult("openai", "gpt-5.4"));
+
+    await agentCommand({
+      message: "redo the Stanski game",
+      to: "+1234567890",
+      agentId: "main",
+      sessionKey: "agent:main:main",
+    });
+
+    expect(state.runWithModelFallbackMock).toHaveBeenCalledTimes(2);
+    const recoveryCall = mockCallArg(state.runWithModelFallbackMock, 1) as FallbackRunnerParams;
+    expect(recoveryCall.provider).toBe("openai");
+    expect(recoveryCall.model).toBe("gpt-5.4");
+    expect(state.runAgentAttemptMock).toHaveBeenCalledTimes(2);
+    const deliveryParams = requireRecord(
+      mockCallArg(state.deliverAgentCommandResultMock),
+      "delivery params",
+    );
+    const result = requireRecord(deliveryParams.result, "delivery result");
+    expect(JSON.stringify(result.payloads)).not.toContain("LLM request timed out");
   });
 
   it("updates hasSessionModelOverride for fallback resolution after switch", async () => {
