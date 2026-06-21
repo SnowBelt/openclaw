@@ -327,6 +327,7 @@ If your deployment uses restrictive skill allowlists, include the reliability
 skills the Control Director needs for production investigation and validation.
 For OpenClaw maintainer workspaces, the usual set is:
 
+- `control-director-work-completion`: preserve the original request, keep working until verified, and report exact blockers instead of generic recovery text.
 - `openclaw-testing`: choose and run the right local or CI proof.
 - `openclaw-qa-testing`: run and inspect QA Lab or channel proof.
 - `crabbox`: use remote Linux validation when local proof is insufficient.
@@ -341,7 +342,12 @@ Control Director skill set on the `main` agent when you override it:
       {
         id: "main",
         identity: { name: "Control Director" },
-        skills: ["openclaw-testing", "openclaw-qa-testing", "crabbox"],
+        skills: [
+          "control-director-work-completion",
+          "openclaw-testing",
+          "openclaw-qa-testing",
+          "crabbox",
+        ],
       },
     ],
   },

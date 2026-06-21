@@ -780,6 +780,21 @@ describe("Control Director contract", () => {
     expect(scorecard.nextBuildGap).toContain("Deterministic eval suite");
   });
 
+  it("describes the persistent work-completion loop in the Control Director prompt", () => {
+    const section = buildControlDirectorSystemPromptSection("main").join("\n");
+
+    expect(section).toContain("Do not stop at advice or a proposed next step");
+    expect(section).toContain("Do not stop at a plan when execution is safe");
+    expect(section).toContain("if the user explicitly asks only for a plan");
+    expect(section).toContain("follow this work-completion loop");
+    expect(section).toContain("preserve the original request");
+    expect(section).toContain("perform the needed safe actions");
+    expect(section).toContain("verify evidence");
+    expect(section).toContain(
+      "Do not treat generic runtime failure text, timeout text, or recovery metadata as the final answer",
+    );
+  });
+
   it("keeps routine Control Director turns non-thinking", () => {
     expect(
       resolveControlDirectorThinkingEscalation({
