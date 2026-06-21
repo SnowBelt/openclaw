@@ -684,12 +684,36 @@ function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow)
 // The shared loader renders visible fallback states instead of leaving a tab blank.
 const lazyAgents = createLazyView(() => import("./views/agents.ts"), notifyLazyViewChanged);
 const lazyActivity = createLazyView(() => import("./views/activity.ts"), notifyLazyViewChanged);
+const lazyAppStudio = createLazyView(
+  () => import("./views/app-studio-dashboard.ts"),
+  notifyLazyViewChanged,
+);
 const lazyChannels = createLazyView(() => import("./views/channels.ts"), notifyLazyViewChanged);
 const lazyCron = createLazyView(() => import("./views/cron.ts"), notifyLazyViewChanged);
 const lazyDebug = createLazyView(() => import("./views/debug.ts"), notifyLazyViewChanged);
 const lazyInstances = createLazyView(() => import("./views/instances.ts"), notifyLazyViewChanged);
+const lazyKalshi = createLazyView(
+  () => import("./views/kalshi-dashboard.ts"),
+  notifyLazyViewChanged,
+);
+const lazyBookWriter = createLazyView(
+  () => import("./views/book-writer-dashboard.ts"),
+  notifyLazyViewChanged,
+);
 const lazyLogs = createLazyView(() => import("./views/logs.ts"), notifyLazyViewChanged);
 const lazyNodes = createLazyView(() => import("./views/nodes.ts"), notifyLazyViewChanged);
+const lazyPatternLab = createLazyView(
+  () => import("./views/pattern-lab-dashboard.ts"),
+  notifyLazyViewChanged,
+);
+const lazyMusicStudio = createLazyView(
+  () => import("./views/music-studio.ts"),
+  notifyLazyViewChanged,
+);
+const lazySnesStudio = createLazyView(
+  () => import("./views/snes-studio.ts"),
+  notifyLazyViewChanged,
+);
 const lazySessions = createLazyView(() => import("./views/sessions.ts"), notifyLazyViewChanged);
 const lazySkillWorkshop = createLazyView(
   () => import("./views/skill-workshop.ts"),
@@ -2788,6 +2812,525 @@ export function renderApp(state: AppViewState) {
               onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
               onRefreshLogs: () => void state.loadOverview({ refresh: true }),
             })
+          : nothing}
+        ${state.tab === "appStudio"
+          ? renderLazyView(lazyAppStudio, (m) =>
+              m.renderAppStudioDashboard({
+                loading: state.appStudioLoading,
+                error: state.appStudioError,
+                snapshot: state.appStudioDashboard,
+                lastFetchAt: state.appStudioLastFetchAt,
+                selectedAppDir: state.appStudioSelectedAppDir,
+                promptDraft: state.appStudioPromptDraft,
+                createNameDraft: state.appStudioCreateNameDraft,
+                createAppIdDraft: state.appStudioCreateAppIdDraft,
+                createBundleIdDraft: state.appStudioCreateBundleIdDraft,
+                savingAction: state.appStudioSavingAction,
+                actionReceipt: state.appStudioActionReceipt,
+                appleFactsDraft: state.appStudioAppleFactsDraft,
+                buildEngineDraft: state.appStudioBuildEngineDraft,
+                screenImageDrafts: state.appStudioScreenImageDrafts,
+                screenImageNotesDraft: state.appStudioScreenImageNotesDraft,
+                screenAnalysisDraft: state.appStudioScreenAnalysisDraft,
+                flowDraft: state.appStudioFlowDraft,
+                actionStartedAt: state.appStudioActionStartedAt,
+                onRefresh: () => {
+                  void state.loadAppStudioDashboard({ quiet: false });
+                },
+                onSelectProject: (appDir) => {
+                  void state.selectAppStudioProject(appDir);
+                },
+                onPromptDraftChange: (value) => {
+                  state.appStudioPromptDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCreateNameDraftChange: (value) => {
+                  state.appStudioCreateNameDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCreateAppIdDraftChange: (value) => {
+                  state.appStudioCreateAppIdDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCreateBundleIdDraftChange: (value) => {
+                  state.appStudioCreateBundleIdDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCreateProject: () => {
+                  void state.createAppStudioProject();
+                },
+                onApplyPrompt: () => {
+                  void state.applyAppStudioPrompt();
+                },
+                onBuildEngineChange: (buildEngine) => {
+                  void state.setAppStudioBuildEngine(buildEngine);
+                },
+                onRunGate: (gate) => {
+                  void state.runAppStudioGate(gate);
+                },
+                onMoveScreen: (screenId, direction) =>
+                  void state.reorderAppStudioScreens(screenId, direction),
+                onScreenOrderChange: (screenIds) => {
+                  void state.setAppStudioScreenOrder(screenIds);
+                },
+                onScreenImageFilesChange: (files) => {
+                  void state.updateAppStudioScreenImageFiles(files);
+                },
+                onScreenImageNotesChange: (value) => state.updateAppStudioScreenImageNotes(value),
+                onImportScreenImages: () => {
+                  void state.importAppStudioScreenImages();
+                },
+                onScreenAnalysisDraftChange: (value) =>
+                  state.updateAppStudioScreenAnalysisDraft(value),
+                onApplyScreenAnalysis: () => {
+                  void state.applyAppStudioScreenAnalysis();
+                },
+                onFlowDraftChange: (field, value) => state.updateAppStudioFlowDraft(field, value),
+                onAddScreenFlowEdge: () => {
+                  void state.addAppStudioScreenFlowConnection();
+                },
+                onRemoveScreenFlowEdge: (edgeId) =>
+                  void state.removeAppStudioScreenFlowConnection(edgeId),
+                onAppleFactChange: (field, value) => state.updateAppStudioAppleFact(field, value),
+                onImportAppleFacts: () => {
+                  void state.importAppStudioAppleFacts();
+                },
+                onApproveGate: (approvalId) => {
+                  void state.approveAppStudioGate(approvalId);
+                },
+                onDismissReceipt: () => state.dismissAppStudioReceipt(),
+              }),
+            )
+          : nothing}
+        ${state.tab === "kalshi"
+          ? renderLazyView(lazyKalshi, (m) =>
+              m.renderKalshiDashboard({
+                loading: state.kalshiDashboardLoading,
+                error: state.kalshiDashboardError,
+                snapshot: state.kalshiDashboard,
+                lastFetchAt: state.kalshiDashboardLastFetchAt,
+                timezone: state.kalshiDashboardTimezone,
+                timeframe: state.kalshiDashboardTimeframe,
+                pnlTimeframe: state.kalshiDashboardPnlTimeframe,
+                strategySort: state.kalshiDashboardStrategySort,
+                showDeepAudit: state.kalshiDashboardShowDeepAudit,
+                auditTablePages: state.kalshiDashboardAuditPages,
+                auditTableQueries: state.kalshiDashboardAuditQueries,
+                onTimezoneChange: (timezone) => {
+                  state.kalshiDashboardTimezone = timezone;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onTimeframeChange: (timeframe) => {
+                  state.kalshiDashboardTimeframe = timeframe;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onPnlTimeframeChange: (timeframe) => {
+                  state.kalshiDashboardPnlTimeframe = timeframe;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onStrategySortChange: (sort) => {
+                  state.kalshiDashboardStrategySort = sort;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onToggleDeepAudit: () => {
+                  const nextShowDeepAudit = !state.kalshiDashboardShowDeepAudit;
+                  state.kalshiDashboardShowDeepAudit = nextShowDeepAudit;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  if (nextShowDeepAudit) {
+                    void state.loadKalshiDashboard({
+                      auditTablePages: state.kalshiDashboardAuditPages,
+                      auditTableQueries: state.kalshiDashboardAuditQueries,
+                      force: true,
+                      view: "full",
+                    });
+                  }
+                },
+                onAuditTablePageChange: (table, page) => {
+                  state.kalshiDashboardAuditPages = {
+                    ...state.kalshiDashboardAuditPages,
+                    [table]: page,
+                  };
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  if (state.kalshiDashboardShowDeepAudit) {
+                    void state.loadKalshiDashboard({
+                      auditTablePages: state.kalshiDashboardAuditPages,
+                      auditTableQueries: state.kalshiDashboardAuditQueries,
+                      force: true,
+                      view: "full",
+                    });
+                  }
+                },
+                onAuditTableQueryChange: (table, query) => {
+                  state.kalshiDashboardAuditQueries = {
+                    ...state.kalshiDashboardAuditQueries,
+                    [table]: query,
+                  };
+                  state.kalshiDashboardAuditPages = {
+                    ...state.kalshiDashboardAuditPages,
+                    [table]: 1,
+                  };
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  if (state.kalshiDashboardShowDeepAudit) {
+                    void state.loadKalshiDashboard({
+                      auditTablePages: state.kalshiDashboardAuditPages,
+                      auditTableQueries: state.kalshiDashboardAuditQueries,
+                      force: true,
+                      view: "full",
+                    });
+                  }
+                },
+                onRefresh: () => {
+                  void state.loadKalshiDashboard({
+                    auditTablePages: state.kalshiDashboardAuditPages,
+                    auditTableQueries: state.kalshiDashboardAuditQueries,
+                    force: true,
+                    view: state.kalshiDashboardShowDeepAudit ? "full" : "workspace",
+                  });
+                },
+              }),
+            )
+          : nothing}
+        ${state.tab === "bookWriter"
+          ? renderLazyView(lazyBookWriter, (m) =>
+              m.renderBookWriterDashboard({
+                loading: state.bookWriterLoading,
+                error: state.bookWriterError,
+                snapshot: state.bookWriterDashboard,
+                lastFetchAt: state.bookWriterLastFetchAt,
+                selectedRunId: state.bookWriterSelectedRunId,
+                topicDraft: state.bookWriterTopicDraft,
+                targetWordsDraft: state.bookWriterTargetWordsDraft,
+                toneDraft: state.bookWriterToneDraft,
+                customToneDraft: state.bookWriterCustomToneDraft,
+                profanityDraft: state.bookWriterProfanityDraft,
+                penNameDraft: state.bookWriterPenNameDraft,
+                newBookSetupOpen: state.bookWriterNewBookSetupOpen,
+                readPage: state.bookWriterReadPage,
+                readPreviewOpen: state.bookWriterReadPreviewOpen,
+                readPreviewMode: state.bookWriterReadPreviewMode,
+                activeView: state.bookWriterActiveView,
+                mode: state.bookWriterMode,
+                pendingAiAction: state.bookWriterPendingAiAction,
+                pendingAiSuggestion: state.bookWriterPendingAiSuggestion,
+                pendingDestructiveAction: state.bookWriterPendingDestructiveAction,
+                actionReceipt: state.bookWriterActionReceipt,
+                celebration: state.bookWriterCelebration,
+                focusedParagraphId: state.bookWriterFocusedParagraphId,
+                searchQuery: state.bookWriterSearchQuery,
+                savingAction: state.bookWriterSavingAction,
+                canUndo: state.bookWriterUndoStack.length > 0,
+                canRedo: state.bookWriterRedoStack.length > 0,
+                onRefresh: () => {
+                  void state.loadBookWriterDashboard({ quiet: false });
+                },
+                onSelectRun: (runId) => {
+                  state.bookWriterNewBookSetupOpen = false;
+                  void state.loadBookWriterDashboard({ runId });
+                },
+                onTopicDraftChange: (value) => {
+                  state.bookWriterTopicDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onTargetWordsDraftChange: (value) => {
+                  state.bookWriterTargetWordsDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onToneDraftChange: (value) => {
+                  state.bookWriterToneDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCustomToneDraftChange: (value) => {
+                  state.bookWriterCustomToneDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onProfanityDraftChange: (value) => {
+                  state.bookWriterProfanityDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onPenNameDraftChange: (value) => {
+                  state.bookWriterPenNameDraft = value;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onOpenNewBookSetup: () => {
+                  state.bookWriterNewBookSetupOpen = true;
+                  state.bookWriterMode = "guided";
+                  state.bookWriterActiveView = "brief";
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCloseNewBookSetup: () => {
+                  state.bookWriterNewBookSetupOpen = false;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCreatePlan: () => {
+                  void state.createBookWriterPlan();
+                },
+                onFixBook: () => {
+                  void state.fixBookWriterPlan();
+                },
+                onSavePlan: (plan) => {
+                  void state.saveBookWriterPlan(plan);
+                },
+                onDeleteRun: (runId) => {
+                  void state.deleteBookWriterPlan(runId);
+                },
+                onArchiveRun: (runId) => {
+                  void state.archiveBookWriterPlan(runId);
+                },
+                onCopyRun: (runId) => {
+                  void state.copyBookWriterPlan(runId);
+                },
+                onRestoreArchivedRun: (archivedId) =>
+                  void state.restoreArchivedBookWriterPlan(archivedId),
+                onDeleteArchivedRun: (archivedId) => {
+                  void state.deleteArchivedBookWriterPlan(archivedId);
+                },
+                onRestoreDeletedRun: (deletedId) => {
+                  void state.restoreDeletedBookWriterPlan(deletedId);
+                },
+                onDeleteDeletedRun: (deletedId) => {
+                  void state.deleteDeletedBookWriterPlan(deletedId);
+                },
+                onEmptyDeletedRuns: () => {
+                  void state.emptyDeletedBookWriterPlans();
+                },
+                onFinishRun: (runId, proof) => {
+                  void state.finishBookWriterPlan(runId, proof);
+                },
+                onRestoreFinishedRun: (finishedId) =>
+                  void state.restoreFinishedBookWriterPlan(finishedId),
+                onUpdatePublishedMetrics: (finishedId, metrics) =>
+                  void state.updatePublishedBookWriterMetrics(finishedId, metrics),
+                onBuildRecommendedBook: (topicParagraph) => {
+                  state.bookWriterTopicDraft = topicParagraph;
+                  state.bookWriterSelectedRunId = null;
+                  state.bookWriterNewBookSetupOpen = true;
+                  state.bookWriterMode = "guided";
+                  state.bookWriterActiveView = "brief";
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  void state.loadBookWriterDashboard({ runId: null, quiet: true });
+                },
+                onDraftPlan: () => {
+                  void state.draftBookWriterPlan();
+                },
+                onFillParagraphPlans: (chapterId) => {
+                  void state.fillBookWriterParagraphPlans(chapterId);
+                },
+                onGenerateIdeaSetup: (targets) => {
+                  void state.generateBookWriterIdeaSetup(targets);
+                },
+                onGenerateChapterSetup: (targets) => {
+                  void state.generateBookWriterChapterSetup(targets);
+                },
+                onUpdatePenNameProfile: (profile) => {
+                  void state.updateBookWriterPenNameProfile(profile);
+                },
+                onDraftParagraph: (paragraphId, replaceExisting) =>
+                  void state.draftBookWriterParagraph(paragraphId, replaceExisting),
+                onStitchPlan: () => {
+                  void state.stitchBookWriterPlan();
+                },
+                onPackagePlan: () => {
+                  void state.packageBookWriterPlan();
+                },
+                onPreparePublish: () => {
+                  void state.prepareBookWriterPublish();
+                },
+                onPreparePublishWithCoverStrategy: (coverStrategy) =>
+                  void state.prepareBookWriterPublishWithCoverStrategy(coverStrategy),
+                onGenerateCoverConcept: () => {
+                  void state.generateBookWriterCoverConcept();
+                },
+                onGenerateEditableCoverConcept: () =>
+                  void state.generateBookWriterEditableCoverConcept(),
+                onEditCoverWithLocalAi: (variantId, instruction) =>
+                  void state.editBookWriterCoverWithLocalAi(variantId, instruction),
+                onApproveCover: (variantId) => {
+                  void state.approveBookWriterCover(variantId);
+                },
+                onUploadCoverFile: (file) => {
+                  void state.uploadBookWriterCoverFile(file);
+                },
+                onDisableAutomation: () => {
+                  void state.disableBookWriterAutomation();
+                },
+                onCreateQuickRead: () => {
+                  void state.createBookWriterQuickRead();
+                },
+                onShowHome: () => {
+                  state.bookWriterNewBookSetupOpen = false;
+                  state.bookWriterMode = "guided";
+                  state.bookWriterActiveView = "brief";
+                  state.bookWriterSelectedRunId = null;
+                  state.bookWriterPendingAiAction = null;
+                  state.bookWriterPendingAiSuggestion = null;
+                  state.bookWriterPendingDestructiveAction = null;
+                  state.bookWriterActionReceipt = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  void state.loadBookWriterDashboard({ runId: null, quiet: false });
+                },
+                onActiveViewChange: (view) => {
+                  state.bookWriterActiveView = view;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onReadPageChange: (page) => {
+                  state.bookWriterReadPage = page;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onReadPreviewOpenChange: (open) => {
+                  state.bookWriterReadPreviewOpen = open;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onReadPreviewModeChange: (mode) => {
+                  state.bookWriterReadPreviewMode = mode;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onModeChange: (mode) => {
+                  state.bookWriterMode = mode;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onFocusedParagraphChange: (paragraphId) => {
+                  state.bookWriterFocusedParagraphId = paragraphId;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onRequestAiHelp: (request) => {
+                  void state.requestBookWriterAiHelp(request);
+                },
+                onRequestSetupAiHelp: (intent, customDirection) =>
+                  void state.requestBookWriterSetupAiHelp(intent, customDirection),
+                onCancelAiSuggestion: () => state.cancelBookWriterAiSuggestion(),
+                onApplyAiSuggestion: (suggestion, value) =>
+                  void state.applyBookWriterAiSuggestion(suggestion, value),
+                onRequestAiAction: (action) => {
+                  state.bookWriterPendingAiAction = action;
+                  state.bookWriterActionReceipt = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCancelAiAction: () => {
+                  state.bookWriterPendingAiAction = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onConfirmAiAction: (action) => {
+                  state.bookWriterPendingAiAction = null;
+                  state.bookWriterActionReceipt = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  switch (action) {
+                    case "create":
+                      void state.createBookWriterPlan();
+                      break;
+                    case "full-draft":
+                      void state.createBookWriterFullDraft();
+                      break;
+                    case "paragraph-plan":
+                      state.bookWriterActiveView = "paragraphs";
+                      (state as { requestUpdate?: () => void }).requestUpdate?.();
+                      break;
+                    case "draft":
+                      void state.draftBookWriterPlan();
+                      break;
+                    case "propagate":
+                      void state.propagateBookWriterStoryChange();
+                      break;
+                    case "rebalance":
+                      void state.rebalanceBookWriterStructure();
+                      break;
+                    case "stitch":
+                      void state.stitchBookWriterPlan();
+                      break;
+                    case "package":
+                      void state.packageBookWriterPlan();
+                      break;
+                    case "fix":
+                      void state.fixBookWriterPlan();
+                      break;
+                    case "publish":
+                      void state.prepareBookWriterPublish();
+                      break;
+                    case "cover-local-ai":
+                      void state.generateBookWriterCoverConcept();
+                      break;
+                    case "cover-concept":
+                    case "cover-generate":
+                      void state.generateBookWriterEditableCoverConcept();
+                      break;
+                    default:
+                      action satisfies never;
+                  }
+                },
+                onRequestDestructiveAction: (action) => {
+                  state.bookWriterPendingDestructiveAction = action;
+                  state.bookWriterActionReceipt = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onCancelDestructiveAction: () => {
+                  state.bookWriterPendingDestructiveAction = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onConfirmDestructiveAction: (action) => {
+                  state.bookWriterPendingDestructiveAction = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                  switch (action.kind) {
+                    case "move-active":
+                      void state.deleteBookWriterPlan(action.runId);
+                      break;
+                    case "move-active-many":
+                      void state.deleteActiveBookWriterPlans(action.runIds);
+                      break;
+                    case "delete-archived":
+                      void state.deleteArchivedBookWriterPlan(action.archivedId);
+                      break;
+                    case "delete-deleted":
+                      void state.deleteDeletedBookWriterPlan(action.deletedId);
+                      break;
+                    case "empty-deleted":
+                      void state.emptyDeletedBookWriterPlans();
+                      break;
+                  }
+                },
+                onDismissReceipt: () => {
+                  state.bookWriterActionReceipt = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onDismissCelebration: () => {
+                  state.bookWriterCelebration = null;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onSearchQueryChange: (query) => {
+                  state.bookWriterSearchQuery = query;
+                  (state as { requestUpdate?: () => void }).requestUpdate?.();
+                },
+                onUndo: () => {
+                  void state.undoBookWriterEdit();
+                },
+                onRedo: () => {
+                  void state.redoBookWriterEdit();
+                },
+              }),
+            )
+          : nothing}
+        ${state.tab === "patternLab"
+          ? renderLazyView(lazyPatternLab, (m) =>
+              m.renderPatternLabDashboard({
+                loading: state.patternLabDashboardLoading,
+                error: state.patternLabDashboardError,
+                snapshot: state.patternLabDashboard,
+                lastFetchAt: state.patternLabDashboardLastFetchAt,
+                approvingAssetType: state.patternLabApprovalBusy,
+                basePath: state.basePath ?? "",
+                authToken: resolveAssistantAttachmentAuthToken(state),
+                onRefresh: () => {
+                  void state.loadPatternLabDashboard();
+                },
+                onApproveAssetType: (assetType) => {
+                  void state.approvePatternLabAssetType(assetType);
+                },
+              }),
+            )
+          : nothing}
+        ${state.tab === "musicStudio"
+          ? renderLazyView(lazyMusicStudio, (m) => m.renderMusicStudio(state))
+          : nothing}
+        ${state.tab === "snesStudio"
+          ? renderLazyView(lazySnesStudio, (m) => m.renderSnesStudio(state))
           : nothing}
         ${state.tab === "activity"
           ? renderLazyView(lazyActivity, (m) =>

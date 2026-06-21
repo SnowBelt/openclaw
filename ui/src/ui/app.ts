@@ -101,7 +101,100 @@ import {
   loadToolsEffective as loadToolsEffectiveInternal,
   refreshVisibleToolsEffectiveForCurrentSession as refreshVisibleToolsEffectiveForCurrentSessionInternal,
 } from "./controllers/agents.ts";
+import {
+  addAppStudioScreenFlowConnection as addAppStudioScreenFlowConnectionInternal,
+  applyAppStudioPrompt as applyAppStudioPromptInternal,
+  applyAppStudioScreenAnalysis as applyAppStudioScreenAnalysisInternal,
+  approveAppStudioGate as approveAppStudioGateInternal,
+  createAppStudioProject as createAppStudioProjectInternal,
+  DEFAULT_APP_STUDIO_APPLE_FACTS,
+  DEFAULT_APP_STUDIO_BUILD_ENGINE,
+  DEFAULT_APP_STUDIO_FLOW_DRAFT,
+  DEFAULT_APP_STUDIO_PROMPT,
+  dismissAppStudioReceipt as dismissAppStudioReceiptInternal,
+  importAppStudioAppleFacts as importAppStudioAppleFactsInternal,
+  importAppStudioScreenImages as importAppStudioScreenImagesInternal,
+  loadAppStudioDashboard as loadAppStudioDashboardInternal,
+  removeAppStudioScreenFlowConnection as removeAppStudioScreenFlowConnectionInternal,
+  reorderAppStudioScreens as reorderAppStudioScreensInternal,
+  runAppStudioGate as runAppStudioGateInternal,
+  selectAppStudioProject as selectAppStudioProjectInternal,
+  setAppStudioBuildEngine as setAppStudioBuildEngineInternal,
+  setAppStudioScreenOrder as setAppStudioScreenOrderInternal,
+  updateAppStudioAppleFact as updateAppStudioAppleFactInternal,
+  updateAppStudioFlowDraft as updateAppStudioFlowDraftInternal,
+  updateAppStudioScreenAnalysisDraft as updateAppStudioScreenAnalysisDraftInternal,
+  updateAppStudioScreenImageFiles as updateAppStudioScreenImageFilesInternal,
+  updateAppStudioScreenImageNotes as updateAppStudioScreenImageNotesInternal,
+  type AppStudioActionReceipt,
+  type AppStudioAppleFactsDraft,
+  type AppStudioBuildEngine,
+  type AppStudioDashboardSnapshot,
+  type AppStudioFlowDraft,
+  type AppStudioGateId,
+  type AppStudioScreenImageDraft,
+} from "./controllers/app-studio-dashboard.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
+import {
+  applyBookWriterAiSuggestion as applyBookWriterAiSuggestionInternal,
+  approveBookWriterCover as approveBookWriterCoverInternal,
+  archiveBookWriterPlan as archiveBookWriterPlanInternal,
+  cancelBookWriterAiSuggestion as cancelBookWriterAiSuggestionInternal,
+  copyBookWriterPlan as copyBookWriterPlanInternal,
+  createBookWriterFullDraft as createBookWriterFullDraftInternal,
+  createBookWriterPlan as createBookWriterPlanInternal,
+  createBookWriterQuickRead as createBookWriterQuickReadInternal,
+  deleteActiveBookWriterPlans as deleteActiveBookWriterPlansInternal,
+  deleteArchivedBookWriterPlan as deleteArchivedBookWriterPlanInternal,
+  deleteBookWriterPlan as deleteBookWriterPlanInternal,
+  deleteDeletedBookWriterPlan as deleteDeletedBookWriterPlanInternal,
+  disableBookWriterAutomation as disableBookWriterAutomationInternal,
+  draftBookWriterParagraph as draftBookWriterParagraphInternal,
+  draftBookWriterPlan as draftBookWriterPlanInternal,
+  editBookWriterCoverWithLocalAi as editBookWriterCoverWithLocalAiInternal,
+  emptyDeletedBookWriterPlans as emptyDeletedBookWriterPlansInternal,
+  fillBookWriterParagraphPlans as fillBookWriterParagraphPlansInternal,
+  finishBookWriterPlan as finishBookWriterPlanInternal,
+  fixBookWriterPlan as fixBookWriterPlanInternal,
+  generateBookWriterChapterSetup as generateBookWriterChapterSetupInternal,
+  generateBookWriterCoverConcept as generateBookWriterCoverConceptInternal,
+  generateBookWriterEditableCoverConcept as generateBookWriterEditableCoverConceptInternal,
+  generateBookWriterIdeaSetup as generateBookWriterIdeaSetupInternal,
+  loadBookWriterDashboard as loadBookWriterDashboardInternal,
+  packageBookWriterPlan as packageBookWriterPlanInternal,
+  prepareBookWriterPublish as prepareBookWriterPublishInternal,
+  prepareBookWriterPublishWithCoverStrategy as prepareBookWriterPublishWithCoverStrategyInternal,
+  propagateBookWriterStoryChange as propagateBookWriterStoryChangeInternal,
+  rebalanceBookWriterStructure as rebalanceBookWriterStructureInternal,
+  redoBookWriterEdit as redoBookWriterEditInternal,
+  requestBookWriterAiHelp as requestBookWriterAiHelpInternal,
+  requestBookWriterSetupAiHelp as requestBookWriterSetupAiHelpInternal,
+  restoreArchivedBookWriterPlan as restoreArchivedBookWriterPlanInternal,
+  restoreDeletedBookWriterPlan as restoreDeletedBookWriterPlanInternal,
+  restoreFinishedBookWriterPlan as restoreFinishedBookWriterPlanInternal,
+  saveBookWriterPlan as saveBookWriterPlanInternal,
+  stitchBookWriterPlan as stitchBookWriterPlanInternal,
+  undoBookWriterEdit as undoBookWriterEditInternal,
+  updateBookWriterPenNameProfile as updateBookWriterPenNameProfileInternal,
+  updatePublishedBookWriterMetrics as updatePublishedBookWriterMetricsInternal,
+  uploadBookWriterCoverFile as uploadBookWriterCoverFileInternal,
+  type BookWriterActionReceipt,
+  type BookWriterAiAction,
+  type BookWriterAiHelpRequest,
+  type BookWriterAiHelpSuggestion,
+  type BookWriterCelebration,
+  type BookWriterChapterSetupTarget,
+  type BookWriterDashboardMode,
+  type BookWriterDashboardSnapshot,
+  type BookWriterDashboardView,
+  type BookWriterDestructiveAction,
+  type BookWriterIdeaSetupTarget,
+  type BookWriterPlan,
+  type BookWriterProfanityLevel,
+  type BookWriterPublishedMetrics,
+  type BookWriterPublishedProof,
+  type BookWriterTonePreset,
+} from "./controllers/book-writer-dashboard.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type {
   DreamingStatus,
@@ -115,6 +208,16 @@ import {
   type ExecApprovalRequest,
 } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import {
+  loadKalshiDashboard as loadKalshiDashboardInternal,
+  type KalshiDashboardSnapshot,
+} from "./controllers/kalshi-dashboard.ts";
+import {
+  approvePatternLabAssetType as approvePatternLabAssetTypeInternal,
+  loadPatternLabDashboard as loadPatternLabDashboardInternal,
+  type PatternLabAssetType,
+  type PatternLabDashboardSnapshot,
+} from "./controllers/pattern-lab-dashboard.ts";
 import {
   loadSkillWorkshopProposals,
   type SkillWorkshopState,
@@ -369,6 +472,75 @@ export class OpenClawApp extends LitElement {
   @state() chatMobileControlsOpen = false;
   private chatMobileControlsTrigger: HTMLElement | null = null;
   @state() navDrawerOpen = false;
+  @state() kalshiDashboardLoading = false;
+  @state() kalshiDashboardError: string | null = null;
+  @state() kalshiDashboard: KalshiDashboardSnapshot | null = null;
+  @state() kalshiDashboardLastFetchAt: number | null = null;
+  @state() kalshiDashboardTimezone = "America/New_York";
+  @state() kalshiDashboardTimeframe = "24h";
+  @state() kalshiDashboardPnlTimeframe = "all";
+  @state() kalshiDashboardStrategySort: import("./views/kalshi-dashboard.js").KalshiStrategySort =
+    "problem_first";
+  @state() kalshiDashboardShowDeepAudit = false;
+  @state() kalshiDashboardAuditPages: Record<string, number> = {};
+  @state() kalshiDashboardAuditQueries: Record<string, string> = {};
+  kalshiDashboardPollInterval: number | null = null;
+  dashboardPollInterval: number | null = null;
+  dashboardPollInFlight = false;
+  @state() patternLabDashboardLoading = false;
+  @state() patternLabDashboardError: string | null = null;
+  @state() patternLabDashboard: PatternLabDashboardSnapshot | null = null;
+  @state() patternLabDashboardLastFetchAt: number | null = null;
+  @state() patternLabApprovalBusy: PatternLabAssetType | null = null;
+  @state() bookWriterLoading = false;
+  @state() bookWriterError: string | null = null;
+  @state() bookWriterDashboard: BookWriterDashboardSnapshot | null = null;
+  @state() bookWriterLastFetchAt: number | null = null;
+  @state() bookWriterSelectedRunId: string | null = null;
+  @state() bookWriterTopicDraft = "";
+  @state() bookWriterTargetWordsDraft = 12000;
+  @state() bookWriterToneDraft: BookWriterTonePreset = "professional";
+  @state() bookWriterCustomToneDraft = "";
+  @state() bookWriterProfanityDraft: BookWriterProfanityLevel = "none";
+  @state() bookWriterPenNameDraft = "";
+  @state() bookWriterNewBookSetupOpen = false;
+  @state() bookWriterReadPage = 0;
+  @state() bookWriterReadPreviewOpen = false;
+  @state() bookWriterReadPreviewMode: "paperback" | "ebook" = "paperback";
+  @state() bookWriterActiveView: BookWriterDashboardView = "brief";
+  @state() bookWriterMode: BookWriterDashboardMode = "guided";
+  @state() bookWriterPendingAiAction: BookWriterAiAction | null = null;
+  @state() bookWriterPendingAiSuggestion: BookWriterAiHelpSuggestion | null = null;
+  @state() bookWriterPendingDestructiveAction: BookWriterDestructiveAction | null = null;
+  @state() bookWriterActionReceipt: BookWriterActionReceipt | null = null;
+  @state() bookWriterCelebration: BookWriterCelebration | null = null;
+  @state() bookWriterFocusedParagraphId: string | null = null;
+  @state() bookWriterSearchQuery = "";
+  @state() bookWriterSavingAction: string | null = null;
+  @state() bookWriterUndoStack: BookWriterPlan[] = [];
+  @state() bookWriterRedoStack: BookWriterPlan[] = [];
+  @state() appStudioLoading = false;
+  @state() appStudioError: string | null = null;
+  @state() appStudioDashboard: AppStudioDashboardSnapshot | null = null;
+  @state() appStudioLastFetchAt: number | null = null;
+  @state() appStudioSelectedAppDir: string | null = null;
+  @state() appStudioPromptDraft = DEFAULT_APP_STUDIO_PROMPT;
+  @state() appStudioCreateNameDraft = "";
+  @state() appStudioCreateAppIdDraft = "";
+  @state() appStudioCreateBundleIdDraft = "";
+  @state() appStudioSavingAction: string | null = null;
+  @state() appStudioActionReceipt: AppStudioActionReceipt | null = null;
+  @state() appStudioAppleFactsDraft: AppStudioAppleFactsDraft = {
+    ...DEFAULT_APP_STUDIO_APPLE_FACTS,
+  };
+  @state() appStudioBuildEngineDraft: AppStudioBuildEngine = DEFAULT_APP_STUDIO_BUILD_ENGINE;
+  @state() appStudioScreenImageDrafts: AppStudioScreenImageDraft[] = [];
+  @state() appStudioScreenImageNotesDraft = "";
+  @state() appStudioScreenAnalysisDraft = "";
+  @state() appStudioFlowDraft: AppStudioFlowDraft = { ...DEFAULT_APP_STUDIO_FLOW_DRAFT };
+  appStudioLivePollTimer: ReturnType<typeof setInterval> | null = null;
+  appStudioLivePollAppDir: string | null = null;
+  @state() appStudioActionStartedAt: number | null = null;
 
   onSlashAction?: (action: string) => void | Promise<void>;
   chatLocalInputHistoryBySession: Record<string, Array<{ text: string; ts: number }>> = {};
@@ -1187,6 +1359,303 @@ export class OpenClawApp extends LitElement {
 
   async loadCron() {
     await loadCronInternal(this as unknown as Parameters<typeof loadCronInternal>[0]);
+  }
+
+  async loadKalshiDashboard(opts?: {
+    auditTablePages?: Record<string, number>;
+    auditTableQueries?: Record<string, string>;
+    force?: boolean;
+    quiet?: boolean;
+    view?: "full" | "workspace";
+  }) {
+    await loadKalshiDashboardInternal(this, opts);
+  }
+
+  async loadPatternLabDashboard() {
+    await loadPatternLabDashboardInternal(this);
+  }
+
+  async approvePatternLabAssetType(assetType: PatternLabAssetType) {
+    await approvePatternLabAssetTypeInternal(this, assetType);
+  }
+
+  async loadBookWriterDashboard(opts?: { runId?: string | null; quiet?: boolean }) {
+    await loadBookWriterDashboardInternal(this, opts);
+  }
+
+  async createBookWriterPlan() {
+    await createBookWriterPlanInternal(this);
+  }
+
+  async createBookWriterFullDraft() {
+    await createBookWriterFullDraftInternal(this);
+  }
+
+  async saveBookWriterPlan(plan: BookWriterPlan) {
+    await saveBookWriterPlanInternal(this, plan);
+  }
+
+  async deleteBookWriterPlan(runId: string) {
+    await deleteBookWriterPlanInternal(this, runId);
+  }
+
+  async deleteActiveBookWriterPlans(runIds: string[]) {
+    await deleteActiveBookWriterPlansInternal(this, runIds);
+  }
+
+  async archiveBookWriterPlan(runId: string) {
+    await archiveBookWriterPlanInternal(this, runId);
+  }
+
+  async restoreArchivedBookWriterPlan(archivedId: string) {
+    await restoreArchivedBookWriterPlanInternal(this, archivedId);
+  }
+
+  async deleteArchivedBookWriterPlan(archivedId: string) {
+    await deleteArchivedBookWriterPlanInternal(this, archivedId);
+  }
+
+  async copyBookWriterPlan(runId: string) {
+    await copyBookWriterPlanInternal(this, runId);
+  }
+
+  async restoreDeletedBookWriterPlan(deletedId: string) {
+    await restoreDeletedBookWriterPlanInternal(this, deletedId);
+  }
+
+  async deleteDeletedBookWriterPlan(deletedId: string) {
+    await deleteDeletedBookWriterPlanInternal(this, deletedId);
+  }
+
+  async emptyDeletedBookWriterPlans() {
+    await emptyDeletedBookWriterPlansInternal(this);
+  }
+
+  async finishBookWriterPlan(runId: string, proof?: BookWriterPublishedProof) {
+    await finishBookWriterPlanInternal(this, runId, proof);
+  }
+
+  async restoreFinishedBookWriterPlan(finishedId: string) {
+    await restoreFinishedBookWriterPlanInternal(this, finishedId);
+  }
+
+  async updatePublishedBookWriterMetrics(finishedId: string, metrics: BookWriterPublishedMetrics) {
+    await updatePublishedBookWriterMetricsInternal(this, finishedId, metrics);
+  }
+
+  async draftBookWriterPlan() {
+    await draftBookWriterPlanInternal(this);
+  }
+
+  async fillBookWriterParagraphPlans(chapterId?: string) {
+    await fillBookWriterParagraphPlansInternal(this, chapterId);
+  }
+
+  async generateBookWriterIdeaSetup(targets: BookWriterIdeaSetupTarget[]) {
+    await generateBookWriterIdeaSetupInternal(this, targets);
+  }
+
+  async generateBookWriterChapterSetup(targets: BookWriterChapterSetupTarget[]) {
+    await generateBookWriterChapterSetupInternal(this, targets);
+  }
+
+  async updateBookWriterPenNameProfile(profile: {
+    name: string;
+    lane: string;
+    readerPromise: string;
+  }) {
+    await updateBookWriterPenNameProfileInternal(this, profile);
+  }
+
+  async draftBookWriterParagraph(paragraphId: string, replaceExisting?: boolean) {
+    await draftBookWriterParagraphInternal(this, paragraphId, replaceExisting);
+  }
+
+  async propagateBookWriterStoryChange() {
+    await propagateBookWriterStoryChangeInternal(this);
+  }
+
+  async rebalanceBookWriterStructure() {
+    await rebalanceBookWriterStructureInternal(this);
+  }
+
+  async stitchBookWriterPlan() {
+    await stitchBookWriterPlanInternal(this);
+  }
+
+  async packageBookWriterPlan() {
+    await packageBookWriterPlanInternal(this);
+  }
+
+  async fixBookWriterPlan() {
+    await fixBookWriterPlanInternal(this);
+  }
+
+  async prepareBookWriterPublish() {
+    await prepareBookWriterPublishInternal(this);
+  }
+
+  async prepareBookWriterPublishWithCoverStrategy(coverStrategy: "upload" | "kdp-cover-creator") {
+    await prepareBookWriterPublishWithCoverStrategyInternal(this, coverStrategy);
+  }
+
+  async generateBookWriterCoverConcept() {
+    await generateBookWriterCoverConceptInternal(this);
+  }
+
+  async generateBookWriterEditableCoverConcept() {
+    await generateBookWriterEditableCoverConceptInternal(this);
+  }
+
+  async editBookWriterCoverWithLocalAi(variantId: string | undefined, instruction: string) {
+    await editBookWriterCoverWithLocalAiInternal(this, variantId, instruction);
+  }
+
+  async approveBookWriterCover(variantId?: string) {
+    await approveBookWriterCoverInternal(this, variantId);
+  }
+
+  async uploadBookWriterCoverFile(file: File) {
+    await uploadBookWriterCoverFileInternal(this, file);
+  }
+
+  async disableBookWriterAutomation() {
+    await disableBookWriterAutomationInternal(this);
+  }
+
+  async requestBookWriterAiHelp(request: BookWriterAiHelpRequest) {
+    await requestBookWriterAiHelpInternal(this, request);
+  }
+
+  async requestBookWriterSetupAiHelp(
+    intent: BookWriterAiHelpRequest["intent"],
+    customDirection?: string,
+  ) {
+    await requestBookWriterSetupAiHelpInternal(this, intent, customDirection);
+  }
+
+  async applyBookWriterAiSuggestion(suggestion: BookWriterAiHelpSuggestion, value?: string) {
+    await applyBookWriterAiSuggestionInternal(this, suggestion, value);
+  }
+
+  cancelBookWriterAiSuggestion() {
+    cancelBookWriterAiSuggestionInternal(this);
+  }
+
+  async createBookWriterQuickRead() {
+    await createBookWriterQuickReadInternal(this);
+  }
+
+  async undoBookWriterEdit() {
+    await undoBookWriterEditInternal(this);
+  }
+
+  async redoBookWriterEdit() {
+    await redoBookWriterEditInternal(this);
+  }
+
+  async loadAppStudioDashboard(opts?: { appDir?: string | null; quiet?: boolean }) {
+    await loadAppStudioDashboardInternal(this, opts);
+  }
+
+  async createAppStudioProject() {
+    await createAppStudioProjectInternal(this);
+  }
+
+  async applyAppStudioPrompt() {
+    await applyAppStudioPromptInternal(this);
+  }
+
+  async setAppStudioBuildEngine(buildEngine: AppStudioBuildEngine) {
+    await setAppStudioBuildEngineInternal(this, buildEngine);
+  }
+
+  async runAppStudioGate(gate: AppStudioGateId) {
+    await runAppStudioGateInternal(this, gate);
+  }
+
+  async selectAppStudioProject(appDir: string) {
+    await selectAppStudioProjectInternal(this, appDir);
+  }
+
+  async reorderAppStudioScreens(screenId: string, direction: "up" | "down") {
+    await reorderAppStudioScreensInternal(this, screenId, direction);
+  }
+
+  async setAppStudioScreenOrder(screenIds: string[]) {
+    await setAppStudioScreenOrderInternal(this, screenIds);
+  }
+
+  async updateAppStudioScreenImageFiles(files: FileList | File[] | null) {
+    await updateAppStudioScreenImageFilesInternal(this, files);
+  }
+
+  updateAppStudioScreenImageNotes(value: string) {
+    updateAppStudioScreenImageNotesInternal(this, value);
+  }
+
+  updateAppStudioScreenAnalysisDraft(value: string) {
+    updateAppStudioScreenAnalysisDraftInternal(this, value);
+  }
+
+  async importAppStudioScreenImages() {
+    await importAppStudioScreenImagesInternal(this);
+  }
+
+  async applyAppStudioScreenAnalysis() {
+    await applyAppStudioScreenAnalysisInternal(this);
+  }
+
+  updateAppStudioFlowDraft(field: keyof AppStudioFlowDraft, value: string) {
+    updateAppStudioFlowDraftInternal(this, field, value);
+  }
+
+  async addAppStudioScreenFlowConnection() {
+    await addAppStudioScreenFlowConnectionInternal(this);
+  }
+
+  async removeAppStudioScreenFlowConnection(edgeId: string) {
+    await removeAppStudioScreenFlowConnectionInternal(this, edgeId);
+  }
+
+  updateAppStudioAppleFact(field: keyof AppStudioAppleFactsDraft, value: string) {
+    updateAppStudioAppleFactInternal(this, field, value);
+  }
+
+  async importAppStudioAppleFacts() {
+    await importAppStudioAppleFactsInternal(this);
+  }
+
+  async approveAppStudioGate(approvalId: string) {
+    await approveAppStudioGateInternal(this, approvalId);
+  }
+
+  dismissAppStudioReceipt() {
+    dismissAppStudioReceiptInternal(this);
+  }
+
+  async refreshActiveDashboardTab() {
+    switch (this.tab) {
+      case "appStudio":
+        await this.loadAppStudioDashboard({ quiet: true });
+        break;
+      case "bookWriter":
+        await this.loadBookWriterDashboard({ quiet: true });
+        break;
+      case "kalshi":
+        await this.loadKalshiDashboard({
+          auditTablePages: this.kalshiDashboardAuditPages,
+          auditTableQueries: this.kalshiDashboardAuditQueries,
+          quiet: true,
+          view: this.kalshiDashboardShowDeepAudit ? "full" : "workspace",
+        });
+        break;
+      case "patternLab":
+        await this.loadPatternLabDashboard();
+        break;
+      default:
+        break;
+    }
   }
 
   async handleAbortChat(opts?: Parameters<typeof handleAbortChatInternal>[1]) {

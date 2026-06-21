@@ -2084,9 +2084,6 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
 
 function renderControlDirectorDiagnosticsCard(session: GatewaySessionRow | undefined) {
   const summary = summarizeControlDirectorDiagnostics(session);
-  if (!summary.hasDiagnostics) {
-    return nothing;
-  }
   return html`
     <section
       class="chat-control-director-diagnostics chat-control-director-diagnostics--${summary.tone}"

@@ -34,6 +34,10 @@ on:
         description: Run Chat Network Remote Approval Cards V1 proof
         required: false
         default: "false"
+      dashboard-codex-plus-apps-proof:
+        description: Run Dashboard Codex Plus Apps proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -233,7 +237,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -661,3 +665,92 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed src/infra/plugin-approvals.ts ui/src/ui/controllers/exec-approval.ts ui/src/ui/controllers/exec-approval.test.ts ui/src/ui/app.ts ui/src/ui/app-gateway.node.test.ts ui/src/ui/views/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app.exec-approval.test.ts ui/src/styles/chat.css scripts/dev/control-ui-chat-network-remote-approval-cards-smoke.ts .github/workflows/workflow-sanity.yml
+
+  dashboard-codex-plus-apps-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.dashboard-codex-plus-apps-proof == 'true'
+    name: Dashboard Codex Plus Apps proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test ui/src/ui/navigation.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/kalshi-dashboard.test.ts ui/src/ui/views/snes-studio.test.ts ui/src/ui/views/book-writer-dashboard.test.ts ui/src/ui/views/app-studio-dashboard.test.ts ui/src/ui/views/music-studio.test.ts ui/src/ui/views/pattern-lab-dashboard.test.ts src/gateway/server-methods/kalshi-dashboard.test.ts src/gateway/server-methods/pattern-lab-dashboard.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-work-surface
+          - pnpm ui:smoke:chat-pursue-goal
+          - pnpm ui:smoke:chat-truth-diagnostics
+          - pnpm ui:smoke:snes-studio
+          - pnpm ui:smoke:dashboard-codex-plus-apps
+          - pnpm check:changed
+          EOF_COMMANDS
+
+      - name: Run targeted dashboard tests
+        run: pnpm test ui/src/ui/navigation.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/kalshi-dashboard.test.ts ui/src/ui/views/snes-studio.test.ts ui/src/ui/views/book-writer-dashboard.test.ts ui/src/ui/views/app-studio-dashboard.test.ts ui/src/ui/views/music-studio.test.ts ui/src/ui/views/pattern-lab-dashboard.test.ts src/gateway/server-methods/kalshi-dashboard.test.ts src/gateway/server-methods/pattern-lab-dashboard.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat Work Surface smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-work-surface
+
+      - name: Run Chat Pursue Goal smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-pursue-goal
+
+      - name: Run Chat Truth Diagnostics smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-truth-diagnostics
+
+      - name: Run SNES Studio smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:snes-studio
+
+      - name: Run Dashboard Codex Plus Apps smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:dashboard-codex-plus-apps
+
+      - name: Run changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed

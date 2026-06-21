@@ -123,6 +123,20 @@ type SettingsHost = {
   controlUiOverviewRefreshSeq?: number;
   controlUiCronRefreshSeq?: number;
   sessionsChangedReloadTimer?: number | ReturnType<typeof globalThis.setTimeout> | null;
+  kalshiDashboardAuditPages?: Record<string, number>;
+  kalshiDashboardAuditQueries?: Record<string, string>;
+  kalshiDashboardShowDeepAudit?: boolean;
+  loadKalshiDashboard?: (opts?: {
+    auditTablePages?: Record<string, number>;
+    auditTableQueries?: Record<string, string>;
+    force?: boolean;
+    quiet?: boolean;
+    view?: "full" | "workspace";
+  }) => Promise<void>;
+  loadPatternLabDashboard?: () => Promise<void>;
+  loadBookWriterDashboard?: (opts?: { runId?: string | null; quiet?: boolean }) => Promise<void>;
+  loadAppStudioDashboard?: (opts?: { appDir?: string | null; quiet?: boolean }) => Promise<void>;
+  refreshActiveDashboardTab?: () => Promise<void> | void;
   dreamingStatusLoading: boolean;
   dreamingStatusError: string | null;
   dreamingStatus: import("./controllers/dreaming.js").DreamingStatus | null;
@@ -457,6 +471,27 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
             refreshDiagnostics: hasOperatorWriteAccess(app.hello?.auth ?? null),
           }),
         ]);
+        break;
+      case "appStudio":
+        await host.loadAppStudioDashboard?.({ quiet: true });
+        break;
+      case "kalshi":
+        await host.loadKalshiDashboard?.({
+          auditTablePages: host.kalshiDashboardAuditPages,
+          auditTableQueries: host.kalshiDashboardAuditQueries,
+          force: true,
+          quiet: true,
+          view: host.kalshiDashboardShowDeepAudit ? "full" : "workspace",
+        });
+        break;
+      case "bookWriter":
+        await host.loadBookWriterDashboard?.({ quiet: true });
+        break;
+      case "patternLab":
+        await host.loadPatternLabDashboard?.();
+        break;
+      case "musicStudio":
+      case "snesStudio":
         break;
       case "channels":
         await loadChannelsTab(host);

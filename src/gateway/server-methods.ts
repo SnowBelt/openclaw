@@ -122,6 +122,10 @@ const loadHealthHandlers = lazyHandlerModule(
   () => import("./server-methods/health.js"),
   (module) => module.healthHandlers,
 );
+const loadKalshiDashboardHandlers = lazyHandlerModule(
+  () => import("./server-methods/kalshi-dashboard.js"),
+  (module) => module.kalshiDashboardHandlers,
+);
 const loadLogsHandlers = lazyHandlerModule(
   () => import("./server-methods/logs.js"),
   (module) => module.logsHandlers,
@@ -145,6 +149,10 @@ const loadNodePendingHandlers = lazyHandlerModule(
 const loadNodeHandlers = lazyHandlerModule(
   () => import("./server-methods/nodes.js"),
   (module) => module.nodeHandlers,
+);
+const loadPatternLabDashboardHandlers = lazyHandlerModule(
+  () => import("./server-methods/pattern-lab-dashboard.js"),
+  (module) => module.patternLabDashboardHandlers,
 );
 const loadPluginHostHookHandlers = lazyHandlerModule(
   () => import("./server-methods/plugin-host-hooks.js"),
@@ -286,6 +294,14 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: ["health", "status"],
     loadHandlers: loadHealthHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: ["kalshi.dashboard.snapshot"],
+    loadHandlers: loadKalshiDashboardHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: ["patternLab.dashboard.snapshot", "patternLab.assets.approve"],
+    loadHandlers: loadPatternLabDashboardHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: ["channels.status", "channels.start", "channels.stop", "channels.logout"],

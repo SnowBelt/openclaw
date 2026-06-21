@@ -32,6 +32,12 @@ describe("iconForTab", () => {
       overview: "barChart",
       activity: "activity",
       workboard: "folder",
+      appStudio: "spark",
+      musicStudio: "radio",
+      snesStudio: "monitor",
+      bookWriter: "book",
+      kalshi: "lineChart",
+      patternLab: "monitor",
       channels: "link",
       instances: "radio",
       sessions: "fileText",
@@ -68,6 +74,12 @@ describe("titleForTab", () => {
       overview: "Overview",
       activity: "Activity",
       workboard: "Workboard",
+      appStudio: "App Studio",
+      musicStudio: "Music Studio",
+      snesStudio: "SNES Studio",
+      bookWriter: "Book Studio",
+      kalshi: "Kalshi",
+      patternLab: "Pattern Lab",
       channels: "Channels",
       instances: "Instances",
       sessions: "Sessions",
@@ -98,6 +110,12 @@ describe("subtitleForTab", () => {
       overview: "Status, entry points, health.",
       activity: "Browser-local tool activity summaries.",
       workboard: "Agent work queue and session handoff.",
+      appStudio: "Prompt, build, validate, and prepare native iPhone apps.",
+      musicStudio: "Prompt, arrange, play, and finish original music.",
+      snesStudio: "Prompt, play, and edit a SNES game.",
+      bookWriter: "Plan, write, package, and publish-prep original books.",
+      kalshi: "Prediction market paper trading status.",
+      patternLab: "YouTube review, approval, and learning dashboard.",
       channels: "Channels and settings.",
       instances: "Connected clients and nodes.",
       sessions: "Active sessions and defaults.",
@@ -225,7 +243,13 @@ describe("inferBasePathFromPathname", () => {
 
 describe("TAB_GROUPS", () => {
   it("contains all expected groups", () => {
-    expect(TAB_GROUPS.map((g) => g.label)).toEqual(["chat", "control", "agent", "settings"]);
+    expect(TAB_GROUPS.map((g) => g.label)).toEqual([
+      "chat",
+      "control",
+      "dashboards",
+      "agent",
+      "settings",
+    ]);
   });
 
   it("all tabs are unique", () => {

@@ -9,6 +9,10 @@ export const TAB_GROUPS = [
     label: "control",
     tabs: ["overview", "activity", "workboard", "instances", "sessions", "usage", "cron"],
   },
+  {
+    label: "dashboards",
+    tabs: ["appStudio", "musicStudio", "snesStudio", "bookWriter", "kalshi", "patternLab"],
+  },
   { label: "agent", tabs: ["agents", "skills", "skillWorkshop", "nodes", "dreams"] },
   {
     label: "settings",
@@ -21,6 +25,12 @@ export type Tab =
   | "activity"
   | "overview"
   | "workboard"
+  | "appStudio"
+  | "musicStudio"
+  | "snesStudio"
+  | "kalshi"
+  | "bookWriter"
+  | "patternLab"
   | "channels"
   | "instances"
   | "sessions"
@@ -59,6 +69,12 @@ const TAB_PATHS: Record<Tab, string> = {
   activity: "/activity",
   overview: "/overview",
   workboard: "/workboard",
+  appStudio: "/app-studio",
+  musicStudio: "/music-studio",
+  snesStudio: "/snes-studio",
+  kalshi: "/kalshi",
+  bookWriter: "/book-writer",
+  patternLab: "/pattern-lab",
   channels: "/channels",
   instances: "/instances",
   sessions: "/sessions",
@@ -191,6 +207,18 @@ export function iconForTab(tab: Tab): IconName {
       return "activity";
     case "workboard":
       return "folder";
+    case "appStudio":
+      return "spark";
+    case "musicStudio":
+      return "radio";
+    case "snesStudio":
+      return "monitor";
+    case "kalshi":
+      return "lineChart";
+    case "bookWriter":
+      return "book";
+    case "patternLab":
+      return "monitor";
     case "channels":
       return "link";
     case "instances":

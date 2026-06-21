@@ -7,6 +7,11 @@ import {
   stopNodesPolling,
   startDebugPolling,
   stopDebugPolling,
+  startKalshiDashboardPolling,
+  shouldPollKalshiDashboard,
+  stopKalshiDashboardPolling,
+  startDashboardPolling,
+  stopDashboardPolling,
 } from "./app-polling.ts";
 import {
   observeTopbar,
@@ -88,6 +93,11 @@ type LifecycleHost = {
   logsScrollFrame?: number | null;
   activityScrollFrame?: number | null;
   sessionsChangedReloadTimer?: number | ReturnType<typeof globalThis.setTimeout> | null;
+  agentsPanel?: string;
+  kalshiDashboardPollInterval?: number | null;
+  dashboardPollInterval?: number | null;
+  dashboardPollInFlight?: boolean;
+  refreshActiveDashboardTab?: () => Promise<void> | void;
   controlUiTabPaintSeq?: number;
   controlUiResponsivenessObserver?: { disconnect: () => void } | null;
   controlUiBootstrapReady?: Promise<void> | null;
@@ -129,6 +139,12 @@ export function handleConnected(host: LifecycleHost) {
   if (host.tab === "debug") {
     startDebugPolling(host as unknown as Parameters<typeof startDebugPolling>[0]);
   }
+  if (shouldPollKalshiDashboard(host)) {
+    startKalshiDashboardPolling(
+      host as unknown as Parameters<typeof startKalshiDashboardPolling>[0],
+    );
+  }
+  startDashboardPolling(host as unknown as Parameters<typeof startDashboardPolling>[0]);
   host.controlUiResponsivenessObserver ??= startControlUiResponsivenessObserver(
     host as unknown as Parameters<typeof startControlUiResponsivenessObserver>[0],
   );
@@ -202,6 +218,8 @@ export function handleDisconnected(host: LifecycleHost) {
   stopNodesPolling(host as unknown as Parameters<typeof stopNodesPolling>[0]);
   stopLogsPolling(host as unknown as Parameters<typeof stopLogsPolling>[0]);
   stopDebugPolling(host as unknown as Parameters<typeof stopDebugPolling>[0]);
+  stopKalshiDashboardPolling(host as unknown as Parameters<typeof stopKalshiDashboardPolling>[0]);
+  stopDashboardPolling(host as unknown as Parameters<typeof stopDashboardPolling>[0]);
   stopWorkboardPolling(host);
   stopWorkboardLifecycleRefresh(host);
   cancelHostAnimationFrame(host.chatScrollFrame);
