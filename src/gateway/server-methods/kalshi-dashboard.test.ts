@@ -1237,9 +1237,9 @@ describe("kalshi dashboard gateway method", () => {
     expect(resolved).toMatch(/python3(?:\.\d+)?$/);
   });
 
-  it("resolves the Kalshi dashboard script from the repo", () => {
-    expect(__testing.resolveKalshiDashboardScript()).toMatch(
-      /work\/scripts\/kalshi\/kalshi_dashboard\.py$/,
-    );
+  it("resolves the configured Kalshi dashboard script path", async () => {
+    await withDashboardFixture(undefined, (fixture) => {
+      expect(__testing.resolveKalshiDashboardScript()).toBe(fixture.scriptPath);
+    });
   });
 });
