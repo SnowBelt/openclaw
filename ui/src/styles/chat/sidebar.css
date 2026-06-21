@@ -887,3 +887,55 @@
     border-left: none;
   }
 }
+
+/* Chat UX Cleanup V1: make the workspace rail read like a Codex-style file drawer. */
+@media (min-width: 1121px) {
+  .chat-workbench {
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 420px);
+  }
+
+  .chat-workbench--workspace-collapsed {
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .chat-workspace-rail {
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+  }
+
+  .chat-workspace-rail__header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: color-mix(in srgb, var(--panel) 96%, transparent);
+    backdrop-filter: blur(18px);
+  }
+
+  .chat-workspace-rail__scroll {
+    max-height: 100%;
+    overscroll-behavior: contain;
+  }
+
+  .chat-workspace-rail__browser-tools {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--panel) 96%, transparent);
+    padding-top: 8px;
+  }
+
+  .chat-workspace-rail__file {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 42px;
+    padding-right: 8px;
+  }
+
+  .chat-workspace-rail__file-badge {
+    display: none;
+  }
+
+  .chat-workspace-rail__row-actions {
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+  }
+}

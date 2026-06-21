@@ -1932,7 +1932,8 @@
     "ui:smoke:book-writer": "node --import tsx scripts/dev/control-ui-book-writer-smoke.ts",
     "ui:smoke:book-writer-layout": "node --import tsx scripts/dev/control-ui-book-writer-layout-smoke.ts",
     "ui:smoke:snes-studio": "node --import tsx scripts/dev/control-ui-snes-studio-smoke.ts",
-    "ui:smoke:dashboard-codex-plus-apps": "node --import tsx scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts"
+    "ui:smoke:dashboard-codex-plus-apps": "node --import tsx scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts",
+    "ui:smoke:chat-ux-cleanup": "node --import tsx scripts/dev/control-ui-chat-ux-cleanup-smoke.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",

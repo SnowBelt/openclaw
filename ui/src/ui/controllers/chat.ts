@@ -431,6 +431,7 @@ export type ChatState = {
   chatGoalFlows?: ChatGoalFlowSummary[];
   chatGoalLoading?: boolean;
   chatGoalBusy?: boolean;
+  chatGoalCancellingFlowId?: string | null;
   chatGoalError?: string | null;
   chatGoalUpdatedAt?: number | null;
   projectsLoading?: boolean;
@@ -598,22 +599,42 @@ export async function cancelChatGoal(state: ChatState, flowId: string): Promise<
   if (!normalized) {
     return false;
   }
-  state.chatGoalBusy = true;
+  if (state.chatGoalCancellingFlowId === normalized) {
+    return false;
+  }
+  state.chatGoalCancellingFlowId = normalized;
   state.chatGoalError = null;
+  const previousFlows = state.chatGoalFlows;
+  const cancelRequestedAt = Date.now();
+  state.chatGoalFlows = (state.chatGoalFlows ?? []).map((flow) => {
+    if (flow.id !== normalized && flow.flowId !== normalized) {
+      return flow;
+    }
+    return Object.assign({}, flow, {
+      cancelRequestedAt,
+      status: "cancelling" as ChatGoalFlowSummary["status"],
+    });
+  });
   try {
     const client = requireConnectedChatClient(state);
-    await client.request("taskFlows.cancel", {
+    const result = await client.request<{ flow?: ChatGoalFlowSummary }>("taskFlows.cancel", {
       flowId: normalized,
       sessionKey: currentChatSessionKey(state),
       reason: "cancelled from Control UI Pursue Goal",
     });
+    if (result?.flow) {
+      state.chatGoalFlows = (state.chatGoalFlows ?? []).map((flow) =>
+        flow.id === normalized || flow.flowId === normalized ? result.flow! : flow,
+      );
+    }
     await loadChatGoals(state);
     return true;
   } catch (err) {
+    state.chatGoalFlows = previousFlows;
     setChatGoalError(state, err);
     return false;
   } finally {
-    state.chatGoalBusy = false;
+    state.chatGoalCancellingFlowId = null;
   }
 }
 

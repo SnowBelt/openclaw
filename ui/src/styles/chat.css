@@ -1054,3 +1054,99 @@
     align-self: flex-start;
   }
 }
+
+/* Chat UX Cleanup V1: keep diagnostics compact in the conversation lane. */
+.chat-control-director-diagnostics__compact,
+.chat-control-director-diagnostics__summary-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.chat-control-director-diagnostics__compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-control-director-diagnostics__compact > div,
+.chat-control-director-diagnostics__summary-list > div {
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  padding: 0.68rem 0.78rem;
+}
+
+.chat-control-director-diagnostics__compact span,
+.chat-control-director-diagnostics__summary-list dt {
+  color: var(--muted-foreground);
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+}
+
+.chat-control-director-diagnostics__compact strong,
+.chat-control-director-diagnostics__summary-list dd {
+  color: var(--foreground);
+  display: -webkit-box;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.chat-control-director-diagnostics__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: space-between;
+  margin-top: 0.8rem;
+}
+
+.chat-control-director-diagnostics__details {
+  margin-left: auto;
+}
+
+.chat-control-director-diagnostics__details > summary {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 750;
+  list-style: none;
+  padding: 0.45rem 0.7rem;
+}
+
+.chat-control-director-diagnostics__details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-control-director-diagnostics__details[open] {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+.chat-control-director-diagnostics__details[open] > summary {
+  display: inline-block;
+}
+
+@media (max-width: 720px) {
+  .chat-control-director-diagnostics__compact {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-control-director-diagnostics__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .chat-control-director-diagnostics__details {
+    margin-left: 0;
+  }
+}

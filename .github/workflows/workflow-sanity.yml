@@ -38,6 +38,10 @@ on:
         description: Run Dashboard Codex Plus Apps proof
         required: false
         default: "false"
+      chat-ux-cleanup-proof:
+        description: Run Chat UX Cleanup V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -237,7 +241,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -754,3 +758,61 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed
+
+  chat-ux-cleanup-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-ux-cleanup-proof == 'true'
+    name: Chat UX Cleanup V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-ux-cleanup
+          - pnpm check:changed
+          EOF_COMMANDS
+
+      - name: Run targeted Chat UX cleanup tests
+        run: pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
+
+      - name: Run UI typecheck
+        run: pnpm tsgo:test:ui
+
+      - name: Run Chat UX cleanup smoke
+        timeout-minutes: 20
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm ui:smoke:chat-ux-cleanup
+
+      - name: Run changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed
+

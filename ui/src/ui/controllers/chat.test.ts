@@ -324,6 +324,30 @@ describe("chat pursue goal actions", () => {
       limit: 20,
     });
     expect(state.chatGoalFlows?.[0]?.status).toBe("cancelled");
+    expect(state.chatGoalCancellingFlowId).toBeNull();
+  });
+
+  it("deduplicates repeated goal cancellation while one is in flight", async () => {
+    const pending = createDeferred<{ found: true; cancelled: true }>();
+    const request = vi.fn().mockReturnValueOnce(pending.promise);
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
+    });
+
+    const first = cancelChatGoal(state, "flow-1");
+    await Promise.resolve();
+
+    expect(state.chatGoalCancellingFlowId).toBe("flow-1");
+    expect(state.chatGoalFlows?.[0]?.status).toBe("cancelling");
+    await expect(cancelChatGoal(state, "flow-1")).resolves.toBe(false);
+    expect(request).toHaveBeenCalledTimes(1);
+
+    pending.resolve({ found: true, cancelled: true });
+    request.mockResolvedValueOnce({
+      flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
+    });
+    await expect(first).resolves.toBe(true);
   });
 
   it("records goal API failures without throwing", async () => {

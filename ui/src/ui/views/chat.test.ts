@@ -751,11 +751,66 @@ describe("chat Control Director diagnostics", () => {
     expect(card?.textContent).toContain("Truth & Completion");
     expect(card?.textContent).toContain("Blocked unsupported claim");
     expect(card?.textContent).toContain("missing command evidence with exit code 0");
-    expect(card?.textContent).toContain("Required evidence");
-    expect(card?.textContent).toContain("command");
-    expect(card?.textContent).toContain("Completion Grade");
-    expect(card?.textContent).toContain("8/10");
+    expect(
+      card?.querySelector(".chat-control-director-diagnostics__compact")?.textContent,
+    ).toContain("Why");
+    expect(
+      card?.querySelector(".chat-control-director-diagnostics__summary-list")?.textContent,
+    ).toContain("Next build gap");
+    expect(card?.textContent).not.toContain("Completion Grade8/10");
+
+    const details = card?.querySelector<HTMLDetailsElement>(
+      ".chat-control-director-diagnostics__details",
+    );
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain("Required evidence");
+    expect(details?.textContent).toContain("Completion Grade");
     expect(card?.textContent).not.toContain("Status: complete");
+  });
+
+  it("inserts a safe retry draft without sending blocked Control Director diagnostics", () => {
+    const onBlockedRetryDraft = vi.fn();
+    const onSend = vi.fn();
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      onBlockedRetryDraft,
+      onSend,
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+            controlDirectorMissionLedger: [
+              {
+                missionId: "mission-1",
+                runId: "run-1",
+                requestSummary: "redo game",
+                status: "blocked",
+                startedAt: 1,
+                updatedAt: 10,
+                continuationCount: 0,
+                finalStatus: "blocked",
+                completionGrade: 7,
+                criticality: 10,
+                nextBuildGap: "retry with a healthy fallback model",
+              },
+            ],
+          },
+        ],
+        ts: 0,
+      },
+    });
+
+    container.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]")?.click();
+
+    expect(onBlockedRetryDraft).toHaveBeenCalledWith(
+      expect.stringContaining("Retry the preserved original request safely"),
+    );
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
 
@@ -4723,6 +4778,32 @@ describe("chat Pursue Goal surface", () => {
 
     expect(onGoalContinue).toHaveBeenCalledWith("flow-1");
     expect(onGoalCancel).toHaveBeenCalledWith("flow-1");
+    expect(surface.textContent).toContain("Stop goal");
+  });
+
+  it("shows an immediate cancelling state and disables duplicate goal cancellation", () => {
+    const onGoalCancel = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      goalCancellingFlowId: "flow-1",
+      goalFlows: [
+        {
+          id: "flow-1",
+          flowId: "flow-1",
+          status: "running",
+          goal: "Stop cleanly",
+          currentStep: "Stopping work.",
+        },
+      ],
+      onGoalCancel,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
+    const cancel = surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="cancel"]')!;
+    expect(surface.textContent).toContain("Cancelling…");
+    expect(cancel.disabled).toBe(true);
+    cancel.click();
+    expect(onGoalCancel).not.toHaveBeenCalled();
   });
 
   it("shows blocked and cancelled states without enabling unsafe continuation", () => {

@@ -403,6 +403,7 @@ export class OpenClawApp extends LitElement {
   @state() chatGoalFlows: ChatGoalFlowSummary[] = [];
   @state() chatGoalLoading = false;
   @state() chatGoalBusy = false;
+  @state() chatGoalCancellingFlowId: string | null = null;
   @state() chatGoalError: string | null = null;
   @state() chatGoalUpdatedAt: number | null = null;
   @state() chatTargetRunId: string | null = null;

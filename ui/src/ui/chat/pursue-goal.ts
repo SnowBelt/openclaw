@@ -5,6 +5,7 @@ export type ChatGoalStatus =
   | "blocked"
   | "succeeded"
   | "failed"
+  | "cancelling"
   | "cancelled"
   | "lost";
 
@@ -79,6 +80,8 @@ export function chatGoalStatusLabel(flow: ChatGoalFlowSummary | null | undefined
       return "Complete";
     case "failed":
       return "Failed";
+    case "cancelling":
+      return "Cancelling";
     case "cancelled":
       return "Cancelled";
     case "lost":

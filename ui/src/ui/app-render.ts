@@ -4333,6 +4333,7 @@ export function renderApp(state: AppViewState) {
                   goalFlows: state.chatGoalFlows,
                   goalLoading: state.chatGoalLoading,
                   goalBusy: state.chatGoalBusy,
+                  goalCancellingFlowId: state.chatGoalCancellingFlowId,
                   goalError: state.chatGoalError,
                   goalDraft: state.chatGoalDraft,
                   goalPanelOpen: state.chatGoalPanelOpen,
@@ -4452,6 +4453,11 @@ export function renderApp(state: AppViewState) {
                   },
                   onGoalCancel: async (flowId) => {
                     await cancelChatGoal(state, flowId);
+                    requestHostUpdate?.();
+                  },
+                  onBlockedRetryDraft: (prompt) => {
+                    state.chatMessage = prompt;
+                    requestHostUpdate?.();
                   },
                   onGoalRefresh: () => loadChatGoals(state),
                   onProjectPickerToggle: (open) => {

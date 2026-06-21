@@ -159,6 +159,7 @@ export type AppViewState = {
   chatGoalFlows?: ChatGoalFlowSummary[];
   chatGoalLoading?: boolean;
   chatGoalBusy?: boolean;
+  chatGoalCancellingFlowId?: string | null;
   chatGoalError?: string | null;
   chatGoalUpdatedAt?: number | null;
   chatTargetRunId?: string | null;
