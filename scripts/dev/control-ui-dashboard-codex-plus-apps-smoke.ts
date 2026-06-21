@@ -88,41 +88,6 @@ function pathUrl(launchUrl: string, path: string): string {
   return url.toString();
 }
 
-async function collectPageState(page: Page, selectors: string[]) {
-  return await page.evaluate((selectorList) => {
-    function rootsFrom(node: ParentNode): ParentNode[] {
-      const roots: ParentNode[] = [node];
-      const elements = Array.from(node.querySelectorAll("*"));
-      for (const element of elements) {
-        const shadow = (element as HTMLElement).shadowRoot;
-        if (shadow) {
-          roots.push(...rootsFrom(shadow));
-        }
-      }
-      return roots;
-    }
-    const roots = rootsFrom(document);
-    const text = roots
-      .map((root) => (root as HTMLElement).textContent ?? root.textContent ?? "")
-      .join("\n");
-    const selectorCounts = Object.fromEntries(
-      selectorList.map((selector) => [
-        selector,
-        roots.reduce((sum, root) => sum + root.querySelectorAll(selector).length, 0),
-      ]),
-    );
-    return {
-      appPresent:
-        Boolean(document.querySelector("openclaw-app")) || Boolean(document.querySelector("#root")),
-      authScreen: text.includes("Auth required"),
-      fallback: text.includes("Control UI did not start"),
-      selectorCounts,
-      text,
-      title: document.title,
-    };
-  }, selectors);
-}
-
 async function checkLivePage(input: {
   launchUrl: string;
   label: string;
@@ -135,24 +100,37 @@ async function checkLivePage(input: {
   const { launchUrl, label, page, path, requiredText, screenshotPath, selectors } = input;
   await page.goto(pathUrl(launchUrl, path), { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.waitForTimeout(2_000);
-  const state = await collectPageState(page, selectors);
+  const title = await page.title();
+  const appPresent = (await page.locator("openclaw-app, #root").count()) > 0;
+  const authScreen = (await page.getByText("Auth required").count()) > 0;
+  const fallback = (await page.getByText("Control UI did not start").count()) > 0;
+  const selectorCounts = Object.fromEntries(
+    await Promise.all(
+      selectors.map(async (selector) => [selector, await page.locator(selector).count()] as const),
+    ),
+  );
+  const requiredTextMatches = await Promise.all(
+    requiredText.map(
+      async (expected) => [expected, await page.getByText(expected).count()] as const,
+    ),
+  );
+  const textPreview =
+    (await page
+      .locator("body")
+      .textContent()
+      .catch(() => "")) ?? "";
   await page.screenshot({ path: screenshotPath, fullPage: true });
-  const textOk = requiredText.every((expected) => state.text.includes(expected));
-  const selectorOk = selectors.every((selector) => state.selectorCounts[selector] > 0);
+  const textOk = requiredTextMatches.every(([, count]) => count > 0);
+  const selectorOk = selectors.every((selector) => selectorCounts[selector] > 0);
   const ok =
-    state.title === "OpenClaw Control" &&
-    state.appPresent &&
-    !state.fallback &&
-    !state.authScreen &&
-    textOk &&
-    selectorOk;
+    title === "OpenClaw Control" && appPresent && !fallback && !authScreen && textOk && selectorOk;
   return {
     label,
     ok,
     path,
     requiredText,
-    selectorCounts: state.selectorCounts,
-    textPreview: state.text.slice(0, 1_000),
+    selectorCounts,
+    textPreview: textPreview.slice(0, 1_000),
   };
 }
 
