@@ -120,6 +120,52 @@ describe("Control Director instruction-following torture proof", () => {
     expect(guarded.audit?.status).toBe("passed");
   });
 
+  it("forbids plan-only completion for implementation requests without evidence", () => {
+    const guarded = applyControlDirectorTruthGate({
+      agentId: "main",
+      payloads: [
+        {
+          text: [
+            "I will implement the requested fix by editing the code and running tests.",
+            "Verified state: no files have been changed yet.",
+            "Next build gap: perform the implementation and collect evidence.",
+            "Completion Grade: 6/10",
+            "Criticality: 10/10",
+            "Status: complete",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(guarded.changed).toBe(true);
+    expect(guarded.payloads[0]?.text).toContain("Status: blocked");
+    expect(guarded.payloads[0]?.text).not.toContain("Status: complete");
+  });
+
+  it("keeps generic runtime failure boilerplate out of final visible answers", () => {
+    const guarded = applyControlDirectorLivenessWatchdog({
+      agentId: "main",
+      payloads: [{ text: "LLM request timed out." }],
+      classification: "empty",
+      continuationCount: 1,
+      requestBody: "Redo the game graphics and make the game more playable.",
+      canQueueContinuation: true,
+      agentRunFailure: {
+        kind: "provider_error",
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+        abortReason: "LLM request timed out.",
+      },
+    });
+
+    const text = guarded.payloads[0]?.text ?? "";
+    expect(text).not.toBe("LLM request timed out.");
+    expect(text).not.toContain("Control Director liveness watchdog");
+    expect(text).not.toContain("Classification: empty");
+    expect(text).not.toContain("Recovery queued");
+    expect(text).toContain("Status: blocked");
+  });
+
   it("does not rewrite normal agents that mention Control Director-like status text", () => {
     const payloads = [
       {
