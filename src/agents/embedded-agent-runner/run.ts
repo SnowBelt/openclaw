@@ -3154,6 +3154,7 @@ export async function runEmbeddedAgent(
                 toolSummary: attemptToolSummary,
                 ...(failureSignal ? { failureSignal } : {}),
                 agentHarnessResultClassification: attempt.agentHarnessResultClassification,
+                agentRunFailure: attempt.agentRunFailure,
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
               didDeliverSourceReplyViaMessageTool:
@@ -3401,6 +3402,7 @@ export async function runEmbeddedAgent(
                 toolSummary: attemptToolSummary,
                 ...(failureSignal ? { failureSignal } : {}),
                 agentHarnessResultClassification: attempt.agentHarnessResultClassification,
+                agentRunFailure: attempt.agentRunFailure,
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
               didDeliverSourceReplyViaMessageTool:
@@ -3457,6 +3459,7 @@ export async function runEmbeddedAgent(
                 toolSummary: attemptToolSummary,
                 ...(failureSignal ? { failureSignal } : {}),
                 agentHarnessResultClassification: attempt.agentHarnessResultClassification,
+                agentRunFailure: attempt.agentRunFailure,
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
               didDeliverSourceReplyViaMessageTool:
@@ -3580,6 +3583,7 @@ export async function runEmbeddedAgent(
                 toolSummary: attemptToolSummary,
                 ...(failureSignal ? { failureSignal } : {}),
                 agentHarnessResultClassification: attempt.agentHarnessResultClassification,
+                agentRunFailure: attempt.agentRunFailure,
               },
               didSendViaMessagingTool: attempt.didSendViaMessagingTool,
               didDeliverSourceReplyViaMessageTool:
@@ -3676,6 +3680,7 @@ export async function runEmbeddedAgent(
               replayInvalid,
               livenessState,
               agentHarnessResultClassification: attempt.agentHarnessResultClassification,
+              agentRunFailure: attempt.agentRunFailure,
               ...(attempt.yieldDetected ? { yielded: true } : {}),
               ...(emptyAssistantReplyIsSilent
                 ? { terminalReplyKind: "silent-empty" as const }

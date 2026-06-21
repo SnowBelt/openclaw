@@ -9,6 +9,7 @@ import type {
 } from "../../config/sessions/types.js";
 import type { DiagnosticTraceContext } from "../../infra/diagnostic-trace-context.js";
 import type { AcceptedSessionSpawn } from "../accepted-session-spawn.js";
+import type { AgentRunFailureDiagnostic } from "../agent-run-failure-diagnostics.js";
 import type {
   MessagingToolSend,
   MessagingToolSourceReplyPayload,
@@ -163,6 +164,8 @@ export type EmbeddedAgentRunMeta = {
       | "hook_block";
     message: string;
   };
+  /** Structured terminal failure diagnostic for delivery guards and Dashboard/session diagnostics. */
+  agentRunFailure?: AgentRunFailureDiagnostic;
   failureSignal?: EmbeddedRunFailureSignal;
   /** Stop reason for the agent run (e.g., "completed", "tool_calls"). */
   stopReason?: string;

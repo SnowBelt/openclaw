@@ -212,4 +212,34 @@ describe("Control Director delivery truth evidence ingestion", () => {
     expect(result.payloads[0]?.text).toContain("Status: blocked");
     expect(result.guardActions).toContain("blocked_missing_judge_approval");
   });
+
+  it("uses stuck-session abort metadata instead of a generic empty-turn fallback", async () => {
+    const result = await applyControlDirectorDeliveryGuards({
+      agentId: "control-director",
+      payloads: [] as Array<{ text?: string; isError?: boolean }>,
+      finalAssistantVisibleText: "",
+      classification: "empty",
+      externalAbort: true,
+      agentRunFailure: {
+        kind: "stuck_recovery_abort",
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+        abortReason: "stuck_recovery",
+      },
+      sessionId: "session-stuck",
+      requestBody: "Redo the Stanski game graphics and make it more fun.",
+      queueContinuation: false,
+    });
+
+    const text = result.payloads[0]?.text ?? "";
+    expect(text).toContain("Control Director stopped before finishing the requested work.");
+    expect(text).toContain("diagnostic stuck-session recovery aborted it");
+    expect(text).toContain("Provider/model: ollama/openclaw-control-gemma4-31b-q8:latest.");
+    expect(text).toContain("Missing condition: A healthy configured fallback model");
+    expect(text).toContain("Status: blocked");
+    expect(text).not.toContain("Control Director could not produce a usable final answer");
+    expect(text).not.toContain("Control Director liveness watchdog");
+    expect(text).not.toContain("Classification: empty");
+    expect(result.watchdogActions).toEqual(["synthesized_blocked_incomplete_classification"]);
+  });
 });

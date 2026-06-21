@@ -12,6 +12,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { enqueueSessionDelivery } from "../infra/session-delivery-queue.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
+import type { AgentRunFailureDiagnostic } from "./agent-run-failure-diagnostics.js";
 import { persistSessionEntry as persistSessionEntryBase } from "./command/attempt-execution.shared.js";
 import {
   applyControlDirectorFinalOutputGuard,
@@ -621,6 +622,7 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
     approvalPending?: boolean | undefined;
     externalAbort?: boolean | undefined;
     safeToContinue?: boolean | undefined;
+    agentRunFailure?: AgentRunFailureDiagnostic | undefined;
     queueContinuation?: boolean | undefined;
     judgeCompletionApproval?: ControlDirectorJudgeCompletionApproval | undefined;
     truthEvidence?: readonly ControlDirectorClaimEvidence[] | undefined;
@@ -669,6 +671,7 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
       approvalPending: params.approvalPending,
       externalAbort: params.externalAbort,
       safeToContinue: params.safeToContinue,
+      agentRunFailure: params.agentRunFailure,
     });
     controlDirectorGuardedFinalOutput = applyControlDirectorFinalOutputGuard({
       agentId,
@@ -717,6 +720,7 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
       approvalPending: params.approvalPending,
       externalAbort: params.externalAbort,
       safeToContinue: params.safeToContinue,
+      agentRunFailure: params.agentRunFailure,
     });
   }
 
@@ -767,6 +771,25 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
       id: judgeCompletionGate.approval.judgeRunId ?? "judge-approval",
       source: "control-director-judge-completion-gate",
       summary: judgeCompletionGate.approval.evidenceSummary ?? "Judge approved completion claim.",
+      status: "passed",
+    });
+  }
+  if (params.agentRunFailure) {
+    const diagnostic = params.agentRunFailure;
+    const diagnosticParts = [
+      `kind=${diagnostic.kind}`,
+      diagnostic.provider || diagnostic.model
+        ? `providerModel=${diagnostic.provider ?? "unknown"}/${diagnostic.model ?? "unknown"}`
+        : undefined,
+      diagnostic.abortReason ? `abortReason=${diagnostic.abortReason}` : undefined,
+      diagnostic.runId ? `runId=${diagnostic.runId}` : undefined,
+      diagnostic.sessionKey ? `sessionKey=${diagnostic.sessionKey}` : undefined,
+    ].filter(Boolean);
+    truthEvidence.push({
+      type: "source_citation",
+      id: `agent-run-failure:${diagnostic.runId ?? runId}:${diagnostic.kind}`,
+      source: "openclaw-runtime-agent-run-failure-diagnostic",
+      summary: `OpenClaw runtime agent-run failure diagnostic recorded ${diagnosticParts.join("; ")}.`,
       status: "passed",
     });
   }

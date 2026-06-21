@@ -13,6 +13,7 @@ import type { AssistantMessage, Model } from "../../../llm/types.js";
 import type { PluginHookBeforeAgentStartResult } from "../../../plugins/hook-before-agent-start.types.js";
 import type { AgentHarnessTaskRuntimeScope } from "../../../tasks/agent-harness-task-runtime-scope.js";
 import type { AcceptedSessionSpawn } from "../../accepted-session-spawn.js";
+import type { AgentRunFailureDiagnostic } from "../../agent-run-failure-diagnostics.js";
 import type { ToolOutcomeObserver } from "../../agent-tools.before-tool-call.js";
 import type { AuthProfileStore } from "../../auth-profiles/types.js";
 import type {
@@ -93,6 +94,8 @@ export type EmbeddedRunAttemptResult = {
   /** Optional because this type is re-exported as `AgentHarnessAttemptResult`. */
   timedOutDuringToolExecution?: boolean;
   promptError: unknown;
+  /** Structured terminal failure diagnostic retained when the run is interrupted. */
+  agentRunFailure?: AgentRunFailureDiagnostic;
   /**
    * Identifies which phase produced the promptError.
    * - "prompt": the LLM call itself failed and may be eligible for retry/fallback.

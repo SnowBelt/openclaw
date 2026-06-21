@@ -31,7 +31,7 @@ describe("Control Director instruction-following torture proof", () => {
     expect(decision.prompt).not.toContain("Original request summary: Try again");
   });
 
-  it("delivers a specific blocker for empty output without exposing watchdog placeholder text", () => {
+  it("delivers a specific blocker for stuck recovery aborts without exposing fallback boilerplate", () => {
     const guarded = applyControlDirectorLivenessWatchdog({
       agentId: "main",
       payloads: [] as Array<{ text: string }>,
@@ -40,14 +40,25 @@ describe("Control Director instruction-following torture proof", () => {
       missionId: "control-director:empty-output-proof",
       requestBody: "Investigate the Control Director issue and fix it.",
       canQueueContinuation: true,
+      agentRunFailure: {
+        kind: "stuck_recovery_abort",
+        provider: "ollama",
+        model: "openclaw-control-gemma4-31b-q8:latest",
+        abortReason: "stuck_recovery",
+      },
     });
 
     const text = guarded.payloads[0]?.text;
-    expect(text).toContain("Control Director could not produce a usable final answer");
+    expect(text).toContain("Control Director stopped before finishing the requested work.");
     expect(text).toContain("Original request: Investigate the Control Director issue and fix it.");
+    expect(text).toContain("diagnostic stuck-session recovery aborted it");
+    expect(text).toContain("Provider/model: ollama/openclaw-control-gemma4-31b-q8:latest.");
+    expect(text).toContain("Missing condition: A healthy configured fallback model");
     expect(text).toContain("Status: blocked");
+    expect(text).not.toContain("Control Director could not produce a usable final answer");
     expect(text).not.toContain("Control Director liveness watchdog");
     expect(text).not.toContain("Recovery queued: yes");
+    expect(text).not.toContain("Classification: empty");
     expect(text).not.toContain("Status: continuing");
   });
 

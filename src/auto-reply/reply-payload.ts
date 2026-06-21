@@ -1,3 +1,4 @@
+import type { AgentRunFailureDiagnostic } from "../agents/agent-run-failure-diagnostics.js";
 /** Reply payload contracts and metadata helpers shared by dispatch and channel renderers. */
 import type {
   InteractiveReply,
@@ -180,6 +181,8 @@ export type ReplyPayloadMetadata = {
   nonTerminalToolErrorWarning?: boolean;
   /** Control Director guard synthesized or rewrote this final payload before delivery. */
   controlDirectorGuardedFinal?: boolean;
+  /** Structured terminal run failure retained for delivery guards and session diagnostics. */
+  agentRunFailure?: AgentRunFailureDiagnostic;
 };
 
 const replyPayloadMetadata = new WeakMap<object, ReplyPayloadMetadata>();

@@ -438,13 +438,14 @@ function prepareEmbeddedAgentQueueMessage(
  * - With no sessionId, supports targeted abort modes (for example, compacting runs only).
  */
 export function abortEmbeddedAgentRun(sessionId: string): boolean;
+export function abortEmbeddedAgentRun(sessionId: string, opts: { reason?: unknown }): boolean;
 export function abortEmbeddedAgentRun(
   sessionId: undefined,
-  opts: { mode: "all" | "compacting" },
+  opts: { mode: "all" | "compacting"; reason?: unknown },
 ): boolean;
 export function abortEmbeddedAgentRun(
   sessionId?: string,
-  opts?: { mode?: "all" | "compacting" },
+  opts?: { mode?: "all" | "compacting"; reason?: unknown },
 ): boolean {
   if (typeof sessionId === "string" && sessionId.length > 0) {
     const handle = ACTIVE_EMBEDDED_RUNS.get(sessionId);
@@ -457,7 +458,7 @@ export function abortEmbeddedAgentRun(
     }
     diag.debug(`aborting run: sessionId=${sessionId}`);
     try {
-      handle.abort();
+      handle.abort(opts?.reason);
     } catch (err) {
       diag.warn(`abort failed: sessionId=${sessionId} err=${String(err)}`);
       return false;
@@ -476,7 +477,7 @@ export function abortEmbeddedAgentRun(
       }
       diag.debug(params.formatDebugMessage(id));
       try {
-        handle.abort();
+        handle.abort(opts?.reason);
         aborted = true;
       } catch (err) {
         diag.warn(`abort failed: sessionId=${id} err=${String(err)}`);
@@ -710,7 +711,7 @@ export async function abortAndDrainEmbeddedAgentRun(params: {
   reason?: string;
 }): Promise<AbortAndDrainEmbeddedAgentRunResult> {
   const settleMs = params.settleMs ?? 15_000;
-  const aborted = abortEmbeddedAgentRun(params.sessionId);
+  const aborted = abortEmbeddedAgentRun(params.sessionId, { reason: params.reason });
   const drained = aborted ? await waitForEmbeddedAgentRunEnd(params.sessionId, settleMs) : false;
   const forceCleared =
     params.forceClear === true && (!aborted || !drained)

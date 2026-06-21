@@ -65,6 +65,7 @@ const state = vi.hoisted(() => ({
   sessionStoreMock: undefined as unknown,
   storePathMock: undefined as string | undefined,
   resolvedSessionKeyMock: undefined as string | undefined,
+  resolvedAgentIdMock: "default",
 }));
 
 vi.mock("./model-fallback.js", () => ({
@@ -375,17 +376,20 @@ vi.mock("./agent-scope.js", () => ({
   hasLegacyAutoFallbackWithoutOrigin: (entry: unknown) =>
     state.hasLegacyAutoFallbackWithoutOriginMock(entry),
   hasSessionAutoModelFallbackProvenance: () => false,
-  listAgentEntries: () => [],
-  listAgentIds: () => ["default"],
+  listAgentEntries: () => [{ id: state.resolvedAgentIdMock }],
+  listAgentIds: () => [state.resolvedAgentIdMock],
   markAutoFallbackPrimaryProbe: vi.fn(),
   resolveAutoFallbackPrimaryProbe: (params: unknown) =>
     state.resolveAutoFallbackPrimaryProbeMock(params),
   resolveAgentConfig: () => undefined,
   resolveAgentDir: () => "/tmp/agent",
-  resolveDefaultAgentId: () => "default",
+  resolveDefaultAgentId: () => state.resolvedAgentIdMock,
   resolveEffectiveModelFallbacks: state.resolveEffectiveModelFallbacksMock,
-  resolveSessionAgentIds: () => ({ defaultAgentId: "default", sessionAgentId: "default" }),
-  resolveSessionAgentId: () => "default",
+  resolveSessionAgentIds: () => ({
+    defaultAgentId: state.resolvedAgentIdMock,
+    sessionAgentId: state.resolvedAgentIdMock,
+  }),
+  resolveSessionAgentId: () => state.resolvedAgentIdMock,
   resolveAgentSkillsFilter: () => undefined,
   resolveAgentWorkspaceDir: () => "/tmp/workspace",
 }));
@@ -845,6 +849,26 @@ function makeEmptyResult(provider: string, model: string) {
   };
 }
 
+function makeStuckRecoveryAbortResult(provider: string, model: string) {
+  return {
+    payloads: [],
+    meta: {
+      durationMs: 390_000,
+      aborted: true,
+      stopReason: "end_turn",
+      livenessState: "blocked",
+      agentHarnessResultClassification: "empty",
+      agentMeta: { provider, model },
+      agentRunFailure: {
+        kind: "stuck_recovery_abort",
+        provider,
+        model,
+        abortReason: "stuck_recovery",
+      },
+    },
+  };
+}
+
 function setupModelSwitchRetry(switchOptions: ModelSwitchOptions) {
   let invocation = 0;
   state.runWithModelFallbackMock.mockImplementation(async (params: FallbackRunnerParams) => {
@@ -939,6 +963,7 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
     state.resolveAcpDispatchPolicyErrorMock.mockReturnValue(null);
     state.resolveAcpExplicitTurnPolicyErrorMock.mockReturnValue(null);
     state.runtimeConfigMock = undefined;
+    state.resolvedAgentIdMock = "default";
     delete (state.defaultRuntimeConfig.agents as { list?: unknown }).list;
     state.isThinkingLevelSupportedMock.mockReturnValue(true);
     state.resolveSupportedThinkingLevelMock.mockImplementation(
@@ -2818,6 +2843,56 @@ describe("agentCommand – LiveSessionModelSwitchError retry", () => {
       model: "claude",
       reason: "format",
     });
+  });
+
+  it("recovers a Control Director stuck-session abort on the configured fallback before delivery", async () => {
+    state.resolvedAgentIdMock = "main";
+    (state.defaultRuntimeConfig.agents as { list?: unknown }).list = [
+      { id: "main", default: true },
+    ];
+    state.resolveEffectiveModelFallbacksMock.mockReturnValue(["openai/gpt-5.4"]);
+    state.runWithModelFallbackMock.mockImplementation(async (params: FallbackRunnerParams) => {
+      const result = await params.run(params.provider, params.model);
+      return {
+        result,
+        provider: params.provider,
+        model: params.model,
+        attempts: [],
+      };
+    });
+    state.runAgentAttemptMock
+      .mockResolvedValueOnce(
+        makeStuckRecoveryAbortResult("ollama", "openclaw-control-gemma4-31b-q8:latest"),
+      )
+      .mockResolvedValueOnce(makeSuccessResult("openai", "gpt-5.4"));
+
+    await agentCommand({
+      message: "hello",
+      to: "+1234567890",
+      agentId: "main",
+      sessionKey: "agent:main:main",
+    });
+
+    expect(state.runWithModelFallbackMock).toHaveBeenCalledTimes(2);
+    const recoveryCall = mockCallArg(state.runWithModelFallbackMock, 1) as FallbackRunnerParams;
+    expect(recoveryCall.provider).toBe("openai");
+    expect(recoveryCall.model).toBe("gpt-5.4");
+    expect(state.runAgentAttemptMock).toHaveBeenCalledTimes(2);
+    expectRecordFields(mockCallArg(state.runAgentAttemptMock, 1), {
+      providerOverride: "openai",
+      modelOverride: "gpt-5.4",
+      suppressPromptPersistenceOnRetry: true,
+    });
+    const deliveryParams = requireRecord(
+      mockCallArg(state.deliverAgentCommandResultMock),
+      "delivery params",
+    );
+    const result = requireRecord(deliveryParams.result, "delivery result");
+    const payloads = requireArray(result.payloads, "delivery payloads");
+    expect(payloads[0]).toMatchObject({ text: "ok" });
+    expect(JSON.stringify(payloads)).not.toContain(
+      "Control Director could not produce a usable final answer",
+    );
   });
 
   it("updates hasSessionModelOverride for fallback resolution after switch", async () => {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { judgeTaskCompletion } from "../tasks/task-completion-judge.js";
+import type { AgentRunFailureDiagnostic } from "./agent-run-failure-diagnostics.js";
 import {
   CONTROL_DIRECTOR_PRIMARY_ALIAS,
   CONTROL_DIRECTOR_PRIMARY_MODEL,
@@ -720,8 +721,11 @@ function buildControlDirectorLivenessBlockedText(params: {
   decision: ControlDirectorContinuationDecision;
   noVisiblePayload: boolean;
   requestBody?: string | undefined;
+  agentRunFailure?: AgentRunFailureDiagnostic | undefined;
 }): string {
-  const classificationText = params.classification ?? "none";
+  const classificationText = params.classification
+    ? ` The final-turn classifier reported ${params.classification}.`
+    : "";
   const visibilityText = params.noVisiblePayload
     ? "No user-visible payload was available for delivery."
     : "The harness classified the final turn as non-terminal.";
@@ -729,14 +733,40 @@ function buildControlDirectorLivenessBlockedText(params: {
     ? "The runtime classified the mission as recoverable and attempted to prepare recovery, but the current run still ended without a usable final answer."
     : "The runtime could not safely start or continue recovery.";
   const originalRequest = params.requestBody?.replace(/\s+/gu, " ").trim();
+  const failure = params.agentRunFailure;
+  const providerModel =
+    failure?.provider || failure?.model
+      ? ` Provider/model: ${[failure.provider, failure.model].filter(Boolean).join("/")}.`
+      : "";
+  const rootCause =
+    failure?.kind === "stuck_recovery_abort"
+      ? `The active model run stalled and diagnostic stuck-session recovery aborted it before final delivery.${providerModel}${failure.abortReason ? ` Abort reason: ${failure.abortReason}.` : ""}`
+      : failure?.kind === "context_overflow"
+        ? `The run hit a context-overflow condition before a final answer could be delivered.${providerModel}${failure.abortReason ? ` Details: ${failure.abortReason}.` : ""}`
+        : failure?.kind === "provider_error"
+          ? `The provider/runtime failed before a final answer could be delivered.${providerModel}${failure.providerRuntimeFailureKind ? ` Provider failure kind: ${failure.providerRuntimeFailureKind}.` : ""}${failure.errorPreview ? ` Error preview: ${failure.errorPreview}.` : ""}`
+          : failure?.kind === "user_abort"
+            ? `The run was cancelled by a user abort before final delivery.${failure.abortReason ? ` Abort reason: ${failure.abortReason}.` : ""}`
+            : failure?.kind === "gateway_restart"
+              ? `The run was interrupted by a Gateway restart before final delivery.${failure.abortReason ? ` Abort reason: ${failure.abortReason}.` : ""}`
+              : params.decision.reason;
+  const missingCondition =
+    failure?.kind === "stuck_recovery_abort"
+      ? "A healthy configured fallback model must complete the preserved original request before final delivery."
+      : failure?.kind === "context_overflow"
+        ? "The session context must be compacted or reduced enough for a model call to complete."
+        : failure?.kind === "provider_error"
+          ? "The provider/model call must succeed or a configured fallback must complete the turn."
+          : "A recovered user-visible answer or a precise runtime blocker is required before final delivery.";
   return [
-    "Control Director could not produce a usable final answer for this turn.",
+    "Control Director stopped before finishing the requested work.",
     "",
     ...(originalRequest ? [`Original request: ${originalRequest}`] : []),
-    `Verified state: ${visibilityText} Classification: ${classificationText}.`,
-    `Root cause: ${params.decision.reason}.`,
+    `Verified state: ${visibilityText}${classificationText}`,
+    `Root cause: ${rootCause}`,
     `Actions attempted: ${actionsAttempted}`,
-    "Next build gap: rerun recovery with the original request context and deliver the requested answer, or report the specific blocker discovered while trying to continue.",
+    `Missing condition: ${missingCondition}`,
+    "Next build gap: retry the preserved original request with a healthy configured fallback model, or reduce context if the blocker is context size.",
     "Completion Grade: 7/10",
     "Criticality: 10/10",
     "Status: blocked",
@@ -758,6 +788,7 @@ export function applyControlDirectorLivenessWatchdog<
   approvalPending?: boolean | undefined;
   externalAbort?: boolean | undefined;
   safeToContinue?: boolean | undefined;
+  agentRunFailure?: AgentRunFailureDiagnostic | undefined;
 }): ControlDirectorLivenessWatchdogResult<T> {
   const payloads = [...(params.payloads ?? [])];
   const emptyDecision = decideControlDirectorContinuation({
@@ -798,6 +829,7 @@ export function applyControlDirectorLivenessWatchdog<
     decision,
     noVisiblePayload,
     requestBody: params.requestBody,
+    agentRunFailure: params.agentRunFailure,
   });
   const nextPayloads =
     payloads.length > 0
