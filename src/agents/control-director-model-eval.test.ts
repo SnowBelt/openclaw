@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { evaluateControlDirectorModelCandidate } from "./control-director-model-eval.js";
+import { evaluateControlDirectorModelCandidate } from "./control-director-model-selection.js";
 
 function evalModel(params: {
   raw: string;

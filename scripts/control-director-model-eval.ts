@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Deterministic qualification gate for alternate Control Director models. */
 import process from "node:process";
-import { evaluateControlDirectorModelCandidate } from "../src/agents/control-director-model-eval.js";
+import { evaluateControlDirectorModelCandidate } from "../src/agents/control-director-model-selection.js";
 import { DEFAULT_PROVIDER } from "../src/agents/defaults.js";
 import { loadManifestModelCatalog } from "../src/agents/model-catalog.js";
 import { resolveDefaultModelForAgent } from "../src/agents/model-selection.js";
