@@ -141,6 +141,8 @@ async function main() {
           blocker: "",
           implementationPlan: "",
           acceptanceCriteria: "",
+          responsibility: "local_openclaw_agent",
+          costRisk: "low",
         },
         onRefresh: () => undefined,
         onSelectProject: () => undefined,

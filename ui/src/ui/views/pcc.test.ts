@@ -387,6 +387,44 @@ describe("renderPccDashboard", () => {
     expect(onSaveProject).toHaveBeenCalledTimes(1);
   });
 
+  it("renders responsibility routing labels and editor controls", () => {
+    const onMilestoneFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        onMilestoneFormChange,
+        projectDetail: {
+          project,
+          milestones: [
+            {
+              ...milestone,
+              metadata: { pccResponsibility: "high_reasoning_codex", pccCostRisk: "high" },
+            },
+          ],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+        editorMode: "edit-milestone",
+        milestoneForm: {
+          ...EMPTY_PCC_MILESTONE_FORM,
+          id: "milestone-1",
+          projectId: "project-1",
+          title: "CRUD UI",
+          responsibility: "high_reasoning_codex",
+          costRisk: "high",
+        },
+      }),
+    );
+
+    expect(container.textContent).toContain("Worker High-reasoning Codex");
+    expect(container.textContent).toContain("Risk High");
+    expect(container.textContent).toContain("Token/cost risk");
+    const selects = [...container.querySelectorAll<HTMLSelectElement>("select")];
+    expect(selects.some((select) => select.value === "high_reasoning_codex")).toBe(true);
+    expect(selects.some((select) => select.value === "high")).toBe(true);
+  });
+
   it("renders milestone editor and status actions", () => {
     const onMilestoneFormChange = vi.fn();
     const onSaveMilestone = vi.fn();

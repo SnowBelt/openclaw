@@ -65,6 +65,22 @@ const PROJECT_STATUSES: PccStatus[] = [
   "reopened",
   "archived",
 ];
+const RESPONSIBILITY_OPTIONS = [
+  ["user", "User"],
+  ["local_openclaw_agent", "Local OpenClaw agent"],
+  ["local_model", "Local model"],
+  ["codex", "Codex"],
+  ["high_reasoning_codex", "High-reasoning Codex"],
+  ["remote_proof", "Remote proof"],
+] as const;
+
+const COST_RISK_OPTIONS = [
+  ["free", "Free"],
+  ["low", "Low"],
+  ["medium", "Medium"],
+  ["high", "High"],
+] as const;
+
 const MILESTONE_STATUSES: PccStatus[] = [
   "not_started",
   "active",
@@ -120,6 +136,28 @@ function renderMetric(label: string, value: string | number) {
 
 function renderStatusOptions(statuses: PccStatus[]) {
   return statuses.map((status) => html`<option value=${status}>${formatStatus(status)}</option>`);
+}
+
+function renderStringOptions(options: readonly (readonly [string, string])[], selected: string) {
+  return options.map(
+    ([value, label]) => html`<option value=${value} ?selected=${value === selected}>
+      ${label}
+    </option>`,
+  );
+}
+
+function metadataObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function metadataString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function responsibilityLabel(value: string): string {
+  return RESPONSIBILITY_OPTIONS.find(([option]) => option === value)?.[1] ?? formatStatus(value);
 }
 
 function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboardProps) {
@@ -651,6 +689,9 @@ function renderProjectDetail(props: PccDashboardProps) {
 
 function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) {
   const percent = clampPercent(milestone.percentComplete ?? 0);
+  const metadata = metadataObject(milestone.metadata);
+  const responsibility = metadataString(metadata.pccResponsibility, "local_openclaw_agent");
+  const costRisk = metadataString(metadata.pccCostRisk, "low");
   const canComplete = receiptsForMilestone(props.projectDetail, milestone).length > 0;
   return html`
     <article class="pcc-milestone" data-pcc-milestone>
@@ -667,6 +708,8 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         <span>${percent}% complete</span>
         <span>Order ${milestone.order ?? "not set"}</span>
         <span>${milestone.acceptanceCriteria?.length ?? 0} criteria</span>
+        <span>Worker ${responsibilityLabel(responsibility)}</span>
+        <span>Risk ${formatStatus(costRisk)}</span>
       </div>
       ${renderMilestoneReceipts(milestone, props)}
       ${permissionsForMilestone(props.projectDetail, milestone).length > 0 ||
@@ -842,6 +885,26 @@ function renderMilestoneEditor(props: PccDashboardProps) {
             @input=${(event: Event) =>
               props.onMilestoneFormChange({ order: (event.target as HTMLInputElement).value })}
         /></label>
+        <label
+          >Worker<select
+            .value=${form.responsibility}
+            @change=${(event: Event) =>
+              props.onMilestoneFormChange({
+                responsibility: (event.target as HTMLSelectElement).value,
+              })}
+          >
+            ${renderStringOptions(RESPONSIBILITY_OPTIONS, form.responsibility)}
+          </select></label
+        >
+        <label
+          >Token/cost risk<select
+            .value=${form.costRisk}
+            @change=${(event: Event) =>
+              props.onMilestoneFormChange({ costRisk: (event.target as HTMLSelectElement).value })}
+          >
+            ${renderStringOptions(COST_RISK_OPTIONS, form.costRisk)}
+          </select></label
+        >
         <label
           >Percent<input
             type="number"

@@ -80,6 +80,8 @@ const TERMINAL_STATUSES = new Set<PccStatus>([
 const HELD_STATUSES = new Set<PccStatus>(["blocked", "deferred", "on_hold", "needs_approval"]);
 const CODEX_PERMISSION_TYPES = new Set<PccPermissionType>(["codex_usage", "high_reasoning_model"]);
 const REMOTE_PERMISSION_TYPES = new Set<PccPermissionType>(["remote_proof", "external_write"]);
+const CODEX_RESPONSIBILITIES = new Set(["codex", "high_reasoning_codex"]);
+const REMOTE_RESPONSIBILITIES = new Set(["remote_proof"]);
 const WORK_LOOP_STATES: readonly PccWorkLoopState[] = [
   "idle",
   "working",
@@ -182,12 +184,26 @@ function metadataFlag(milestone: PccMilestone, key: string): boolean {
   return metadataObject(milestone.metadata)[key] === true;
 }
 
+function metadataString(milestone: PccMilestone, key: string): string | null {
+  const value = metadataObject(milestone.metadata)[key];
+  return typeof value === "string" ? value : null;
+}
+
+function milestoneResponsibility(milestone: PccMilestone): string {
+  return metadataString(milestone, "pccResponsibility") ?? "local_openclaw_agent";
+}
+
+function milestoneCostRisk(milestone: PccMilestone): string {
+  return metadataString(milestone, "pccCostRisk") ?? "low";
+}
+
 function milestoneRequiresCodex(
   permissions: readonly PccPermissionGrant[],
   milestone: PccMilestone,
 ): boolean {
   return (
     permissions.some((permission) => CODEX_PERMISSION_TYPES.has(permission.type)) ||
+    CODEX_RESPONSIBILITIES.has(milestoneResponsibility(milestone)) ||
     metadataFlag(milestone, "requiresCodex")
   );
 }
@@ -198,6 +214,7 @@ function milestoneRequiresRemoteProof(
 ): boolean {
   return (
     permissions.some((permission) => REMOTE_PERMISSION_TYPES.has(permission.type)) ||
+    REMOTE_RESPONSIBILITIES.has(milestoneResponsibility(milestone)) ||
     metadataFlag(milestone, "requiresRemoteProof")
   );
 }
@@ -292,6 +309,8 @@ export function buildMilestoneTaskPrompt(
     input.project.goal ? `Goal: ${input.project.goal}` : "Goal: Not recorded",
     `Milestone: ${milestone.title}`,
     `Status: ${milestone.status}`,
+    `Responsible worker: ${milestoneResponsibility(milestone)}`,
+    `Token/cost risk: ${milestoneCostRisk(milestone)}`,
     "",
     "Implementation plan:",
     milestone.implementationPlan?.trim() || "Missing implementation plan.",

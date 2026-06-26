@@ -125,7 +125,7 @@ window.runPccShellSmoke = async () => {
       actionError: null,
       editorMode: null,
       projectForm: { id: null, title: "", goal: "", status: "active", priority: "3" },
-      milestoneForm: { id: null, projectId: "pcc", title: "", status: "not_started", phaseId: "", order: "", percentComplete: "", blocker: "", implementationPlan: "", acceptanceCriteria: "" },
+      milestoneForm: { id: null, projectId: "pcc", title: "", status: "not_started", phaseId: "", order: "", percentComplete: "", blocker: "", implementationPlan: "", acceptanceCriteria: "", responsibility: "local_openclaw_agent", costRisk: "low" },
       onRefresh: () => { refreshCount += 1; },
       onSelectProject: () => {},
       onOpenProjectEditor: () => {},
@@ -256,6 +256,8 @@ function pccSmokeProps() {
         blocker: "",
         implementationPlan: "",
         acceptanceCriteria: "",
+        responsibility: "local_openclaw_agent",
+        costRisk: "low",
       },
       onRefresh: () => {
         refreshCount += 1;

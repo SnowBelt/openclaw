@@ -474,6 +474,8 @@ describe("PCC CRUD controller", () => {
         project,
         milestones: [milestone],
         permissions: [permission],
+        evidence: [],
+        receipts: [],
         summary,
       });
     const state = createState({
@@ -489,6 +491,8 @@ describe("PCC CRUD controller", () => {
         blocker: "",
         implementationPlan: "Build forms",
         acceptanceCriteria: "Local proof passes",
+        responsibility: "codex",
+        costRisk: "high",
       },
     });
 
@@ -502,6 +506,10 @@ describe("PCC CRUD controller", () => {
         order: 1,
         percentComplete: 30,
         acceptanceCriteria: ["Local proof passes"],
+        metadata: expect.objectContaining({
+          pccResponsibility: "codex",
+          pccCostRisk: "high",
+        }),
       }),
     });
     expect(state.pccProjectDetail?.milestones).toHaveLength(1);
@@ -516,6 +524,8 @@ describe("PCC CRUD controller", () => {
       .mockResolvedValueOnce({
         project,
         milestones: [{ ...milestone, status: "deferred" }],
+        evidence: [],
+        receipts: [],
         summary,
       });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });

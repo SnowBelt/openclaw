@@ -96,6 +96,28 @@ describe("PCC guided work loop", () => {
     expect(blocker?.kind).toBe("remote_proof_required");
   });
 
+  it("stops before Codex and remote proof from responsibility metadata", () => {
+    const codex = milestone({
+      metadata: { pccResponsibility: "high_reasoning_codex", pccCostRisk: "high" },
+    });
+    const remote = milestone({
+      metadata: { pccResponsibility: "remote_proof", pccCostRisk: "medium" },
+    });
+
+    expect(classifyMilestoneBlocker({ project, milestones: [codex] }, codex)?.kind).toBe(
+      "codex_required",
+    );
+    expect(classifyMilestoneBlocker({ project, milestones: [remote] }, remote)?.kind).toBe(
+      "remote_proof_required",
+    );
+    expect(buildMilestoneTaskPrompt({ project, milestones: [codex] }, codex)).toContain(
+      "Responsible worker: high_reasoning_codex",
+    );
+    expect(buildMilestoneTaskPrompt({ project, milestones: [codex] }, codex)).toContain(
+      "Token/cost risk: high",
+    );
+  });
+
   it("stops on missing plans and acceptance criteria", () => {
     expect(
       classifyMilestoneBlocker({ project, milestones: [] }, milestone({ implementationPlan: "" }))

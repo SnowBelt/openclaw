@@ -131,6 +131,8 @@ async function main() {
           blocker: "",
           implementationPlan: "",
           acceptanceCriteria: "",
+          responsibility: "local_openclaw_agent",
+          costRisk: "low",
         },
         onRefresh: () => calls.push("refresh"),
         onSelectProject: (id) => calls.push(`select:${id}`),

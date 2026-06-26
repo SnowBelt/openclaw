@@ -53,6 +53,8 @@ export type PccMilestoneFormState = {
   blocker: string;
   implementationPlan: string;
   acceptanceCriteria: string;
+  responsibility: string;
+  costRisk: string;
 };
 
 export type PccDashboardState = {
@@ -134,6 +136,8 @@ export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
   blocker: "",
   implementationPlan: "",
   acceptanceCriteria: "",
+  responsibility: "local_openclaw_agent",
+  costRisk: "low",
 };
 
 function safeProjectSummary(project: PccProjectSummary): PccProjectSummary {
@@ -165,6 +169,16 @@ function parseOptionalInteger(value: string): number | undefined {
 function parseOptionalPercent(value: string): number | undefined {
   const parsed = parseOptionalInteger(value);
   return parsed === undefined ? undefined : Math.max(0, Math.min(100, parsed));
+}
+
+function metadataObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function metadataString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
 }
 
 function parseAcceptanceCriteria(value: string): string[] | undefined {
@@ -225,6 +239,11 @@ function milestoneFormFromMilestone(milestone: PccMilestone): PccMilestoneFormSt
     blocker: milestone.blocker ?? "",
     implementationPlan: milestone.implementationPlan ?? "",
     acceptanceCriteria: (milestone.acceptanceCriteria ?? []).join("\n"),
+    responsibility: metadataString(
+      metadataObject(milestone.metadata).pccResponsibility,
+      "local_openclaw_agent",
+    ),
+    costRisk: metadataString(metadataObject(milestone.metadata).pccCostRisk, "low"),
   };
 }
 
@@ -396,6 +415,16 @@ export async function savePccMilestone(state: PccDashboardState): Promise<void> 
         ...(parseAcceptanceCriteria(form.acceptanceCriteria)
           ? { acceptanceCriteria: parseAcceptanceCriteria(form.acceptanceCriteria) }
           : {}),
+        metadata: {
+          ...metadataObject(
+            form.id
+              ? state.pccProjectDetail?.milestones.find((milestone) => milestone.id === form.id)
+                  ?.metadata
+              : undefined,
+          ),
+          pccResponsibility: form.responsibility,
+          pccCostRisk: form.costRisk,
+        },
       },
     });
     state.pccEditorMode = null;
