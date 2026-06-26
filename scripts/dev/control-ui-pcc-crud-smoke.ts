@@ -93,6 +93,8 @@ async function main() {
           project,
           milestones: [milestone],
           permissions: [],
+          evidence: [],
+          receipts: [],
           summary: {
             id: "pcc",
             title: "Project Command Center",
@@ -138,6 +140,7 @@ async function main() {
         onCancelEditor: () => calls.push("cancel"),
         onSetProjectStatus: (_project, status) => calls.push(`project-status:${status}`),
         onSetMilestoneStatus: (_milestone, status) => calls.push(`milestone-status:${status}`),
+        onAddCompletionReceipt: () => calls.push("add-receipt"),
         onSetPermissionStatus: (_permission, status) => calls.push(`permission-status:${status}`),
         onUpdateWorkLoop: () => calls.push("work-loop-update"),
         onPrepareNextWorkItem: () => calls.push("work-loop-next"),

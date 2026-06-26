@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
+  addPccCompletionReceipt,
   loadPccDashboard,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -73,6 +74,30 @@ const permission = {
   auditLog: [],
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
+};
+
+const evidence = {
+  id: "evidence-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  kind: "local_test" as const,
+  status: "passed" as const,
+  summary: "Local proof passed",
+  command: "pnpm test ui/src/ui/views/pcc.test.ts",
+  exitCode: 0,
+  createdAt: "2026-06-26T00:00:00Z",
+};
+
+const receipt = {
+  id: "receipt-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  summary: "CRUD UI completed with local proof.",
+  proofEvidenceIds: ["evidence-1"],
+  proofLevel: "local" as const,
+  doNotRedo: ["Do not redo local proof without a regression."],
+  completedBy: "Project Command Center",
+  completedAt: "2026-06-26T00:00:00Z",
 };
 
 const summary = {
@@ -151,6 +176,76 @@ describe("loadPccDashboard", () => {
     expect(state.pccLoading).toBe(false);
   });
 
+  it("adds a completion receipt from passed evidence and refreshes detail", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receipt,
+        milestone: {
+          ...milestone,
+          status: "complete",
+          percentComplete: 100,
+          receiptIds: [receipt.id],
+        },
+        summary: { ...summary, percentComplete: 100 },
+      })
+      .mockResolvedValueOnce({ projects: [{ ...summary, percentComplete: 100 }] })
+      .mockResolvedValueOnce({ portfolio: { ...portfolio, averagePercentComplete: 100 } })
+      .mockResolvedValueOnce({
+        project,
+        milestones: [
+          { ...milestone, status: "complete", percentComplete: 100, receiptIds: [receipt.id] },
+        ],
+        permissions: [],
+        evidence: [evidence],
+        receipts: [receipt],
+        summary: { ...summary, percentComplete: 100 },
+      });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        permissions: [],
+        evidence: [evidence],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await addPccCompletionReceipt(state, milestone);
+
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.receipts.add", {
+      receipt: expect.objectContaining({
+        projectId: "project-1",
+        milestoneId: "milestone-1",
+        proofEvidenceIds: ["evidence-1"],
+        proofLevel: "local",
+      }),
+    });
+    expect(state.pccProjectDetail?.receipts[0]?.id).toBe("receipt-1");
+  });
+
+  it("refuses to add a completion receipt without passed evidence", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await addPccCompletionReceipt(state, milestone);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Passed evidence");
+  });
+
   it("updates permission status and refreshes selected project", async () => {
     const request = vi
       .fn()
@@ -161,6 +256,8 @@ describe("loadPccDashboard", () => {
         project,
         milestones: [milestone],
         permissions: [{ ...permission, status: "granted" }],
+        evidence: [],
+        receipts: [],
         summary,
       });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
@@ -193,11 +290,20 @@ describe("loadPccDashboard", () => {
         project: { ...project, metadata: { pccWorkLoop: { enabled: true } } },
         milestones: [milestone],
         permissions: [],
+        evidence: [],
+        receipts: [],
         summary,
       });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
-      pccProjectDetail: { project, milestones: [milestone], permissions: [], summary },
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
     });
 
     await updatePccWorkLoopSettings(state, { enabled: true, stopBeforeCodex: true });
@@ -227,6 +333,8 @@ describe("loadPccDashboard", () => {
         project,
         milestones: [{ ...milestone, status: "in_progress" }],
         permissions: [],
+        evidence: [],
+        receipts: [],
         summary,
       });
     const state = createState({
@@ -235,6 +343,8 @@ describe("loadPccDashboard", () => {
         project,
         milestones: [{ ...milestone, status: "not_started" }],
         permissions: [],
+        evidence: [],
+        receipts: [],
         summary,
       },
     });
@@ -293,7 +403,14 @@ describe("PCC CRUD controller", () => {
       .mockResolvedValueOnce({ project, summary })
       .mockResolvedValueOnce({ projects: [summary] })
       .mockResolvedValueOnce({ portfolio })
-      .mockResolvedValueOnce({ project, milestones: [], permissions: [], summary });
+      .mockResolvedValueOnce({
+        project,
+        milestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
       pccProjectForm: {

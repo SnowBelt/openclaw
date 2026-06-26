@@ -134,6 +134,7 @@ import {
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import {
+  addPccCompletionReceipt,
   cancelPccEditor,
   loadPccDashboard,
   preparePccNextWorkItem,
@@ -2816,6 +2817,8 @@ export function renderApp(state: AppViewState) {
                   void setPccProjectStatus(state, project, status),
                 onSetMilestoneStatus: (milestone, status) =>
                   void setPccMilestoneStatus(state, milestone, status),
+                onAddCompletionReceipt: (milestone) =>
+                  void addPccCompletionReceipt(state, milestone),
                 onSetPermissionStatus: (permission, status) =>
                   void setPccPermissionStatus(state, permission, status),
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),

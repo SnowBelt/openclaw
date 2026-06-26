@@ -12,6 +12,8 @@ import type {
   PccProjectFormState,
 } from "../controllers/pcc.ts";
 import type {
+  PccCompletionReceipt,
+  PccEvidence,
   PccMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
@@ -45,6 +47,7 @@ export type PccDashboardProps = {
   onCancelEditor: () => void;
   onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
   onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus) => void;
+  onAddCompletionReceipt: (milestone: PccMilestone) => void;
   onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
   onPrepareNextWorkItem: () => void;
@@ -207,6 +210,141 @@ function permissionsForMilestone(detail: PccProjectDetail | null, milestone: Pcc
   );
 }
 
+function evidenceForMilestone(
+  detail: PccProjectDetail | null,
+  milestone: PccMilestone,
+): PccEvidence[] {
+  return (detail?.evidence ?? []).filter((evidence) => evidence.milestoneId === milestone.id);
+}
+
+function receiptsForMilestone(
+  detail: PccProjectDetail | null,
+  milestone: PccMilestone,
+): PccCompletionReceipt[] {
+  return (detail?.receipts ?? []).filter(
+    (receipt) => receipt.milestoneId === milestone.id || milestone.receiptIds?.includes(receipt.id),
+  );
+}
+
+function formatReceiptDate(value: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+  return new Date(parsed).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[]) {
+  const proofItems = evidence.filter((item) => receipt.proofEvidenceIds.includes(item.id));
+  return html`
+    <details class="pcc-receipt" data-pcc-receipt>
+      <summary>
+        <span>Completion receipt</span>
+        <strong>${formatStatus(receipt.proofLevel)} proof</strong>
+      </summary>
+      <p>${receipt.summary}</p>
+      <dl class="pcc-receipt__facts">
+        <div>
+          <dt>Completed</dt>
+          <dd>${formatReceiptDate(receipt.completedAt)}</dd>
+        </div>
+        <div>
+          <dt>Evidence</dt>
+          <dd>
+            ${receipt.proofEvidenceIds.length}
+            item${receipt.proofEvidenceIds.length === 1 ? "" : "s"}
+          </dd>
+        </div>
+        <div>
+          <dt>By</dt>
+          <dd>${receipt.completedBy || "Not recorded"}</dd>
+        </div>
+      </dl>
+      ${proofItems.length
+        ? html`<ul class="pcc-receipt__list">
+            ${proofItems.map(
+              (item) => html`<li>
+                <strong>${formatStatus(item.kind)}</strong>
+                <span>${item.summary || item.command || item.path || item.url || item.status}</span>
+              </li>`,
+            )}
+          </ul>`
+        : nothing}
+      ${receipt.doNotRedo?.length
+        ? html`<div class="pcc-receipt__note">
+            <strong>Do not redo</strong>
+            <ul>
+              ${receipt.doNotRedo.map((note) => html`<li>${note}</li>`)}
+            </ul>
+          </div>`
+        : nothing}
+      ${receipt.followUpGaps?.length
+        ? html`<div class="pcc-receipt__note">
+            <strong>Follow-up gaps</strong>
+            <ul>
+              ${receipt.followUpGaps.map((gap) => html`<li>${gap}</li>`)}
+            </ul>
+          </div>`
+        : nothing}
+    </details>
+  `;
+}
+
+function renderEvidenceSummary(evidence: PccEvidence[]) {
+  if (evidence.length === 0) {
+    return html`<div class="pcc-empty pcc-empty--small">No proof evidence recorded yet</div>`;
+  }
+  return html`<div class="pcc-evidence-list" data-pcc-evidence-list>
+    ${evidence.slice(0, 6).map(
+      (item) => html`<article class="pcc-evidence pcc-evidence--${item.status}">
+        <span>${formatStatus(item.kind)}</span>
+        <strong>${formatStatus(item.status)}</strong>
+        <p>
+          ${item.summary ||
+          item.command ||
+          item.path ||
+          item.url ||
+          "No evidence summary recorded."}
+        </p>
+      </article>`,
+    )}
+  </div>`;
+}
+
+function renderMilestoneReceipts(milestone: PccMilestone, props: PccDashboardProps) {
+  const evidence = evidenceForMilestone(props.projectDetail, milestone);
+  const receipts = receiptsForMilestone(props.projectDetail, milestone);
+  const passedEvidence = evidence.filter((item) => item.status === "passed");
+  const canAddReceipt = receipts.length === 0 && passedEvidence.length > 0;
+  return html`
+    <section class="pcc-receipts" aria-label="Completion receipts">
+      <div class="pcc-section-heading">
+        <h5>Receipts</h5>
+        <span>${receipts.length} recorded</span>
+      </div>
+      ${receipts.length
+        ? receipts.map((receipt) => renderReceiptCard(receipt, evidence))
+        : html`<div class="pcc-empty pcc-empty--small">No completion receipt yet</div>`}
+      ${renderEvidenceSummary(evidence)}
+      <button
+        class="btn btn--subtle"
+        type="button"
+        ?disabled=${!canAddReceipt || props.actionBusy}
+        title=${canAddReceipt
+          ? "Add a completion receipt from passed evidence"
+          : "Passed evidence is required before adding a receipt"}
+        @click=${() => props.onAddCompletionReceipt(milestone)}
+      >
+        Add receipt
+      </button>
+    </section>
+  `;
+}
+
 function renderPermissionList(permissions: PccPermissionGrant[], props: PccDashboardProps) {
   if (permissions.length === 0) {
     return html`<div class="pcc-empty pcc-empty--small">No permissions requested</div>`;
@@ -272,7 +410,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
     project: detail.project,
     milestones: detail.milestones,
     permissions: detail.permissions,
-    receipts: [],
+    receipts: detail.receipts,
   });
   const workLabel = settings.enabled ? formatStatus(next.state) : "Off";
   const nextTitle = next.milestone?.title ?? "No eligible milestone";
@@ -446,7 +584,7 @@ function renderProjectDetail(props: PccDashboardProps) {
 
 function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) {
   const percent = clampPercent(milestone.percentComplete ?? 0);
-  const canComplete = Boolean(milestone.receiptIds?.length);
+  const canComplete = receiptsForMilestone(props.projectDetail, milestone).length > 0;
   return html`
     <article class="pcc-milestone" data-pcc-milestone>
       <div class="pcc-milestone__main">
@@ -463,6 +601,7 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         <span>Order ${milestone.order ?? "not set"}</span>
         <span>${milestone.acceptanceCriteria?.length ?? 0} criteria</span>
       </div>
+      ${renderMilestoneReceipts(milestone, props)}
       ${permissionsForMilestone(props.projectDetail, milestone).length > 0 ||
       milestone.status === "needs_approval"
         ? html`<section class="pcc-milestone__permissions" aria-label="Milestone permissions">

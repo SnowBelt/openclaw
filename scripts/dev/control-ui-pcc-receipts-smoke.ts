@@ -7,7 +7,7 @@ function timestampSlug(): string {
 }
 
 async function main() {
-  const artifactDir = join(".artifacts", "control-ui-pcc-work-loop-smoke", timestampSlug());
+  const artifactDir = join(".artifacts", "control-ui-pcc-receipts-smoke", timestampSlug());
   mkdirSync(artifactDir, { recursive: true });
   const dom = new JSDOM(`<!doctype html><main id="root"></main>`, { url: "http://127.0.0.1/pcc" });
   const previous = {
@@ -33,61 +33,65 @@ async function main() {
     const project = {
       id: "pcc",
       title: "Project Command Center",
-      goal: "Track work",
+      goal: "Track proof receipts without clutter.",
       status: "active" as const,
       priority: 3,
-      metadata: {
-        pccWorkLoop: {
-          enabled: true,
-          state: "working",
-          stopBeforeCodex: true,
-          stopBeforeRemoteProof: true,
-          stopAfterCurrentMilestone: false,
-        },
-      },
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
     const milestone = {
-      id: "milestone-loop",
+      id: "milestone-receipts",
       projectId: "pcc",
-      title: "Guided Work Loop V1",
-      status: "not_started" as const,
+      title: "Evidence + Completion Receipts UI V1",
+      status: "proof_pending" as const,
       order: 1,
-      percentComplete: 0,
-      implementationPlan: "Prepare one safe milestone task.",
-      acceptanceCriteria: ["No Codex tokens are spent", "Missing permission stops the loop"],
-      permissionGrantIds: ["permission-remote"],
+      percentComplete: 70,
+      implementationPlan: "Render proof receipts and prevent completion without evidence.",
+      acceptanceCriteria: [
+        "Passed evidence appears",
+        "Receipt card stays collapsed",
+        "Add receipt is gated",
+      ],
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
-    const permission = {
-      id: "permission-remote",
+    const evidence = {
+      id: "evidence-local-proof",
       projectId: "pcc",
-      milestoneId: "milestone-loop",
-      type: "remote_proof" as const,
-      status: "needed" as const,
-      riskLevel: "medium" as const,
-      allowedActions: ["run Workflow Sanity"],
-      usedCount: 0,
-      auditLog: [],
+      milestoneId: "milestone-receipts",
+      kind: "local_test" as const,
+      status: "passed" as const,
+      summary: "Targeted PCC receipts tests passed.",
+      command: "pnpm test ui/src/ui/views/pcc.test.ts",
+      exitCode: 0,
       createdAt: "2026-06-26T00:00:00Z",
-      updatedAt: "2026-06-26T00:00:00Z",
+    };
+    const receipt = {
+      id: "receipt-local-proof",
+      projectId: "pcc",
+      milestoneId: "milestone-receipts",
+      summary: "Receipts UI rendered from passed local proof.",
+      proofEvidenceIds: ["evidence-local-proof"],
+      proofLevel: "local" as const,
+      doNotRedo: ["Do not redo the receipt UI proof unless a regression is recorded."],
+      followUpGaps: ["Remote proof blocked by GitHub DNS."],
+      completedBy: "Project Command Center",
+      completedAt: "2026-06-26T00:00:00Z",
     };
     const summary = {
       id: "pcc",
       title: "Project Command Center",
       status: "active" as const,
-      percentComplete: 55,
+      percentComplete: 70,
       milestoneCounts: {
         total: 1,
         complete: 0,
         blocked: 0,
-        needsApproval: 1,
+        needsApproval: 0,
         deferred: 0,
         skipped: 0,
       },
-      nextActions: ["Guided Work Loop V1"],
+      nextActions: ["Add receipt"],
       proofGaps: ["Remote proof"],
       updatedAt: "2026-06-26T00:00:00Z",
     };
@@ -100,20 +104,20 @@ async function main() {
           projectsTotal: 1,
           active: 1,
           blocked: 0,
-          needsApproval: 1,
+          needsApproval: 0,
           complete: 0,
           archived: 0,
-          averagePercentComplete: 55,
-          nextActions: ["Guided Work Loop V1"],
+          averagePercentComplete: 70,
+          nextActions: ["Add receipt"],
         },
         projects: [summary],
         selectedProjectId: "pcc",
         projectDetail: {
           project,
           milestones: [milestone],
-          permissions: [permission],
-          evidence: [],
-          receipts: [],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [receipt],
           summary,
         },
         actionBusy: false,
@@ -153,32 +157,26 @@ async function main() {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
-    [...root.querySelectorAll("button")]
-      .find(
-        (button) =>
-          button.textContent?.includes("Work This Project") ||
-          button.textContent?.includes("Turn off"),
-      )
-      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    [...root.querySelectorAll("button")]
-      .find((button) => button.textContent?.includes("Prepare next safe task"))
-      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    const addReceiptButton = [...root.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Add receipt"),
+    ) as HTMLButtonElement | undefined;
     const text = root.textContent ?? "";
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
-      workLoop: root.querySelectorAll("[data-pcc-work-loop]").length === 1,
-      stopBeforeCodex: text.includes("Stop before Codex"),
-      stopBeforeRemoteProof: text.includes("Stop before remote proof"),
-      waiting: text.includes("Missing granted permission") || text.includes("remote proof"),
-      noCodexStart: !calls.some((call) => call.toLowerCase().includes("codex")),
-      callbacks: calls.includes("work-loop-update") && calls.includes("work-loop-next"),
+      receipt: root.querySelectorAll("[data-pcc-receipt]").length === 1,
+      evidence: root.querySelectorAll("[data-pcc-evidence-list]").length === 1,
+      summary: text.includes("Receipts UI rendered from passed local proof."),
+      doNotRedo: text.includes("Do not redo"),
+      followUp: text.includes("Remote proof blocked by GitHub DNS"),
+      addReceiptDisabledAfterReceipt: addReceiptButton?.disabled === true,
+      noDuplicateAdd: !calls.includes("add-receipt"),
     };
     const summaryOut = {
       artifactDir,
       ok: Object.values(checks).every(Boolean),
       checks,
       calls,
-      html: join(artifactDir, "pcc-work-loop.html"),
+      html: join(artifactDir, "pcc-receipts.html"),
     };
     writeFileSync(summaryOut.html, dom.serialize());
     writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summaryOut, null, 2));

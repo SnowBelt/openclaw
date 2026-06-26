@@ -44,6 +44,31 @@ const permission = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const evidence = {
+  id: "evidence-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  kind: "local_test" as const,
+  status: "passed" as const,
+  summary: "Local PCC proof passed",
+  command: "pnpm test ui/src/ui/views/pcc.test.ts",
+  exitCode: 0,
+  createdAt: "2026-06-26T00:00:00Z",
+};
+
+const receipt = {
+  id: "receipt-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  summary: "CRUD UI completed with local proof.",
+  proofEvidenceIds: ["evidence-1"],
+  proofLevel: "local" as const,
+  doNotRedo: ["Do not redo the local proof without a regression."],
+  followUpGaps: ["Remote proof remains blocked"],
+  completedBy: "Project Command Center",
+  completedAt: "2026-06-26T00:00:00Z",
+};
+
 const summary = {
   id: "project-1",
   title: "Project Command Center",
@@ -79,7 +104,14 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     },
     projects: [summary],
     selectedProjectId: "project-1",
-    projectDetail: { project, milestones: [milestone], permissions: [permission], summary },
+    projectDetail: {
+      project,
+      milestones: [milestone],
+      permissions: [permission],
+      evidence: [],
+      receipts: [],
+      summary,
+    },
     actionBusy: false,
     actionError: null,
     editorMode: null,
@@ -96,6 +128,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     onCancelEditor: () => undefined,
     onSetProjectStatus: () => undefined,
     onSetMilestoneStatus: () => undefined,
+    onAddCompletionReceipt: () => undefined,
     onSetPermissionStatus: () => undefined,
     onUpdateWorkLoop: () => undefined,
     onPrepareNextWorkItem: () => undefined,
@@ -185,6 +218,59 @@ describe("renderPccDashboard", () => {
     expect(onOpenProjectEditor).toHaveBeenCalledWith(project);
   });
 
+  it("renders completion receipts, evidence, and add receipt action", () => {
+    const onAddCompletionReceipt = vi.fn();
+    const container = renderView(
+      createProps({
+        onAddCompletionReceipt,
+        projectDetail: {
+          project,
+          milestones: [{ ...milestone, status: "proof_pending" }],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [receipt],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.querySelectorAll("[data-pcc-receipt]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-pcc-evidence-list]")).toHaveLength(1);
+    expect(container.textContent).toContain("Completion receipt");
+    expect(container.textContent).toContain("Do not redo");
+    expect(container.textContent).toContain("Local PCC proof passed");
+
+    const add = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Add receipt"),
+    );
+    expect(add?.disabled).toBe(true);
+  });
+
+  it("enables Add receipt only when passed evidence exists and no receipt is recorded", () => {
+    const onAddCompletionReceipt = vi.fn();
+    const container = renderView(
+      createProps({
+        onAddCompletionReceipt,
+        projectDetail: {
+          project,
+          milestones: [{ ...milestone, status: "proof_pending" }],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+    const add = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Add receipt"),
+    );
+    expect(add?.disabled).toBe(false);
+    add?.click();
+    expect(onAddCompletionReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "milestone-1" }),
+    );
+  });
+
   it("renders permission decisions and calls the decision handler", () => {
     const onSetPermissionStatus = vi.fn();
     const container = renderView(createProps({ onSetPermissionStatus }));
@@ -223,6 +309,8 @@ describe("renderPccDashboard", () => {
           },
           milestones: [milestone],
           permissions: [],
+          evidence: [],
+          receipts: [],
           summary,
         },
       }),

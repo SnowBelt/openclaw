@@ -7,6 +7,8 @@ import {
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type {
+  PccCompletionReceipt,
+  PccEvidence,
   PccMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
@@ -20,6 +22,8 @@ export type PccProjectDetail = {
   project: PccProject;
   milestones: PccMilestone[];
   permissions: PccPermissionGrant[];
+  evidence: PccEvidence[];
+  receipts: PccCompletionReceipt[];
   summary: PccProjectSummary;
 };
 
@@ -81,6 +85,8 @@ type PccProjectsGetResult = {
   project: PccProject;
   milestones: PccMilestone[];
   permissions: PccPermissionGrant[];
+  evidence: PccEvidence[];
+  receipts: PccCompletionReceipt[];
   summary: PccProjectSummary;
 };
 
@@ -91,6 +97,12 @@ type PccProjectsUpsertResult = {
 
 type PccPermissionsUpsertResult = {
   permission: PccPermissionGrant;
+  summary: PccProjectSummary;
+};
+
+type PccReceiptsAddResult = {
+  receipt: PccCompletionReceipt;
+  milestone: PccMilestone;
   summary: PccProjectSummary;
 };
 
@@ -280,6 +292,8 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
         (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
       ),
       permissions: detail.permissions ?? [],
+      evidence: detail.evidence ?? [],
+      receipts: detail.receipts ?? [],
       summary: safeProjectSummary(detail.summary),
     };
   });
@@ -390,6 +404,53 @@ export async function savePccMilestone(state: PccDashboardState): Promise<void> 
   });
 }
 
+export async function addPccCompletionReceipt(
+  state: PccDashboardState,
+  milestone: PccMilestone,
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    return;
+  }
+  const passedEvidence = detail.evidence.filter(
+    (evidence) => evidence.milestoneId === milestone.id && evidence.status === "passed",
+  );
+  if (passedEvidence.length === 0) {
+    state.pccActionError = "Passed evidence is required before adding a completion receipt.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const summary = [
+      `${milestone.title} completed with ${passedEvidence.length} passed proof item${passedEvidence.length === 1 ? "" : "s"}.`,
+      milestone.acceptanceCriteria?.length
+        ? `Acceptance criteria: ${milestone.acceptanceCriteria.join("; ")}`
+        : "Acceptance criteria were not recorded.",
+    ].join(" ");
+    const result = await state.client.request<PccReceiptsAddResult>("pcc.receipts.add", {
+      receipt: {
+        projectId: milestone.projectId,
+        milestoneId: milestone.id,
+        summary,
+        proofEvidenceIds: passedEvidence.map((evidence) => evidence.id),
+        proofLevel: passedEvidence.some((evidence) => evidence.kind === "remote_ci")
+          ? "remote"
+          : "local",
+        doNotRedo: [
+          "Do not redo this milestone unless a new regression or scope change is recorded.",
+        ],
+        followUpGaps: detail.summary.proofGaps,
+        completedBy: "Project Command Center",
+      },
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, result.receipt.projectId);
+  });
+}
+
 export async function setPccMilestoneStatus(
   state: PccDashboardState,
   milestone: PccMilestone,
@@ -488,7 +549,7 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       project: detail.project,
       milestones: detail.milestones,
       permissions: detail.permissions,
-      receipts: [],
+      receipts: detail.receipts,
     });
     const updatedProject = withPccWorkLoopSettings(
       detail.project,
