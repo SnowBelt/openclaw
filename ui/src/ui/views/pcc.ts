@@ -8,6 +8,8 @@ import type {
 } from "../controllers/pcc.ts";
 import type {
   PccMilestone,
+  PccPermissionGrant,
+  PccPermissionStatus,
   PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
@@ -38,6 +40,7 @@ export type PccDashboardProps = {
   onCancelEditor: () => void;
   onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
   onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus) => void;
+  onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
 };
 
 const PROJECT_STATUSES: PccStatus[] = [
@@ -109,6 +112,101 @@ function renderStatusOptions(statuses: PccStatus[]) {
   return statuses.map((status) => html`<option value=${status}>${formatStatus(status)}</option>`);
 }
 
+function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboardProps) {
+  const actions = permission.allowedActions.length
+    ? permission.allowedActions.join(", ")
+    : "No allowed actions recorded";
+  const forbidden = permission.forbiddenActions?.length
+    ? permission.forbiddenActions.join(", ")
+    : "No forbidden actions recorded";
+  return html`
+    <article class="pcc-permission" data-pcc-permission>
+      <div class="pcc-permission__header">
+        <div>
+          <p class="pcc-kicker">Permission needed</p>
+          <h5>${formatStatus(permission.type)}</h5>
+        </div>
+        <span class="pcc-status pcc-permission-status--${permission.status}">
+          ${formatStatus(permission.status)}
+        </span>
+      </div>
+      <dl class="pcc-permission__facts">
+        <div>
+          <dt>Risk</dt>
+          <dd>${formatStatus(permission.riskLevel)}</dd>
+        </div>
+        <div>
+          <dt>Target</dt>
+          <dd>${permission.target || "Not specified"}</dd>
+        </div>
+        <div>
+          <dt>Allowed</dt>
+          <dd>${actions}</dd>
+        </div>
+        <div>
+          <dt>Forbidden</dt>
+          <dd>${forbidden}</dd>
+        </div>
+        <div>
+          <dt>Expires</dt>
+          <dd>${permission.expiresAt || "No expiration"}</dd>
+        </div>
+        <div>
+          <dt>Budget</dt>
+          <dd>
+            ${permission.tokenBudget
+              ? `${permission.tokenBudget} tokens`
+              : permission.costBudget !== undefined
+                ? `$${permission.costBudget}`
+                : "No budget"}
+          </dd>
+        </div>
+      </dl>
+      <div class="pcc-permission__actions">
+        <button
+          class="btn"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() => props.onSetPermissionStatus(permission, "granted")}
+        >
+          Grant
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() => props.onSetPermissionStatus(permission, "needed")}
+        >
+          Defer
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() => props.onSetPermissionStatus(permission, "denied")}
+        >
+          Deny
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+function permissionsForMilestone(detail: PccProjectDetail | null, milestone: PccMilestone) {
+  return (detail?.permissions ?? []).filter(
+    (permission) =>
+      permission.milestoneId === milestone.id ||
+      milestone.permissionGrantIds?.includes(permission.id),
+  );
+}
+
+function renderPermissionList(permissions: PccPermissionGrant[], props: PccDashboardProps) {
+  if (permissions.length === 0) {
+    return html`<div class="pcc-empty pcc-empty--small">No permissions requested</div>`;
+  }
+  return permissions.map((permission) => renderPermissionCard(permission, props));
+}
+
 function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps) {
   const percent = clampPercent(project.percentComplete);
   const nextAction = project.nextActions[0] ?? "No next action recorded";
@@ -160,6 +258,7 @@ function renderProjectDetail(props: PccDashboardProps) {
     `;
   }
   const project = detail.project;
+  const permissions = detail.permissions ?? [];
   return html`
     <aside class="pcc-detail" data-pcc-detail>
       <div class="pcc-detail__header">
@@ -199,6 +298,16 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
+      <section class="pcc-permissions" aria-label="Project permissions">
+        <div class="pcc-section-heading">
+          <h4>Permissions</h4>
+          <span>${permissions.length} requested</span>
+        </div>
+        ${renderPermissionList(
+          permissions.filter((permission) => !permission.milestoneId),
+          props,
+        )}
+      </section>
       <section class="pcc-milestones" aria-label="Project milestones">
         ${detail.milestones.length === 0
           ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
@@ -227,6 +336,14 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         <span>Order ${milestone.order ?? "not set"}</span>
         <span>${milestone.acceptanceCriteria?.length ?? 0} criteria</span>
       </div>
+      ${permissionsForMilestone(props.projectDetail, milestone).length > 0 ||
+      milestone.status === "needs_approval"
+        ? html`<section class="pcc-milestone__permissions" aria-label="Milestone permissions">
+            ${permissionsForMilestone(props.projectDetail, milestone).length > 0
+              ? renderPermissionList(permissionsForMilestone(props.projectDetail, milestone), props)
+              : html`<div class="pcc-empty pcc-empty--small">Permission details not recorded</div>`}
+          </section>`
+        : nothing}
       <div class="pcc-milestone__actions">
         <button
           class="btn btn--subtle"

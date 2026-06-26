@@ -166,7 +166,11 @@
 }
 
 .pcc-progress__bar {
-  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--ok)));
+  background: linear-gradient(
+    90deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 55%, var(--ok))
+  );
   border-radius: inherit;
   display: block;
   height: 100%;
@@ -394,4 +398,74 @@
   .pcc-editor__grid {
     grid-template-columns: 1fr;
   }
+}
+
+.pcc-section-heading,
+.pcc-permission__header,
+.pcc-permission__actions {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.pcc-section-heading h4,
+.pcc-permission h5 {
+  margin: 0;
+}
+
+.pcc-permissions,
+.pcc-milestone__permissions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pcc-permission {
+  background: color-mix(in srgb, var(--surface-raised, #fff) 94%, var(--accent, #ff3b30) 6%);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 80%, var(--accent, #ff3b30) 20%);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card, 0 18px 40px rgba(15, 23, 42, 0.06));
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+}
+
+.pcc-permission__facts {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin: 0;
+}
+
+.pcc-permission__facts div {
+  background: color-mix(in srgb, var(--surface, #f7f7fa) 92%, transparent);
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.08));
+  border-radius: 14px;
+  padding: 0.65rem;
+}
+
+.pcc-permission__facts dt {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pcc-permission__facts dd {
+  color: var(--text, #111827);
+  font-size: 0.86rem;
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pcc-permission-status--granted {
+  background: color-mix(in srgb, #34c759 18%, transparent);
+  color: #0a7a2f;
+}
+
+.pcc-permission-status--denied,
+.pcc-permission-status--blocked {
+  background: color-mix(in srgb, #ff3b30 16%, transparent);
+  color: #b42318;
 }

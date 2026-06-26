@@ -3,6 +3,8 @@ import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type {
   PccMilestone,
+  PccPermissionGrant,
+  PccPermissionStatus,
   PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
@@ -12,6 +14,7 @@ import type {
 export type PccProjectDetail = {
   project: PccProject;
   milestones: PccMilestone[];
+  permissions: PccPermissionGrant[];
   summary: PccProjectSummary;
 };
 
@@ -72,11 +75,17 @@ type PccSummaryGetResult = {
 type PccProjectsGetResult = {
   project: PccProject;
   milestones: PccMilestone[];
+  permissions: PccPermissionGrant[];
   summary: PccProjectSummary;
 };
 
 type PccProjectsUpsertResult = {
   project: PccProject;
+  summary: PccProjectSummary;
+};
+
+type PccPermissionsUpsertResult = {
+  permission: PccPermissionGrant;
   summary: PccProjectSummary;
 };
 
@@ -265,6 +274,7 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
       milestones: detail.milestones.toSorted(
         (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
       ),
+      permissions: detail.permissions ?? [],
       summary: safeProjectSummary(detail.summary),
     };
   });
@@ -382,4 +392,37 @@ export async function setPccMilestoneStatus(
 ): Promise<void> {
   state.pccMilestoneForm = { ...milestoneFormFromMilestone(milestone), status };
   await savePccMilestone(state);
+}
+
+export async function setPccPermissionStatus(
+  state: PccDashboardState,
+  permission: PccPermissionGrant,
+  status: PccPermissionStatus,
+): Promise<void> {
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const result = await state.client.request<PccPermissionsUpsertResult>(
+      "pcc.permissions.upsert",
+      {
+        permission: {
+          id: permission.id,
+          projectId: permission.projectId,
+          ...(permission.milestoneId ? { milestoneId: permission.milestoneId } : {}),
+          type: permission.type,
+          status,
+          ...(status === "granted" ? { grantedBy: "user" } : {}),
+          note:
+            status === "granted"
+              ? "Granted in Project Command Center."
+              : status === "denied"
+                ? "Denied in Project Command Center."
+                : "Deferred in Project Command Center.",
+        },
+      },
+    );
+    await loadPccDashboard(state);
+    await selectPccProject(state, result.permission.projectId);
+  });
 }

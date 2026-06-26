@@ -9,6 +9,7 @@ import {
   savePccProject,
   selectPccProject,
   setPccMilestoneStatus,
+  setPccPermissionStatus,
   setPccProjectStatus,
   type PccDashboardState,
 } from "./pcc.ts";
@@ -52,6 +53,22 @@ const milestone = {
   percentComplete: 30,
   implementationPlan: "Build forms",
   acceptanceCriteria: ["Local proof passes"],
+  createdAt: "2026-06-26T00:00:00Z",
+  updatedAt: "2026-06-26T00:00:00Z",
+};
+
+const permission = {
+  id: "permission-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  type: "remote_proof" as const,
+  status: "needed" as const,
+  riskLevel: "medium" as const,
+  allowedActions: ["push branch", "run Workflow Sanity"],
+  forbiddenActions: ["merge upstream"],
+  target: "SnowBelt/openclaw",
+  usedCount: 0,
+  auditLog: [],
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
 };
@@ -131,11 +148,45 @@ describe("loadPccDashboard", () => {
     expect(state.pccError).toContain("gateway offline");
     expect(state.pccLoading).toBe(false);
   });
+
+  it("updates permission status and refreshes selected project", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ permission: { ...permission, status: "granted" }, summary })
+      .mockResolvedValueOnce({ projects: [summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({
+        project,
+        milestones: [milestone],
+        permissions: [{ ...permission, status: "granted" }],
+        summary,
+      });
+    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+
+    await setPccPermissionStatus(state, permission, "granted");
+
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.permissions.upsert", {
+      permission: expect.objectContaining({
+        id: "permission-1",
+        projectId: "project-1",
+        milestoneId: "milestone-1",
+        type: "remote_proof",
+        status: "granted",
+        grantedBy: "user",
+      }),
+    });
+    expect(state.pccProjectDetail?.permissions[0]?.status).toBe("granted");
+  });
 });
 
 describe("PCC CRUD controller", () => {
   it("selects a project detail", async () => {
-    const request = vi.fn().mockResolvedValueOnce({ project, milestones: [milestone], summary });
+    const request = vi.fn().mockResolvedValueOnce({
+      project,
+      milestones: [milestone],
+      permissions: [permission],
+      summary,
+    });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
 
     await selectPccProject(state, "project-1");
@@ -143,6 +194,7 @@ describe("PCC CRUD controller", () => {
     expect(request).toHaveBeenCalledWith("pcc.projects.get", { projectId: "project-1" });
     expect(state.pccSelectedProjectId).toBe("project-1");
     expect(state.pccProjectDetail?.milestones[0]?.title).toBe("CRUD UI");
+    expect(state.pccProjectDetail?.permissions[0]?.id).toBe("permission-1");
   });
 
   it("opens project and milestone editors", () => {
@@ -163,7 +215,7 @@ describe("PCC CRUD controller", () => {
       .mockResolvedValueOnce({ project, summary })
       .mockResolvedValueOnce({ projects: [summary] })
       .mockResolvedValueOnce({ portfolio })
-      .mockResolvedValueOnce({ project, milestones: [], summary });
+      .mockResolvedValueOnce({ project, milestones: [], permissions: [], summary });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
       pccProjectForm: {
@@ -201,6 +253,7 @@ describe("PCC CRUD controller", () => {
       .mockResolvedValueOnce({
         project: { ...project, status: "archived" },
         milestones: [],
+        permissions: [],
         summary: { ...summary, status: "archived" },
       });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
@@ -222,7 +275,12 @@ describe("PCC CRUD controller", () => {
       .mockResolvedValueOnce({ milestone, summary })
       .mockResolvedValueOnce({ projects: [summary] })
       .mockResolvedValueOnce({ portfolio })
-      .mockResolvedValueOnce({ project, milestones: [milestone], summary });
+      .mockResolvedValueOnce({
+        project,
+        milestones: [milestone],
+        permissions: [permission],
+        summary,
+      });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
       pccMilestoneForm: {

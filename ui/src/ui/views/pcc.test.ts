@@ -28,6 +28,22 @@ const milestone = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const permission = {
+  id: "permission-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  type: "remote_proof" as const,
+  status: "needed" as const,
+  riskLevel: "medium" as const,
+  allowedActions: ["push branch", "run Workflow Sanity"],
+  forbiddenActions: ["merge upstream"],
+  target: "SnowBelt/openclaw",
+  usedCount: 0,
+  auditLog: [],
+  createdAt: "2026-06-26T00:00:00Z",
+  updatedAt: "2026-06-26T00:00:00Z",
+};
+
 const summary = {
   id: "project-1",
   title: "Project Command Center",
@@ -63,7 +79,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     },
     projects: [summary],
     selectedProjectId: "project-1",
-    projectDetail: { project, milestones: [milestone], summary },
+    projectDetail: { project, milestones: [milestone], permissions: [permission], summary },
     actionBusy: false,
     actionError: null,
     editorMode: null,
@@ -80,6 +96,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     onCancelEditor: () => undefined,
     onSetProjectStatus: () => undefined,
     onSetMilestoneStatus: () => undefined,
+    onSetPermissionStatus: () => undefined,
     ...overrides,
   };
 }
@@ -109,6 +126,9 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("CRUD UI");
     expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
     expect(container.querySelectorAll("[data-pcc-milestone]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-pcc-permission]")).toHaveLength(1);
+    expect(text).toContain("Permission needed");
+    expect(text).toContain("Remote Proof");
   });
 
   it("renders an empty state", () => {
@@ -163,6 +183,22 @@ describe("renderPccDashboard", () => {
     expect(onOpenProjectEditor).toHaveBeenCalledWith(project);
   });
 
+  it("renders permission decisions and calls the decision handler", () => {
+    const onSetPermissionStatus = vi.fn();
+    const container = renderView(createProps({ onSetPermissionStatus }));
+
+    const buttons = [
+      ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-permission] button"),
+    ];
+    buttons.find((button) => button.textContent?.includes("Grant"))?.click();
+    buttons.find((button) => button.textContent?.includes("Defer"))?.click();
+    buttons.find((button) => button.textContent?.includes("Deny"))?.click();
+
+    expect(onSetPermissionStatus).toHaveBeenNthCalledWith(1, permission, "granted");
+    expect(onSetPermissionStatus).toHaveBeenNthCalledWith(2, permission, "needed");
+    expect(onSetPermissionStatus).toHaveBeenNthCalledWith(3, permission, "denied");
+  });
+
   it("renders project editor and saves form changes", () => {
     const onProjectFormChange = vi.fn();
     const onSaveProject = vi.fn();
@@ -214,9 +250,9 @@ describe("renderPccDashboard", () => {
     expect(onMilestoneFormChange).toHaveBeenCalled();
     expect(onSaveMilestone).toHaveBeenCalledTimes(1);
 
-    const defer = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-      button.textContent?.includes("Defer"),
-    );
+    const defer = [
+      ...container.querySelectorAll<HTMLButtonElement>(".pcc-milestone__actions button"),
+    ].find((button) => button.textContent?.includes("Defer"));
     defer?.click();
     expect(onSetMilestoneStatus).toHaveBeenCalledWith(milestone, "deferred");
   });

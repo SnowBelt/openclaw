@@ -7,7 +7,7 @@ function timestampSlug(): string {
 }
 
 async function main() {
-  const artifactDir = join(".artifacts", "control-ui-pcc-crud-smoke", timestampSlug());
+  const artifactDir = join(".artifacts", "control-ui-pcc-permissions-smoke", timestampSlug());
   mkdirSync(artifactDir, { recursive: true });
   const dom = new JSDOM(`<!doctype html><main id="root"></main>`, { url: "http://127.0.0.1/pcc" });
   const previous = {
@@ -16,16 +16,12 @@ async function main() {
     HTMLElement: (globalThis as { HTMLElement?: unknown }).HTMLElement,
     Node: (globalThis as { Node?: unknown }).Node,
     MouseEvent: (globalThis as { MouseEvent?: unknown }).MouseEvent,
-    InputEvent: (globalThis as { InputEvent?: unknown }).InputEvent,
-    confirm: (globalThis as { confirm?: unknown }).confirm,
   };
   (globalThis as { window?: unknown }).window = dom.window;
   (globalThis as { document?: unknown }).document = dom.window.document;
   (globalThis as { HTMLElement?: unknown }).HTMLElement = dom.window.HTMLElement;
   (globalThis as { Node?: unknown }).Node = dom.window.Node;
   (globalThis as { MouseEvent?: unknown }).MouseEvent = dom.window.MouseEvent;
-  (globalThis as { InputEvent?: unknown }).InputEvent = dom.window.InputEvent;
-  (globalThis as { confirm?: unknown }).confirm = () => true;
   try {
     const { render } = await import("lit");
     const { renderPccDashboard } = await import("../../ui/src/ui/views/pcc.ts");
@@ -38,20 +34,52 @@ async function main() {
       id: "pcc",
       title: "Project Command Center",
       goal: "Track work",
-      status: "active" as const,
+      status: "needs_approval" as const,
       priority: 3,
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
     const milestone = {
-      id: "milestone-crud",
+      id: "milestone-remote-proof",
       projectId: "pcc",
-      title: "CRUD UI",
-      status: "in_progress" as const,
-      order: 1,
-      percentComplete: 58,
-      implementationPlan: "Build compact forms",
+      title: "Remote proof",
+      status: "needs_approval" as const,
+      permissionGrantIds: ["permission-remote"],
+      implementationPlan: "Push branch and run Workflow Sanity.",
       createdAt: "2026-06-26T00:00:00Z",
+      updatedAt: "2026-06-26T00:00:00Z",
+    };
+    const permission = {
+      id: "permission-remote",
+      projectId: "pcc",
+      milestoneId: "milestone-remote-proof",
+      type: "remote_proof" as const,
+      status: "needed" as const,
+      riskLevel: "medium" as const,
+      allowedActions: ["push branch", "run Workflow Sanity"],
+      forbiddenActions: ["merge upstream openclaw/openclaw"],
+      target: "SnowBelt/openclaw",
+      tokenBudget: 1000,
+      usedCount: 0,
+      auditLog: [],
+      createdAt: "2026-06-26T00:00:00Z",
+      updatedAt: "2026-06-26T00:00:00Z",
+    };
+    const summary = {
+      id: "pcc",
+      title: "Project Command Center",
+      status: "needs_approval" as const,
+      percentComplete: 60,
+      milestoneCounts: {
+        total: 1,
+        complete: 0,
+        blocked: 0,
+        needsApproval: 1,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: ["Grant remote proof permission"],
+      proofGaps: ["Workflow Sanity proof"],
       updatedAt: "2026-06-26T00:00:00Z",
     };
     render(
@@ -63,62 +91,23 @@ async function main() {
           projectsTotal: 1,
           active: 1,
           blocked: 0,
-          needsApproval: 0,
+          needsApproval: 1,
           complete: 0,
           archived: 0,
-          averagePercentComplete: 58,
-          nextActions: ["Create CRUD"],
+          averagePercentComplete: 60,
+          nextActions: ["Grant remote proof permission"],
         },
-        projects: [
-          {
-            id: "pcc",
-            title: "Project Command Center",
-            status: "active",
-            percentComplete: 58,
-            milestoneCounts: {
-              total: 1,
-              complete: 0,
-              blocked: 0,
-              needsApproval: 0,
-              deferred: 0,
-              skipped: 0,
-            },
-            nextActions: ["Create CRUD"],
-            proofGaps: ["Remote proof"],
-            updatedAt: "2026-06-26T00:00:00Z",
-          },
-        ],
+        projects: [summary],
         selectedProjectId: "pcc",
-        projectDetail: {
-          project,
-          milestones: [milestone],
-          permissions: [],
-          summary: {
-            id: "pcc",
-            title: "Project Command Center",
-            status: "active",
-            percentComplete: 58,
-            milestoneCounts: {
-              total: 1,
-              complete: 0,
-              blocked: 0,
-              needsApproval: 0,
-              deferred: 0,
-              skipped: 0,
-            },
-            nextActions: ["Create CRUD"],
-            proofGaps: ["Remote proof"],
-            updatedAt: "2026-06-26T00:00:00Z",
-          },
-        },
+        projectDetail: { project, milestones: [milestone], permissions: [permission], summary },
         actionBusy: false,
         actionError: null,
-        editorMode: "create-milestone",
+        editorMode: null,
         projectForm: { id: null, title: "", goal: "", status: "active", priority: "3" },
         milestoneForm: {
           id: null,
           projectId: "pcc",
-          title: "New milestone",
+          title: "",
           status: "not_started",
           phaseId: "",
           order: "",
@@ -128,7 +117,7 @@ async function main() {
           acceptanceCriteria: "",
         },
         onRefresh: () => calls.push("refresh"),
-        onSelectProject: (id) => calls.push(`select:${id}`),
+        onSelectProject: () => calls.push("select"),
         onOpenProjectEditor: () => calls.push("edit-project"),
         onOpenMilestoneEditor: () => calls.push("edit-milestone"),
         onProjectFormChange: () => calls.push("project-change"),
@@ -145,48 +134,45 @@ async function main() {
     await new Promise((resolve) => {
       setTimeout(resolve, 0);
     });
-    root
-      .querySelector("[data-pcc-project-card] button")
+    const permissionButtons = [
+      ...root.querySelectorAll<HTMLButtonElement>("[data-pcc-permission] button"),
+    ];
+    permissionButtons
+      .find((button) => button.textContent?.includes("Grant"))
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    [...root.querySelectorAll("button")]
-      .find((button) => button.textContent?.includes("Edit project"))
-      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    [...root.querySelectorAll("button")]
-      .find((button) => button.textContent?.includes("Archive"))
-      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    [...root.querySelectorAll("button")]
+    permissionButtons
       .find((button) => button.textContent?.includes("Defer"))
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    root
-      .querySelector("form")
-      ?.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+    permissionButtons
+      .find((button) => button.textContent?.includes("Deny"))
+      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     const text = root.textContent ?? "";
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
-      projectCard: root.querySelectorAll("[data-pcc-project-card]").length === 1,
-      detail: root.querySelectorAll("[data-pcc-detail]").length === 1,
-      milestone: root.querySelectorAll("[data-pcc-milestone]").length === 1,
-      editor: root.querySelectorAll('[data-pcc-editor="milestone"]').length === 1,
-      text: text.includes("New milestone") && text.includes("Archive") && text.includes("CRUD UI"),
-      callbacks: [
-        "select:pcc",
-        "edit-project",
-        "project-status:archived",
-        "milestone-status:deferred",
-        "save-milestone",
+      permissionCard: root.querySelectorAll("[data-pcc-permission]").length === 1,
+      permissionText:
+        text.includes("Permission needed") &&
+        text.includes("Remote Proof") &&
+        text.includes("SnowBelt/openclaw"),
+      riskAndScope:
+        text.includes("Medium") && text.includes("push branch") && text.includes("merge upstream"),
+      buttons: [
+        "permission-status:granted",
+        "permission-status:needed",
+        "permission-status:denied",
       ].every((call) => calls.includes(call)),
     };
-    const summary = {
+    const summaryResult = {
       artifactDir,
       ok: Object.values(checks).every(Boolean),
       checks,
       calls,
-      html: join(artifactDir, "pcc-crud.html"),
+      html: join(artifactDir, "pcc-permissions.html"),
     };
-    writeFileSync(summary.html, dom.serialize());
-    writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summary, null, 2));
-    console.log(JSON.stringify(summary, null, 2));
-    if (!summary.ok) {
+    writeFileSync(summaryResult.html, dom.serialize());
+    writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summaryResult, null, 2));
+    console.log(JSON.stringify(summaryResult, null, 2));
+    if (!summaryResult.ok) {
       process.exit(1);
     }
   } finally {
@@ -195,8 +181,6 @@ async function main() {
     (globalThis as { HTMLElement?: unknown }).HTMLElement = previous.HTMLElement;
     (globalThis as { Node?: unknown }).Node = previous.Node;
     (globalThis as { MouseEvent?: unknown }).MouseEvent = previous.MouseEvent;
-    (globalThis as { InputEvent?: unknown }).InputEvent = previous.InputEvent;
-    (globalThis as { confirm?: unknown }).confirm = previous.confirm;
   }
 }
 

@@ -958,6 +958,10 @@ export type PccProject =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccProject;
 export type PccMilestone =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccMilestone;
+export type PccPermissionGrant =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPermissionGrant;
+export type PccPermissionStatus =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPermissionStatus;
 export type PccProjectSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccProjectSummary;
 export type PccPortfolioSummary =

@@ -116,6 +116,7 @@ window.runPccShellSmoke = async () => {
       projectDetail: {
         project: { id: "pcc", title: "Project Command Center", goal: "Track work", status: "needs_approval", priority: 3, createdAt: "2026-06-26T00:00:00Z", updatedAt: "2026-06-26T00:00:00Z" },
         milestones: [{ id: "milestone-crud", projectId: "pcc", title: "CRUD UI", status: "in_progress", order: 1, percentComplete: 58, implementationPlan: "Build compact forms", createdAt: "2026-06-26T00:00:00Z", updatedAt: "2026-06-26T00:00:00Z" }],
+        permissions: [],
         summary: { id: "pcc", title: "Project Command Center", status: "needs_approval", percentComplete: 58, milestoneCounts: { total: 8, complete: 4, blocked: 1, needsApproval: 1, deferred: 0, skipped: 0 }, nextActions: ["Run remote proof"], proofGaps: ["Workflow Sanity proof"], updatedAt: "2026-06-26T00:00:00Z" },
       },
       actionBusy: false,
@@ -134,6 +135,7 @@ window.runPccShellSmoke = async () => {
       onCancelEditor: () => {},
       onSetProjectStatus: () => {},
       onSetMilestoneStatus: () => {},
+      onSetPermissionStatus: () => {},
     }),
     root,
   );
@@ -215,6 +217,7 @@ function pccSmokeProps() {
             updatedAt: "2026-06-26T00:00:00Z",
           },
         ],
+        permissions: [],
         summary: {
           id: "pcc",
           title: "Project Command Center",
@@ -262,6 +265,7 @@ function pccSmokeProps() {
       onCancelEditor: () => {},
       onSetProjectStatus: () => {},
       onSetMilestoneStatus: () => {},
+      onSetPermissionStatus: () => {},
     },
     refreshCount: () => refreshCount,
   };

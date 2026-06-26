@@ -142,6 +142,7 @@ import {
   savePccProject,
   selectPccProject,
   setPccMilestoneStatus,
+  setPccPermissionStatus,
   setPccProjectStatus,
   updatePccMilestoneForm,
   updatePccProjectForm,
@@ -2813,6 +2814,8 @@ export function renderApp(state: AppViewState) {
                   void setPccProjectStatus(state, project, status),
                 onSetMilestoneStatus: (milestone, status) =>
                   void setPccMilestoneStatus(state, milestone, status),
+                onSetPermissionStatus: (permission, status) =>
+                  void setPccPermissionStatus(state, permission, status),
               }),
             )
           : nothing}
