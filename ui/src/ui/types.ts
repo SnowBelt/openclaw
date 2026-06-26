@@ -954,34 +954,14 @@ export type PccStatus =
   | "archived"
   | "failed";
 
-export type PccProjectSummary = {
-  id: string;
-  title: string;
-  status: PccStatus;
-  percentComplete: number;
-  milestoneCounts: {
-    total: number;
-    complete: number;
-    blocked: number;
-    needsApproval: number;
-    deferred: number;
-    skipped: number;
-  };
-  nextActions: string[];
-  proofGaps: string[];
-  updatedAt: string;
-};
-
-export type PccPortfolioSummary = {
-  projectsTotal: number;
-  active: number;
-  blocked: number;
-  needsApproval: number;
-  complete: number;
-  archived: number;
-  averagePercentComplete: number;
-  nextActions: string[];
-};
+export type PccProject =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccProject;
+export type PccMilestone =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccMilestone;
+export type PccProjectSummary =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccProjectSummary;
+export type PccPortfolioSummary =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPortfolioSummary;
 
 export type ToolCatalogProfile =
   import("../../../packages/gateway-protocol/src/schema.js").ToolCatalogProfile;

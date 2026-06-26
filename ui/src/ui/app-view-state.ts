@@ -43,6 +43,12 @@ import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type {
+  PccEditorMode,
+  PccMilestoneFormState,
+  PccProjectDetail,
+  PccProjectFormState,
+} from "./controllers/pcc.ts";
 import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
 import type {
   ClawHubSearchResult,
@@ -198,6 +204,13 @@ export type AppViewState = {
   pccLoading: boolean;
   pccError: string | null;
   pccUpdatedAt: number | null;
+  pccSelectedProjectId: string | null;
+  pccProjectDetail: PccProjectDetail | null;
+  pccActionBusy: boolean;
+  pccActionError: string | null;
+  pccEditorMode: PccEditorMode;
+  pccProjectForm: PccProjectFormState;
+  pccMilestoneForm: PccMilestoneFormState;
   sessionsResultAgentId?: string | null;
   chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
   announceSessionSwitch?: (sessionKey: string, label: string) => void;

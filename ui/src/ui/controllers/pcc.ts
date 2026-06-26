@@ -1,7 +1,47 @@
-// Control UI controller loads Project Command Center summaries from the gateway.
+// Control UI controller loads and edits Project Command Center ledger entries.
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
-import type { PccPortfolioSummary, PccProjectSummary } from "../types.ts";
+import type {
+  PccMilestone,
+  PccPortfolioSummary,
+  PccProject,
+  PccProjectSummary,
+  PccStatus,
+} from "../types.ts";
+
+export type PccProjectDetail = {
+  project: PccProject;
+  milestones: PccMilestone[];
+  summary: PccProjectSummary;
+};
+
+export type PccEditorMode =
+  | "create-project"
+  | "edit-project"
+  | "create-milestone"
+  | "edit-milestone"
+  | null;
+
+export type PccProjectFormState = {
+  id: string | null;
+  title: string;
+  goal: string;
+  status: PccStatus;
+  priority: string;
+};
+
+export type PccMilestoneFormState = {
+  id: string | null;
+  projectId: string | null;
+  title: string;
+  status: PccStatus;
+  phaseId: string;
+  order: string;
+  percentComplete: string;
+  blocker: string;
+  implementationPlan: string;
+  acceptanceCriteria: string;
+};
 
 export type PccDashboardState = {
   client: GatewayBrowserClient | null;
@@ -11,6 +51,13 @@ export type PccDashboardState = {
   pccLoading: boolean;
   pccError: string | null;
   pccUpdatedAt: number | null;
+  pccSelectedProjectId: string | null;
+  pccProjectDetail: PccProjectDetail | null;
+  pccActionBusy: boolean;
+  pccActionError: string | null;
+  pccEditorMode: PccEditorMode;
+  pccProjectForm: PccProjectFormState;
+  pccMilestoneForm: PccMilestoneFormState;
   requestUpdate?: () => void;
 };
 
@@ -22,6 +69,17 @@ type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
 };
 
+type PccProjectsGetResult = {
+  project: PccProject;
+  milestones: PccMilestone[];
+  summary: PccProjectSummary;
+};
+
+type PccProjectsUpsertResult = {
+  project: PccProject;
+  summary: PccProjectSummary;
+};
+
 const DEFAULT_COUNTS = {
   total: 0,
   complete: 0,
@@ -29,6 +87,27 @@ const DEFAULT_COUNTS = {
   needsApproval: 0,
   deferred: 0,
   skipped: 0,
+};
+
+export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
+  id: null,
+  title: "",
+  goal: "",
+  status: "active",
+  priority: "3",
+};
+
+export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
+  id: null,
+  projectId: null,
+  title: "",
+  status: "not_started",
+  phaseId: "",
+  order: "",
+  percentComplete: "",
+  blocker: "",
+  implementationPlan: "",
+  acceptanceCriteria: "",
 };
 
 function safeProjectSummary(project: PccProjectSummary): PccProjectSummary {
@@ -46,6 +125,28 @@ function clampPercent(value: unknown): number {
     return 0;
   }
   return Math.max(0, Math.min(100, value));
+}
+
+function parseOptionalInteger(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalPercent(value: string): number | undefined {
+  const parsed = parseOptionalInteger(value);
+  return parsed === undefined ? undefined : Math.max(0, Math.min(100, parsed));
+}
+
+function parseAcceptanceCriteria(value: string): string[] | undefined {
+  const entries = value
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return entries.length > 0 ? entries : undefined;
 }
 
 function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary {
@@ -75,6 +176,55 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
   };
 }
 
+function projectFormFromProject(project: PccProject): PccProjectFormState {
+  return {
+    id: project.id,
+    title: project.title,
+    goal: project.goal ?? "",
+    status: project.status,
+    priority: String(project.priority ?? 3),
+  };
+}
+
+function milestoneFormFromMilestone(milestone: PccMilestone): PccMilestoneFormState {
+  return {
+    id: milestone.id,
+    projectId: milestone.projectId,
+    title: milestone.title,
+    status: milestone.status,
+    phaseId: milestone.phaseId ?? "",
+    order: milestone.order === undefined ? "" : String(milestone.order),
+    percentComplete:
+      milestone.percentComplete === undefined ? "" : String(milestone.percentComplete),
+    blocker: milestone.blocker ?? "",
+    implementationPlan: milestone.implementationPlan ?? "",
+    acceptanceCriteria: (milestone.acceptanceCriteria ?? []).join("\n"),
+  };
+}
+
+function setActionError(state: PccDashboardState, err: unknown): void {
+  state.pccActionError = formatConnectError(err) || "Project Command Center action failed";
+}
+
+async function withPccAction(state: PccDashboardState, action: () => Promise<void>): Promise<void> {
+  if (!state.client || !state.connected) {
+    state.pccActionError = "Project Command Center unavailable";
+    state.requestUpdate?.();
+    return;
+  }
+  state.pccActionBusy = true;
+  state.pccActionError = null;
+  state.requestUpdate?.();
+  try {
+    await action();
+  } catch (err) {
+    setActionError(state, err);
+  } finally {
+    state.pccActionBusy = false;
+    state.requestUpdate?.();
+  }
+}
+
 export async function loadPccDashboard(state: PccDashboardState): Promise<void> {
   if (!state.client || !state.connected) {
     return;
@@ -99,4 +249,137 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccLoading = false;
     state.requestUpdate?.();
   }
+}
+
+export async function selectPccProject(state: PccDashboardState, projectId: string): Promise<void> {
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
+      projectId,
+    });
+    state.pccSelectedProjectId = detail.project.id;
+    state.pccProjectDetail = {
+      project: detail.project,
+      milestones: detail.milestones.toSorted(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
+      ),
+      summary: safeProjectSummary(detail.summary),
+    };
+  });
+}
+
+export function openPccProjectEditor(state: PccDashboardState, project?: PccProject): void {
+  state.pccEditorMode = project ? "edit-project" : "create-project";
+  state.pccProjectForm = project ? projectFormFromProject(project) : { ...EMPTY_PCC_PROJECT_FORM };
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function openPccMilestoneEditor(state: PccDashboardState, milestone?: PccMilestone): void {
+  const projectId = milestone?.projectId ?? state.pccSelectedProjectId;
+  state.pccEditorMode = milestone ? "edit-milestone" : "create-milestone";
+  state.pccMilestoneForm = milestone
+    ? milestoneFormFromMilestone(milestone)
+    : { ...EMPTY_PCC_MILESTONE_FORM, projectId };
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function cancelPccEditor(state: PccDashboardState): void {
+  state.pccEditorMode = null;
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function updatePccProjectForm(
+  state: PccDashboardState,
+  patch: Partial<PccProjectFormState>,
+): void {
+  state.pccProjectForm = { ...state.pccProjectForm, ...patch };
+  state.requestUpdate?.();
+}
+
+export function updatePccMilestoneForm(
+  state: PccDashboardState,
+  patch: Partial<PccMilestoneFormState>,
+): void {
+  state.pccMilestoneForm = { ...state.pccMilestoneForm, ...patch };
+  state.requestUpdate?.();
+}
+
+export async function savePccProject(state: PccDashboardState): Promise<void> {
+  const form = state.pccProjectForm;
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
+      project: {
+        ...(form.id ? { id: form.id } : {}),
+        title: form.title.trim(),
+        ...(form.goal.trim() ? { goal: form.goal.trim() } : { goal: "" }),
+        status: form.status,
+        ...(parseOptionalInteger(form.priority) !== undefined
+          ? { priority: parseOptionalInteger(form.priority) }
+          : {}),
+      },
+    });
+    state.pccEditorMode = null;
+    await loadPccDashboard(state);
+    await selectPccProject(state, result.project.id);
+  });
+}
+
+export async function setPccProjectStatus(
+  state: PccDashboardState,
+  project: PccProject,
+  status: PccStatus,
+): Promise<void> {
+  state.pccProjectForm = { ...projectFormFromProject(project), status };
+  await savePccProject(state);
+}
+
+export async function savePccMilestone(state: PccDashboardState): Promise<void> {
+  const form = state.pccMilestoneForm;
+  await withPccAction(state, async () => {
+    if (!state.client || !form.projectId) {
+      return;
+    }
+    await state.client.request("pcc.milestones.upsert", {
+      milestone: {
+        ...(form.id ? { id: form.id } : {}),
+        projectId: form.projectId,
+        title: form.title.trim(),
+        status: form.status,
+        ...(form.phaseId.trim() ? { phaseId: form.phaseId.trim() } : {}),
+        ...(parseOptionalInteger(form.order) !== undefined
+          ? { order: parseOptionalInteger(form.order) }
+          : {}),
+        ...(parseOptionalPercent(form.percentComplete) !== undefined
+          ? { percentComplete: parseOptionalPercent(form.percentComplete) }
+          : {}),
+        ...(form.blocker.trim() ? { blocker: form.blocker.trim() } : { blocker: "" }),
+        ...(form.implementationPlan.trim()
+          ? { implementationPlan: form.implementationPlan.trim() }
+          : { implementationPlan: "" }),
+        ...(parseAcceptanceCriteria(form.acceptanceCriteria)
+          ? { acceptanceCriteria: parseAcceptanceCriteria(form.acceptanceCriteria) }
+          : {}),
+      },
+    });
+    state.pccEditorMode = null;
+    await loadPccDashboard(state);
+    await selectPccProject(state, form.projectId);
+  });
+}
+
+export async function setPccMilestoneStatus(
+  state: PccDashboardState,
+  milestone: PccMilestone,
+  status: PccStatus,
+): Promise<void> {
+  state.pccMilestoneForm = { ...milestoneFormFromMilestone(milestone), status };
+  await savePccMilestone(state);
 }

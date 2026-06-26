@@ -112,12 +112,33 @@ window.runPccShellSmoke = async () => {
           updatedAt: "2026-06-26T00:00:00Z",
         },
       ],
+      selectedProjectId: "pcc",
+      projectDetail: {
+        project: { id: "pcc", title: "Project Command Center", goal: "Track work", status: "needs_approval", priority: 3, createdAt: "2026-06-26T00:00:00Z", updatedAt: "2026-06-26T00:00:00Z" },
+        milestones: [{ id: "milestone-crud", projectId: "pcc", title: "CRUD UI", status: "in_progress", order: 1, percentComplete: 58, implementationPlan: "Build compact forms", createdAt: "2026-06-26T00:00:00Z", updatedAt: "2026-06-26T00:00:00Z" }],
+        summary: { id: "pcc", title: "Project Command Center", status: "needs_approval", percentComplete: 58, milestoneCounts: { total: 8, complete: 4, blocked: 1, needsApproval: 1, deferred: 0, skipped: 0 }, nextActions: ["Run remote proof"], proofGaps: ["Workflow Sanity proof"], updatedAt: "2026-06-26T00:00:00Z" },
+      },
+      actionBusy: false,
+      actionError: null,
+      editorMode: null,
+      projectForm: { id: null, title: "", goal: "", status: "active", priority: "3" },
+      milestoneForm: { id: null, projectId: "pcc", title: "", status: "not_started", phaseId: "", order: "", percentComplete: "", blocker: "", implementationPlan: "", acceptanceCriteria: "" },
       onRefresh: () => { refreshCount += 1; },
+      onSelectProject: () => {},
+      onOpenProjectEditor: () => {},
+      onOpenMilestoneEditor: () => {},
+      onProjectFormChange: () => {},
+      onMilestoneFormChange: () => {},
+      onSaveProject: () => {},
+      onSaveMilestone: () => {},
+      onCancelEditor: () => {},
+      onSetProjectStatus: () => {},
+      onSetMilestoneStatus: () => {},
     }),
     root,
   );
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
-  root.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  [...root.querySelectorAll("button")].find((button) => button.textContent?.includes("Refresh"))?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   const text = root.textContent ?? "";
   const checks = {
     shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
@@ -170,9 +191,77 @@ function pccSmokeProps() {
           updatedAt: "2026-06-26T00:00:00Z",
         },
       ],
+      selectedProjectId: "pcc",
+      projectDetail: {
+        project: {
+          id: "pcc",
+          title: "Project Command Center",
+          goal: "Track work",
+          status: "needs_approval" as const,
+          priority: 3,
+          createdAt: "2026-06-26T00:00:00Z",
+          updatedAt: "2026-06-26T00:00:00Z",
+        },
+        milestones: [
+          {
+            id: "milestone-crud",
+            projectId: "pcc",
+            title: "CRUD UI",
+            status: "in_progress" as const,
+            order: 1,
+            percentComplete: 58,
+            implementationPlan: "Build compact forms",
+            createdAt: "2026-06-26T00:00:00Z",
+            updatedAt: "2026-06-26T00:00:00Z",
+          },
+        ],
+        summary: {
+          id: "pcc",
+          title: "Project Command Center",
+          status: "needs_approval" as const,
+          percentComplete: 58,
+          milestoneCounts: {
+            total: 8,
+            complete: 4,
+            blocked: 1,
+            needsApproval: 1,
+            deferred: 0,
+            skipped: 0,
+          },
+          nextActions: ["Run remote proof"],
+          proofGaps: ["Workflow Sanity proof"],
+          updatedAt: "2026-06-26T00:00:00Z",
+        },
+      },
+      actionBusy: false,
+      actionError: null,
+      editorMode: null,
+      projectForm: { id: null, title: "", goal: "", status: "active" as const, priority: "3" },
+      milestoneForm: {
+        id: null,
+        projectId: "pcc",
+        title: "",
+        status: "not_started" as const,
+        phaseId: "",
+        order: "",
+        percentComplete: "",
+        blocker: "",
+        implementationPlan: "",
+        acceptanceCriteria: "",
+      },
       onRefresh: () => {
         refreshCount += 1;
       },
+      onSelectProject: () => {},
+      onOpenProjectEditor: () => {},
+      onOpenMilestoneEditor: () => {},
+      onProjectFormChange: () => {},
+      onMilestoneFormChange: () => {},
+      onSaveProject: () => {},
+      onSaveMilestone: () => {},
+      onCancelEditor: () => {},
+      onSetProjectStatus: () => {},
+      onSetMilestoneStatus: () => {},
     },
     refreshCount: () => refreshCount,
   };
@@ -223,8 +312,8 @@ async function runJsdomSmoke(artifactDir: string) {
     await new Promise((resolve) => {
       setTimeout(resolve, 0);
     });
-    root
-      .querySelector("button")
+    [...root.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Refresh"))
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     const result = evaluateRenderedPcc(root, root.textContent ?? "", smoke.refreshCount());
     const htmlPath = join(artifactDir, "pcc-shell.html");

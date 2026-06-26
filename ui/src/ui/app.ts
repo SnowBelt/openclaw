@@ -219,6 +219,14 @@ import {
   type PatternLabDashboardSnapshot,
 } from "./controllers/pattern-lab-dashboard.ts";
 import {
+  EMPTY_PCC_MILESTONE_FORM,
+  EMPTY_PCC_PROJECT_FORM,
+  type PccEditorMode,
+  type PccMilestoneFormState,
+  type PccProjectDetail,
+  type PccProjectFormState,
+} from "./controllers/pcc.ts";
+import {
   loadSkillWorkshopProposals,
   type SkillWorkshopState,
 } from "./controllers/skill-workshop.ts";
@@ -441,6 +449,13 @@ export class OpenClawApp extends LitElement {
   @state() pccLoading = false;
   @state() pccError: string | null = null;
   @state() pccUpdatedAt: number | null = null;
+  @state() pccSelectedProjectId: string | null = null;
+  @state() pccProjectDetail: PccProjectDetail | null = null;
+  @state() pccActionBusy = false;
+  @state() pccActionError: string | null = null;
+  @state() pccEditorMode: PccEditorMode = null;
+  @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
+  @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };
   private sessionSwitchNoticeSeq = 0;
   private sessionSwitchNoticeTimer: number | null = null;
   private sessionSwitchFlashTimer: number | null = null;

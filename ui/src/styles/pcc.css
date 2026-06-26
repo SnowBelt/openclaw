@@ -235,3 +235,163 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.pcc-layout {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+}
+
+.pcc-projects {
+  min-width: 0;
+}
+
+.pcc-project-card.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow: 0 20px 55px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.pcc-detail,
+.pcc-editor,
+.pcc-milestone {
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--shadow) 10%, transparent);
+}
+
+.pcc-detail {
+  border-radius: 28px;
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  position: sticky;
+  top: 18px;
+}
+
+.pcc-detail__header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.pcc-detail h3,
+.pcc-editor h3,
+.pcc-milestone h4 {
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+
+.pcc-detail p,
+.pcc-milestone p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
+.pcc-detail__actions,
+.pcc-milestone__actions,
+.pcc-editor footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pcc-milestones {
+  display: grid;
+  gap: 12px;
+}
+
+.pcc-milestone {
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.pcc-milestone__main {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.pcc-editor {
+  border-radius: 28px;
+  bottom: 24px;
+  display: grid;
+  gap: 14px;
+  max-height: min(720px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 22px;
+  position: fixed;
+  right: 24px;
+  width: min(520px, calc(100vw - 48px));
+  z-index: 30;
+}
+
+.pcc-editor label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.78rem;
+  font-weight: 800;
+  gap: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-editor input,
+.pcc-editor select,
+.pcc-editor textarea {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 14px;
+  color: var(--text);
+  font: inherit;
+  letter-spacing: normal;
+  min-height: 42px;
+  padding: 10px 12px;
+  text-transform: none;
+}
+
+.pcc-editor textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.pcc-editor__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pcc-empty--small {
+  box-shadow: none;
+  padding: 18px;
+}
+
+@media (max-width: 1080px) {
+  .pcc-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pcc-detail {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .pcc-editor {
+    border-radius: 26px 26px 0 0;
+    bottom: 0;
+    left: 0;
+    max-height: 82vh;
+    right: 0;
+    width: auto;
+  }
+
+  .pcc-editor__grid {
+    grid-template-columns: 1fr;
+  }
+}

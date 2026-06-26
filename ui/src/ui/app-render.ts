@@ -133,7 +133,19 @@ import {
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
-import { loadPccDashboard } from "./controllers/pcc.ts";
+import {
+  cancelPccEditor,
+  loadPccDashboard,
+  openPccMilestoneEditor,
+  openPccProjectEditor,
+  savePccMilestone,
+  savePccProject,
+  selectPccProject,
+  setPccMilestoneStatus,
+  setPccProjectStatus,
+  updatePccMilestoneForm,
+  updatePccProjectForm,
+} from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
   branchSessionFromCheckpoint,
@@ -2781,7 +2793,26 @@ export function renderApp(state: AppViewState) {
                 projects: state.pccProjects,
                 portfolio: state.pccPortfolioSummary,
                 updatedAt: state.pccUpdatedAt,
+                selectedProjectId: state.pccSelectedProjectId,
+                projectDetail: state.pccProjectDetail,
+                actionBusy: state.pccActionBusy,
+                actionError: state.pccActionError,
+                editorMode: state.pccEditorMode,
+                projectForm: state.pccProjectForm,
+                milestoneForm: state.pccMilestoneForm,
                 onRefresh: () => void loadPccDashboard(state),
+                onSelectProject: (projectId) => void selectPccProject(state, projectId),
+                onOpenProjectEditor: (project) => openPccProjectEditor(state, project),
+                onOpenMilestoneEditor: (milestone) => openPccMilestoneEditor(state, milestone),
+                onProjectFormChange: (patch) => updatePccProjectForm(state, patch),
+                onMilestoneFormChange: (patch) => updatePccMilestoneForm(state, patch),
+                onSaveProject: () => void savePccProject(state),
+                onSaveMilestone: () => void savePccMilestone(state),
+                onCancelEditor: () => cancelPccEditor(state),
+                onSetProjectStatus: (project, status) =>
+                  void setPccProjectStatus(state, project, status),
+                onSetMilestoneStatus: (milestone, status) =>
+                  void setPccMilestoneStatus(state, milestone, status),
               }),
             )
           : nothing}
