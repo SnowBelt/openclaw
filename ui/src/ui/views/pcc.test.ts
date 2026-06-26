@@ -97,6 +97,8 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     onSetProjectStatus: () => undefined,
     onSetMilestoneStatus: () => undefined,
     onSetPermissionStatus: () => undefined,
+    onUpdateWorkLoop: () => undefined,
+    onPrepareNextWorkItem: () => undefined,
     ...overrides,
   };
 }
@@ -197,6 +199,44 @@ describe("renderPccDashboard", () => {
     expect(onSetPermissionStatus).toHaveBeenNthCalledWith(1, permission, "granted");
     expect(onSetPermissionStatus).toHaveBeenNthCalledWith(2, permission, "needed");
     expect(onSetPermissionStatus).toHaveBeenNthCalledWith(3, permission, "denied");
+  });
+
+  it("renders guided work loop controls and task prompt preview", () => {
+    const onUpdateWorkLoop = vi.fn();
+    const onPrepareNextWorkItem = vi.fn();
+    const container = renderView(
+      createProps({
+        onUpdateWorkLoop,
+        onPrepareNextWorkItem,
+        projectDetail: {
+          project: {
+            ...project,
+            metadata: {
+              pccWorkLoop: {
+                enabled: true,
+                state: "working",
+                stopBeforeCodex: true,
+                stopBeforeRemoteProof: true,
+                stopAfterCurrentMilestone: false,
+              },
+            },
+          },
+          milestones: [milestone],
+          permissions: [],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.textContent).toContain("Work This Project");
+    expect(container.textContent).toContain("Stop before Codex");
+    expect(container.textContent).toContain("Stop before remote proof");
+    expect(container.textContent).toContain("Task prompt preview");
+    const prepare = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Prepare next safe task"),
+    );
+    prepare?.click();
+    expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
   });
 
   it("renders project editor and saves form changes", () => {

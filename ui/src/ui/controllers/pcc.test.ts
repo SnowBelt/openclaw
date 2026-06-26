@@ -11,6 +11,8 @@ import {
   setPccMilestoneStatus,
   setPccPermissionStatus,
   setPccProjectStatus,
+  updatePccWorkLoopSettings,
+  preparePccNextWorkItem,
   type PccDashboardState,
 } from "./pcc.ts";
 
@@ -176,6 +178,82 @@ describe("loadPccDashboard", () => {
       }),
     });
     expect(state.pccProjectDetail?.permissions[0]?.status).toBe("granted");
+  });
+
+  it("updates guided work-loop settings without starting Codex", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        project: { ...project, metadata: { pccWorkLoop: { enabled: true } } },
+        summary,
+      })
+      .mockResolvedValueOnce({ projects: [summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({
+        project: { ...project, metadata: { pccWorkLoop: { enabled: true } } },
+        milestones: [milestone],
+        permissions: [],
+        summary,
+      });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: { project, milestones: [milestone], permissions: [], summary },
+    });
+
+    await updatePccWorkLoopSettings(state, { enabled: true, stopBeforeCodex: true });
+
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
+      project: expect.objectContaining({
+        id: "project-1",
+        metadata: expect.objectContaining({
+          pccWorkLoop: expect.objectContaining({ enabled: true }),
+        }),
+      }),
+    });
+    expect(request).not.toHaveBeenCalledWith(expect.stringContaining("codex"), expect.anything());
+  });
+
+  it("prepares the next safe milestone and marks it in progress", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        project: { ...project, metadata: { pccWorkLoop: { enabled: true, state: "working" } } },
+        summary,
+      })
+      .mockResolvedValueOnce({ milestone: { ...milestone, status: "in_progress" }, summary })
+      .mockResolvedValueOnce({ projects: [summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({
+        project,
+        milestones: [{ ...milestone, status: "in_progress" }],
+        permissions: [],
+        summary,
+      });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [{ ...milestone, status: "not_started" }],
+        permissions: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
+      project: expect.objectContaining({
+        metadata: expect.objectContaining({
+          pccWorkLoop: expect.objectContaining({
+            activeMilestoneId: "milestone-1",
+            state: "working",
+          }),
+        }),
+      }),
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "pcc.milestones.upsert", {
+      milestone: expect.objectContaining({ id: "milestone-1", status: "in_progress" }),
+    });
   });
 });
 

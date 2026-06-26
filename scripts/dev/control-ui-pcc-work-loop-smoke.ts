@@ -7,7 +7,7 @@ function timestampSlug(): string {
 }
 
 async function main() {
-  const artifactDir = join(".artifacts", "control-ui-pcc-permissions-smoke", timestampSlug());
+  const artifactDir = join(".artifacts", "control-ui-pcc-work-loop-smoke", timestampSlug());
   mkdirSync(artifactDir, { recursive: true });
   const dom = new JSDOM(`<!doctype html><main id="root"></main>`, { url: "http://127.0.0.1/pcc" });
   const previous = {
@@ -34,32 +34,41 @@ async function main() {
       id: "pcc",
       title: "Project Command Center",
       goal: "Track work",
-      status: "needs_approval" as const,
+      status: "active" as const,
       priority: 3,
+      metadata: {
+        pccWorkLoop: {
+          enabled: true,
+          state: "working",
+          stopBeforeCodex: true,
+          stopBeforeRemoteProof: true,
+          stopAfterCurrentMilestone: false,
+        },
+      },
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
     const milestone = {
-      id: "milestone-remote-proof",
+      id: "milestone-loop",
       projectId: "pcc",
-      title: "Remote proof",
-      status: "needs_approval" as const,
+      title: "Guided Work Loop V1",
+      status: "not_started" as const,
+      order: 1,
+      percentComplete: 0,
+      implementationPlan: "Prepare one safe milestone task.",
+      acceptanceCriteria: ["No Codex tokens are spent", "Missing permission stops the loop"],
       permissionGrantIds: ["permission-remote"],
-      implementationPlan: "Push branch and run Workflow Sanity.",
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
     const permission = {
       id: "permission-remote",
       projectId: "pcc",
-      milestoneId: "milestone-remote-proof",
+      milestoneId: "milestone-loop",
       type: "remote_proof" as const,
       status: "needed" as const,
       riskLevel: "medium" as const,
-      allowedActions: ["push branch", "run Workflow Sanity"],
-      forbiddenActions: ["merge upstream openclaw/openclaw"],
-      target: "SnowBelt/openclaw",
-      tokenBudget: 1000,
+      allowedActions: ["run Workflow Sanity"],
       usedCount: 0,
       auditLog: [],
       createdAt: "2026-06-26T00:00:00Z",
@@ -68,8 +77,8 @@ async function main() {
     const summary = {
       id: "pcc",
       title: "Project Command Center",
-      status: "needs_approval" as const,
-      percentComplete: 60,
+      status: "active" as const,
+      percentComplete: 55,
       milestoneCounts: {
         total: 1,
         complete: 0,
@@ -78,8 +87,8 @@ async function main() {
         deferred: 0,
         skipped: 0,
       },
-      nextActions: ["Grant remote proof permission"],
-      proofGaps: ["Workflow Sanity proof"],
+      nextActions: ["Guided Work Loop V1"],
+      proofGaps: ["Remote proof"],
       updatedAt: "2026-06-26T00:00:00Z",
     };
     render(
@@ -94,8 +103,8 @@ async function main() {
           needsApproval: 1,
           complete: 0,
           archived: 0,
-          averagePercentComplete: 60,
-          nextActions: ["Grant remote proof permission"],
+          averagePercentComplete: 55,
+          nextActions: ["Guided Work Loop V1"],
         },
         projects: [summary],
         selectedProjectId: "pcc",
@@ -117,7 +126,7 @@ async function main() {
           acceptanceCriteria: "",
         },
         onRefresh: () => calls.push("refresh"),
-        onSelectProject: () => calls.push("select"),
+        onSelectProject: (id) => calls.push(`select:${id}`),
         onOpenProjectEditor: () => calls.push("edit-project"),
         onOpenMilestoneEditor: () => calls.push("edit-milestone"),
         onProjectFormChange: () => calls.push("project-change"),
@@ -133,48 +142,40 @@ async function main() {
       }),
       root,
     );
-    await new Promise((resolve) => {
+    await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
-    const permissionButtons = [
-      ...root.querySelectorAll<HTMLButtonElement>("[data-pcc-permission] button"),
-    ];
-    permissionButtons
-      .find((button) => button.textContent?.includes("Grant"))
+    [...root.querySelectorAll("button")]
+      .find(
+        (button) =>
+          button.textContent?.includes("Work This Project") ||
+          button.textContent?.includes("Turn off"),
+      )
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    permissionButtons
-      .find((button) => button.textContent?.includes("Defer"))
-      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    permissionButtons
-      .find((button) => button.textContent?.includes("Deny"))
+    [...root.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Prepare next safe task"))
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     const text = root.textContent ?? "";
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
-      permissionCard: root.querySelectorAll("[data-pcc-permission]").length === 1,
-      permissionText:
-        text.includes("Permission needed") &&
-        text.includes("Remote Proof") &&
-        text.includes("SnowBelt/openclaw"),
-      riskAndScope:
-        text.includes("Medium") && text.includes("push branch") && text.includes("merge upstream"),
-      buttons: [
-        "permission-status:granted",
-        "permission-status:needed",
-        "permission-status:denied",
-      ].every((call) => calls.includes(call)),
+      workLoop: root.querySelectorAll("[data-pcc-work-loop]").length === 1,
+      stopBeforeCodex: text.includes("Stop before Codex"),
+      stopBeforeRemoteProof: text.includes("Stop before remote proof"),
+      waiting: text.includes("Missing granted permission") || text.includes("remote proof"),
+      noCodexStart: !calls.some((call) => call.toLowerCase().includes("codex")),
+      callbacks: calls.includes("work-loop-update") && calls.includes("work-loop-next"),
     };
-    const summaryResult = {
+    const summaryOut = {
       artifactDir,
       ok: Object.values(checks).every(Boolean),
       checks,
       calls,
-      html: join(artifactDir, "pcc-permissions.html"),
+      html: join(artifactDir, "pcc-work-loop.html"),
     };
-    writeFileSync(summaryResult.html, dom.serialize());
-    writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summaryResult, null, 2));
-    console.log(JSON.stringify(summaryResult, null, 2));
-    if (!summaryResult.ok) {
+    writeFileSync(summaryOut.html, dom.serialize());
+    writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summaryOut, null, 2));
+    console.log(JSON.stringify(summaryOut, null, 2));
+    if (!summaryOut.ok) {
       process.exit(1);
     }
   } finally {

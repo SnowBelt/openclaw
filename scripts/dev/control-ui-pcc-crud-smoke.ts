@@ -139,6 +139,8 @@ async function main() {
         onSetProjectStatus: (_project, status) => calls.push(`project-status:${status}`),
         onSetMilestoneStatus: (_milestone, status) => calls.push(`milestone-status:${status}`),
         onSetPermissionStatus: (_permission, status) => calls.push(`permission-status:${status}`),
+        onUpdateWorkLoop: () => calls.push("work-loop-update"),
+        onPrepareNextWorkItem: () => calls.push("work-loop-next"),
       }),
       root,
     );

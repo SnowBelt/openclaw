@@ -136,6 +136,7 @@ import { loadNodes } from "./controllers/nodes.ts";
 import {
   cancelPccEditor,
   loadPccDashboard,
+  preparePccNextWorkItem,
   openPccMilestoneEditor,
   openPccProjectEditor,
   savePccMilestone,
@@ -144,6 +145,7 @@ import {
   setPccMilestoneStatus,
   setPccPermissionStatus,
   setPccProjectStatus,
+  updatePccWorkLoopSettings,
   updatePccMilestoneForm,
   updatePccProjectForm,
 } from "./controllers/pcc.ts";
@@ -2816,6 +2818,8 @@ export function renderApp(state: AppViewState) {
                   void setPccMilestoneStatus(state, milestone, status),
                 onSetPermissionStatus: (permission, status) =>
                   void setPccPermissionStatus(state, permission, status),
+                onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
+                onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
               }),
             )
           : nothing}

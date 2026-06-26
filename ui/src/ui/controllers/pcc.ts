@@ -1,4 +1,9 @@
 // Control UI controller loads and edits Project Command Center ledger entries.
+import {
+  getPccWorkLoopNext,
+  withPccWorkLoopSettings,
+  type PccWorkLoopSettings,
+} from "../../../../src/pcc/work-loop.js";
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type {
@@ -424,5 +429,90 @@ export async function setPccPermissionStatus(
     );
     await loadPccDashboard(state);
     await selectPccProject(state, result.permission.projectId);
+  });
+}
+
+function projectUpsertPayload(project: PccProject): {
+  id: string;
+  title: string;
+  goal?: string;
+  status: PccStatus;
+  owner?: string;
+  priority?: number;
+  phases?: PccProject["phases"];
+  metadata?: PccProject["metadata"];
+} {
+  return {
+    id: project.id,
+    title: project.title,
+    ...(project.goal !== undefined ? { goal: project.goal } : {}),
+    status: project.status,
+    ...(project.owner !== undefined ? { owner: project.owner } : {}),
+    ...(project.priority !== undefined ? { priority: project.priority } : {}),
+    ...(project.phases !== undefined ? { phases: project.phases } : {}),
+    ...(project.metadata !== undefined ? { metadata: project.metadata } : {}),
+  };
+}
+
+export async function updatePccWorkLoopSettings(
+  state: PccDashboardState,
+  patch: Partial<PccWorkLoopSettings>,
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const updatedProject = withPccWorkLoopSettings(detail.project, patch, new Date().toISOString());
+    await state.client.request("pcc.projects.upsert", {
+      project: projectUpsertPayload(updatedProject),
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+  });
+}
+
+export async function preparePccNextWorkItem(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const next = getPccWorkLoopNext({
+      project: detail.project,
+      milestones: detail.milestones,
+      permissions: detail.permissions,
+      receipts: [],
+    });
+    const updatedProject = withPccWorkLoopSettings(
+      detail.project,
+      {
+        enabled: true,
+        state: next.state,
+        activeMilestoneId: next.milestone?.id,
+        lastLoopMessage:
+          next.blocker?.message ?? next.taskPrompt ?? "Ready to work this milestone.",
+      },
+      new Date().toISOString(),
+    );
+    await state.client.request("pcc.projects.upsert", {
+      project: projectUpsertPayload(updatedProject),
+    });
+    if (next.milestone && !next.blocker && next.milestone.status !== "in_progress") {
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: {
+          ...next.milestone,
+          status: "in_progress",
+        },
+      });
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
   });
 }

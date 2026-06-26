@@ -1,5 +1,10 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
+import {
+  getPccWorkLoopNext,
+  getPccWorkLoopSettings,
+  type PccWorkLoopSettings,
+} from "../../../../src/pcc/work-loop.js";
 import type {
   PccEditorMode,
   PccMilestoneFormState,
@@ -41,6 +46,8 @@ export type PccDashboardProps = {
   onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
   onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus) => void;
   onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
+  onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
+  onPrepareNextWorkItem: () => void;
 };
 
 const PROJECT_STATUSES: PccStatus[] = [
@@ -236,6 +243,14 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
         <span class="pcc-project-card__label">Proof gap</span>
         <span>${proofGap}</span>
       </div>
+      <div class="pcc-project-card__proof">
+        <span class="pcc-project-card__label">Work</span>
+        <span
+          >${getPccWorkLoopSettings(project as unknown as PccProject).enabled
+            ? formatStatus(getPccWorkLoopSettings(project as unknown as PccProject).state)
+            : "Off"}</span
+        >
+      </div>
       <button
         class="btn btn--subtle"
         type="button"
@@ -244,6 +259,117 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
         ${selected ? "Selected" : "Open"}
       </button>
     </article>
+  `;
+}
+
+function renderWorkLoopCard(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  if (!detail) {
+    return nothing;
+  }
+  const settings = getPccWorkLoopSettings(detail.project);
+  const next = getPccWorkLoopNext({
+    project: detail.project,
+    milestones: detail.milestones,
+    permissions: detail.permissions,
+    receipts: [],
+  });
+  const workLabel = settings.enabled ? formatStatus(next.state) : "Off";
+  const nextTitle = next.milestone?.title ?? "No eligible milestone";
+  const message =
+    next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.";
+  return html`
+    <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
+      <div class="pcc-work-loop__header">
+        <div>
+          <p class="pcc-kicker">Guided runner</p>
+          <h4>Work This Project</h4>
+          <p>
+            Moves one safe milestone at a time and stops before Codex, remote proof, or missing
+            permission.
+          </p>
+        </div>
+        <span class="pcc-status pcc-work-loop-state--${settings.enabled ? next.state : "idle"}">
+          ${workLabel}
+        </span>
+      </div>
+      <div class="pcc-work-loop__controls">
+        <button
+          class="btn"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() =>
+            props.onUpdateWorkLoop({
+              enabled: !settings.enabled,
+              state: settings.enabled ? "idle" : "working",
+            })}
+        >
+          ${settings.enabled ? "Turn off" : "Work This Project"}
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() => props.onUpdateWorkLoop({ state: "paused", enabled: true })}
+        >
+          Pause
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${props.onPrepareNextWorkItem}
+        >
+          Prepare next safe task
+        </button>
+      </div>
+      <div class="pcc-work-loop__toggles">
+        <label>
+          <input
+            type="checkbox"
+            .checked=${settings.stopAfterCurrentMilestone}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                stopAfterCurrentMilestone: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Stop after current milestone
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${settings.stopBeforeCodex}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                stopBeforeCodex: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Stop before Codex
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${settings.stopBeforeRemoteProof}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                stopBeforeRemoteProof: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Stop before remote proof
+        </label>
+      </div>
+      <div class="pcc-work-loop__next">
+        <span>Next</span>
+        <strong>${nextTitle}</strong>
+        <p>${message}</p>
+      </div>
+      ${next.taskPrompt
+        ? html`<details class="pcc-work-loop__prompt" data-pcc-task-prompt>
+            <summary>Task prompt preview</summary>
+            <pre>${next.taskPrompt}</pre>
+          </details>`
+        : nothing}
+    </section>
   `;
 }
 
@@ -298,6 +424,7 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
+      ${renderWorkLoopCard(props)}
       <section class="pcc-permissions" aria-label="Project permissions">
         <div class="pcc-section-heading">
           <h4>Permissions</h4>
