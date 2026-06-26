@@ -4,7 +4,7 @@ import type { IconName } from "./icons.js";
 import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
 export const TAB_GROUPS = [
-  { label: "chat", tabs: ["chat"] },
+  { label: "chat", tabs: ["chat", "pcc"] },
   {
     label: "control",
     tabs: ["overview", "activity", "workboard", "instances", "sessions", "usage", "cron"],
@@ -40,6 +40,7 @@ export type Tab =
   | "skillWorkshop"
   | "nodes"
   | "chat"
+  | "pcc"
   | "config"
   | "communications"
   | "appearance"
@@ -84,6 +85,7 @@ const TAB_PATHS: Record<Tab, string> = {
   skillWorkshop: "/skills/workshop",
   nodes: "/nodes",
   chat: "/chat",
+  pcc: "/pcc",
   config: "/config",
   communications: "/communications",
   appearance: "/appearance",
@@ -201,6 +203,8 @@ export function iconForTab(tab: Tab): IconName {
       return "folder";
     case "chat":
       return "messageSquare";
+    case "pcc":
+      return "folder";
     case "overview":
       return "barChart";
     case "activity":

@@ -133,6 +133,7 @@ import {
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
+import { loadPccDashboard } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
   branchSessionFromCheckpoint,
@@ -706,6 +707,7 @@ const lazyPatternLab = createLazyView(
   () => import("./views/pattern-lab-dashboard.ts"),
   notifyLazyViewChanged,
 );
+const lazyPcc = createLazyView(() => import("./views/pcc.ts"), notifyLazyViewChanged);
 const lazyMusicStudio = createLazyView(
   () => import("./views/music-studio.ts"),
   notifyLazyViewChanged,
@@ -2771,6 +2773,18 @@ export function renderApp(state: AppViewState) {
                 ${headerError ? html`<div class="pill danger">${headerError}</div>` : nothing}
               </div>
             </section>`}
+        ${state.tab === "pcc"
+          ? renderLazyView(lazyPcc, (m) =>
+              m.renderPccDashboard({
+                loading: state.pccLoading,
+                error: state.pccError,
+                projects: state.pccProjects,
+                portfolio: state.pccPortfolioSummary,
+                updatedAt: state.pccUpdatedAt,
+                onRefresh: () => void loadPccDashboard(state),
+              }),
+            )
+          : nothing}
         ${state.tab === "overview"
           ? renderOverview({
               connected: state.connected,

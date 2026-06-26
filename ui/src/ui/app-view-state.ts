@@ -74,6 +74,8 @@ import type {
   NostrProfile,
   PresenceEntry,
   ProjectsListResult,
+  PccPortfolioSummary,
+  PccProjectSummary,
   SessionsUsageResult,
   CostUsageSummary,
   SessionUsageTimeSeries,
@@ -191,6 +193,11 @@ export type AppViewState = {
   chatSessionPickerResult: SessionsListResult | null;
   projectsLoading?: boolean;
   projectsList?: ProjectsListResult | null;
+  pccProjects: PccProjectSummary[];
+  pccPortfolioSummary: PccPortfolioSummary | null;
+  pccLoading: boolean;
+  pccError: string | null;
+  pccUpdatedAt: number | null;
   sessionsResultAgentId?: string | null;
   chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
   announceSessionSwitch?: (sessionKey: string, label: string) => void;

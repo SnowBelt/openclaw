@@ -259,6 +259,8 @@ import type {
   ModelCatalogEntry,
   PresenceEntry,
   ProjectsListResult,
+  PccPortfolioSummary,
+  PccProjectSummary,
   ChannelsStatusSnapshot,
   SessionCompactionCheckpoint,
   SessionsListResult,
@@ -434,6 +436,11 @@ export class OpenClawApp extends LitElement {
   @state() chatSessionPickerResult: SessionsListResult | null = null;
   @state() projectsLoading = false;
   @state() projectsList: ProjectsListResult | null = null;
+  @state() pccProjects: PccProjectSummary[] = [];
+  @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
+  @state() pccLoading = false;
+  @state() pccError: string | null = null;
+  @state() pccUpdatedAt: number | null = null;
   private sessionSwitchNoticeSeq = 0;
   private sessionSwitchNoticeTimer: number | null = null;
   private sessionSwitchFlashTimer: number | null = null;

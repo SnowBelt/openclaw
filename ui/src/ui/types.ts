@@ -934,6 +934,55 @@ export type ModelCatalogEntry = {
   input?: Array<"text" | "image" | "document">;
 };
 
+export type PccStatus =
+  | "not_started"
+  | "active"
+  | "in_progress"
+  | "blocked"
+  | "needs_approval"
+  | "deferred"
+  | "on_hold"
+  | "skipped"
+  | "proof_pending"
+  | "local_proof_complete"
+  | "remote_proof_complete"
+  | "runtime_proof_complete"
+  | "persistence_proof_complete"
+  | "complete"
+  | "complete_with_maintenance"
+  | "reopened"
+  | "archived"
+  | "failed";
+
+export type PccProjectSummary = {
+  id: string;
+  title: string;
+  status: PccStatus;
+  percentComplete: number;
+  milestoneCounts: {
+    total: number;
+    complete: number;
+    blocked: number;
+    needsApproval: number;
+    deferred: number;
+    skipped: number;
+  };
+  nextActions: string[];
+  proofGaps: string[];
+  updatedAt: string;
+};
+
+export type PccPortfolioSummary = {
+  projectsTotal: number;
+  active: number;
+  blocked: number;
+  needsApproval: number;
+  complete: number;
+  archived: number;
+  averagePercentComplete: number;
+  nextActions: string[];
+};
+
 export type ToolCatalogProfile =
   import("../../../packages/gateway-protocol/src/schema.js").ToolCatalogProfile;
 export type ToolCatalogEntry =

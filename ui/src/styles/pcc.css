@@ -1,0 +1,237 @@
+.pcc-shell {
+  display: grid;
+  gap: 20px;
+  padding: 0 0 32px;
+}
+
+.pcc-hero,
+.pcc-callout,
+.pcc-empty,
+.pcc-project-card,
+.pcc-metric {
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--shadow) 10%, transparent);
+}
+
+.pcc-hero {
+  align-items: flex-start;
+  border-radius: 28px;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+}
+
+.pcc-kicker {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.pcc-hero h2 {
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  letter-spacing: -0.06em;
+  line-height: 0.95;
+  margin: 0;
+}
+
+.pcc-hero__subtitle {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.6;
+  margin: 14px 0 0;
+  max-width: 720px;
+}
+
+.pcc-hero__actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 150px;
+}
+
+.pcc-updated {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pcc-callout {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: 20px;
+  color: var(--text);
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+}
+
+.pcc-callout span {
+  color: var(--muted);
+}
+
+.pcc-metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.pcc-metric {
+  border-radius: 22px;
+  display: grid;
+  gap: 8px;
+  min-height: 116px;
+  padding: 18px;
+}
+
+.pcc-metric__value {
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+}
+
+.pcc-metric__label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-project-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.pcc-project-card {
+  border-radius: 24px;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.pcc-project-card__topline {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.pcc-project-card h3 {
+  font-size: 1.08rem;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.pcc-project-card p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
+.pcc-status {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 999px;
+  color: var(--text);
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.pcc-status--blocked,
+.pcc-status--failed {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
+.pcc-status--complete,
+.pcc-status--remote_proof_complete,
+.pcc-status--runtime_proof_complete,
+.pcc-status--persistence_proof_complete {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 24%, transparent);
+}
+
+.pcc-progress {
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.pcc-progress__bar {
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--ok)));
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.pcc-project-card__meta {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  gap: 8px;
+}
+
+.pcc-project-card__meta span,
+.pcc-project-card__proof {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 14px;
+  padding: 8px 10px;
+}
+
+.pcc-project-card__proof {
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+}
+
+.pcc-project-card__label {
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-empty {
+  border-radius: 24px;
+  padding: 32px;
+  text-align: center;
+}
+
+.pcc-empty h3 {
+  font-size: 1.25rem;
+  margin: 0 0 8px;
+}
+
+.pcc-empty p {
+  color: var(--muted);
+  margin: 0 auto;
+  max-width: 520px;
+}
+
+@media (max-width: 760px) {
+  .pcc-hero {
+    border-radius: 24px;
+    flex-direction: column;
+    padding: 22px;
+  }
+
+  .pcc-hero__actions {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .pcc-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
