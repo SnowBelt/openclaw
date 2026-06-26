@@ -511,6 +511,73 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   `;
 }
 
+function milestoneDisplayPercent(milestone: PccMilestone): number {
+  if (milestone.status === "complete" || milestone.status === "complete_with_maintenance") {
+    return milestone.receiptIds?.length ? 100 : clampPercent(milestone.percentComplete ?? 99);
+  }
+  if (milestone.status === "skipped" || milestone.status === "archived") {
+    return 0;
+  }
+  return clampPercent(milestone.percentComplete ?? 0);
+}
+
+function phasePercent(
+  phase: NonNullable<PccProject["phases"]>[number],
+  milestones: PccMilestone[],
+): number {
+  if (typeof phase.percentComplete === "number") {
+    return clampPercent(phase.percentComplete);
+  }
+  const phaseMilestones = milestones.filter((milestone) => milestone.phaseId === phase.id);
+  if (phaseMilestones.length === 0) {
+    return phase.status === "complete" || phase.status === "complete_with_maintenance" ? 100 : 0;
+  }
+  return clampPercent(
+    phaseMilestones.reduce((total, milestone) => total + milestoneDisplayPercent(milestone), 0) /
+      phaseMilestones.length,
+  );
+}
+
+function renderPhaseOverview(detail: PccProjectDetail) {
+  const phases = detail.project.phases?.toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0)) ?? [];
+  if (phases.length === 0) {
+    return html`<section class="pcc-phases" aria-label="Project phases">
+      <div class="pcc-section-heading">
+        <h4>Phases</h4>
+        <span>No template</span>
+      </div>
+      <div class="pcc-empty pcc-empty--small">No phase template recorded</div>
+    </section>`;
+  }
+  return html`<section class="pcc-phases" aria-label="Project phases" data-pcc-phases>
+    <div class="pcc-section-heading">
+      <h4>Phases</h4>
+      <span>${phases.length} steps</span>
+    </div>
+    <div class="pcc-phase-grid">
+      ${phases.map((phase) => {
+        const percent = phasePercent(phase, detail.milestones);
+        const milestoneCount = detail.milestones.filter(
+          (milestone) => milestone.phaseId === phase.id,
+        ).length;
+        return html`<article class="pcc-phase" data-pcc-phase>
+          <div>
+            <strong>${phase.title}</strong>
+            <span
+              >${phase.weight ?? 0}% weight · ${milestoneCount}
+              milestone${milestoneCount === 1 ? "" : "s"}</span
+            >
+          </div>
+          <div class="pcc-progress" aria-label=${`${phase.title} ${percent}% complete`}>
+            <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
+          </div>
+          <span>${percent}%</span>
+        </article>`;
+      })}
+    </div>
+  </section>`;
+}
+
 function renderProjectDetail(props: PccDashboardProps) {
   const detail = props.projectDetail;
   if (!detail) {
@@ -562,7 +629,7 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
-      ${renderWorkLoopCard(props)}
+      ${renderWorkLoopCard(props)} ${renderPhaseOverview(detail)}
       <section class="pcc-permissions" aria-label="Project permissions">
         <div class="pcc-section-heading">
           <h4>Permissions</h4>

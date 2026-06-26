@@ -694,3 +694,38 @@
 .pcc-evidence--blocked {
   border-color: color-mix(in srgb, var(--danger, #ff3b30) 30%, var(--border, #d8d8df));
 }
+
+.pcc-phases {
+  display: grid;
+  gap: 12px;
+}
+
+.pcc-phase-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.pcc-phase {
+  background: color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 72%, transparent);
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.pcc-phase div:first-child {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.pcc-phase strong {
+  letter-spacing: -0.02em;
+}
+
+.pcc-phase span {
+  color: var(--text-muted, #64748b);
+  font-size: 0.82rem;
+}

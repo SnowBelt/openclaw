@@ -2,15 +2,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GatewayRequestHandlerOptions } from "./types.js";
 import { pccHandlers, pccTesting } from "./pcc.js";
+import type { GatewayRequestHandlerOptions } from "./types.js";
 
 type RespondCall = [boolean, unknown?, unknown?];
 
 let root: string;
 let previousStateDir: string | undefined;
 
-function makeOptions(method: string, params: Record<string, unknown>, respond: ReturnType<typeof vi.fn>): GatewayRequestHandlerOptions {
+function makeOptions(
+  method: string,
+  params: Record<string, unknown>,
+  respond: ReturnType<typeof vi.fn>,
+): GatewayRequestHandlerOptions {
   return {
     req: { type: "req", id: `${method}-1`, method, params },
     params,
@@ -21,7 +25,10 @@ function makeOptions(method: string, params: Record<string, unknown>, respond: R
   };
 }
 
-async function invoke(method: keyof typeof pccHandlers, params: Record<string, unknown>): Promise<RespondCall> {
+async function invoke(
+  method: keyof typeof pccHandlers,
+  params: Record<string, unknown>,
+): Promise<RespondCall> {
   const respond = vi.fn();
   const handler = pccHandlers[method];
   expect(handler).toBeTruthy();
@@ -60,7 +67,10 @@ describe("Project Command Center gateway methods", () => {
   });
 
   it("stores projects and milestones with deterministic summaries", async () => {
-    const projectPayload = okPayload<{ project: { id: string }; summary: { percentComplete: number } }>(
+    const projectPayload = okPayload<{
+      project: { id: string };
+      summary: { percentComplete: number };
+    }>(
       await invoke("pcc.projects.upsert", {
         project: {
           title: "Project Command Center",
@@ -73,7 +83,10 @@ describe("Project Command Center gateway methods", () => {
     expect(projectPayload.summary.percentComplete).toBe(0);
     const projectId = projectPayload.project.id;
 
-    const milestonePayload = okPayload<{ milestone: { id: string }; summary: { percentComplete: number; milestoneCounts: { total: number } } }>(
+    const milestonePayload = okPayload<{
+      milestone: { id: string };
+      summary: { percentComplete: number; milestoneCounts: { total: number } };
+    }>(
       await invoke("pcc.milestones.upsert", {
         milestone: {
           projectId,
@@ -93,9 +106,62 @@ describe("Project Command Center gateway methods", () => {
     const listPayload = okPayload<{ projects: Array<{ id: string; percentComplete: number }> }>(
       await invoke("pcc.projects.list", {}),
     );
-    expect(listPayload.projects).toEqual([{ id: projectId, title: "Project Command Center", status: "active", percentComplete: 40, milestoneCounts: expect.any(Object), nextActions: expect.any(Array), proofGaps: [], updatedAt: expect.any(String) }]);
+    expect(listPayload.projects).toEqual([
+      {
+        id: projectId,
+        title: "Project Command Center",
+        status: "active",
+        percentComplete: 40,
+        milestoneCounts: expect.any(Object),
+        nextActions: expect.any(Array),
+        proofGaps: [],
+        updatedAt: expect.any(String),
+      },
+    ]);
 
     expect(milestonePayload.milestone.id).toMatch(/^milestone-/);
+  });
+
+  it("adds default phases and calculates weighted phase completion", async () => {
+    const { project } = okPayload<{
+      project: { id: string; phases: Array<{ id: string; weight?: number }> };
+      summary: { percentComplete: number };
+    }>(await invoke("pcc.projects.upsert", { project: { title: "Phase weighted project" } }));
+    expect(project.phases.map((phase) => phase.id)).toEqual([
+      "setup",
+      "tools-skills",
+      "mvp",
+      "refinement",
+      "production-proof",
+      "maintenance",
+    ]);
+    expect(project.phases.reduce((total, phase) => total + (phase.weight ?? 0), 0)).toBe(100);
+
+    await invoke("pcc.milestones.upsert", {
+      milestone: {
+        projectId: project.id,
+        title: "Setup local proof",
+        phaseId: "setup",
+        status: "local_proof_complete",
+      },
+    });
+    const weighted = okPayload<{ project: { percentComplete: number } }>(
+      await invoke("pcc.summary.get", { projectId: project.id }),
+    );
+    expect(weighted.project.percentComplete).toBe(7);
+
+    await invoke("pcc.milestones.upsert", {
+      milestone: {
+        projectId: project.id,
+        title: "Skipped MVP work",
+        phaseId: "mvp",
+        status: "skipped",
+      },
+    });
+    const withSkipped = okPayload<{ project: { percentComplete: number } }>(
+      await invoke("pcc.summary.get", { projectId: project.id }),
+    );
+    expect(withSkipped.project.percentComplete).toBe(7);
   });
 
   it("blocks complete milestone claims until a completion receipt is added", async () => {
@@ -133,7 +199,10 @@ describe("Project Command Center gateway methods", () => {
         },
       }),
     );
-    const receiptPayload = okPayload<{ milestone: { status: string; percentComplete: number }; summary: { percentComplete: number } }>(
+    const receiptPayload = okPayload<{
+      milestone: { status: string; percentComplete: number };
+      summary: { percentComplete: number };
+    }>(
       await invoke("pcc.receipts.add", {
         receipt: {
           projectId: project.id,
@@ -182,7 +251,9 @@ describe("Project Command Center gateway methods", () => {
         },
       }),
     );
-    const { lastKnownGood } = okPayload<{ lastKnownGood: { subsystem: string; screenshotPath: string } }>(
+    const { lastKnownGood } = okPayload<{
+      lastKnownGood: { subsystem: string; screenshotPath: string };
+    }>(
       await invoke("pcc.lastKnownGood.upsert", {
         entry: {
           projectId: project.id,
@@ -205,9 +276,13 @@ describe("Project Command Center gateway methods", () => {
 
   it("summarizes portfolio status without showing archived projects by default", async () => {
     const active = okPayload<{ project: { id: string } }>(
-      await invoke("pcc.projects.upsert", { project: { title: "Active project", status: "active" } }),
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Active project", status: "active" },
+      }),
     );
-    await invoke("pcc.projects.upsert", { project: { title: "Archived project", status: "archived" } });
+    await invoke("pcc.projects.upsert", {
+      project: { title: "Archived project", status: "archived" },
+    });
 
     const listDefault = okPayload<{ projects: unknown[] }>(await invoke("pcc.projects.list", {}));
     expect(listDefault.projects).toHaveLength(1);
@@ -217,9 +292,10 @@ describe("Project Command Center gateway methods", () => {
     );
     expect(listAll.projects).toHaveLength(2);
 
-    const summary = okPayload<{ project: { id: string }; portfolio: { projectsTotal: number; active: number; archived: number } }>(
-      await invoke("pcc.summary.get", { projectId: active.project.id }),
-    );
+    const summary = okPayload<{
+      project: { id: string };
+      portfolio: { projectsTotal: number; active: number; archived: number };
+    }>(await invoke("pcc.summary.get", { projectId: active.project.id }));
     expect(summary.project.id).toBe(active.project.id);
     expect(summary.portfolio.projectsTotal).toBe(2);
     expect(summary.portfolio.active).toBe(1);

@@ -218,6 +218,43 @@ describe("renderPccDashboard", () => {
     expect(onOpenProjectEditor).toHaveBeenCalledWith(project);
   });
 
+  it("renders phase templates and weighted phase progress", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: {
+            ...project,
+            phases: [
+              { id: "setup", title: "Setup", weight: 10, order: 0 },
+              { id: "mvp", title: "MVP", weight: 90, order: 1 },
+            ],
+          },
+          milestones: [
+            { ...milestone, phaseId: "setup", percentComplete: 70 },
+            {
+              ...milestone,
+              id: "milestone-mvp",
+              title: "MVP finish",
+              phaseId: "mvp",
+              percentComplete: 20,
+            },
+          ],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.querySelectorAll("[data-pcc-phases]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-pcc-phase]")).toHaveLength(2);
+    expect(container.textContent).toContain("Setup");
+    expect(container.textContent).toContain("MVP");
+    expect(container.textContent).toContain("10% weight");
+    expect(container.textContent).toContain("70%");
+  });
+
   it("renders completion receipts, evidence, and add receipt action", () => {
     const onAddCompletionReceipt = vi.fn();
     const container = renderView(
