@@ -3,9 +3,12 @@ import {
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
   addPccCompletionReceipt,
+  applyPccChatSyncProposal,
+  dismissPccChatSync,
   loadPccDashboard,
   openPccMilestoneEditor,
   openPccProjectEditor,
+  previewPccChatSync,
   savePccMilestone,
   savePccProject,
   selectPccProject,
@@ -14,6 +17,7 @@ import {
   setPccProjectStatus,
   updatePccWorkLoopSettings,
   preparePccNextWorkItem,
+  updatePccChatSyncText,
   type PccDashboardState,
 } from "./pcc.ts";
 
@@ -33,6 +37,9 @@ function createState(overrides: Partial<PccDashboardState> = {}): PccDashboardSt
     pccEditorMode: null,
     pccProjectForm: { ...EMPTY_PCC_PROJECT_FORM },
     pccMilestoneForm: { ...EMPTY_PCC_MILESTONE_FORM },
+    pccChatSyncText: "",
+    pccChatSyncProposals: [],
+    pccChatSyncError: null,
     ...overrides,
   };
 }
@@ -539,5 +546,71 @@ describe("PCC CRUD controller", () => {
         milestone: expect.objectContaining({ id: "milestone-1", status: "deferred" }),
       }),
     );
+  });
+
+  it("previews and applies chat sync milestone proposals", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ milestone: { ...milestone, title: "Chat Sync" }, summary })
+      .mockResolvedValueOnce({ projects: [summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({
+        project,
+        milestones: [{ ...milestone, title: "Chat Sync" }],
+        permissions: [permission],
+        evidence: [],
+        receipts: [],
+        summary,
+      });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccSelectedProjectId: "project-1",
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        permissions: [permission],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    updatePccChatSyncText(
+      state,
+      "PLEASE IMPLEMENT THIS PLAN:\n# Chat Sync\n\nAcceptance criteria:\n- Local proof passes",
+    );
+    previewPccChatSync(state);
+
+    expect(state.pccChatSyncProposals[0]?.kind).toBe("add_milestone");
+    await applyPccChatSyncProposal(state, state.pccChatSyncProposals[0]);
+
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.milestones.upsert", {
+      milestone: expect.objectContaining({
+        projectId: "project-1",
+        title: "Chat Sync",
+        implementationPlan: expect.stringContaining("# Chat Sync"),
+      }),
+    });
+  });
+
+  it("clears chat sync proposals", () => {
+    const state = createState({
+      pccChatSyncText: "PLEASE IMPLEMENT THIS PLAN:\n# Chat Sync",
+      pccChatSyncProposals: [
+        {
+          id: "proposal-1",
+          kind: "add_milestone",
+          title: "Add milestone",
+          summary: "summary",
+          risky: false,
+        },
+      ],
+    });
+
+    dismissPccChatSync(state);
+
+    expect(state.pccChatSyncText).toBe("");
+    expect(state.pccChatSyncProposals).toHaveLength(0);
+    expect(state.pccChatSyncError).toBeNull();
   });
 });

@@ -246,6 +246,7 @@ import {
 } from "./dom-tooltips.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
+import type { PccChatSyncProposal } from "./pcc-chat-sync.ts";
 import { resolveAgentIdFromSessionKey } from "./session-key.ts";
 import type { SidebarContent } from "./sidebar-content.ts";
 import { loadLocalUserIdentity, loadSettings, type UiSettings } from "./storage.ts";
@@ -456,6 +457,9 @@ export class OpenClawApp extends LitElement {
   @state() pccEditorMode: PccEditorMode = null;
   @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
   @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };
+  @state() pccChatSyncText = "";
+  @state() pccChatSyncProposals: PccChatSyncProposal[] = [];
+  @state() pccChatSyncError: string | null = null;
   private sessionSwitchNoticeSeq = 0;
   private sessionSwitchNoticeTimer: number | null = null;
   private sessionSwitchFlashTimer: number | null = null;

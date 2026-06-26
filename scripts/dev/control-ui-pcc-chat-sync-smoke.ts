@@ -7,31 +7,19 @@ function timestampSlug(): string {
 }
 
 async function main() {
-  const artifactDir = join(".artifacts", "control-ui-pcc-context-package-smoke", timestampSlug());
+  const artifactDir = join(".artifacts", "control-ui-pcc-chat-sync-smoke", timestampSlug());
   mkdirSync(artifactDir, { recursive: true });
   const dom = new JSDOM(`<!doctype html><main id="root"></main>`, { url: "http://127.0.0.1/pcc" });
-  let copied = "";
   const previous = {
     window: (globalThis as { window?: unknown }).window,
     document: (globalThis as { document?: unknown }).document,
     HTMLElement: (globalThis as { HTMLElement?: unknown }).HTMLElement,
     Node: (globalThis as { Node?: unknown }).Node,
-    navigator: Object.getOwnPropertyDescriptor(globalThis, "navigator"),
   };
   (globalThis as { window?: unknown }).window = dom.window;
   (globalThis as { document?: unknown }).document = dom.window.document;
   (globalThis as { HTMLElement?: unknown }).HTMLElement = dom.window.HTMLElement;
   (globalThis as { Node?: unknown }).Node = dom.window.Node;
-  Object.defineProperty(globalThis, "navigator", {
-    configurable: true,
-    value: {
-      clipboard: {
-        writeText: async (value: string) => {
-          copied = value;
-        },
-      },
-    },
-  });
   try {
     const { render } = await import("lit");
     const { renderPccDashboard } = await import("../../ui/src/ui/views/pcc.ts");
@@ -39,26 +27,25 @@ async function main() {
     if (!root) {
       throw new Error("missing root");
     }
+    const calls: string[] = [];
     const project = {
       id: "pcc",
       title: "Project Command Center",
-      goal: "Create deterministic handoffs for OpenClaw and Codex.",
+      goal: "Sync chat plans into reviewable PCC diffs.",
       status: "active" as const,
       priority: 3,
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
     const milestone = {
-      id: "milestone-context",
+      id: "milestone-chat-sync",
       projectId: "pcc",
-      title: "Context Package Generation V1",
+      title: "Automatic Chat/Codex Sync V1",
       status: "not_started" as const,
-      phaseId: "production-proof",
       order: 1,
       percentComplete: 0,
-      implementationPlan: "Add compact and full handoff packets.",
-      acceptanceCriteria: ["Packet includes permissions", "Packet includes proof gaps"],
-      metadata: { pccResponsibility: "local_openclaw_agent", pccCostRisk: "low" },
+      implementationPlan: "Convert chat plans into PCC diffs.",
+      acceptanceCriteria: ["Diff preview required", "No silent rewrite"],
       createdAt: "2026-06-26T00:00:00Z",
       updatedAt: "2026-06-26T00:00:00Z",
     };
@@ -66,7 +53,7 @@ async function main() {
       id: "pcc",
       title: "Project Command Center",
       status: "active" as const,
-      percentComplete: 65,
+      percentComplete: 70,
       milestoneCounts: {
         total: 1,
         complete: 0,
@@ -75,9 +62,23 @@ async function main() {
         deferred: 0,
         skipped: 0,
       },
-      nextActions: ["Copy a low-reasoning handoff"],
+      nextActions: ["Review chat updates"],
       proofGaps: ["Remote proof"],
       updatedAt: "2026-06-26T00:00:00Z",
+    };
+    const proposal = {
+      id: "chat-plan-1",
+      kind: "update_milestone" as const,
+      title: "Update milestone: Automatic Chat/Codex Sync V1",
+      summary: "Structured chat plan detected.",
+      risky: false,
+      milestoneId: "milestone-chat-sync",
+      milestonePatch: {
+        id: "milestone-chat-sync",
+        projectId: "pcc",
+        title: "Automatic Chat/Codex Sync V1",
+        implementationPlan: "Updated by chat sync.",
+      },
     };
     render(
       renderPccDashboard({
@@ -91,8 +92,8 @@ async function main() {
           needsApproval: 0,
           complete: 0,
           archived: 0,
-          averagePercentComplete: 65,
-          nextActions: ["Copy a low-reasoning handoff"],
+          averagePercentComplete: 70,
+          nextActions: ["Review chat updates"],
         },
         projects: [summary],
         selectedProjectId: "pcc",
@@ -122,8 +123,8 @@ async function main() {
           responsibility: "local_openclaw_agent",
           costRisk: "low",
         },
-        chatSyncText: "",
-        chatSyncProposals: [],
+        chatSyncText: "PLEASE IMPLEMENT THIS PLAN:\n# Automatic Chat/Codex Sync V1",
+        chatSyncProposals: [proposal],
         chatSyncError: null,
         onRefresh: () => undefined,
         onSelectProject: () => undefined,
@@ -140,36 +141,40 @@ async function main() {
         onSetPermissionStatus: () => undefined,
         onUpdateWorkLoop: () => undefined,
         onPrepareNextWorkItem: () => undefined,
-        onChatSyncTextChange: () => undefined,
-        onPreviewChatSync: () => undefined,
-        onApplyChatSyncProposal: () => undefined,
-        onDismissChatSync: () => undefined,
+        onChatSyncTextChange: (text) => calls.push(`text:${text}`),
+        onPreviewChatSync: () => calls.push("preview"),
+        onApplyChatSyncProposal: (item) => calls.push(`apply:${item.id}`),
+        onDismissChatSync: () => calls.push("dismiss"),
       }),
       root,
     );
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
-    root.querySelector<HTMLButtonElement>('[data-pcc-copy-context="compact"]')?.click();
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 0);
-    });
+    root.querySelector<HTMLTextAreaElement>(".pcc-chat-sync__input")!.value = "updated";
+    root
+      .querySelector<HTMLTextAreaElement>(".pcc-chat-sync__input")!
+      .dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    [...root.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Review chat updates"))
+      ?.click();
+    root.querySelector<HTMLButtonElement>("[data-pcc-chat-sync-proposal] button")?.click();
     const text = root.textContent ?? "";
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
-      contextCard: root.querySelectorAll("[data-pcc-context-package]").length === 1,
-      copyActions: root.querySelectorAll("[data-pcc-copy-context]").length === 2,
-      preview: text.includes("Preview next-step packet"),
-      packetText: text.includes("Next milestone: Context Package Generation V1"),
-      copied:
-        copied.includes("Worker: local_openclaw_agent") &&
-        copied.includes("Proof required / gaps:"),
+      card: root.querySelectorAll("[data-pcc-chat-sync]").length === 1,
+      proposal: root.querySelectorAll("[data-pcc-chat-sync-proposal]").length === 1,
+      noSilentApply: calls.includes("preview") && calls.includes("apply:chat-plan-1"),
+      textChanged: calls.some((call) => call === "text:updated"),
+      visibleCopy:
+        text.includes("Suggested updates from chat") && text.includes("No silent rewrite"),
     };
     const summaryOut = {
       artifactDir,
       ok: Object.values(checks).every(Boolean),
       checks,
-      html: join(artifactDir, "pcc-context-package.html"),
+      calls,
+      html: join(artifactDir, "pcc-chat-sync.html"),
     };
     writeFileSync(summaryOut.html, dom.serialize());
     writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summaryOut, null, 2));
@@ -182,11 +187,6 @@ async function main() {
     (globalThis as { document?: unknown }).document = previous.document;
     (globalThis as { HTMLElement?: unknown }).HTMLElement = previous.HTMLElement;
     (globalThis as { Node?: unknown }).Node = previous.Node;
-    if (previous.navigator) {
-      Object.defineProperty(globalThis, "navigator", previous.navigator);
-    } else {
-      delete (globalThis as { navigator?: unknown }).navigator;
-    }
   }
 }
 

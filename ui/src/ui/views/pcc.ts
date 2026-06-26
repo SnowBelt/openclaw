@@ -11,6 +11,7 @@ import type {
   PccProjectDetail,
   PccProjectFormState,
 } from "../controllers/pcc.ts";
+import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
 import type {
   PccCompletionReceipt,
@@ -37,6 +38,9 @@ export type PccDashboardProps = {
   editorMode: PccEditorMode;
   projectForm: PccProjectFormState;
   milestoneForm: PccMilestoneFormState;
+  chatSyncText: string;
+  chatSyncProposals: PccChatSyncProposal[];
+  chatSyncError: string | null;
   onRefresh: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenProjectEditor: (project?: PccProject) => void;
@@ -52,6 +56,10 @@ export type PccDashboardProps = {
   onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
   onPrepareNextWorkItem: () => void;
+  onChatSyncTextChange: (text: string) => void;
+  onPreviewChatSync: () => void;
+  onApplyChatSyncProposal: (proposal: PccChatSyncProposal) => void;
+  onDismissChatSync: () => void;
 };
 
 const PROJECT_STATUSES: PccStatus[] = [
@@ -676,7 +684,7 @@ function renderProjectDetail(props: PccDashboardProps) {
             </button>`}
       </div>
       ${renderWorkLoopCard(props)} ${renderPhaseOverview(detail)}
-      ${renderContextPackageCard(detail)}
+      ${renderContextPackageCard(detail)} ${renderChatSyncCard(props)}
       <section class="pcc-permissions" aria-label="Project permissions">
         <div class="pcc-section-heading">
           <h4>Permissions</h4>
@@ -732,6 +740,63 @@ function renderContextPackageCard(detail: PccProjectDetail) {
       <summary>Preview next-step packet</summary>
       <pre>${preview}</pre>
     </details>
+  </section>`;
+}
+
+function renderChatSyncProposal(proposal: PccChatSyncProposal, props: PccDashboardProps) {
+  return html`<article class="pcc-chat-sync__proposal" data-pcc-chat-sync-proposal>
+    <div>
+      <strong>${proposal.title}</strong>
+      <p>${proposal.summary}</p>
+      <span
+        >${proposal.kind.replace(/_/gu, " ")}${proposal.risky ? " · needs confirmation" : ""}</span
+      >
+    </div>
+    <button
+      class="btn btn--subtle"
+      type="button"
+      ?disabled=${props.actionBusy}
+      @click=${() => {
+        if (!proposal.risky || confirmAction("Apply this chat-suggested PCC update?")) {
+          props.onApplyChatSyncProposal(proposal);
+        }
+      }}
+    >
+      Apply
+    </button>
+  </article>`;
+}
+
+function renderChatSyncCard(props: PccDashboardProps) {
+  return html`<section class="pcc-chat-sync" data-pcc-chat-sync aria-label="Chat sync">
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Suggested updates from chat</h4>
+        <p>Paste an OpenClaw or Codex plan. PCC previews safe diffs before anything changes.</p>
+      </div>
+      <span>${props.chatSyncProposals.length} suggested</span>
+    </div>
+    <textarea
+      class="pcc-chat-sync__input"
+      placeholder="Paste a proposed plan, status summary, proof receipt, or permission request"
+      .value=${props.chatSyncText}
+      @input=${(event: Event) =>
+        props.onChatSyncTextChange((event.target as HTMLTextAreaElement).value)}
+    ></textarea>
+    <div class="pcc-context-package__actions">
+      <button class="btn" type="button" @click=${props.onPreviewChatSync}>
+        Review chat updates
+      </button>
+      <button class="btn btn--subtle" type="button" @click=${props.onDismissChatSync}>Clear</button>
+    </div>
+    ${props.chatSyncError
+      ? html`<div class="pcc-error" role="alert">${props.chatSyncError}</div>`
+      : nothing}
+    ${props.chatSyncProposals.length
+      ? html`<div class="pcc-chat-sync__proposals">
+          ${props.chatSyncProposals.map((proposal) => renderChatSyncProposal(proposal, props))}
+        </div>`
+      : html`<div class="pcc-empty pcc-empty--small">No chat updates ready to apply</div>`}
   </section>`;
 }
 

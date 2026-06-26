@@ -136,8 +136,11 @@ import { loadNodes } from "./controllers/nodes.ts";
 import {
   addPccCompletionReceipt,
   cancelPccEditor,
+  applyPccChatSyncProposal,
+  dismissPccChatSync,
   loadPccDashboard,
   preparePccNextWorkItem,
+  previewPccChatSync,
   openPccMilestoneEditor,
   openPccProjectEditor,
   savePccMilestone,
@@ -147,6 +150,7 @@ import {
   setPccPermissionStatus,
   setPccProjectStatus,
   updatePccWorkLoopSettings,
+  updatePccChatSyncText,
   updatePccMilestoneForm,
   updatePccProjectForm,
 } from "./controllers/pcc.ts";
@@ -2804,6 +2808,9 @@ export function renderApp(state: AppViewState) {
                 editorMode: state.pccEditorMode,
                 projectForm: state.pccProjectForm,
                 milestoneForm: state.pccMilestoneForm,
+                chatSyncText: state.pccChatSyncText,
+                chatSyncProposals: state.pccChatSyncProposals,
+                chatSyncError: state.pccChatSyncError,
                 onRefresh: () => void loadPccDashboard(state),
                 onSelectProject: (projectId) => void selectPccProject(state, projectId),
                 onOpenProjectEditor: (project) => openPccProjectEditor(state, project),
@@ -2823,6 +2830,11 @@ export function renderApp(state: AppViewState) {
                   void setPccPermissionStatus(state, permission, status),
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
+                onChatSyncTextChange: (text) => updatePccChatSyncText(state, text),
+                onPreviewChatSync: () => previewPccChatSync(state),
+                onApplyChatSyncProposal: (proposal) =>
+                  void applyPccChatSyncProposal(state, proposal),
+                onDismissChatSync: () => dismissPccChatSync(state),
               }),
             )
           : nothing}

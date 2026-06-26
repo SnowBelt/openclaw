@@ -784,3 +784,61 @@
   padding: 0 12px 12px;
   white-space: pre-wrap;
 }
+
+.pcc-chat-sync {
+  background: color-mix(in srgb, var(--surface-raised, #fff) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 70%, transparent);
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.pcc-chat-sync .pcc-section-heading {
+  align-items: start;
+}
+
+.pcc-chat-sync .pcc-section-heading p {
+  color: var(--text-muted, #64748b);
+  font-size: 0.9rem;
+  margin: 4px 0 0;
+}
+
+.pcc-chat-sync__input {
+  background: color-mix(in srgb, var(--surface, #f7f7fa) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 70%, transparent);
+  border-radius: 16px;
+  color: var(--text, #111827);
+  font: inherit;
+  min-height: 110px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.pcc-chat-sync__proposals {
+  display: grid;
+  gap: 8px;
+}
+
+.pcc-chat-sync__proposal {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface, #f7f7fa) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 64%, transparent);
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.pcc-chat-sync__proposal p {
+  color: var(--text-muted, #64748b);
+  margin: 4px 0;
+}
+
+.pcc-chat-sync__proposal span {
+  color: var(--text-muted, #64748b);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}

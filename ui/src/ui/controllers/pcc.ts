@@ -6,6 +6,7 @@ import {
 } from "../../../../src/pcc/work-loop.js";
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
+import { buildPccChatSyncProposals, type PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import type {
   PccCompletionReceipt,
   PccEvidence,
@@ -72,6 +73,9 @@ export type PccDashboardState = {
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
+  pccChatSyncText: string;
+  pccChatSyncProposals: PccChatSyncProposal[];
+  pccChatSyncError: string | null;
   requestUpdate?: () => void;
 };
 
@@ -139,6 +143,13 @@ export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
   responsibility: "local_openclaw_agent",
   costRisk: "low",
 };
+
+function refreshPccChatSyncProposals(state: PccDashboardState): void {
+  state.pccChatSyncProposals = buildPccChatSyncProposals(
+    state.pccProjectDetail,
+    state.pccChatSyncText,
+  );
+}
 
 function safeProjectSummary(project: PccProjectSummary): PccProjectSummary {
   return {
@@ -315,6 +326,7 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
       receipts: detail.receipts ?? [],
       summary: safeProjectSummary(detail.summary),
     };
+    refreshPccChatSyncProposals(state);
   });
 }
 
@@ -354,6 +366,28 @@ export function updatePccMilestoneForm(
   patch: Partial<PccMilestoneFormState>,
 ): void {
   state.pccMilestoneForm = { ...state.pccMilestoneForm, ...patch };
+  state.requestUpdate?.();
+}
+
+export function updatePccChatSyncText(state: PccDashboardState, text: string): void {
+  state.pccChatSyncText = text;
+  state.pccChatSyncError = null;
+  refreshPccChatSyncProposals(state);
+  state.requestUpdate?.();
+}
+
+export function previewPccChatSync(state: PccDashboardState): void {
+  refreshPccChatSyncProposals(state);
+  state.pccChatSyncError = state.pccChatSyncProposals.length
+    ? null
+    : "No safe Project Command Center updates were found in this chat text.";
+  state.requestUpdate?.();
+}
+
+export function dismissPccChatSync(state: PccDashboardState): void {
+  state.pccChatSyncText = "";
+  state.pccChatSyncProposals = [];
+  state.pccChatSyncError = null;
   state.requestUpdate?.();
 }
 
@@ -519,6 +553,63 @@ export async function setPccPermissionStatus(
     );
     await loadPccDashboard(state);
     await selectPccProject(state, result.permission.projectId);
+  });
+}
+
+export async function applyPccChatSyncProposal(
+  state: PccDashboardState,
+  proposal: PccChatSyncProposal,
+): Promise<void> {
+  if (proposal.kind === "add_receipt") {
+    const milestone = state.pccProjectDetail?.milestones.find(
+      (candidate) => candidate.id === proposal.milestoneId,
+    );
+    if (!milestone) {
+      state.pccChatSyncError = "Milestone for receipt proposal was not found.";
+      state.requestUpdate?.();
+      return;
+    }
+    await addPccCompletionReceipt(state, milestone);
+    refreshPccChatSyncProposals(state);
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client || !state.pccProjectDetail) {
+      return;
+    }
+    if (proposal.kind === "add_milestone" || proposal.kind === "update_milestone") {
+      if (!proposal.milestonePatch) {
+        throw new Error("Missing milestone patch");
+      }
+      const existing = proposal.milestoneId
+        ? state.pccProjectDetail.milestones.find(
+            (milestone) => milestone.id === proposal.milestoneId,
+          )
+        : null;
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: {
+          ...existing,
+          ...proposal.milestonePatch,
+          metadata: {
+            ...metadataObject(existing?.metadata),
+            ...metadataObject(proposal.milestonePatch.metadata),
+          },
+        },
+      });
+    } else if (proposal.kind === "request_permission") {
+      if (!proposal.permission) {
+        throw new Error("Missing permission proposal");
+      }
+      await state.client.request("pcc.permissions.upsert", {
+        permission: proposal.permission,
+      });
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, state.pccProjectDetail.project.id);
+    state.pccChatSyncProposals = state.pccChatSyncProposals.filter(
+      (candidate) => candidate.id !== proposal.id,
+    );
   });
 }
 

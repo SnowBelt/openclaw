@@ -117,6 +117,9 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     editorMode: null,
     projectForm: { ...EMPTY_PCC_PROJECT_FORM },
     milestoneForm: { ...EMPTY_PCC_MILESTONE_FORM, projectId: "project-1" },
+    chatSyncText: "",
+    chatSyncProposals: [],
+    chatSyncError: null,
     onRefresh: () => undefined,
     onSelectProject: () => undefined,
     onOpenProjectEditor: () => undefined,
@@ -132,6 +135,10 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     onSetPermissionStatus: () => undefined,
     onUpdateWorkLoop: () => undefined,
     onPrepareNextWorkItem: () => undefined,
+    onChatSyncTextChange: () => undefined,
+    onPreviewChatSync: () => undefined,
+    onApplyChatSyncProposal: () => undefined,
+    onDismissChatSync: () => undefined,
     ...overrides,
   };
 }
@@ -460,6 +467,50 @@ describe("renderPccDashboard", () => {
     expect(writeText.mock.calls[0]?.[0]).toContain("Worker: local_openclaw_agent");
   });
 
+  it("renders and applies reviewable chat sync proposals", () => {
+    const onChatSyncTextChange = vi.fn();
+    const onPreviewChatSync = vi.fn();
+    const onApplyChatSyncProposal = vi.fn();
+    const proposal = {
+      id: "chat-plan-1",
+      kind: "add_milestone" as const,
+      title: "Add milestone: Chat Sync",
+      summary: "Structured chat plan detected.",
+      risky: false,
+      milestonePatch: {
+        projectId: "project-1",
+        title: "Chat Sync",
+      },
+    };
+    const container = renderView(
+      createProps({
+        chatSyncText: "PLEASE IMPLEMENT THIS PLAN:\n# Chat Sync",
+        chatSyncProposals: [proposal],
+        onChatSyncTextChange,
+        onPreviewChatSync,
+        onApplyChatSyncProposal,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-chat-sync]")).not.toBeNull();
+    expect(container.textContent).toContain("Suggested updates from chat");
+    expect(container.textContent).toContain("Add milestone: Chat Sync");
+
+    container.querySelector<HTMLTextAreaElement>(".pcc-chat-sync__input")!.value = "updated";
+    container
+      .querySelector<HTMLTextAreaElement>(".pcc-chat-sync__input")!
+      .dispatchEvent(new Event("input"));
+    expect(onChatSyncTextChange).toHaveBeenCalledWith("updated");
+
+    [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Review chat updates"))
+      ?.click();
+    expect(onPreviewChatSync).toHaveBeenCalledTimes(1);
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-chat-sync-proposal] button")?.click();
+    expect(onApplyChatSyncProposal).toHaveBeenCalledWith(proposal);
+  });
+
   it("renders milestone editor and status actions", () => {
     const onMilestoneFormChange = vi.fn();
     const onSaveMilestone = vi.fn();
@@ -480,7 +531,7 @@ describe("renderPccDashboard", () => {
 
     expect(container.querySelector('[data-pcc-editor="milestone"]')).not.toBeNull();
     container
-      .querySelector<HTMLTextAreaElement>("textarea")
+      .querySelector<HTMLTextAreaElement>('[data-pcc-editor="milestone"] textarea')
       ?.dispatchEvent(new InputEvent("input", { bubbles: true }));
     container
       .querySelector<HTMLFormElement>("form")
