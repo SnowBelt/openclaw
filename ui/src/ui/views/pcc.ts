@@ -11,6 +11,7 @@ import type {
   PccProjectDetail,
   PccProjectFormState,
 } from "../controllers/pcc.ts";
+import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
 import type {
   PccCompletionReceipt,
   PccEvidence,
@@ -158,6 +159,13 @@ function metadataString(value: unknown, fallback: string): string {
 
 function responsibilityLabel(value: string): string {
   return RESPONSIBILITY_OPTIONS.find(([option]) => option === value)?.[1] ?? formatStatus(value);
+}
+
+async function copyPccContextPackage(
+  detail: PccProjectDetail,
+  mode: PccContextPackageMode,
+): Promise<void> {
+  await globalThis.navigator?.clipboard?.writeText(buildPccContextPackage(detail, { mode }));
 }
 
 function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboardProps) {
@@ -668,6 +676,7 @@ function renderProjectDetail(props: PccDashboardProps) {
             </button>`}
       </div>
       ${renderWorkLoopCard(props)} ${renderPhaseOverview(detail)}
+      ${renderContextPackageCard(detail)}
       <section class="pcc-permissions" aria-label="Project permissions">
         <div class="pcc-section-heading">
           <h4>Permissions</h4>
@@ -685,6 +694,45 @@ function renderProjectDetail(props: PccDashboardProps) {
       </section>
     </aside>
   `;
+}
+
+function renderContextPackageCard(detail: PccProjectDetail) {
+  const preview = buildPccContextPackage(detail, { mode: "compact" });
+  return html`<section
+    class="pcc-context-package"
+    data-pcc-context-package
+    aria-label="Context package"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Context package</h4>
+        <p>Copy a clean handoff for OpenClaw, Codex, or a low-reasoning worker.</p>
+      </div>
+      <span>Project only</span>
+    </div>
+    <div class="pcc-context-package__actions">
+      <button
+        class="btn"
+        type="button"
+        data-pcc-copy-context="compact"
+        @click=${() => void copyPccContextPackage(detail, "compact")}
+      >
+        Copy next step
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-copy-context="full"
+        @click=${() => void copyPccContextPackage(detail, "full")}
+      >
+        Copy full packet
+      </button>
+    </div>
+    <details class="pcc-context-package__preview">
+      <summary>Preview next-step packet</summary>
+      <pre>${preview}</pre>
+    </details>
+  </section>`;
 }
 
 function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) {

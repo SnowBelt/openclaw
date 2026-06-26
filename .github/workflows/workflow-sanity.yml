@@ -74,6 +74,10 @@ on:
         description: Run Project Command Center Agent Routing V1 proof
         required: false
         default: "false"
+      pcc-context-package-proof:
+        description: Run Project Command Center Context Package V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -273,7 +277,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true' && inputs.pcc-context-package-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -888,6 +892,66 @@ jobs:
 
       - name: Run TypeScript proof
         run: pnpm tsgo:all
+
+      - name: Run build proof
+        run: pnpm build
+
+  pcc-context-package-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.pcc-context-package-proof == 'true'
+    name: Project Command Center Context Package V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test ui/src/ui/pcc-context-package.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
+          - pnpm tsgo:test:ui
+          - node --import tsx scripts/dev/control-ui-pcc-context-package-smoke.ts
+          - pnpm check:changed -- ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts scripts/dev/control-ui-pcc-context-package-smoke.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css .github/workflows/workflow-sanity.yml
+          - pnpm build
+          EOF_COMMANDS
+
+      - name: Run targeted PCC context package tests
+        run: pnpm test ui/src/ui/pcc-context-package.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
+
+      - name: Run UI typecheck proof
+        run: pnpm tsgo:test:ui
+
+      - name: Run PCC context package smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-context-package-smoke.ts
+
+      - name: Run scoped changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed -- ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts scripts/dev/control-ui-pcc-context-package-smoke.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build

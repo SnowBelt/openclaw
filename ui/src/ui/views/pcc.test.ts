@@ -425,6 +425,41 @@ describe("renderPccDashboard", () => {
     expect(selects.some((select) => select.value === "high")).toBe(true);
   });
 
+  it("renders context package actions without cluttering the project view", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [
+            {
+              ...milestone,
+              metadata: { pccResponsibility: "local_openclaw_agent", pccCostRisk: "low" },
+            },
+          ],
+          permissions: [permission],
+          evidence: [evidence],
+          receipts: [receipt],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-context-package]")).not.toBeNull();
+    expect(container.textContent).toContain("Context package");
+    expect(container.textContent).toContain("Preview next-step packet");
+
+    container.querySelector<HTMLButtonElement>('[data-pcc-copy-context="compact"]')?.click();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]?.[0]).toContain("Next milestone: CRUD UI");
+    expect(writeText.mock.calls[0]?.[0]).toContain("Worker: local_openclaw_agent");
+  });
+
   it("renders milestone editor and status actions", () => {
     const onMilestoneFormChange = vi.fn();
     const onSaveMilestone = vi.fn();
