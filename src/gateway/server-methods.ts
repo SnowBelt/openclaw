@@ -150,6 +150,10 @@ const loadNodeHandlers = lazyHandlerModule(
   () => import("./server-methods/nodes.js"),
   (module) => module.nodeHandlers,
 );
+const loadPccHandlers = lazyHandlerModule(
+  () => import("./server-methods/pcc.js"),
+  (module) => module.pccHandlers,
+);
 const loadPatternLabDashboardHandlers = lazyHandlerModule(
   () => import("./server-methods/pattern-lab-dashboard.js"),
   (module) => module.patternLabDashboardHandlers,
@@ -435,6 +439,20 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "talk.mode",
     ],
     loadHandlers: loadTalkHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "pcc.projects.list",
+      "pcc.projects.get",
+      "pcc.projects.upsert",
+      "pcc.milestones.upsert",
+      "pcc.permissions.upsert",
+      "pcc.evidence.add",
+      "pcc.receipts.add",
+      "pcc.lastKnownGood.upsert",
+      "pcc.summary.get",
+    ],
+    loadHandlers: loadPccHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: [

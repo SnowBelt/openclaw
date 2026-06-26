@@ -40,13 +40,25 @@ describe("listGatewayMethods", () => {
       "doctor.memory.dreamDiary",
       "doctor.memory.backfillDreamDiary",
     ]);
-    expect(methods.slice(32, 37)).toEqual([
+    const execApprovalStart = methods.indexOf("exec.approvals.get");
+    expect(execApprovalStart).toBeGreaterThan(0);
+    expect(methods.slice(execApprovalStart, execApprovalStart + 5)).toEqual([
       "exec.approvals.get",
       "exec.approvals.set",
       "exec.approvals.node.get",
       "exec.approvals.node.set",
       "exec.approval.get",
     ]);
+  });
+
+  it("advertises Project Command Center methods", () => {
+    const methods = listGatewayMethods();
+    expect(methods).toContain("pcc.projects.list");
+    expect(methods).toContain("pcc.projects.upsert");
+    expect(methods).toContain("pcc.milestones.upsert");
+    expect(methods).toContain("pcc.permissions.upsert");
+    expect(methods).toContain("pcc.receipts.add");
+    expect(methods).toContain("pcc.lastKnownGood.upsert");
   });
 
   it("advertises the versioned Talk session RPCs", () => {

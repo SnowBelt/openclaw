@@ -118,6 +118,43 @@ export type TasksGetResult = SchemaType<"TasksGetResult">;
 export type TasksCancelParams = SchemaType<"TasksCancelParams">;
 export type TasksCancelResult = SchemaType<"TasksCancelResult">;
 
+
+/** Project Command Center project, milestone, permission, evidence, and receipt payloads. */
+export type PccStatus = SchemaType<"PccStatus">;
+export type PccProofLevel = SchemaType<"PccProofLevel">;
+export type PccPermissionStatus = SchemaType<"PccPermissionStatus">;
+export type PccPermissionType = SchemaType<"PccPermissionType">;
+export type PccRiskLevel = SchemaType<"PccRiskLevel">;
+export type PccEvidenceKind = SchemaType<"PccEvidenceKind">;
+export type PccEvidenceStatus = SchemaType<"PccEvidenceStatus">;
+export type PccPhase = SchemaType<"PccPhase">;
+export type PccProject = SchemaType<"PccProject">;
+export type PccMilestone = SchemaType<"PccMilestone">;
+export type PccPermissionGrant = SchemaType<"PccPermissionGrant">;
+export type PccEvidence = SchemaType<"PccEvidence">;
+export type PccCompletionReceipt = SchemaType<"PccCompletionReceipt">;
+export type PccLastKnownGood = SchemaType<"PccLastKnownGood">;
+export type PccLastKnownGoodUpsertParams = SchemaType<"PccLastKnownGoodUpsertParams">;
+export type PccLastKnownGoodUpsertResult = SchemaType<"PccLastKnownGoodUpsertResult">;
+export type PccProjectSummary = SchemaType<"PccProjectSummary">;
+export type PccPortfolioSummary = SchemaType<"PccPortfolioSummary">;
+export type PccProjectsListParams = SchemaType<"PccProjectsListParams">;
+export type PccProjectsListResult = SchemaType<"PccProjectsListResult">;
+export type PccProjectsGetParams = SchemaType<"PccProjectsGetParams">;
+export type PccProjectsGetResult = SchemaType<"PccProjectsGetResult">;
+export type PccProjectsUpsertParams = SchemaType<"PccProjectsUpsertParams">;
+export type PccProjectsUpsertResult = SchemaType<"PccProjectsUpsertResult">;
+export type PccMilestonesUpsertParams = SchemaType<"PccMilestonesUpsertParams">;
+export type PccMilestonesUpsertResult = SchemaType<"PccMilestonesUpsertResult">;
+export type PccPermissionsUpsertParams = SchemaType<"PccPermissionsUpsertParams">;
+export type PccPermissionsUpsertResult = SchemaType<"PccPermissionsUpsertResult">;
+export type PccEvidenceAddParams = SchemaType<"PccEvidenceAddParams">;
+export type PccEvidenceAddResult = SchemaType<"PccEvidenceAddResult">;
+export type PccReceiptsAddParams = SchemaType<"PccReceiptsAddParams">;
+export type PccReceiptsAddResult = SchemaType<"PccReceiptsAddResult">;
+export type PccSummaryGetParams = SchemaType<"PccSummaryGetParams">;
+export type PccSummaryGetResult = SchemaType<"PccSummaryGetResult">;
+
 /** Config read/write/schema payloads plus update status and run controls. */
 export type ConfigGetParams = SchemaType<"ConfigGetParams">;
 export type ConfigSetParams = SchemaType<"ConfigSetParams">;

@@ -404,6 +404,49 @@ import {
   TasksListParamsSchema,
   type TasksListResult,
   TasksListResultSchema,
+  type PccStatus,
+  type PccProofLevel,
+  type PccPermissionStatus,
+  type PccPermissionType,
+  type PccRiskLevel,
+  type PccEvidenceKind,
+  type PccEvidenceStatus,
+  type PccPhase,
+  type PccProject,
+  type PccMilestone,
+  type PccPermissionGrant,
+  type PccEvidence,
+  type PccCompletionReceipt,
+  type PccLastKnownGood,
+  type PccProjectSummary,
+  type PccPortfolioSummary,
+  type PccProjectsListResult,
+  type PccProjectsGetResult,
+  type PccProjectsUpsertResult,
+  type PccMilestonesUpsertResult,
+  type PccPermissionsUpsertResult,
+  type PccEvidenceAddResult,
+  type PccReceiptsAddResult,
+  type PccLastKnownGoodUpsertResult,
+  type PccSummaryGetResult,
+  type PccEvidenceAddParams,
+  PccEvidenceAddParamsSchema,
+  type PccLastKnownGoodUpsertParams,
+  PccLastKnownGoodUpsertParamsSchema,
+  type PccMilestonesUpsertParams,
+  PccMilestonesUpsertParamsSchema,
+  type PccPermissionsUpsertParams,
+  PccPermissionsUpsertParamsSchema,
+  type PccProjectsGetParams,
+  PccProjectsGetParamsSchema,
+  type PccProjectsListParams,
+  PccProjectsListParamsSchema,
+  type PccProjectsUpsertParams,
+  PccProjectsUpsertParamsSchema,
+  type PccReceiptsAddParams,
+  PccReceiptsAddParamsSchema,
+  type PccSummaryGetParams,
+  PccSummaryGetParamsSchema,
   type ShutdownEvent,
   ShutdownEventSchema,
   type SkillsBinsParams,
@@ -728,6 +771,34 @@ export const validateTaskFlowsCancelParams = lazyCompile<TaskFlowsCancelParams>(
 export const validateTasksListParams = lazyCompile<TasksListParams>(TasksListParamsSchema);
 export const validateTasksGetParams = lazyCompile<TasksGetParams>(TasksGetParamsSchema);
 export const validateTasksCancelParams = lazyCompile<TasksCancelParams>(TasksCancelParamsSchema);
+
+export const validatePccProjectsListParams = lazyCompile<PccProjectsListParams>(
+  PccProjectsListParamsSchema,
+);
+export const validatePccProjectsGetParams = lazyCompile<PccProjectsGetParams>(
+  PccProjectsGetParamsSchema,
+);
+export const validatePccProjectsUpsertParams = lazyCompile<PccProjectsUpsertParams>(
+  PccProjectsUpsertParamsSchema,
+);
+export const validatePccMilestonesUpsertParams = lazyCompile<PccMilestonesUpsertParams>(
+  PccMilestonesUpsertParamsSchema,
+);
+export const validatePccPermissionsUpsertParams = lazyCompile<PccPermissionsUpsertParams>(
+  PccPermissionsUpsertParamsSchema,
+);
+export const validatePccEvidenceAddParams = lazyCompile<PccEvidenceAddParams>(
+  PccEvidenceAddParamsSchema,
+);
+export const validatePccReceiptsAddParams = lazyCompile<PccReceiptsAddParams>(
+  PccReceiptsAddParamsSchema,
+);
+export const validatePccLastKnownGoodUpsertParams = lazyCompile<PccLastKnownGoodUpsertParams>(
+  PccLastKnownGoodUpsertParamsSchema,
+);
+export const validatePccSummaryGetParams = lazyCompile<PccSummaryGetParams>(
+  PccSummaryGetParamsSchema,
+);
 export const validateConfigGetParams = lazyCompile<ConfigGetParams>(ConfigGetParamsSchema);
 export const validateConfigSetParams = lazyCompile<ConfigSetParams>(ConfigSetParamsSchema);
 export const validateConfigApplyParams = lazyCompile<ConfigApplyParams>(ConfigApplyParamsSchema);
@@ -1437,6 +1508,40 @@ export type {
   TasksGetResult,
   TasksCancelParams,
   TasksCancelResult,
+  PccStatus,
+  PccProofLevel,
+  PccPermissionStatus,
+  PccPermissionType,
+  PccRiskLevel,
+  PccEvidenceKind,
+  PccEvidenceStatus,
+  PccPhase,
+  PccProject,
+  PccMilestone,
+  PccPermissionGrant,
+  PccEvidence,
+  PccCompletionReceipt,
+  PccLastKnownGood,
+  PccProjectSummary,
+  PccPortfolioSummary,
+  PccProjectsListParams,
+  PccProjectsListResult,
+  PccProjectsGetParams,
+  PccProjectsGetResult,
+  PccProjectsUpsertParams,
+  PccProjectsUpsertResult,
+  PccMilestonesUpsertParams,
+  PccMilestonesUpsertResult,
+  PccPermissionsUpsertParams,
+  PccPermissionsUpsertResult,
+  PccEvidenceAddParams,
+  PccEvidenceAddResult,
+  PccReceiptsAddParams,
+  PccReceiptsAddResult,
+  PccLastKnownGoodUpsertParams,
+  PccLastKnownGoodUpsertResult,
+  PccSummaryGetParams,
+  PccSummaryGetResult,
   CronJob,
   CronListParams,
   CronStatusParams,

@@ -42,6 +42,10 @@ on:
         description: Run Chat UX Cleanup V1 proof
         required: false
         default: "false"
+      pcc-foundation-proof:
+        description: Run Project Command Center Foundation V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -241,7 +245,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -816,3 +820,59 @@ jobs:
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed
 
+
+  pcc-foundation-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.pcc-foundation-proof == 'true'
+    name: Project Command Center Foundation V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test packages/gateway-protocol/src/index.test.ts packages/gateway-protocol/src/schema/pcc.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-methods-list.test.ts
+          - pnpm tsgo:all
+          - pnpm build
+          - pnpm check:changed -- packages/gateway-protocol/src/index.ts packages/gateway-protocol/src/schema.ts packages/gateway-protocol/src/schema/protocol-schemas.ts packages/gateway-protocol/src/schema/types.ts packages/gateway-protocol/src/schema/pcc.ts packages/gateway-protocol/src/schema/pcc.test.ts src/gateway/methods/core-descriptors.ts src/gateway/server-methods-list.test.ts src/gateway/server-methods.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts .github/workflows/workflow-sanity.yml
+          EOF_COMMANDS
+
+      - name: Run targeted PCC tests
+        run: pnpm test packages/gateway-protocol/src/index.test.ts packages/gateway-protocol/src/schema/pcc.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-methods-list.test.ts
+
+      - name: Run TypeScript proof
+        run: pnpm tsgo:all
+
+      - name: Run build proof
+        run: pnpm build
+
+      - name: Run scoped changed gate
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed -- packages/gateway-protocol/src/index.ts packages/gateway-protocol/src/schema.ts packages/gateway-protocol/src/schema/protocol-schemas.ts packages/gateway-protocol/src/schema/types.ts packages/gateway-protocol/src/schema/pcc.ts packages/gateway-protocol/src/schema/pcc.test.ts src/gateway/methods/core-descriptors.ts src/gateway/server-methods-list.test.ts src/gateway/server-methods.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts .github/workflows/workflow-sanity.yml
