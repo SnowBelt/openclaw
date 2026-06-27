@@ -54,6 +54,7 @@ export type PccDashboardProps = {
   onCancelEditor: () => void;
   onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
   onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus) => void;
+  onSetMilestoneStopHere: (milestone: PccMilestone, stopHere: boolean) => void;
   onAddCompletionReceipt: (milestone: PccMilestone) => void;
   onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
@@ -506,6 +507,136 @@ function itemProofLabel(item: PccMilestone | PccSubMilestone): string {
   return metadataString(metadataObject(item.metadata).proofRequired, "Proof not recorded");
 }
 
+function milestoneStopsHere(milestone: PccMilestone): boolean {
+  return metadataObject(milestone.metadata).pccStopHere === true;
+}
+
+function renderTodayItem(label: string, title: string, detail: string, action?: () => void) {
+  return html`<li class="pcc-today__item">
+    <button class="pcc-today__button" type="button" ?disabled=${!action} @click=${() => action?.()}>
+      <span>${label}</span>
+      <strong>${title}</strong>
+      <em>${detail}</em>
+    </button>
+  </li>`;
+}
+
+function renderTodayView(props: PccDashboardProps) {
+  const working = props.projects
+    .filter((project) => ["in_progress", "active"].includes(project.status))
+    .slice(0, 5);
+  const needsYou = props.projects
+    .filter(
+      (project) => project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0,
+    )
+    .slice(0, 5);
+  const blocked = props.projects
+    .filter((project) => project.status === "blocked" || project.milestoneCounts.blocked > 0)
+    .slice(0, 5);
+  const readyNext = props.projects
+    .filter((project) => project.nextActions.length > 0 && project.status !== "blocked")
+    .slice(0, 5);
+  const completed = props.projects
+    .filter((project) => ["complete", "complete_with_maintenance"].includes(project.status))
+    .slice(0, 5);
+  const renderProjectItems = (items: PccProjectSummary[], empty: string, label: string) =>
+    items.length
+      ? html`<ul>
+          ${items.map((project) =>
+            renderTodayItem(
+              label,
+              project.title,
+              project.nextActions[0] ?? formatStatus(project.status),
+              () => props.onSelectProject(project.id),
+            ),
+          )}
+        </ul>`
+      : html`<p>${empty}</p>`;
+  return html`<section class="pcc-today" data-pcc-today aria-label="Today">
+    <div class="pcc-section-heading">
+      <div>
+        <h3>Today</h3>
+        <p>What is working, waiting, blocked, and ready next.</p>
+      </div>
+      <span>${formatUpdatedAt(props.updatedAt)}</span>
+    </div>
+    <div class="pcc-today__grid">
+      <article>
+        <strong>Working now</strong>
+        ${renderProjectItems(working, "No active project work right now.", "Working")}
+      </article>
+      <article>
+        <strong>Needs you</strong>
+        ${renderProjectItems(needsYou, "No projects need you right now.", "Needs you")}
+      </article>
+      <article>
+        <strong>Blocked</strong>
+        ${renderProjectItems(blocked, "No blocked work.", "Blocked")}
+      </article>
+      <article>
+        <strong>Ready next</strong>
+        ${renderProjectItems(readyNext, "No ready local-safe work.", "Ready")}
+      </article>
+      <article>
+        <strong>Recently completed</strong>
+        ${renderProjectItems(completed, "No recently completed projects.", "Done")}
+      </article>
+    </div>
+  </section>`;
+}
+
+function renderNextSafeActionCard(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  if (!detail) {
+    return nothing;
+  }
+  const next = getPccWorkLoopNext({
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions,
+    receipts: detail.receipts,
+  });
+  const item = next.subMilestone ?? next.milestone;
+  const title = item?.title ?? "No safe action ready";
+  const reason = next.blocker
+    ? next.blocker.message
+    : next.subMilestone
+      ? "This sub-milestone is ready, local-safe, and next in order."
+      : next.milestone
+        ? "This milestone is ready and next in order."
+        : "No eligible work remains.";
+  return html`<section
+    class="pcc-next-action"
+    data-pcc-next-safe-action
+    aria-label="Next safe action"
+  >
+    <div>
+      <p class="pcc-kicker">Next Safe Action</p>
+      <h4>${title}</h4>
+      <p>${reason}</p>
+    </div>
+    <dl>
+      <div>
+        <dt>Owner</dt>
+        <dd>${item ? itemWorkerLabel(item) : "None"}</dd>
+      </div>
+      <div>
+        <dt>Proof required</dt>
+        <dd>${item ? itemProofLabel(item) : "None"}</dd>
+      </div>
+    </dl>
+    <button
+      class="btn"
+      type="button"
+      ?disabled=${Boolean(next.blocker) || props.actionBusy}
+      @click=${props.onPrepareNextWorkItem}
+    >
+      Start next safe action
+    </button>
+  </section>`;
+}
+
 function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
   const detail = props.projectDetail;
   if (!detail) {
@@ -526,6 +657,8 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
     (next.subMilestone || next.milestone
       ? itemProofLabel(next.subMilestone ?? next.milestone!)
       : "No proof gap recorded");
+  const stopPoint =
+    detail.milestones.find((milestone) => milestoneStopsHere(milestone))?.title ?? "None";
   const readyItems: Array<PccMilestone | PccSubMilestone> = detail.milestones
     .flatMap((milestone): Array<PccMilestone | PccSubMilestone> => {
       const subItems = subMilestonesForMilestone(detail, milestone).filter(
@@ -584,6 +717,10 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
       <div>
         <dt>Proof missing</dt>
         <dd>${proofMissing}</dd>
+      </div>
+      <div>
+        <dt>Stop point</dt>
+        <dd>${stopPoint}</dd>
       </div>
     </dl>
     <div class="pcc-ready-queue" data-pcc-ready-queue>
@@ -684,6 +821,17 @@ function renderWorkLoopCard(props: PccDashboardProps) {
               })}
           />
           Stop after current milestone
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${settings.continueAroundBlockers}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                continueAroundBlockers: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Continue around blockers
         </label>
         <label>
           <input
@@ -873,24 +1021,34 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
-      ${renderCurrentTruthAndReadyQueue(props)} ${renderWorkLoopCard(props)}
-      ${renderPhaseOverview(detail)} ${renderContextPackageCard(detail)}
-      ${renderChatSyncCard(props)}
-      <section class="pcc-permissions" aria-label="Project permissions">
-        <div class="pcc-section-heading">
-          <h4>Permissions</h4>
-          <span>${permissions.length} requested</span>
-        </div>
-        ${renderPermissionList(
-          permissions.filter((permission) => !permission.milestoneId),
-          props,
-        )}
-      </section>
-      <section class="pcc-milestones" aria-label="Project milestones">
-        ${detail.milestones.length === 0
-          ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
-          : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
-      </section>
+      ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+      ${renderWorkLoopCard(props)}
+      <details class="pcc-detail-drawer" open>
+        <summary>Milestones</summary>
+        ${renderPhaseOverview(detail)}
+        <section class="pcc-milestones" aria-label="Project milestones">
+          ${detail.milestones.length === 0
+            ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
+            : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
+        </section>
+      </details>
+      <details class="pcc-detail-drawer">
+        <summary>Permissions</summary>
+        <section class="pcc-permissions" aria-label="Project permissions">
+          <div class="pcc-section-heading">
+            <h4>Permissions</h4>
+            <span>${permissions.length} requested</span>
+          </div>
+          ${renderPermissionList(
+            permissions.filter((permission) => !permission.milestoneId),
+            props,
+          )}
+        </section>
+      </details>
+      <details class="pcc-detail-drawer">
+        <summary>Handoff and chat sync</summary>
+        ${renderContextPackageCard(detail)} ${renderChatSyncCard(props)}
+      </details>
     </aside>
   `;
 }
@@ -1035,6 +1193,7 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
   const responsibility = metadataString(metadata.pccResponsibility, "local_openclaw_agent");
   const costRisk = metadataString(metadata.pccCostRisk, "low");
   const canComplete = receiptsForMilestone(props.projectDetail, milestone).length > 0;
+  const stopHere = milestoneStopsHere(milestone);
   return html`
     <article class="pcc-milestone" data-pcc-milestone>
       <div class="pcc-milestone__main">
@@ -1055,6 +1214,7 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         >
         <span>Worker ${responsibilityLabel(responsibility)}</span>
         <span>Risk ${formatStatus(costRisk)}</span>
+        ${stopHere ? html`<span>Stop here</span>` : nothing}
       </div>
       <details class="pcc-submilestone-panel">
         <summary>Sub-milestones</summary>
@@ -1070,6 +1230,16 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
           </section>`
         : nothing}
       <div class="pcc-milestone__actions">
+        <label class="pcc-stop-here" data-pcc-stop-here>
+          <input
+            type="checkbox"
+            .checked=${stopHere}
+            ?disabled=${props.actionBusy}
+            @change=${(event: Event) =>
+              props.onSetMilestoneStopHere(milestone, (event.target as HTMLInputElement).checked)}
+          />
+          Stop here
+        </label>
         <button
           class="btn btn--subtle"
           type="button"
@@ -1254,6 +1424,15 @@ function renderMilestoneEditor(props: PccDashboardProps) {
             ${renderStringOptions(COST_RISK_OPTIONS, form.costRisk)}
           </select></label
         >
+        <label class="pcc-editor__check">
+          <input
+            type="checkbox"
+            .checked=${form.stopHere}
+            @change=${(event: Event) =>
+              props.onMilestoneFormChange({ stopHere: (event.target as HTMLInputElement).checked })}
+          />
+          Stop here after this milestone
+        </label>
         <label
           >Percent<input
             type="number"
@@ -1344,6 +1523,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
+      ${renderTodayView(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}

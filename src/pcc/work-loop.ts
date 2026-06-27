@@ -37,6 +37,7 @@ export type PccWorkLoopSettings = {
   stopBeforeCodex: boolean;
   stopBeforeRemoteProof: boolean;
   stopAfterCurrentMilestone: boolean;
+  continueAroundBlockers: boolean;
   parallelWorkMode: PccParallelWorkMode;
   lanes: PccWorkLoopLaneSettings;
   activeMilestoneId?: string;
@@ -98,6 +99,7 @@ const DEFAULT_SETTINGS: PccWorkLoopSettings = {
   stopBeforeCodex: true,
   stopBeforeRemoteProof: true,
   stopAfterCurrentMilestone: false,
+  continueAroundBlockers: true,
   parallelWorkMode: "off",
   lanes: DEFAULT_LANES,
 };
@@ -113,6 +115,15 @@ const CODEX_PERMISSION_TYPES = new Set<PccPermissionType>(["codex_usage", "high_
 const REMOTE_PERMISSION_TYPES = new Set<PccPermissionType>(["remote_proof", "external_write"]);
 const CODEX_RESPONSIBILITIES = new Set(["codex", "high_reasoning_codex"]);
 const REMOTE_RESPONSIBILITIES = new Set(["remote_proof"]);
+const HARD_STOP_BLOCKERS = new Set<PccWorkLoopBlockerKind>([
+  "paused",
+  "stop_after_current",
+  "project_complete",
+  "missing_permission",
+  "codex_required",
+  "remote_proof_required",
+  "proof_failed",
+]);
 const WORK_LOOP_STATES: readonly PccWorkLoopState[] = [
   "idle",
   "working",
@@ -174,6 +185,10 @@ export function getPccWorkLoopSettings(project: PccProject): PccWorkLoopSettings
       raw.stopAfterCurrentMilestone,
       DEFAULT_SETTINGS.stopAfterCurrentMilestone,
     ),
+    continueAroundBlockers: booleanSetting(
+      raw.continueAroundBlockers,
+      DEFAULT_SETTINGS.continueAroundBlockers,
+    ),
     parallelWorkMode: stringSetting(
       raw.parallelWorkMode,
       PARALLEL_WORK_MODES,
@@ -206,13 +221,27 @@ export function withPccWorkLoopSettings(
   };
 }
 
+function orderedMilestones(input: PccWorkLoopProject): PccMilestone[] {
+  return input.milestones
+    .filter((milestone) => milestone.projectId === input.project.id)
+    .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.updatedAt.localeCompare(b.updatedAt));
+}
+
+export function milestoneStopsHere(milestone: PccMilestone): boolean {
+  return metadataObject(milestone.metadata).pccStopHere === true;
+}
+
+function reachedStopHereMilestone(input: PccWorkLoopProject): PccMilestone | null {
+  return (
+    orderedMilestones(input).find(
+      (milestone) => milestoneStopsHere(milestone) && TERMINAL_STATUSES.has(milestone.status),
+    ) ?? null
+  );
+}
+
 export function selectNextEligibleMilestone(input: PccWorkLoopProject): PccMilestone | null {
   return (
-    input.milestones
-      .filter((milestone) => milestone.projectId === input.project.id)
-      .filter((milestone) => !TERMINAL_STATUSES.has(milestone.status))
-      .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.updatedAt.localeCompare(b.updatedAt))
-      .at(0) ?? null
+    orderedMilestones(input).find((milestone) => !TERMINAL_STATUSES.has(milestone.status)) ?? null
   );
 }
 
@@ -446,30 +475,83 @@ export function buildMilestoneTaskPrompt(
   ].join("\n");
 }
 
+function stateForBlocker(blocker: PccWorkLoopBlocker): PccWorkLoopState {
+  return blocker.kind === "missing_permission"
+    ? "waiting_for_permission"
+    : blocker.kind === "codex_required"
+      ? "waiting_for_codex"
+      : blocker.kind === "remote_proof_required"
+        ? "waiting_for_remote_proof"
+        : blocker.kind === "proof_failed"
+          ? "proof_failed"
+          : blocker.kind === "project_complete"
+            ? "complete"
+            : "blocked";
+}
+
+function blockedNext(
+  milestone: PccMilestone | null,
+  subMilestone: PccSubMilestone | null,
+  blocker: PccWorkLoopBlocker,
+): PccWorkLoopNext {
+  return { milestone, subMilestone, blocker, taskPrompt: null, state: stateForBlocker(blocker) };
+}
+
 export function getPccWorkLoopNext(input: PccWorkLoopProject): PccWorkLoopNext {
-  const milestone = selectNextEligibleMilestone(input);
-  const subMilestone = selectNextEligibleSubMilestone(input, milestone);
-  const blocker = classifyMilestoneBlocker(input, milestone, subMilestone);
-  if (blocker) {
-    const state: PccWorkLoopState =
-      blocker.kind === "missing_permission"
-        ? "waiting_for_permission"
-        : blocker.kind === "codex_required"
-          ? "waiting_for_codex"
-          : blocker.kind === "remote_proof_required"
-            ? "waiting_for_remote_proof"
-            : blocker.kind === "proof_failed"
-              ? "proof_failed"
-              : blocker.kind === "project_complete"
-                ? "complete"
-                : "blocked";
-    return { milestone, subMilestone, blocker, taskPrompt: null, state };
+  const reachedStop = reachedStopHereMilestone(input);
+  if (reachedStop) {
+    return blockedNext(reachedStop, null, {
+      kind: "stop_after_current",
+      milestoneId: reachedStop.id,
+      message: `Stop Here was reached after ${reachedStop.title}.`,
+    });
   }
-  return {
-    milestone,
-    subMilestone,
-    blocker: null,
-    taskPrompt: milestone ? buildMilestoneTaskPrompt(input, milestone, subMilestone) : null,
-    state: milestone ? "working" : "complete",
-  };
+
+  const settings = getPccWorkLoopSettings(input.project);
+  const candidates = orderedMilestones(input).filter(
+    (milestone) => !TERMINAL_STATUSES.has(milestone.status),
+  );
+  if (!settings.continueAroundBlockers) {
+    const milestone = candidates.at(0) ?? null;
+    const subMilestone = selectNextEligibleSubMilestone(input, milestone);
+    const blocker = classifyMilestoneBlocker(input, milestone, subMilestone);
+    if (blocker) {
+      return blockedNext(milestone, subMilestone, blocker);
+    }
+    return {
+      milestone,
+      subMilestone,
+      blocker: null,
+      taskPrompt: milestone ? buildMilestoneTaskPrompt(input, milestone, subMilestone) : null,
+      state: milestone ? "working" : "complete",
+    };
+  }
+
+  let firstSoftBlocker: PccWorkLoopNext | null = null;
+  for (const milestone of candidates) {
+    const subMilestone = selectNextEligibleSubMilestone(input, milestone);
+    const blocker = classifyMilestoneBlocker(input, milestone, subMilestone);
+    if (!blocker) {
+      return {
+        milestone,
+        subMilestone,
+        blocker: null,
+        taskPrompt: buildMilestoneTaskPrompt(input, milestone, subMilestone),
+        state: "working",
+      };
+    }
+    const blocked = blockedNext(milestone, subMilestone, blocker);
+    if (HARD_STOP_BLOCKERS.has(blocker.kind)) {
+      return blocked;
+    }
+    firstSoftBlocker ??= blocked;
+  }
+
+  if (firstSoftBlocker) {
+    return firstSoftBlocker;
+  }
+  return blockedNext(null, null, {
+    kind: "project_complete",
+    message: "No eligible milestones remain.",
+  });
 }

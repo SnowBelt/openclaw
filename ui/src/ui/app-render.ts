@@ -147,6 +147,7 @@ import {
   savePccProject,
   selectPccProject,
   setPccMilestoneStatus,
+  setPccMilestoneStopHere,
   setPccPermissionStatus,
   setPccProjectStatus,
   updatePccWorkLoopSettings,
@@ -2824,6 +2825,8 @@ export function renderApp(state: AppViewState) {
                   void setPccProjectStatus(state, project, status),
                 onSetMilestoneStatus: (milestone, status) =>
                   void setPccMilestoneStatus(state, milestone, status),
+                onSetMilestoneStopHere: (milestone, stopHere) =>
+                  void setPccMilestoneStopHere(state, milestone, stopHere),
                 onAddCompletionReceipt: (milestone) =>
                   void addPccCompletionReceipt(state, milestone),
                 onSetPermissionStatus: (permission, status) =>

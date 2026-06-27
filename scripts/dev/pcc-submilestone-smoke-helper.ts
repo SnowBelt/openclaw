@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { JSDOM } from "jsdom";
 import { buildSnesGameCreatorSubMilestones } from "../../src/pcc/snes-game-creator-submilestones.ts";
 
-export type PccSubMilestoneSmokeMode = "submilestones" | "snes" | "ready-queue" | "work-lanes";
+export type PccSubMilestoneSmokeMode =
+  | "submilestones"
+  | "snes"
+  | "ready-queue"
+  | "work-lanes"
+  | "skimmability"
+  | "stop-here"
+  | "today-view";
 
 function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -46,6 +53,7 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
           stopBeforeCodex: true,
           stopBeforeRemoteProof: true,
           stopAfterCurrentMilestone: false,
+          continueAroundBlockers: true,
           parallelWorkMode: "local_agents_only",
           lanes: {
             user: true,
@@ -76,6 +84,7 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       status: index === 1 ? ("needs_approval" as const) : ("not_started" as const),
       order: index + 1,
       implementationPlan: `Complete the ${title} checklist in order.`,
+      metadata: index === 5 ? { pccStopHere: true } : {},
       acceptanceCriteria: [
         "All non-skipped sub-milestones are complete",
         "Required proof receipt exists",
@@ -148,6 +157,7 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
           acceptanceCriteria: "",
           responsibility: "local_openclaw_agent",
           costRisk: "low",
+          stopHere: false,
         },
         chatSyncText: "",
         chatSyncProposals: [],
@@ -163,6 +173,7 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
         onCancelEditor: () => undefined,
         onSetProjectStatus: () => undefined,
         onSetMilestoneStatus: () => undefined,
+        onSetMilestoneStopHere: () => undefined,
         onAddCompletionReceipt: () => undefined,
         onSetPermissionStatus: () => undefined,
         onUpdateWorkLoop: () => undefined,
@@ -194,12 +205,29 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
         text.includes("Parallel Work") &&
         text.includes("Local OpenClaw Agent") &&
         text.includes("Codex"),
+      today:
+        root.querySelectorAll("[data-pcc-today]").length === 1 &&
+        text.includes("Working now") &&
+        text.includes("Needs you") &&
+        text.includes("Ready next"),
+      nextSafeAction:
+        root.querySelectorAll("[data-pcc-next-safe-action]").length === 1 &&
+        text.includes("Next Safe Action") &&
+        text.includes("Start next safe action"),
+      stopHere:
+        root.querySelectorAll("[data-pcc-stop-here]").length > 0 &&
+        text.includes("Stop point") &&
+        text.includes("Continue around blockers"),
+      detailDrawers: root.querySelectorAll(".pcc-detail-drawer").length >= 3,
     };
     const modeChecks = {
       submilestones: checks.subMilestones && checks.currentTruth,
       snes: checks.snesProject && checks.snesSteps,
       "ready-queue": checks.readyQueue && text.includes("Ready Now") && text.includes("Blocked"),
       "work-lanes": checks.workLanes && checks.safeLanes,
+      skimmability: checks.today && checks.nextSafeAction && checks.detailDrawers,
+      "stop-here": checks.stopHere,
+      "today-view": checks.today && checks.readyQueue,
     } satisfies Record<PccSubMilestoneSmokeMode, boolean>;
     const summaryOut = {
       artifactDir,

@@ -202,10 +202,53 @@ describe("PCC guided work loop", () => {
     expect(next.blocker?.subMilestoneId).toBe("submilestone-1");
   });
 
+  it("routes around soft blockers when continue around blockers is enabled", () => {
+    const blocked = milestone({ id: "blocked", title: "Blocked", status: "blocked", order: 1 });
+    const ready = milestone({ id: "ready", title: "Ready", order: 2 });
+
+    const next = getPccWorkLoopNext({ project, milestones: [blocked, ready] });
+
+    expect(next.state).toBe("working");
+    expect(next.milestone?.id).toBe("ready");
+  });
+
+  it("stops on soft blockers when continue around blockers is disabled", () => {
+    const configured = withPccWorkLoopSettings(
+      project,
+      { continueAroundBlockers: false },
+      "2026-06-26T01:00:00Z",
+    );
+    const blocked = milestone({ id: "blocked", title: "Blocked", status: "blocked", order: 1 });
+    const ready = milestone({ id: "ready", title: "Ready", order: 2 });
+
+    const next = getPccWorkLoopNext({ project: configured, milestones: [blocked, ready] });
+
+    expect(next.state).toBe("blocked");
+    expect(next.milestone?.id).toBe("blocked");
+  });
+
+  it("stops after a Stop Here milestone is complete", () => {
+    const stop = milestone({
+      id: "stop",
+      title: "Human review gate",
+      status: "complete",
+      receiptIds: ["receipt-1"],
+      order: 1,
+      metadata: { pccStopHere: true },
+    });
+    const later = milestone({ id: "later", title: "Later", order: 2 });
+
+    const next = getPccWorkLoopNext({ project, milestones: [stop, later] });
+
+    expect(next.state).toBe("blocked");
+    expect(next.blocker?.kind).toBe("stop_after_current");
+    expect(next.blocker?.message).toContain("Stop Here was reached");
+  });
+
   it("persists work-loop settings in project metadata", () => {
     const updated = withPccWorkLoopSettings(
       project,
-      { enabled: true, state: "working", stopBeforeCodex: true },
+      { enabled: true, state: "working", stopBeforeCodex: true, continueAroundBlockers: false },
       "2026-06-26T01:00:00Z",
     );
 
@@ -213,6 +256,7 @@ describe("PCC guided work loop", () => {
       enabled: true,
       state: "working",
       stopBeforeCodex: true,
+      continueAroundBlockers: false,
     });
   });
 });

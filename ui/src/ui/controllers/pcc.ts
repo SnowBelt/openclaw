@@ -58,6 +58,7 @@ export type PccMilestoneFormState = {
   acceptanceCriteria: string;
   responsibility: string;
   costRisk: string;
+  stopHere: boolean;
 };
 
 export type PccDashboardState = {
@@ -145,6 +146,7 @@ export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
   acceptanceCriteria: "",
   responsibility: "local_openclaw_agent",
   costRisk: "low",
+  stopHere: false,
 };
 
 function refreshPccChatSyncProposals(state: PccDashboardState): void {
@@ -193,6 +195,10 @@ function metadataObject(value: unknown): Record<string, unknown> {
 
 function metadataString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function metadataBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function parseAcceptanceCriteria(value: string): string[] | undefined {
@@ -258,6 +264,7 @@ function milestoneFormFromMilestone(milestone: PccMilestone): PccMilestoneFormSt
       "local_openclaw_agent",
     ),
     costRisk: metadataString(metadataObject(milestone.metadata).pccCostRisk, "low"),
+    stopHere: metadataBoolean(metadataObject(milestone.metadata).pccStopHere, false),
   };
 }
 
@@ -464,6 +471,7 @@ export async function savePccMilestone(state: PccDashboardState): Promise<void> 
           ),
           pccResponsibility: form.responsibility,
           pccCostRisk: form.costRisk,
+          pccStopHere: form.stopHere,
         },
       },
     });
@@ -517,6 +525,29 @@ export async function addPccCompletionReceipt(
     });
     await loadPccDashboard(state);
     await selectPccProject(state, result.receipt.projectId);
+  });
+}
+
+export async function setPccMilestoneStopHere(
+  state: PccDashboardState,
+  milestone: PccMilestone,
+  stopHere: boolean,
+): Promise<void> {
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    await state.client.request("pcc.milestones.upsert", {
+      milestone: {
+        ...milestone,
+        metadata: {
+          ...metadataObject(milestone.metadata),
+          pccStopHere: stopHere,
+        },
+      },
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, milestone.projectId);
   });
 }
 

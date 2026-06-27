@@ -152,6 +152,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     onCancelEditor: () => undefined,
     onSetProjectStatus: () => undefined,
     onSetMilestoneStatus: () => undefined,
+    onSetMilestoneStopHere: () => undefined,
     onAddCompletionReceipt: () => undefined,
     onSetPermissionStatus: () => undefined,
     onUpdateWorkLoop: () => undefined,
@@ -192,6 +193,11 @@ describe("renderPccDashboard", () => {
     expect(container.querySelectorAll("[data-pcc-permission]")).toHaveLength(1);
     expect(text).toContain("Permission needed");
     expect(text).toContain("Remote Proof");
+    expect(text).toContain("Today");
+    expect(text).toContain("Needs you");
+    expect(text).toContain("Next Safe Action");
+    expect(container.querySelector("[data-pcc-today]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-next-safe-action]")).not.toBeNull();
   });
 
   it("renders an empty state", () => {
@@ -244,6 +250,58 @@ describe("renderPccDashboard", () => {
     );
     edit?.click();
     expect(onOpenProjectEditor).toHaveBeenCalledWith(project);
+  });
+
+  it("renders Stop Here controls and calls the milestone stop callback", () => {
+    const onSetMilestoneStopHere = vi.fn();
+    const container = renderView(
+      createProps({
+        onSetMilestoneStopHere,
+        projectDetail: {
+          project,
+          milestones: [{ ...milestone, metadata: { pccStopHere: true } }],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.textContent).toContain("Stop point");
+    expect(container.textContent).toContain("Stop here");
+    const stop = container.querySelector<HTMLInputElement>("[data-pcc-stop-here] input");
+    expect(stop?.checked).toBe(true);
+    if (!stop) {
+      throw new Error("missing stop here checkbox");
+    }
+    stop.checked = false;
+    stop.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onSetMilestoneStopHere).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "milestone-1" }),
+      false,
+    );
+  });
+
+  it("renders sub-milestone-first next safe action", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.textContent).toContain("Next Safe Action");
+    expect(container.textContent).toContain("Run local proof");
+    expect(container.textContent).toContain("This sub-milestone is ready");
   });
 
   it("renders phase templates and weighted phase progress", () => {

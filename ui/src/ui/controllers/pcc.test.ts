@@ -578,6 +578,7 @@ describe("PCC CRUD controller", () => {
         acceptanceCriteria: "Local proof passes",
         responsibility: "codex",
         costRisk: "high",
+        stopHere: false,
       },
     });
 
