@@ -911,3 +911,17 @@ The default artifact policy is local-first: keep bulky `.artifacts/**` proof out
 For a new game, use **Create Blank SNES Project** to create a clean generic `openclaw-snes-project-package`. Project creation is only a package-creation receipt. The project still must pass ROM build, SuperFamicheck, budget, runtime asset truth, emulator screenshot, FXPAK dry-run, and any game-specific human approval gates before production claims are allowed.
 
 Stanski's World remains a separate canary project with its own blockers. Generic SNES mastery can be 100% while Stanski production remains blocked by visual grade, missing human 100/100 approval, missing source-photo preservation, missing FXPAK copy proof, and missing original SNES hardware proof.
+
+## Project Command Center v2
+
+SNES Studio PCC includes deterministic overnight runner scaffolding, approval queues, run control, run summaries, and worker-packet export. It keeps long-running work moving until it reaches completion, a validation failure, a retry blocker, pause/cancel, time limit, or an approval gate.
+
+See [workflow](/reference/snes-studio-workflow), [agent routing](/reference/snes-studio-agent-routing), and [proof gates](/reference/snes-studio-proof-gates).
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.
+
+## PCC local model execution
+
+SNES Studio PCC supports local-only worker execution through installed Ollama/OpenClaw models. Browser, hardware, FXPAK, and human visual proof remain separate gates; local worker execution alone does not make a game production complete.

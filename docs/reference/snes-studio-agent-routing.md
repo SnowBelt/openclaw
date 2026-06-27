@@ -39,3 +39,15 @@ Run these sequentially:
 - final release approval.
 
 Max default parallelism is four workers. A worker must not judge its own milestone.
+
+## PCC v2 worker packets
+
+Use `pnpm snes:team -- --mode worker-packet --project <id> --milestone <id> --json` to export a bounded task packet. The packet lists owner role, allowed write surfaces, proof requirements, pass/fail criteria, forbidden actions, model policy, and the next validation command. Routine packets default to `gpt55Used: false` and `hostedGlmUsed: false`.
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.
+
+## PCC real local model execution
+
+PCC can now distinguish dry-run worker dispatch from real local-only Ollama dispatch. Dry runs keep `modelInvoked: false`; `--local-only --invoke-local-models` must call a local Ollama/OpenClaw model, validate strict JSON worker output, and record model, prompt SHA, response SHA, latency, and validation status. Hosted GPT/GLM remains approval-gated and is not used by routine PCC workers.

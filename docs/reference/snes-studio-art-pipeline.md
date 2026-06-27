@@ -37,3 +37,7 @@ Production assets must require runtime proof and human visual approval.
 7. Ask for human visual grade when production quality is required.
 
 Human grade overrides synthetic or model scoring.
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.

@@ -1,18 +1,37 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  applyWorkerOutput,
+  compactMemoryCards,
+  createReviewerReceipt,
   createRepairPlan,
+  dispatchWorker,
+  exportWorkerPacket,
   initPccProject,
   judgeMilestone,
+  listApprovals,
+  modelHealth,
+  parseAndValidateWorkerOutputText,
   pccNext,
   pccProjectDir,
   pccStatus,
   recordLastKnownGood,
+  guardWriteSurfaces,
+  pccDashboardSnapshot,
+  pccTelemetry,
+  requestApproval,
+  resolvePccConflicts,
+  runLivePcc,
+  runPccUntilBlocked,
+  runRegressionBenchmark,
   runSnesTeam,
+  setRunControl,
+  updateArtifactCache,
   validateAssetIntentContract,
+  validateWorkerOutput,
   validatePccProject,
 } from "../../scripts/lib/snes-team-orchestrator.mjs";
 
@@ -46,6 +65,58 @@ function readJson<T = unknown>(filePath: string): T {
 
 function writeJson(filePath: string, value: unknown) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function apiResponse(payload: unknown) {
+  return JSON.stringify({ response: JSON.stringify(payload) });
+}
+
+function dispatchIdFromCurlArgs(args: string[]) {
+  const payloadIndex = args.indexOf("-d");
+  const payload = payloadIndex >= 0 ? args[payloadIndex + 1] : args.join(" ");
+  const match = payload.match(/\\"dispatchId\\":\\"([^\\"]+)/);
+  return match?.[1] ?? "unknown";
+}
+
+function validWorkerOutput(project: string, milestoneId: string, dispatchId: string) {
+  return {
+    format: "openclaw-snes-pcc-worker-output-v1",
+    status: "pass",
+    project,
+    milestoneId,
+    dispatchId,
+    patchType: "receipt-only",
+    writes: [],
+    receipts: [
+      {
+        proofName: "blueprintReceipt",
+        path: `receipts/${milestoneId}-blueprintReceipt.json`,
+        content: {
+          status: "pass",
+          proofName: "blueprintReceipt",
+          hostedGlmUsed: false,
+          gpt55Used: false,
+        },
+      },
+      {
+        proofName: "legalBoundaryReceipt",
+        path: `receipts/${milestoneId}-legalBoundaryReceipt.json`,
+        content: {
+          status: "pass",
+          proofName: "legalBoundaryReceipt",
+          hostedGlmUsed: false,
+          gpt55Used: false,
+        },
+      },
+    ],
+    assumptions: ["clean-room local model output"],
+    risks: ["runtime proof remains separate"],
+    playtestHypothesis: "PCC judge should pass this receipt-only milestone.",
+    commercialMaterialUsed: false,
+    fxpakWritePerformed: false,
+    hostedGlmUsed: false,
+    gpt55Used: false,
+  };
 }
 
 function initDemo(project = "demo") {
@@ -97,9 +168,22 @@ describe("SNES PCC team orchestrator", () => {
       "decision-log.json",
       "memory-cards.json",
       "repair-queue.json",
+      "approval-queue.json",
+      "run-control.json",
+      "run-history.json",
       "model-usage.json",
       "build-history.json",
+      "latest-run-summary.md",
       "latest-summary.md",
+      "worker-dispatch-log.json",
+      "worker-sandboxes.json",
+      "patch-ledger.json",
+      "artifact-cache.json",
+      "reviewer-receipts.json",
+      "conflict-receipts.json",
+      "telemetry.json",
+      "dashboard-snapshot.json",
+      "regression-benchmarks.json",
     ]) {
       expect(fs.existsSync(path.join(pccDir, name))).toBe(true);
     }
@@ -277,6 +361,393 @@ describe("SNES PCC team orchestrator", () => {
     expect(buildHistory.lastKnownGood).toEqual(good);
   });
 
+  it("creates approval requests, suppresses duplicates, and rejects invalid approval types", () => {
+    const { root, project } = initDemo();
+    const approval = requestApproval({
+      project,
+      root,
+      milestoneId: "PCC-050-human-visual-approval",
+      approvalType: "human-production-visual-approval",
+      reason: "human visual gate",
+      risk: "subjective production approval",
+      requestedAction: "review screenshots",
+    });
+    expect(approval).toMatchObject({ status: "pass", ok: true, duplicateSuppressed: false });
+    expect(approval.approval.status).toBe("pending");
+
+    const duplicate = requestApproval({
+      project,
+      root,
+      milestoneId: "PCC-050-human-visual-approval",
+      approvalType: "human-production-visual-approval",
+    });
+    expect(duplicate).toMatchObject({ status: "pass", ok: true, duplicateSuppressed: true });
+
+    const approvals = listApprovals({ project, root });
+    expect(approvals.pendingApprovals).toHaveLength(1);
+
+    const invalid = requestApproval({
+      project,
+      root,
+      milestoneId: "PCC-001-blueprint",
+      approvalType: "bad-approval-type",
+    });
+    expect(invalid).toMatchObject({ status: "blocked", ok: false });
+    expect(invalid.blocker).toBe("invalid-approval-type:bad-approval-type");
+  });
+
+  it("exports bounded worker packets only for ready milestones", () => {
+    const { root, project } = initDemo();
+    const ready = exportWorkerPacket({ project, root, milestoneId: "PCC-001-blueprint" });
+    expect(ready).toMatchObject({ status: "pass", ok: true, milestoneId: "PCC-001-blueprint" });
+    expect(ready.forbiddenActions).toContain("hosted-glm-without-approval");
+    expect(ready.nextValidationCommand).toContain("--mode judge");
+
+    const blocked = exportWorkerPacket({ project, root, milestoneId: "PCC-010-level-plan" });
+    expect(blocked).toMatchObject({ status: "blocked", ok: false, blocker: "milestone-not-ready" });
+  });
+
+  it("pauses, resumes, and cancels PCC runs", () => {
+    const { root, project } = initDemo();
+    expect(setRunControl({ project, root, action: "pause" })).toMatchObject({ status: "pass" });
+    expect(runPccUntilBlocked({ project, root, maxMilestones: 1, maxMinutes: 10 })).toMatchObject({
+      status: "blocked",
+      stopReason: "run-paused",
+    });
+
+    expect(setRunControl({ project, root, action: "resume" })).toMatchObject({ status: "pass" });
+    expect(setRunControl({ project, root, action: "cancel" })).toMatchObject({ status: "pass" });
+    expect(runPccUntilBlocked({ project, root, maxMilestones: 1, maxMinutes: 10 })).toMatchObject({
+      status: "blocked",
+      stopReason: "run-cancelled",
+    });
+  });
+
+  it("runs until repair, approval, or completion and writes run summaries", () => {
+    const { root, project, pccDir } = initDemo();
+    const first = runPccUntilBlocked({ project, root, maxMilestones: 1, maxMinutes: 10 });
+    expect(first.status).toBe("blocked");
+    expect(first.stopReason).toBe("repair-created");
+    expect(fs.existsSync(path.join(pccDir, "latest-run-summary.md"))).toBe(true);
+    const history = readJson<{ runs: Array<{ stopReason: string }> }>(
+      path.join(pccDir, "run-history.json"),
+    );
+    expect(history.runs.at(-1)?.stopReason).toBe("repair-created");
+
+    passMilestone(root, project, "PCC-001-blueprint");
+    passMilestone(root, project, "PCC-010-level-plan");
+    passMilestone(root, project, "PCC-011-gameplay-plan");
+    const approvalStop = runPccUntilBlocked({ project, root, maxMilestones: 10, maxMinutes: 10 });
+    expect(approvalStop.status).toBe("blocked");
+    expect(approvalStop.stopReason).toBe("approval-required");
+    expect(approvalStop.approvalsRequested).toHaveLength(1);
+
+    const complete = initDemo("complete-demo");
+    for (const id of [
+      "PCC-001-blueprint",
+      "PCC-010-level-plan",
+      "PCC-011-gameplay-plan",
+      "PCC-012-asset-intents",
+      "PCC-013-audio-plan",
+      "PCC-014-hardware-plan",
+      "PCC-020-integration",
+      "PCC-030-rom-build-proof",
+      "PCC-040-runtime-proof",
+      "PCC-050-human-visual-approval",
+      "PCC-060-package-readiness",
+    ]) {
+      passMilestone(complete.root, complete.project, id);
+    }
+    const done = runPccUntilBlocked({
+      project: complete.project,
+      root: complete.root,
+      maxMilestones: 10,
+      maxMinutes: 10,
+    });
+    expect(done).toMatchObject({
+      status: "pass",
+      stopReason: "all-milestones-complete-or-none-ready",
+    });
+  });
+
+  it("dispatches workers with sandbox contracts and guards write surfaces", () => {
+    const { root, project } = initDemo();
+    const dry = dispatchWorker({ project, root, milestoneId: "PCC-001-blueprint", dryRun: true });
+    expect(dry).toMatchObject({ status: "pass", ok: true });
+    expect(dry.dispatch.modelInvoked).toBe(false);
+    expect(dry.sandbox.allowedWriteSurfaces).toContain("blueprint");
+
+    const guardPass = guardWriteSurfaces({
+      beforeFiles: ["docs/reference/snes-studio-workflow.md"],
+      afterFiles: ["docs/reference/snes-studio-workflow.md", "blueprint/receipt.json"],
+      allowedWriteSurfaces: ["blueprint"],
+    });
+    expect(guardPass.status).toBe("pass");
+
+    const guardBlocked = guardWriteSurfaces({
+      beforeFiles: [],
+      afterFiles: ["music-creator-v1/state/private-key.pem"],
+      allowedWriteSurfaces: ["blueprint"],
+    });
+    expect(guardBlocked.status).toBe("blocked");
+    expect(guardBlocked.secretChanges).toHaveLength(1);
+  });
+
+  it("runs local worker adapter, applies schema-valid output, and records telemetry", () => {
+    const { root, project, pccDir } = initDemo();
+    const dispatch = dispatchWorker({
+      project,
+      root,
+      milestoneId: "PCC-001-blueprint",
+      dryRun: false,
+      localOnly: true,
+    });
+    expect(dispatch.status).toBe("pass");
+    expect(dispatch.dispatch.workerOutputPath).toBeTruthy();
+
+    const applied = applyWorkerOutput({
+      project,
+      root,
+      workerOutputPath: dispatch.dispatch.workerOutputPath,
+    });
+    expect(applied.status).toBe("pass");
+    expect(applied.judge.failReasons).toEqual([]);
+    expect(
+      fs.existsSync(path.join(pccDir, "receipts/PCC-001-blueprint-blueprintReceipt.json")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(pccDir, "receipts/PCC-001-blueprint-legalBoundaryReceipt.json")),
+    ).toBe(true);
+
+    const telemetry = pccTelemetry({ project, root });
+    expect(telemetry.status).toBe("pass");
+    expect(telemetry.eventCount).toBeGreaterThan(0);
+  });
+
+  it("updates cache, reviewer receipts, conflicts, memory cards, dashboard, and benchmark", () => {
+    const { root, project } = initDemo();
+    expect(
+      updateArtifactCache({
+        project,
+        root,
+        cacheKey: "asset-check:hero",
+        inputSha: "input-sha",
+        outputPath: "artifacts/hero.json",
+      }),
+    ).toMatchObject({ status: "pass" });
+
+    expect(
+      createReviewerReceipt({
+        project,
+        root,
+        milestoneId: "PCC-001-blueprint",
+        reviewerRole: "domain-reviewer",
+      }),
+    ).toMatchObject({ status: "pass", ok: true });
+
+    expect(
+      resolvePccConflicts({ patches: [{ files: ["a.json"] }, { files: ["b.json"] }] }),
+    ).toMatchObject({ status: "pass" });
+    expect(
+      resolvePccConflicts({ patches: [{ files: ["a.json"] }, { files: ["a.json"] }] }),
+    ).toMatchObject({ status: "blocked" });
+
+    expect(compactMemoryCards({ project, root })).toMatchObject({ status: "pass" });
+    expect(pccDashboardSnapshot({ project, root })).toMatchObject({ status: "pass", ok: true });
+    expect(runRegressionBenchmark({ project, root })).toMatchObject({ status: "pass", ok: true });
+  });
+
+  it("runs live local PCC path through bounded worker dispatch", () => {
+    const { root, project } = initDemo();
+    const live = runLivePcc({
+      project,
+      root,
+      maxMilestones: 1,
+      maxMinutes: 10,
+      maxParallel: 4,
+      localOnly: true,
+    });
+    expect(live.format).toBe("openclaw-snes-pcc-live-run-v1");
+    expect(live.localOnly).toBe(true);
+    expect(live.hostedGlmUsed).toBe(false);
+    expect(live.dispatches[0].status).toBe("pass");
+    expect(live.applications[0].status).toBe("pass");
+    expect(live.completedMilestones).toEqual(["PCC-001-blueprint"]);
+  });
+
+  it("probes local model health with an injected Ollama runner", () => {
+    const { root, project } = initDemo();
+    const fakeSpawn = (command: string) => {
+      if (command === "ollama") {
+        return {
+          status: 0,
+          stdout:
+            "NAME ID SIZE MODIFIED\nopenclaw-control-qwen3-30b-q6-chatfix:latest abc 1GB now\n",
+          stderr: "",
+        } as ReturnType<typeof spawnSync>;
+      }
+      return {
+        status: 0,
+        stdout: apiResponse({ status: "pass", ok: true }),
+        stderr: "",
+      } as ReturnType<typeof spawnSync>;
+    };
+    const health = modelHealth({ project, root, spawn: fakeSpawn, timeoutSeconds: 1 });
+    expect(health.status).toBe("pass");
+    expect(health.downloadsAttempted).toBe(false);
+    expect(health.hostedGlmUsed).toBe(false);
+    expect(health.probes.some((probe) => probe.status === "pass")).toBe(true);
+  });
+
+  it("validates strict worker output and rejects unsafe variants", () => {
+    const valid = validWorkerOutput("demo", "PCC-001-blueprint", "dispatch-1");
+    expect(
+      validateWorkerOutput({
+        output: valid,
+        project: "demo",
+        milestoneId: "PCC-001-blueprint",
+        dispatchId: "dispatch-1",
+        allowedWriteSurfaces: ["blueprint"],
+        requiredProof: [{ name: "blueprintReceipt" }, { name: "legalBoundaryReceipt" }],
+      }),
+    ).toMatchObject({ status: "pass", ok: true });
+
+    expect(
+      parseAndValidateWorkerOutputText({
+        text: "not json",
+        project: "demo",
+        milestoneId: "PCC-001-blueprint",
+      }).errors,
+    ).toContain("invalid-json");
+
+    expect(
+      validateWorkerOutput({
+        output: { ...valid, hostedGlmUsed: true },
+        project: "demo",
+        milestoneId: "PCC-001-blueprint",
+        dispatchId: "dispatch-1",
+        allowedWriteSurfaces: ["blueprint"],
+        requiredProof: [{ name: "blueprintReceipt" }, { name: "legalBoundaryReceipt" }],
+      }).errors,
+    ).toContain("hosted-glm-rejected");
+
+    expect(
+      validateWorkerOutput({
+        output: { ...valid, writes: [{ path: "music-creator-v1/state/private-key.pem" }] },
+        project: "demo",
+        milestoneId: "PCC-001-blueprint",
+        dispatchId: "dispatch-1",
+        allowedWriteSurfaces: ["blueprint"],
+        requiredProof: [{ name: "blueprintReceipt" }, { name: "legalBoundaryReceipt" }],
+      }).errors,
+    ).toContain("secret-like-write:music-creator-v1/state/private-key.pem");
+  });
+
+  it("invokes a real-model path through an injected local Ollama runner", () => {
+    const { root, project, pccDir } = initDemo();
+    let capturedPayload = "";
+    const fakeSpawn = (command: string, args: string[]) => {
+      if (command === "curl") {
+        const dispatchId = dispatchIdFromCurlArgs(args);
+        capturedPayload = args.join(" ");
+        return {
+          status: 0,
+          stdout: apiResponse(validWorkerOutput(project, "PCC-001-blueprint", dispatchId)),
+          stderr: "",
+        } as ReturnType<typeof spawnSync>;
+      }
+      return { status: 1, stdout: "", stderr: "unexpected command" } as ReturnType<
+        typeof spawnSync
+      >;
+    };
+    const dispatch = dispatchWorker({
+      project,
+      root,
+      milestoneId: "PCC-001-blueprint",
+      dryRun: false,
+      localOnly: true,
+      invokeLocalModels: true,
+      spawn: fakeSpawn,
+      timeoutSeconds: 1,
+    });
+    expect(dispatch.status).toBe("pass");
+    expect(dispatch.dispatch.modelInvoked).toBe(true);
+    expect(capturedPayload).toContain("api/generate");
+
+    const applied = applyWorkerOutput({
+      project,
+      root,
+      workerOutputPath: dispatch.dispatch.workerOutputPath,
+    });
+    expect(applied.status).toBe("pass");
+    expect(applied.patch.modelInvoked).toBe(true);
+    expect(
+      fs.existsSync(path.join(pccDir, "receipts/PCC-001-blueprint-blueprintReceipt.json")),
+    ).toBe(true);
+  });
+
+  it("repairs malformed local model output before applying it", () => {
+    const { root, project } = initDemo();
+    let callCount = 0;
+    const fakeSpawn = (_command: string, args: string[]) => {
+      callCount += 1;
+      if (callCount === 1) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({ response: "not json" }),
+          stderr: "",
+        } as ReturnType<typeof spawnSync>;
+      }
+      return {
+        status: 0,
+        stdout: apiResponse(
+          validWorkerOutput(project, "PCC-001-blueprint", dispatchIdFromCurlArgs(args)),
+        ),
+        stderr: "",
+      } as ReturnType<typeof spawnSync>;
+    };
+    const dispatch = dispatchWorker({
+      project,
+      root,
+      milestoneId: "PCC-001-blueprint",
+      dryRun: false,
+      localOnly: true,
+      invokeLocalModels: true,
+      spawn: fakeSpawn,
+      timeoutSeconds: 1,
+    });
+    expect(dispatch.status).toBe("pass");
+    expect(dispatch.dispatch.modelInvocation.attempts).toHaveLength(2);
+    expect(dispatch.dispatch.modelInvocation.attempts[0].status).toBe("fail");
+  });
+
+  it("runs live PCC with real-model flag through injected local model output", () => {
+    const { root, project } = initDemo();
+    const fakeSpawn = (_command: string, args: string[]) =>
+      ({
+        status: 0,
+        stdout: apiResponse(
+          validWorkerOutput(project, "PCC-001-blueprint", dispatchIdFromCurlArgs(args)),
+        ),
+        stderr: "",
+      }) as ReturnType<typeof spawnSync>;
+    const live = runLivePcc({
+      project,
+      root,
+      maxMilestones: 1,
+      maxMinutes: 10,
+      maxParallel: 4,
+      localOnly: true,
+      invokeLocalModels: true,
+      spawn: fakeSpawn,
+      timeoutSeconds: 1,
+    });
+    expect(live.status).toBe("pass");
+    expect(live.invokeLocalModels).toBe(true);
+    expect(live.dispatches[0].dispatch.modelInvoked).toBe(true);
+    expect(live.completedMilestones).toEqual(["PCC-001-blueprint"]);
+  });
+
   it("validates production asset intent contracts", () => {
     expect(
       validateAssetIntentContract({
@@ -335,7 +806,15 @@ describe("SNES PCC team orchestrator", () => {
       ),
     );
     expect(init.status).toBe("pass");
-    for (const mode of ["status", "next", "validate"]) {
+    for (const mode of [
+      "status",
+      "next",
+      "validate",
+      "approvals",
+      "telemetry",
+      "dashboard-snapshot",
+      "regression-benchmark",
+    ]) {
       const report = JSON.parse(
         execFileSync(
           process.execPath,
@@ -347,6 +826,49 @@ describe("SNES PCC team orchestrator", () => {
       );
       expect(report.status).toBe("pass");
     }
+
+    const runProcess = spawnSync(
+      process.execPath,
+      [
+        script,
+        "--mode",
+        "run",
+        "--project",
+        project,
+        "--root",
+        root,
+        "--max-milestones",
+        "1",
+        "--max-minutes",
+        "10",
+        "--json",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(runProcess.status).toBe(1);
+    const run = JSON.parse(runProcess.stdout);
+    expect(run.status).toBe("blocked");
+
+    const dispatch = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          script,
+          "--mode",
+          "dispatch-worker",
+          "--project",
+          project,
+          "--milestone",
+          "PCC-001-blueprint",
+          "--root",
+          root,
+          "--dry-run",
+          "--json",
+        ],
+        { encoding: "utf8" },
+      ),
+    );
+    expect(dispatch.status).toBe("pass");
   });
 
   it("keeps SNES skill orchestration references discoverable", () => {

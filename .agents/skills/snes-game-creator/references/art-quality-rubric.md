@@ -18,3 +18,7 @@ Use a legal clean-room classic SNES polish rubric. Do not copy commercial ROMs, 
 Every production asset should state `assetId`, `kind`, `dimensions`, `frames`, `paletteLimit`, `mustShow`, `mustNotShow`, `animationBeats`, `runtimeProofRequired`, and `humanVisualTarget`.
 
 Human visual grade overrides model scoring.
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.

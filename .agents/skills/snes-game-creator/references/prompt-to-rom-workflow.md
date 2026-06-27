@@ -12,3 +12,7 @@
 10. Package/export runs only after required receipts pass.
 
 If a step fails, PCC creates a repair task and preserves the exact blocker.
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.

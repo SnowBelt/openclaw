@@ -109,7 +109,7 @@ For long-running SNES game creation, use the Project Command Center (PCC) as the
 - `references/art-quality-rubric.md` for legal classic-SNES visual quality criteria.
 - `references/prompt-to-rom-workflow.md` for the end-to-end prompt-to-ROM process.
 
-Use `pnpm snes:team -- --mode status --project <id> --json` to inspect PCC state, `--mode next` to pick the next safe milestone, and `--mode validate` before claiming completion. PCC v1 is deterministic scaffolding and does not automatically spend model calls.
+Use `pnpm snes:team -- --mode status --project <id> --json` to inspect PCC state, `--mode next` to pick the next safe milestone, and `--mode validate` before claiming completion. PCC v2 adds deterministic overnight runner scaffolding, approval queues, pause/resume/cancel, and worker-packet export. It still does not automatically spend hosted model calls or run live worker agents without approval.
 
 ## SNES Studio Heavy-Lifting Contract
 
@@ -166,3 +166,11 @@ When publishing a playable preview for another device, including a MacBook on a 
 - Hosted GLM is forbidden for SNES Studio local-game content unless the user explicitly changes scope.
 - Local GLM-5.2 may create creative patch JSON; deterministic code applies it.
 - Local image/video generation must fail closed. If local ComfyUI or a local video workflow is unavailable, report `blocked` with the exact blocker instead of using a hosted provider.
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.
+
+## PCC Real Local Model Execution
+
+For approved PCC live work, use `--local-only --invoke-local-models` to call installed Ollama/OpenClaw models. A real worker receipt must show `modelInvoked: true`, local model metadata, strict JSON validation, `hostedGlmUsed: false`, and `gpt55Used: false`. Do not apply model output until the PCC patch gate and milestone judge pass.

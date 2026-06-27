@@ -33,3 +33,11 @@ pnpm snes:benchmark:models -- --mode output --rounds 3 --judge none --no-downloa
 ```
 
 Hosted GLM and model downloads are disabled unless explicitly approved. Promotion requires valid JSON, safe patches, SNES specificity, verification awareness, reliability, and no blocked or unsafe runs.
+
+## PCC v3 Multi-Agent Coordination
+
+PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, patch application gates, local-only live worker dispatch, parallel scheduling metadata, model health routing, artifact cache metadata, reviewer receipts, conflict detection, compact memory cards, telemetry, dashboard snapshots, and legal clean-room prompt-to-ROM benchmark scaffolding. Hosted GLM, paid tools, commercial SNES material, FXPAK writes, push/PR, and human production visual approval remain approval-gated.
+
+## PCC model health versus benchmark scores
+
+Model benchmarks compare quality, but PCC `model-health` is the executable readiness check for live worker use. A model is eligible only when it is installed locally, returns valid JSON within timeout, and keeps `hostedGlmUsed: false` and `gpt55Used: false`.
