@@ -207,6 +207,7 @@ export type AppViewState = {
   pccUpdatedAt: number | null;
   pccSelectedProjectId: string | null;
   pccProjectDetail: PccProjectDetail | null;
+  pccProjectDetails: Record<string, PccProjectDetail>;
   pccActionBusy: boolean;
   pccActionError: string | null;
   pccEditorMode: PccEditorMode;

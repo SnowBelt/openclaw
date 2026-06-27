@@ -1,3 +1,4 @@
+import { buildPccWorkflowDraft } from "../../../../src/pcc/project-workflows.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
 import {
   getPccWorkLoopNext,
@@ -43,6 +44,10 @@ export type PccProjectFormState = {
   goal: string;
   status: PccStatus;
   priority: string;
+  workflowTemplateId: string;
+  codexPlanningAllowed: boolean;
+  remoteProofAllowed: boolean;
+  runtimeActionsAllowed: boolean;
 };
 
 export type PccMilestoneFormState = {
@@ -71,6 +76,7 @@ export type PccDashboardState = {
   pccUpdatedAt: number | null;
   pccSelectedProjectId: string | null;
   pccProjectDetail: PccProjectDetail | null;
+  pccProjectDetails: Record<string, PccProjectDetail>;
   pccActionBusy: boolean;
   pccActionError: string | null;
   pccEditorMode: PccEditorMode;
@@ -131,6 +137,10 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   goal: "",
   status: "active",
   priority: "3",
+  workflowTemplateId: "software-product",
+  codexPlanningAllowed: false,
+  remoteProofAllowed: false,
+  runtimeActionsAllowed: false,
 };
 
 export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
@@ -243,6 +253,38 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     goal: project.goal ?? "",
     status: project.status,
     priority: String(project.priority ?? 3),
+    workflowTemplateId: metadataString(
+      metadataObject(project.metadata).pccWorkflowTemplateId,
+      "software-product",
+    ),
+    codexPlanningAllowed: metadataBoolean(
+      metadataObject(project.metadata).pccCodexPlanningAllowed,
+      false,
+    ),
+    remoteProofAllowed: metadataBoolean(
+      metadataObject(project.metadata).pccRemoteProofAllowed,
+      false,
+    ),
+    runtimeActionsAllowed: metadataBoolean(
+      metadataObject(project.metadata).pccRuntimeActionsAllowed,
+      false,
+    ),
+  };
+}
+
+function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDetail {
+  return {
+    project: detail.project,
+    milestones: detail.milestones.toSorted(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
+    ),
+    subMilestones: (detail.subMilestones ?? []).toSorted(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
+    ),
+    permissions: detail.permissions ?? [],
+    evidence: detail.evidence ?? [],
+    receipts: detail.receipts ?? [],
+    summary: safeProjectSummary(detail.summary),
   };
 }
 
@@ -308,6 +350,9 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
       : [];
     state.pccProjects = projects;
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
+    state.pccProjectDetails = state.pccProjectDetail
+      ? { ...state.pccProjectDetails, [state.pccProjectDetail.project.id]: state.pccProjectDetail }
+      : state.pccProjectDetails;
     state.pccUpdatedAt = Date.now();
   } catch (err) {
     state.pccError = formatConnectError(err) || "Project Command Center unavailable";
@@ -326,18 +371,10 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
       projectId,
     });
     state.pccSelectedProjectId = detail.project.id;
-    state.pccProjectDetail = {
-      project: detail.project,
-      milestones: detail.milestones.toSorted(
-        (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
-      ),
-      subMilestones: (detail.subMilestones ?? []).toSorted(
-        (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
-      ),
-      permissions: detail.permissions ?? [],
-      evidence: detail.evidence ?? [],
-      receipts: detail.receipts ?? [],
-      summary: safeProjectSummary(detail.summary),
+    state.pccProjectDetail = normalizePccProjectDetail(detail);
+    state.pccProjectDetails = {
+      ...state.pccProjectDetails,
+      [detail.project.id]: state.pccProjectDetail,
     };
     refreshPccChatSyncProposals(state);
   });
@@ -410,17 +447,68 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     if (!state.client) {
       return;
     }
+    const priority = parseOptionalInteger(form.priority);
+    const draft = form.id
+      ? null
+      : buildPccWorkflowDraft({
+          title: form.title.trim(),
+          goal: form.goal.trim(),
+          templateId: form.workflowTemplateId,
+          ...(priority !== undefined ? { priority } : {}),
+          codexPlanningAllowed: form.codexPlanningAllowed,
+          remoteProofAllowed: form.remoteProofAllowed,
+          runtimeActionsAllowed: form.runtimeActionsAllowed,
+        });
     const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
-      project: {
-        ...(form.id ? { id: form.id } : {}),
-        title: form.title.trim(),
-        ...(form.goal.trim() ? { goal: form.goal.trim() } : { goal: "" }),
-        status: form.status,
-        ...(parseOptionalInteger(form.priority) !== undefined
-          ? { priority: parseOptionalInteger(form.priority) }
-          : {}),
-      },
+      project: form.id
+        ? {
+            id: form.id,
+            title: form.title.trim(),
+            ...(form.goal.trim() ? { goal: form.goal.trim() } : { goal: "" }),
+            status: form.status,
+            ...(priority !== undefined ? { priority } : {}),
+            metadata: {
+              ...metadataObject(state.pccProjectDetail?.project.metadata),
+              pccWorkflowTemplateId: form.workflowTemplateId,
+              pccCodexPlanningAllowed: form.codexPlanningAllowed,
+              pccRemoteProofAllowed: form.remoteProofAllowed,
+              pccRuntimeActionsAllowed: form.runtimeActionsAllowed,
+            },
+          }
+        : draft!.project,
     });
+    if (draft && !form.id) {
+      for (const milestone of draft.milestones) {
+        const created = await state.client.request<{ milestone: PccMilestone }>(
+          "pcc.milestones.upsert",
+          { milestone: { ...milestone, projectId: result.project.id } },
+        );
+        for (const subMilestone of draft.subMilestonesByMilestoneTitle[milestone.title] ?? []) {
+          await state.client.request("pcc.subMilestones.upsert", {
+            subMilestone: {
+              ...subMilestone,
+              projectId: result.project.id,
+              milestoneId: created.milestone.id,
+            },
+          });
+        }
+      }
+      if (!form.codexPlanningAllowed) {
+        await state.client.request("pcc.permissions.upsert", {
+          permission: {
+            projectId: result.project.id,
+            type: "codex_usage",
+            status: "needed",
+            riskLevel: "medium",
+            allowedActions: ["Use Codex to refine generated milestones and sub-milestones"],
+            forbiddenActions: ["Spend high-reasoning tokens without separate permission"],
+            target: "Project intake milestone planning",
+            maxUses: 1,
+            note: "Codex planning is blocked until the user grants this scoped permission.",
+          },
+        });
+      }
+    }
     state.pccEditorMode = null;
     await loadPccDashboard(state);
     await selectPccProject(state, result.project.id);

@@ -32,6 +32,7 @@ function createState(overrides: Partial<PccDashboardState> = {}): PccDashboardSt
     pccUpdatedAt: null,
     pccSelectedProjectId: null,
     pccProjectDetail: null,
+    pccProjectDetails: {},
     pccActionBusy: false,
     pccActionError: null,
     pccEditorMode: null,
@@ -483,19 +484,39 @@ describe("PCC CRUD controller", () => {
   });
 
   it("creates a project and refreshes detail", async () => {
-    const request = vi
-      .fn()
-      .mockResolvedValueOnce({ project, summary })
-      .mockResolvedValueOnce({ projects: [summary] })
-      .mockResolvedValueOnce({ portfolio })
-      .mockResolvedValueOnce({
-        project,
-        milestones: [],
-        permissions: [],
-        evidence: [],
-        receipts: [],
-        summary,
-      });
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        const title = (params as { milestone: { title: string } }).milestone.title;
+        return { milestone: { ...milestone, id: `milestone-${title}`, title }, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone };
+      }
+      if (method === "pcc.permissions.upsert") {
+        return { permission, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
       pccProjectForm: {
@@ -504,19 +525,27 @@ describe("PCC CRUD controller", () => {
         goal: "Track all projects",
         status: "active",
         priority: "3",
+        workflowTemplateId: "software-product",
+        codexPlanningAllowed: false,
+        remoteProofAllowed: false,
+        runtimeActionsAllowed: false,
       },
     });
 
     await savePccProject(state);
 
     expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
-      project: {
+      project: expect.objectContaining({
         title: "Project Command Center",
         goal: "Track all projects",
         status: "active",
         priority: 3,
-      },
+        metadata: expect.objectContaining({ pccWorkflowTemplateId: "software-product" }),
+        phases: expect.any(Array),
+      }),
     });
+    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(true);
+    expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(true);
     expect(state.pccSelectedProjectId).toBe("project-1");
     expect(state.pccEditorMode).toBeNull();
   });

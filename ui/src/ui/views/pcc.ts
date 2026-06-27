@@ -1,5 +1,7 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
+import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
+import { PCC_WORKFLOW_TEMPLATES } from "../../../../src/pcc/project-workflows.js";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
@@ -35,6 +37,7 @@ export type PccDashboardProps = {
   updatedAt: number | null;
   selectedProjectId: string | null;
   projectDetail: PccProjectDetail | null;
+  projectDetails?: Record<string, PccProjectDetail>;
   actionBusy: boolean;
   actionError: string | null;
   editorMode: PccEditorMode;
@@ -634,6 +637,90 @@ function renderNextSafeActionCard(props: PccDashboardProps) {
     >
       Start next safe action
     </button>
+  </section>`;
+}
+
+function renderPortfolioWorkConsole(props: PccDashboardProps) {
+  const details = Object.values(props.projectDetails ?? {});
+  const schedule = buildPccPortfolioSchedule(
+    details.map((detail) => ({
+      project: detail.project,
+      milestones: detail.milestones,
+      subMilestones: detail.subMilestones ?? [],
+      permissions: detail.permissions,
+      receipts: detail.receipts,
+    })),
+    {
+      maxParallelProjects: 4,
+      availableLocalModelSlots: 4,
+      availableCodexSlots: 0,
+      availableRemoteProofSlots: 0,
+      availableVramGb: 256,
+      availableRamGb: 256,
+    },
+  );
+  return html`<section
+    class="pcc-portfolio-console"
+    data-pcc-portfolio-console
+    aria-label="Multi-project work console"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Multi-project work console</h4>
+        <p>
+          Shows what can run now across projects without Codex, remote proof, or resource conflicts.
+        </p>
+      </div>
+      <span>${schedule.ready.length} ready</span>
+    </div>
+    <div class="pcc-portfolio-console__controls">
+      <button class="btn btn--subtle" type="button" disabled>Work Ready Projects</button>
+      <button class="btn btn--subtle" type="button" disabled>Pause All</button>
+      <label
+        ><span>Max parallel projects</span><input type="number" min="1" max="16" value="4" readonly
+      /></label>
+      <span>Local agents only</span>
+      <span>Stop before Codex</span>
+      <span>Stop before remote proof</span>
+    </div>
+    <div class="pcc-portfolio-console__queues">
+      <article>
+        <strong>Next runnable work</strong>
+        ${schedule.ready.length
+          ? html`<ul>
+              ${schedule.ready
+                .slice(0, 5)
+                .map(
+                  (item) =>
+                    html`<li>
+                      <b>${item.projectTitle}</b>: ${item.title}
+                      <span>${item.lane.replace(/_/g, " ")}</span>
+                    </li>`,
+                )}
+            </ul>`
+          : html`<p>No portfolio work is ready.</p>`}
+      </article>
+      <article>
+        <strong>Blocked</strong>
+        ${schedule.blocked.length
+          ? html`<ul>
+              ${schedule.blocked
+                .slice(0, 5)
+                .map((item) => html`<li><b>${item.projectTitle}</b>: ${item.reason}</li>`)}
+            </ul>`
+          : html`<p>No blocked projects loaded.</p>`}
+      </article>
+      <article>
+        <strong>Resource limited</strong>
+        ${schedule.resourceLimited.length
+          ? html`<ul>
+              ${schedule.resourceLimited
+                .slice(0, 5)
+                .map((item) => html`<li><b>${item.projectTitle}</b>: ${item.reason}</li>`)}
+            </ul>`
+          : html`<p>No resource conflicts.</p>`}
+      </article>
+    </div>
   </section>`;
 }
 
@@ -1346,6 +1433,54 @@ function renderProjectEditor(props: PccDashboardProps) {
           @input=${(event: Event) =>
             props.onProjectFormChange({ priority: (event.target as HTMLInputElement).value })}
       /></label>
+      <label
+        >Workflow template<select
+          .value=${form.workflowTemplateId}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({
+              workflowTemplateId: (event.target as HTMLSelectElement).value,
+            })}
+        >
+          ${PCC_WORKFLOW_TEMPLATES.map(
+            (template) => html`<option value=${template.id}>${template.title}</option>`,
+          )}
+        </select></label
+      >
+      <div class="pcc-intake-options" data-pcc-workflow-intake>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${form.codexPlanningAllowed}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                codexPlanningAllowed: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Allow Codex to design/refine milestones
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${form.remoteProofAllowed}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                remoteProofAllowed: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Allow remote proof when required
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${form.runtimeActionsAllowed}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                runtimeActionsAllowed: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Allow local runtime actions
+        </label>
+      </div>
       <footer>
         <button class="btn" type="submit" ?disabled=${props.actionBusy || !form.title.trim()}>
           Save project
@@ -1523,7 +1658,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${renderTodayView(props)}
+      ${renderTodayView(props)} ${renderPortfolioWorkConsole(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}

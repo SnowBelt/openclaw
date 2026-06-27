@@ -1170,3 +1170,69 @@
     grid-template-columns: 1fr;
   }
 }
+
+.pcc-portfolio-console {
+  border: 1px solid var(--border-subtle);
+  border-radius: 24px;
+  padding: 18px;
+  background: var(--surface-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.pcc-portfolio-console__controls,
+.pcc-intake-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.pcc-portfolio-console__controls span,
+.pcc-portfolio-console__controls label,
+.pcc-intake-options label {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.pcc-portfolio-console__controls input {
+  width: 64px;
+  margin-left: 8px;
+}
+
+.pcc-portfolio-console__queues {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.pcc-portfolio-console__queues article {
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  padding: 12px;
+  background: var(--surface-panel);
+  min-height: 110px;
+}
+
+.pcc-portfolio-console__queues ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.pcc-portfolio-console__queues li {
+  margin-bottom: 8px;
+}
+
+.pcc-portfolio-console__queues li span {
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 900px) {
+  .pcc-portfolio-console__queues {
+    grid-template-columns: 1fr;
+  }
+}

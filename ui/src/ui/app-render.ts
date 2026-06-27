@@ -2804,6 +2804,7 @@ export function renderApp(state: AppViewState) {
                 updatedAt: state.pccUpdatedAt,
                 selectedProjectId: state.pccSelectedProjectId,
                 projectDetail: state.pccProjectDetail,
+                projectDetails: state.pccProjectDetails,
                 actionBusy: state.pccActionBusy,
                 actionError: state.pccActionError,
                 editorMode: state.pccEditorMode,

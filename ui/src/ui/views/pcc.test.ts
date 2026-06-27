@@ -504,7 +504,17 @@ describe("renderPccDashboard", () => {
     const container = renderView(
       createProps({
         editorMode: "create-project",
-        projectForm: { id: null, title: "New PCC", goal: "", status: "active", priority: "4" },
+        projectForm: {
+          id: null,
+          title: "New PCC",
+          goal: "",
+          status: "active",
+          priority: "4",
+          workflowTemplateId: "software-product",
+          codexPlanningAllowed: false,
+          remoteProofAllowed: false,
+          runtimeActionsAllowed: false,
+        },
         onProjectFormChange,
         onSaveProject,
       }),
