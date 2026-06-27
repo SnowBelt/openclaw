@@ -41,9 +41,24 @@ const laterMilestone = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const nextSubMilestone = {
+  id: "submilestone-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  title: "Write packet renderer",
+  status: "not_started" as const,
+  order: 1,
+  implementationPlan: "Render the compact packet with exact proof gaps.",
+  acceptanceCriteria: ["Packet includes sub-milestone detail"],
+  metadata: { pccResponsibility: "local_openclaw_agent", pccCostRisk: "low" },
+  createdAt: "2026-06-26T00:00:00Z",
+  updatedAt: "2026-06-26T00:00:00Z",
+};
+
 const detail: PccProjectDetail = {
   project,
   milestones: [laterMilestone, nextMilestone],
+  subMilestones: [nextSubMilestone],
   permissions: [
     {
       id: "permission-1",
@@ -114,6 +129,8 @@ describe("buildPccContextPackage", () => {
     expect(packet).toContain("# Project Command Center handoff packet");
     expect(packet).toContain("Project: Project Command Center");
     expect(packet).toContain("Next milestone: Context Package Generation V1");
+    expect(packet).toContain("Next sub-milestone: Write packet renderer");
+    expect(packet).toContain("Write packet renderer — Not Started");
     expect(packet).toContain("Worker: local_openclaw_agent");
     expect(packet).toContain("Token/cost risk: low");
     expect(packet).toContain("Packet includes permissions");
@@ -126,6 +143,7 @@ describe("buildPccContextPackage", () => {
     const packet = buildPccContextPackage(detail, { mode: "full" });
 
     expect(packet).toContain("## Milestone: Context Package Generation V1");
+    expect(packet).toContain("Sub-milestones:");
     expect(packet).toContain("## Milestone: Automatic Chat Sync V1");
     expect(packet).toContain("Worker: codex");
     expect(packet).toContain("Stop before Codex");

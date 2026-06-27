@@ -414,6 +414,7 @@ import {
   type PccPhase,
   type PccProject,
   type PccMilestone,
+  type PccSubMilestone,
   type PccPermissionGrant,
   type PccEvidence,
   type PccCompletionReceipt,
@@ -424,6 +425,8 @@ import {
   type PccProjectsGetResult,
   type PccProjectsUpsertResult,
   type PccMilestonesUpsertResult,
+  type PccSubMilestonesListResult,
+  type PccSubMilestonesUpsertResult,
   type PccPermissionsUpsertResult,
   type PccEvidenceAddResult,
   type PccReceiptsAddResult,
@@ -435,6 +438,10 @@ import {
   PccLastKnownGoodUpsertParamsSchema,
   type PccMilestonesUpsertParams,
   PccMilestonesUpsertParamsSchema,
+  type PccSubMilestonesListParams,
+  PccSubMilestonesListParamsSchema,
+  type PccSubMilestonesUpsertParams,
+  PccSubMilestonesUpsertParamsSchema,
   type PccPermissionsUpsertParams,
   PccPermissionsUpsertParamsSchema,
   type PccProjectsGetParams,
@@ -784,6 +791,12 @@ export const validatePccProjectsUpsertParams = lazyCompile<PccProjectsUpsertPara
 export const validatePccMilestonesUpsertParams = lazyCompile<PccMilestonesUpsertParams>(
   PccMilestonesUpsertParamsSchema,
 );
+export const validatePccSubMilestonesListParams = lazyCompile<PccSubMilestonesListParams>(
+  PccSubMilestonesListParamsSchema,
+);
+export const validatePccSubMilestonesUpsertParams = lazyCompile<PccSubMilestonesUpsertParams>(
+  PccSubMilestonesUpsertParamsSchema,
+);
 export const validatePccPermissionsUpsertParams = lazyCompile<PccPermissionsUpsertParams>(
   PccPermissionsUpsertParamsSchema,
 );
@@ -796,9 +809,8 @@ export const validatePccReceiptsAddParams = lazyCompile<PccReceiptsAddParams>(
 export const validatePccLastKnownGoodUpsertParams = lazyCompile<PccLastKnownGoodUpsertParams>(
   PccLastKnownGoodUpsertParamsSchema,
 );
-export const validatePccSummaryGetParams = lazyCompile<PccSummaryGetParams>(
-  PccSummaryGetParamsSchema,
-);
+export const validatePccSummaryGetParams =
+  lazyCompile<PccSummaryGetParams>(PccSummaryGetParamsSchema);
 export const validateConfigGetParams = lazyCompile<ConfigGetParams>(ConfigGetParamsSchema);
 export const validateConfigSetParams = lazyCompile<ConfigSetParams>(ConfigSetParamsSchema);
 export const validateConfigApplyParams = lazyCompile<ConfigApplyParams>(ConfigApplyParamsSchema);
@@ -1518,6 +1530,7 @@ export type {
   PccPhase,
   PccProject,
   PccMilestone,
+  PccSubMilestone,
   PccPermissionGrant,
   PccEvidence,
   PccCompletionReceipt,
@@ -1532,6 +1545,10 @@ export type {
   PccProjectsUpsertResult,
   PccMilestonesUpsertParams,
   PccMilestonesUpsertResult,
+  PccSubMilestonesListParams,
+  PccSubMilestonesListResult,
+  PccSubMilestonesUpsertParams,
+  PccSubMilestonesUpsertResult,
   PccPermissionsUpsertParams,
   PccPermissionsUpsertResult,
   PccEvidenceAddParams,

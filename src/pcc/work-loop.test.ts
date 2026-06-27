@@ -3,6 +3,7 @@ import type {
   PccMilestone,
   PccPermissionGrant,
   PccProject,
+  PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import {
   buildMilestoneTaskPrompt,
@@ -48,6 +49,22 @@ function permission(patch: Partial<PccPermissionGrant> = {}): PccPermissionGrant
     allowedActions: ["run Workflow Sanity"],
     usedCount: 0,
     auditLog: [],
+    createdAt: "2026-06-26T00:00:00Z",
+    updatedAt: "2026-06-26T00:00:00Z",
+    ...patch,
+  };
+}
+
+function subMilestone(patch: Partial<PccSubMilestone> = {}): PccSubMilestone {
+  return {
+    id: "submilestone-1",
+    projectId: "project-1",
+    milestoneId: "milestone-1",
+    title: "Run local test",
+    status: "not_started",
+    order: 1,
+    implementationPlan: "Run the exact local test command.",
+    acceptanceCriteria: ["Test exits 0", "Receipt is recorded"],
     createdAt: "2026-06-26T00:00:00Z",
     updatedAt: "2026-06-26T00:00:00Z",
     ...patch,
@@ -134,7 +151,7 @@ describe("PCC guided work loop", () => {
 
     expect(prompt).toContain("Project: Project Command Center");
     expect(prompt).toContain("Milestone: Local proof");
-    expect(prompt).toContain("Completion rule: do not mark this milestone complete");
+    expect(prompt).toContain("Completion rule: do not mark this work item complete");
   });
 
   it("returns a next task when safe and unblocked", () => {
@@ -142,6 +159,47 @@ describe("PCC guided work loop", () => {
 
     expect(next.state).toBe("working");
     expect(next.taskPrompt).toContain("Run the local proof commands.");
+  });
+
+  it("uses sub-milestones before parent milestone work", () => {
+    const next = getPccWorkLoopNext({
+      project,
+      milestones: [milestone()],
+      subMilestones: [subMilestone()],
+    });
+
+    expect(next.state).toBe("working");
+    expect(next.subMilestone?.title).toBe("Run local test");
+    expect(next.taskPrompt).toContain("Sub-milestone: Run local test");
+    expect(next.taskPrompt).toContain("Run the exact local test command.");
+  });
+
+  it("blocks disabled lanes for sub-milestones", () => {
+    const updatedProject = withPccWorkLoopSettings(
+      project,
+      {
+        enabled: true,
+        state: "working",
+        lanes: {
+          user: true,
+          localOpenClawAgent: false,
+          localModel: true,
+          codex: false,
+          highReasoningCodex: false,
+          remoteProof: false,
+        },
+      },
+      "2026-06-26T01:00:00Z",
+    );
+    const next = getPccWorkLoopNext({
+      project: updatedProject,
+      milestones: [milestone()],
+      subMilestones: [subMilestone()],
+    });
+
+    expect(next.state).toBe("blocked");
+    expect(next.blocker?.kind).toBe("lane_disabled");
+    expect(next.blocker?.subMilestoneId).toBe("submilestone-1");
   });
 
   it("persists work-loop settings in project metadata", () => {

@@ -5,12 +5,15 @@ import {
   validatePccPermissionsUpsertParams,
   validatePccProjectsUpsertParams,
   validatePccReceiptsAddParams,
+  validatePccSubMilestonesListParams,
+  validatePccSubMilestonesUpsertParams,
 } from "../index.js";
 
 describe("Project Command Center protocol schemas", () => {
   it("registers canonical PCC schemas", () => {
     expect(ProtocolSchemas.PccProject).toBeTruthy();
     expect(ProtocolSchemas.PccMilestone).toBeTruthy();
+    expect(ProtocolSchemas.PccSubMilestone).toBeTruthy();
     expect(ProtocolSchemas.PccPermissionGrant).toBeTruthy();
     expect(ProtocolSchemas.PccCompletionReceipt).toBeTruthy();
     expect(ProtocolSchemas.PccLastKnownGoodUpsertParams).toBeTruthy();
@@ -40,6 +43,47 @@ describe("Project Command Center protocol schemas", () => {
     ).toBe(true);
 
     expect(validatePccMilestonesUpsertParams({ milestone: { projectId: "p" } })).toBe(false);
+  });
+
+  it("validates sub-milestone list and upsert params", () => {
+    expect(
+      validatePccSubMilestonesListParams({
+        projectId: "project-pcc",
+        milestoneId: "milestone-ledger",
+      }),
+    ).toBe(true);
+
+    expect(
+      validatePccSubMilestonesUpsertParams({
+        subMilestone: {
+          projectId: "project-pcc",
+          milestoneId: "milestone-ledger",
+          title: "Run targeted proof",
+          status: "not_started",
+          owner: "local_openclaw_agent",
+          percentComplete: 0,
+          dependsOn: [],
+          implementationPlan: "Run the exact local proof commands.",
+          acceptanceCriteria: ["Targeted tests pass", "Receipt is recorded"],
+          requiredEvidenceIds: ["evidence-local-test"],
+          permissionGrantIds: [],
+          receiptIds: [],
+          metadata: {
+            pccResponsibility: "local_openclaw_agent",
+            proofRequired: "local targeted proof",
+          },
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      validatePccSubMilestonesUpsertParams({
+        subMilestone: {
+          projectId: "project-pcc",
+          title: "Missing parent milestone",
+        },
+      }),
+    ).toBe(false);
   });
 
   it("keeps permission grants bounded and closed", () => {

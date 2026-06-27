@@ -3,6 +3,7 @@ import { html, nothing } from "lit";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
+  type PccParallelWorkMode,
   type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
 import type {
@@ -17,6 +18,7 @@ import type {
   PccCompletionReceipt,
   PccEvidence,
   PccMilestone,
+  PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
   PccPortfolioSummary,
@@ -88,6 +90,22 @@ const COST_RISK_OPTIONS = [
   ["low", "Low"],
   ["medium", "Medium"],
   ["high", "High"],
+] as const;
+
+const PARALLEL_WORK_OPTIONS = [
+  ["off", "Parallel Work: Off"],
+  ["plan_only", "Plan Only"],
+  ["local_agents_only", "Local Agents Only"],
+  ["supervised", "Supervised"],
+] as const;
+
+const LANE_LABELS = [
+  ["user", "User"],
+  ["localOpenClawAgent", "Local OpenClaw Agent"],
+  ["localModel", "Local Model"],
+  ["codex", "Codex"],
+  ["highReasoningCodex", "High-Reasoning Codex"],
+  ["remoteProof", "Remote Proof"],
 ] as const;
 
 const MILESTONE_STATUSES: PccStatus[] = [
@@ -454,6 +472,143 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   `;
 }
 
+function subMilestonesForMilestone(
+  detail: PccProjectDetail | null,
+  milestone: PccMilestone,
+): PccSubMilestone[] {
+  return (detail?.subMilestones ?? [])
+    .filter((subMilestone) => subMilestone.milestoneId === milestone.id)
+    .toSorted(
+      (a, b) =>
+        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+        a.title.localeCompare(b.title),
+    );
+}
+
+function subMilestoneDisplayPercent(subMilestone: PccSubMilestone): number {
+  if (subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance") {
+    return 100;
+  }
+  if (subMilestone.status === "skipped" || subMilestone.status === "archived") {
+    return 0;
+  }
+  return clampPercent(subMilestone.percentComplete ?? 0);
+}
+
+function itemWorkerLabel(item: PccMilestone | PccSubMilestone): string {
+  const metadata = metadataObject(item.metadata);
+  return responsibilityLabel(
+    metadataString(metadata.pccResponsibility, item.owner || "local_openclaw_agent"),
+  );
+}
+
+function itemProofLabel(item: PccMilestone | PccSubMilestone): string {
+  return metadataString(metadataObject(item.metadata).proofRequired, "Proof not recorded");
+}
+
+function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  if (!detail) {
+    return nothing;
+  }
+  const settings = getPccWorkLoopSettings(detail.project);
+  const next = getPccWorkLoopNext({
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions,
+    receipts: detail.receipts,
+  });
+  const nextTitle = next.subMilestone?.title ?? next.milestone?.title ?? "No eligible work";
+  const blocked = next.blocker?.message ?? "No blocker recorded";
+  const proofMissing =
+    detail.summary.proofGaps[0] ??
+    (next.subMilestone || next.milestone
+      ? itemProofLabel(next.subMilestone ?? next.milestone!)
+      : "No proof gap recorded");
+  const readyItems: Array<PccMilestone | PccSubMilestone> = detail.milestones
+    .flatMap((milestone): Array<PccMilestone | PccSubMilestone> => {
+      const subItems = subMilestonesForMilestone(detail, milestone).filter(
+        (subMilestone) =>
+          !["complete", "complete_with_maintenance", "skipped", "archived"].includes(
+            subMilestone.status,
+          ),
+      );
+      return subItems.length > 0 ? subItems : [milestone];
+    })
+    .filter(
+      (item) =>
+        !["blocked", "needs_approval", "deferred", "on_hold", "failed"].includes(item.status),
+    )
+    .slice(0, 5);
+  const blockedItems: Array<PccMilestone | PccSubMilestone> = detail.milestones
+    .flatMap(
+      (milestone): Array<PccMilestone | PccSubMilestone> => [
+        milestone,
+        ...subMilestonesForMilestone(detail, milestone),
+      ],
+    )
+    .filter((item) =>
+      ["blocked", "needs_approval", "deferred", "on_hold", "failed"].includes(item.status),
+    )
+    .slice(0, 5);
+  return html`<section class="pcc-current-truth" data-pcc-current-truth aria-label="Current truth">
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Current Truth</h4>
+        <p>Fast status for what is happening now and what is safe to do next.</p>
+      </div>
+      <span>${formatUpdatedAt(props.updatedAt)}</span>
+    </div>
+    <dl class="pcc-current-truth__facts">
+      <div>
+        <dt>Current state</dt>
+        <dd>${formatStatus(detail.project.status)}</dd>
+      </div>
+      <div>
+        <dt>Next action</dt>
+        <dd>${nextTitle}</dd>
+      </div>
+      <div>
+        <dt>Blocked by</dt>
+        <dd>${blocked}</dd>
+      </div>
+      <div>
+        <dt>Working</dt>
+        <dd>${settings.enabled ? formatStatus(next.state) : "Off"}</dd>
+      </div>
+      <div>
+        <dt>Codex needed</dt>
+        <dd>${next.state === "waiting_for_codex" ? "Yes" : "Not now"}</dd>
+      </div>
+      <div>
+        <dt>Proof missing</dt>
+        <dd>${proofMissing}</dd>
+      </div>
+    </dl>
+    <div class="pcc-ready-queue" data-pcc-ready-queue>
+      <article>
+        <strong>Ready Now</strong>
+        ${readyItems.length
+          ? html`<ul>
+              ${readyItems.map((item) => html`<li>${item.title}</li>`)}
+            </ul>`
+          : html`<p>No ready work items</p>`}
+      </article>
+      <article>
+        <strong>Blocked</strong>
+        ${blockedItems.length
+          ? html`<ul>
+              ${blockedItems.map(
+                (item) => html`<li>${item.title}: ${formatStatus(item.status)}</li>`,
+              )}
+            </ul>`
+          : html`<p>No blocked work items</p>`}
+      </article>
+    </div>
+  </section>`;
+}
+
 function renderWorkLoopCard(props: PccDashboardProps) {
   const detail = props.projectDetail;
   if (!detail) {
@@ -463,11 +618,14 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   const next = getPccWorkLoopNext({
     project: detail.project,
     milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
     permissions: detail.permissions,
     receipts: detail.receipts,
   });
   const workLabel = settings.enabled ? formatStatus(next.state) : "Off";
-  const nextTitle = next.milestone?.title ?? "No eligible milestone";
+  const nextTitle = next.subMilestone
+    ? `${next.milestone?.title ?? "Milestone"}: ${next.subMilestone.title}`
+    : (next.milestone?.title ?? "No eligible milestone");
   const message =
     next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.";
   return html`
@@ -549,6 +707,38 @@ function renderWorkLoopCard(props: PccDashboardProps) {
           />
           Stop before remote proof
         </label>
+      </div>
+      <div class="pcc-work-loop__parallel" data-pcc-work-lanes>
+        <label>
+          <span>Parallel Work</span>
+          <select
+            .value=${settings.parallelWorkMode}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                parallelWorkMode: (event.target as HTMLSelectElement).value as PccParallelWorkMode,
+              })}
+          >
+            ${renderStringOptions(PARALLEL_WORK_OPTIONS, settings.parallelWorkMode)}
+          </select>
+        </label>
+        <div class="pcc-work-loop__lanes">
+          ${LANE_LABELS.map(
+            ([lane, label]) => html`<label>
+              <input
+                type="checkbox"
+                .checked=${settings.lanes[lane]}
+                @change=${(event: Event) =>
+                  props.onUpdateWorkLoop({
+                    lanes: {
+                      ...settings.lanes,
+                      [lane]: (event.target as HTMLInputElement).checked,
+                    },
+                  })}
+              />
+              ${label}
+            </label>`,
+          )}
+        </div>
       </div>
       <div class="pcc-work-loop__next">
         <span>Next</span>
@@ -683,8 +873,9 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
-      ${renderWorkLoopCard(props)} ${renderPhaseOverview(detail)}
-      ${renderContextPackageCard(detail)} ${renderChatSyncCard(props)}
+      ${renderCurrentTruthAndReadyQueue(props)} ${renderWorkLoopCard(props)}
+      ${renderPhaseOverview(detail)} ${renderContextPackageCard(detail)}
+      ${renderChatSyncCard(props)}
       <section class="pcc-permissions" aria-label="Project permissions">
         <div class="pcc-section-heading">
           <h4>Permissions</h4>
@@ -800,6 +991,44 @@ function renderChatSyncCard(props: PccDashboardProps) {
   </section>`;
 }
 
+function renderSubMilestoneList(milestone: PccMilestone, props: PccDashboardProps) {
+  const subMilestones = subMilestonesForMilestone(props.projectDetail, milestone);
+  if (subMilestones.length === 0) {
+    return html`<div class="pcc-empty pcc-empty--small">No sub-milestones recorded</div>`;
+  }
+  return html`<ol class="pcc-submilestones" data-pcc-submilestones>
+    ${subMilestones.map((subMilestone) => {
+      const percent = subMilestoneDisplayPercent(subMilestone);
+      return html`<li class="pcc-submilestone" data-pcc-submilestone>
+        <div class="pcc-submilestone__main">
+          <span class="pcc-submilestone__check" aria-hidden="true">
+            ${subMilestone.status === "complete" ||
+            subMilestone.status === "complete_with_maintenance"
+              ? "✓"
+              : ""}
+          </span>
+          <div>
+            <strong>${subMilestone.title}</strong>
+            <p>${subMilestone.implementationPlan || "No implementation plan recorded."}</p>
+          </div>
+          <span class="pcc-status pcc-status--${subMilestone.status}"
+            >${formatStatus(subMilestone.status)}</span
+          >
+        </div>
+        <div class="pcc-project-card__meta">
+          <span>${percent}% complete</span>
+          <span>Worker ${itemWorkerLabel(subMilestone)}</span>
+          <span>${itemProofLabel(subMilestone)}</span>
+          <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
+        </div>
+        ${subMilestone.blocker
+          ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
+          : nothing}
+      </li>`;
+    })}
+  </ol>`;
+}
+
 function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) {
   const percent = clampPercent(milestone.percentComplete ?? 0);
   const metadata = metadataObject(milestone.metadata);
@@ -821,9 +1050,16 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         <span>${percent}% complete</span>
         <span>Order ${milestone.order ?? "not set"}</span>
         <span>${milestone.acceptanceCriteria?.length ?? 0} criteria</span>
+        <span
+          >${subMilestonesForMilestone(props.projectDetail, milestone).length} sub-milestones</span
+        >
         <span>Worker ${responsibilityLabel(responsibility)}</span>
         <span>Risk ${formatStatus(costRisk)}</span>
       </div>
+      <details class="pcc-submilestone-panel">
+        <summary>Sub-milestones</summary>
+        ${renderSubMilestoneList(milestone, props)}
+      </details>
       ${renderMilestoneReceipts(milestone, props)}
       ${permissionsForMilestone(props.projectDetail, milestone).length > 0 ||
       milestone.status === "needs_approval"

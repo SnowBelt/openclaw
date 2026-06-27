@@ -67,6 +67,19 @@ const milestone = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const subMilestone = {
+  id: "submilestone-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  title: "Run local proof",
+  status: "not_started" as const,
+  order: 1,
+  implementationPlan: "Run the exact local proof command.",
+  acceptanceCriteria: ["Command exits 0"],
+  createdAt: "2026-06-26T00:00:00Z",
+  updatedAt: "2026-06-26T00:00:00Z",
+};
+
 const permission = {
   id: "permission-1",
   projectId: "project-1",
@@ -372,6 +385,70 @@ describe("loadPccDashboard", () => {
       milestone: expect.objectContaining({ id: "milestone-1", status: "in_progress" }),
     });
   });
+
+  it("prepares the next safe sub-milestone before parent milestone work", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        project: {
+          ...project,
+          metadata: {
+            pccWorkLoop: {
+              enabled: true,
+              state: "working",
+              activeMilestoneId: "milestone-1",
+              activeSubMilestoneId: "submilestone-1",
+            },
+          },
+        },
+        summary,
+      })
+      .mockResolvedValueOnce({
+        subMilestone: { ...subMilestone, status: "in_progress" },
+        milestone,
+        summary,
+      })
+      .mockResolvedValueOnce({ projects: [summary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({
+        project,
+        milestones: [milestone],
+        subMilestones: [{ ...subMilestone, status: "in_progress" }],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
+      project: expect.objectContaining({
+        metadata: expect.objectContaining({
+          pccWorkLoop: expect.objectContaining({
+            activeMilestoneId: "milestone-1",
+            activeSubMilestoneId: "submilestone-1",
+            state: "working",
+          }),
+        }),
+      }),
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "pcc.subMilestones.upsert", {
+      subMilestone: expect.objectContaining({ id: "submilestone-1", status: "in_progress" }),
+    });
+  });
 });
 
 describe("PCC CRUD controller", () => {
@@ -389,6 +466,7 @@ describe("PCC CRUD controller", () => {
     expect(request).toHaveBeenCalledWith("pcc.projects.get", { projectId: "project-1" });
     expect(state.pccSelectedProjectId).toBe("project-1");
     expect(state.pccProjectDetail?.milestones[0]?.title).toBe("CRUD UI");
+    expect(state.pccProjectDetail?.subMilestones).toEqual([]);
     expect(state.pccProjectDetail?.permissions[0]?.id).toBe("permission-1");
   });
 

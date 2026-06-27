@@ -28,6 +28,26 @@ const milestone = {
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
+const subMilestone = {
+  id: "submilestone-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  title: "Run local proof",
+  status: "not_started" as const,
+  order: 1,
+  owner: "local_openclaw_agent",
+  percentComplete: 0,
+  implementationPlan: "Run the exact local proof command and save the output.",
+  acceptanceCriteria: ["Command exits 0", "Completion receipt is recorded"],
+  metadata: {
+    pccResponsibility: "local_openclaw_agent",
+    pccCostRisk: "low",
+    proofRequired: "Targeted local proof",
+  },
+  createdAt: "2026-06-26T00:00:00Z",
+  updatedAt: "2026-06-26T00:00:00Z",
+};
+
 const permission = {
   id: "permission-1",
   projectId: "project-1",
@@ -107,6 +127,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     projectDetail: {
       project,
       milestones: [milestone],
+      subMilestones: [],
       permissions: [permission],
       evidence: [],
       receipts: [],
@@ -369,6 +390,54 @@ describe("renderPccDashboard", () => {
     );
     prepare?.click();
     expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders current truth, ready queue, sub-milestones, and work lanes", () => {
+    const onUpdateWorkLoop = vi.fn();
+    const container = renderView(
+      createProps({
+        onUpdateWorkLoop,
+        projectDetail: {
+          project: {
+            ...project,
+            metadata: {
+              pccWorkLoop: {
+                enabled: true,
+                state: "working",
+                stopBeforeCodex: true,
+                stopBeforeRemoteProof: true,
+                stopAfterCurrentMilestone: false,
+                parallelWorkMode: "local_agents_only",
+              },
+            },
+          },
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+
+    const text = container.textContent ?? "";
+    expect(container.querySelector("[data-pcc-current-truth]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-ready-queue]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-submilestone]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-work-lanes]")).not.toBeNull();
+    expect(text).toContain("Current Truth");
+    expect(text).toContain("Ready Now");
+    expect(text).toContain("Run local proof");
+    expect(text).toContain("Parallel Work");
+
+    const select = container.querySelector<HTMLSelectElement>("[data-pcc-work-lanes] select");
+    expect(select?.value).toBe("local_agents_only");
+    select!.value = "supervised";
+    select?.dispatchEvent(new Event("change"));
+    expect(onUpdateWorkLoop).toHaveBeenCalledWith(
+      expect.objectContaining({ parallelWorkMode: "supervised" }),
+    );
   });
 
   it("renders project editor and saves form changes", () => {

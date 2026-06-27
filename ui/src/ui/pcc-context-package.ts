@@ -5,6 +5,7 @@ import type {
   PccCompletionReceipt,
   PccEvidence,
   PccMilestone,
+  PccSubMilestone,
   PccPermissionGrant,
 } from "./types.ts";
 
@@ -38,6 +39,19 @@ function sortMilestones(milestones: readonly PccMilestone[]): PccMilestone[] {
       (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
       a.title.localeCompare(b.title),
   );
+}
+
+function subMilestonesForMilestone(
+  detail: PccProjectDetail,
+  milestone: PccMilestone,
+): PccSubMilestone[] {
+  return (detail.subMilestones ?? [])
+    .filter((subMilestone) => subMilestone.milestoneId === milestone.id)
+    .toSorted(
+      (a, b) =>
+        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+        a.title.localeCompare(b.title),
+    );
 }
 
 function receiptSummaries(receipts: readonly PccCompletionReceipt[]): string[] {
@@ -144,6 +158,21 @@ function renderMilestoneBlock(
     milestone.acceptanceCriteria ?? [],
     "No acceptance criteria recorded.",
   );
+  const subMilestones = subMilestonesForMilestone(detail, milestone);
+  if (subMilestones.length > 0) {
+    lines.push("", "Sub-milestones:");
+    for (const subMilestone of subMilestones) {
+      lines.push(
+        `- ${subMilestone.title} — ${formatStatus(subMilestone.status)}; worker=${metadataString(metadataObject(subMilestone.metadata).pccResponsibility, subMilestone.owner || "local_openclaw_agent")}; proof=${metadataString(metadataObject(subMilestone.metadata).proofRequired, "not recorded")}`,
+      );
+      if (options.includeTaskPrompt) {
+        lines.push(`  Plan: ${subMilestone.implementationPlan || "Missing implementation plan."}`);
+        for (const criterion of subMilestone.acceptanceCriteria ?? []) {
+          lines.push(`  Acceptance: ${criterion}`);
+        }
+      }
+    }
+  }
   lines.push("");
   pushList(
     lines,
@@ -183,6 +212,7 @@ function renderMilestoneBlock(
       milestones: detail.milestones,
       permissions: detail.permissions,
       receipts: detail.receipts,
+      subMilestones: detail.subMilestones ?? [],
     });
     if (next.milestone?.id === milestone.id && next.taskPrompt) {
       lines.push("", "Task prompt preview:", next.taskPrompt);
@@ -199,6 +229,7 @@ export function buildPccContextPackage(
   const next = getPccWorkLoopNext({
     project: detail.project,
     milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
     permissions: detail.permissions,
     receipts: detail.receipts,
   });
@@ -214,6 +245,7 @@ export function buildPccContextPackage(
     `Project status: ${formatStatus(detail.project.status)}`,
     `Project completion: ${detail.summary.percentComplete}%`,
     `Next milestone: ${nextMilestone?.title ?? "No eligible milestone"}`,
+    `Next sub-milestone: ${next.subMilestone?.title ?? "No eligible sub-milestone"}`,
     `Runner state: ${formatStatus(next.state)}`,
     `Runner message: ${next.blocker?.message ?? "No runner blocker."}`,
     "",

@@ -6,6 +6,7 @@ import type {
   PccPermissionType,
   PccProject,
   PccStatus,
+  PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 
 export type PccWorkLoopState =
@@ -19,13 +20,27 @@ export type PccWorkLoopState =
   | "proof_failed"
   | "complete";
 
+export type PccParallelWorkMode = "off" | "plan_only" | "local_agents_only" | "supervised";
+
+export type PccWorkLoopLaneSettings = {
+  user: boolean;
+  localOpenClawAgent: boolean;
+  localModel: boolean;
+  codex: boolean;
+  highReasoningCodex: boolean;
+  remoteProof: boolean;
+};
+
 export type PccWorkLoopSettings = {
   enabled: boolean;
   state: PccWorkLoopState;
   stopBeforeCodex: boolean;
   stopBeforeRemoteProof: boolean;
   stopAfterCurrentMilestone: boolean;
+  parallelWorkMode: PccParallelWorkMode;
+  lanes: PccWorkLoopLaneSettings;
   activeMilestoneId?: string;
+  activeSubMilestoneId?: string;
   lastLoopMessage?: string;
   updatedAt?: string;
 };
@@ -33,6 +48,7 @@ export type PccWorkLoopSettings = {
 export type PccWorkLoopProject = {
   project: PccProject;
   milestones: readonly PccMilestone[];
+  subMilestones?: readonly PccSubMilestone[];
   permissions?: readonly PccPermissionGrant[];
   receipts?: readonly PccCompletionReceipt[];
 };
@@ -45,6 +61,8 @@ export type PccWorkLoopBlockerKind =
   | "missing_permission"
   | "codex_required"
   | "remote_proof_required"
+  | "lane_disabled"
+  | "workspace_locked"
   | "missing_plan"
   | "missing_acceptance_criteria"
   | "proof_failed";
@@ -53,14 +71,25 @@ export type PccWorkLoopBlocker = {
   kind: PccWorkLoopBlockerKind;
   message: string;
   milestoneId?: string;
+  subMilestoneId?: string;
   permissionIds?: string[];
 };
 
 export type PccWorkLoopNext = {
   milestone: PccMilestone | null;
+  subMilestone: PccSubMilestone | null;
   blocker: PccWorkLoopBlocker | null;
   taskPrompt: string | null;
   state: PccWorkLoopState;
+};
+
+const DEFAULT_LANES: PccWorkLoopLaneSettings = {
+  user: true,
+  localOpenClawAgent: true,
+  localModel: true,
+  codex: false,
+  highReasoningCodex: false,
+  remoteProof: false,
 };
 
 const DEFAULT_SETTINGS: PccWorkLoopSettings = {
@@ -69,6 +98,8 @@ const DEFAULT_SETTINGS: PccWorkLoopSettings = {
   stopBeforeCodex: true,
   stopBeforeRemoteProof: true,
   stopAfterCurrentMilestone: false,
+  parallelWorkMode: "off",
+  lanes: DEFAULT_LANES,
 };
 
 const TERMINAL_STATUSES = new Set<PccStatus>([
@@ -93,6 +124,14 @@ const WORK_LOOP_STATES: readonly PccWorkLoopState[] = [
   "proof_failed",
   "complete",
 ];
+const PARALLEL_WORK_MODES: readonly PccParallelWorkMode[] = [
+  "off",
+  "plan_only",
+  "local_agents_only",
+  "supervised",
+];
+
+type WorkItem = PccMilestone | PccSubMilestone;
 
 function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -106,6 +145,18 @@ function booleanSetting(value: unknown, fallback: boolean): boolean {
 
 function stringSetting<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function laneSettings(value: unknown): PccWorkLoopLaneSettings {
+  const raw = metadataObject(value);
+  return {
+    user: booleanSetting(raw.user, DEFAULT_LANES.user),
+    localOpenClawAgent: booleanSetting(raw.localOpenClawAgent, DEFAULT_LANES.localOpenClawAgent),
+    localModel: booleanSetting(raw.localModel, DEFAULT_LANES.localModel),
+    codex: booleanSetting(raw.codex, DEFAULT_LANES.codex),
+    highReasoningCodex: booleanSetting(raw.highReasoningCodex, DEFAULT_LANES.highReasoningCodex),
+    remoteProof: booleanSetting(raw.remoteProof, DEFAULT_LANES.remoteProof),
+  };
 }
 
 export function getPccWorkLoopSettings(project: PccProject): PccWorkLoopSettings {
@@ -123,8 +174,17 @@ export function getPccWorkLoopSettings(project: PccProject): PccWorkLoopSettings
       raw.stopAfterCurrentMilestone,
       DEFAULT_SETTINGS.stopAfterCurrentMilestone,
     ),
+    parallelWorkMode: stringSetting(
+      raw.parallelWorkMode,
+      PARALLEL_WORK_MODES,
+      DEFAULT_SETTINGS.parallelWorkMode,
+    ),
+    lanes: laneSettings(raw.lanes),
     ...(typeof raw.activeMilestoneId === "string"
       ? { activeMilestoneId: raw.activeMilestoneId }
+      : {}),
+    ...(typeof raw.activeSubMilestoneId === "string"
+      ? { activeSubMilestoneId: raw.activeSubMilestoneId }
       : {}),
     ...(typeof raw.lastLoopMessage === "string" ? { lastLoopMessage: raw.lastLoopMessage } : {}),
     ...(typeof raw.updatedAt === "string" ? { updatedAt: raw.updatedAt } : {}),
@@ -156,14 +216,26 @@ export function selectNextEligibleMilestone(input: PccWorkLoopProject): PccMiles
   );
 }
 
-function permissionsForMilestone(
+function selectNextEligibleSubMilestone(
   input: PccWorkLoopProject,
-  milestone: PccMilestone,
-): PccPermissionGrant[] {
+  milestone: PccMilestone | null,
+): PccSubMilestone | null {
+  if (!milestone) {
+    return null;
+  }
+  return (
+    (input.subMilestones ?? [])
+      .filter((subMilestone) => subMilestone.milestoneId === milestone.id)
+      .filter((subMilestone) => !TERMINAL_STATUSES.has(subMilestone.status))
+      .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.updatedAt.localeCompare(b.updatedAt))
+      .at(0) ?? null
+  );
+}
+
+function permissionsForItem(input: PccWorkLoopProject, item: WorkItem): PccPermissionGrant[] {
   return (input.permissions ?? []).filter(
     (permission) =>
-      permission.milestoneId === milestone.id ||
-      milestone.permissionGrantIds?.includes(permission.id),
+      permission.milestoneId === item.id || item.permissionGrantIds?.includes(permission.id),
   );
 }
 
@@ -180,48 +252,72 @@ function permissionIsGranted(permission: PccPermissionGrant): boolean {
   return true;
 }
 
-function metadataFlag(milestone: PccMilestone, key: string): boolean {
-  return metadataObject(milestone.metadata)[key] === true;
+function metadataFlag(item: WorkItem, key: string): boolean {
+  return metadataObject(item.metadata)[key] === true;
 }
 
-function metadataString(milestone: PccMilestone, key: string): string | null {
-  const value = metadataObject(milestone.metadata)[key];
+function metadataString(item: WorkItem, key: string): string | null {
+  const value = metadataObject(item.metadata)[key];
   return typeof value === "string" ? value : null;
 }
 
-function milestoneResponsibility(milestone: PccMilestone): string {
-  return metadataString(milestone, "pccResponsibility") ?? "local_openclaw_agent";
+function itemResponsibility(item: WorkItem): string {
+  return metadataString(item, "pccResponsibility") ?? "local_openclaw_agent";
 }
 
-function milestoneCostRisk(milestone: PccMilestone): string {
-  return metadataString(milestone, "pccCostRisk") ?? "low";
+function itemCostRisk(item: WorkItem): string {
+  return metadataString(item, "pccCostRisk") ?? "low";
 }
 
-function milestoneRequiresCodex(
-  permissions: readonly PccPermissionGrant[],
-  milestone: PccMilestone,
-): boolean {
+function itemRequiresCodex(permissions: readonly PccPermissionGrant[], item: WorkItem): boolean {
   return (
     permissions.some((permission) => CODEX_PERMISSION_TYPES.has(permission.type)) ||
-    CODEX_RESPONSIBILITIES.has(milestoneResponsibility(milestone)) ||
-    metadataFlag(milestone, "requiresCodex")
+    CODEX_RESPONSIBILITIES.has(itemResponsibility(item)) ||
+    metadataFlag(item, "requiresCodex")
   );
 }
 
-function milestoneRequiresRemoteProof(
+function itemRequiresRemoteProof(
   permissions: readonly PccPermissionGrant[],
-  milestone: PccMilestone,
+  item: WorkItem,
 ): boolean {
   return (
     permissions.some((permission) => REMOTE_PERMISSION_TYPES.has(permission.type)) ||
-    REMOTE_RESPONSIBILITIES.has(milestoneResponsibility(milestone)) ||
-    metadataFlag(milestone, "requiresRemoteProof")
+    REMOTE_RESPONSIBILITIES.has(itemResponsibility(item)) ||
+    metadataFlag(item, "requiresRemoteProof")
   );
+}
+
+function laneEnabled(settings: PccWorkLoopSettings, responsibility: string): boolean {
+  if (responsibility === "user") {
+    return settings.lanes.user;
+  }
+  if (responsibility === "local_model") {
+    return settings.lanes.localModel;
+  }
+  if (responsibility === "codex") {
+    return settings.lanes.codex;
+  }
+  if (responsibility === "high_reasoning_codex") {
+    return settings.lanes.highReasoningCodex;
+  }
+  if (responsibility === "remote_proof") {
+    return settings.lanes.remoteProof;
+  }
+  return settings.lanes.localOpenClawAgent;
+}
+
+function itemBlockerIds(item: WorkItem): { milestoneId: string; subMilestoneId?: string } {
+  if ("milestoneId" in item) {
+    return { milestoneId: item.milestoneId, subMilestoneId: item.id };
+  }
+  return { milestoneId: item.id };
 }
 
 export function classifyMilestoneBlocker(
   input: PccWorkLoopProject,
   milestone: PccMilestone | null,
+  subMilestone = selectNextEligibleSubMilestone(input, milestone),
 ): PccWorkLoopBlocker | null {
   const settings = getPccWorkLoopSettings(input.project);
   if (settings.state === "paused") {
@@ -249,41 +345,63 @@ export function classifyMilestoneBlocker(
       message: `${milestone.title} is ${milestone.status.replace(/_/g, " ")}.`,
     };
   }
-  const permissions = permissionsForMilestone(input, milestone);
+  const item: WorkItem = subMilestone ?? milestone;
+  if (item.status === "failed") {
+    return {
+      kind: "proof_failed",
+      ...itemBlockerIds(item),
+      message: `${item.title} is failed and needs review before automation continues.`,
+    };
+  }
+  if (HELD_STATUSES.has(item.status)) {
+    return {
+      kind: item.status === "needs_approval" ? "missing_permission" : "milestone_not_actionable",
+      ...itemBlockerIds(item),
+      message: `${item.title} is ${item.status.replace(/_/g, " ")}.`,
+    };
+  }
+  const permissions = permissionsForItem(input, item);
   const missingPermissions = permissions.filter((permission) => !permissionIsGranted(permission));
   if (missingPermissions.length > 0) {
     return {
       kind: "missing_permission",
-      milestoneId: milestone.id,
+      ...itemBlockerIds(item),
       permissionIds: missingPermissions.map((permission) => permission.id),
-      message: `Missing granted permission for ${milestone.title}.`,
+      message: `Missing granted permission for ${item.title}.`,
     };
   }
-  if (settings.stopBeforeCodex && milestoneRequiresCodex(permissions, milestone)) {
+  if (settings.stopBeforeCodex && itemRequiresCodex(permissions, item)) {
     return {
       kind: "codex_required",
-      milestoneId: milestone.id,
-      message: "This milestone requires Codex/high-reasoning work and Stop before Codex is on.",
+      ...itemBlockerIds(item),
+      message: "This work item requires Codex/high-reasoning work and Stop before Codex is on.",
     };
   }
-  if (settings.stopBeforeRemoteProof && milestoneRequiresRemoteProof(permissions, milestone)) {
+  if (settings.stopBeforeRemoteProof && itemRequiresRemoteProof(permissions, item)) {
     return {
       kind: "remote_proof_required",
-      milestoneId: milestone.id,
-      message: "This milestone requires remote proof and Stop before remote proof is on.",
+      ...itemBlockerIds(item),
+      message: "This work item requires remote proof and Stop before remote proof is on.",
     };
   }
-  if (!milestone.implementationPlan?.trim()) {
+  if (!laneEnabled(settings, itemResponsibility(item))) {
+    return {
+      kind: "lane_disabled",
+      ...itemBlockerIds(item),
+      message: `${itemResponsibility(item).replace(/_/g, " ")} lane is turned off.`,
+    };
+  }
+  if (!item.implementationPlan?.trim()) {
     return {
       kind: "missing_plan",
-      milestoneId: milestone.id,
+      ...itemBlockerIds(item),
       message: "Implementation plan is missing.",
     };
   }
-  if (!milestone.acceptanceCriteria?.some((entry) => entry.trim())) {
+  if (!item.acceptanceCriteria?.some((entry) => entry.trim())) {
     return {
       kind: "missing_acceptance_criteria",
-      milestoneId: milestone.id,
+      ...itemBlockerIds(item),
       message: "Acceptance criteria are missing.",
     };
   }
@@ -293,9 +411,11 @@ export function classifyMilestoneBlocker(
 export function buildMilestoneTaskPrompt(
   input: PccWorkLoopProject,
   milestone: PccMilestone,
+  subMilestone = selectNextEligibleSubMilestone(input, milestone),
 ): string {
-  const criteria = (milestone.acceptanceCriteria ?? []).map((entry) => `- ${entry}`).join("\n");
-  const permissions = permissionsForMilestone(input, milestone);
+  const item: WorkItem = subMilestone ?? milestone;
+  const criteria = (item.acceptanceCriteria ?? []).map((entry) => `- ${entry}`).join("\n");
+  const permissions = permissionsForItem(input, item);
   const permissionLines = permissions.length
     ? permissions
         .map(
@@ -303,17 +423,18 @@ export function buildMilestoneTaskPrompt(
             `- ${permission.type}: ${permission.status}; allowed=${permission.allowedActions.join(", ") || "none"}; forbidden=${permission.forbiddenActions?.join(", ") || "none"}`,
         )
         .join("\n")
-    : "- No milestone-specific permissions recorded.";
+    : "- No work-item-specific permissions recorded.";
   return [
     `Project: ${input.project.title}`,
     input.project.goal ? `Goal: ${input.project.goal}` : "Goal: Not recorded",
     `Milestone: ${milestone.title}`,
-    `Status: ${milestone.status}`,
-    `Responsible worker: ${milestoneResponsibility(milestone)}`,
-    `Token/cost risk: ${milestoneCostRisk(milestone)}`,
+    subMilestone ? `Sub-milestone: ${subMilestone.title}` : "Sub-milestone: None recorded",
+    `Status: ${item.status}`,
+    `Responsible worker: ${itemResponsibility(item)}`,
+    `Token/cost risk: ${itemCostRisk(item)}`,
     "",
     "Implementation plan:",
-    milestone.implementationPlan?.trim() || "Missing implementation plan.",
+    item.implementationPlan?.trim() || "Missing implementation plan.",
     "",
     "Acceptance criteria:",
     criteria || "- Missing acceptance criteria.",
@@ -321,13 +442,14 @@ export function buildMilestoneTaskPrompt(
     "Permission scope:",
     permissionLines,
     "",
-    "Completion rule: do not mark this milestone complete until every acceptance criterion has proof and a completion receipt is recorded.",
+    "Completion rule: do not mark this work item complete until every acceptance criterion has proof and a completion receipt is recorded on the parent milestone.",
   ].join("\n");
 }
 
 export function getPccWorkLoopNext(input: PccWorkLoopProject): PccWorkLoopNext {
   const milestone = selectNextEligibleMilestone(input);
-  const blocker = classifyMilestoneBlocker(input, milestone);
+  const subMilestone = selectNextEligibleSubMilestone(input, milestone);
+  const blocker = classifyMilestoneBlocker(input, milestone, subMilestone);
   if (blocker) {
     const state: PccWorkLoopState =
       blocker.kind === "missing_permission"
@@ -341,12 +463,13 @@ export function getPccWorkLoopNext(input: PccWorkLoopProject): PccWorkLoopNext {
               : blocker.kind === "project_complete"
                 ? "complete"
                 : "blocked";
-    return { milestone, blocker, taskPrompt: null, state };
+    return { milestone, subMilestone, blocker, taskPrompt: null, state };
   }
   return {
     milestone,
+    subMilestone,
     blocker: null,
-    taskPrompt: milestone ? buildMilestoneTaskPrompt(input, milestone) : null,
+    taskPrompt: milestone ? buildMilestoneTaskPrompt(input, milestone, subMilestone) : null,
     state: milestone ? "working" : "complete",
   };
 }

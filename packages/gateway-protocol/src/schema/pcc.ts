@@ -147,6 +147,30 @@ export const PccMilestoneSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const PccSubMilestoneSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    projectId: NonEmptyString,
+    milestoneId: NonEmptyString,
+    title: NonEmptyString,
+    status: PccStatusSchema,
+    order: Type.Optional(Type.Integer({ minimum: 0 })),
+    owner: Type.Optional(Type.String({ maxLength: 512 })),
+    percentComplete: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+    dependsOn: Type.Optional(IdListSchema),
+    requiredEvidenceIds: Type.Optional(IdListSchema),
+    receiptIds: Type.Optional(IdListSchema),
+    permissionGrantIds: Type.Optional(IdListSchema),
+    blocker: Type.Optional(Type.String({ maxLength: 10_000 })),
+    implementationPlan: Type.Optional(Type.String({ maxLength: 200_000 })),
+    acceptanceCriteria: Type.Optional(StringListSchema),
+    createdAt: TimestampSchema,
+    updatedAt: TimestampSchema,
+    metadata: Type.Optional(MetadataSchema),
+  },
+  { additionalProperties: false },
+);
+
 export const PccPermissionAuditEntrySchema = Type.Object(
   {
     at: TimestampSchema,
@@ -296,6 +320,7 @@ export const PccProjectsGetResultSchema = Type.Object(
   {
     project: PccProjectSchema,
     milestones: Type.Array(PccMilestoneSchema),
+    subMilestones: Type.Optional(Type.Array(PccSubMilestoneSchema)),
     permissions: Type.Array(PccPermissionGrantSchema),
     evidence: Type.Array(PccEvidenceSchema),
     receipts: Type.Array(PccCompletionReceiptSchema),
@@ -361,6 +386,57 @@ export const PccMilestonesUpsertParamsSchema = Type.Object(
 
 export const PccMilestonesUpsertResultSchema = Type.Object(
   {
+    milestone: PccMilestoneSchema,
+    summary: PccProjectSummarySchema,
+  },
+  { additionalProperties: false },
+);
+
+export const PccSubMilestonesListParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    milestoneId: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const PccSubMilestonesListResultSchema = Type.Object(
+  {
+    subMilestones: Type.Array(PccSubMilestoneSchema, { maxItems: 5_000 }),
+  },
+  { additionalProperties: false },
+);
+
+export const PccSubMilestonesUpsertParamsSchema = Type.Object(
+  {
+    subMilestone: Type.Object(
+      {
+        id: Type.Optional(NonEmptyString),
+        projectId: NonEmptyString,
+        milestoneId: NonEmptyString,
+        title: NonEmptyString,
+        status: Type.Optional(PccStatusSchema),
+        order: Type.Optional(Type.Integer({ minimum: 0 })),
+        owner: Type.Optional(Type.String({ maxLength: 512 })),
+        percentComplete: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+        dependsOn: Type.Optional(IdListSchema),
+        requiredEvidenceIds: Type.Optional(IdListSchema),
+        receiptIds: Type.Optional(IdListSchema),
+        permissionGrantIds: Type.Optional(IdListSchema),
+        blocker: Type.Optional(Type.String({ maxLength: 10_000 })),
+        implementationPlan: Type.Optional(Type.String({ maxLength: 200_000 })),
+        acceptanceCriteria: Type.Optional(StringListSchema),
+        metadata: Type.Optional(MetadataSchema),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const PccSubMilestonesUpsertResultSchema = Type.Object(
+  {
+    subMilestone: PccSubMilestoneSchema,
     milestone: PccMilestoneSchema,
     summary: PccProjectSummarySchema,
   },
@@ -460,7 +536,6 @@ export const PccReceiptsAddResultSchema = Type.Object(
   },
   { additionalProperties: false },
 );
-
 
 export const PccLastKnownGoodUpsertParamsSchema = Type.Object(
   {

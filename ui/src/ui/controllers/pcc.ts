@@ -11,6 +11,7 @@ import type {
   PccCompletionReceipt,
   PccEvidence,
   PccMilestone,
+  PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
   PccPortfolioSummary,
@@ -22,6 +23,7 @@ import type {
 export type PccProjectDetail = {
   project: PccProject;
   milestones: PccMilestone[];
+  subMilestones?: PccSubMilestone[];
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
@@ -90,6 +92,7 @@ type PccSummaryGetResult = {
 type PccProjectsGetResult = {
   project: PccProject;
   milestones: PccMilestone[];
+  subMilestones?: PccSubMilestone[];
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
@@ -319,6 +322,9 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     state.pccProjectDetail = {
       project: detail.project,
       milestones: detail.milestones.toSorted(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
+      ),
+      subMilestones: (detail.subMilestones ?? []).toSorted(
         (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title),
       ),
       permissions: detail.permissions ?? [],
@@ -668,6 +674,7 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
     const next = getPccWorkLoopNext({
       project: detail.project,
       milestones: detail.milestones,
+      subMilestones: detail.subMilestones,
       permissions: detail.permissions,
       receipts: detail.receipts,
     });
@@ -677,6 +684,7 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
         enabled: true,
         state: next.state,
         activeMilestoneId: next.milestone?.id,
+        activeSubMilestoneId: next.subMilestone?.id,
         lastLoopMessage:
           next.blocker?.message ?? next.taskPrompt ?? "Ready to work this milestone.",
       },
@@ -685,7 +693,14 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
     await state.client.request("pcc.projects.upsert", {
       project: projectUpsertPayload(updatedProject),
     });
-    if (next.milestone && !next.blocker && next.milestone.status !== "in_progress") {
+    if (next.subMilestone && !next.blocker && next.subMilestone.status !== "in_progress") {
+      await state.client.request("pcc.subMilestones.upsert", {
+        subMilestone: {
+          ...next.subMilestone,
+          status: "in_progress",
+        },
+      });
+    } else if (next.milestone && !next.blocker && next.milestone.status !== "in_progress") {
       await state.client.request("pcc.milestones.upsert", {
         milestone: {
           ...next.milestone,

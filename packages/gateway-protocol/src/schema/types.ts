@@ -118,7 +118,6 @@ export type TasksGetResult = SchemaType<"TasksGetResult">;
 export type TasksCancelParams = SchemaType<"TasksCancelParams">;
 export type TasksCancelResult = SchemaType<"TasksCancelResult">;
 
-
 /** Project Command Center project, milestone, permission, evidence, and receipt payloads. */
 export type PccStatus = SchemaType<"PccStatus">;
 export type PccProofLevel = SchemaType<"PccProofLevel">;
@@ -130,6 +129,7 @@ export type PccEvidenceStatus = SchemaType<"PccEvidenceStatus">;
 export type PccPhase = SchemaType<"PccPhase">;
 export type PccProject = SchemaType<"PccProject">;
 export type PccMilestone = SchemaType<"PccMilestone">;
+export type PccSubMilestone = SchemaType<"PccSubMilestone">;
 export type PccPermissionGrant = SchemaType<"PccPermissionGrant">;
 export type PccEvidence = SchemaType<"PccEvidence">;
 export type PccCompletionReceipt = SchemaType<"PccCompletionReceipt">;
@@ -146,6 +146,10 @@ export type PccProjectsUpsertParams = SchemaType<"PccProjectsUpsertParams">;
 export type PccProjectsUpsertResult = SchemaType<"PccProjectsUpsertResult">;
 export type PccMilestonesUpsertParams = SchemaType<"PccMilestonesUpsertParams">;
 export type PccMilestonesUpsertResult = SchemaType<"PccMilestonesUpsertResult">;
+export type PccSubMilestonesListParams = SchemaType<"PccSubMilestonesListParams">;
+export type PccSubMilestonesListResult = SchemaType<"PccSubMilestonesListResult">;
+export type PccSubMilestonesUpsertParams = SchemaType<"PccSubMilestonesUpsertParams">;
+export type PccSubMilestonesUpsertResult = SchemaType<"PccSubMilestonesUpsertResult">;
 export type PccPermissionsUpsertParams = SchemaType<"PccPermissionsUpsertParams">;
 export type PccPermissionsUpsertResult = SchemaType<"PccPermissionsUpsertResult">;
 export type PccEvidenceAddParams = SchemaType<"PccEvidenceAddParams">;

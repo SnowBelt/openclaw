@@ -220,6 +220,107 @@ describe("Project Command Center gateway methods", () => {
     expect(receiptPayload.summary.percentComplete).toBe(100);
   });
 
+  it("stores sub-milestones and gates parent completion on their proof state", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Sub-milestone project" } }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Parent milestone",
+          status: "in_progress",
+          implementationPlan: "Execute the child checklist.",
+          acceptanceCriteria: ["Every child step is complete"],
+        },
+      }),
+    );
+
+    const { subMilestone } = okPayload<{
+      subMilestone: { id: string; title: string };
+      summary: { percentComplete: number };
+    }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          title: "Run local test",
+          status: "in_progress",
+          order: 1,
+          owner: "local_openclaw_agent",
+          percentComplete: 50,
+          implementationPlan: "Run pnpm test for the touched PCC files.",
+          acceptanceCriteria: ["Test exits 0"],
+          metadata: { proofRequired: "targeted local test" },
+        },
+      }),
+    );
+
+    expect(subMilestone.title).toBe("Run local test");
+    const detail = okPayload<{ subMilestones: Array<{ id: string }> }>(
+      await invoke("pcc.projects.get", { projectId: project.id }),
+    );
+    expect(detail.subMilestones.map((item) => item.id)).toEqual([subMilestone.id]);
+
+    const listed = okPayload<{ subMilestones: Array<{ id: string }> }>(
+      await invoke("pcc.subMilestones.list", { projectId: project.id, milestoneId: milestone.id }),
+    );
+    expect(listed.subMilestones).toHaveLength(1);
+
+    const blocked = await invoke("pcc.milestones.upsert", {
+      milestone: {
+        id: milestone.id,
+        projectId: project.id,
+        title: "Parent milestone",
+        status: "complete",
+      },
+    });
+    expect(errorMessage(blocked)).toContain("sub-milestone");
+
+    await invoke("pcc.subMilestones.upsert", {
+      subMilestone: {
+        id: subMilestone.id,
+        projectId: project.id,
+        milestoneId: milestone.id,
+        title: "Run local test",
+        status: "complete",
+        percentComplete: 100,
+        receiptIds: ["receipt-child"],
+        implementationPlan: "Run pnpm test for the touched PCC files.",
+        acceptanceCriteria: ["Test exits 0"],
+      },
+    });
+    const { evidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "passed",
+          command: "pnpm test src/gateway/server-methods/pcc.test.ts",
+          exitCode: 0,
+        },
+      }),
+    );
+    const receiptPayload = okPayload<{
+      milestone: { status: string; percentComplete: number };
+      summary: { percentComplete: number };
+    }>(
+      await invoke("pcc.receipts.add", {
+        receipt: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          summary: "Parent milestone completed after child proof.",
+          proofEvidenceIds: [evidence.id],
+          proofLevel: "local",
+        },
+      }),
+    );
+    expect(receiptPayload.milestone.status).toBe("complete");
+    expect(receiptPayload.milestone.percentComplete).toBe(100);
+    expect(receiptPayload.summary.percentComplete).toBe(100);
+  });
+
   it("records permission grants and last-known-good receipts close to the project", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Production dashboard" } }),

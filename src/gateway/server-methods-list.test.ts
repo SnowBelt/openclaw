@@ -56,6 +56,8 @@ describe("listGatewayMethods", () => {
     expect(methods).toContain("pcc.projects.list");
     expect(methods).toContain("pcc.projects.upsert");
     expect(methods).toContain("pcc.milestones.upsert");
+    expect(methods).toContain("pcc.subMilestones.list");
+    expect(methods).toContain("pcc.subMilestones.upsert");
     expect(methods).toContain("pcc.permissions.upsert");
     expect(methods).toContain("pcc.receipts.add");
     expect(methods).toContain("pcc.lastKnownGood.upsert");

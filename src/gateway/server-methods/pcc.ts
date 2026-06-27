@@ -11,6 +11,7 @@ import {
   type PccEvidence,
   type PccLastKnownGood,
   type PccMilestone,
+  type PccSubMilestone,
   type PccPermissionGrant,
   type PccPortfolioSummary,
   type PccProject,
@@ -19,6 +20,8 @@ import {
   validatePccEvidenceAddParams,
   validatePccLastKnownGoodUpsertParams,
   validatePccMilestonesUpsertParams,
+  validatePccSubMilestonesListParams,
+  validatePccSubMilestonesUpsertParams,
   validatePccPermissionsUpsertParams,
   validatePccProjectsGetParams,
   validatePccProjectsListParams,
@@ -32,6 +35,7 @@ type PccLedger = {
   version: 1;
   projects: PccProject[];
   milestones: PccMilestone[];
+  subMilestones: PccSubMilestone[];
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
@@ -97,6 +101,7 @@ function defaultLedger(): PccLedger {
     version: PCC_LEDGER_VERSION,
     projects: [],
     milestones: [],
+    subMilestones: [],
     permissions: [],
     evidence: [],
     receipts: [],
@@ -121,6 +126,9 @@ function assertLedger(value: unknown): PccLedger {
     version: PCC_LEDGER_VERSION,
     projects: Array.isArray(raw.projects) ? raw.projects : [],
     milestones: Array.isArray(raw.milestones) ? raw.milestones : [],
+    subMilestones: Array.isArray((raw as { subMilestones?: unknown }).subMilestones)
+      ? ((raw as { subMilestones?: PccSubMilestone[] }).subMilestones ?? [])
+      : [],
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     evidence: Array.isArray(raw.evidence) ? raw.evidence : [],
     receipts: Array.isArray(raw.receipts) ? raw.receipts : [],
@@ -158,12 +166,43 @@ function hasReceipt(ledger: PccLedger, milestoneId: string): boolean {
   return ledger.receipts.some((receipt) => receipt.milestoneId === milestoneId);
 }
 
+function subMilestonesForMilestone(ledger: PccLedger, milestoneId: string): PccSubMilestone[] {
+  return ledger.subMilestones.filter((subMilestone) => subMilestone.milestoneId === milestoneId);
+}
+
+function subMilestonePercent(subMilestone: PccSubMilestone): number {
+  if (SKIPPED_STATUSES.has(subMilestone.status)) {
+    return 0;
+  }
+  if (COMPLETE_STATUSES.has(subMilestone.status)) {
+    return 100;
+  }
+  if (typeof subMilestone.percentComplete === "number") {
+    return Math.max(0, Math.min(99, subMilestone.percentComplete));
+  }
+  return PARTIAL_STATUS_PERCENT[subMilestone.status] ?? 0;
+}
+
+function subMilestonesCompleteForMilestone(ledger: PccLedger, milestoneId: string): boolean {
+  const items = subMilestonesForMilestone(ledger, milestoneId).filter(
+    (subMilestone) => !SKIPPED_STATUSES.has(subMilestone.status),
+  );
+  return items.every((subMilestone) => COMPLETE_STATUSES.has(subMilestone.status));
+}
+
 function milestonePercent(ledger: PccLedger, milestone: PccMilestone): number {
   if (SKIPPED_STATUSES.has(milestone.status)) {
     return 0;
   }
   if (COMPLETE_STATUSES.has(milestone.status) && hasReceipt(ledger, milestone.id)) {
     return 100;
+  }
+  const subMilestones = subMilestonesForMilestone(ledger, milestone.id);
+  if (subMilestones.length > 0) {
+    return Math.round(
+      subMilestones.reduce((total, subMilestone) => total + subMilestonePercent(subMilestone), 0) /
+        subMilestones.length,
+    );
   }
   if (typeof milestone.percentComplete === "number") {
     return Math.max(0, Math.min(99, milestone.percentComplete));
@@ -258,11 +297,20 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     .slice(0, 10)
     .map((milestone) => `${milestone.title}: ${milestone.blocker || milestone.status}`);
   const proofGaps = milestones
-    .filter(
-      (milestone) => COMPLETE_STATUSES.has(milestone.status) && !hasReceipt(ledger, milestone.id),
-    )
-    .slice(0, 20)
-    .map((milestone) => `Completion receipt missing for ${milestone.title}`);
+    .flatMap((milestone) => {
+      const gaps: string[] = [];
+      if (COMPLETE_STATUSES.has(milestone.status) && !hasReceipt(ledger, milestone.id)) {
+        gaps.push(`Completion receipt missing for ${milestone.title}`);
+      }
+      if (
+        COMPLETE_STATUSES.has(milestone.status) &&
+        !subMilestonesCompleteForMilestone(ledger, milestone.id)
+      ) {
+        gaps.push(`Incomplete sub-milestones remain for ${milestone.title}`);
+      }
+      return gaps;
+    })
+    .slice(0, 20);
   return {
     id: project.id,
     title: project.title,
@@ -303,6 +351,10 @@ function projectOrError(ledger: PccLedger, projectId: string): PccProject | null
 
 function milestoneOrError(ledger: PccLedger, milestoneId: string): PccMilestone | null {
   return ledger.milestones.find((milestone) => milestone.id === milestoneId) ?? null;
+}
+
+function subMilestoneOrError(ledger: PccLedger, subMilestoneId: string): PccSubMilestone | null {
+  return ledger.subMilestones.find((subMilestone) => subMilestone.id === subMilestoneId) ?? null;
 }
 
 function setAt<T extends { id: string }>(items: T[], item: T): T {
@@ -400,6 +452,9 @@ function ensureMilestoneCanBeComplete(
 ): string | null {
   if (!COMPLETE_STATUSES.has(status)) {
     return null;
+  }
+  if (!subMilestonesCompleteForMilestone(ledger, milestoneId)) {
+    return "complete milestone status requires every non-skipped sub-milestone to be complete";
   }
   if ((receiptIds && receiptIds.length > 0) || hasReceipt(ledger, milestoneId)) {
     return null;
@@ -507,10 +562,113 @@ function upsertMilestone(
   return { milestone: setAt(ledger.milestones, milestone) };
 }
 
+function upsertSubMilestone(
+  ledger: PccLedger,
+  input: {
+    id?: string;
+    projectId: string;
+    milestoneId: string;
+    title: string;
+    status?: PccStatus;
+    order?: number;
+    owner?: string;
+    percentComplete?: number;
+    dependsOn?: string[];
+    requiredEvidenceIds?: string[];
+    receiptIds?: string[];
+    permissionGrantIds?: string[];
+    blocker?: string;
+    implementationPlan?: string;
+    acceptanceCriteria?: string[];
+    metadata?: PccSubMilestone["metadata"];
+  },
+): { subMilestone?: PccSubMilestone; milestone?: PccMilestone; error?: string } {
+  if (!projectOrError(ledger, input.projectId)) {
+    return { error: `project not found: ${input.projectId}` };
+  }
+  const milestone = milestoneOrError(ledger, input.milestoneId);
+  if (!milestone || milestone.projectId !== input.projectId) {
+    return { error: `milestone not found: ${input.milestoneId}` };
+  }
+  const existing = input.id ? subMilestoneOrError(ledger, input.id) : null;
+  const timestamp = nowIso();
+  const id = existing?.id ?? input.id ?? makeId("submilestone", input.title);
+  const status = input.status ?? existing?.status ?? "not_started";
+  const subMilestone: PccSubMilestone = {
+    id,
+    projectId: input.projectId,
+    milestoneId: input.milestoneId,
+    title: input.title,
+    status,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+    ...(input.order !== undefined
+      ? { order: input.order }
+      : existing?.order !== undefined
+        ? { order: existing.order }
+        : {}),
+    ...(input.owner !== undefined
+      ? { owner: input.owner }
+      : existing?.owner !== undefined
+        ? { owner: existing.owner }
+        : {}),
+    ...(input.percentComplete !== undefined
+      ? { percentComplete: input.percentComplete }
+      : existing?.percentComplete !== undefined
+        ? { percentComplete: existing.percentComplete }
+        : {}),
+    ...(input.dependsOn !== undefined
+      ? { dependsOn: input.dependsOn }
+      : existing?.dependsOn !== undefined
+        ? { dependsOn: existing.dependsOn }
+        : {}),
+    ...(input.requiredEvidenceIds !== undefined
+      ? { requiredEvidenceIds: input.requiredEvidenceIds }
+      : existing?.requiredEvidenceIds !== undefined
+        ? { requiredEvidenceIds: existing.requiredEvidenceIds }
+        : {}),
+    ...(input.receiptIds !== undefined
+      ? { receiptIds: input.receiptIds }
+      : existing?.receiptIds !== undefined
+        ? { receiptIds: existing.receiptIds }
+        : {}),
+    ...(input.permissionGrantIds !== undefined
+      ? { permissionGrantIds: input.permissionGrantIds }
+      : existing?.permissionGrantIds !== undefined
+        ? { permissionGrantIds: existing.permissionGrantIds }
+        : {}),
+    ...(input.blocker !== undefined
+      ? { blocker: input.blocker }
+      : existing?.blocker !== undefined
+        ? { blocker: existing.blocker }
+        : {}),
+    ...(input.implementationPlan !== undefined
+      ? { implementationPlan: input.implementationPlan }
+      : existing?.implementationPlan !== undefined
+        ? { implementationPlan: existing.implementationPlan }
+        : {}),
+    ...(input.acceptanceCriteria !== undefined
+      ? { acceptanceCriteria: input.acceptanceCriteria }
+      : existing?.acceptanceCriteria !== undefined
+        ? { acceptanceCriteria: existing.acceptanceCriteria }
+        : {}),
+    ...(input.metadata !== undefined
+      ? { metadata: input.metadata }
+      : existing?.metadata !== undefined
+        ? { metadata: existing.metadata }
+        : {}),
+  };
+  setAt(ledger.subMilestones, subMilestone);
+  return { subMilestone, milestone };
+}
+
 function responseForProject(ledger: PccLedger, project: PccProject) {
   return {
     project,
     milestones: ledger.milestones.filter((milestone) => milestone.projectId === project.id),
+    subMilestones: ledger.subMilestones.filter(
+      (subMilestone) => subMilestone.projectId === project.id,
+    ),
     permissions: ledger.permissions.filter((permission) => permission.projectId === project.id),
     evidence: ledger.evidence.filter((evidence) => evidence.projectId === project.id),
     receipts: ledger.receipts.filter((receipt) => receipt.projectId === project.id),
@@ -587,6 +745,71 @@ export const pccHandlers: GatewayRequestHandlers = {
             return { error: `project not found: ${upsert.milestone.projectId}` };
           }
           return {
+            milestone: upsert.milestone,
+            summary: summarizeProject(ledger, project),
+          };
+        },
+        { write: true },
+      );
+      if ("error" in result) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, result.error ?? "PCC request failed"),
+        );
+        return;
+      }
+      respond(true, result);
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.subMilestones.list": ({ params, respond }) => {
+    if (!validatePccSubMilestonesListParams(params)) {
+      respondInvalid(respond, "pcc.subMilestones.list", validatePccSubMilestonesListParams.errors);
+      return;
+    }
+    try {
+      const ledger = readLedger();
+      if (!projectOrError(ledger, params.projectId)) {
+        respondNotFound(respond, `project ${params.projectId}`);
+        return;
+      }
+      respond(true, {
+        subMilestones: ledger.subMilestones
+          .filter((subMilestone) => subMilestone.projectId === params.projectId)
+          .filter(
+            (subMilestone) =>
+              !params.milestoneId || subMilestone.milestoneId === params.milestoneId,
+          )
+          .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title)),
+      });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.subMilestones.upsert": ({ params, respond }) => {
+    if (!validatePccSubMilestonesUpsertParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.subMilestones.upsert",
+        validatePccSubMilestonesUpsertParams.errors,
+      );
+      return;
+    }
+    try {
+      const result = withLedger(
+        (ledger) => {
+          const upsert = upsertSubMilestone(ledger, params.subMilestone);
+          if (upsert.error || !upsert.subMilestone || !upsert.milestone) {
+            return { error: upsert.error ?? "sub-milestone upsert failed" };
+          }
+          const project = projectOrError(ledger, upsert.subMilestone.projectId);
+          if (!project) {
+            return { error: `project not found: ${upsert.subMilestone.projectId}` };
+          }
+          return {
+            subMilestone: upsert.subMilestone,
             milestone: upsert.milestone,
             summary: summarizeProject(ledger, project),
           };

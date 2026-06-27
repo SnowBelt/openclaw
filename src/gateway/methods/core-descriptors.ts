@@ -101,6 +101,8 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "pcc.projects.get", scope: "operator.read" },
   { name: "pcc.projects.upsert", scope: "operator.write" },
   { name: "pcc.milestones.upsert", scope: "operator.write" },
+  { name: "pcc.subMilestones.list", scope: "operator.read" },
+  { name: "pcc.subMilestones.upsert", scope: "operator.write" },
   { name: "pcc.permissions.upsert", scope: "operator.approvals" },
   { name: "pcc.evidence.add", scope: "operator.write" },
   { name: "pcc.receipts.add", scope: "operator.write" },

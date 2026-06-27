@@ -446,6 +446,8 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "pcc.projects.get",
       "pcc.projects.upsert",
       "pcc.milestones.upsert",
+      "pcc.subMilestones.list",
+      "pcc.subMilestones.upsert",
       "pcc.permissions.upsert",
       "pcc.evidence.add",
       "pcc.receipts.add",
