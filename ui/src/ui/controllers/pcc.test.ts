@@ -18,6 +18,7 @@ import {
   updatePccWorkLoopSettings,
   preparePccNextWorkItem,
   updatePccChatSyncText,
+  updatePccViewMode,
   type PccDashboardState,
 } from "./pcc.ts";
 
@@ -41,6 +42,7 @@ function createState(overrides: Partial<PccDashboardState> = {}): PccDashboardSt
     pccChatSyncText: "",
     pccChatSyncProposals: [],
     pccChatSyncError: null,
+    pccViewMode: "simple",
     ...overrides,
   };
 }
@@ -763,5 +765,14 @@ describe("PCC CRUD controller", () => {
     expect(state.pccChatSyncText).toBe("");
     expect(state.pccChatSyncProposals).toHaveLength(0);
     expect(state.pccChatSyncError).toBeNull();
+  });
+  it("updates PCC view mode", () => {
+    const requestUpdate = vi.fn();
+    const state = createState({ requestUpdate });
+
+    updatePccViewMode(state, "agent");
+
+    expect(state.pccViewMode).toBe("agent");
+    expect(requestUpdate).toHaveBeenCalledTimes(1);
   });
 });

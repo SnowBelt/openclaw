@@ -1294,3 +1294,79 @@
     grid-template-columns: 1fr;
   }
 }
+
+.pcc-view-mode {
+  align-items: stretch;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 18px;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 6px;
+  width: min(520px, 100%);
+}
+
+.pcc-view-mode__option {
+  background: transparent;
+  border: 0;
+  border-radius: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  min-height: 48px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.pcc-view-mode__option strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.pcc-view-mode__option span {
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.pcc-view-mode__option.is-active {
+  background: color-mix(in srgb, var(--panel) 92%, white 8%);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--shadow) 10%, transparent);
+  color: var(--text);
+}
+
+.pcc-current-truth__button {
+  cursor: pointer;
+  outline: none;
+}
+
+.pcc-current-truth__button:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.pcc-simple-hint,
+.pcc-agent-panel {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 18px;
+  color: var(--muted);
+  margin: 0;
+  padding: 14px 16px;
+}
+
+.pcc-agent-panel h4,
+.pcc-agent-panel p {
+  margin: 0;
+}
+
+.pcc-agent-panel {
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .pcc-view-mode {
+    grid-template-columns: 1fr;
+  }
+}

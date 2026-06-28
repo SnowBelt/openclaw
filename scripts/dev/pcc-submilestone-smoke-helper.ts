@@ -14,7 +14,8 @@ export type PccSubMilestoneSmokeMode =
   | "production-truth"
   | "resource-governor"
   | "project-manager-intake"
-  | "stop-rules";
+  | "stop-rules"
+  | "phase1-skimmability";
 
 function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -188,6 +189,8 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
         chatSyncText: "",
         chatSyncProposals: [],
         chatSyncError: null,
+        viewMode: "agent",
+        onSetViewMode: () => undefined,
         onRefresh: () => undefined,
         onSelectProject: () => undefined,
         onOpenProjectEditor: () => undefined,
@@ -239,7 +242,7 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       nextSafeAction:
         root.querySelectorAll("[data-pcc-next-safe-action]").length === 1 &&
         text.includes("Next Safe Action") &&
-        text.includes("Start next safe action"),
+        text.includes("Start"),
       stopHere:
         root.querySelectorAll("[data-pcc-stop-here]").length > 0 &&
         text.includes("Stop point") &&
@@ -257,6 +260,13 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
         text.includes("Stop before destructive actions") &&
         text.includes("Stop before Codex"),
       detailDrawers: root.querySelectorAll(".pcc-detail-drawer").length >= 3,
+      viewMode:
+        root.querySelectorAll("[data-pcc-view-mode]").length === 1 &&
+        text.includes("Simple") &&
+        text.includes("Detailed") &&
+        text.includes("Agent") &&
+        root.querySelectorAll("[data-pcc-agent-mode]").length === 1,
+      currentTruthNeedsYou: text.includes("Needs you") && text.includes("Proof missing"),
     };
     const modeChecks = {
       submilestones: checks.subMilestones && checks.currentTruth,
@@ -270,6 +280,13 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       "resource-governor": checks.resourceGovernor,
       "project-manager-intake": checks.productionTruth && checks.resourceGovernor,
       "stop-rules": checks.stopRules && checks.stopHere,
+      "phase1-skimmability":
+        checks.viewMode &&
+        checks.today &&
+        checks.nextSafeAction &&
+        checks.currentTruth &&
+        checks.currentTruthNeedsYou &&
+        checks.detailDrawers,
     } satisfies Record<PccSubMilestoneSmokeMode, boolean>;
     const summaryOut = {
       artifactDir,

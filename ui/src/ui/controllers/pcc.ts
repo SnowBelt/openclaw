@@ -41,6 +41,8 @@ export type PccEditorMode =
   | "edit-milestone"
   | null;
 
+export type PccViewMode = "simple" | "detailed" | "agent";
+
 export type PccProjectFormState = {
   id: string | null;
   title: string;
@@ -89,6 +91,7 @@ export type PccDashboardState = {
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
+  pccViewMode: PccViewMode;
   requestUpdate?: () => void;
 };
 
@@ -409,6 +412,11 @@ export function openPccMilestoneEditor(state: PccDashboardState, milestone?: Pcc
 export function cancelPccEditor(state: PccDashboardState): void {
   state.pccEditorMode = null;
   state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function updatePccViewMode(state: PccDashboardState, mode: PccViewMode): void {
+  state.pccViewMode = mode;
   state.requestUpdate?.();
 }
 

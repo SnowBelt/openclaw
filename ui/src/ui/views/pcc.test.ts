@@ -141,6 +141,8 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     chatSyncText: "",
     chatSyncProposals: [],
     chatSyncError: null,
+    viewMode: "detailed",
+    onSetViewMode: () => undefined,
     onRefresh: () => undefined,
     onSelectProject: () => undefined,
     onOpenProjectEditor: () => undefined,
@@ -201,6 +203,25 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-production-truth]")).not.toBeNull();
     expect(text).toContain("Production truth");
     expect(text).toContain("PCC remote Workflow Sanity proof missing");
+  });
+
+  it("renders Simple, Detailed, and Agent view controls", () => {
+    const onSetViewMode = vi.fn();
+    const simple = renderView(createProps({ viewMode: "simple", onSetViewMode }));
+
+    expect(simple.querySelector('[data-pcc-view-mode="simple"]')).not.toBeNull();
+    expect(simple.textContent).toContain("Simple");
+    expect(simple.textContent).toContain("Detailed");
+    expect(simple.textContent).toContain("Agent");
+    expect(simple.textContent).toContain("Switch to Detailed or Agent");
+    expect(simple.querySelector("[data-pcc-production-truth]")).toBeNull();
+
+    simple.querySelector<HTMLButtonElement>('[data-pcc-view-mode-option="agent"]')?.click();
+    expect(onSetViewMode).toHaveBeenCalledWith("agent");
+
+    const agent = renderView(createProps({ viewMode: "agent" }));
+    expect(agent.querySelector("[data-pcc-agent-mode]")).not.toBeNull();
+    expect(agent.textContent).toContain("Low-reasoning execution details");
   });
 
   it("renders an empty state", () => {

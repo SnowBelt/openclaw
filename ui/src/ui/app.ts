@@ -225,6 +225,7 @@ import {
   type PccMilestoneFormState,
   type PccProjectDetail,
   type PccProjectFormState,
+  type PccViewMode,
 } from "./controllers/pcc.ts";
 import {
   loadSkillWorkshopProposals,
@@ -461,6 +462,7 @@ export class OpenClawApp extends LitElement {
   @state() pccChatSyncText = "";
   @state() pccChatSyncProposals: PccChatSyncProposal[] = [];
   @state() pccChatSyncError: string | null = null;
+  @state() pccViewMode: PccViewMode = "simple";
   private sessionSwitchNoticeSeq = 0;
   private sessionSwitchNoticeTimer: number | null = null;
   private sessionSwitchFlashTimer: number | null = null;

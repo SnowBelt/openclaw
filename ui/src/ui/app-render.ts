@@ -154,6 +154,7 @@ import {
   updatePccChatSyncText,
   updatePccMilestoneForm,
   updatePccProjectForm,
+  updatePccViewMode,
 } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
@@ -2813,6 +2814,8 @@ export function renderApp(state: AppViewState) {
                 chatSyncText: state.pccChatSyncText,
                 chatSyncProposals: state.pccChatSyncProposals,
                 chatSyncError: state.pccChatSyncError,
+                viewMode: state.pccViewMode,
+                onSetViewMode: (mode) => updatePccViewMode(state, mode),
                 onRefresh: () => void loadPccDashboard(state),
                 onSelectProject: (projectId) => void selectPccProject(state, projectId),
                 onOpenProjectEditor: (project) => openPccProjectEditor(state, project),

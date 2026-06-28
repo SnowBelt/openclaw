@@ -14,6 +14,7 @@ import type {
   PccMilestoneFormState,
   PccProjectDetail,
   PccProjectFormState,
+  PccViewMode,
 } from "../controllers/pcc.ts";
 import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
@@ -47,6 +48,8 @@ export type PccDashboardProps = {
   chatSyncText: string;
   chatSyncProposals: PccChatSyncProposal[];
   chatSyncError: string | null;
+  viewMode?: PccViewMode;
+  onSetViewMode?: (mode: PccViewMode) => void;
   onRefresh: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenProjectEditor: (project?: PccProject) => void;
@@ -170,6 +173,58 @@ function renderMetric(label: string, value: string | number) {
       <span class="pcc-metric__label">${label}</span>
     </article>
   `;
+}
+
+function pccViewMode(props: PccDashboardProps): PccViewMode {
+  return props.viewMode ?? "simple";
+}
+
+function renderViewModeSwitcher(props: PccDashboardProps) {
+  const mode = pccViewMode(props);
+  const options: Array<[PccViewMode, string, string]> = [
+    ["simple", "Simple", "Skim what matters now."],
+    ["detailed", "Detailed", "Show milestones, receipts, and proof."],
+    ["agent", "Agent", "Show execution plans and handoff details."],
+  ];
+  return html`<div class="pcc-view-mode" data-pcc-view-mode=${mode} aria-label="PCC view mode">
+    ${options.map(
+      ([value, label, title]) => html`<button
+        class="pcc-view-mode__option ${mode === value ? "is-active" : ""}"
+        type="button"
+        title=${title}
+        aria-pressed=${mode === value}
+        data-pcc-view-mode-option=${value}
+        @click=${() => props.onSetViewMode?.(value)}
+      >
+        <strong>${label}</strong>
+        <span>${title}</span>
+      </button>`,
+    )}
+  </div>`;
+}
+
+function scrollPccDetailIntoView(): void {
+  globalThis.document
+    ?.querySelector("[data-pcc-detail], [data-pcc-project-card]")
+    ?.scrollIntoView?.({ block: "nearest" });
+}
+
+function renderTruthFact(label: string, value: string) {
+  return html`<div
+    class="pcc-current-truth__button"
+    role="button"
+    tabindex="0"
+    @click=${scrollPccDetailIntoView}
+    @keydown=${(event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        scrollPccDetailIntoView();
+      }
+    }}
+  >
+    <dt>${label}</dt>
+    <dd>${value || "None"}</dd>
+  </div>`;
 }
 
 function renderProductionTruthCard(props: PccDashboardProps) {
@@ -705,6 +760,10 @@ function renderNextSafeActionCard(props: PccDashboardProps) {
     </div>
     <dl>
       <div>
+        <dt>Why this</dt>
+        <dd>${next.blocker ? "Blocked before work can start" : "First safe unblocked item"}</dd>
+      </div>
+      <div>
         <dt>Owner</dt>
         <dd>${item ? itemWorkerLabel(item) : "None"}</dd>
       </div>
@@ -719,7 +778,7 @@ function renderNextSafeActionCard(props: PccDashboardProps) {
       ?disabled=${Boolean(next.blocker) || props.actionBusy}
       @click=${props.onPrepareNextWorkItem}
     >
-      Start next safe action
+      Start
     </button>
   </section>`;
 }
@@ -830,12 +889,12 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
     receipts: detail.receipts,
   });
   const nextTitle = next.subMilestone?.title ?? next.milestone?.title ?? "No eligible work";
-  const blocked = next.blocker?.message ?? "No blocker recorded";
+  const blocked = next.blocker?.message ?? "None";
   const proofMissing =
     detail.summary.proofGaps[0] ??
     (next.subMilestone || next.milestone
       ? itemProofLabel(next.subMilestone ?? next.milestone!)
-      : "No proof gap recorded");
+      : "None");
   const stopPoint =
     detail.milestones.find((milestone) => milestoneStopsHere(milestone))?.title ?? "None";
   const readyItems: Array<PccMilestone | PccSubMilestone> = detail.milestones
@@ -873,34 +932,18 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
       <span>${formatUpdatedAt(props.updatedAt)}</span>
     </div>
     <dl class="pcc-current-truth__facts">
-      <div>
-        <dt>Current state</dt>
-        <dd>${formatStatus(detail.project.status)}</dd>
-      </div>
-      <div>
-        <dt>Next action</dt>
-        <dd>${nextTitle}</dd>
-      </div>
-      <div>
-        <dt>Blocked by</dt>
-        <dd>${blocked}</dd>
-      </div>
-      <div>
-        <dt>Working</dt>
-        <dd>${settings.enabled ? formatStatus(next.state) : "Off"}</dd>
-      </div>
-      <div>
-        <dt>Codex needed</dt>
-        <dd>${next.state === "waiting_for_codex" ? "Yes" : "Not now"}</dd>
-      </div>
-      <div>
-        <dt>Proof missing</dt>
-        <dd>${proofMissing}</dd>
-      </div>
-      <div>
-        <dt>Stop point</dt>
-        <dd>${stopPoint}</dd>
-      </div>
+      ${renderTruthFact("Current state", formatStatus(detail.project.status))}
+      ${renderTruthFact("Next action", nextTitle)} ${renderTruthFact("Blocked by", blocked)}
+      ${renderTruthFact(
+        "Needs you",
+        detail.permissions.some((permission) => permission.status === "needed") ||
+          detail.project.status === "needs_approval"
+          ? "Yes"
+          : "None",
+      )}
+      ${renderTruthFact("Working", settings.enabled ? formatStatus(next.state) : "Off")}
+      ${renderTruthFact("Codex needed", next.state === "waiting_for_codex" ? "Yes" : "Not now")}
+      ${renderTruthFact("Proof missing", proofMissing)} ${renderTruthFact("Stop point", stopPoint)}
     </dl>
     <div class="pcc-ready-queue" data-pcc-ready-queue>
       <article>
@@ -1173,6 +1216,7 @@ function renderPhaseOverview(detail: PccProjectDetail) {
 
 function renderProjectDetail(props: PccDashboardProps) {
   const detail = props.projectDetail;
+  const mode = pccViewMode(props);
   if (!detail) {
     return html`
       <aside class="pcc-detail" data-pcc-detail-empty>
@@ -1184,7 +1228,7 @@ function renderProjectDetail(props: PccDashboardProps) {
   const project = detail.project;
   const permissions = detail.permissions ?? [];
   return html`
-    <aside class="pcc-detail" data-pcc-detail>
+    <aside class="pcc-detail pcc-detail--${mode}" data-pcc-detail data-pcc-detail-mode=${mode}>
       <div class="pcc-detail__header">
         <div>
           <p class="pcc-kicker">Selected project</p>
@@ -1223,33 +1267,50 @@ function renderProjectDetail(props: PccDashboardProps) {
             </button>`}
       </div>
       ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
-      ${renderWorkLoopCard(props)}
-      <details class="pcc-detail-drawer" open>
-        <summary>Milestones</summary>
-        ${renderPhaseOverview(detail)}
-        <section class="pcc-milestones" aria-label="Project milestones">
-          ${detail.milestones.length === 0
-            ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
-            : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
-        </section>
-      </details>
-      <details class="pcc-detail-drawer">
-        <summary>Permissions</summary>
-        <section class="pcc-permissions" aria-label="Project permissions">
-          <div class="pcc-section-heading">
-            <h4>Permissions</h4>
-            <span>${permissions.length} requested</span>
-          </div>
-          ${renderPermissionList(
-            permissions.filter((permission) => !permission.milestoneId),
-            props,
-          )}
-        </section>
-      </details>
-      <details class="pcc-detail-drawer">
-        <summary>Handoff and chat sync</summary>
-        ${renderContextPackageCard(detail)} ${renderChatSyncCard(props)}
-      </details>
+      ${mode === "simple"
+        ? html`<p class="pcc-simple-hint">
+            Switch to Detailed or Agent when you need plans, receipts, permissions, or handoff
+            packets.
+          </p>`
+        : html`
+            ${renderWorkLoopCard(props)}
+            <details class="pcc-detail-drawer" ?open=${mode === "agent" || mode === "detailed"}>
+              <summary>Milestones</summary>
+              ${renderPhaseOverview(detail)}
+              <section class="pcc-milestones" aria-label="Project milestones">
+                ${detail.milestones.length === 0
+                  ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
+                  : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
+              </section>
+            </details>
+            <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+              <summary>Permissions</summary>
+              <section class="pcc-permissions" aria-label="Project permissions">
+                <div class="pcc-section-heading">
+                  <h4>Permissions</h4>
+                  <span>${permissions.length} requested</span>
+                </div>
+                ${renderPermissionList(
+                  permissions.filter((permission) => !permission.milestoneId),
+                  props,
+                )}
+              </section>
+            </details>
+            <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+              <summary>Handoff and chat sync</summary>
+              ${renderContextPackageCard(detail)} ${renderChatSyncCard(props)}
+            </details>
+            ${mode === "agent"
+              ? html`<section class="pcc-agent-panel" data-pcc-agent-mode>
+                  <p class="pcc-kicker">Agent view</p>
+                  <h4>Low-reasoning execution details</h4>
+                  <p>
+                    Implementation plans, acceptance criteria, blockers, permissions, receipts, and
+                    context packets are expanded for handoff.
+                  </p>
+                </section>`
+              : nothing}
+          `}
     </aside>
   `;
 }
@@ -1763,6 +1824,7 @@ function renderMilestoneEditor(props: PccDashboardProps) {
 export function renderPccDashboard(props: PccDashboardProps) {
   const portfolio = props.portfolio;
   const projects = props.projects;
+  const mode = pccViewMode(props);
   return html`
     <section class="pcc-shell" data-pcc-shell>
       <header class="pcc-hero">
@@ -1775,6 +1837,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
         </div>
         <div class="pcc-hero__actions">
           <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>
+          ${renderViewModeSwitcher(props)}
           <button class="btn" type="button" @click=${() => props.onOpenProjectEditor()}>
             New project
           </button>
@@ -1799,8 +1862,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${renderProductionTruthCard(props)} ${renderTodayView(props)}
-      ${renderPortfolioWorkConsole(props)}
+      ${mode === "simple" ? nothing : renderProductionTruthCard(props)} ${renderTodayView(props)}
+      ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}

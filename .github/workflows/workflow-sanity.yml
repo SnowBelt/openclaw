@@ -98,6 +98,10 @@ on:
         description: Run Project Command Center Production Governor V1 proof
         required: false
         default: "false"
+      pcc-phase1-skimmability-proof:
+        description: Run Project Command Center Phase 1 Skimmability V1 proof
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -297,7 +301,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true' && inputs.pcc-context-package-proof != 'true' && inputs.pcc-chat-sync-proof != 'true' && inputs.pcc-submilestones-proof != 'true' && inputs.pcc-skimmability-work-controls-proof != 'true' && inputs.pcc-portfolio-orchestration-proof != 'true' && inputs.pcc-production-governor-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true' && inputs.pcc-context-package-proof != 'true' && inputs.pcc-chat-sync-proof != 'true' && inputs.pcc-submilestones-proof != 'true' && inputs.pcc-skimmability-work-controls-proof != 'true' && inputs.pcc-portfolio-orchestration-proof != 'true' && inputs.pcc-production-governor-proof != 'true' && inputs.pcc-phase1-skimmability-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -1746,6 +1750,83 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-project-manager-intake-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
+
+      - name: Run build proof
+        run: pnpm build
+
+  pcc-phase1-skimmability-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.pcc-phase1-skimmability-proof == 'true'
+    name: Project Command Center Phase 1 Skimmability V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.test.ts src/pcc/work-loop.test.ts src/pcc/portfolio-scheduler.test.ts src/pcc/production-truth.test.ts
+          - pnpm tsgo:test:ui
+          - node --import tsx scripts/dev/control-ui-pcc-production-truth-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-resource-governor-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-stop-rules-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts
+          - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
+          - pnpm check:workflows
+          - pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
+          - pnpm build
+          EOF_COMMANDS
+
+      - name: Run targeted PCC Phase 1 tests
+        run: pnpm test ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.test.ts src/pcc/work-loop.test.ts src/pcc/portfolio-scheduler.test.ts src/pcc/production-truth.test.ts
+
+      - name: Run UI typecheck proof
+        run: pnpm tsgo:test:ui
+
+      - name: Run PCC production truth smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-production-truth-smoke.ts
+
+      - name: Run PCC resource governor smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-resource-governor-smoke.ts
+
+      - name: Run PCC stop rules smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-stop-rules-smoke.ts
+
+      - name: Run PCC Phase 1 skimmability smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts
+
+      - name: Run PCC production auth proof self-test
+        run: OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
+
+      - name: Run workflow syntax check
+        run: pnpm check:workflows
+
+      - name: Run scoped changed gate
+        env:
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build

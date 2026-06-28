@@ -48,6 +48,7 @@ import type {
   PccMilestoneFormState,
   PccProjectDetail,
   PccProjectFormState,
+  PccViewMode,
 } from "./controllers/pcc.ts";
 import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
 import type {
@@ -216,6 +217,7 @@ export type AppViewState = {
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
+  pccViewMode: PccViewMode;
   sessionsResultAgentId?: string | null;
   chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
   announceSessionSwitch?: (sessionKey: string, label: string) => void;
