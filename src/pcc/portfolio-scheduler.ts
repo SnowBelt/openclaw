@@ -18,6 +18,13 @@ export type PccPortfolioResourceSnapshot = {
   availableVramGb: number;
   availableRamGb: number;
   maxParallelProjects: number;
+  memoryPressure: "low" | "medium" | "high";
+  activeLocalModelProcesses: number;
+  activeOpenClawTasks: number;
+  activeCodexNeededTasks: number;
+  blockedTasks: number;
+  activeWorkspaceLocks: string[];
+  policyMode: "auto" | "one_at_a_time" | "as_many_as_safe";
 };
 
 export type PccPortfolioProjectInput = PccWorkLoopProject;
@@ -57,6 +64,13 @@ const DEFAULT_RESOURCES: PccPortfolioResourceSnapshot = {
   availableVramGb: 32,
   availableRamGb: 64,
   maxParallelProjects: 2,
+  memoryPressure: "low",
+  activeLocalModelProcesses: 0,
+  activeOpenClawTasks: 0,
+  activeCodexNeededTasks: 0,
+  blockedTasks: 0,
+  activeWorkspaceLocks: [],
+  policyMode: "auto",
 };
 
 function metadata(value: unknown): Record<string, unknown> {
@@ -108,7 +122,19 @@ function updatedAt(project: PccProject): number {
 function normalizeResources(
   resources?: Partial<PccPortfolioResourceSnapshot>,
 ): PccPortfolioResourceSnapshot {
-  return { ...DEFAULT_RESOURCES, ...resources };
+  const merged = { ...DEFAULT_RESOURCES, ...resources };
+  const activeWorkspaceLocks = Array.isArray(resources?.activeWorkspaceLocks)
+    ? resources.activeWorkspaceLocks.filter((lock): lock is string => typeof lock === "string")
+    : DEFAULT_RESOURCES.activeWorkspaceLocks;
+  const maxParallelProjects =
+    merged.memoryPressure === "high"
+      ? 0
+      : merged.policyMode === "one_at_a_time"
+        ? Math.min(1, merged.maxParallelProjects)
+        : merged.policyMode === "as_many_as_safe"
+          ? Math.max(merged.maxParallelProjects, 2)
+          : merged.maxParallelProjects;
+  return { ...merged, activeWorkspaceLocks, maxParallelProjects };
 }
 
 function slotAvailable(resources: PccPortfolioResourceSnapshot, lane: string): boolean {
@@ -136,7 +162,7 @@ export function buildPccPortfolioSchedule(
   resourcesInput?: Partial<PccPortfolioResourceSnapshot>,
 ): PccPortfolioSchedule {
   const resources = normalizeResources(resourcesInput);
-  const locks = new Set<string>();
+  const locks = new Set<string>(resources.activeWorkspaceLocks);
   const ready: PccPortfolioScheduledItem[] = [];
   const blocked: PccPortfolioBlockedItem[] = [];
   const resourceLimited: PccPortfolioBlockedItem[] = [];
@@ -149,6 +175,16 @@ export function buildPccPortfolioSchedule(
     );
 
   for (const entry of candidates) {
+    if (resources.memoryPressure === "high") {
+      resourceLimited.push({
+        projectId: entry.project.id,
+        projectTitle: entry.project.title,
+        title: entry.project.title,
+        reason: "Memory pressure is high; new project starts are paused.",
+        kind: "memory_pressure",
+      });
+      continue;
+    }
     if (ready.length >= resources.maxParallelProjects) {
       resourceLimited.push({
         projectId: entry.project.id,

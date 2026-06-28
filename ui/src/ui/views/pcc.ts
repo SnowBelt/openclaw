@@ -1,6 +1,7 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
+import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import { PCC_WORKFLOW_TEMPLATES } from "../../../../src/pcc/project-workflows.js";
 import {
   getPccWorkLoopNext,
@@ -103,6 +104,12 @@ const PARALLEL_WORK_OPTIONS = [
   ["supervised", "Supervised"],
 ] as const;
 
+const PLANNING_MODE_OPTIONS = [
+  ["template_only", "Use template only"],
+  ["local_project_manager", "Ask local Project Manager"],
+  ["codex_full_plan", "Ask Codex for full plan"],
+] as const;
+
 const LANE_LABELS = [
   ["user", "User"],
   ["localOpenClawAgent", "Local OpenClaw Agent"],
@@ -163,6 +170,83 @@ function renderMetric(label: string, value: string | number) {
       <span class="pcc-metric__label">${label}</span>
     </article>
   `;
+}
+
+function renderProductionTruthCard(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  const truth = buildPccProductionTruth({
+    project: detail?.project,
+    milestones: detail?.milestones ?? [],
+    evidence: detail?.evidence ?? [],
+    receipts: detail?.receipts ?? [],
+  });
+  return html`<section
+    class="pcc-production-truth pcc-production-truth--${truth.status}"
+    data-pcc-production-truth
+    aria-label="Production truth"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Production truth</p>
+        <h4>Is this dashboard current?</h4>
+        <p>
+          ${truth.status === "current"
+            ? "Remote proof, runtime proof, and receipts are recorded."
+            : "Open proof gaps before claiming production completion."}
+        </p>
+      </div>
+      <span>${truth.label}</span>
+    </div>
+    <dl class="pcc-production-truth__facts">
+      <div>
+        <dt>Verified SHA</dt>
+        <dd>${truth.latestVerifiedSha.slice(0, 12)}</dd>
+      </div>
+      <div>
+        <dt>Runtime SHA</dt>
+        <dd>${truth.runtimeSha ? truth.runtimeSha.slice(0, 12) : "Not recorded"}</dd>
+      </div>
+      <div>
+        <dt>Remote proof</dt>
+        <dd>${truth.remoteProofPassed ? "Passed" : "Missing"}</dd>
+      </div>
+      <div>
+        <dt>Runtime proof</dt>
+        <dd>${truth.runtimeProofPassed ? "Passed" : "Missing"}</dd>
+      </div>
+      <div>
+        <dt>Browser proof</dt>
+        <dd>${truth.browserProofScreenshotPath ?? "No screenshot recorded"}</dd>
+      </div>
+    </dl>
+    <details class="pcc-production-truth__ledger">
+      <summary>Proof ledger and do-not-redo notes</summary>
+      <div>
+        <strong>Proof gaps</strong>
+        ${truth.proofGaps.length
+          ? html`<ul>
+              ${truth.proofGaps.slice(0, 8).map((gap) => html`<li>${gap}</li>`)}
+            </ul>`
+          : html`<p>No proof gaps recorded.</p>`}
+      </div>
+      <div>
+        <strong>Completed milestones</strong>
+        ${truth.completedMilestones.length
+          ? html`<ul>
+              ${truth.completedMilestones.slice(0, 8).map((title) => html`<li>${title}</li>`)}
+            </ul>`
+          : html`<p>No completed milestones recorded.</p>`}
+      </div>
+      <div>
+        <strong>Do not redo</strong>
+        ${truth.doNotRedoNotes.length
+          ? html`<ul>
+              ${truth.doNotRedoNotes.map((note) => html`<li>${note}</li>`)}
+            </ul>`
+          : html`<p>No do-not-redo notes recorded.</p>`}
+      </div>
+    </details>
+  </section>`;
 }
 
 function renderStatusOptions(statuses: PccStatus[]) {
@@ -657,6 +741,13 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
       availableRemoteProofSlots: 0,
       availableVramGb: 256,
       availableRamGb: 256,
+      policyMode: "as_many_as_safe",
+      memoryPressure: "low",
+      activeLocalModelProcesses: 0,
+      activeOpenClawTasks: 0,
+      activeCodexNeededTasks: 0,
+      blockedTasks: 0,
+      activeWorkspaceLocks: [],
     },
   );
   return html`<section
@@ -679,6 +770,9 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
       <label
         ><span>Max parallel projects</span><input type="number" min="1" max="16" value="4" readonly
       /></label>
+      <span>Policy: as many as safe</span>
+      <span>Memory pressure: low</span>
+      <span>VRAM budget: 256 GB</span>
       <span>Local agents only</span>
       <span>Stop before Codex</span>
       <span>Stop before remote proof</span>
@@ -688,15 +782,13 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
         <strong>Next runnable work</strong>
         ${schedule.ready.length
           ? html`<ul>
-              ${schedule.ready
-                .slice(0, 5)
-                .map(
-                  (item) =>
-                    html`<li>
-                      <b>${item.projectTitle}</b>: ${item.title}
-                      <span>${item.lane.replace(/_/g, " ")}</span>
-                    </li>`,
-                )}
+              ${schedule.ready.slice(0, 5).map(
+                (item) =>
+                  html`<li>
+                    <b>${item.projectTitle}</b>: ${item.title}
+                    <span>${item.lane.replace(/_/g, " ")}</span>
+                  </li>`,
+              )}
             </ul>`
           : html`<p>No portfolio work is ready.</p>`}
       </article>
@@ -901,6 +993,17 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <label>
           <input
             type="checkbox"
+            .checked=${settings.stopAfterCurrentTask}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                stopAfterCurrentTask: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Stop after current task
+        </label>
+        <label>
+          <input
+            type="checkbox"
             .checked=${settings.stopAfterCurrentMilestone}
             @change=${(event: Event) =>
               props.onUpdateWorkLoop({
@@ -930,6 +1033,17 @@ function renderWorkLoopCard(props: PccDashboardProps) {
               })}
           />
           Stop before Codex
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${settings.stopBeforeDestructiveAction}
+            @change=${(event: Event) =>
+              props.onUpdateWorkLoop({
+                stopBeforeDestructiveAction: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          Stop before destructive actions
         </label>
         <label>
           <input
@@ -1446,6 +1560,33 @@ function renderProjectEditor(props: PccDashboardProps) {
           )}
         </select></label
       >
+      <label
+        >Planning mode<select
+          .value=${form.planningMode}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({
+              planningMode: (event.target as HTMLSelectElement)
+                .value as PccProjectFormState["planningMode"],
+            })}
+        >
+          ${renderStringOptions(PLANNING_MODE_OPTIONS, form.planningMode)}
+        </select></label
+      >
+      ${form.planningMode === "codex_full_plan" && !form.codexPlanningAllowed
+        ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
+            <strong>Codex planning is permission-gated</strong>
+            <span
+              >Save will create a scoped permission request instead of spending Codex tokens.</span
+            >
+          </div>`
+        : form.planningMode === "local_project_manager"
+          ? html`<div class="pcc-callout" data-pcc-project-manager-intake>
+              <strong>Project Manager review</strong>
+              <span
+                >OpenClaw will use the template, then queue a local review before execution.</span
+              >
+            </div>`
+          : nothing}
       <div class="pcc-intake-options" data-pcc-workflow-intake>
         <label>
           <input
@@ -1658,7 +1799,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${renderTodayView(props)} ${renderPortfolioWorkConsole(props)}
+      ${renderProductionTruthCard(props)} ${renderTodayView(props)}
+      ${renderPortfolioWorkConsole(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}

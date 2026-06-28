@@ -99,6 +99,44 @@ describe("PCC portfolio scheduler", () => {
     expect(schedule.resourceLimited[0]?.kind).toBe("max_parallel_projects");
   });
 
+  it("pauses new starts under high memory pressure", () => {
+    const schedule = buildPccPortfolioSchedule(
+      [{ project: project("one", { priority: 1 }), milestones: [milestone("one")] }],
+      { memoryPressure: "high", availableLocalModelSlots: 2 },
+    );
+
+    expect(schedule.ready).toHaveLength(0);
+    expect(schedule.resourceLimited[0]?.kind).toBe("memory_pressure");
+  });
+
+  it("honors one-at-a-time portfolio policy", () => {
+    const schedule = buildPccPortfolioSchedule(
+      [
+        { project: project("one", { priority: 1 }), milestones: [milestone("one")] },
+        { project: project("two", { priority: 2 }), milestones: [milestone("two")] },
+      ],
+      { policyMode: "one_at_a_time", maxParallelProjects: 8, availableLocalModelSlots: 8 },
+    );
+
+    expect(schedule.ready).toHaveLength(1);
+    expect(schedule.resourceLimited[0]?.kind).toBe("max_parallel_projects");
+  });
+
+  it("respects already active workspace locks", () => {
+    const schedule = buildPccPortfolioSchedule(
+      [
+        {
+          project: project("one", { priority: 1 }),
+          milestones: [milestone("one", { metadata: { workspaceLock: "shared" } })],
+        },
+      ],
+      { activeWorkspaceLocks: ["shared"] },
+    );
+
+    expect(schedule.ready).toHaveLength(0);
+    expect(schedule.resourceLimited[0]?.kind).toBe("workspace_locked");
+  });
+
   it("blocks workspace lock conflicts", () => {
     const lockedMetadata = { workspaceLock: "shared", pccResponsibility: "local_openclaw_agent" };
     const schedule = buildPccPortfolioSchedule(

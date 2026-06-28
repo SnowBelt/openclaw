@@ -526,6 +526,7 @@ describe("PCC CRUD controller", () => {
         status: "active",
         priority: "3",
         workflowTemplateId: "software-product",
+        planningMode: "template_only",
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
         runtimeActionsAllowed: false,
@@ -548,6 +549,48 @@ describe("PCC CRUD controller", () => {
     expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(true);
     expect(state.pccSelectedProjectId).toBe("project-1");
     expect(state.pccEditorMode).toBeNull();
+  });
+
+  it("creates a scoped Codex planning permission only when Codex planning is requested", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Project Command Center",
+        planningMode: "codex_full_plan",
+        codexPlanningAllowed: false,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(request.mock.calls.some(([method]) => method === "pcc.permissions.upsert")).toBe(true);
   });
 
   it("updates project status", async () => {

@@ -113,6 +113,13 @@ describe("PCC guided work loop", () => {
     expect(blocker?.kind).toBe("remote_proof_required");
   });
 
+  it("stops before destructive actions when configured", () => {
+    const item = milestone({ metadata: { pccDestructiveAction: true } });
+    const blocker = classifyMilestoneBlocker({ project, milestones: [item] }, item);
+
+    expect(blocker?.kind).toBe("destructive_action_required");
+  });
+
   it("stops before Codex and remote proof from responsibility metadata", () => {
     const codex = milestone({
       metadata: { pccResponsibility: "high_reasoning_codex", pccCostRisk: "high" },
@@ -256,6 +263,7 @@ describe("PCC guided work loop", () => {
       enabled: true,
       state: "working",
       stopBeforeCodex: true,
+      stopBeforeDestructiveAction: true,
       continueAroundBlockers: false,
     });
   });

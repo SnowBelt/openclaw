@@ -198,6 +198,9 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Next Safe Action");
     expect(container.querySelector("[data-pcc-today]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-next-safe-action]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-production-truth]")).not.toBeNull();
+    expect(text).toContain("Production truth");
+    expect(text).toContain("PCC remote Workflow Sanity proof missing");
   });
 
   it("renders an empty state", () => {
@@ -441,6 +444,7 @@ describe("renderPccDashboard", () => {
 
     expect(container.textContent).toContain("Work This Project");
     expect(container.textContent).toContain("Stop before Codex");
+    expect(container.textContent).toContain("Stop before destructive actions");
     expect(container.textContent).toContain("Stop before remote proof");
     expect(container.textContent).toContain("Task prompt preview");
     const prepare = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
@@ -448,6 +452,47 @@ describe("renderPccDashboard", () => {
     );
     prepare?.click();
     expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders production truth as current when proof metadata and receipts align", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: {
+            ...project,
+            metadata: {
+              pccProductionTruth: {
+                latestVerifiedSha: "4d8408034d7131470980c316a2af2f311aa6b785",
+                runtimeSha: "4d8408034d7131470980c316a2af2f311aa6b785",
+                remoteProofPassed: true,
+                runtimeProofPassed: true,
+                browserProofScreenshotPath: "/tmp/pcc-proof.png",
+              },
+            },
+          },
+          milestones: [
+            {
+              ...milestone,
+              status: "complete",
+              receiptIds: ["receipt-1"],
+              metadata: { requiresRemoteProof: true, requiresRuntimeProof: true },
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [
+            { ...evidence, kind: "remote_ci" },
+            { ...evidence, id: "evidence-2", kind: "browser_proof" },
+          ],
+          receipts: [receipt],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.textContent).toContain("Is this dashboard current?");
+    expect(container.textContent).toContain("Current");
+    expect(container.textContent).toContain("/tmp/pcc-proof.png");
   });
 
   it("renders current truth, ready queue, sub-milestones, and work lanes", () => {
@@ -511,6 +556,7 @@ describe("renderPccDashboard", () => {
           status: "active",
           priority: "4",
           workflowTemplateId: "software-product",
+          planningMode: "template_only",
           codexPlanningAllowed: false,
           remoteProofAllowed: false,
           runtimeActionsAllowed: false,
@@ -529,6 +575,38 @@ describe("renderPccDashboard", () => {
       ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(onProjectFormChange).toHaveBeenCalled();
     expect(onSaveProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders project-manager and Codex planning gates in project intake", () => {
+    const onProjectFormChange = vi.fn();
+    const codexContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "New PCC",
+          planningMode: "codex_full_plan",
+          codexPlanningAllowed: false,
+        },
+        onProjectFormChange,
+      }),
+    );
+    expect(codexContainer.querySelector("[data-pcc-codex-planning-gate]")).not.toBeNull();
+    expect(codexContainer.textContent).toContain("Codex planning is permission-gated");
+
+    const pmContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "New PCC",
+          planningMode: "local_project_manager",
+        },
+        onProjectFormChange,
+      }),
+    );
+    expect(pmContainer.querySelector("[data-pcc-project-manager-intake]")).not.toBeNull();
+    expect(pmContainer.textContent).toContain("Project Manager review");
   });
 
   it("renders responsibility routing labels and editor controls", () => {

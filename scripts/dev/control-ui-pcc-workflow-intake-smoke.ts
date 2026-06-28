@@ -5,6 +5,7 @@ const draft = buildPccWorkflowDraft({
   goal: "Create patch-only SNES games",
   templateId: "snes-studio",
   priority: 1,
+  planningMode: "codex_full_plan",
   codexPlanningAllowed: false,
 });
 
@@ -23,7 +24,7 @@ if (!draft.milestones.some((milestone) => milestone.metadata?.pccStopHere === tr
 if ((draft.subMilestonesByMilestoneTitle["Build playable MVP loop"] ?? []).length < 3) {
   throw new Error("MVP sub-milestones missing");
 }
-if (draft.project.metadata?.pccIntakeStatus !== "needs_review") {
+if (draft.project.metadata?.pccIntakeStatus !== "codex_permission_needed") {
   throw new Error("Codex permission gate missing");
 }
 

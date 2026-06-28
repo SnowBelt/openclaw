@@ -36,6 +36,8 @@ export type PccWorkLoopSettings = {
   state: PccWorkLoopState;
   stopBeforeCodex: boolean;
   stopBeforeRemoteProof: boolean;
+  stopBeforeDestructiveAction: boolean;
+  stopAfterCurrentTask: boolean;
   stopAfterCurrentMilestone: boolean;
   continueAroundBlockers: boolean;
   parallelWorkMode: PccParallelWorkMode;
@@ -62,6 +64,7 @@ export type PccWorkLoopBlockerKind =
   | "missing_permission"
   | "codex_required"
   | "remote_proof_required"
+  | "destructive_action_required"
   | "lane_disabled"
   | "workspace_locked"
   | "missing_plan"
@@ -98,6 +101,8 @@ const DEFAULT_SETTINGS: PccWorkLoopSettings = {
   state: "idle",
   stopBeforeCodex: true,
   stopBeforeRemoteProof: true,
+  stopBeforeDestructiveAction: true,
+  stopAfterCurrentTask: false,
   stopAfterCurrentMilestone: false,
   continueAroundBlockers: true,
   parallelWorkMode: "off",
@@ -113,6 +118,7 @@ const TERMINAL_STATUSES = new Set<PccStatus>([
 const HELD_STATUSES = new Set<PccStatus>(["blocked", "deferred", "on_hold", "needs_approval"]);
 const CODEX_PERMISSION_TYPES = new Set<PccPermissionType>(["codex_usage", "high_reasoning_model"]);
 const REMOTE_PERMISSION_TYPES = new Set<PccPermissionType>(["remote_proof", "external_write"]);
+const DESTRUCTIVE_PERMISSION_TYPES = new Set<PccPermissionType>(["external_write"]);
 const CODEX_RESPONSIBILITIES = new Set(["codex", "high_reasoning_codex"]);
 const REMOTE_RESPONSIBILITIES = new Set(["remote_proof"]);
 const HARD_STOP_BLOCKERS = new Set<PccWorkLoopBlockerKind>([
@@ -122,6 +128,7 @@ const HARD_STOP_BLOCKERS = new Set<PccWorkLoopBlockerKind>([
   "missing_permission",
   "codex_required",
   "remote_proof_required",
+  "destructive_action_required",
   "proof_failed",
 ]);
 const WORK_LOOP_STATES: readonly PccWorkLoopState[] = [
@@ -180,6 +187,14 @@ export function getPccWorkLoopSettings(project: PccProject): PccWorkLoopSettings
     stopBeforeRemoteProof: booleanSetting(
       raw.stopBeforeRemoteProof,
       DEFAULT_SETTINGS.stopBeforeRemoteProof,
+    ),
+    stopBeforeDestructiveAction: booleanSetting(
+      raw.stopBeforeDestructiveAction,
+      DEFAULT_SETTINGS.stopBeforeDestructiveAction,
+    ),
+    stopAfterCurrentTask: booleanSetting(
+      raw.stopAfterCurrentTask,
+      DEFAULT_SETTINGS.stopAfterCurrentTask,
     ),
     stopAfterCurrentMilestone: booleanSetting(
       raw.stopAfterCurrentMilestone,
@@ -317,6 +332,17 @@ function itemRequiresRemoteProof(
   );
 }
 
+function itemRequiresDestructiveAction(
+  permissions: readonly PccPermissionGrant[],
+  item: WorkItem,
+): boolean {
+  return (
+    permissions.some((permission) => DESTRUCTIVE_PERMISSION_TYPES.has(permission.type)) ||
+    metadataFlag(item, "requiresDestructiveAction") ||
+    metadataFlag(item, "pccDestructiveAction")
+  );
+}
+
 function laneEnabled(settings: PccWorkLoopSettings, responsibility: string): boolean {
   if (responsibility === "user") {
     return settings.lanes.user;
@@ -354,6 +380,13 @@ export function classifyMilestoneBlocker(
   }
   if (settings.stopAfterCurrentMilestone && !settings.activeMilestoneId) {
     return { kind: "stop_after_current", message: "Stop after current milestone is enabled." };
+  }
+  if (
+    settings.stopAfterCurrentTask &&
+    !settings.activeSubMilestoneId &&
+    !settings.activeMilestoneId
+  ) {
+    return { kind: "stop_after_current", message: "Stop after current task is enabled." };
   }
   if (!milestone) {
     return { kind: "project_complete", message: "No eligible milestones remain." };
@@ -411,6 +444,14 @@ export function classifyMilestoneBlocker(
       kind: "remote_proof_required",
       ...itemBlockerIds(item),
       message: "This work item requires remote proof and Stop before remote proof is on.",
+    };
+  }
+  if (settings.stopBeforeDestructiveAction && itemRequiresDestructiveAction(permissions, item)) {
+    return {
+      kind: "destructive_action_required",
+      ...itemBlockerIds(item),
+      message:
+        "This work item requires a destructive/write-capable action and Stop before destructive actions is on.",
     };
   }
   if (!laneEnabled(settings, itemResponsibility(item))) {
@@ -476,7 +517,7 @@ export function buildMilestoneTaskPrompt(
 }
 
 function stateForBlocker(blocker: PccWorkLoopBlocker): PccWorkLoopState {
-  return blocker.kind === "missing_permission"
+  return blocker.kind === "missing_permission" || blocker.kind === "destructive_action_required"
     ? "waiting_for_permission"
     : blocker.kind === "codex_required"
       ? "waiting_for_codex"

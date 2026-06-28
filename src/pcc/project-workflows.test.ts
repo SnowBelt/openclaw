@@ -43,14 +43,29 @@ describe("PCC workflow templates", () => {
     ).toContain("Execute:");
   });
 
-  it("marks initial plan as needs review when Codex planning is not allowed", () => {
+  it("marks initial plan as needing permission when Codex planning is requested but not allowed", () => {
     const draft = buildPccWorkflowDraft({
       title: "New App",
       templateId: "software-product",
+      planningMode: "codex_full_plan",
       codexPlanningAllowed: false,
     });
 
-    expect(draft.project.metadata?.pccIntakeStatus).toBe("needs_review");
+    expect(draft.project.metadata?.pccPlanningMode).toBe("codex_full_plan");
+    expect(draft.project.metadata?.pccIntakeStatus).toBe("codex_permission_needed");
     expect(draft.milestones[0]?.status).toBe("needs_approval");
+  });
+
+  it("records local Project Manager intake mode without requiring Codex", () => {
+    const draft = buildPccWorkflowDraft({
+      title: "New App",
+      templateId: "software-product",
+      planningMode: "local_project_manager",
+      codexPlanningAllowed: false,
+    });
+
+    expect(draft.project.metadata?.pccPlanningMode).toBe("local_project_manager");
+    expect(draft.project.metadata?.pccIntakeStatus).toBe("project_manager_review");
+    expect(draft.milestones[0]?.status).toBe("not_started");
   });
 });

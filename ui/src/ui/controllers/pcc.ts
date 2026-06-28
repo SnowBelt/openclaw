@@ -1,4 +1,7 @@
-import { buildPccWorkflowDraft } from "../../../../src/pcc/project-workflows.js";
+import {
+  buildPccWorkflowDraft,
+  type PccPlanningMode,
+} from "../../../../src/pcc/project-workflows.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
 import {
   getPccWorkLoopNext,
@@ -45,6 +48,7 @@ export type PccProjectFormState = {
   status: PccStatus;
   priority: string;
   workflowTemplateId: string;
+  planningMode: PccPlanningMode;
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
   runtimeActionsAllowed: boolean;
@@ -138,6 +142,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   status: "active",
   priority: "3",
   workflowTemplateId: "software-product",
+  planningMode: "template_only",
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
   runtimeActionsAllowed: false,
@@ -257,6 +262,10 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
       metadataObject(project.metadata).pccWorkflowTemplateId,
       "software-product",
     ),
+    planningMode: metadataString(
+      metadataObject(project.metadata).pccPlanningMode,
+      "template_only",
+    ) as PccPlanningMode,
     codexPlanningAllowed: metadataBoolean(
       metadataObject(project.metadata).pccCodexPlanningAllowed,
       false,
@@ -458,6 +467,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           codexPlanningAllowed: form.codexPlanningAllowed,
           remoteProofAllowed: form.remoteProofAllowed,
           runtimeActionsAllowed: form.runtimeActionsAllowed,
+          planningMode: form.planningMode,
         });
     const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
       project: form.id
@@ -470,6 +480,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             metadata: {
               ...metadataObject(state.pccProjectDetail?.project.metadata),
               pccWorkflowTemplateId: form.workflowTemplateId,
+              pccPlanningMode: form.planningMode,
               pccCodexPlanningAllowed: form.codexPlanningAllowed,
               pccRemoteProofAllowed: form.remoteProofAllowed,
               pccRuntimeActionsAllowed: form.runtimeActionsAllowed,
@@ -493,7 +504,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           });
         }
       }
-      if (!form.codexPlanningAllowed) {
+      if (form.planningMode === "codex_full_plan" && !form.codexPlanningAllowed) {
         await state.client.request("pcc.permissions.upsert", {
           permission: {
             projectId: result.project.id,

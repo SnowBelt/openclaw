@@ -16,6 +16,8 @@ export type PccWorkflowTemplateId =
   | "snes-studio"
   | "custom";
 
+export type PccPlanningMode = "template_only" | "local_project_manager" | "codex_full_plan";
+
 export type PccWorkflowTemplate = {
   id: PccWorkflowTemplateId;
   title: string;
@@ -286,11 +288,14 @@ export function buildPccWorkflowDraft(input: {
   codexPlanningAllowed?: boolean;
   remoteProofAllowed?: boolean;
   runtimeActionsAllowed?: boolean;
+  planningMode?: PccPlanningMode;
 }): PccWorkflowDraft {
   const template = getPccWorkflowTemplate(input.templateId);
   const title = input.title.trim() || "Untitled Project";
   const phases = template.phases.map((phase) => ({ ...phase }));
-  const needsCodexPlan = input.codexPlanningAllowed !== true;
+  const planningMode = input.planningMode ?? "template_only";
+  const needsCodexPlan = planningMode === "codex_full_plan" && input.codexPlanningAllowed !== true;
+  const needsProjectManagerReview = planningMode === "local_project_manager";
   const milestones = template.milestones.map((item, index) => {
     const metadata = {
       pccWorkflowTemplateId: template.id,
@@ -331,7 +336,12 @@ export function buildPccWorkflowDraft(input: {
       metadata: {
         pccWorkflowTemplateId: template.id,
         pccWorkflowTemplateTitle: template.title,
-        pccIntakeStatus: needsCodexPlan ? "needs_review" : "template_ready",
+        pccPlanningMode: planningMode,
+        pccIntakeStatus: needsCodexPlan
+          ? "codex_permission_needed"
+          : needsProjectManagerReview
+            ? "project_manager_review"
+            : "template_ready",
         pccCodexPlanningAllowed: input.codexPlanningAllowed === true,
         pccRemoteProofAllowed: input.remoteProofAllowed === true,
         pccRuntimeActionsAllowed: input.runtimeActionsAllowed === true,
