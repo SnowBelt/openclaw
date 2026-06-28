@@ -11,6 +11,23 @@ const project = {
   goal: "Track every project",
   status: "active" as const,
   priority: 3,
+  metadata: {
+    pccWorkflowTemplateId: "software-product",
+    pccIntake: {
+      approved: true,
+      answers: {
+        goal: "Track every project.",
+        firstDeliverable: "A skimmable PCC view.",
+        doneProof: "Tests and browser proof pass.",
+        constraints: "No remote actions without permission.",
+        owner: "local_openclaw_agent",
+        blockers: "None.",
+      },
+    },
+    pccQualityGate: { status: "passing" },
+    pccSetupScore: { score: 100, runnable: true },
+    pccCompliance: { badge: "Passing", status: "passing" },
+  },
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
 };
@@ -24,8 +41,22 @@ const milestone = {
   percentComplete: 42,
   implementationPlan: "Build compact forms",
   acceptanceCriteria: ["Local proof passes"],
+  metadata: {
+    pccResponsibility: "local_openclaw_agent",
+    pccProofLevel: "local",
+    pccCostRisk: "low",
+  },
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
+};
+
+const intakeAnswers = {
+  goal: "Track every project.",
+  firstDeliverable: "A skimmable PCC view.",
+  doneProof: "Tests and browser proof pass.",
+  constraints: "No remote actions without permission.",
+  owner: "local_openclaw_agent",
+  blockers: "None.",
 };
 
 const subMilestone = {
@@ -283,7 +314,7 @@ describe("renderPccDashboard", () => {
         onSetMilestoneStopHere,
         projectDetail: {
           project,
-          milestones: [{ ...milestone, metadata: { pccStopHere: true } }],
+          milestones: [{ ...milestone, metadata: { ...milestone.metadata, pccStopHere: true } }],
           subMilestones: [subMilestone],
           permissions: [],
           evidence: [],
@@ -445,6 +476,7 @@ describe("renderPccDashboard", () => {
           project: {
             ...project,
             metadata: {
+              ...project.metadata,
               pccWorkLoop: {
                 enabled: true,
                 state: "working",
@@ -455,6 +487,7 @@ describe("renderPccDashboard", () => {
             },
           },
           milestones: [milestone],
+          subMilestones: [subMilestone],
           permissions: [],
           evidence: [],
           receipts: [],
@@ -482,6 +515,7 @@ describe("renderPccDashboard", () => {
           project: {
             ...project,
             metadata: {
+              ...project.metadata,
               pccProductionTruth: {
                 latestVerifiedSha: "4d8408034d7131470980c316a2af2f311aa6b785",
                 runtimeSha: "4d8408034d7131470980c316a2af2f311aa6b785",
@@ -525,6 +559,7 @@ describe("renderPccDashboard", () => {
           project: {
             ...project,
             metadata: {
+              ...project.metadata,
               pccWorkLoop: {
                 enabled: true,
                 state: "working",
@@ -581,6 +616,8 @@ describe("renderPccDashboard", () => {
           codexPlanningAllowed: false,
           remoteProofAllowed: false,
           runtimeActionsAllowed: false,
+          intakeAnswers,
+          intakeApproved: true,
         },
         onProjectFormChange,
         onSaveProject,
@@ -588,6 +625,8 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector('[data-pcc-editor="project"]')).not.toBeNull();
+    expect(container.querySelector("[data-pcc-intake-wizard]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-workflow-recommendation]")).not.toBeNull();
     container
       .querySelector<HTMLInputElement>("input[required]")
       ?.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -596,6 +635,21 @@ describe("renderPccDashboard", () => {
       ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     expect(onProjectFormChange).toHaveBeenCalled();
     expect(onSaveProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks blank intake before project setup can be saved", () => {
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: { ...EMPTY_PCC_PROJECT_FORM, title: "Blank intake project" },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-intake-blocked]")).not.toBeNull();
+    const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Save project"),
+    );
+    expect(save?.disabled).toBe(true);
   });
 
   it("renders project-manager and Codex planning gates in project intake", () => {
@@ -640,7 +694,11 @@ describe("renderPccDashboard", () => {
           milestones: [
             {
               ...milestone,
-              metadata: { pccResponsibility: "high_reasoning_codex", pccCostRisk: "high" },
+              metadata: {
+                ...milestone.metadata,
+                pccResponsibility: "high_reasoning_codex",
+                pccCostRisk: "high",
+              },
             },
           ],
           permissions: [],
@@ -678,7 +736,11 @@ describe("renderPccDashboard", () => {
           milestones: [
             {
               ...milestone,
-              metadata: { pccResponsibility: "local_openclaw_agent", pccCostRisk: "low" },
+              metadata: {
+                ...milestone.metadata,
+                pccResponsibility: "local_openclaw_agent",
+                pccCostRisk: "low",
+              },
             },
           ],
           permissions: [permission],

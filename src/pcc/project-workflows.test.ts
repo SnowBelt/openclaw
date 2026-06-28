@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  evaluatePccProjectSetup,
+  pccMissingRequiredIntakeAnswers,
+  recommendPccWorkflow,
+  withPccPhase2Metadata,
+} from "./intake-quality.js";
+import {
   buildPccWorkflowDraft,
   getPccWorkflowTemplate,
   PCC_WORKFLOW_TEMPLATES,
@@ -67,5 +73,90 @@ describe("PCC workflow templates", () => {
     expect(draft.project.metadata?.pccPlanningMode).toBe("local_project_manager");
     expect(draft.project.metadata?.pccIntakeStatus).toBe("project_manager_review");
     expect(draft.milestones[0]?.status).toBe("not_started");
+  });
+
+  it("recommends workflows and evaluates setup quality gates", () => {
+    const answers = {
+      goal: "Create a patch-only SNES Game Creator.",
+      firstDeliverable: "A playable demo.",
+      doneProof: "Emulator proof and receipts.",
+      constraints: "No ROM files.",
+      owner: "local_openclaw_agent",
+      blockers: "Toolchain availability.",
+    };
+    const draft = buildPccWorkflowDraft({
+      title: "SNES Game Creator",
+      goal: "Create patch-only SNES games",
+      templateId: "snes-studio",
+    });
+    const now = "2026-06-28T00:00:00Z";
+    const project = {
+      id: "project-1",
+      title: draft.project.title,
+      goal: draft.project.goal,
+      status: draft.project.status,
+      phases: draft.project.phases,
+      metadata: {
+        ...draft.project.metadata,
+        pccIntake: { answers, approved: true, approvedAt: now },
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    const milestones = draft.milestones.map((milestone, index) => ({
+      ...milestone,
+      id: `milestone-${index}`,
+      projectId: "project-1",
+      createdAt: now,
+      updatedAt: now,
+    }));
+    const subMilestones = milestones.flatMap((milestone) =>
+      (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []).map((subMilestone, index) =>
+        Object.assign({}, subMilestone, {
+          id: `${milestone.id}-sub-${index}`,
+          projectId: "project-1",
+          milestoneId: milestone.id,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ),
+    );
+
+    expect(
+      recommendPccWorkflow({ title: project.title, goal: project.goal, intakeAnswers: answers })
+        .templateId,
+    ).toBe("snes-studio");
+    expect(pccMissingRequiredIntakeAnswers(answers)).toEqual([]);
+
+    const evaluation = evaluatePccProjectSetup({ project, milestones, subMilestones });
+    expect(evaluation.status).toBe("passing");
+    expect(evaluation.runnable).toBe(true);
+
+    const withMetadata = withPccPhase2Metadata(project, evaluation, now);
+    expect(withMetadata.metadata?.pccQualityGate).toMatchObject({ status: "passing" });
+    expect(withMetadata.metadata?.pccSetupScore).toMatchObject({ runnable: true, score: 100 });
+    expect(withMetadata.metadata?.pccCompliance).toMatchObject({ badge: "Passing" });
+  });
+
+  it("keeps blank intake blocked instead of treating setup as runnable", () => {
+    const draft = buildPccWorkflowDraft({
+      title: "Untyped project",
+      templateId: "software-product",
+    });
+    const now = "2026-06-28T00:00:00Z";
+    const project = {
+      id: "project-1",
+      title: draft.project.title,
+      status: draft.project.status,
+      metadata: { ...draft.project.metadata, pccIntake: { answers: {}, approved: false } },
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const evaluation = evaluatePccProjectSetup({ project, milestones: [], subMilestones: [] });
+
+    expect(evaluation.status).toBe("missing");
+    expect(evaluation.runnable).toBe(false);
+    expect(evaluation.missing.join("\n")).toContain("Required intake answer missing");
   });
 });

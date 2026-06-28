@@ -1,5 +1,11 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
+import {
+  evaluatePccProjectSetup,
+  PCC_REQUIRED_INTAKE_QUESTIONS,
+  pccMissingRequiredIntakeAnswers,
+  recommendPccWorkflow,
+} from "../../../../src/pcc/intake-quality.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import { PCC_WORKFLOW_TEMPLATES } from "../../../../src/pcc/project-workflows.js";
@@ -324,6 +330,63 @@ function metadataObject(value: unknown): Record<string, unknown> {
 
 function metadataString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function setupEvaluationForDetail(detail: PccProjectDetail) {
+  return evaluatePccProjectSetup({
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+  });
+}
+
+function renderWorkflowQualityCard(detail: PccProjectDetail) {
+  const evaluation = setupEvaluationForDetail(detail);
+  const topGaps = [
+    ...evaluation.missing,
+    ...evaluation.violations,
+    ...evaluation.needsReview,
+  ].slice(0, 4);
+  return html`<section
+    class="pcc-workflow-quality pcc-workflow-quality--${evaluation.status}"
+    data-pcc-workflow-contract
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Workflow contract</p>
+        <h4>Setup quality</h4>
+        <p>
+          PCC checks intake, workflow, sub-milestones, acceptance criteria, owners, and proof before
+          automation starts.
+        </p>
+      </div>
+      <span class="pcc-status" data-pcc-compliance-badge>${evaluation.badge}</span>
+    </div>
+    <dl class="pcc-workflow-quality__facts">
+      <div data-pcc-setup-score>
+        <dt>Setup score</dt>
+        <dd>${evaluation.score}/100</dd>
+      </div>
+      <div>
+        <dt>Recommended workflow</dt>
+        <dd>${evaluation.recommendedWorkflow.title}</dd>
+      </div>
+      <div>
+        <dt>Selected workflow</dt>
+        <dd>${evaluation.selectedWorkflowTemplateId}</dd>
+      </div>
+      <div>
+        <dt>Runnable</dt>
+        <dd>${evaluation.runnable ? "Yes" : "Not yet"}</dd>
+      </div>
+    </dl>
+    <p>${evaluation.recommendedWorkflow.reason}</p>
+    ${topGaps.length
+      ? html`<ul class="pcc-workflow-quality__gaps">
+          ${topGaps.map((gap) => html`<li>${gap}</li>`)}
+        </ul>`
+      : html`<p class="pcc-workflow-quality__ready">Ready to work through the plan.</p>`}
+  </section>`;
 }
 
 function responsibilityLabel(value: string): string {
@@ -880,6 +943,7 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
   if (!detail) {
     return nothing;
   }
+  const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(detail.project);
   const next = getPccWorkLoopNext({
     project: detail.project,
@@ -934,6 +998,7 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
     <dl class="pcc-current-truth__facts">
       ${renderTruthFact("Current state", formatStatus(detail.project.status))}
       ${renderTruthFact("Next action", nextTitle)} ${renderTruthFact("Blocked by", blocked)}
+      ${renderTruthFact("Setup", `${setupEvaluation.badge} ${setupEvaluation.score}/100`)}
       ${renderTruthFact(
         "Needs you",
         detail.permissions.some((permission) => permission.status === "needed") ||
@@ -973,6 +1038,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   if (!detail) {
     return nothing;
   }
+  const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(detail.project);
   const next = getPccWorkLoopNext({
     project: detail.project,
@@ -985,8 +1051,9 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   const nextTitle = next.subMilestone
     ? `${next.milestone?.title ?? "Milestone"}: ${next.subMilestone.title}`
     : (next.milestone?.title ?? "No eligible milestone");
-  const message =
-    next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.";
+  const message = !setupEvaluation.runnable
+    ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; fix intake, workflow, sub-milestones, owners, and proof before starting.`
+    : (next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.");
   return html`
     <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
       <div class="pcc-work-loop__header">
@@ -1006,7 +1073,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn"
           type="button"
-          ?disabled=${props.actionBusy}
+          ?disabled=${props.actionBusy || (!settings.enabled && !setupEvaluation.runnable)}
           @click=${() =>
             props.onUpdateWorkLoop({
               enabled: !settings.enabled,
@@ -1026,7 +1093,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn btn--subtle"
           type="button"
-          ?disabled=${props.actionBusy}
+          ?disabled=${props.actionBusy || !setupEvaluation.runnable}
           @click=${props.onPrepareNextWorkItem}
         >
           Prepare next safe task
@@ -1266,7 +1333,8 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
-      ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+      ${renderWorkflowQualityCard(detail)} ${renderNextSafeActionCard(props)}
+      ${renderCurrentTruthAndReadyQueue(props)}
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">
             Switch to Detailed or Agent when you need plans, receipts, permissions, or handoff
@@ -1559,8 +1627,82 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
   `;
 }
 
+function renderProjectIntakeWizard(props: PccDashboardProps) {
+  const form = props.projectForm;
+  const missing = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
+  const recommendation = recommendPccWorkflow({
+    title: form.title,
+    goal: form.goal,
+    intakeAnswers: form.intakeAnswers,
+  });
+  return html`<section class="pcc-intake-wizard" data-pcc-intake-wizard>
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Project intake</p>
+        <h4>Make this project runnable</h4>
+        <p>Required answers keep PCC from generating vague milestones.</p>
+      </div>
+      <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
+    </div>
+    <div class="pcc-intake-wizard__questions">
+      ${PCC_REQUIRED_INTAKE_QUESTIONS.map((question) => {
+        const value = form.intakeAnswers[question.id] ?? "";
+        return html`<label>
+          ${question.label}
+          <textarea
+            aria-label=${question.prompt}
+            placeholder=${question.prompt}
+            .value=${value}
+            @input=${(event: Event) =>
+              props.onProjectFormChange({
+                intakeAnswers: {
+                  ...form.intakeAnswers,
+                  [question.id]: (event.target as HTMLTextAreaElement).value,
+                },
+              })}
+          ></textarea>
+        </label>`;
+      })}
+    </div>
+    <div class="pcc-callout" data-pcc-workflow-recommendation>
+      <strong>Recommended workflow: ${recommendation.title}</strong>
+      <span>${recommendation.reason}</span>
+      ${form.workflowTemplateId !== recommendation.templateId
+        ? html`<button
+            class="btn btn--subtle"
+            type="button"
+            @click=${() =>
+              props.onProjectFormChange({ workflowTemplateId: recommendation.templateId })}
+          >
+            Use recommendation
+          </button>`
+        : nothing}
+    </div>
+    <label class="pcc-intake-wizard__approval">
+      <input
+        type="checkbox"
+        .checked=${form.intakeApproved}
+        @change=${(event: Event) =>
+          props.onProjectFormChange({
+            intakeApproved: (event.target as HTMLInputElement).checked,
+          })}
+      />
+      I approve this intake brief and workflow setup.
+    </label>
+    ${missing.length || !form.intakeApproved
+      ? html`<p class="pcc-intake-wizard__missing" data-pcc-intake-blocked>
+          ${missing.length
+            ? "Complete every intake answer before saving."
+            : "Approve the intake brief before saving."}
+        </p>`
+      : nothing}
+  </section>`;
+}
+
 function renderProjectEditor(props: PccDashboardProps) {
   const form = props.projectForm;
+  const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
+  const projectSaveBlocked = missingIntake.length > 0 || !form.intakeApproved;
   return html`
     <form
       class="pcc-editor"
@@ -1621,6 +1763,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           )}
         </select></label
       >
+      ${renderProjectIntakeWizard(props)}
       <label
         >Planning mode<select
           .value=${form.planningMode}
@@ -1684,7 +1827,11 @@ function renderProjectEditor(props: PccDashboardProps) {
         </label>
       </div>
       <footer>
-        <button class="btn" type="submit" ?disabled=${props.actionBusy || !form.title.trim()}>
+        <button
+          class="btn"
+          type="submit"
+          ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
+        >
           Save project
         </button>
         <button class="btn btn--subtle" type="button" @click=${props.onCancelEditor}>Cancel</button>

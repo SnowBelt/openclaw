@@ -53,6 +53,23 @@ const project = {
   goal: "Track all projects",
   status: "active" as const,
   priority: 3,
+  metadata: {
+    pccWorkflowTemplateId: "software-product",
+    pccIntake: {
+      approved: true,
+      answers: {
+        goal: "Track all projects.",
+        firstDeliverable: "A useful dashboard.",
+        doneProof: "Local and remote proof.",
+        constraints: "No destructive actions without permission.",
+        owner: "local_openclaw_agent",
+        blockers: "None.",
+      },
+    },
+    pccQualityGate: { status: "passing" },
+    pccSetupScore: { score: 100, runnable: true },
+    pccCompliance: { badge: "Passing", status: "passing" },
+  },
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
 };
@@ -66,6 +83,11 @@ const milestone = {
   percentComplete: 30,
   implementationPlan: "Build forms",
   acceptanceCriteria: ["Local proof passes"],
+  metadata: {
+    pccResponsibility: "local_openclaw_agent",
+    pccProofLevel: "local",
+    pccCostRisk: "low",
+  },
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
 };
@@ -79,8 +101,21 @@ const subMilestone = {
   order: 1,
   implementationPlan: "Run the exact local proof command.",
   acceptanceCriteria: ["Command exits 0"],
+  metadata: {
+    pccResponsibility: "local_openclaw_agent",
+    pccProofLevel: "local",
+  },
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
+};
+
+const intakeAnswers = {
+  goal: "Track every project.",
+  firstDeliverable: "A PCC dashboard shell.",
+  doneProof: "Tests and browser proof pass.",
+  constraints: "No remote proof without permission.",
+  owner: "local_openclaw_agent",
+  blockers: "No blockers.",
 };
 
 const permission = {
@@ -256,6 +291,7 @@ describe("loadPccDashboard", () => {
       pccProjectDetail: {
         project,
         milestones: [milestone],
+        subMilestones: [subMilestone],
         permissions: [],
         evidence: [],
         receipts: [],
@@ -322,6 +358,7 @@ describe("loadPccDashboard", () => {
       pccProjectDetail: {
         project,
         milestones: [milestone],
+        subMilestones: [subMilestone],
         permissions: [],
         evidence: [],
         receipts: [],
@@ -365,6 +402,7 @@ describe("loadPccDashboard", () => {
       pccProjectDetail: {
         project,
         milestones: [{ ...milestone, status: "not_started" }],
+        subMilestones: [{ ...subMilestone, status: "complete", receiptIds: ["receipt-1"] }],
         permissions: [],
         evidence: [],
         receipts: [],
@@ -532,6 +570,8 @@ describe("PCC CRUD controller", () => {
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
         runtimeActionsAllowed: false,
+        intakeAnswers,
+        intakeApproved: true,
       },
     });
 
@@ -543,7 +583,13 @@ describe("PCC CRUD controller", () => {
         goal: "Track all projects",
         status: "active",
         priority: 3,
-        metadata: expect.objectContaining({ pccWorkflowTemplateId: "software-product" }),
+        metadata: expect.objectContaining({
+          pccWorkflowTemplateId: "software-product",
+          pccIntake: expect.objectContaining({ approved: true }),
+          pccQualityGate: expect.objectContaining({ status: "passing" }),
+          pccSetupScore: expect.objectContaining({ runnable: true }),
+          pccCompliance: expect.objectContaining({ badge: "Passing" }),
+        }),
         phases: expect.any(Array),
       }),
     });
@@ -551,6 +597,24 @@ describe("PCC CRUD controller", () => {
     expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(true);
     expect(state.pccSelectedProjectId).toBe("project-1");
     expect(state.pccEditorMode).toBeNull();
+  });
+
+  it("refuses to create a project from blank required intake answers", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Blank intake project",
+        intakeAnswers: { ...intakeAnswers, goal: "" },
+        intakeApproved: true,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Required project intake answers");
   });
 
   it("creates a scoped Codex planning permission only when Codex planning is requested", async () => {
@@ -587,6 +651,8 @@ describe("PCC CRUD controller", () => {
         title: "Project Command Center",
         planningMode: "codex_full_plan",
         codexPlanningAllowed: false,
+        intakeAnswers,
+        intakeApproved: true,
       },
     });
 

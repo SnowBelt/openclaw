@@ -1,4 +1,11 @@
 import {
+  evaluatePccProjectSetup,
+  pccIntakeAnswersFromMetadata,
+  pccMissingRequiredIntakeAnswers,
+  recommendPccWorkflow,
+  withPccPhase2Metadata,
+} from "../../../../src/pcc/intake-quality.js";
+import {
   buildPccWorkflowDraft,
   type PccPlanningMode,
 } from "../../../../src/pcc/project-workflows.js";
@@ -54,6 +61,8 @@ export type PccProjectFormState = {
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
   runtimeActionsAllowed: boolean;
+  intakeAnswers: Record<string, string>;
+  intakeApproved: boolean;
 };
 
 export type PccMilestoneFormState = {
@@ -149,6 +158,8 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
   runtimeActionsAllowed: false,
+  intakeAnswers: {},
+  intakeApproved: false,
 };
 
 export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
@@ -255,32 +266,20 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
 }
 
 function projectFormFromProject(project: PccProject): PccProjectFormState {
+  const metadata = metadataObject(project.metadata);
   return {
     id: project.id,
     title: project.title,
     goal: project.goal ?? "",
     status: project.status,
     priority: String(project.priority ?? 3),
-    workflowTemplateId: metadataString(
-      metadataObject(project.metadata).pccWorkflowTemplateId,
-      "software-product",
-    ),
-    planningMode: metadataString(
-      metadataObject(project.metadata).pccPlanningMode,
-      "template_only",
-    ) as PccPlanningMode,
-    codexPlanningAllowed: metadataBoolean(
-      metadataObject(project.metadata).pccCodexPlanningAllowed,
-      false,
-    ),
-    remoteProofAllowed: metadataBoolean(
-      metadataObject(project.metadata).pccRemoteProofAllowed,
-      false,
-    ),
-    runtimeActionsAllowed: metadataBoolean(
-      metadataObject(project.metadata).pccRuntimeActionsAllowed,
-      false,
-    ),
+    workflowTemplateId: metadataString(metadata.pccWorkflowTemplateId, "software-product"),
+    planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
+    codexPlanningAllowed: metadataBoolean(metadata.pccCodexPlanningAllowed, false),
+    remoteProofAllowed: metadataBoolean(metadata.pccRemoteProofAllowed, false),
+    runtimeActionsAllowed: metadataBoolean(metadata.pccRuntimeActionsAllowed, false),
+    intakeAnswers: pccIntakeAnswersFromMetadata(metadata),
+    intakeApproved: metadataBoolean(metadataObject(metadata.pccIntake).approved, false),
   };
 }
 
@@ -464,7 +463,32 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     if (!state.client) {
       return;
     }
+    const intakeMissing = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
+    if (!form.id && (intakeMissing.length > 0 || !form.intakeApproved)) {
+      state.pccActionError = intakeMissing.length
+        ? "Required project intake answers are missing."
+        : "Project intake must be approved before setup can be saved.";
+      return;
+    }
     const priority = parseOptionalInteger(form.priority);
+    const now = new Date().toISOString();
+    const recommendedWorkflow = recommendPccWorkflow({
+      title: form.title,
+      goal: form.goal,
+      intakeAnswers: form.intakeAnswers,
+    });
+    const existingIntake = metadataObject(
+      metadataObject(state.pccProjectDetail?.project.metadata).pccIntake,
+    );
+    const intakeMetadata = {
+      answers: form.intakeAnswers,
+      approved: form.intakeApproved,
+      ...(form.intakeApproved
+        ? { approvedAt: form.id ? metadataString(existingIntake.approvedAt, now) : now }
+        : {}),
+      missingQuestionIds: intakeMissing,
+      status: form.intakeApproved ? "approved" : "needs_review",
+    };
     const draft = form.id
       ? null
       : buildPccWorkflowDraft({
@@ -477,24 +501,62 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           runtimeActionsAllowed: form.runtimeActionsAllowed,
           planningMode: form.planningMode,
         });
+    const draftSubMilestones =
+      draft?.milestones.flatMap((milestone) =>
+        (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []).map((subMilestone) =>
+          Object.assign({}, subMilestone, {
+            id: `draft-${milestone.title}-${subMilestone.title}`,
+            projectId: "draft-project",
+            milestoneId: `draft-${milestone.title}`,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        ),
+      ) ?? [];
+    const draftMilestones =
+      draft?.milestones.map((milestone) => ({
+        ...milestone,
+        id: `draft-${milestone.title}`,
+        projectId: "draft-project",
+        createdAt: now,
+        updatedAt: now,
+      })) ?? [];
+    const baseProject = form.id
+      ? {
+          ...state.pccProjectDetail?.project,
+          id: form.id,
+          title: form.title.trim(),
+          ...(form.goal.trim() ? { goal: form.goal.trim() } : { goal: "" }),
+          status: form.status,
+          ...(priority !== undefined ? { priority } : {}),
+          metadata: {
+            ...metadataObject(state.pccProjectDetail?.project.metadata),
+            pccWorkflowTemplateId: form.workflowTemplateId,
+            pccWorkflowTemplateTitle: recommendedWorkflow.title,
+            pccPlanningMode: form.planningMode,
+            pccCodexPlanningAllowed: form.codexPlanningAllowed,
+            pccRemoteProofAllowed: form.remoteProofAllowed,
+            pccRuntimeActionsAllowed: form.runtimeActionsAllowed,
+            pccIntake: intakeMetadata,
+          },
+        }
+      : {
+          ...draft!.project,
+          metadata: {
+            ...metadataObject(draft!.project.metadata),
+            pccWorkflowTemplateId: form.workflowTemplateId,
+            pccWorkflowTemplateTitle: recommendedWorkflow.title,
+            pccIntake: intakeMetadata,
+          },
+        };
+    const evaluation = evaluatePccProjectSetup({
+      project: baseProject as PccProject,
+      milestones: form.id ? (state.pccProjectDetail?.milestones ?? []) : draftMilestones,
+      subMilestones: form.id ? (state.pccProjectDetail?.subMilestones ?? []) : draftSubMilestones,
+    });
+    const projectForUpsert = withPccPhase2Metadata(baseProject as PccProject, evaluation, now);
     const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
-      project: form.id
-        ? {
-            id: form.id,
-            title: form.title.trim(),
-            ...(form.goal.trim() ? { goal: form.goal.trim() } : { goal: "" }),
-            status: form.status,
-            ...(priority !== undefined ? { priority } : {}),
-            metadata: {
-              ...metadataObject(state.pccProjectDetail?.project.metadata),
-              pccWorkflowTemplateId: form.workflowTemplateId,
-              pccPlanningMode: form.planningMode,
-              pccCodexPlanningAllowed: form.codexPlanningAllowed,
-              pccRemoteProofAllowed: form.remoteProofAllowed,
-              pccRuntimeActionsAllowed: form.runtimeActionsAllowed,
-            },
-          }
-        : draft!.project,
+      project: projectForUpsert,
     });
     if (draft && !form.id) {
       for (const milestone of draft.milestones) {
@@ -791,6 +853,15 @@ export async function updatePccWorkLoopSettings(
     if (!state.client) {
       return;
     }
+    const setupEvaluation = evaluatePccProjectSetup({
+      project: detail.project,
+      milestones: detail.milestones,
+      subMilestones: detail.subMilestones ?? [],
+    });
+    if (patch.enabled === true && !setupEvaluation.runnable) {
+      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; complete intake and workflow requirements before starting work.`;
+      return;
+    }
     const updatedProject = withPccWorkLoopSettings(detail.project, patch, new Date().toISOString());
     await state.client.request("pcc.projects.upsert", {
       project: projectUpsertPayload(updatedProject),
@@ -807,6 +878,15 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
   }
   await withPccAction(state, async () => {
     if (!state.client) {
+      return;
+    }
+    const setupEvaluation = evaluatePccProjectSetup({
+      project: detail.project,
+      milestones: detail.milestones,
+      subMilestones: detail.subMilestones ?? [],
+    });
+    if (!setupEvaluation.runnable) {
+      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; complete intake and workflow requirements before preparing work.`;
       return;
     }
     const next = getPccWorkLoopNext({

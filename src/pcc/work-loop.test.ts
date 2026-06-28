@@ -168,6 +168,21 @@ describe("PCC guided work loop", () => {
     expect(next.taskPrompt).toContain("Run the local proof commands.");
   });
 
+  it("blocks automation when the project setup quality gate is not passing", () => {
+    const gatedProject: PccProject = {
+      ...project,
+      metadata: {
+        pccQualityGate: { status: "missing" },
+        pccSetupScore: { score: 55, runnable: false },
+      },
+    };
+    const next = getPccWorkLoopNext({ project: gatedProject, milestones: [milestone()] });
+
+    expect(next.state).toBe("blocked");
+    expect(next.blocker?.kind).toBe("setup_not_ready");
+    expect(next.blocker?.message).toContain("55/100");
+  });
+
   it("uses sub-milestones before parent milestone work", () => {
     const next = getPccWorkLoopNext({
       project,

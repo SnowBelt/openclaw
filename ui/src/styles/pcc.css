@@ -847,6 +847,7 @@
 .pcc-production-truth,
 .pcc-ready-queue article,
 .pcc-submilestone-panel,
+.pcc-workflow-quality,
 .pcc-work-loop__parallel {
   border: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
   border-radius: 18px;
@@ -859,6 +860,61 @@
   gap: 14px;
   padding: 18px;
   margin-bottom: 18px;
+}
+
+.pcc-workflow-quality {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.pcc-workflow-quality--passing {
+  border-color: color-mix(in srgb, #22c55e 42%, var(--border-color));
+}
+
+.pcc-workflow-quality--missing,
+.pcc-workflow-quality--needs_review,
+.pcc-workflow-quality--violated {
+  border-color: color-mix(in srgb, #f97316 48%, var(--border-color));
+}
+
+.pcc-workflow-quality__facts {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin: 0;
+}
+
+.pcc-workflow-quality__facts div {
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--muted-surface-color) 76%, white 24%);
+  padding: 10px;
+}
+
+.pcc-workflow-quality__facts dt {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-workflow-quality__facts dd {
+  color: var(--text-color);
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pcc-workflow-quality__gaps {
+  color: var(--text-muted);
+  margin: 0;
+  padding-left: 18px;
+}
+
+.pcc-workflow-quality__ready {
+  color: var(--ok, #22c55e);
+  font-weight: 700;
 }
 
 .pcc-production-truth--current {
@@ -1259,6 +1315,41 @@
 .pcc-portfolio-console__controls input {
   width: 64px;
   margin-left: 8px;
+}
+
+.pcc-intake-wizard {
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: var(--surface-muted);
+}
+
+.pcc-intake-wizard h4,
+.pcc-intake-wizard p {
+  margin: 0;
+}
+
+.pcc-intake-wizard__questions {
+  display: grid;
+  gap: 10px;
+}
+
+.pcc-intake-wizard__approval {
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  display: flex !important;
+  gap: 10px !important;
+  padding: 10px 12px;
+  background: var(--surface-card);
+  text-transform: none !important;
+}
+
+.pcc-intake-wizard__missing {
+  color: var(--danger, #ff3b30);
+  font-weight: 700;
 }
 
 .pcc-portfolio-console__queues {

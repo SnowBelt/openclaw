@@ -67,6 +67,7 @@ export type PccWorkLoopBlockerKind =
   | "destructive_action_required"
   | "lane_disabled"
   | "workspace_locked"
+  | "setup_not_ready"
   | "missing_plan"
   | "missing_acceptance_criteria"
   | "proof_failed";
@@ -129,6 +130,7 @@ const HARD_STOP_BLOCKERS = new Set<PccWorkLoopBlockerKind>([
   "codex_required",
   "remote_proof_required",
   "destructive_action_required",
+  "setup_not_ready",
   "proof_failed",
 ]);
 const WORK_LOOP_STATES: readonly PccWorkLoopState[] = [
@@ -369,6 +371,28 @@ function itemBlockerIds(item: WorkItem): { milestoneId: string; subMilestoneId?:
   return { milestoneId: item.id };
 }
 
+function projectSetupBlocker(project: PccProject): PccWorkLoopBlocker | null {
+  const metadata = metadataObject(project.metadata);
+  const qualityGate = metadataObject(metadata.pccQualityGate);
+  const setupScore = metadataObject(metadata.pccSetupScore);
+  if (!("status" in qualityGate) && !("runnable" in setupScore)) {
+    return null;
+  }
+  const status = typeof qualityGate.status === "string" ? qualityGate.status : "needs_review";
+  const runnable = setupScore.runnable === true;
+  if (status === "passing" && runnable) {
+    return null;
+  }
+  const score =
+    typeof setupScore.score === "number" && Number.isFinite(setupScore.score)
+      ? Math.round(setupScore.score)
+      : 0;
+  return {
+    kind: "setup_not_ready",
+    message: `Project setup quality gate is ${status.replace(/_/g, " ")} (${score}/100).`,
+  };
+}
+
 export function classifyMilestoneBlocker(
   input: PccWorkLoopProject,
   milestone: PccMilestone | null,
@@ -539,6 +563,11 @@ function blockedNext(
 }
 
 export function getPccWorkLoopNext(input: PccWorkLoopProject): PccWorkLoopNext {
+  const setupBlocker = projectSetupBlocker(input.project);
+  if (setupBlocker) {
+    return blockedNext(null, null, setupBlocker);
+  }
+
   const reachedStop = reachedStopHereMilestone(input);
   if (reachedStop) {
     return blockedNext(reachedStop, null, {
