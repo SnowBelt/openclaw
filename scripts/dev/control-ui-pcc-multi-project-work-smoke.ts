@@ -76,6 +76,7 @@ try {
   };
   const props: PccDashboardProps = {
     loading: false,
+    viewMode: "agent",
     error: null,
     projects: [detail.summary],
     portfolio: {
@@ -124,6 +125,7 @@ try {
     chatSyncText: "",
     chatSyncProposals: [],
     chatSyncError: null,
+    onSetViewMode: () => undefined,
     onRefresh: () => undefined,
     onSelectProject: () => undefined,
     onOpenProjectEditor: () => undefined,

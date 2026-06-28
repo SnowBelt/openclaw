@@ -94,6 +94,7 @@ async function main() {
     render(
       renderPccDashboard({
         loading: false,
+        viewMode: "agent",
         error: null,
         updatedAt: Date.now(),
         portfolio: {
@@ -137,6 +138,7 @@ async function main() {
         chatSyncText: "",
         chatSyncProposals: [],
         chatSyncError: null,
+        onSetViewMode: () => undefined,
         onRefresh: () => calls.push("refresh"),
         onSelectProject: (id) => calls.push(`select:${id}`),
         onOpenProjectEditor: () => calls.push("edit-project"),

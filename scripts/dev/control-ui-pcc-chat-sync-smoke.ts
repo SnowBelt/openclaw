@@ -83,6 +83,7 @@ async function main() {
     render(
       renderPccDashboard({
         loading: false,
+        viewMode: "agent",
         error: null,
         updatedAt: Date.now(),
         portfolio: {
@@ -126,6 +127,7 @@ async function main() {
         chatSyncText: "PLEASE IMPLEMENT THIS PLAN:\n# Automatic Chat/Codex Sync V1",
         chatSyncProposals: [proposal],
         chatSyncError: null,
+        onSetViewMode: () => undefined,
         onRefresh: () => undefined,
         onSelectProject: () => undefined,
         onOpenProjectEditor: () => undefined,
@@ -158,13 +160,14 @@ async function main() {
     [...root.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Review chat updates"))
       ?.click();
+    const applyWasSilent = calls.some((call) => call.startsWith("apply:"));
     root.querySelector<HTMLButtonElement>("[data-pcc-chat-sync-proposal] button")?.click();
     const text = root.textContent ?? "";
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
       card: root.querySelectorAll("[data-pcc-chat-sync]").length === 1,
       proposal: root.querySelectorAll("[data-pcc-chat-sync-proposal]").length === 1,
-      noSilentApply: calls.includes("preview") && calls.includes("apply:chat-plan-1"),
+      noSilentApply: !applyWasSilent && calls.includes("apply:chat-plan-1"),
       textChanged: calls.some((call) => call === "text:updated"),
       visibleCopy:
         text.includes("Suggested updates from chat") && text.includes("No silent rewrite"),

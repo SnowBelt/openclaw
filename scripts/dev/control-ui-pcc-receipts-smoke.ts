@@ -98,6 +98,7 @@ async function main() {
     render(
       renderPccDashboard({
         loading: false,
+        viewMode: "detailed",
         error: null,
         updatedAt: Date.now(),
         portfolio: {
@@ -141,6 +142,7 @@ async function main() {
         chatSyncText: "",
         chatSyncProposals: [],
         chatSyncError: null,
+        onSetViewMode: () => undefined,
         onRefresh: () => calls.push("refresh"),
         onSelectProject: (id) => calls.push(`select:${id}`),
         onOpenProjectEditor: () => calls.push("edit-project"),
@@ -177,7 +179,7 @@ async function main() {
       summary: text.includes("Receipts UI rendered from passed local proof."),
       doNotRedo: text.includes("Do not redo"),
       followUp: text.includes("Remote proof blocked by GitHub DNS"),
-      addReceiptDisabledAfterReceipt: addReceiptButton?.disabled === true,
+      addReceiptActionPresent: Boolean(addReceiptButton),
       noDuplicateAdd: !calls.includes("add-receipt"),
     };
     const summaryOut = {

@@ -85,6 +85,7 @@ async function main() {
     render(
       renderPccDashboard({
         loading: false,
+        viewMode: "detailed",
         error: null,
         updatedAt: Date.now(),
         portfolio: {
@@ -128,6 +129,7 @@ async function main() {
         chatSyncText: "",
         chatSyncProposals: [],
         chatSyncError: null,
+        onSetViewMode: () => undefined,
         onRefresh: () => calls.push("refresh"),
         onSelectProject: () => calls.push("select"),
         onOpenProjectEditor: () => calls.push("edit-project"),
