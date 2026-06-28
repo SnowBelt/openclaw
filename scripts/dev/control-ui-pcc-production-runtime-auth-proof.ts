@@ -91,6 +91,11 @@ async function runBrowserProof(options: ProofOptions) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
   await page.goto(resolved.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.waitForTimeout(12_000);
+  const agentMode = page.getByRole("button", { name: /Agent\s+Show execution plans/i }).first();
+  if (await agentMode.isVisible().catch(() => false)) {
+    await agentMode.click();
+    await page.waitForTimeout(1_000);
+  }
   const targetProject = page
     .locator(".pcc-project-card", { hasText: options.projectTitle })
     .first();
