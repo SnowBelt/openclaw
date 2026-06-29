@@ -110,8 +110,19 @@ export function pccIntakeApproved(metadata: unknown): boolean {
   return metadataBoolean(intake.approved) || Boolean(metadataString(intake.approvedAt));
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesWorkflowTerm(text: string, term: string): boolean {
+  if (/[^a-z0-9]/.test(term)) {
+    return text.includes(term);
+  }
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}([^a-z0-9]|$)`).test(text);
+}
+
 function includesAny(text: string, terms: readonly string[]): boolean {
-  return terms.some((term) => text.includes(term));
+  return terms.some((term) => matchesWorkflowTerm(text, term));
 }
 
 export function recommendPccWorkflow(input: {

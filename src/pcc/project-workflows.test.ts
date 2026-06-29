@@ -159,4 +159,36 @@ describe("PCC workflow templates", () => {
     expect(evaluation.runnable).toBe(false);
     expect(evaluation.missing.join("\n")).toContain("Required intake answer missing");
   });
+
+  it("loads generic projects without falling into project-specific workflows", () => {
+    const answers = {
+      goal: "Build a task automation planner for general user plans.",
+      firstDeliverable: "A loaded project with milestones and sub-milestones.",
+      doneProof: "Local, remote, runtime, and receipt proof.",
+      constraints: "Do not spend tokens or run destructive actions without permission.",
+      owner: "local_openclaw_agent",
+      blockers: "Missing approval or proof should block work.",
+    };
+
+    const recommendation = recommendPccWorkflow({
+      title: "Task Automation Planner",
+      goal: answers.goal,
+      intakeAnswers: answers,
+    });
+    expect(recommendation.templateId).toBe("software-product");
+
+    const draft = buildPccWorkflowDraft({
+      title: "Task Automation Planner",
+      goal: answers.goal,
+      templateId: recommendation.templateId,
+    });
+    expect(draft.project.metadata?.pccWorkflowTemplateId).toBe("software-product");
+    expect(draft.milestones.length).toBeGreaterThanOrEqual(5);
+    for (const milestone of draft.milestones) {
+      expect(draft.subMilestonesByMilestoneTitle[milestone.title]?.length).toBeGreaterThan(0);
+      expect(milestone.acceptanceCriteria).toBeTruthy();
+      expect(milestone.metadata?.pccResponsibility).toBeTruthy();
+      expect(milestone.metadata?.pccProofLevel).toBeTruthy();
+    }
+  });
 });
