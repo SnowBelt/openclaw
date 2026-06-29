@@ -191,4 +191,86 @@ describe("PCC workflow templates", () => {
       expect(milestone.metadata?.pccProofLevel).toBeTruthy();
     }
   });
+
+  it("keeps Phase 2 project setup non-runnable until intake, workflow, structure, and proof fields pass", () => {
+    const answers = {
+      goal: "Load any project into PCC and create an executable milestone path.",
+      firstDeliverable: "A generic project with phases, milestones, and sub-milestones.",
+      doneProof: "Local proof, remote proof, runtime proof, and completion receipts.",
+      constraints: "No Codex, remote proof, destructive actions, or reboot without permission.",
+      owner: "local_openclaw_agent",
+      blockers: "Missing intake, missing proof, and missing permissions.",
+    };
+    const draft = buildPccWorkflowDraft({
+      title: "Universal Project Loader",
+      goal: answers.goal,
+      templateId: "software-product",
+    });
+    const now = "2026-06-29T00:00:00Z";
+    const project = {
+      id: "project-phase2",
+      title: draft.project.title,
+      goal: draft.project.goal,
+      status: draft.project.status,
+      phases: draft.project.phases,
+      metadata: {
+        ...draft.project.metadata,
+        pccIntake: { answers, approved: true, approvedAt: now },
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+    const milestones = draft.milestones.map((milestone, index) => ({
+      ...milestone,
+      id: `milestone-${index}`,
+      projectId: project.id,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    const subMilestones = milestones.flatMap((milestone) =>
+      (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []).map((subMilestone, index) =>
+        Object.assign({}, subMilestone, {
+          id: `${milestone.id}-sub-${index}`,
+          projectId: project.id,
+          milestoneId: milestone.id,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ),
+    );
+
+    const blank = evaluatePccProjectSetup({
+      project: {
+        ...project,
+        metadata: { ...project.metadata, pccIntake: { answers: {}, approved: false } },
+      },
+      milestones,
+      subMilestones,
+    });
+    expect(blank.status).toBe("missing");
+    expect(blank.runnable).toBe(false);
+    expect(blank.missing.join("\n")).toContain("Required intake answer missing");
+
+    const noSubMilestones = evaluatePccProjectSetup({ project, milestones, subMilestones: [] });
+    expect(noSubMilestones.status).toBe("missing");
+    expect(noSubMilestones.score).toBeLessThan(80);
+    expect(noSubMilestones.missing.join("\n")).toContain("has no sub-milestones");
+
+    const badWorkflow = evaluatePccProjectSetup({
+      project: { ...project, metadata: { ...project.metadata, pccWorkflowTemplateId: "unknown" } },
+      milestones,
+      subMilestones,
+    });
+    expect(badWorkflow.status).toBe("violated");
+    expect(badWorkflow.badge).toBe("Violated");
+
+    const passing = evaluatePccProjectSetup({ project, milestones, subMilestones });
+    expect(passing).toMatchObject({
+      status: "passing",
+      badge: "Passing",
+      runnable: true,
+      score: 100,
+      selectedWorkflowTemplateId: "software-product",
+    });
+  });
 });
