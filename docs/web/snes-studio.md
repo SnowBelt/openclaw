@@ -38,6 +38,7 @@ Reference docs:
 - [SNES Studio Proof Gates](/reference/snes-studio-proof-gates)
 - [SNES Studio Art Pipeline](/reference/snes-studio-art-pipeline)
 - [SNES Studio Model Benchmarking](/reference/snes-studio-model-benchmarking)
+- [SNES Game Creator Platform Runbook](/reference/snes-game-creator-platform-runbook)
 
 PCC v1 is deterministic orchestration and QA scaffolding. It does not automatically spend model calls or prove a finished game without the required project receipts.
 

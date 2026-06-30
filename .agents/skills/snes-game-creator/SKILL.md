@@ -108,6 +108,7 @@ For long-running SNES game creation, use the Project Command Center (PCC) as the
 - `references/proof-gates.md` for milestone judging and proof separation.
 - `references/art-quality-rubric.md` for legal classic-SNES visual quality criteria.
 - `references/prompt-to-rom-workflow.md` for the end-to-end prompt-to-ROM process.
+- `docs/reference/snes-game-creator-platform-runbook.md` for platform-only milestone execution when named-game work is inactive.
 
 Use `pnpm snes:team -- --mode status --project <id> --json` to inspect PCC state, `--mode next` to pick the next safe milestone, and `--mode validate` before claiming completion. PCC v2 adds deterministic overnight runner scaffolding, approval queues, pause/resume/cancel, and worker-packet export. It still does not automatically spend hosted model calls or run live worker agents without approval.
 

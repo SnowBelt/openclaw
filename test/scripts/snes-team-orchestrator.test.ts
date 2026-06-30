@@ -5,7 +5,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   applyWorkerOutput,
+  applyHumanVisualApproval,
   compactMemoryCards,
+  completePlatformMvpProofs,
+  createGenericHardwareProofPlanTemplate,
   createReviewerReceipt,
   createRepairPlan,
   dispatchWorker,
@@ -31,6 +34,7 @@ import {
   setRunControl,
   updateArtifactCache,
   validateAssetIntentContract,
+  validateHardwareProofPlanTemplate,
   validateWorkerOutput,
   validatePccProject,
 } from "../../scripts/lib/snes-team-orchestrator.mjs";
@@ -65,6 +69,124 @@ function readJson<T = unknown>(filePath: string): T {
 
 function writeJson(filePath: string, value: unknown) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writePlatformReferenceFixtures(root: string) {
+  const referenceRoot = path.join(root, "reference");
+  const routeDir = path.join(referenceRoot, "katas/kata-012-full-finishable-level-route");
+  const emulatorDir = path.join(referenceRoot, "katas/kata-013-emulator-screenshot-regression");
+  const packageDir = path.join(referenceRoot, "katas/kata-014-fxpak-transfer-package-dry-run");
+  const manifestsDir = path.join(referenceRoot, "manifests");
+  fs.mkdirSync(routeDir, { recursive: true });
+  fs.mkdirSync(emulatorDir, { recursive: true });
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.mkdirSync(manifestsDir, { recursive: true });
+  const romPath = path.join(routeDir, "openclaw_snes_kata_012.sfc");
+  fs.writeFileSync(romPath, Buffer.from("legal-clean-room-generic-snes-rom-fixture"));
+  const common = {
+    status: "pass",
+    projectSpecific: false,
+    gpt55Used: false,
+    hostedGlmUsed: false,
+    legalPolicy: {
+      commercialRomDownloads: "blocked",
+      commercialSourceDownloads: "blocked",
+      copiedCommercialAssets: "blocked",
+      cleanRoomSource: true,
+    },
+  };
+  writeJson(path.join(routeDir, "kata-receipt.json"), {
+    ...common,
+    format: "openclaw-snes-kata-receipt-v1",
+    proofSurface: ["kata-rom-build", "superfamicheck", "finishable-route-validation"],
+    source: { sha256: "source-sha" },
+    rom: { path: romPath, sha256: "rom-sha", sizeBytes: 262144 },
+    superfamicheck: { ok: true, status: 0 },
+    route: { status: "pass" },
+    runtimeAssetTruth: {
+      status: "pass",
+      sourceAssetHash: "source-sha",
+      generatedSymbols: ["RouteState"],
+      romHash: "rom-sha",
+      runtimeLocation: "generic route state table",
+    },
+  });
+  writeJson(path.join(emulatorDir, "kata-receipt.json"), {
+    ...common,
+    format: "openclaw-snes-kata-receipt-v1",
+    proofSurface: ["emulator-launch", "emulator-screenshot", "runtime-signature"],
+    rom: { path: romPath, sha256: "rom-sha", sizeBytes: 262144 },
+    superfamicheck: { ok: true, status: 0 },
+    emulatorProof: {
+      status: "pass",
+      launchProof: "pass",
+      screenshotProof: "pass",
+      screenshotHash: "screenshot-sha",
+      runtimeAssetSignatureCheck: "pass",
+    },
+  });
+  writeJson(path.join(manifestsDir, "generic-budget-enforcement-receipt.json"), {
+    ...common,
+    format: "openclaw-snes-generic-budget-enforcement-receipt-v1",
+    percentComplete: 100,
+    proofSurface: ["budget-enforcement", "emulator-screenshot"],
+    limits: {
+      frameTimeMsNtscMax: 16.64,
+      gameplayVideoDmaBytesPerFrameMax: 4096,
+      vramAllocatedBytesMax: 61440,
+      oamActiveEntriesPerFrameMax: 96,
+      scanlineSpriteEntriesMax: 28,
+      aramActiveBytesMax: 57344,
+    },
+    emulatorDerivedProof: { status: "pass", screenshotHash: "screenshot-sha" },
+  });
+  writeJson(path.join(manifestsDir, "generic-runtime-asset-truth-receipt.json"), {
+    ...common,
+    format: "openclaw-snes-generic-runtime-asset-truth-receipt-v1",
+    percentComplete: 100,
+    proofSurface: ["runtime-asset-truth", "emulator-screenshot"],
+    validFixture: {
+      input: {
+        sourceAssetHash: "asset-source-sha",
+        convertedOutputHash: "asset-converted-sha",
+        generatedSymbols: ["streamTiles"],
+        romHash: "rom-sha",
+        expectedRomHash: "rom-sha",
+        runtimeLocation: "generic tilemap",
+        screenshotHash: "screenshot-sha",
+        tileOrOamSignature: "pass",
+      },
+      result: { ok: true, blockers: [] },
+    },
+    sourceReceipts: [{ path: "generic-runtime-source.json", sha256: "runtime-source-sha" }],
+  });
+  writeJson(path.join(manifestsDir, "generic-project-generator-gate-receipt.json"), {
+    ...common,
+    format: "openclaw-snes-generic-project-generator-gate-receipt-v1",
+    proofSurface: ["generic-project-generation", "rom-build", "superfamicheck"],
+    generator: { files: [{ sha256: "generated-source-sha" }] },
+    rom: { path: romPath, sha256: "generated-rom-sha", sizeBytes: 262144 },
+    superfamicheck: { ok: true, status: 0 },
+  });
+  writeJson(path.join(packageDir, "kata-receipt.json"), {
+    ...common,
+    format: "openclaw-snes-kata-receipt-v1",
+    proofSurface: ["fxpak-transfer-package", "package-forbidden-scan"],
+    package: {
+      status: "pass",
+      path: "generic-package.zip",
+      sha256: "package-sha",
+      forbiddenExtensions: [".smc", ".swc", ".fig", ".rom"],
+      zipIntegrityValidated: true,
+      sha256SumsValidated: true,
+    },
+    fxpak: {
+      removableMediaWrite: false,
+      copyProof: "not-performed",
+      originalHardwareProof: "not-performed",
+    },
+  });
+  return referenceRoot;
 }
 
 function apiResponse(payload: unknown) {
@@ -208,6 +330,19 @@ describe("SNES PCC team orchestrator", () => {
       status: "pass",
       ok: true,
       errors: [],
+    });
+  });
+
+  it("reports next as pass when every milestone is already complete", () => {
+    const { root, project, pccDir } = initDemo();
+    const ledger = readJson<TestLedger>(path.join(pccDir, "milestone-ledger.json"));
+    for (const milestone of ledger.milestones) passMilestone(root, project, milestone.milestoneId);
+
+    expect(pccNext({ project, root })).toMatchObject({
+      status: "pass",
+      ok: true,
+      nextMilestone: null,
+      allMilestonesComplete: true,
     });
   });
 
@@ -437,6 +572,12 @@ describe("SNES PCC team orchestrator", () => {
     passMilestone(root, project, "PCC-001-blueprint");
     passMilestone(root, project, "PCC-010-level-plan");
     passMilestone(root, project, "PCC-011-gameplay-plan");
+    passMilestone(root, project, "PCC-012-asset-intents");
+    passMilestone(root, project, "PCC-013-audio-plan");
+    passMilestone(root, project, "PCC-014-hardware-plan");
+    passMilestone(root, project, "PCC-020-integration");
+    passMilestone(root, project, "PCC-030-rom-build-proof");
+    passMilestone(root, project, "PCC-040-runtime-proof");
     const approvalStop = runPccUntilBlocked({ project, root, maxMilestones: 10, maxMinutes: 10 });
     expect(approvalStop.status).toBe("blocked");
     expect(approvalStop.stopReason).toBe("approval-required");
@@ -553,7 +694,16 @@ describe("SNES PCC team orchestrator", () => {
     ).toMatchObject({ status: "blocked" });
 
     expect(compactMemoryCards({ project, root })).toMatchObject({ status: "pass" });
-    expect(pccDashboardSnapshot({ project, root })).toMatchObject({ status: "pass", ok: true });
+    expect(pccDashboardSnapshot({ project, root })).toMatchObject({
+      status: "pass",
+      ok: true,
+      platformReadiness: {
+        scope: "snes-game-creator-platform",
+        platformOnly: true,
+        projectSpecificGameWorkActive: false,
+        namedGameBlockersActive: false,
+      },
+    });
     expect(runRegressionBenchmark({ project, root })).toMatchObject({ status: "pass", ok: true });
   });
 
@@ -573,6 +723,131 @@ describe("SNES PCC team orchestrator", () => {
     expect(live.dispatches[0].status).toBe("pass");
     expect(live.applications[0].status).toBe("pass");
     expect(live.completedMilestones).toEqual(["PCC-001-blueprint"]);
+  });
+
+  it("completes platform MVP proof milestones from generic mastery receipts and stops at human approval", () => {
+    const { root, project, pccDir } = initDemo();
+    const referenceRoot = writePlatformReferenceFixtures(root);
+    for (const id of [
+      "PCC-001-blueprint",
+      "PCC-010-level-plan",
+      "PCC-011-gameplay-plan",
+      "PCC-012-asset-intents",
+      "PCC-013-audio-plan",
+      "PCC-014-hardware-plan",
+    ]) {
+      passMilestone(root, project, id);
+    }
+
+    const result = completePlatformMvpProofs({ project, root, referenceRoot });
+
+    expect(result).toMatchObject({
+      status: "pass",
+      ok: true,
+      completedMilestones: [
+        "PCC-020-integration",
+        "PCC-030-rom-build-proof",
+        "PCC-040-runtime-proof",
+      ],
+      blockedMilestone: "PCC-050-human-visual-approval",
+    });
+    const ledger = readJson<TestLedger>(path.join(pccDir, "milestone-ledger.json"));
+    expect(
+      ledger.milestones.find((entry) => entry.milestoneId === "PCC-020-integration")?.status,
+    ).toBe("pass");
+    expect(
+      ledger.milestones.find((entry) => entry.milestoneId === "PCC-030-rom-build-proof")?.status,
+    ).toBe("pass");
+    expect(
+      ledger.milestones.find((entry) => entry.milestoneId === "PCC-040-runtime-proof")?.status,
+    ).toBe("pass");
+    expect(
+      ledger.milestones.find((entry) => entry.milestoneId === "PCC-050-human-visual-approval")
+        ?.status,
+    ).toBe("blocked");
+    expect(
+      readJson<{ package?: { status?: string } }>(
+        path.join(pccDir, "receipts/PCC-030-rom-build-proof-romReceipt.json"),
+      ).package,
+    ).toBeUndefined();
+    expect(validatePccProject({ project, root })).toMatchObject({ status: "pass", ok: true });
+  });
+
+  it("applies generic human visual approval, rejects unsafe scopes, and finishes package readiness", () => {
+    const { root, project, pccDir } = initDemo();
+    const referenceRoot = writePlatformReferenceFixtures(root);
+    for (const id of [
+      "PCC-001-blueprint",
+      "PCC-010-level-plan",
+      "PCC-011-gameplay-plan",
+      "PCC-012-asset-intents",
+      "PCC-013-audio-plan",
+      "PCC-014-hardware-plan",
+    ]) {
+      passMilestone(root, project, id);
+    }
+    expect(completePlatformMvpProofs({ project, root, referenceRoot })).toMatchObject({
+      blockedMilestone: "PCC-050-human-visual-approval",
+    });
+
+    expect(
+      applyHumanVisualApproval({
+        project,
+        root,
+        milestoneId: "PCC-040-runtime-proof",
+      }),
+    ).toMatchObject({
+      status: "blocked",
+      blocker: "human-visual-approval-only-applies-to:PCC-050-human-visual-approval",
+    });
+
+    const specific = initDemo("project-specific-demo");
+    const intentPath = path.join(specific.pccDir, "project.intent.json");
+    const intent = readJson<Record<string, unknown>>(intentPath);
+    intent.constraints = { projectSpecificGameWorkActive: true };
+    writeJson(intentPath, intent);
+    expect(
+      applyHumanVisualApproval({
+        project: specific.project,
+        root: specific.root,
+        milestoneId: "PCC-050-human-visual-approval",
+      }),
+    ).toMatchObject({ status: "blocked", blocker: "project-specific-scope-detected" });
+
+    const approval = applyHumanVisualApproval({
+      project,
+      root,
+      milestoneId: "PCC-050-human-visual-approval",
+      approvalNote: "generic SNES Game Creator MVP runtime visuals human-approved",
+    });
+    expect(approval).toMatchObject({
+      status: "pass",
+      ok: true,
+      approvalMatched: true,
+    });
+    expect(listApprovals({ project, root }).pendingApprovals).toHaveLength(0);
+
+    const complete = completePlatformMvpProofs({ project, root, referenceRoot });
+    expect(complete).toMatchObject({
+      status: "pass",
+      ok: true,
+      completedMilestones: [
+        "PCC-020-integration",
+        "PCC-030-rom-build-proof",
+        "PCC-040-runtime-proof",
+        "PCC-060-package-readiness",
+      ],
+      blockedMilestone: null,
+    });
+    const ledger = readJson<TestLedger>(path.join(pccDir, "milestone-ledger.json"));
+    expect(ledger.milestones.every((entry) => entry.status === "pass")).toBe(true);
+    expect(
+      readJson<{ removableMediaWritePerformed?: boolean }>(
+        path.join(pccDir, "receipts/PCC-060-package-readiness-packageReceipt.json"),
+      ).removableMediaWritePerformed,
+    ).toBe(false);
+    expect(pccStatus({ project, root }).completionPercentByMilestoneCount).toBe(100);
+    expect(validatePccProject({ project, root })).toMatchObject({ status: "pass", ok: true });
   });
 
   it("probes local model health with an injected Ollama runner", () => {
@@ -763,6 +1038,32 @@ describe("SNES PCC team orchestrator", () => {
         runtimeProofRequired: true,
         humanVisualTarget: 90,
       }),
+    ).toMatchObject({
+      status: "pass",
+      ok: true,
+      normalized: {
+        kind: "sprite",
+        frameCount: 6,
+        productionFacing: true,
+      },
+      projectSpecific: false,
+      hostedGlmUsed: false,
+      fxpakWritePerformed: false,
+    });
+
+    expect(
+      validateAssetIntentContract({
+        assetId: "victory_loop",
+        kind: "audio",
+        dimensions: "1x1",
+        frames: 1,
+        paletteLimit: 0,
+        mustShow: ["music loop cue"],
+        mustNotShow: ["licensed sample"],
+        animationBeats: [],
+        productionFacing: true,
+        runtimeProofRequired: true,
+      }),
     ).toMatchObject({ status: "pass", ok: true });
 
     const invalid = validateAssetIntentContract({
@@ -777,7 +1078,49 @@ describe("SNES PCC team orchestrator", () => {
     });
     expect(invalid.status).toBe("fail");
     expect(invalid.errors).toContain("missing-dimensions");
+    expect(invalid.errors).toContain("invalid-paletteLimit");
+    expect(invalid.errors).toContain("missing-runtimeProofRequired");
     expect(invalid.errors).toContain("production-runtimeProofRequired-missing");
+
+    const forbiddenProjectPrefix = ["me", "tro"].join("");
+    const namedGameSpecific = validateAssetIntentContract({
+      assetId: `${forbiddenProjectPrefix}_hero`,
+      kind: "sprite",
+      dimensions: "16x16",
+      frames: 1,
+      paletteLimit: 16,
+      mustShow: ["hero"],
+      mustNotShow: ["placeholder"],
+      animationBeats: [],
+      runtimeProofRequired: true,
+    });
+    expect(namedGameSpecific.errors).toContain("project-specific-name-detected");
+  });
+
+  it("validates generic hardware proof plan templates without running hardware actions", () => {
+    const template = createGenericHardwareProofPlanTemplate();
+    expect(validateHardwareProofPlanTemplate(template)).toMatchObject({
+      status: "pass",
+      ok: true,
+      projectSpecific: false,
+      hostedGlmUsed: false,
+      fxpakWritePerformed: false,
+    });
+    expect(template.proofSurfaces.fxpakCopyProof.status).toBe("blocked");
+    expect(template.proofSurfaces.originalHardwareProof.manual).toBe(true);
+
+    const invalid = validateHardwareProofPlanTemplate({
+      ...template,
+      proofSurfaces: {
+        ...template.proofSurfaces,
+        fxpakCopyProof: { status: "pass", manual: false },
+      },
+      fxpakWritePerformed: true,
+    });
+    expect(invalid.status).toBe("fail");
+    expect(invalid.errors).toContain("fxpak-copy-cannot-auto-pass");
+    expect(invalid.errors).toContain("fxpak-copy-must-be-manual");
+    expect(invalid.errors).toContain("fxpak-write-forbidden");
   });
 
   it("exposes CLI JSON modes", () => {
@@ -826,6 +1169,19 @@ describe("SNES PCC team orchestrator", () => {
       );
       expect(report.status).toBe("pass");
     }
+
+    const hardwarePlanPath = path.join(root, "hardware-plan.json");
+    writeJson(hardwarePlanPath, createGenericHardwareProofPlanTemplate());
+    const hardwarePlan = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [script, "--mode", "hardware-plan-validate", "--hardware-plan", hardwarePlanPath, "--json"],
+        {
+          encoding: "utf8",
+        },
+      ),
+    );
+    expect(hardwarePlan.status).toBe("pass");
 
     const runProcess = spawnSync(
       process.execPath,
