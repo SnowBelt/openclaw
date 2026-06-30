@@ -2023,7 +2023,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${mode === "simple" ? nothing : renderProductionTruthCard(props)} ${renderTodayView(props)}
+      ${renderProductionTruthCard(props)} ${renderTodayView(props)}
       ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">

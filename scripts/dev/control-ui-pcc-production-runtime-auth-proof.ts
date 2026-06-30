@@ -91,9 +91,9 @@ async function runBrowserProof(options: ProofOptions) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
   await page.goto(resolved.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.waitForTimeout(12_000);
-  const simpleMode = page.locator('[data-pcc-view-mode-option="simple"]').first();
+  const simpleMode = page.locator('[data-pcc-view-mode-option="simple"]').last();
   if (await simpleMode.isVisible().catch(() => false)) {
-    await simpleMode.click();
+    await simpleMode.click({ force: true });
     await page.waitForTimeout(1_000);
   }
   const targetProject = page
@@ -107,9 +107,9 @@ async function runBrowserProof(options: ProofOptions) {
   await openButton.waitFor({ state: "visible", timeout: 45_000 });
   await openButton.click();
   await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
-  const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').first();
+  const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').last();
   if (await agentMode.isVisible().catch(() => false)) {
-    await agentMode.click();
+    await agentMode.click({ force: true }).catch(() => undefined);
     await page.waitForTimeout(1_000);
   }
   await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
