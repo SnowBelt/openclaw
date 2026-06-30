@@ -120,8 +120,9 @@ async function runBrowserProof(options: ProofOptions) {
   }
   await page.waitForTimeout(2_000);
   const text = (await page.locator("body").textContent({ timeout: 45_000 })) ?? "";
-  const lower = text.toLowerCase();
-  const has = (needle: string) => lower.includes(needle.toLowerCase());
+  const normalizedText = text.replace(/\s+/g, " ");
+  const lower = normalizedText.toLowerCase();
+  const has = (needle: string) => lower.includes(needle.replace(/\s+/g, " ").toLowerCase());
   const portfolioConsoleCount = await page.locator("[data-pcc-portfolio-console]").count();
   const result = {
     url: redactUrl(page.url()),
@@ -160,7 +161,7 @@ async function runBrowserProof(options: ProofOptions) {
       runtimeProofPassed: has("Runtime proof Passed") || has("Runtime proof\nPassed"),
       noProofGaps: has("No proof gaps recorded."),
     },
-    sample: text.replace(/\\s+/g, " ").slice(0, 2_000),
+    sample: normalizedText.slice(0, 2_000),
   };
   await page.screenshot({ path: options.screenshotPath, fullPage: true });
   await browser.close();
