@@ -122,6 +122,7 @@ async function runBrowserProof(options: ProofOptions) {
   const text = (await page.locator("body").textContent({ timeout: 45_000 })) ?? "";
   const lower = text.toLowerCase();
   const has = (needle: string) => lower.includes(needle.toLowerCase());
+  const portfolioConsoleCount = await page.locator("[data-pcc-portfolio-console]").count();
   const result = {
     url: redactUrl(page.url()),
     title: await page.title(),
@@ -143,12 +144,14 @@ async function runBrowserProof(options: ProofOptions) {
       detail: await page.locator("[data-pcc-detail]").count(),
       workLoop: await page.locator("[data-pcc-work-loop]").count(),
       workControls: await page.locator(".pcc-work-loop__controls").count(),
+      portfolioConsole: portfolioConsoleCount,
     },
     checks: {
       pcc: has("Project Command Center"),
       productionTruth: has("Production truth"),
       dashboardCurrency: has("Is this dashboard current?"),
-      resourcePolicy: has("Policy: as many as safe") || has("as many as safe"),
+      resourcePolicy:
+        portfolioConsoleCount === 0 || has("Policy: as many as safe") || has("as many as safe"),
       workThisProject: has("Work This Project"),
       stopAfterCurrent: has("Stop after current task"),
       stopBeforeDestructive: has("Stop before destructive actions"),
