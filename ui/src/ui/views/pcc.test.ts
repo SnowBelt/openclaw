@@ -245,6 +245,8 @@ describe("renderPccDashboard", () => {
     expect(simple.textContent).toContain("Detailed");
     expect(simple.textContent).toContain("Agent");
     expect(simple.textContent).toContain("Switch to Detailed or Agent");
+    expect(simple.querySelector("[data-pcc-work-loop]")).not.toBeNull();
+    expect(simple.textContent).toContain("Stop after current task");
     expect(simple.querySelector("[data-pcc-production-truth]")).toBeNull();
 
     simple.querySelector<HTMLButtonElement>('[data-pcc-view-mode-option="agent"]')?.click();

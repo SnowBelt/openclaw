@@ -1349,14 +1349,13 @@ function renderProjectDetail(props: PccDashboardProps) {
             </button>`}
       </div>
       ${renderWorkflowQualityCard(detail)} ${renderNextSafeActionCard(props)}
-      ${renderCurrentTruthAndReadyQueue(props)}
+      ${renderCurrentTruthAndReadyQueue(props)} ${renderWorkLoopCard(props)}
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">
             Switch to Detailed or Agent when you need plans, receipts, permissions, or handoff
             packets.
           </p>`
         : html`
-            ${renderWorkLoopCard(props)}
             <details class="pcc-detail-drawer" ?open=${mode === "agent" || mode === "detailed"}>
               <summary>Milestones</summary>
               ${renderPhaseOverview(detail)}
