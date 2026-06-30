@@ -181,7 +181,10 @@ export function evaluatePccProjectSetup(input: {
   const missing: string[] = [];
   const violations: string[] = [];
   const needsReview: string[] = [];
-  const activeMilestones = (input.milestones ?? []).filter(milestoneIsActive);
+  const projectIsTerminal = TERMINAL_STATUSES.has(input.project.status);
+  const activeMilestones = projectIsTerminal
+    ? []
+    : (input.milestones ?? []).filter(milestoneIsActive);
   const subMilestones = input.subMilestones ?? [];
   const missingIntake = pccMissingRequiredIntakeAnswers(answers);
   const selectedWorkflowTemplateId = metadataString(
@@ -193,6 +196,20 @@ export function evaluatePccProjectSetup(input: {
     goal: input.project.goal,
     intakeAnswers: answers,
   });
+
+  if (projectIsTerminal) {
+    return {
+      score: 100,
+      runnable: false,
+      status: "passing",
+      badge: "Passing",
+      missing: [],
+      violations: [],
+      needsReview: [],
+      recommendedWorkflow,
+      selectedWorkflowTemplateId,
+    };
+  }
 
   if (!input.project.title.trim()) {
     missing.push("Project title is missing.");
@@ -213,7 +230,7 @@ export function evaluatePccProjectSetup(input: {
   if (!PCC_WORKFLOW_TEMPLATES.some((template) => template.id === selectedWorkflowTemplateId)) {
     violations.push(`Unknown workflow template: ${selectedWorkflowTemplateId}.`);
   }
-  if (activeMilestones.length === 0) {
+  if (!projectIsTerminal && activeMilestones.length === 0) {
     missing.push("No active milestones exist.");
   }
 
@@ -263,7 +280,7 @@ export function evaluatePccProjectSetup(input: {
   if (!selectedWorkflowTemplateId.trim()) {
     score -= 10;
   }
-  if (activeMilestones.length === 0) {
+  if (!projectIsTerminal && activeMilestones.length === 0) {
     score -= 15;
   }
   const structuralMissing = missing.filter(
@@ -293,7 +310,7 @@ export function evaluatePccProjectSetup(input: {
           : "Needs Review";
   return {
     score,
-    runnable: status === "passing" && score >= 80,
+    runnable: !projectIsTerminal && status === "passing" && score >= 80,
     status,
     badge,
     missing,

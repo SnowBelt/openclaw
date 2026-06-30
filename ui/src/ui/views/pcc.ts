@@ -128,6 +128,17 @@ const LANE_LABELS = [
   ["remoteProof", "Remote Proof"],
 ] as const;
 
+const PROJECT_TERMINAL_STATUSES = new Set([
+  "complete",
+  "complete_with_maintenance",
+  "skipped",
+  "archived",
+]);
+
+function projectIsTerminal(project: Pick<PccProject, "status">): boolean {
+  return PROJECT_TERMINAL_STATUSES.has(project.status);
+}
+
 const MILESTONE_STATUSES: PccStatus[] = [
   "not_started",
   "active",
@@ -1051,9 +1062,11 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   const nextTitle = next.subMilestone
     ? `${next.milestone?.title ?? "Milestone"}: ${next.subMilestone.title}`
     : (next.milestone?.title ?? "No eligible milestone");
-  const message = !setupEvaluation.runnable
-    ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; fix intake, workflow, sub-milestones, owners, and proof before starting.`
-    : (next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.");
+  const message = projectIsTerminal(detail.project)
+    ? "Project is complete or archived; reopen it before starting new work."
+    : !setupEvaluation.runnable
+      ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; fix intake, workflow, sub-milestones, owners, and proof before starting.`
+      : (next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.");
   return html`
     <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
       <div class="pcc-work-loop__header">
@@ -1073,7 +1086,9 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn"
           type="button"
-          ?disabled=${props.actionBusy || (!settings.enabled && !setupEvaluation.runnable)}
+          ?disabled=${props.actionBusy ||
+          projectIsTerminal(detail.project) ||
+          (!settings.enabled && !setupEvaluation.runnable)}
           @click=${() =>
             props.onUpdateWorkLoop({
               enabled: !settings.enabled,

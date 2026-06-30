@@ -599,6 +599,49 @@ describe("renderPccDashboard", () => {
     );
   });
 
+  it("renders complete maintenance projects as quality-passing and not runnable", () => {
+    const completeProject = {
+      ...project,
+      status: "complete_with_maintenance" as const,
+      metadata: {},
+    };
+    const completeSummary = {
+      ...summary,
+      status: "complete_with_maintenance" as const,
+      percentComplete: 98,
+      milestoneCounts: {
+        ...summary.milestoneCounts,
+        total: 22,
+        complete: 21,
+        needsApproval: 0,
+      },
+      proofGaps: [],
+    };
+    const container = renderView(
+      createProps({
+        projects: [completeSummary],
+        projectDetail: {
+          project: completeProject,
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [receipt],
+          summary: completeSummary,
+        },
+        viewMode: "agent",
+      }),
+    );
+    const text = container.textContent ?? "";
+
+    expect(container.querySelector("[data-pcc-detail]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-work-loop]")).not.toBeNull();
+    expect(text).toContain("Setup score");
+    expect(text).toContain("100/100");
+    expect(text).toContain("Passing");
+    expect(text).toContain("Project is complete or archived; reopen it before starting new work.");
+  });
+
   it("renders project editor and saves form changes", () => {
     const onProjectFormChange = vi.fn();
     const onSaveProject = vi.fn();

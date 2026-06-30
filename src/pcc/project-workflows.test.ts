@@ -138,6 +138,29 @@ describe("PCC workflow templates", () => {
     expect(withMetadata.metadata?.pccCompliance).toMatchObject({ badge: "Passing" });
   });
 
+  it("treats complete maintenance projects as quality-passing but not runnable", () => {
+    const now = "2026-06-30T00:00:00Z";
+    const evaluation = evaluatePccProjectSetup({
+      project: {
+        id: "project-complete",
+        title: "Project Command Center",
+        goal: "Maintain a completed PCC runtime.",
+        status: "complete_with_maintenance",
+        metadata: {},
+        createdAt: now,
+        updatedAt: now,
+      },
+      milestones: [],
+      subMilestones: [],
+    });
+
+    expect(evaluation.status).toBe("passing");
+    expect(evaluation.badge).toBe("Passing");
+    expect(evaluation.score).toBe(100);
+    expect(evaluation.runnable).toBe(false);
+    expect(evaluation.missing).toEqual([]);
+  });
+
   it("keeps blank intake blocked instead of treating setup as runnable", () => {
     const draft = buildPccWorkflowDraft({
       title: "Untyped project",
