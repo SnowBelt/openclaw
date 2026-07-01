@@ -198,6 +198,64 @@ function confirmAction(message: string): boolean {
   return globalThis.confirm?.(message) ?? true;
 }
 
+function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
+  return project.status === "on_hold" || project.status === "deferred";
+}
+
+function editorHasDraft(form: PccProjectFormState): boolean {
+  return Boolean(
+    form.projectDescription.trim() ||
+    form.title.trim() ||
+    form.goal.trim() ||
+    Object.values(form.intakeAnswers ?? {}).some((value) => value.trim()),
+  );
+}
+
+function confirmEditorClose(props: PccDashboardProps): void {
+  if (props.editorMode === "create-project" && editorHasDraft(props.projectForm)) {
+    if (!confirmAction("Discard this project draft?")) {
+      return;
+    }
+  }
+  props.onCancelEditor();
+}
+
+function phaseTitleForMilestone(detail: PccProjectDetail, milestone: PccMilestone): string {
+  if (!milestone.phaseId) {
+    return "Project sequence";
+  }
+  return (
+    detail.project.phases?.find((phase) => phase.id === milestone.phaseId)?.title ??
+    "Project sequence"
+  );
+}
+
+function nextSubMilestoneForMilestone(
+  detail: PccProjectDetail | null,
+  milestone: PccMilestone,
+): PccSubMilestone | undefined {
+  return subMilestonesForMilestone(detail, milestone).find(
+    (subMilestone) => !PROJECT_TERMINAL_STATUSES.has(subMilestone.status),
+  );
+}
+
+function primaryActionForDetail(detail: PccProjectDetail): string {
+  const permission = detail.permissions.find((item) => item.status === "needed");
+  if (permission) {
+    return "Review Permission";
+  }
+  if (projectIsOnHold(detail.project)) {
+    return "Resume Project";
+  }
+  if (detail.project.status === "blocked" || detail.summary.milestoneCounts.blocked > 0) {
+    return "Resolve Blocker";
+  }
+  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+    return "View Receipt";
+  }
+  return "Continue Project";
+}
+
 function renderMetric(label: string, value: string | number) {
   return html`
     <article class="pcc-metric" aria-label=${label}>
@@ -875,8 +933,12 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   const goal =
     detail?.project.goal || project.nextActions[0] || "Open this project to review the goal.";
   const workState = workStateForProject(project, detail);
+  const onHold = projectIsOnHold(project);
   return html`
-    <article class="pcc-project-card ${selected ? "is-selected" : ""}" data-pcc-project-card>
+    <article
+      class="pcc-project-card ${selected ? "is-selected" : ""} ${onHold ? "is-on-hold" : ""}"
+      data-pcc-project-card
+    >
       <div class="pcc-project-card__topline">
         <div>
           <h3>${project.title}</h3>
@@ -894,7 +956,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       </div>
       <div class="pcc-project-card__meta pcc-project-card__meta--skim">
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
-        <span>Current: ${current?.title ?? "Not started"}</span>
+        <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
         <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
         <span>Work: ${workState}</span>
       </div>
@@ -1578,6 +1640,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(project);
   const worker = current ? itemWorkerLabel(current) : "None";
+  const primaryAction = primaryActionForDetail(detail);
   const decision = permissionNeeded
     ? `Approval needed: ${formatStatus(permissionNeeded.type)}`
     : setupEvaluation.runnable
@@ -1607,8 +1670,19 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
       ${renderTruthFact("Needs you", decision)}
     </dl>
+    <div class="pcc-primary-action" data-pcc-primary-action>
+      <span>Primary action</span>
+      <button class="btn" type="button" @click=${props.onPrepareNextWorkItem}>
+        ${primaryAction}
+      </button>
+      <em>${decision}</em>
+    </div>
     <div class="pcc-detail__actions">
-      <button class="btn" type="button" @click=${() => props.onOpenProjectEditor(project)}>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        @click=${() => props.onOpenProjectEditor(project)}
+      >
         Edit project
       </button>
       <button class="btn btn--subtle" type="button" @click=${() => props.onOpenMilestoneEditor()}>
@@ -1656,82 +1730,132 @@ function milestoneJourneyClass(milestone: PccMilestone, currentId?: string): str
 function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardProps) {
   const current = currentMilestoneForDetail(detail);
   const milestones = sortedMilestones(detail);
+  const mode = pccViewMode(props);
+  const phaseGroups: Array<{ title: string; milestones: PccMilestone[] }> = [];
+  for (const milestone of milestones) {
+    const title = phaseTitleForMilestone(detail, milestone);
+    const existing = phaseGroups.find((group) => group.title === title);
+    if (existing) {
+      existing.milestones.push(milestone);
+    } else {
+      phaseGroups.push({ title, milestones: [milestone] });
+    }
+  }
   return html`<section class="pcc-milestone-journey" data-pcc-milestone-journey>
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">Milestone Journey</p>
         <h4>Project sequence</h4>
-        <p>Complete these in order. Expand a milestone only when you need the details.</p>
+        <p>Follow the steps in order. Open a step only when you need its details.</p>
       </div>
       <span
         >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
         complete</span
       >
     </div>
-    <ol>
-      ${milestones.map((milestone) => {
-        const journeyClass = milestoneJourneyClass(milestone, current?.id);
-        const subCount = subMilestonesForMilestone(detail, milestone).length;
-        return html`<li
-          class="pcc-journey-step pcc-journey-step--${journeyClass}"
-          data-pcc-journey-step
-        >
-          <div class="pcc-journey-step__marker">${milestone.order ?? "•"}</div>
-          <details ?open=${journeyClass === "current"}>
-            <summary>
-              <span>
-                <strong>${milestone.title}</strong>
-                <em
-                  >${subCount} sub-milestone${subCount === 1 ? "" : "s"} ·
-                  ${milestoneDisplayPercent(milestone)}%</em
-                >
-              </span>
-              <span class="pcc-status pcc-status--${milestone.status}"
-                >${formatStatus(milestone.status)}</span
+    <div class="pcc-journey-phases" data-pcc-journey-phases>
+      ${phaseGroups.map((group) => {
+        const complete = group.milestones.filter((item) =>
+          ["complete", "complete_with_maintenance"].includes(item.status),
+        ).length;
+        return html`<section class="pcc-journey-phase" data-pcc-journey-phase>
+          <header>
+            <strong>${group.title}</strong>
+            <span>${complete}/${group.milestones.length} complete</span>
+          </header>
+          <ol>
+            ${group.milestones.map((milestone) => {
+              const globalIndex = milestones.findIndex((item) => item.id === milestone.id) + 1;
+              const journeyClass = milestoneJourneyClass(milestone, current?.id);
+              const subMilestones = subMilestonesForMilestone(detail, milestone);
+              const nextSub = nextSubMilestoneForMilestone(detail, milestone);
+              const blocker = milestone.blocker || nextSub?.blocker;
+              return html`<li
+                class="pcc-journey-step pcc-journey-step--${journeyClass}"
+                data-pcc-journey-step
               >
-            </summary>
-            <p>
-              ${milestone.blocker ||
-              milestone.implementationPlan ||
-              "No implementation plan recorded."}
-            </p>
-            ${renderSubMilestoneList(milestone, props)}
-            <details class="pcc-detail-drawer">
-              <summary>Proof, receipts, permissions, and actions</summary>
-              ${renderMilestoneReceipts(milestone, props)}
-              ${permissionsForMilestone(props.projectDetail, milestone).length > 0
-                ? renderPermissionList(
-                    permissionsForMilestone(props.projectDetail, milestone),
-                    props,
-                  )
-                : nothing}
-              <div class="pcc-milestone__actions">
-                <label class="pcc-stop-here" data-pcc-stop-here>
-                  <input
-                    type="checkbox"
-                    .checked=${milestoneStopsHere(milestone)}
-                    ?disabled=${props.actionBusy}
-                    @change=${(event: Event) =>
-                      props.onSetMilestoneStopHere(
-                        milestone,
-                        (event.target as HTMLInputElement).checked,
-                      )}
-                  />
-                  Stop here
-                </label>
-                <button
-                  class="btn btn--subtle"
-                  type="button"
-                  @click=${() => props.onOpenMilestoneEditor(milestone)}
+                <div
+                  class="pcc-journey-step__marker"
+                  aria-label=${`Step ${globalIndex} of ${milestones.length}`}
                 >
-                  Edit
-                </button>
-              </div>
-            </details>
-          </details>
-        </li>`;
+                  ${globalIndex}
+                </div>
+                <details ?open=${mode !== "simple" && journeyClass === "current"}>
+                  <summary>
+                    <span class="pcc-journey-step__summary-main">
+                      <em>Step ${globalIndex} of ${milestones.length}</em>
+                      <strong>${milestone.title}</strong>
+                      <small
+                        >${subMilestones.length} sub-step${subMilestones.length === 1 ? "" : "s"} ·
+                        ${milestoneDisplayPercent(milestone)}%</small
+                      >
+                    </span>
+                    <span class="pcc-journey-step__summary-side">
+                      <span class="pcc-status pcc-status--${milestone.status}"
+                        >${formatStatus(milestone.status)}</span
+                      >
+                      <span
+                        >${journeyClass === "current"
+                          ? "Current"
+                          : formatStatus(journeyClass)}</span
+                      >
+                    </span>
+                  </summary>
+                  <div class="pcc-journey-step__body">
+                    <div class="pcc-journey-step__skim">
+                      <span>Next: ${nextSub?.title ?? "No next sub-step"}</span>
+                      ${blocker ? html`<strong>Blocked: ${blocker}</strong>` : nothing}
+                    </div>
+                    ${mode === "simple"
+                      ? renderSubMilestoneList(milestone, props, { compact: true })
+                      : html`
+                          <p>
+                            ${milestone.blocker ||
+                            milestone.implementationPlan ||
+                            "No implementation plan recorded."}
+                          </p>
+                          ${renderSubMilestoneList(milestone, props, { compact: mode !== "agent" })}
+                          <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+                            <summary>Proof, receipts, permissions, and actions</summary>
+                            ${renderMilestoneReceipts(milestone, props)}
+                            ${permissionsForMilestone(props.projectDetail, milestone).length > 0
+                              ? renderPermissionList(
+                                  permissionsForMilestone(props.projectDetail, milestone),
+                                  props,
+                                )
+                              : nothing}
+                            <div class="pcc-milestone__actions">
+                              <label class="pcc-stop-here" data-pcc-stop-here>
+                                <input
+                                  type="checkbox"
+                                  .checked=${milestoneStopsHere(milestone)}
+                                  ?disabled=${props.actionBusy}
+                                  @change=${(event: Event) =>
+                                    props.onSetMilestoneStopHere(
+                                      milestone,
+                                      (event.target as HTMLInputElement).checked,
+                                    )}
+                                />
+                                Stop here
+                              </label>
+                              <button
+                                class="btn btn--subtle"
+                                type="button"
+                                @click=${() => props.onOpenMilestoneEditor(milestone)}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </details>
+                        `}
+                  </div>
+                </details>
+              </li>`;
+            })}
+          </ol>
+        </section>`;
       })}
-    </ol>
+    </div>
   </section>`;
 }
 
@@ -1901,35 +2025,47 @@ function renderChatSyncCard(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderSubMilestoneList(milestone: PccMilestone, props: PccDashboardProps) {
+function renderSubMilestoneList(
+  milestone: PccMilestone,
+  props: PccDashboardProps,
+  options: { compact?: boolean } = {},
+) {
   const subMilestones = subMilestonesForMilestone(props.projectDetail, milestone);
   if (subMilestones.length === 0) {
     return html`<div class="pcc-empty pcc-empty--small">No sub-milestones recorded</div>`;
   }
-  return html`<ol class="pcc-submilestones" data-pcc-submilestones>
+  return html`<ol
+    class="pcc-submilestones ${options.compact ? "pcc-submilestones--compact" : ""}"
+    data-pcc-submilestones
+  >
     ${subMilestones.map((subMilestone) => {
       const percent = subMilestoneDisplayPercent(subMilestone);
+      const complete =
+        subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance";
       return html`<li class="pcc-submilestone" data-pcc-submilestone>
         <div class="pcc-submilestone__main">
-          <span class="pcc-submilestone__check" aria-hidden="true">
-            ${subMilestone.status === "complete" ||
-            subMilestone.status === "complete_with_maintenance"
-              ? "✓"
-              : ""}
-          </span>
+          <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
           <div>
             <strong>${subMilestone.title}</strong>
-            <p>${subMilestone.implementationPlan || "No implementation plan recorded."}</p>
+            ${options.compact
+              ? nothing
+              : html`<p>
+                  ${subMilestone.implementationPlan || "No implementation plan recorded."}
+                </p>`}
           </div>
           <span class="pcc-status pcc-status--${subMilestone.status}"
             >${formatStatus(subMilestone.status)}</span
           >
         </div>
         <div class="pcc-project-card__meta">
-          <span>${percent}% complete</span>
-          <span>Worker ${itemWorkerLabel(subMilestone)}</span>
-          <span>${itemProofLabel(subMilestone)}</span>
-          <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
+          <span>${percent}%</span>
+          ${options.compact
+            ? nothing
+            : html`
+                <span>Worker ${itemWorkerLabel(subMilestone)}</span>
+                <span>${itemProofLabel(subMilestone)}</span>
+                <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
+              `}
         </div>
         ${subMilestone.blocker
           ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
@@ -2221,17 +2357,35 @@ function renderProjectEditor(props: PccDashboardProps) {
     <form
       class="pcc-editor pcc-editor--project"
       data-pcc-editor="project"
+      @keydown=${(event: KeyboardEvent) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          confirmEditorClose(props);
+        }
+      }}
       @submit=${(event: Event) => {
         event.preventDefault();
         props.onSaveProject();
       }}
     >
-      <header>
-        <p class="pcc-kicker">Project</p>
-        <h3>${props.editorMode === "edit-project" ? "Edit project" : "Create project"}</h3>
-        ${creating
-          ? html`<p>Describe the project. PCC will draft the milestones before anything starts.</p>`
-          : nothing}
+      <header class="pcc-editor__header">
+        <div>
+          <p class="pcc-kicker">Project</p>
+          <h3>${props.editorMode === "edit-project" ? "Edit project" : "Create project"}</h3>
+          ${creating
+            ? html`<p>
+                Describe the project. PCC will draft the milestones before anything starts.
+              </p>`
+            : nothing}
+        </div>
+        <button
+          class="pcc-editor__close"
+          type="button"
+          aria-label="Close project editor"
+          @click=${() => confirmEditorClose(props)}
+        >
+          ×
+        </button>
       </header>
       ${creating
         ? html`<label class="pcc-editor__hero-field">
@@ -2402,7 +2556,9 @@ function renderProjectEditor(props: PccDashboardProps) {
         >
           Regenerate
         </button>
-        <button class="btn btn--subtle" type="button" @click=${props.onCancelEditor}>Cancel</button>
+        <button class="btn btn--subtle" type="button" @click=${() => confirmEditorClose(props)}>
+          Cancel
+        </button>
       </footer>
     </form>
   `;
