@@ -50,14 +50,24 @@ export type PccEditorMode =
 
 export type PccViewMode = "simple" | "detailed" | "agent";
 
+export type PccPlannerMode =
+  | "local_project_manager"
+  | "local_model"
+  | "codex"
+  | "high_reasoning_codex";
+
 export type PccProjectFormState = {
   id: string | null;
   title: string;
   goal: string;
+  projectDescription: string;
   status: PccStatus;
   priority: string;
   workflowTemplateId: string;
   planningMode: PccPlanningMode;
+  plannerMode: PccPlannerMode;
+  plannerModelId: string;
+  planPreviewAccepted: boolean;
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
   runtimeActionsAllowed: boolean;
@@ -151,10 +161,14 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   id: null,
   title: "",
   goal: "",
+  projectDescription: "",
   status: "active",
   priority: "3",
   workflowTemplateId: "software-product",
-  planningMode: "template_only",
+  planningMode: "local_project_manager",
+  plannerMode: "local_project_manager",
+  plannerModelId: "",
+  planPreviewAccepted: false,
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
   runtimeActionsAllowed: false,
@@ -230,6 +244,98 @@ function metadataBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function plannerModeToPlanningMode(mode: PccPlannerMode): PccPlanningMode {
+  return mode === "codex" || mode === "high_reasoning_codex"
+    ? "codex_full_plan"
+    : mode === "local_project_manager"
+      ? "local_project_manager"
+      : "template_only";
+}
+
+function plannerModeFromPlanningMode(mode: PccPlanningMode | undefined): PccPlannerMode {
+  return mode === "codex_full_plan"
+    ? "codex"
+    : mode === "template_only"
+      ? "local_model"
+      : "local_project_manager";
+}
+
+function plannerResponsibility(mode: PccPlannerMode): string {
+  return mode === "local_model"
+    ? "local model"
+    : mode === "codex"
+      ? "Codex"
+      : mode === "high_reasoning_codex"
+        ? "high-reasoning Codex"
+        : "local Project Manager";
+}
+
+function inferProjectTitle(text: string): string {
+  const firstLine = text
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/^#+\s*/u, "").trim())
+    .find(Boolean);
+  const sentence = firstLine ?? text.trim();
+  return sentence.replace(/[.!?]$/u, "").slice(0, 90) || "Untitled Project";
+}
+
+function inferIntakeAnswersFromDescription(
+  description: string,
+  plannerMode: PccPlannerMode,
+): Record<string, string> {
+  const trimmed = description.trim();
+  if (!trimmed) {
+    return {};
+  }
+  return {
+    goal: trimmed,
+    firstDeliverable:
+      "A reviewed PCC plan with ordered milestones and sub-milestones generated from the project description.",
+    doneProof:
+      "Each milestone needs explicit acceptance criteria, proof requirements, and a completion receipt before it is marked complete.",
+    constraints:
+      plannerMode === "codex" || plannerMode === "high_reasoning_codex"
+        ? "Codex or high-reasoning planning is permission-gated before token spend; destructive, remote, publish, runtime, and reboot actions need separate approval."
+        : "Do not run destructive, remote, publish, runtime, reboot, or high-token actions without separate approval.",
+    owner: plannerResponsibility(plannerMode),
+    blockers:
+      "Unknown blockers should be captured as PCC permission, tool, source, or proof gaps before work starts.",
+  };
+}
+
+function enrichProjectFormFromDescription(form: PccProjectFormState): PccProjectFormState {
+  const plannerMode = form.plannerMode ?? plannerModeFromPlanningMode(form.planningMode);
+  const description = (form.projectDescription ?? "").trim();
+  if (!description) {
+    return {
+      ...form,
+      plannerMode,
+      projectDescription: form.projectDescription ?? "",
+      plannerModelId: form.plannerModelId ?? "",
+      planPreviewAccepted: form.planPreviewAccepted ?? false,
+      planningMode: plannerModeToPlanningMode(plannerMode),
+    };
+  }
+  const answers = inferIntakeAnswersFromDescription(description, plannerMode);
+  const recommendation = recommendPccWorkflow({
+    title: form.title || inferProjectTitle(description),
+    goal: form.goal || description,
+    intakeAnswers: { ...answers, ...form.intakeAnswers },
+  });
+  return {
+    ...form,
+    title: form.title.trim() ? form.title : inferProjectTitle(description),
+    goal: form.goal.trim() ? form.goal : description,
+    workflowTemplateId: form.workflowTemplateId || recommendation.templateId,
+    plannerMode,
+    projectDescription: form.projectDescription ?? "",
+    plannerModelId: form.plannerModelId ?? "",
+    planPreviewAccepted: form.planPreviewAccepted ?? false,
+    planningMode: plannerModeToPlanningMode(plannerMode),
+    intakeAnswers: { ...answers, ...form.intakeAnswers },
+  };
+}
+
 function parseAcceptanceCriteria(value: string): string[] | undefined {
   const entries = value
     .split("\n")
@@ -271,10 +377,14 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     id: project.id,
     title: project.title,
     goal: project.goal ?? "",
+    projectDescription: metadataString(metadata.pccProjectDescription, project.goal ?? ""),
     status: project.status,
     priority: String(project.priority ?? 3),
     workflowTemplateId: metadataString(metadata.pccWorkflowTemplateId, "software-product"),
     planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
+    plannerMode: metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
+    plannerModelId: metadataString(metadata.pccPlannerModelId, ""),
+    planPreviewAccepted: true,
     codexPlanningAllowed: metadataBoolean(metadata.pccCodexPlanningAllowed, false),
     remoteProofAllowed: metadataBoolean(metadata.pccRemoteProofAllowed, false),
     runtimeActionsAllowed: metadataBoolean(metadata.pccRuntimeActionsAllowed, false),
@@ -423,7 +533,23 @@ export function updatePccProjectForm(
   state: PccDashboardState,
   patch: Partial<PccProjectFormState>,
 ): void {
-  state.pccProjectForm = { ...state.pccProjectForm, ...patch };
+  let nextForm = { ...state.pccProjectForm, ...patch };
+  if (patch.plannerMode) {
+    nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
+  }
+  if (
+    patch.projectDescription !== undefined ||
+    patch.plannerMode !== undefined ||
+    patch.workflowTemplateId !== undefined ||
+    patch.title !== undefined ||
+    patch.goal !== undefined
+  ) {
+    nextForm = { ...nextForm, planPreviewAccepted: false };
+  }
+  if (patch.projectDescription !== undefined || patch.plannerMode !== undefined) {
+    nextForm = enrichProjectFormFromDescription(nextForm);
+  }
+  state.pccProjectForm = nextForm;
   state.requestUpdate?.();
 }
 
@@ -458,16 +584,21 @@ export function dismissPccChatSync(state: PccDashboardState): void {
 }
 
 export async function savePccProject(state: PccDashboardState): Promise<void> {
-  const form = state.pccProjectForm;
+  const form = enrichProjectFormFromDescription(state.pccProjectForm);
   await withPccAction(state, async () => {
     if (!state.client) {
       return;
     }
     const intakeMissing = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
-    if (!form.id && (intakeMissing.length > 0 || !form.intakeApproved)) {
+    if (
+      !form.id &&
+      (intakeMissing.length > 0 || !form.intakeApproved || !form.planPreviewAccepted)
+    ) {
       state.pccActionError = intakeMissing.length
         ? "Required project intake answers are missing."
-        : "Project intake must be approved before setup can be saved.";
+        : !form.intakeApproved
+          ? "Project intake must be approved before setup can be saved."
+          : "Review and approve the generated plan preview before creating the project.";
       return;
     }
     const priority = parseOptionalInteger(form.priority);
@@ -534,6 +665,10 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccWorkflowTemplateId: form.workflowTemplateId,
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
             pccPlanningMode: form.planningMode,
+            pccPlannerMode: form.plannerMode,
+            pccPlannerModelId: form.plannerModelId,
+            pccProjectDescription: form.projectDescription,
+            pccPlanPreviewAccepted: form.planPreviewAccepted,
             pccCodexPlanningAllowed: form.codexPlanningAllowed,
             pccRemoteProofAllowed: form.remoteProofAllowed,
             pccRuntimeActionsAllowed: form.runtimeActionsAllowed,
@@ -546,6 +681,11 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             ...metadataObject(draft!.project.metadata),
             pccWorkflowTemplateId: form.workflowTemplateId,
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
+            pccPlanningMode: form.planningMode,
+            pccPlannerMode: form.plannerMode,
+            pccPlannerModelId: form.plannerModelId,
+            pccProjectDescription: form.projectDescription,
+            pccPlanPreviewAccepted: form.planPreviewAccepted,
             pccIntake: intakeMetadata,
           },
         };
@@ -574,15 +714,21 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           });
         }
       }
-      if (form.planningMode === "codex_full_plan" && !form.codexPlanningAllowed) {
+      if (
+        (form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex") &&
+        !form.codexPlanningAllowed
+      ) {
         await state.client.request("pcc.permissions.upsert", {
           permission: {
             projectId: result.project.id,
-            type: "codex_usage",
+            type:
+              form.plannerMode === "high_reasoning_codex" ? "high_reasoning_model" : "codex_usage",
             status: "needed",
-            riskLevel: "medium",
-            allowedActions: ["Use Codex to refine generated milestones and sub-milestones"],
-            forbiddenActions: ["Spend high-reasoning tokens without separate permission"],
+            riskLevel: form.plannerMode === "high_reasoning_codex" ? "high" : "medium",
+            allowedActions: [
+              `Use ${plannerResponsibility(form.plannerMode)} to refine generated milestones and sub-milestones`,
+            ],
+            forbiddenActions: ["Spend Codex or high-reasoning tokens without separate permission"],
             target: "Project intake milestone planning",
             maxUses: 1,
             note: "Codex planning is blocked until the user grants this scoped permission.",

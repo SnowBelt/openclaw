@@ -1914,7 +1914,7 @@ jobs:
 
   pcc-project-agnostic-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.pcc-project-agnostic-proof == 'true'
-    name: Project Command Center Project-Agnostic Completion V1 proof
+    name: Project Command Center Project-Agnostic + Workflow Clarity proof
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -1945,8 +1945,9 @@ jobs:
           - pnpm tsgo:test:ui
           - node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-impact-milestones-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts
           - pnpm check:workflows
-          - pnpm check:changed -- src/pcc/impact-milestones.ts src/pcc/impact-milestones.test.ts src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-impact-milestones-smoke.ts .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- src/pcc/impact-milestones.ts src/pcc/impact-milestones.test.ts src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-impact-milestones-smoke.ts scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1962,6 +1963,9 @@ jobs:
       - name: Run PCC impact milestones smoke
         run: node --import tsx scripts/dev/control-ui-pcc-impact-milestones-smoke.ts
 
+      - name: Run PCC workflow clarity smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts
+
       - name: Run workflow syntax check
         run: pnpm check:workflows
 
@@ -1972,7 +1976,7 @@ jobs:
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts .github/workflows/workflow-sanity.yml
+        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build

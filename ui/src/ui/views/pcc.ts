@@ -18,7 +18,10 @@ import {
 } from "../../../../src/pcc/intake-quality.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
-import { PCC_WORKFLOW_TEMPLATES } from "../../../../src/pcc/project-workflows.js";
+import {
+  buildPccWorkflowDraft,
+  PCC_WORKFLOW_TEMPLATES,
+} from "../../../../src/pcc/project-workflows.js";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
@@ -29,6 +32,7 @@ import type {
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
+  PccPlannerMode,
   PccProjectFormState,
   PccViewMode,
 } from "../controllers/pcc.ts";
@@ -123,10 +127,11 @@ const PARALLEL_WORK_OPTIONS = [
   ["supervised", "Supervised"],
 ] as const;
 
-const PLANNING_MODE_OPTIONS = [
-  ["template_only", "Use template only"],
-  ["local_project_manager", "Ask local Project Manager"],
-  ["codex_full_plan", "Ask Codex for full plan"],
+const PLANNER_MODE_OPTIONS = [
+  ["local_project_manager", "Local Project Manager"],
+  ["local_model", "Local model"],
+  ["codex", "Codex"],
+  ["high_reasoning_codex", "High-reasoning Codex"],
 ] as const;
 
 const LANE_LABELS = [
@@ -204,6 +209,52 @@ function renderMetric(label: string, value: string | number) {
 
 function pccViewMode(props: PccDashboardProps): PccViewMode {
   return props.viewMode ?? "simple";
+}
+
+function terminalStatus(status: PccStatus): boolean {
+  return ["complete", "complete_with_maintenance", "skipped", "archived"].includes(status);
+}
+
+function workStateForProject(
+  project: PccProjectSummary,
+  detail?: PccProjectDetail,
+): "Working" | "Paused" | "Blocked" | "Waiting for you" | "Off" {
+  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
+    return "Blocked";
+  }
+  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
+    return "Waiting for you";
+  }
+  const settings = detail ? getPccWorkLoopSettings(detail.project) : undefined;
+  if (settings?.enabled) {
+    return settings.state === "paused" ? "Paused" : "Working";
+  }
+  return "Off";
+}
+
+function sortedMilestones(detail: PccProjectDetail): PccMilestone[] {
+  return detail.milestones.toSorted(
+    (a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+function currentMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefined {
+  return sortedMilestones(detail).find((milestone) => !terminalStatus(milestone.status));
+}
+
+function nextMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefined {
+  const current = currentMilestoneForDetail(detail);
+  return sortedMilestones(detail).find(
+    (milestone) => milestone.id !== current?.id && !terminalStatus(milestone.status),
+  );
+}
+
+function plannerModeToPlanningMode(mode: PccPlannerMode) {
+  return mode === "codex" || mode === "high_reasoning_codex"
+    ? "codex_full_plan"
+    : mode === "local_project_manager"
+      ? "local_project_manager"
+      : "template_only";
 }
 
 function renderViewModeSwitcher(props: PccDashboardProps) {
@@ -329,6 +380,23 @@ function renderProductionTruthCard(props: PccDashboardProps) {
       </div>
     </details>
   </section>`;
+}
+
+function renderProductionTruthDrawer(props: PccDashboardProps) {
+  const detail = props.projectDetail;
+  const truth = buildPccProductionTruth({
+    project: detail?.project,
+    milestones: detail?.milestones ?? [],
+    evidence: detail?.evidence ?? [],
+    receipts: detail?.receipts ?? [],
+  });
+  return html`<details
+    class="pcc-detail-drawer pcc-top-proof-drawer"
+    ?open=${truth.status !== "current"}
+  >
+    <summary>Production truth</summary>
+    ${renderProductionTruthCard(props)}
+  </details>`;
 }
 
 function impactInputFromDetail(detail: PccProjectDetail): PccImpactDetailInput {
@@ -800,40 +868,35 @@ function renderPermissionList(permissions: PccPermissionGrant[], props: PccDashb
 
 function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps) {
   const percent = clampPercent(project.percentComplete);
-  const nextAction = project.nextActions[0] ?? "No next action recorded";
-  const proofGap = project.proofGaps[0] ?? "No proof gaps recorded";
   const selected = project.id === props.selectedProjectId;
+  const detail = props.projectDetails?.[project.id];
+  const current = detail ? currentMilestoneForDetail(detail) : undefined;
+  const next = detail ? nextMilestoneForDetail(detail) : undefined;
+  const goal =
+    detail?.project.goal || project.nextActions[0] || "Open this project to review the goal.";
+  const workState = workStateForProject(project, detail);
   return html`
     <article class="pcc-project-card ${selected ? "is-selected" : ""}" data-pcc-project-card>
       <div class="pcc-project-card__topline">
         <div>
           <h3>${project.title}</h3>
-          <p>${nextAction}</p>
+          <p>${goal}</p>
         </div>
         <span class="pcc-status pcc-status--${project.status}"
           >${formatStatus(project.status)}</span
         >
       </div>
-      <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
-        <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
+      <div class="pcc-project-card__progress-row">
+        <strong>${percent}%</strong>
+        <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
+          <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
+        </div>
       </div>
-      <div class="pcc-project-card__meta">
-        <span>${percent}% complete</span>
+      <div class="pcc-project-card__meta pcc-project-card__meta--skim">
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
-        <span>${project.milestoneCounts.blocked} blocked</span>
-        <span>${project.milestoneCounts.needsApproval} needs approval</span>
-      </div>
-      <div class="pcc-project-card__proof">
-        <span class="pcc-project-card__label">Proof gap</span>
-        <span>${proofGap}</span>
-      </div>
-      <div class="pcc-project-card__proof">
-        <span class="pcc-project-card__label">Work</span>
-        <span
-          >${getPccWorkLoopSettings(project as unknown as PccProject).enabled
-            ? formatStatus(getPccWorkLoopSettings(project as unknown as PccProject).state)
-            : "Off"}</span
-        >
+        <span>Current: ${current?.title ?? "Not started"}</span>
+        <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
+        <span>Work: ${workState}</span>
       </div>
       <button
         class="btn btn--subtle"
@@ -884,77 +947,130 @@ function milestoneStopsHere(milestone: PccMilestone): boolean {
   return metadataObject(milestone.metadata).pccStopHere === true;
 }
 
-function renderTodayItem(label: string, title: string, detail: string, action?: () => void) {
-  return html`<li class="pcc-today__item">
-    <button class="pcc-today__button" type="button" ?disabled=${!action} @click=${() => action?.()}>
-      <span>${label}</span>
-      <strong>${title}</strong>
-      <em>${detail}</em>
-    </button>
-  </li>`;
+function topProject(
+  props: PccDashboardProps,
+  predicate: (project: PccProjectSummary) => boolean,
+): PccProjectSummary | undefined {
+  return props.projects.find(predicate);
+}
+
+function projectActionLine(project: PccProjectSummary, detail?: PccProjectDetail): string {
+  const current = detail ? currentMilestoneForDetail(detail) : undefined;
+  return current?.title ?? project.nextActions[0] ?? formatStatus(project.status);
+}
+
+function renderTodayPrimaryCard(
+  props: PccDashboardProps,
+  label: string,
+  project: PccProjectSummary | undefined,
+  empty: string,
+  detail?: string,
+) {
+  return html`<article class="pcc-today__primary-card">
+    <span>${label}</span>
+    ${project
+      ? html`<button type="button" @click=${() => props.onSelectProject(project.id)}>
+          <strong>${project.title}</strong>
+          <em>${detail ?? projectActionLine(project, props.projectDetails?.[project.id])}</em>
+        </button>`
+      : html`<p>${empty}</p>`}
+  </article>`;
 }
 
 function renderTodayView(props: PccDashboardProps) {
-  const working = props.projects
-    .filter((project) => ["in_progress", "active"].includes(project.status))
-    .slice(0, 5);
-  const needsYou = props.projects
-    .filter(
-      (project) => project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0,
-    )
-    .slice(0, 5);
-  const blocked = props.projects
-    .filter((project) => project.status === "blocked" || project.milestoneCounts.blocked > 0)
-    .slice(0, 5);
-  const readyNext = props.projects
-    .filter((project) => project.nextActions.length > 0 && project.status !== "blocked")
-    .slice(0, 5);
-  const completed = props.projects
-    .filter((project) => ["complete", "complete_with_maintenance"].includes(project.status))
-    .slice(0, 5);
-  const renderProjectItems = (items: PccProjectSummary[], empty: string, label: string) =>
-    items.length
-      ? html`<ul>
-          ${items.map((project) =>
-            renderTodayItem(
-              label,
-              project.title,
-              project.nextActions[0] ?? formatStatus(project.status),
-              () => props.onSelectProject(project.id),
-            ),
-          )}
-        </ul>`
-      : html`<p>${empty}</p>`;
+  const portfolio = props.portfolio;
+  const working = topProject(
+    props,
+    (project) =>
+      ["in_progress", "active"].includes(project.status) ||
+      workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
+  );
+  const needsYou = topProject(
+    props,
+    (project) => project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0,
+  );
+  const blocked = topProject(
+    props,
+    (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
+  );
+  const ready = topProject(
+    props,
+    (project) => project.nextActions.length > 0 && project.status !== "blocked",
+  );
+  const nextBest = needsYou ?? blocked ?? ready ?? working;
+  const average = clampPercent(portfolio?.averagePercentComplete ?? 0);
   return html`<section class="pcc-today" data-pcc-today aria-label="Today">
     <div class="pcc-section-heading">
       <div>
-        <h3>Today</h3>
-        <p>What is working, waiting, blocked, and ready next.</p>
+        <p class="pcc-kicker">Today</p>
+        <h3>Your projects at a glance</h3>
+        <p>Open one project, see the milestone journey, then work the next safe step.</p>
       </div>
       <span>${formatUpdatedAt(props.updatedAt)}</span>
     </div>
-    <div class="pcc-today__grid">
-      <article>
-        <strong>Working now</strong>
-        ${renderProjectItems(working, "No active project work right now.", "Working")}
-      </article>
-      <article>
-        <strong>Needs you</strong>
-        ${renderProjectItems(needsYou, "No projects need you right now.", "Needs you")}
-      </article>
-      <article>
-        <strong>Blocked</strong>
-        ${renderProjectItems(blocked, "No blocked work.", "Blocked")}
-      </article>
-      <article>
-        <strong>Ready next</strong>
-        ${renderProjectItems(readyNext, "No ready local-safe work.", "Ready")}
-      </article>
-      <article>
-        <strong>Recently completed</strong>
-        ${renderProjectItems(completed, "No recently completed projects.", "Done")}
+    <div class="pcc-today__hero-grid">
+      ${renderTodayPrimaryCard(
+        props,
+        "Working Now",
+        working,
+        "No project is actively working.",
+        working
+          ? `${workStateForProject(working, props.projectDetails?.[working.id])} · ${projectActionLine(working, props.projectDetails?.[working.id])}`
+          : undefined,
+      )}
+      ${renderTodayPrimaryCard(
+        props,
+        "Needs You",
+        needsYou ?? blocked,
+        "No approvals or blockers need you.",
+      )}
+      ${renderTodayPrimaryCard(props, "Next Best Action", nextBest, "No ready action recorded.")}
+      <article class="pcc-today__primary-card" data-pcc-portfolio-progress>
+        <span>Portfolio Progress</span>
+        <strong>${average}%</strong>
+        <em>
+          ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
+          ${portfolio?.needsApproval ?? 0} need you
+        </em>
       </article>
     </div>
+    <details class="pcc-today__drawer">
+      <summary>Show all project queues</summary>
+      <div class="pcc-today__queues">
+        <article>
+          <strong>Working</strong>
+          <ul>
+            ${props.projects
+              .filter((project) => ["in_progress", "active"].includes(project.status))
+              .slice(0, 8)
+              .map((project) => html`<li>${project.title}</li>`)}
+          </ul>
+        </article>
+        <article>
+          <strong>Needs You</strong>
+          <ul>
+            ${props.projects
+              .filter(
+                (project) =>
+                  project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0,
+              )
+              .slice(0, 8)
+              .map((project) => html`<li>${project.title}</li>`)}
+          </ul>
+        </article>
+        <article>
+          <strong>Blocked</strong>
+          <ul>
+            ${props.projects
+              .filter(
+                (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
+              )
+              .slice(0, 8)
+              .map((project) => html`<li>${project.title}</li>`)}
+          </ul>
+        </article>
+      </div>
+    </details>
   </section>`;
 }
 
@@ -1453,6 +1569,172 @@ function renderPhaseOverview(detail: PccProjectDetail) {
   </section>`;
 }
 
+function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProps) {
+  const project = detail.project;
+  const percent = clampPercent(detail.summary.percentComplete);
+  const current = currentMilestoneForDetail(detail);
+  const next = nextMilestoneForDetail(detail);
+  const permissionNeeded = detail.permissions.find((permission) => permission.status === "needed");
+  const setupEvaluation = setupEvaluationForDetail(detail);
+  const settings = getPccWorkLoopSettings(project);
+  const worker = current ? itemWorkerLabel(current) : "None";
+  const decision = permissionNeeded
+    ? `Approval needed: ${formatStatus(permissionNeeded.type)}`
+    : setupEvaluation.runnable
+      ? "No user decision needed before the next safe step."
+      : `Setup ${setupEvaluation.badge.toLowerCase()}: ${setupEvaluation.missing[0] ?? setupEvaluation.needsReview[0] ?? "review required"}`;
+  return html`<section class="pcc-project-snapshot" data-pcc-project-snapshot>
+    <div>
+      <p class="pcc-kicker">Project Snapshot</p>
+      <h3>${project.title}</h3>
+      <p>${project.goal || "No project goal recorded yet."}</p>
+    </div>
+    <div class="pcc-project-snapshot__progress">
+      <strong>${percent}%</strong>
+      <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
+        <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
+      </div>
+      <span
+        >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
+        milestones complete</span
+      >
+    </div>
+    <dl class="pcc-project-snapshot__facts">
+      ${renderTruthFact("Status", formatStatus(project.status))}
+      ${renderTruthFact("Current milestone", current?.title ?? "Not started")}
+      ${renderTruthFact("Next milestone", next?.title ?? "None")}
+      ${renderTruthFact("Worker", worker)}
+      ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
+      ${renderTruthFact("Needs you", decision)}
+    </dl>
+    <div class="pcc-detail__actions">
+      <button class="btn" type="button" @click=${() => props.onOpenProjectEditor(project)}>
+        Edit project
+      </button>
+      <button class="btn btn--subtle" type="button" @click=${() => props.onOpenMilestoneEditor()}>
+        New milestone
+      </button>
+      ${project.status === "archived"
+        ? html`<button
+            class="btn btn--subtle"
+            type="button"
+            @click=${() => props.onSetProjectStatus(project, "reopened")}
+          >
+            Reopen
+          </button>`
+        : html`<button
+            class="btn btn--subtle"
+            type="button"
+            @click=${() => {
+              if (confirmAction("Archive this project?")) {
+                props.onSetProjectStatus(project, "archived");
+              }
+            }}
+          >
+            Archive
+          </button>`}
+    </div>
+  </section>`;
+}
+
+function milestoneJourneyClass(milestone: PccMilestone, currentId?: string): string {
+  if (milestone.id === currentId) {
+    return "current";
+  }
+  if (["complete", "complete_with_maintenance"].includes(milestone.status)) {
+    return "complete";
+  }
+  if (["blocked", "failed", "needs_approval", "deferred", "on_hold"].includes(milestone.status)) {
+    return "blocked";
+  }
+  if (["skipped", "archived"].includes(milestone.status)) {
+    return "skipped";
+  }
+  return "future";
+}
+
+function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardProps) {
+  const current = currentMilestoneForDetail(detail);
+  const milestones = sortedMilestones(detail);
+  return html`<section class="pcc-milestone-journey" data-pcc-milestone-journey>
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Milestone Journey</p>
+        <h4>Project sequence</h4>
+        <p>Complete these in order. Expand a milestone only when you need the details.</p>
+      </div>
+      <span
+        >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
+        complete</span
+      >
+    </div>
+    <ol>
+      ${milestones.map((milestone) => {
+        const journeyClass = milestoneJourneyClass(milestone, current?.id);
+        const subCount = subMilestonesForMilestone(detail, milestone).length;
+        return html`<li
+          class="pcc-journey-step pcc-journey-step--${journeyClass}"
+          data-pcc-journey-step
+        >
+          <div class="pcc-journey-step__marker">${milestone.order ?? "•"}</div>
+          <details ?open=${journeyClass === "current"}>
+            <summary>
+              <span>
+                <strong>${milestone.title}</strong>
+                <em
+                  >${subCount} sub-milestone${subCount === 1 ? "" : "s"} ·
+                  ${milestoneDisplayPercent(milestone)}%</em
+                >
+              </span>
+              <span class="pcc-status pcc-status--${milestone.status}"
+                >${formatStatus(milestone.status)}</span
+              >
+            </summary>
+            <p>
+              ${milestone.blocker ||
+              milestone.implementationPlan ||
+              "No implementation plan recorded."}
+            </p>
+            ${renderSubMilestoneList(milestone, props)}
+            <details class="pcc-detail-drawer">
+              <summary>Proof, receipts, permissions, and actions</summary>
+              ${renderMilestoneReceipts(milestone, props)}
+              ${permissionsForMilestone(props.projectDetail, milestone).length > 0
+                ? renderPermissionList(
+                    permissionsForMilestone(props.projectDetail, milestone),
+                    props,
+                  )
+                : nothing}
+              <div class="pcc-milestone__actions">
+                <label class="pcc-stop-here" data-pcc-stop-here>
+                  <input
+                    type="checkbox"
+                    .checked=${milestoneStopsHere(milestone)}
+                    ?disabled=${props.actionBusy}
+                    @change=${(event: Event) =>
+                      props.onSetMilestoneStopHere(
+                        milestone,
+                        (event.target as HTMLInputElement).checked,
+                      )}
+                  />
+                  Stop here
+                </label>
+                <button
+                  class="btn btn--subtle"
+                  type="button"
+                  @click=${() => props.onOpenMilestoneEditor(milestone)}
+                >
+                  Edit
+                </button>
+              </div>
+            </details>
+          </details>
+        </li>`;
+      })}
+    </ol>
+  </section>`;
+}
+
 function renderProjectDetail(props: PccDashboardProps) {
   const detail = props.projectDetail;
   const mode = pccViewMode(props);
@@ -1460,69 +1742,37 @@ function renderProjectDetail(props: PccDashboardProps) {
     return html`
       <aside class="pcc-detail" data-pcc-detail-empty>
         <h3>Select a project</h3>
-        <p>Open a project to manage its milestones, status, plan, and proof gaps.</p>
+        <p>Open a project to see its snapshot, milestone journey, and work controls.</p>
       </aside>
     `;
   }
-  const project = detail.project;
   const permissions = detail.permissions ?? [];
   return html`
     <aside class="pcc-detail pcc-detail--${mode}" data-pcc-detail data-pcc-detail-mode=${mode}>
-      <div class="pcc-detail__header">
-        <div>
-          <p class="pcc-kicker">Selected project</p>
-          <h3>${project.title}</h3>
-          <p>${project.goal || "No project goal recorded yet."}</p>
-        </div>
-        <span class="pcc-status pcc-status--${project.status}"
-          >${formatStatus(project.status)}</span
-        >
-      </div>
-      <div class="pcc-detail__actions">
-        <button class="btn" type="button" @click=${() => props.onOpenProjectEditor(project)}>
-          Edit project
-        </button>
-        <button class="btn btn--subtle" type="button" @click=${() => props.onOpenMilestoneEditor()}>
-          New milestone
-        </button>
-        ${project.status === "archived"
-          ? html`<button
-              class="btn btn--subtle"
-              type="button"
-              @click=${() => props.onSetProjectStatus(project, "reopened")}
-            >
-              Reopen
-            </button>`
-          : html`<button
-              class="btn btn--subtle"
-              type="button"
-              @click=${() => {
-                if (confirmAction("Archive this project?")) {
-                  props.onSetProjectStatus(project, "archived");
-                }
-              }}
-            >
-              Archive
-            </button>`}
-      </div>
-      ${renderWorkflowQualityCard(detail)} ${renderImpactDetailCards(detail, props)}
-      ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+      ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
       ${renderWorkLoopCard(props)}
+      <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
+        <summary>Details</summary>
+        ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+        ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
+        ${renderImpactDetailCards(detail, props)}
+      </details>
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">
-            Switch to Detailed or Agent when you need plans, receipts, permissions, or handoff
-            packets.
+            Simple view shows the workflow. Switch to Detailed or Agent for receipts, proof,
+            permissions, handoff packets, and diagnostics.
           </p>`
         : html`
-            <details class="pcc-detail-drawer" ?open=${mode === "agent" || mode === "detailed"}>
-              <summary>Milestones</summary>
-              ${renderPhaseOverview(detail)}
-              <section class="pcc-milestones" aria-label="Project milestones">
-                ${detail.milestones.length === 0
-                  ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
-                  : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
-              </section>
-            </details>
+            ${mode === "agent"
+              ? html`<details class="pcc-detail-drawer" open>
+                  <summary>Full milestone cards</summary>
+                  <section class="pcc-milestones" aria-label="Project milestones">
+                    ${detail.milestones.length === 0
+                      ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
+                      : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
+                  </section>
+                </details>`
+              : nothing}
             <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
               <summary>Permissions</summary>
               <section class="pcc-permissions" aria-label="Project permissions">
@@ -1871,13 +2121,105 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
   </section>`;
 }
 
+function renderGeneratedPlanPreview(props: PccDashboardProps) {
+  const form = props.projectForm;
+  const description = (form.projectDescription ?? "").trim();
+  if (!description && !form.title.trim() && !form.goal.trim()) {
+    return html`<section class="pcc-plan-preview" data-pcc-plan-preview>
+      <p class="pcc-kicker">Generated plan preview</p>
+      <h4>Describe what you want to build</h4>
+      <p>PCC will pre-fill the workflow, milestones, sub-milestones, owners, and proof gates.</p>
+    </section>`;
+  }
+  const draft = buildPccWorkflowDraft({
+    title: form.title || description || "Untitled Project",
+    goal: form.goal || description,
+    templateId: form.workflowTemplateId,
+    planningMode: plannerModeToPlanningMode(form.plannerMode),
+    codexPlanningAllowed: form.codexPlanningAllowed,
+    remoteProofAllowed: form.remoteProofAllowed,
+    runtimeActionsAllowed: form.runtimeActionsAllowed,
+  });
+  const milestoneCount = draft.milestones.length;
+  const subMilestoneCount = Object.values(draft.subMilestonesByMilestoneTitle).reduce(
+    (count, items) => count + items.length,
+    0,
+  );
+  const plannerNeedsPermission =
+    (form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex") &&
+    !form.codexPlanningAllowed;
+  return html`<section class="pcc-plan-preview" data-pcc-plan-preview>
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Generated plan preview</p>
+        <h4>${draft.project.title}</h4>
+        <p>${draft.project.goal ?? "No goal recorded."}</p>
+      </div>
+      <span class="pcc-status">${milestoneCount} milestones</span>
+    </div>
+    <div class="pcc-plan-preview__meta">
+      <span>${subMilestoneCount} sub-milestones</span>
+      <span>${form.plannerMode.replace(/_/gu, " ")}</span>
+      <span>${form.workflowTemplateId.replace(/-/gu, " ")}</span>
+      <span
+        >${plannerNeedsPermission
+          ? "Permission needed before Codex"
+          : "No token spend on preview"}</span
+      >
+    </div>
+    ${plannerNeedsPermission
+      ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
+          <strong>Planner permission required</strong>
+          <span
+            >PCC can save the template preview now, but Codex refinement will stay blocked until
+            permission is granted.</span
+          >
+        </div>`
+      : form.plannerMode === "local_project_manager"
+        ? html`<div class="pcc-callout" data-pcc-project-manager-intake>
+            <strong>Project Manager review</strong>
+            <span
+              >PCC will use the selected workflow template and queue local review before
+              execution.</span
+            >
+          </div>`
+        : nothing}
+    <ol class="pcc-plan-preview__milestones">
+      ${draft.milestones.slice(0, 6).map((milestone) => {
+        const subs = draft.subMilestonesByMilestoneTitle[milestone.title] ?? [];
+        return html`<li>
+          <strong>${milestone.title}</strong>
+          <span>${subs.length} sub-milestone${subs.length === 1 ? "" : "s"}</span>
+          <ul>
+            ${subs.slice(0, 3).map((sub) => html`<li>${sub.title}</li>`)}
+          </ul>
+        </li>`;
+      })}
+    </ol>
+    <label class="pcc-intake-wizard__approval">
+      <input
+        type="checkbox"
+        .checked=${form.planPreviewAccepted}
+        @change=${(event: Event) =>
+          props.onProjectFormChange({
+            planPreviewAccepted: (event.target as HTMLInputElement).checked,
+          })}
+      />
+      I reviewed this generated plan preview.
+    </label>
+  </section>`;
+}
+
 function renderProjectEditor(props: PccDashboardProps) {
   const form = props.projectForm;
   const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
-  const projectSaveBlocked = missingIntake.length > 0 || !form.intakeApproved;
+  const creating = props.editorMode === "create-project";
+  const projectSaveBlocked = creating
+    ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
+    : false;
   return html`
     <form
-      class="pcc-editor"
+      class="pcc-editor pcc-editor--project"
       data-pcc-editor="project"
       @submit=${(event: Event) => {
         event.preventDefault();
@@ -1887,82 +2229,114 @@ function renderProjectEditor(props: PccDashboardProps) {
       <header>
         <p class="pcc-kicker">Project</p>
         <h3>${props.editorMode === "edit-project" ? "Edit project" : "Create project"}</h3>
+        ${creating
+          ? html`<p>Describe the project. PCC will draft the milestones before anything starts.</p>`
+          : nothing}
       </header>
-      <label
-        >Title<input
-          required
-          .value=${form.title}
-          @input=${(event: Event) =>
-            props.onProjectFormChange({ title: (event.target as HTMLInputElement).value })}
-      /></label>
-      <label
-        >Goal<textarea
+      ${creating
+        ? html`<label class="pcc-editor__hero-field">
+            Describe what you want to build
+            <textarea
+              data-pcc-project-description
+              placeholder="Example: Build a dashboard that shows all projects, milestones, blockers, and proof receipts in one simple command center."
+              .value=${form.projectDescription}
+              @input=${(event: Event) =>
+                props.onProjectFormChange({
+                  projectDescription: (event.target as HTMLTextAreaElement).value,
+                })}
+            ></textarea>
+          </label>`
+        : nothing}
+      <div class="pcc-editor__grid">
+        <label>
+          Title
+          <input
+            required
+            .value=${form.title}
+            @input=${(event: Event) =>
+              props.onProjectFormChange({ title: (event.target as HTMLInputElement).value })}
+          />
+        </label>
+        <label>
+          Priority
+          <input
+            type="number"
+            min="0"
+            max="5"
+            .value=${form.priority}
+            @input=${(event: Event) =>
+              props.onProjectFormChange({ priority: (event.target as HTMLInputElement).value })}
+          />
+        </label>
+      </div>
+      <label>
+        Goal
+        <textarea
           .value=${form.goal}
           @input=${(event: Event) =>
             props.onProjectFormChange({ goal: (event.target as HTMLTextAreaElement).value })}
         ></textarea>
       </label>
-      <label
-        >Status<select
-          .value=${form.status}
-          @change=${(event: Event) =>
-            props.onProjectFormChange({
-              status: (event.target as HTMLSelectElement).value as PccStatus,
-            })}
-        >
-          ${renderStatusOptions(PROJECT_STATUSES)}
-        </select></label
-      >
-      <label
-        >Priority<input
-          type="number"
-          min="0"
-          max="5"
-          .value=${form.priority}
-          @input=${(event: Event) =>
-            props.onProjectFormChange({ priority: (event.target as HTMLInputElement).value })}
-      /></label>
-      <label
-        >Workflow template<select
-          .value=${form.workflowTemplateId}
-          @change=${(event: Event) =>
-            props.onProjectFormChange({
-              workflowTemplateId: (event.target as HTMLSelectElement).value,
-            })}
-        >
-          ${PCC_WORKFLOW_TEMPLATES.map(
-            (template) => html`<option value=${template.id}>${template.title}</option>`,
-          )}
-        </select></label
-      >
-      ${renderProjectIntakeWizard(props)}
-      <label
-        >Planning mode<select
-          .value=${form.planningMode}
-          @change=${(event: Event) =>
-            props.onProjectFormChange({
-              planningMode: (event.target as HTMLSelectElement)
-                .value as PccProjectFormState["planningMode"],
-            })}
-        >
-          ${renderStringOptions(PLANNING_MODE_OPTIONS, form.planningMode)}
-        </select></label
-      >
-      ${form.planningMode === "codex_full_plan" && !form.codexPlanningAllowed
-        ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
-            <strong>Codex planning is permission-gated</strong>
-            <span
-              >Save will create a scoped permission request instead of spending Codex tokens.</span
-            >
-          </div>`
-        : form.planningMode === "local_project_manager"
-          ? html`<div class="pcc-callout" data-pcc-project-manager-intake>
-              <strong>Project Manager review</strong>
-              <span
-                >OpenClaw will use the template, then queue a local review before execution.</span
-              >
-            </div>`
-          : nothing}
+      <div class="pcc-editor__grid">
+        <label>
+          Planner
+          <select
+            data-pcc-planner-selector
+            .value=${form.plannerMode}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                plannerMode: (event.target as HTMLSelectElement).value as PccPlannerMode,
+              })}
+          >
+            ${renderStringOptions(PLANNER_MODE_OPTIONS, form.plannerMode)}
+          </select>
+        </label>
+        <label>
+          Planner model
+          <input
+            data-pcc-planner-model
+            placeholder="Optional model id"
+            .value=${form.plannerModelId}
+            @input=${(event: Event) =>
+              props.onProjectFormChange({
+                plannerModelId: (event.target as HTMLInputElement).value,
+              })}
+          />
+        </label>
+      </div>
+      <div class="pcc-editor__grid">
+        <label>
+          Workflow template
+          <select
+            .value=${form.workflowTemplateId}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                workflowTemplateId: (event.target as HTMLSelectElement).value,
+              })}
+          >
+            ${PCC_WORKFLOW_TEMPLATES.map(
+              (template) => html`<option value=${template.id}>${template.title}</option>`,
+            )}
+          </select>
+        </label>
+        <label>
+          Status
+          <select
+            .value=${form.status}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                status: (event.target as HTMLSelectElement).value as PccStatus,
+              })}
+          >
+            ${renderStatusOptions(PROJECT_STATUSES)}
+          </select>
+        </label>
+      </div>
+      <details class="pcc-detail-drawer" ?open=${creating}>
+        <summary>Project intake answers</summary>
+        ${renderProjectIntakeWizard(props)}
+      </details>
+      ${renderGeneratedPlanPreview(props)}
       <div class="pcc-intake-options" data-pcc-workflow-intake>
         <label>
           <input
@@ -1973,7 +2347,7 @@ function renderProjectEditor(props: PccDashboardProps) {
                 codexPlanningAllowed: (event.target as HTMLInputElement).checked,
               })}
           />
-          Allow Codex to design/refine milestones
+          Allow Codex/high-reasoning planning
         </label>
         <label>
           <input
@@ -1998,13 +2372,35 @@ function renderProjectEditor(props: PccDashboardProps) {
           Allow local runtime actions
         </label>
       </div>
+      ${projectSaveBlocked
+        ? html`<p class="pcc-intake-wizard__missing" data-pcc-plan-preview-blocked>
+            Complete intake approval and review the generated plan preview before creating the
+            project.
+          </p>`
+        : nothing}
       <footer>
+        ${creating
+          ? html`<button
+              class="btn"
+              type="submit"
+              ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
+            >
+              Approve and create
+            </button>`
+          : html`<button
+              class="btn"
+              type="submit"
+              ?disabled=${props.actionBusy || !form.title.trim()}
+            >
+              Save project
+            </button>`}
         <button
-          class="btn"
-          type="submit"
-          ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
+          class="btn btn--subtle"
+          type="button"
+          @click=${() =>
+            props.onProjectFormChange({ projectDescription: form.projectDescription ?? "" })}
         >
-          Save project
+          Regenerate
         </button>
         <button class="btn btn--subtle" type="button" @click=${props.onCancelEditor}>Cancel</button>
       </footer>
@@ -2181,8 +2577,13 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${renderProductionTruthCard(props)} ${renderImpactAttentionInbox(props)}
-      ${renderTodayView(props)} ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
+      ${renderTodayView(props)}
+      <details class="pcc-detail-drawer pcc-top-proof-drawer">
+        <summary>Needs You details</summary>
+        ${renderImpactAttentionInbox(props)}
+      </details>
+      ${renderProductionTruthDrawer(props)}
+      ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}

@@ -217,17 +217,19 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Project Command Center");
     expect(text).toContain("Total projects");
     expect(text).toContain("Average completion");
-    expect(text).toContain("42% complete");
+    expect(text).toContain("2/5 milestones complete");
     expect(text).toContain("Run remote proof");
     expect(text).toContain("Workflow Sanity proof");
     expect(text).toContain("CRUD UI");
     expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
-    expect(container.querySelectorAll("[data-pcc-milestone]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-pcc-journey-step]")).toHaveLength(1);
     expect(container.querySelectorAll("[data-pcc-permission]")).toHaveLength(1);
     expect(text).toContain("Permission needed");
     expect(text).toContain("Remote Proof");
     expect(text).toContain("Today");
-    expect(text).toContain("Needs you");
+    expect(text).toContain("Needs You");
+    expect(text).toContain("Project Snapshot");
+    expect(text).toContain("Milestone Journey");
     expect(text).toContain("Attention inbox");
     expect(text).toContain("Low-reasoning readiness");
     expect(text).toContain("Proof freshness");
@@ -658,18 +660,14 @@ describe("renderPccDashboard", () => {
       createProps({
         editorMode: "create-project",
         projectForm: {
-          id: null,
+          ...EMPTY_PCC_PROJECT_FORM,
           title: "New PCC",
-          goal: "",
-          status: "active",
+          goal: "A skimmable PCC view.",
+          projectDescription: "Build a skimmable PCC view.",
           priority: "4",
-          workflowTemplateId: "software-product",
-          planningMode: "template_only",
-          codexPlanningAllowed: false,
-          remoteProofAllowed: false,
-          runtimeActionsAllowed: false,
           intakeAnswers,
           intakeApproved: true,
+          planPreviewAccepted: true,
         },
         onProjectFormChange,
         onSaveProject,
@@ -699,7 +697,7 @@ describe("renderPccDashboard", () => {
 
     expect(container.querySelector("[data-pcc-intake-blocked]")).not.toBeNull();
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-      button.textContent?.includes("Save project"),
+      button.textContent?.includes("Approve and create"),
     );
     expect(save?.disabled).toBe(true);
   });
@@ -712,6 +710,9 @@ describe("renderPccDashboard", () => {
         projectForm: {
           ...EMPTY_PCC_PROJECT_FORM,
           title: "New PCC",
+          goal: "Use Codex to plan a PCC project.",
+          projectDescription: "Use Codex to plan a PCC project.",
+          plannerMode: "codex",
           planningMode: "codex_full_plan",
           codexPlanningAllowed: false,
         },
@@ -719,7 +720,7 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-codex-planning-gate]")).not.toBeNull();
-    expect(codexContainer.textContent).toContain("Codex planning is permission-gated");
+    expect(codexContainer.textContent).toContain("Planner permission required");
 
     const pmContainer = renderView(
       createProps({
@@ -727,6 +728,9 @@ describe("renderPccDashboard", () => {
         projectForm: {
           ...EMPTY_PCC_PROJECT_FORM,
           title: "New PCC",
+          goal: "Use local Project Manager to plan a PCC project.",
+          projectDescription: "Use local Project Manager to plan a PCC project.",
+          plannerMode: "local_project_manager",
           planningMode: "local_project_manager",
         },
         onProjectFormChange,
@@ -770,8 +774,8 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.textContent).toContain("Worker High-reasoning Codex");
-    expect(container.textContent).toContain("Risk High");
+    expect(container.textContent).toContain("High-reasoning Codex");
+    expect(container.textContent).toContain("High");
     expect(container.textContent).toContain("Token/cost risk");
     const selects = [...container.querySelectorAll<HTMLSelectElement>("select")];
     expect(selects.some((select) => select.value === "high_reasoning_codex")).toBe(true);
@@ -876,6 +880,7 @@ describe("renderPccDashboard", () => {
         onMilestoneFormChange,
         onSaveMilestone,
         onSetMilestoneStatus,
+        viewMode: "agent",
       }),
     );
 
