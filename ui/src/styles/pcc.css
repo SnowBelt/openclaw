@@ -1954,11 +1954,7 @@
   letter-spacing: 0.04em;
 }
 
-.pcc-action-menu__trigger::-webkit-details-marker {
-  display: none;
-}
-
-.pcc-action-menu[open] .pcc-action-menu__trigger,
+.pcc-action-menu.is-open .pcc-action-menu__trigger,
 .pcc-action-menu__trigger:hover {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 32%, var(--hairline));
@@ -1966,10 +1962,9 @@
 }
 
 .pcc-action-menu__items {
-  position: absolute;
-  right: 0;
-  top: 40px;
+  position: static;
   min-width: 180px;
+  margin-top: 8px;
   padding: 8px;
   display: none;
   gap: 4px;
@@ -1979,7 +1974,7 @@
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
 }
 
-.pcc-action-menu[open] .pcc-action-menu__items {
+.pcc-action-menu.is-open .pcc-action-menu__items {
   display: grid;
 }
 

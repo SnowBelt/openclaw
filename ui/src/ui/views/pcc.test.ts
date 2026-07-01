@@ -420,12 +420,12 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    const milestoneMenu = container.querySelector<HTMLDetailsElement>("[data-pcc-action-menu]");
-    const milestoneTrigger = milestoneMenu?.querySelector<HTMLElement>(
+    const milestoneMenu = container.querySelector<HTMLElement>("[data-pcc-action-menu]");
+    const milestoneTrigger = milestoneMenu?.querySelector<HTMLButtonElement>(
       "[data-pcc-action-menu-trigger]",
     );
     milestoneTrigger?.click();
-    expect(milestoneMenu?.open).toBe(true);
+    expect(milestoneMenu?.classList.contains("is-open")).toBe(true);
     [...(milestoneMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
       .find((button) => button.textContent?.includes("Remove from plan"))
       ?.click();
@@ -435,12 +435,10 @@ describe("renderPccDashboard", () => {
       "Not part of this active plan.",
     );
 
-    const subMenu = container.querySelector<HTMLDetailsElement>(
-      "[data-pcc-submilestone-action-menu]",
-    );
-    const subTrigger = subMenu?.querySelector<HTMLElement>("[data-pcc-action-menu-trigger]");
+    const subMenu = container.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]");
+    const subTrigger = subMenu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]");
     subTrigger?.click();
-    expect(subMenu?.open).toBe(true);
+    expect(subMenu?.classList.contains("is-open")).toBe(true);
     [...(subMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
       .find((button) => button.textContent?.includes("Reopen"))
       ?.click();
