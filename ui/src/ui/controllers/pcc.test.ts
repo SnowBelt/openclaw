@@ -3,20 +3,26 @@ import {
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
   addPccCompletionReceipt,
+  applyPccSetupAutofill,
+  buildPccSetupAutofillPreview,
   applyPccChatSyncProposal,
+  dismissPccSetupAutofill,
   dismissPccChatSync,
   loadPccDashboard,
   openPccMilestoneEditor,
   openPccProjectEditor,
+  previewPccSetupAutofill,
   previewPccChatSync,
   savePccMilestone,
   savePccProject,
   selectPccProject,
   setPccMilestoneStatus,
+  setPccSubMilestoneStatus,
   setPccPermissionStatus,
   setPccProjectStatus,
   updatePccWorkLoopSettings,
   preparePccNextWorkItem,
+  updatePccAutofillApproval,
   updatePccChatSyncText,
   updatePccViewMode,
   type PccDashboardState,
@@ -521,6 +527,175 @@ describe("PCC CRUD controller", () => {
     openPccMilestoneEditor(state, milestone);
     expect(state.pccEditorMode).toBe("edit-milestone");
     expect(state.pccMilestoneForm.title).toBe("CRUD UI");
+  });
+
+  it("previews and applies setup autofill without writing before approval", async () => {
+    const incompleteProject = {
+      ...project,
+      goal: "",
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccIntake: { approved: false, answers: { ...intakeAnswers, goal: "" } },
+        pccQualityGate: { status: "missing" },
+        pccSetupScore: { score: 40, runnable: false },
+      },
+    };
+    const incompleteMilestone = {
+      ...milestone,
+      implementationPlan: "",
+      acceptanceCriteria: [],
+      metadata: {},
+    };
+    const incompleteSub = {
+      ...subMilestone,
+      implementationPlan: "",
+      acceptanceCriteria: [],
+      metadata: {},
+    };
+    const detail = {
+      project: incompleteProject,
+      milestones: [incompleteMilestone],
+      subMilestones: [incompleteSub],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary,
+    };
+    const preview = buildPccSetupAutofillPreview(detail);
+    expect(preview.goal).toBe("Project Command Center");
+    expect(preview.intakeAnswers.goal).toBe("Project Command Center");
+    expect(preview.milestoneUpdates[0]?.fields).toContain("implementation plan");
+    expect(preview.subMilestoneUpdates[0]?.fields).toContain("acceptance criteria");
+
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.upsert") {
+        return { project: incompleteProject, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: incompleteMilestone, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone: incompleteSub };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project: incompleteProject,
+          milestones: [incompleteMilestone],
+          subMilestones: [incompleteSub],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+    });
+
+    previewPccSetupAutofill(state);
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccAutofillPreview?.intakeApproved).toBe(false);
+
+    updatePccAutofillApproval(state, true);
+    expect(state.pccAutofillPreview?.intakeApproved).toBe(true);
+
+    await applyPccSetupAutofill(state);
+
+    expect(request.mock.calls[0]).toEqual([
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({
+          goal: "Project Command Center",
+          metadata: expect.objectContaining({
+            pccIntake: expect.objectContaining({ approved: true, status: "approved" }),
+            pccSetupAutofill: expect.objectContaining({ source: "local_project_manager" }),
+          }),
+        }),
+      }),
+    ]);
+    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(true);
+    expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(true);
+    expect(state.pccAutofillPreview).toBeNull();
+
+    dismissPccSetupAutofill(state);
+    expect(state.pccAutofillPreview).toBeNull();
+  });
+
+  it("skips milestones with unfinished sub-milestones and reopens them", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.milestones.upsert") {
+        return { milestone, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, milestone, "skipped", "Not needed now");
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.milestones.upsert",
+      expect.objectContaining({
+        milestone: expect.objectContaining({
+          status: "skipped",
+          percentComplete: 0,
+          metadata: expect.objectContaining({ pccSkipNote: "Not needed now" }),
+        }),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "pcc.subMilestones.upsert",
+      expect.objectContaining({
+        subMilestone: expect.objectContaining({ status: "skipped", percentComplete: 0 }),
+      }),
+    );
+
+    await setPccSubMilestoneStatus(state, subMilestone, "not_started");
+    expect(request).toHaveBeenCalledWith(
+      "pcc.subMilestones.upsert",
+      expect.objectContaining({
+        subMilestone: expect.objectContaining({ status: "not_started", percentComplete: 0 }),
+      }),
+    );
   });
 
   it("creates a project and refreshes detail", async () => {

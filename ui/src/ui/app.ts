@@ -221,6 +221,7 @@ import {
 import {
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
+  type PccAutofillPreview,
   type PccEditorMode,
   type PccMilestoneFormState,
   type PccProjectDetail,
@@ -459,6 +460,7 @@ export class OpenClawApp extends LitElement {
   @state() pccEditorMode: PccEditorMode = null;
   @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
   @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };
+  @state() pccAutofillPreview: PccAutofillPreview | null = null;
   @state() pccChatSyncText = "";
   @state() pccChatSyncProposals: PccChatSyncProposal[] = [];
   @state() pccChatSyncError: string | null = null;

@@ -135,11 +135,14 @@ import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import {
   addPccCompletionReceipt,
+  applyPccSetupAutofill,
   cancelPccEditor,
   applyPccChatSyncProposal,
+  dismissPccSetupAutofill,
   dismissPccChatSync,
   loadPccDashboard,
   preparePccNextWorkItem,
+  previewPccSetupAutofill,
   previewPccChatSync,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -148,8 +151,10 @@ import {
   selectPccProject,
   setPccMilestoneStatus,
   setPccMilestoneStopHere,
+  setPccSubMilestoneStatus,
   setPccPermissionStatus,
   setPccProjectStatus,
+  updatePccAutofillApproval,
   updatePccWorkLoopSettings,
   updatePccChatSyncText,
   updatePccMilestoneForm,
@@ -2811,6 +2816,7 @@ export function renderApp(state: AppViewState) {
                 editorMode: state.pccEditorMode,
                 projectForm: state.pccProjectForm,
                 milestoneForm: state.pccMilestoneForm,
+                autofillPreview: state.pccAutofillPreview,
                 chatSyncText: state.pccChatSyncText,
                 chatSyncProposals: state.pccChatSyncProposals,
                 chatSyncError: state.pccChatSyncError,
@@ -2831,12 +2837,18 @@ export function renderApp(state: AppViewState) {
                   void setPccMilestoneStatus(state, milestone, status),
                 onSetMilestoneStopHere: (milestone, stopHere) =>
                   void setPccMilestoneStopHere(state, milestone, stopHere),
+                onSetSubMilestoneStatus: (subMilestone, status, note) =>
+                  void setPccSubMilestoneStatus(state, subMilestone, status, note),
                 onAddCompletionReceipt: (milestone) =>
                   void addPccCompletionReceipt(state, milestone),
                 onSetPermissionStatus: (permission, status) =>
                   void setPccPermissionStatus(state, permission, status),
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
+                onPreviewSetupAutofill: () => previewPccSetupAutofill(state),
+                onApplySetupAutofill: () => void applyPccSetupAutofill(state),
+                onDismissSetupAutofill: () => dismissPccSetupAutofill(state),
+                onSetAutofillApproval: (approved) => updatePccAutofillApproval(state, approved),
                 onChatSyncTextChange: (text) => updatePccChatSyncText(state, text),
                 onPreviewChatSync: () => previewPccChatSync(state),
                 onApplyChatSyncProposal: (proposal) =>

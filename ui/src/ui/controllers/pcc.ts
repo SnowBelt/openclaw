@@ -1,5 +1,6 @@
 import {
   evaluatePccProjectSetup,
+  PCC_REQUIRED_INTAKE_QUESTIONS,
   pccIntakeAnswersFromMetadata,
   pccMissingRequiredIntakeAnswers,
   recommendPccWorkflow,
@@ -56,6 +57,18 @@ export type PccPlannerMode =
   | "codex"
   | "high_reasoning_codex";
 
+export type PccAutofillPreview = {
+  projectId: string;
+  goal: string;
+  intakeAnswers: Record<string, string>;
+  intakeApproved: boolean;
+  workflowTemplateId: string;
+  workflowTitle: string;
+  summary: string;
+  milestoneUpdates: Array<{ id: string; title: string; fields: string[] }>;
+  subMilestoneUpdates: Array<{ id: string; title: string; fields: string[] }>;
+};
+
 export type PccProjectFormState = {
   id: string | null;
   title: string;
@@ -107,6 +120,7 @@ export type PccDashboardState = {
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
+  pccAutofillPreview?: PccAutofillPreview | null;
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
@@ -333,6 +347,242 @@ function enrichProjectFormFromDescription(form: PccProjectFormState): PccProject
     planPreviewAccepted: form.planPreviewAccepted ?? false,
     planningMode: plannerModeToPlanningMode(plannerMode),
     intakeAnswers: { ...answers, ...form.intakeAnswers },
+  };
+}
+
+function firstSentence(value: string): string {
+  return (
+    value
+      .split(/[.!?]\s+|\n+/u)
+      .find((part) => part.trim())
+      ?.trim() ?? value.trim()
+  );
+}
+
+function detailText(detail: PccProjectDetail): string {
+  return [
+    detail.project.title,
+    detail.project.goal ?? "",
+    metadataString(metadataObject(detail.project.metadata).pccProjectDescription, ""),
+    ...detail.milestones.flatMap((milestone) => [
+      milestone.title,
+      milestone.implementationPlan ?? "",
+      milestone.blocker ?? "",
+    ]),
+    ...(detail.subMilestones ?? []).flatMap((subMilestone) => [
+      subMilestone.title,
+      subMilestone.implementationPlan ?? "",
+      subMilestone.blocker ?? "",
+    ]),
+  ]
+    .join("\n")
+    .trim();
+}
+
+function autofillGoal(detail: PccProjectDetail): string {
+  if (detail.project.goal?.trim()) {
+    return detail.project.goal.trim();
+  }
+  const text = detailText(detail);
+  return (
+    firstSentence(text) || `Complete ${detail.project.title} with clear PCC milestones and proof.`
+  );
+}
+
+function responsibilityName(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
+function autofillAnswer(
+  detail: PccProjectDetail,
+  questionId: string,
+  existing: Record<string, string>,
+): string {
+  if (existing[questionId]?.trim()) {
+    return existing[questionId].trim();
+  }
+  const nextMilestone = detail.milestones.find(
+    (milestone) =>
+      !["complete", "complete_with_maintenance", "skipped", "archived"].includes(milestone.status),
+  );
+  const defaultOwner = metadataString(
+    metadataObject(nextMilestone?.metadata).pccResponsibility,
+    "local_openclaw_agent",
+  );
+  switch (questionId) {
+    case "goal":
+      return autofillGoal(detail);
+    case "firstDeliverable":
+      return nextMilestone
+        ? `Complete the next PCC milestone: ${nextMilestone.title}.`
+        : `Create the first useful verified result for ${detail.project.title}.`;
+    case "doneProof":
+      return "Each milestone needs passing acceptance criteria, attached proof, and a completion receipt before it is marked complete.";
+    case "constraints":
+      return "Stop before Codex, high-reasoning models, remote proof, destructive/runtime/reboot/publish actions, or external writes unless scoped permission is granted.";
+    case "owner":
+      return responsibilityName(defaultOwner);
+    case "blockers":
+      return (
+        [
+          detail.project.goal ? "" : "Project goal was missing.",
+          ...detail.milestones.map((item) => item.blocker ?? ""),
+        ]
+          .map((item) => item.trim())
+          .find(Boolean) ??
+        "Unknown blockers should be recorded as PCC permission, tool, source, or proof gaps before work starts."
+      );
+    default:
+      return `Autofilled from existing ${detail.project.title} project context.`;
+  }
+}
+
+function defaultMilestonePlan(milestone: PccMilestone): string {
+  return [
+    `Complete ${milestone.title} by executing its sub-milestones in order.`,
+    "Stop on missing permissions, unclear acceptance criteria, or missing proof.",
+    "Record evidence and a completion receipt before marking the milestone complete.",
+  ].join("\n");
+}
+
+function defaultSubMilestonePlan(subMilestone: PccSubMilestone): string {
+  return [
+    `Execute this sub-step: ${subMilestone.title}.`,
+    "Use the parent milestone scope and stop if proof or permission is missing.",
+  ].join("\n");
+}
+
+function defaultAcceptanceCriteria(title: string): string[] {
+  return [
+    `${title} has an observable result or exact blocker.`,
+    "Required proof is recorded before completion.",
+  ];
+}
+
+type MilestoneAutofillPatch = {
+  milestone: PccMilestone;
+  fields: string[];
+};
+
+type SubMilestoneAutofillPatch = {
+  subMilestone: PccSubMilestone;
+  fields: string[];
+};
+
+function buildMilestoneAutofillPatch(milestone: PccMilestone): MilestoneAutofillPatch {
+  const fields: string[] = [];
+  const metadata = metadataObject(milestone.metadata);
+  const nextMetadata = { ...metadata };
+  let implementationPlan = milestone.implementationPlan ?? "";
+  let acceptanceCriteria = milestone.acceptanceCriteria ?? [];
+  if (!implementationPlan.trim()) {
+    implementationPlan = defaultMilestonePlan(milestone);
+    fields.push("implementation plan");
+  }
+  if (!acceptanceCriteria.some((entry) => entry.trim())) {
+    acceptanceCriteria = defaultAcceptanceCriteria(milestone.title);
+    fields.push("acceptance criteria");
+  }
+  if (!metadataString(nextMetadata.pccResponsibility, "")) {
+    nextMetadata.pccResponsibility = "local_openclaw_agent";
+    fields.push("owner");
+  }
+  if (
+    !metadataString(nextMetadata.pccProofLevel, "") &&
+    !metadataString(nextMetadata.proofRequired, "")
+  ) {
+    nextMetadata.pccProofLevel = "local";
+    fields.push("proof requirement");
+  }
+  return {
+    milestone: {
+      ...milestone,
+      implementationPlan,
+      acceptanceCriteria,
+      metadata: nextMetadata,
+    },
+    fields,
+  };
+}
+
+function buildSubMilestoneAutofillPatch(subMilestone: PccSubMilestone): SubMilestoneAutofillPatch {
+  const fields: string[] = [];
+  const metadata = metadataObject(subMilestone.metadata);
+  const nextMetadata = { ...metadata };
+  let implementationPlan = subMilestone.implementationPlan ?? "";
+  let acceptanceCriteria = subMilestone.acceptanceCriteria ?? [];
+  if (!implementationPlan.trim()) {
+    implementationPlan = defaultSubMilestonePlan(subMilestone);
+    fields.push("implementation plan");
+  }
+  if (!acceptanceCriteria.some((entry) => entry.trim())) {
+    acceptanceCriteria = defaultAcceptanceCriteria(subMilestone.title);
+    fields.push("acceptance criteria");
+  }
+  if (!metadataString(nextMetadata.pccResponsibility, "")) {
+    nextMetadata.pccResponsibility = subMilestone.owner ?? "local_openclaw_agent";
+    fields.push("owner");
+  }
+  if (
+    !metadataString(nextMetadata.pccProofLevel, "") &&
+    !metadataString(nextMetadata.proofRequired, "")
+  ) {
+    nextMetadata.pccProofLevel = "local";
+    fields.push("proof requirement");
+  }
+  return {
+    subMilestone: {
+      ...subMilestone,
+      implementationPlan,
+      acceptanceCriteria,
+      metadata: nextMetadata,
+    },
+    fields,
+  };
+}
+
+export function buildPccSetupAutofillPreview(
+  detail: PccProjectDetail,
+  intakeApproved = false,
+): PccAutofillPreview {
+  const existingAnswers = pccIntakeAnswersFromMetadata(detail.project.metadata);
+  const intakeAnswers = Object.fromEntries(
+    PCC_REQUIRED_INTAKE_QUESTIONS.map((question) => [
+      question.id,
+      autofillAnswer(detail, question.id, existingAnswers),
+    ]),
+  );
+  const workflow = recommendPccWorkflow({
+    title: detail.project.title,
+    goal: autofillGoal(detail),
+    intakeAnswers,
+  });
+  const milestoneUpdates = detail.milestones
+    .map(buildMilestoneAutofillPatch)
+    .filter((patch) => patch.fields.length > 0)
+    .map((patch) => ({
+      id: patch.milestone.id,
+      title: patch.milestone.title,
+      fields: patch.fields,
+    }));
+  const subMilestoneUpdates = (detail.subMilestones ?? [])
+    .map(buildSubMilestoneAutofillPatch)
+    .filter((patch) => patch.fields.length > 0)
+    .map((patch) => ({
+      id: patch.subMilestone.id,
+      title: patch.subMilestone.title,
+      fields: patch.fields,
+    }));
+  return {
+    projectId: detail.project.id,
+    goal: autofillGoal(detail),
+    intakeAnswers,
+    intakeApproved,
+    workflowTemplateId: workflow.templateId,
+    workflowTitle: workflow.title,
+    summary: `PCC drafted missing setup for ${detail.project.title} from existing project context.`,
+    milestoneUpdates,
+    subMilestoneUpdates,
   };
 }
 
@@ -581,6 +831,124 @@ export function dismissPccChatSync(state: PccDashboardState): void {
   state.pccChatSyncProposals = [];
   state.pccChatSyncError = null;
   state.requestUpdate?.();
+}
+
+export function previewPccSetupAutofill(state: PccDashboardState): void {
+  if (!state.pccProjectDetail) {
+    state.pccActionError = "Select a project before using setup autofill.";
+    state.requestUpdate?.();
+    return;
+  }
+  state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, false);
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function updatePccAutofillApproval(state: PccDashboardState, approved: boolean): void {
+  if (!state.pccProjectDetail) {
+    return;
+  }
+  state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, approved);
+  state.requestUpdate?.();
+}
+
+export function dismissPccSetupAutofill(state: PccDashboardState): void {
+  state.pccAutofillPreview = null;
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+function projectWithAutofill(
+  detail: PccProjectDetail,
+  preview: PccAutofillPreview,
+  now: string,
+): PccProject {
+  const existingIntake = metadataObject(metadataObject(detail.project.metadata).pccIntake);
+  const missingQuestionIds = pccMissingRequiredIntakeAnswers(preview.intakeAnswers);
+  return {
+    ...detail.project,
+    goal: preview.goal,
+    metadata: {
+      ...metadataObject(detail.project.metadata),
+      pccWorkflowTemplateId: preview.workflowTemplateId,
+      pccWorkflowTemplateTitle: preview.workflowTitle,
+      pccPlanPreviewAccepted: true,
+      pccSetupAutofill: {
+        summary: preview.summary,
+        appliedAt: now,
+        source: "local_project_manager",
+      },
+      pccIntake: {
+        ...existingIntake,
+        answers: preview.intakeAnswers,
+        approved: preview.intakeApproved,
+        ...(preview.intakeApproved ? { approvedAt: now } : {}),
+        missingQuestionIds,
+        status: preview.intakeApproved ? "approved" : "needs_review",
+      },
+    },
+  };
+}
+
+function applyMilestoneAutofill(
+  milestones: readonly PccMilestone[],
+  preview: PccAutofillPreview,
+): PccMilestone[] {
+  const changedIds = new Set(preview.milestoneUpdates.map((item) => item.id));
+  return milestones.map((milestone) =>
+    changedIds.has(milestone.id) ? buildMilestoneAutofillPatch(milestone).milestone : milestone,
+  );
+}
+
+function applySubMilestoneAutofill(
+  subMilestones: readonly PccSubMilestone[],
+  preview: PccAutofillPreview,
+): PccSubMilestone[] {
+  const changedIds = new Set(preview.subMilestoneUpdates.map((item) => item.id));
+  return subMilestones.map((subMilestone) =>
+    changedIds.has(subMilestone.id)
+      ? buildSubMilestoneAutofillPatch(subMilestone).subMilestone
+      : subMilestone,
+  );
+}
+
+export async function applyPccSetupAutofill(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    return;
+  }
+  const preview = state.pccAutofillPreview ?? buildPccSetupAutofillPreview(detail, false);
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const patchedMilestones = applyMilestoneAutofill(detail.milestones, preview);
+    const patchedSubMilestones = applySubMilestoneAutofill(detail.subMilestones ?? [], preview);
+    const projectBase = projectWithAutofill(detail, preview, now);
+    const evaluation = evaluatePccProjectSetup({
+      project: projectBase,
+      milestones: patchedMilestones,
+      subMilestones: patchedSubMilestones,
+    });
+    const projectForUpsert = withPccPhase2Metadata(projectBase, evaluation, now);
+    await state.client.request("pcc.projects.upsert", {
+      project: projectUpsertPayload(projectForUpsert),
+    });
+    for (const milestone of patchedMilestones.filter((item) =>
+      preview.milestoneUpdates.some((update) => update.id === item.id),
+    )) {
+      await state.client.request("pcc.milestones.upsert", { milestone });
+    }
+    for (const subMilestone of patchedSubMilestones.filter((item) =>
+      preview.subMilestoneUpdates.some((update) => update.id === item.id),
+    )) {
+      await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+    }
+    state.pccAutofillPreview = null;
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+  });
 }
 
 export async function savePccProject(state: PccDashboardState): Promise<void> {
@@ -866,13 +1234,82 @@ export async function setPccMilestoneStopHere(
   });
 }
 
+function itemWithStatusMetadata<T extends PccMilestone | PccSubMilestone>(
+  item: T,
+  status: PccStatus,
+  note?: string,
+): T {
+  return {
+    ...item,
+    status,
+    ...(status === "skipped" ? { percentComplete: 0 } : {}),
+    ...(status === "not_started" || status === "reopened" ? { percentComplete: 0 } : {}),
+    metadata: {
+      ...metadataObject(item.metadata),
+      ...(status === "skipped"
+        ? {
+            pccSkipNote: note?.trim() || "Skipped in Project Command Center.",
+            pccSkippedAt: new Date().toISOString(),
+          }
+        : {}),
+      ...(status === "not_started" || status === "reopened"
+        ? { pccSkipNote: "", pccReopenedAt: new Date().toISOString() }
+        : {}),
+    },
+  };
+}
+
 export async function setPccMilestoneStatus(
   state: PccDashboardState,
   milestone: PccMilestone,
   status: PccStatus,
+  note?: string,
 ): Promise<void> {
-  state.pccMilestoneForm = { ...milestoneFormFromMilestone(milestone), status };
-  await savePccMilestone(state);
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
+    const milestoneUpdate = itemWithStatusMetadata(milestone, normalizedStatus, note);
+    await state.client.request("pcc.milestones.upsert", { milestone: milestoneUpdate });
+    if (
+      state.pccProjectDetail &&
+      (normalizedStatus === "skipped" || normalizedStatus === "not_started")
+    ) {
+      const childStatus: PccStatus = normalizedStatus === "skipped" ? "skipped" : "not_started";
+      const childUpdates = (state.pccProjectDetail.subMilestones ?? []).filter(
+        (subMilestone) =>
+          subMilestone.milestoneId === milestone.id &&
+          !["complete", "complete_with_maintenance", "archived"].includes(subMilestone.status),
+      );
+      for (const subMilestone of childUpdates) {
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: itemWithStatusMetadata(subMilestone, childStatus, note),
+        });
+      }
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, milestone.projectId);
+  });
+}
+
+export async function setPccSubMilestoneStatus(
+  state: PccDashboardState,
+  subMilestone: PccSubMilestone,
+  status: PccStatus,
+  note?: string,
+): Promise<void> {
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
+    await state.client.request("pcc.subMilestones.upsert", {
+      subMilestone: itemWithStatusMetadata(subMilestone, normalizedStatus, note),
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, subMilestone.projectId);
+  });
 }
 
 export async function setPccPermissionStatus(

@@ -44,6 +44,7 @@ import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
 import type {
+  PccAutofillPreview,
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
@@ -214,6 +215,7 @@ export type AppViewState = {
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
+  pccAutofillPreview?: PccAutofillPreview | null;
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
