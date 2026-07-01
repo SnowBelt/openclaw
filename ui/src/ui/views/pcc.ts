@@ -181,6 +181,7 @@ const MILESTONE_STATUSES: PccStatus[] = [
   "persistence_proof_complete",
   "complete",
   "reopened",
+  "archived",
 ];
 
 function clampPercent(value: number): number {
@@ -214,6 +215,45 @@ function promptSkipNote(message: string): string | null {
     return null;
   }
   return globalThis.prompt?.("Why are we skipping this? Optional note:", "") ?? "";
+}
+
+function promptRemoveNote(message: string): string | null {
+  if (!confirmAction(message)) {
+    return null;
+  }
+  return (
+    globalThis.prompt?.("Why are we removing this from the active plan? Optional note:", "") ?? ""
+  );
+}
+
+function togglePccActionMenu(event: Event): void {
+  event.stopPropagation();
+  const trigger = event.currentTarget as HTMLButtonElement;
+  const menu = trigger.closest<HTMLElement>(".pcc-action-menu");
+  if (!menu) {
+    return;
+  }
+  const root = menu.getRootNode() as ParentNode;
+  const nextOpen = !menu.classList.contains("is-open");
+  root.querySelectorAll<HTMLElement>(".pcc-action-menu.is-open").forEach((openMenu) => {
+    if (openMenu !== menu) {
+      openMenu.classList.remove("is-open");
+      openMenu
+        .querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
+        ?.setAttribute("aria-expanded", "false");
+    }
+  });
+  menu.classList.toggle("is-open", nextOpen);
+  trigger.setAttribute("aria-expanded", String(nextOpen));
+}
+
+function closePccActionMenu(event: Event): void {
+  const target = event.currentTarget as HTMLElement;
+  const menu = target.closest<HTMLElement>(".pcc-action-menu");
+  menu?.classList.remove("is-open");
+  menu
+    ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
+    ?.setAttribute("aria-expanded", "false");
 }
 
 function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
@@ -258,6 +298,9 @@ function nextSubMilestoneForMilestone(
 }
 
 function primaryActionForDetail(detail: PccProjectDetail): string {
+  if (!setupEvaluationForDetail(detail).runnable) {
+    return "Fill missing setup with AI";
+  }
   const permission = detail.permissions.find((item) => item.status === "needed");
   if (permission) {
     return "Review Permission";
@@ -1066,8 +1109,6 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   const detail = props.projectDetails?.[project.id];
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
   const next = detail ? nextMilestoneForDetail(detail) : undefined;
-  const goal =
-    detail?.project.goal || project.nextActions[0] || "Open this project to review the goal.";
   const workState = workStateForProject(project, detail);
   const onHold = projectIsOnHold(project);
   return html`
@@ -1078,7 +1119,6 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       <div class="pcc-project-card__topline">
         <div>
           <h3>${project.title}</h3>
-          <p>${goal}</p>
         </div>
         <span class="pcc-status pcc-status--${project.status}"
           >${formatStatus(project.status)}</span
@@ -1536,8 +1576,9 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   const message = projectIsTerminal(detail.project)
     ? "Project is complete or archived; reopen it before starting new work."
     : !setupEvaluation.runnable
-      ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; fix intake, workflow, sub-milestones, owners, and proof before starting.`
+      ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Fill missing setup with AI or Edit manually before starting.`
       : (next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.");
+  const prepareNeedsSetupRepair = !setupEvaluation.runnable && !projectIsTerminal(detail.project);
   return html`
     <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
       <div class="pcc-work-loop__header">
@@ -1579,10 +1620,14 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn btn--subtle"
           type="button"
-          ?disabled=${props.actionBusy || !setupEvaluation.runnable}
-          @click=${props.onPrepareNextWorkItem}
+          ?disabled=${props.actionBusy ||
+          projectIsTerminal(detail.project) ||
+          (prepareNeedsSetupRepair && !props.onPreviewSetupAutofill)}
+          @click=${prepareNeedsSetupRepair
+            ? props.onPreviewSetupAutofill
+            : props.onPrepareNextWorkItem}
         >
-          Prepare next safe task
+          ${prepareNeedsSetupRepair ? "Fill missing setup with AI" : "Prepare next safe task"}
         </button>
       </div>
       <div class="pcc-work-loop__toggles">
@@ -1777,6 +1822,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const settings = getPccWorkLoopSettings(project);
   const worker = current ? itemWorkerLabel(current) : "None";
   const primaryAction = primaryActionForDetail(detail);
+  const needsSetupRepair = !setupEvaluation.runnable;
   const decision = permissionNeeded
     ? `Approval needed: ${formatStatus(permissionNeeded.type)}`
     : setupEvaluation.runnable
@@ -1786,7 +1832,6 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     <div>
       <p class="pcc-kicker">Project Snapshot</p>
       <h3>${project.title}</h3>
-      <p>${project.goal || "No project goal recorded yet."}</p>
     </div>
     <div class="pcc-project-snapshot__progress">
       <strong>${percent}%</strong>
@@ -1806,9 +1851,18 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
       ${renderTruthFact("Needs you", decision)}
     </dl>
+    <section class="pcc-project-brief" data-pcc-project-brief>
+      <span>Project brief</span>
+      <p>${project.goal || "No project goal recorded yet."}</p>
+    </section>
     <div class="pcc-primary-action" data-pcc-primary-action>
       <span>Primary action</span>
-      <button class="btn" type="button" @click=${props.onPrepareNextWorkItem}>
+      <button
+        class="btn"
+        type="button"
+        ?disabled=${props.actionBusy || (needsSetupRepair && !props.onPreviewSetupAutofill)}
+        @click=${needsSetupRepair ? props.onPreviewSetupAutofill : props.onPrepareNextWorkItem}
+      >
         ${primaryAction}
       </button>
       <em>${decision}</em>
@@ -2169,13 +2223,37 @@ function renderChatSyncCard(props: PccDashboardProps) {
 
 function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardProps) {
   const skipNote = () => promptSkipNote("Skip this milestone and its unfinished sub-steps?");
-  return html`<details class="pcc-action-menu" data-pcc-action-menu>
-    <summary aria-label=${`Actions for ${milestone.title}`}>•••</summary>
-    <div class="pcc-action-menu__items">
-      <button type="button" @click=${() => props.onOpenMilestoneEditor(milestone)}>Edit</button>
+  const removeNote = () =>
+    promptRemoveNote("Remove this milestone and its unfinished sub-steps from the active plan?");
+  const menuId = `pcc-action-menu-${milestone.id}`;
+  return html`<div class="pcc-action-menu" data-pcc-action-menu>
+    <button
+      class="pcc-action-menu__trigger"
+      data-pcc-action-menu-trigger
+      type="button"
+      aria-expanded="false"
+      aria-controls=${menuId}
+      aria-label=${`Actions for ${milestone.title}`}
+      @click=${togglePccActionMenu}
+    >
+      •••
+    </button>
+    <div class="pcc-action-menu__items" id=${menuId} role="menu">
       <button
         type="button"
-        @click=${() => {
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onOpenMilestoneEditor(milestone);
+        }}
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
           const note = skipNote();
           if (note !== null) {
             props.onSetMilestoneStatus(milestone, "skipped", note);
@@ -2184,16 +2262,50 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       >
         Skip
       </button>
-      <button type="button" @click=${() => props.onSetMilestoneStatus(milestone, "deferred")}>
+      <button
+        type="button"
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onSetMilestoneStatus(milestone, "deferred");
+        }}
+      >
         Defer
       </button>
-      <button type="button" @click=${() => props.onSetMilestoneStatus(milestone, "on_hold")}>
+      <button
+        type="button"
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onSetMilestoneStatus(milestone, "on_hold");
+        }}
+      >
         Hold
       </button>
-      <button type="button" @click=${() => props.onSetMilestoneStatus(milestone, "not_started")}>
+      <button
+        type="button"
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          const note = removeNote();
+          if (note !== null) {
+            props.onSetMilestoneStatus(milestone, "archived", note);
+          }
+        }}
+      >
+        Remove from plan
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onSetMilestoneStatus(milestone, "not_started");
+        }}
+      >
         Reopen
       </button>
-      <label>
+      <label role="menuitemcheckbox">
         <input
           type="checkbox"
           .checked=${milestoneStopsHere(milestone)}
@@ -2204,20 +2316,31 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
         Stop here
       </label>
     </div>
-  </details>`;
+  </div>`;
 }
 
 function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccDashboardProps) {
   const skipNote = () => promptSkipNote("Skip this sub-step?");
-  return html`<details
-    class="pcc-action-menu pcc-action-menu--sub"
-    data-pcc-submilestone-action-menu
-  >
-    <summary aria-label=${`Actions for ${subMilestone.title}`}>•••</summary>
-    <div class="pcc-action-menu__items">
+  const removeNote = () => promptRemoveNote("Remove this sub-step from the active plan?");
+  const menuId = `pcc-submilestone-action-menu-${subMilestone.id}`;
+  return html`<div class="pcc-action-menu pcc-action-menu--sub" data-pcc-submilestone-action-menu>
+    <button
+      class="pcc-action-menu__trigger"
+      data-pcc-action-menu-trigger
+      type="button"
+      aria-expanded="false"
+      aria-controls=${menuId}
+      aria-label=${`Actions for ${subMilestone.title}`}
+      @click=${togglePccActionMenu}
+    >
+      •••
+    </button>
+    <div class="pcc-action-menu__items" id=${menuId} role="menu">
       <button
         type="button"
-        @click=${() => {
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
           const note = skipNote();
           if (note !== null) {
             props.onSetSubMilestoneStatus?.(subMilestone, "skipped", note);
@@ -2228,24 +2351,49 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
       </button>
       <button
         type="button"
-        @click=${() => props.onSetSubMilestoneStatus?.(subMilestone, "deferred")}
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onSetSubMilestoneStatus?.(subMilestone, "deferred");
+        }}
       >
         Defer
       </button>
       <button
         type="button"
-        @click=${() => props.onSetSubMilestoneStatus?.(subMilestone, "on_hold")}
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onSetSubMilestoneStatus?.(subMilestone, "on_hold");
+        }}
       >
         Hold
       </button>
       <button
         type="button"
-        @click=${() => props.onSetSubMilestoneStatus?.(subMilestone, "not_started")}
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          const note = removeNote();
+          if (note !== null) {
+            props.onSetSubMilestoneStatus?.(subMilestone, "archived", note);
+          }
+        }}
+      >
+        Remove from plan
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        @click=${(event: Event) => {
+          closePccActionMenu(event);
+          props.onSetSubMilestoneStatus?.(subMilestone, "not_started");
+        }}
       >
         Reopen
       </button>
     </div>
-  </details>`;
+  </div>`;
 }
 
 function renderSubMilestoneList(

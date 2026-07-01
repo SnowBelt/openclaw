@@ -2833,8 +2833,8 @@ export function renderApp(state: AppViewState) {
                 onCancelEditor: () => cancelPccEditor(state),
                 onSetProjectStatus: (project, status) =>
                   void setPccProjectStatus(state, project, status),
-                onSetMilestoneStatus: (milestone, status) =>
-                  void setPccMilestoneStatus(state, milestone, status),
+                onSetMilestoneStatus: (milestone, status, note) =>
+                  void setPccMilestoneStatus(state, milestone, status, note),
                 onSetMilestoneStopHere: (milestone, stopHere) =>
                   void setPccMilestoneStopHere(state, milestone, stopHere),
                 onSetSubMilestoneStatus: (subMilestone, status, note) =>

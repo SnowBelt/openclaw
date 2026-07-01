@@ -698,6 +698,70 @@ describe("PCC CRUD controller", () => {
     );
   });
 
+  it("removes milestones from the active plan by archiving unfinished child steps", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: { ...milestone, status: "archived" }, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone: { ...subMilestone, status: "archived" } };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [{ ...milestone, status: "archived" }],
+          subMilestones: [{ ...subMilestone, status: "archived" }],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, milestone, "archived", "Out of scope.");
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.milestones.upsert",
+      expect.objectContaining({
+        milestone: expect.objectContaining({
+          status: "archived",
+          percentComplete: 0,
+          metadata: expect.objectContaining({ pccRemoveNote: "Out of scope." }),
+        }),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "pcc.subMilestones.upsert",
+      expect.objectContaining({
+        subMilestone: expect.objectContaining({
+          status: "archived",
+          percentComplete: 0,
+          metadata: expect.objectContaining({ pccRemoveNote: "Out of scope." }),
+        }),
+      }),
+    );
+  });
+
   it("creates a project and refreshes detail", async () => {
     const request = vi.fn(async (method: string, params: unknown) => {
       if (method === "pcc.projects.upsert") {

@@ -224,6 +224,7 @@ async function main(): Promise<void> {
       "AI Autofill Preview",
       "Apply Autofill",
       "Approve this setup after applying",
+      "Remove from plan",
       "Milestone Journey",
       "Simple",
     ]) {
@@ -245,16 +246,27 @@ async function main(): Promise<void> {
       .find((button) => button.textContent?.includes("Apply Autofill"))
       ?.click();
 
-    const actionMenus = [...root.querySelectorAll<HTMLDetailsElement>("[data-pcc-action-menu]")];
-    actionMenus[0]!.open = true;
+    const actionMenus = [...root.querySelectorAll<HTMLElement>("[data-pcc-action-menu]")];
+    actionMenus[0]!.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
+    if (!actionMenus[0]!.classList.contains("is-open")) {
+      throw new Error("milestone action menu did not open on click");
+    }
     [...actionMenus[0]!.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Skip"))
       ?.click();
-    const subMenu = root.querySelector<HTMLDetailsElement>("[data-pcc-submilestone-action-menu]")!;
-    subMenu.open = true;
+    actionMenus[0]!.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
+    [...actionMenus[0]!.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Remove from plan"))
+      ?.click();
+    const subMenu = root.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]")!;
+    subMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
+    if (!subMenu.classList.contains("is-open")) {
+      throw new Error("sub-milestone action menu did not open on click");
+    }
     [...subMenu.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Skip"))
       ?.click();
+    subMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
     [...subMenu.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Reopen"))
       ?.click();
@@ -275,6 +287,13 @@ async function main(): Promise<void> {
       )
     ) {
       throw new Error("milestone skip did not include note");
+    }
+    if (
+      !calls.some(
+        (call) => call.action === "milestone-status" && call.status === "archived" && call.note,
+      )
+    ) {
+      throw new Error("milestone remove-from-plan did not archive with note");
     }
     if (
       !calls.some((call) => call.action === "sub-status" && call.status === "skipped" && call.note)

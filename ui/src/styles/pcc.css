@@ -1631,6 +1631,31 @@
   margin: 0;
 }
 
+.pcc-project-brief {
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 18px;
+  display: grid;
+  gap: 6px;
+  max-width: 76ch;
+  padding: 14px 16px;
+}
+
+.pcc-project-brief span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.pcc-project-brief p {
+  color: var(--text);
+  font-size: 0.98rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
 .pcc-milestone-journey ol,
 .pcc-plan-preview__milestones {
   display: grid;
@@ -1913,7 +1938,7 @@
   z-index: 2;
 }
 
-.pcc-action-menu > summary {
+.pcc-action-menu__trigger {
   list-style: none;
   cursor: pointer;
   display: inline-flex;
@@ -1929,12 +1954,8 @@
   letter-spacing: 0.04em;
 }
 
-.pcc-action-menu > summary::-webkit-details-marker {
-  display: none;
-}
-
-.pcc-action-menu[open] > summary,
-.pcc-action-menu > summary:hover {
+.pcc-action-menu.is-open .pcc-action-menu__trigger,
+.pcc-action-menu__trigger:hover {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 32%, var(--hairline));
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
@@ -1946,12 +1967,16 @@
   top: 40px;
   min-width: 180px;
   padding: 8px;
-  display: grid;
+  display: none;
   gap: 4px;
   border-radius: 16px;
   border: 1px solid var(--hairline);
   background: var(--surface);
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+}
+
+.pcc-action-menu.is-open .pcc-action-menu__items {
+  display: grid;
 }
 
 .pcc-action-menu__items button,

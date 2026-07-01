@@ -319,6 +319,135 @@ describe("renderPccDashboard", () => {
     expect(onOpenProjectEditor).toHaveBeenCalledWith(project);
   });
 
+  it("keeps long project goals out of cards and readable in selected detail", () => {
+    const longGoal =
+      "Create a reliable SNES Studio workflow that helps OpenClaw plan, build, verify, and package SNES-style game projects while preserving ROM safety.";
+    const projectWithLongGoal = { ...project, goal: longGoal, title: "SNES Game Creator" };
+    const summaryWithLongGoal = { ...summary, title: "SNES Game Creator" };
+    const container = renderView(
+      createProps({
+        projects: [summaryWithLongGoal],
+        projectDetails: {
+          "project-1": {
+            project: projectWithLongGoal,
+            milestones: [milestone],
+            subMilestones: [],
+            permissions: [],
+            evidence: [],
+            receipts: [],
+            summary: summaryWithLongGoal,
+          },
+        },
+        projectDetail: {
+          project: projectWithLongGoal,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: summaryWithLongGoal,
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-project-card]")?.textContent).not.toContain(longGoal);
+    expect(container.querySelector("[data-pcc-project-brief]")?.textContent).toContain(longGoal);
+  });
+
+  it("routes setup-missing primary action to AI autofill instead of dead-end prepare", () => {
+    const onPreviewSetupAutofill = vi.fn();
+    const onPrepareNextWorkItem = vi.fn();
+    const incompleteProject = {
+      ...project,
+      goal: "",
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccIntake: { approved: false, answers: { ...intakeAnswers, goal: "" } },
+        pccQualityGate: { status: "missing" },
+        pccSetupScore: { score: 40, runnable: false },
+        pccCompliance: { badge: "Missing", status: "missing" },
+      },
+    };
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: incompleteProject,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+        onPreviewSetupAutofill,
+        onPrepareNextWorkItem,
+      }),
+    );
+
+    const primaryButton = container.querySelector<HTMLButtonElement>(
+      "[data-pcc-primary-action] button",
+    );
+    expect(primaryButton?.textContent).toContain("Fill missing setup with AI");
+    primaryButton?.click();
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("opens milestone and sub-milestone action menus and supports reversible removal", () => {
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    vi.stubGlobal(
+      "prompt",
+      vi.fn(() => "Not part of this active plan."),
+    );
+    const onSetMilestoneStatus = vi.fn();
+    const onSetSubMilestoneStatus = vi.fn();
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+        onSetMilestoneStatus,
+        onSetSubMilestoneStatus,
+      }),
+    );
+
+    const milestoneMenu = container.querySelector<HTMLElement>("[data-pcc-action-menu]");
+    const milestoneTrigger = milestoneMenu?.querySelector<HTMLButtonElement>(
+      "[data-pcc-action-menu-trigger]",
+    );
+    milestoneTrigger?.click();
+    expect(milestoneMenu?.classList.contains("is-open")).toBe(true);
+    [...(milestoneMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+      .find((button) => button.textContent?.includes("Remove from plan"))
+      ?.click();
+    expect(onSetMilestoneStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "milestone-1" }),
+      "archived",
+      "Not part of this active plan.",
+    );
+
+    const subMenu = container.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]");
+    const subTrigger = subMenu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]");
+    subTrigger?.click();
+    expect(subMenu?.classList.contains("is-open")).toBe(true);
+    [...(subMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+      .find((button) => button.textContent?.includes("Reopen"))
+      ?.click();
+    expect(onSetSubMilestoneStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "submilestone-1" }),
+      "not_started",
+    );
+  });
+
   it("renders Stop Here controls and calls the milestone stop callback", () => {
     const onSetMilestoneStopHere = vi.fn();
     const container = renderView(

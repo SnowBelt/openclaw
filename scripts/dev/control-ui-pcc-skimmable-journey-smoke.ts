@@ -58,7 +58,17 @@ async function main(): Promise<void> {
       ],
       metadata: {
         pccWorkflowTemplateId: "software-product",
-        pccIntake: { approved: true, answers: { goal: "Make PCC Apple-simple." } },
+        pccIntake: {
+          approved: true,
+          answers: {
+            goal: "Make PCC Apple-simple.",
+            firstDeliverable: "A skimmable workflow view.",
+            doneProof: "Local, remote, runtime, and browser proof pass.",
+            constraints: "No Codex, remote proof, runtime mutation, or reboot without permission.",
+            owner: "local_openclaw_agent",
+            blockers: "None.",
+          },
+        },
         pccQualityGate: { status: "passing" },
         pccSetupScore: { score: 100, runnable: true },
         pccCompliance: { badge: "Passing", status: "passing" },
@@ -143,6 +153,21 @@ async function main(): Promise<void> {
         implementationPlan:
           "Show the ordered milestone sequence with details collapsed by default.",
         acceptanceCriteria: ["Journey exists", "Sub-milestone count is visible"],
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "sub-3",
+        projectId: project.id,
+        milestoneId: "milestone-2",
+        title: "Preview generated plan before saving",
+        status: "not_started" as const,
+        order: 1,
+        owner: "local_project_manager",
+        percentComplete: 0,
+        implementationPlan:
+          "Show the generated milestone sequence, first sub-steps, permissions, and proof gates.",
+        acceptanceCriteria: ["Plan preview is visible before ledger write"],
         createdAt: now,
         updatedAt: now,
       },

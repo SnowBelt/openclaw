@@ -1242,7 +1242,7 @@ function itemWithStatusMetadata<T extends PccMilestone | PccSubMilestone>(
   return {
     ...item,
     status,
-    ...(status === "skipped" ? { percentComplete: 0 } : {}),
+    ...(status === "skipped" || status === "archived" ? { percentComplete: 0 } : {}),
     ...(status === "not_started" || status === "reopened" ? { percentComplete: 0 } : {}),
     metadata: {
       ...metadataObject(item.metadata),
@@ -1252,8 +1252,18 @@ function itemWithStatusMetadata<T extends PccMilestone | PccSubMilestone>(
             pccSkippedAt: new Date().toISOString(),
           }
         : {}),
+      ...(status === "archived"
+        ? {
+            pccRemoveNote: note?.trim() || "Removed from the active PCC plan.",
+            pccRemovedAt: new Date().toISOString(),
+          }
+        : {}),
       ...(status === "not_started" || status === "reopened"
-        ? { pccSkipNote: "", pccReopenedAt: new Date().toISOString() }
+        ? {
+            pccSkipNote: "",
+            pccRemoveNote: "",
+            pccReopenedAt: new Date().toISOString(),
+          }
         : {}),
     },
   };
@@ -1274,13 +1284,16 @@ export async function setPccMilestoneStatus(
     await state.client.request("pcc.milestones.upsert", { milestone: milestoneUpdate });
     if (
       state.pccProjectDetail &&
-      (normalizedStatus === "skipped" || normalizedStatus === "not_started")
+      (normalizedStatus === "skipped" ||
+        normalizedStatus === "archived" ||
+        normalizedStatus === "not_started")
     ) {
-      const childStatus: PccStatus = normalizedStatus === "skipped" ? "skipped" : "not_started";
+      const childStatus: PccStatus =
+        normalizedStatus === "not_started" ? "not_started" : normalizedStatus;
       const childUpdates = (state.pccProjectDetail.subMilestones ?? []).filter(
         (subMilestone) =>
           subMilestone.milestoneId === milestone.id &&
-          !["complete", "complete_with_maintenance", "archived"].includes(subMilestone.status),
+          !["complete", "complete_with_maintenance"].includes(subMilestone.status),
       );
       for (const subMilestone of childUpdates) {
         await state.client.request("pcc.subMilestones.upsert", {
@@ -1442,7 +1455,7 @@ export async function updatePccWorkLoopSettings(
       subMilestones: detail.subMilestones ?? [],
     });
     if (patch.enabled === true && !setupEvaluation.runnable) {
-      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; complete intake and workflow requirements before starting work.`;
+      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Fill missing setup with AI or Edit manually before starting work.`;
       return;
     }
     const updatedProject = withPccWorkLoopSettings(detail.project, patch, new Date().toISOString());
@@ -1469,7 +1482,7 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       subMilestones: detail.subMilestones ?? [],
     });
     if (!setupEvaluation.runnable) {
-      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; complete intake and workflow requirements before preparing work.`;
+      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Fill missing setup with AI or Edit manually before preparing work.`;
       return;
     }
     const next = getPccWorkLoopNext({
