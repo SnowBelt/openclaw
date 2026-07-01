@@ -226,34 +226,10 @@ function promptRemoveNote(message: string): string | null {
   );
 }
 
-function togglePccActionMenu(event: Event): void {
-  event.stopPropagation();
-  const trigger = event.currentTarget as HTMLButtonElement;
-  const menu = trigger.closest<HTMLElement>(".pcc-action-menu");
-  if (!menu) {
-    return;
-  }
-  const root = menu.getRootNode() as ParentNode;
-  const nextOpen = !menu.classList.contains("is-open");
-  root.querySelectorAll<HTMLElement>(".pcc-action-menu.is-open").forEach((openMenu) => {
-    if (openMenu !== menu) {
-      openMenu.classList.remove("is-open");
-      openMenu
-        .querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
-        ?.setAttribute("aria-expanded", "false");
-    }
-  });
-  menu.classList.toggle("is-open", nextOpen);
-  trigger.setAttribute("aria-expanded", String(nextOpen));
-}
-
 function closePccActionMenu(event: Event): void {
   const target = event.currentTarget as HTMLElement;
-  const menu = target.closest<HTMLElement>(".pcc-action-menu");
-  menu?.classList.remove("is-open");
-  menu
-    ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
-    ?.setAttribute("aria-expanded", "false");
+  const menu = target.closest<HTMLDetailsElement>(".pcc-action-menu");
+  menu?.removeAttribute("open");
 }
 
 function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
@@ -2226,18 +2202,15 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
   const removeNote = () =>
     promptRemoveNote("Remove this milestone and its unfinished sub-steps from the active plan?");
   const menuId = `pcc-action-menu-${milestone.id}`;
-  return html`<div class="pcc-action-menu" data-pcc-action-menu>
-    <button
+  return html`<details class="pcc-action-menu" data-pcc-action-menu>
+    <summary
       class="pcc-action-menu__trigger"
       data-pcc-action-menu-trigger
-      type="button"
-      aria-expanded="false"
       aria-controls=${menuId}
       aria-label=${`Actions for ${milestone.title}`}
-      @click=${togglePccActionMenu}
     >
       •••
-    </button>
+    </summary>
     <div class="pcc-action-menu__items" id=${menuId} role="menu">
       <button
         type="button"
@@ -2316,25 +2289,25 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
         Stop here
       </label>
     </div>
-  </div>`;
+  </details>`;
 }
 
 function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccDashboardProps) {
   const skipNote = () => promptSkipNote("Skip this sub-step?");
   const removeNote = () => promptRemoveNote("Remove this sub-step from the active plan?");
   const menuId = `pcc-submilestone-action-menu-${subMilestone.id}`;
-  return html`<div class="pcc-action-menu pcc-action-menu--sub" data-pcc-submilestone-action-menu>
-    <button
+  return html`<details
+    class="pcc-action-menu pcc-action-menu--sub"
+    data-pcc-submilestone-action-menu
+  >
+    <summary
       class="pcc-action-menu__trigger"
       data-pcc-action-menu-trigger
-      type="button"
-      aria-expanded="false"
       aria-controls=${menuId}
       aria-label=${`Actions for ${subMilestone.title}`}
-      @click=${togglePccActionMenu}
     >
       •••
-    </button>
+    </summary>
     <div class="pcc-action-menu__items" id=${menuId} role="menu">
       <button
         type="button"
@@ -2393,7 +2366,7 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
         Reopen
       </button>
     </div>
-  </div>`;
+  </details>`;
 }
 
 function renderSubMilestoneList(

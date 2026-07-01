@@ -246,27 +246,27 @@ async function main(): Promise<void> {
       .find((button) => button.textContent?.includes("Apply Autofill"))
       ?.click();
 
-    const actionMenus = [...root.querySelectorAll<HTMLElement>("[data-pcc-action-menu]")];
-    actionMenus[0]!.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
-    if (!actionMenus[0]!.classList.contains("is-open")) {
+    const actionMenus = [...root.querySelectorAll<HTMLDetailsElement>("[data-pcc-action-menu]")];
+    actionMenus[0]!.querySelector<HTMLElement>("[data-pcc-action-menu-trigger]")!.click();
+    if (!actionMenus[0]!.open) {
       throw new Error("milestone action menu did not open on click");
     }
     [...actionMenus[0]!.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Skip"))
       ?.click();
-    actionMenus[0]!.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
+    actionMenus[0]!.querySelector<HTMLElement>("[data-pcc-action-menu-trigger]")!.click();
     [...actionMenus[0]!.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Remove from plan"))
       ?.click();
-    const subMenu = root.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]")!;
-    subMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
-    if (!subMenu.classList.contains("is-open")) {
+    const subMenu = root.querySelector<HTMLDetailsElement>("[data-pcc-submilestone-action-menu]")!;
+    subMenu.querySelector<HTMLElement>("[data-pcc-action-menu-trigger]")!.click();
+    if (!subMenu.open) {
       throw new Error("sub-milestone action menu did not open on click");
     }
     [...subMenu.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Skip"))
       ?.click();
-    subMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
+    subMenu.querySelector<HTMLElement>("[data-pcc-action-menu-trigger]")!.click();
     [...subMenu.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Reopen"))
       ?.click();
