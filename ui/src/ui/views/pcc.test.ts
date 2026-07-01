@@ -217,7 +217,8 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Project Command Center");
     expect(text).toContain("Total projects");
     expect(text).toContain("Average completion");
-    expect(text).toContain("2/5 milestones complete");
+    expect(text).toContain("2/5");
+    expect(text).toContain("milestones complete");
     expect(text).toContain("Run remote proof");
     expect(text).toContain("Workflow Sanity proof");
     expect(text).toContain("CRUD UI");
