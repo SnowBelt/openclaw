@@ -1868,7 +1868,7 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF_COMMANDS'
           commands:
-          - pnpm test src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
+          - pnpm test src/pcc/impact-milestones.test.ts src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
           - pnpm tsgo:test:ui
           - node --import tsx scripts/dev/control-ui-pcc-project-manager-intake-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-workflow-intake-smoke.ts
@@ -1880,7 +1880,7 @@ jobs:
           EOF_COMMANDS
 
       - name: Run targeted PCC Phase 2 tests
-        run: pnpm test src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
+        run: pnpm test src/pcc/impact-milestones.test.ts src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
 
       - name: Run UI typecheck proof
         run: pnpm tsgo:test:ui
@@ -1944,8 +1944,9 @@ jobs:
           - pnpm test src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
           - pnpm tsgo:test:ui
           - node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-impact-milestones-smoke.ts
           - pnpm check:workflows
-          - pnpm check:changed -- src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- src/pcc/impact-milestones.ts src/pcc/impact-milestones.test.ts src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-impact-milestones-smoke.ts .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1957,6 +1958,9 @@ jobs:
 
       - name: Run PCC project-agnostic smoke
         run: node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
+
+      - name: Run PCC impact milestones smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-impact-milestones-smoke.ts
 
       - name: Run workflow syntax check
         run: pnpm check:workflows

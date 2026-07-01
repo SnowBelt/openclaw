@@ -1,6 +1,16 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
 import {
+  buildPccAttentionInbox,
+  buildPccDependencyInsights,
+  buildPccMilestoneReadiness,
+  buildPccProofFreshness,
+  buildPccRecoveryPlaybooks,
+  buildPccTimeline,
+  previewPccProjectImport,
+  type PccImpactDetailInput,
+} from "../../../../src/pcc/impact-milestones.js";
+import {
   evaluatePccProjectSetup,
   PCC_REQUIRED_INTAKE_QUESTIONS,
   pccMissingRequiredIntakeAnswers,
@@ -319,6 +329,153 @@ function renderProductionTruthCard(props: PccDashboardProps) {
       </div>
     </details>
   </section>`;
+}
+
+function impactInputFromDetail(detail: PccProjectDetail): PccImpactDetailInput {
+  return {
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions ?? [],
+    evidence: detail.evidence ?? [],
+    receipts: detail.receipts ?? [],
+    summary: detail.summary,
+  };
+}
+
+function availableImpactDetails(props: PccDashboardProps): PccImpactDetailInput[] {
+  const details = Object.values(props.projectDetails ?? {});
+  if (
+    props.projectDetail &&
+    !details.some((detail) => detail.project.id === props.projectDetail?.project.id)
+  ) {
+    details.push(props.projectDetail);
+  }
+  return details.map(impactInputFromDetail);
+}
+
+function renderImpactAttentionInbox(props: PccDashboardProps) {
+  const inbox = buildPccAttentionInbox(availableImpactDetails(props));
+  return html`<section
+    class="pcc-impact pcc-impact--inbox"
+    data-pcc-impact-inbox
+    aria-label="Attention inbox"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Attention inbox</p>
+        <h4>What needs my attention?</h4>
+        <p>
+          Shows blockers, missing permissions, proof gaps, and setup quality issues across active
+          projects.
+        </p>
+      </div>
+      <span>${inbox.length} item${inbox.length === 1 ? "" : "s"}</span>
+    </div>
+    ${inbox.length
+      ? html`<ol class="pcc-impact-list">
+          ${inbox.map(
+            (item) => html`<li class="pcc-impact-item pcc-impact-item--${item.severity}">
+              <strong>${item.title}</strong>
+              <span>${item.projectTitle}</span>
+              <p>${item.reason}</p>
+            </li>`,
+          )}
+        </ol>`
+      : html`<p class="pcc-empty pcc-empty--small">No urgent PCC attention items.</p>`}
+  </section>`;
+}
+
+function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardProps) {
+  const input = impactInputFromDetail(detail);
+  const readiness = buildPccMilestoneReadiness(input).slice(0, 5);
+  const freshness = buildPccProofFreshness(input).slice(0, 5);
+  const recovery = buildPccRecoveryPlaybooks(input);
+  const dependency = buildPccDependencyInsights(input);
+  const timeline = buildPccTimeline(input);
+  const importText = props.chatSyncText.trim()
+    ? props.chatSyncText
+    : `# ${detail.project.title}\nGoal: ${detail.project.goal ?? "Project goal"}\n${detail.milestones
+        .slice(0, 6)
+        .map((milestone, index) => `${index + 1}. ${milestone.title}`)
+        .join("\n")}\nProof: receipt-backed verification required.`;
+  const preview = previewPccProjectImport(importText);
+  return html`<details class="pcc-detail-drawer" data-pcc-impact-detail open>
+    <summary>Impact controls</summary>
+    <section class="pcc-impact-grid" aria-label="PCC impact controls">
+      <article class="pcc-impact-card" data-pcc-low-reasoning-readiness>
+        <p class="pcc-kicker">Low-reasoning readiness</p>
+        <h4>Can a small model execute this?</h4>
+        ${readiness.length
+          ? html`<ul>
+              ${readiness.map(
+                (item) => html`<li>
+                  <strong>${item.title}</strong>
+                  <span>${item.score}/100 · ${item.badge}</span>
+                  ${item.gaps.length ? html`<small>${item.gaps.join("; ")}</small>` : nothing}
+                </li>`,
+              )}
+            </ul>`
+          : html`<p>No milestones yet.</p>`}
+      </article>
+      <article class="pcc-impact-card" data-pcc-proof-freshness>
+        <p class="pcc-kicker">Proof freshness</p>
+        <h4>Are receipts current?</h4>
+        <ul>
+          ${freshness.map(
+            (item) => html`<li>
+              <strong>${item.title}</strong>
+              <span>${formatStatus(item.status)} · ${item.reason}</span>
+            </li>`,
+          )}
+        </ul>
+      </article>
+      <article class="pcc-impact-card" data-pcc-critical-path>
+        <p class="pcc-kicker">Critical path</p>
+        <h4>${dependency.criticalPathTitle}</h4>
+        <p>${dependency.readyCount} ready · ${dependency.blockedCount} blocked by dependencies</p>
+        ${dependency.notes.length
+          ? html`<ul>
+              ${dependency.notes.map((note) => html`<li>${note}</li>`)}
+            </ul>`
+          : nothing}
+      </article>
+      <article class="pcc-impact-card" data-pcc-recovery-playbooks>
+        <p class="pcc-kicker">Recovery playbooks</p>
+        <h4>How to recover if stuck</h4>
+        <ul>
+          ${recovery.map(
+            (item) => html`<li>
+              <strong>${item.title}</strong>
+              <span>${item.nextAction}</span>
+            </li>`,
+          )}
+        </ul>
+      </article>
+      <article class="pcc-impact-card" data-pcc-project-history>
+        <p class="pcc-kicker">Project history</p>
+        <h4>Receipts drawer</h4>
+        ${timeline.length
+          ? html`<ul>
+              ${timeline.map(
+                (item) => html`<li><strong>${item.title}</strong><span>${item.summary}</span></li>`,
+              )}
+            </ul>`
+          : html`<p>No receipts or evidence yet.</p>`}
+      </article>
+      <article class="pcc-impact-card" data-pcc-any-source-intake>
+        <p class="pcc-kicker">Any-source intake</p>
+        <h4>Import project plan preview</h4>
+        <p>${preview.title}</p>
+        <span
+          >${preview.proposedMilestones.length}
+          milestone${preview.proposedMilestones.length === 1 ? "" : "s"} found ·
+          ${preview.missingFields.length} gap${preview.missingFields.length === 1 ? "" : "s"}</span
+        >
+        <small>Preview only. PCC never rewrites a project silently.</small>
+      </article>
+    </section>
+  </details>`;
 }
 
 function renderStatusOptions(statuses: PccStatus[]) {
@@ -1348,8 +1505,9 @@ function renderProjectDetail(props: PccDashboardProps) {
               Archive
             </button>`}
       </div>
-      ${renderWorkflowQualityCard(detail)} ${renderNextSafeActionCard(props)}
-      ${renderCurrentTruthAndReadyQueue(props)} ${renderWorkLoopCard(props)}
+      ${renderWorkflowQualityCard(detail)} ${renderImpactDetailCards(detail, props)}
+      ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+      ${renderWorkLoopCard(props)}
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">
             Switch to Detailed or Agent when you need plans, receipts, permissions, or handoff
@@ -2023,8 +2181,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${renderProductionTruthCard(props)} ${renderTodayView(props)}
-      ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
+      ${renderProductionTruthCard(props)} ${renderImpactAttentionInbox(props)}
+      ${renderTodayView(props)} ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
 
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}

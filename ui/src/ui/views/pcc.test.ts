@@ -228,6 +228,13 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Remote Proof");
     expect(text).toContain("Today");
     expect(text).toContain("Needs you");
+    expect(text).toContain("Attention inbox");
+    expect(text).toContain("Low-reasoning readiness");
+    expect(text).toContain("Proof freshness");
+    expect(text).toContain("Recovery playbooks");
+    expect(text).toContain("Critical path");
+    expect(text).toContain("Project history");
+    expect(text).toContain("Any-source intake");
     expect(text).toContain("Next Safe Action");
     expect(container.querySelector("[data-pcc-today]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-next-safe-action]")).not.toBeNull();
