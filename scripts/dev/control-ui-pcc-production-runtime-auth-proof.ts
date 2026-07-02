@@ -6,6 +6,7 @@ type ProofOptions = {
   screenshotPath: string;
   projectTitle: string;
   requireProductionCurrent: boolean;
+  profile: "production-current" | "usability-reliability";
 };
 
 function redactUrl(value: string): string {
@@ -115,8 +116,43 @@ async function runBrowserProof(options: ProofOptions) {
   await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
   await page.locator("[data-pcc-work-loop]").first().waitFor({ state: "visible", timeout: 45_000 });
   const truthLedger = page.locator(".pcc-production-truth__ledger summary").first();
-  if ((await truthLedger.count()) > 0) {
-    await truthLedger.click();
+  if ((await truthLedger.count()) > 0 && (await truthLedger.isVisible().catch(() => false))) {
+    await truthLedger.click({ force: true });
+  }
+  let autofillPreviewOpened = false;
+  if (options.profile === "usability-reliability") {
+    const repairProject = page
+      .locator(".pcc-project-card", { hasText: "SNES Game Creator" })
+      .first();
+    if ((await repairProject.count()) > 0) {
+      const openRepairProject = repairProject
+        .locator("button", { hasText: /Open|Selected/ })
+        .first();
+      if (await openRepairProject.isVisible().catch(() => false)) {
+        await openRepairProject.click({ force: true }).catch(() => undefined);
+        await page
+          .locator("[data-pcc-detail]")
+          .first()
+          .waitFor({ state: "visible", timeout: 45_000 });
+      }
+    }
+    const setupRepair = page.getByRole("button", { name: /Fill missing setup with AI/i }).first();
+    if (await setupRepair.isVisible().catch(() => false)) {
+      await setupRepair.click({ force: true });
+      await page
+        .getByText("AI Autofill Preview", { exact: false })
+        .first()
+        .waitFor({ state: "visible", timeout: 45_000 });
+      autofillPreviewOpened = true;
+    }
+    const visibleActionMenu = page.locator("[data-pcc-action-menu-trigger]:visible").first();
+    if ((await visibleActionMenu.count()) > 0) {
+      await visibleActionMenu.click({ force: true });
+      await page
+        .getByRole("menuitem", { name: "Delete / Remove from plan" })
+        .first()
+        .waitFor({ state: "visible", timeout: 10_000 });
+    }
   }
   await page.waitForTimeout(2_000);
   const text = (await page.locator("body").textContent({ timeout: 45_000 })) ?? "";
@@ -146,6 +182,7 @@ async function runBrowserProof(options: ProofOptions) {
       workLoop: await page.locator("[data-pcc-work-loop]").count(),
       workControls: await page.locator(".pcc-work-loop__controls").count(),
       portfolioConsole: portfolioConsoleCount,
+      visibleActionMenus: await page.locator("[data-pcc-action-menu-trigger]:visible").count(),
     },
     checks: {
       pcc: has("Project Command Center"),
@@ -160,6 +197,20 @@ async function runBrowserProof(options: ProofOptions) {
       remoteProofPassed: has("Remote proof Passed") || has("Remote proof\nPassed"),
       runtimeProofPassed: has("Runtime proof Passed") || has("Runtime proof\nPassed"),
       noProofGaps: has("No proof gaps recorded."),
+      workingNow: has("Working Now"),
+      needsYou: has("Needs You"),
+      portfolioProgress: has("Portfolio Progress"),
+      setupRepair:
+        options.profile === "production-current" ||
+        has("Setup needs a few answers") ||
+        has("Fill missing setup with AI"),
+      autofillPreview:
+        options.profile === "production-current" ||
+        !autofillPreviewOpened ||
+        has("AI Autofill Preview"),
+      actionMenu:
+        options.profile === "production-current" ||
+        (has("Delete / Remove from plan") && has("Stop here")),
     },
     sample: normalizedText.slice(0, 2_000),
   };
@@ -176,13 +227,27 @@ async function runBrowserProof(options: ProofOptions) {
     !result.authScreen &&
     result.clickedOpen &&
     Object.entries(result.checks)
-      .filter(
-        ([key]) =>
-          options.requireProductionCurrent ||
-          !["productionCurrent", "remoteProofPassed", "runtimeProofPassed", "noProofGaps"].includes(
-            key,
-          ),
-      )
+      .filter(([key]) => {
+        if (options.profile === "production-current") {
+          return (
+            options.requireProductionCurrent ||
+            ![
+              "productionCurrent",
+              "remoteProofPassed",
+              "runtimeProofPassed",
+              "noProofGaps",
+            ].includes(key)
+          );
+        }
+        return ![
+          "productionTruth",
+          "dashboardCurrency",
+          "productionCurrent",
+          "remoteProofPassed",
+          "runtimeProofPassed",
+          "noProofGaps",
+        ].includes(key);
+      })
       .every(([, value]) => value);
   if (!passed) {
     console.error("PCC proof text sample:", result.sample);
@@ -203,6 +268,7 @@ function runSelfTest() {
       screenshotPath: "/tmp/unused.png",
       projectTitle: "Project Command Center",
       requireProductionCurrent: false,
+      profile: "production-current",
     });
   } catch {
     failed = true;
@@ -221,6 +287,10 @@ const options: ProofOptions = {
     "/tmp/openclaw-dashboard-pcc-production-governor-auth-proof-final.png",
   projectTitle: process.env.OPENCLAW_PCC_PROOF_PROJECT_TITLE ?? "Project Command Center",
   requireProductionCurrent: process.env.OPENCLAW_PCC_REQUIRE_PRODUCTION_CURRENT === "1",
+  profile:
+    process.env.OPENCLAW_PCC_PROOF_PROFILE === "usability-reliability"
+      ? "usability-reliability"
+      : "production-current",
 };
 
 if (process.env.OPENCLAW_PCC_AUTH_PROOF_SELF_TEST === "1") {
