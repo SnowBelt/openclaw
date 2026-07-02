@@ -685,6 +685,15 @@ function setActionError(state: PccDashboardState, err: unknown): void {
   state.pccActionError = formatConnectError(err) || "Project Command Center action failed";
 }
 
+function setupRepairMessage(evaluation: ReturnType<typeof evaluatePccProjectSetup>): string {
+  const firstIssue =
+    evaluation.missing[0] ??
+    evaluation.violations[0] ??
+    evaluation.needsReview[0] ??
+    "project setup needs review";
+  return `Setup needs repair: ${firstIssue}. Review the AI autofill preview or edit manually before starting work.`;
+}
+
 async function withPccAction(state: PccDashboardState, action: () => Promise<void>): Promise<void> {
   if (!state.client || !state.connected) {
     state.pccActionError = "Project Command Center unavailable";
@@ -1455,7 +1464,8 @@ export async function updatePccWorkLoopSettings(
       subMilestones: detail.subMilestones ?? [],
     });
     if (patch.enabled === true && !setupEvaluation.runnable) {
-      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Fill missing setup with AI or Edit manually before starting work.`;
+      state.pccAutofillPreview = buildPccSetupAutofillPreview(detail, false);
+      state.pccActionError = setupRepairMessage(setupEvaluation);
       return;
     }
     const updatedProject = withPccWorkLoopSettings(detail.project, patch, new Date().toISOString());
@@ -1482,7 +1492,8 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       subMilestones: detail.subMilestones ?? [],
     });
     if (!setupEvaluation.runnable) {
-      state.pccActionError = `Project setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Fill missing setup with AI or Edit manually before preparing work.`;
+      state.pccAutofillPreview = buildPccSetupAutofillPreview(detail, false);
+      state.pccActionError = setupRepairMessage(setupEvaluation);
       return;
     }
     const next = getPccWorkLoopNext({

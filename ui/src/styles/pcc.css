@@ -1907,6 +1907,37 @@
   gap: 10px;
 }
 
+.pcc-setup-repair__issues {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pcc-setup-repair__issues li {
+  align-items: start;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 88px minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.pcc-setup-repair__issues strong {
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-setup-repair__issues span {
+  color: var(--text);
+  line-height: 1.4;
+}
+
 .pcc-autofill-preview__changes {
   display: grid;
   gap: 8px;

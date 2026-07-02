@@ -388,6 +388,9 @@ describe("renderPccDashboard", () => {
       "[data-pcc-primary-action] button",
     );
     expect(primaryButton?.textContent).toContain("Fill missing setup with AI");
+    expect(container.querySelector("[data-pcc-setup-repair-issues]")?.textContent).toContain(
+      "Required intake answer missing",
+    );
     primaryButton?.click();
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
     expect(onPrepareNextWorkItem).not.toHaveBeenCalled();

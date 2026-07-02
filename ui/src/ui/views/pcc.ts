@@ -248,12 +248,19 @@ function togglePccActionMenu(event: Event): void {
 }
 
 function closePccActionMenu(event: Event): void {
+  event.preventDefault();
+  event.stopPropagation();
   const target = event.currentTarget as HTMLElement;
   const menu = target.closest<HTMLElement>(".pcc-action-menu");
   menu?.classList.remove("is-open");
   menu
     ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
     ?.setAttribute("aria-expanded", "false");
+}
+
+function runPccMenuAction(event: Event, action: () => void): void {
+  closePccActionMenu(event);
+  action();
 }
 
 function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
@@ -509,10 +516,8 @@ function renderProductionTruthDrawer(props: PccDashboardProps) {
     evidence: detail?.evidence ?? [],
     receipts: detail?.receipts ?? [],
   });
-  return html`<details
-    class="pcc-detail-drawer pcc-top-proof-drawer"
-    ?open=${truth.status !== "current"}
-  >
+  const openByDefault = pccViewMode(props) !== "simple" && truth.status !== "current";
+  return html`<details class="pcc-detail-drawer pcc-top-proof-drawer" ?open=${openByDefault}>
     <summary>Production truth</summary>
     ${renderProductionTruthCard(props)}
   </details>`;
@@ -781,15 +786,28 @@ function renderSetupRepairCard(
   if (evaluation.runnable) {
     return nothing;
   }
+  const issues = [
+    ...evaluation.missing.map((issue) => ({ label: "Missing", issue })),
+    ...evaluation.violations.map((issue) => ({ label: "Violated", issue })),
+    ...evaluation.needsReview.map((issue) => ({ label: "Review", issue })),
+  ].slice(0, 8);
   return html`<section class="pcc-setup-repair" data-pcc-setup-repair>
     <div>
       <p class="pcc-kicker">Setup repair</p>
       <h4>Setup needs a few answers</h4>
       <p>
-        PCC can draft the missing goal, intake answers, workflow, owners, proof requirements, and
-        acceptance criteria from what is already here.
+        PCC cannot start work until these setup gaps are fixed. Let AI draft the missing goal,
+        intake answers, workflow, owners, proof requirements, and acceptance criteria from what is
+        already here.
       </p>
     </div>
+    <ul class="pcc-setup-repair__issues" data-pcc-setup-repair-issues>
+      ${issues.length
+        ? issues.map(
+            ({ label, issue }) => html`<li><strong>${label}</strong><span>${issue}</span></li>`,
+          )
+        : html`<li><strong>Review</strong><span>Setup needs review before work starts.</span></li>`}
+    </ul>
     <div class="pcc-setup-repair__actions">
       <button
         class="btn"
@@ -1823,6 +1841,17 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const worker = current ? itemWorkerLabel(current) : "None";
   const primaryAction = primaryActionForDetail(detail);
   const needsSetupRepair = !setupEvaluation.runnable;
+  const handlePrimaryAction = () => {
+    if (needsSetupRepair) {
+      props.onPreviewSetupAutofill?.();
+      return;
+    }
+    if (projectIsOnHold(project)) {
+      props.onSetProjectStatus(project, "active");
+      return;
+    }
+    props.onPrepareNextWorkItem();
+  };
   const decision = permissionNeeded
     ? `Approval needed: ${formatStatus(permissionNeeded.type)}`
     : setupEvaluation.runnable
@@ -1861,7 +1890,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         class="btn"
         type="button"
         ?disabled=${props.actionBusy || (needsSetupRepair && !props.onPreviewSetupAutofill)}
-        @click=${needsSetupRepair ? props.onPreviewSetupAutofill : props.onPrepareNextWorkItem}
+        @click=${handlePrimaryAction}
       >
         ${primaryAction}
       </button>
@@ -2242,9 +2271,9 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onOpenMilestoneEditor(milestone);
+          runPccMenuAction(event, () => props.onOpenMilestoneEditor(milestone));
         }}
       >
         Edit
@@ -2252,12 +2281,14 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          const note = skipNote();
-          if (note !== null) {
-            props.onSetMilestoneStatus(milestone, "skipped", note);
-          }
+          runPccMenuAction(event, () => {
+            const note = skipNote();
+            if (note !== null) {
+              props.onSetMilestoneStatus(milestone, "skipped", note);
+            }
+          });
         }}
       >
         Skip
@@ -2265,9 +2296,9 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onSetMilestoneStatus(milestone, "deferred");
+          runPccMenuAction(event, () => props.onSetMilestoneStatus(milestone, "deferred"));
         }}
       >
         Defer
@@ -2275,9 +2306,9 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onSetMilestoneStatus(milestone, "on_hold");
+          runPccMenuAction(event, () => props.onSetMilestoneStatus(milestone, "on_hold"));
         }}
       >
         Hold
@@ -2285,22 +2316,24 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          const note = removeNote();
-          if (note !== null) {
-            props.onSetMilestoneStatus(milestone, "archived", note);
-          }
+          runPccMenuAction(event, () => {
+            const note = removeNote();
+            if (note !== null) {
+              props.onSetMilestoneStatus(milestone, "archived", note);
+            }
+          });
         }}
       >
-        Remove from plan
+        Delete / Remove from plan
       </button>
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onSetMilestoneStatus(milestone, "not_started");
+          runPccMenuAction(event, () => props.onSetMilestoneStatus(milestone, "not_started"));
         }}
       >
         Reopen
@@ -2339,12 +2372,14 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          const note = skipNote();
-          if (note !== null) {
-            props.onSetSubMilestoneStatus?.(subMilestone, "skipped", note);
-          }
+          runPccMenuAction(event, () => {
+            const note = skipNote();
+            if (note !== null) {
+              props.onSetSubMilestoneStatus?.(subMilestone, "skipped", note);
+            }
+          });
         }}
       >
         Skip
@@ -2352,9 +2387,9 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onSetSubMilestoneStatus?.(subMilestone, "deferred");
+          runPccMenuAction(event, () => props.onSetSubMilestoneStatus?.(subMilestone, "deferred"));
         }}
       >
         Defer
@@ -2362,9 +2397,9 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onSetSubMilestoneStatus?.(subMilestone, "on_hold");
+          runPccMenuAction(event, () => props.onSetSubMilestoneStatus?.(subMilestone, "on_hold"));
         }}
       >
         Hold
@@ -2372,22 +2407,26 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          const note = removeNote();
-          if (note !== null) {
-            props.onSetSubMilestoneStatus?.(subMilestone, "archived", note);
-          }
+          runPccMenuAction(event, () => {
+            const note = removeNote();
+            if (note !== null) {
+              props.onSetSubMilestoneStatus?.(subMilestone, "archived", note);
+            }
+          });
         }}
       >
-        Remove from plan
+        Delete / Remove from plan
       </button>
       <button
         type="button"
         role="menuitem"
+        ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          closePccActionMenu(event);
-          props.onSetSubMilestoneStatus?.(subMilestone, "not_started");
+          runPccMenuAction(event, () =>
+            props.onSetSubMilestoneStatus?.(subMilestone, "not_started"),
+          );
         }}
       >
         Reopen
@@ -3106,14 +3145,6 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      ${renderTodayView(props)}
-      <details class="pcc-detail-drawer pcc-top-proof-drawer">
-        <summary>Needs You details</summary>
-        ${renderImpactAttentionInbox(props)}
-      </details>
-      ${renderProductionTruthDrawer(props)}
-      ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
-
       <section class="pcc-metrics" aria-label="Project Command Center summary">
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
         ${renderMetric("Active", portfolio?.active ?? 0)}
@@ -3124,6 +3155,13 @@ export function renderPccDashboard(props: PccDashboardProps) {
           `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
         )}
       </section>
+      ${renderTodayView(props)}
+      <details class="pcc-detail-drawer pcc-top-proof-drawer">
+        <summary>Needs You details</summary>
+        ${renderImpactAttentionInbox(props)}
+      </details>
+      ${renderProductionTruthDrawer(props)}
+      ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
 
       <div class="pcc-layout">
         <section class="pcc-projects" aria-label="Projects">

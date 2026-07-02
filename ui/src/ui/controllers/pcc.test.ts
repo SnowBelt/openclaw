@@ -385,6 +385,43 @@ describe("loadPccDashboard", () => {
     expect(request).not.toHaveBeenCalledWith(expect.stringContaining("codex"), expect.anything());
   });
 
+  it("opens setup autofill preview instead of dead-ending when setup is missing", async () => {
+    const request = vi.fn();
+    const incompleteProject = {
+      ...project,
+      goal: "",
+      metadata: {
+        ...project.metadata,
+        pccIntake: {
+          approved: false,
+          answers: { ...intakeAnswers, goal: "" },
+        },
+        pccQualityGate: { status: "missing" },
+        pccSetupScore: { score: 40, runnable: false },
+        pccCompliance: { badge: "Missing", status: "missing" },
+      },
+    };
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project: incompleteProject,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccAutofillPreview?.goal).toBeTruthy();
+    expect(state.pccActionError).toContain("Setup needs repair:");
+    expect(state.pccActionError).toContain("Review the AI autofill preview");
+  });
+
   it("prepares the next safe milestone and marks it in progress", async () => {
     const request = vi
       .fn()
