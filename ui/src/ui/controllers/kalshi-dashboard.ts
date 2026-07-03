@@ -658,6 +658,8 @@ export type KalshiDashboardSnapshot = {
       exact_opt_in_source_count?: number;
       verified_exact_opt_in_source_count?: number;
       source_count?: number;
+      leader_lane_count?: number;
+      active_leader_lane_count?: number;
       duplicate_signal_count?: number;
       live_order_allowed?: boolean;
       auto_live_promotion_allowed?: boolean;
@@ -735,6 +737,7 @@ export type KalshiDashboardSnapshot = {
     };
     signal_quality?: {
       required_fields?: string[];
+      public_strategy_required_fields?: string[];
       skip_reasons?: Record<string, number>;
       recent_decisions?: Array<{
         signal_id?: string | null;
@@ -751,6 +754,59 @@ export type KalshiDashboardSnapshot = {
       }>;
       duplicate_signal_count?: number;
       live_order_allowed?: boolean;
+      auto_live_promotion_allowed?: boolean;
+    };
+    source_health?: {
+      foster_relay_verifier?: {
+        validator_id?: string;
+        status?: string;
+        verified?: boolean;
+        schema_passed?: boolean;
+        missing_fields?: string[];
+        invalid_fields?: string[];
+        unsafe_true_flags?: string[];
+        warnings?: string[];
+        latency_ms?: number | null;
+        next_action?: string;
+        live_order_allowed?: boolean;
+        live_trading_enabled?: boolean;
+        write_capable_kalshi_endpoint_called?: boolean;
+      };
+      caleb_public_signal_verifier?: {
+        validator_id?: string;
+        status?: string;
+        verified?: boolean;
+        schema_passed?: boolean;
+        missing_fields?: string[];
+        invalid_fields?: string[];
+        unsafe_true_flags?: string[];
+        risk_flags?: string[];
+        warnings?: string[];
+        next_action?: string;
+        live_order_allowed?: boolean;
+        live_trading_enabled?: boolean;
+        write_capable_kalshi_endpoint_called?: boolean;
+      };
+      signal_log_validator?: {
+        validator_id?: string;
+        status?: string;
+        verified?: boolean;
+        schema_passed?: boolean;
+        path?: string;
+        record_count?: number;
+        accepted_record_count?: number;
+        rejected_record_count?: number;
+        duplicate_signal_ids?: string[];
+        rejection_reasons?: Record<string, number>;
+        unsafe_true_flags?: string[];
+        warnings?: string[];
+        live_order_allowed?: boolean;
+        live_trading_enabled?: boolean;
+        write_capable_kalshi_endpoint_called?: boolean;
+      };
+      live_order_allowed?: boolean;
+      live_trading_enabled?: boolean;
+      write_capable_kalshi_endpoint_called?: boolean;
       auto_live_promotion_allowed?: boolean;
     };
     leader_lanes?: Array<{

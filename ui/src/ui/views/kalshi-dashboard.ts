@@ -2541,6 +2541,37 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
   const copyShadowCandidateSources =
     copyShadowDiscovery.candidate_sources_reviewed?.slice(0, 8) ?? [];
   const copyShadowSignalQuality = copyShadow.signal_quality ?? {};
+  const copyShadowSourceHealth = copyShadow.source_health ?? {};
+  type CopyShadowSourceHealthReceipt = {
+    accepted_record_count?: number;
+    invalid_fields?: string[];
+    missing_fields?: string[];
+    next_action?: string;
+    record_count?: number;
+    rejected_record_count?: number;
+    rejection_reasons?: Record<string, number>;
+    risk_flags?: string[];
+    schema_passed?: boolean;
+    status?: string;
+    unsafe_true_flags?: string[];
+  };
+  const copyShadowSourceHealthRows: Array<{
+    label: string;
+    receipt?: CopyShadowSourceHealthReceipt;
+  }> = [
+    {
+      label: "Foster Relay",
+      receipt: copyShadowSourceHealth.foster_relay_verifier,
+    },
+    {
+      label: "Caleb Public Signal",
+      receipt: copyShadowSourceHealth.caleb_public_signal_verifier,
+    },
+    {
+      label: "Signal Log",
+      receipt: copyShadowSourceHealth.signal_log_validator,
+    },
+  ];
   const copyShadowSkipReasons = Object.entries(copyShadowSignalQuality.skip_reasons ?? {})
     .toSorted(([, left], [, right]) => Number(right) - Number(left))
     .slice(0, 5);
@@ -7017,6 +7048,48 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
                         : html`<tr>
                             <td colspan="7">No copy-leader paper lanes have been configured.</td>
                           </tr>`}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h4>Source Health</h4>
+                <div class="kalshi-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Verifier</th>
+                        <th>Status</th>
+                        <th>Schema</th>
+                        <th>Records</th>
+                        <th>Issues</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${copyShadowSourceHealthRows.map(({ label, receipt }) => {
+                        const issueText = receipt?.unsafe_true_flags?.length
+                          ? `unsafe: ${receipt.unsafe_true_flags.join(", ")}`
+                          : receipt?.risk_flags?.length
+                            ? `risk: ${receipt.risk_flags.join(", ")}`
+                            : receipt?.missing_fields?.length
+                              ? `missing: ${receipt.missing_fields.join(", ")}`
+                              : receipt?.invalid_fields?.length
+                                ? `invalid: ${receipt.invalid_fields.join(", ")}`
+                                : receipt?.rejected_record_count
+                                  ? fmt(receipt.rejection_reasons ?? "rejected")
+                                  : (receipt?.next_action ?? "none");
+                        return html`<tr>
+                          <td>${label}</td>
+                          <td>${fmt(receipt?.status ?? "not run")}</td>
+                          <td>${receipt?.schema_passed ? "passed" : "blocked"}</td>
+                          <td>
+                            ${receipt?.record_count == null
+                              ? "n/a"
+                              : `${fmt(receipt.accepted_record_count ?? 0)} accepted / ${fmt(receipt.record_count)} read`}
+                          </td>
+                          <td>${fmt(issueText)}</td>
+                        </tr>`;
+                      })}
                     </tbody>
                   </table>
                 </div>

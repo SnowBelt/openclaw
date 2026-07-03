@@ -2559,6 +2559,49 @@ describe("Kalshi dashboard view", () => {
           duplicate_signal_count: 1,
           live_order_allowed: false,
         },
+        source_health: {
+          foster_relay_verifier: {
+            validator_id: "foster_relay_fixture",
+            status: "fixture_schema_passed_real_source_blocked",
+            verified: false,
+            schema_passed: true,
+            missing_fields: [],
+            invalid_fields: [],
+            unsafe_true_flags: [],
+            latency_ms: 400,
+            next_action:
+              "Provide a real Foster relay URL/token before this can verify an exact source.",
+            live_order_allowed: false,
+          },
+          caleb_public_signal_verifier: {
+            validator_id: "caleb_public_signal_fixture",
+            status: "no_fixture_sample",
+            verified: false,
+            schema_passed: false,
+            missing_fields: [],
+            invalid_fields: [],
+            risk_flags: [],
+            unsafe_true_flags: [],
+            next_action:
+              "Provide source-backed Caleb public signal URLs before collecting real paper signals.",
+            live_order_allowed: false,
+          },
+          signal_log_validator: {
+            validator_id: "copy_shadow_signal_log",
+            status: "passed",
+            verified: false,
+            schema_passed: true,
+            path: "work/scripts/kalshi/logs/copy_shadow_signals.jsonl",
+            record_count: 12,
+            accepted_record_count: 9,
+            rejected_record_count: 0,
+            duplicate_signal_ids: [],
+            rejection_reasons: {},
+            unsafe_true_flags: [],
+            live_order_allowed: false,
+          },
+          live_order_allowed: false,
+        },
         leader_lanes: [
           {
             lane_id: "foster_exact_fill_shadow",
@@ -2652,6 +2695,12 @@ describe("Kalshi dashboard view", () => {
 
     expect(container.textContent).toContain("Copy Shadow");
     expect(container.textContent).toContain("Copy-Leader Paper Lanes");
+    expect(container.textContent).toContain("Source Health");
+    expect(container.textContent).toContain("Foster Relay");
+    expect(container.textContent).toContain("Caleb Public Signal");
+    expect(container.textContent).toContain("Signal Log");
+    expect(container.textContent).toContain("fixture_schema_passed_real_source_blocked");
+    expect(container.textContent).toContain("9 accepted / 12 read");
     expect(container.textContent).toContain("Foster McCoy");
     expect(container.textContent).toContain("Caleb Davies");
     expect(container.textContent).toContain("not exact-copy");
