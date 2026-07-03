@@ -4440,6 +4440,53 @@ function renderMilestoneEditor(props: PccDashboardProps) {
   `;
 }
 
+function renderPccActionFeedback(props: PccDashboardProps) {
+  if (props.actionError) {
+    return html`<div class="pcc-callout pcc-callout--danger" role="alert" data-pcc-action-error>
+      <div>
+        <strong>Action failed — nothing was saved</strong>
+        <span>${props.actionError}</span>
+        <small>Refresh to reload the latest PCC state, then retry the action.</small>
+      </div>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        ?disabled=${props.loading}
+        @click=${props.onRefresh}
+      >
+        Retry refresh
+      </button>
+    </div>`;
+  }
+  if (props.actionNotice) {
+    return html`<div class="pcc-callout pcc-callout--success" data-pcc-action-notice role="status">
+      <div>
+        <strong>Saved and refreshed</strong>
+        <span>${props.actionNotice.text}</span>
+        <small>PCC reloaded the project after this change.</small>
+      </div>
+      <div class="pcc-callout__actions">
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.loading}
+          @click=${props.onRefresh}
+        >
+          Refresh now
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          @click=${() => props.onDismissActionNotice?.()}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>`;
+  }
+  return nothing;
+}
+
 export function renderPccDashboard(props: PccDashboardProps) {
   const allProjects = props.projects;
   const filteredByTab = allProjects.filter((project) =>
@@ -4486,23 +4533,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Project Command Center unavailable</strong><span>${props.error}</span>
           </div>`
         : nothing}
-      ${props.actionError
-        ? html`<div class="pcc-callout" role="alert">
-            <strong>Action failed</strong><span>${props.actionError}</span>
-          </div>`
-        : nothing}
-      ${props.actionNotice
-        ? html`<div class="pcc-callout pcc-callout--success" data-pcc-action-notice role="status">
-            <strong>Saved</strong><span>${props.actionNotice.text}</span>
-            <button
-              class="btn btn--subtle"
-              type="button"
-              @click=${() => props.onDismissActionNotice?.()}
-            >
-              Dismiss
-            </button>
-          </div>`
-        : nothing}
+      ${renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)} ${renderTodayView(props)} ${renderNeedsAttentionNow(props)}
       ${renderProjectFilterTabs(props, allProjects)}

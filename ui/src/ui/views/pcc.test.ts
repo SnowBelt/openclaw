@@ -328,6 +328,42 @@ describe("renderPccDashboard", () => {
     expect(card?.textContent).toContain("Blocker: Browser proof missing");
   });
 
+  it("renders action feedback with recovery actions instead of silent save ambiguity", () => {
+    const onRefresh = vi.fn();
+    const onDismissActionNotice = vi.fn();
+    const failed = renderView(
+      createProps({
+        actionError: "ledger write failed",
+        onRefresh,
+      }),
+    );
+
+    const error = failed.querySelector("[data-pcc-action-error]");
+    expect(error?.textContent).toContain("Action failed — nothing was saved");
+    expect(error?.textContent).toContain("ledger write failed");
+    const retry = [...failed.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Retry refresh"),
+    );
+    retry?.click();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    const saved = renderView(
+      createProps({
+        actionNotice: { kind: "success", text: "Saved new milestone order." },
+        onRefresh,
+        onDismissActionNotice,
+      }),
+    );
+    const notice = saved.querySelector("[data-pcc-action-notice]");
+    expect(notice?.textContent).toContain("Saved and refreshed");
+    expect(notice?.textContent).toContain("PCC reloaded the project after this change.");
+    expect(notice?.textContent).not.toContain("Undo");
+    [...saved.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Dismiss"))
+      ?.click();
+    expect(onDismissActionNotice).toHaveBeenCalledTimes(1);
+  });
+
   it("sorts recent activity so the newest project update is easiest to skim", () => {
     const older = {
       ...summary,

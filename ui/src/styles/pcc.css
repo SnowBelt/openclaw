@@ -69,8 +69,26 @@
   padding: 16px 18px;
 }
 
-.pcc-callout span {
+.pcc-callout span,
+.pcc-callout small {
   color: var(--muted);
+}
+
+.pcc-callout small {
+  display: block;
+  margin-top: 4px;
+}
+
+.pcc-callout__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pcc-callout--danger {
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
 }
 
 .pcc-metrics {

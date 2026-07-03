@@ -797,7 +797,7 @@ async function withPccAction(
   try {
     await action();
     if (successMessage && !state.pccActionError) {
-      setActionNotice(state, successMessage, "Undo");
+      setActionNotice(state, successMessage);
     }
   } catch (err) {
     setActionError(state, err);
