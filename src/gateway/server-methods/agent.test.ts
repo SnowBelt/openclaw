@@ -193,9 +193,7 @@ vi.mock("../../channels/plugins/index.js", async () => {
     ...actual,
     getChannelPlugin: (...args: Parameters<typeof actual.getChannelPlugin>) => {
       const override = mocks.getChannelPlugin.getMockImplementation();
-      return override
-        ? (override(...args) as ReturnType<typeof actual.getChannelPlugin>)
-        : actual.getChannelPlugin(...args);
+      return override ? override(...args) : actual.getChannelPlugin(...args);
     },
   };
 });
@@ -209,9 +207,7 @@ vi.mock("../../channels/message/runtime.js", async () => {
     sendDurableMessageBatch: (...args: Parameters<typeof actual.sendDurableMessageBatch>) => {
       const override = mocks.sendDurableMessageBatch.getMockImplementation();
       return override
-        ? (mocks.sendDurableMessageBatch(...args) as ReturnType<
-            typeof actual.sendDurableMessageBatch
-          >)
+        ? mocks.sendDurableMessageBatch(...args)
         : actual.sendDurableMessageBatch(...args);
     },
   };
