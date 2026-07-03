@@ -733,8 +733,10 @@ describe("renderPccDashboard", () => {
     );
     milestoneTrigger?.click();
     expect(milestoneMenu?.classList.contains("is-open")).toBe(true);
+    expect(milestoneMenu?.textContent).toContain("Remove from active plan");
+    expect(milestoneMenu?.textContent).not.toContain("Delete");
     [...(milestoneMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
-      .find((button) => button.textContent?.includes("Remove from plan"))
+      .find((button) => button.textContent?.includes("Remove from active plan"))
       ?.click();
     expect(onSetMilestoneStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: "milestone-1" }),
@@ -746,6 +748,8 @@ describe("renderPccDashboard", () => {
     const subTrigger = subMenu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]");
     subTrigger?.click();
     expect(subMenu?.classList.contains("is-open")).toBe(true);
+    expect(subMenu?.textContent).toContain("Remove from active plan");
+    expect(subMenu?.textContent).not.toContain("Delete");
     [...(subMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
       .find((button) => button.textContent?.includes("Reopen"))
       ?.click();

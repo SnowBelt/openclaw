@@ -325,7 +325,7 @@ async function main(): Promise<void> {
       "[data-pcc-action-menu] .pcc-action-menu__trigger",
     ) as HTMLElement;
     menuButton.click();
-    requireText(root.textContent ?? "", "Remove from plan");
+    requireText(root.textContent ?? "", "Remove from active plan");
 
     const cancelButton = requireSelector(
       root,

@@ -3072,7 +3072,7 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
           });
         }}
       >
-        Delete / Remove from plan
+        Remove from active plan
       </button>
       <button
         type="button"
@@ -3163,7 +3163,7 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
           });
         }}
       >
-        Delete / Remove from plan
+        Remove from active plan
       </button>
       <button
         type="button"
