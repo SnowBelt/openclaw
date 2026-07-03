@@ -253,20 +253,18 @@ function confirmAction(message: string): boolean {
   return globalThis.confirm?.(message) ?? true;
 }
 
-function promptSkipNote(message: string): string | null {
+function confirmedSkipNote(message: string): string | null {
   if (!confirmAction(message)) {
     return null;
   }
-  return globalThis.prompt?.("Why are we skipping this? Optional note:", "") ?? "";
+  return "Skipped from the PCC action menu.";
 }
 
-function promptRemoveNote(message: string): string | null {
+function confirmedRemoveNote(message: string): string | null {
   if (!confirmAction(message)) {
     return null;
   }
-  return (
-    globalThis.prompt?.("Why are we removing this from the active plan? Optional note:", "") ?? ""
-  );
+  return "Removed from the active PCC plan from the action menu.";
 }
 
 function togglePccActionMenu(event: Event): void {
@@ -2997,9 +2995,9 @@ function renderChatSyncCard(props: PccDashboardProps) {
 }
 
 function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardProps) {
-  const skipNote = () => promptSkipNote("Skip this milestone and its unfinished sub-steps?");
+  const skipNote = () => confirmedSkipNote("Skip this milestone and its unfinished sub-steps?");
   const removeNote = () =>
-    promptRemoveNote("Remove this milestone and its unfinished sub-steps from the active plan?");
+    confirmedRemoveNote("Remove this milestone and its unfinished sub-steps from the active plan?");
   const menuId = `pcc-action-menu-${milestone.id}`;
   return html`<div class="pcc-action-menu" data-pcc-action-menu>
     <button
@@ -3099,8 +3097,8 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
 }
 
 function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccDashboardProps) {
-  const skipNote = () => promptSkipNote("Skip this sub-step?");
-  const removeNote = () => promptRemoveNote("Remove this sub-step from the active plan?");
+  const skipNote = () => confirmedSkipNote("Skip this sub-step?");
+  const removeNote = () => confirmedRemoveNote("Remove this sub-step from the active plan?");
   const menuId = `pcc-submilestone-action-menu-${subMilestone.id}`;
   return html`<div class="pcc-action-menu pcc-action-menu--sub" data-pcc-submilestone-action-menu>
     <button
@@ -3331,7 +3329,7 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
           class="btn btn--subtle"
           type="button"
           @click=${() => {
-            const note = promptSkipNote("Skip this milestone and its unfinished sub-steps?");
+            const note = confirmedSkipNote("Skip this milestone and its unfinished sub-steps?");
             if (note !== null) {
               props.onSetMilestoneStatus(milestone, "skipped", note);
             }

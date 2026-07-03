@@ -705,10 +705,8 @@ describe("renderPccDashboard", () => {
       "confirm",
       vi.fn(() => true),
     );
-    vi.stubGlobal(
-      "prompt",
-      vi.fn(() => "Not part of this active plan."),
-    );
+    const promptSpy = vi.fn(() => "Should not be used.");
+    vi.stubGlobal("prompt", promptSpy);
     const onSetMilestoneStatus = vi.fn();
     const onSetSubMilestoneStatus = vi.fn();
     const container = renderView(
@@ -741,8 +739,9 @@ describe("renderPccDashboard", () => {
     expect(onSetMilestoneStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: "milestone-1" }),
       "archived",
-      "Not part of this active plan.",
+      "Removed from the active PCC plan from the action menu.",
     );
+    expect(promptSpy).not.toHaveBeenCalled();
 
     const subMenu = container.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]");
     const subTrigger = subMenu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]");
