@@ -431,7 +431,13 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
     if (!projectMilestoneIds.has(receipt.milestoneId)) {
       gaps.push(`Integrity issue: receipt references missing milestone: ${receipt.id}`);
     }
-    for (const evidenceId of receipt.proofEvidenceIds) {
+    const proofEvidenceIds = Array.isArray(receipt.proofEvidenceIds)
+      ? receipt.proofEvidenceIds
+      : [];
+    if (proofEvidenceIds.length === 0) {
+      gaps.push(`Integrity issue: receipt has no proof evidence ids: ${receipt.id}`);
+    }
+    for (const evidenceId of proofEvidenceIds) {
       const evidence = ledger.evidence.find((item) => item.id === evidenceId);
       if (!evidence || evidence.projectId !== project.id) {
         gaps.push(`Integrity issue: receipt references missing proof evidence: ${evidenceId}`);

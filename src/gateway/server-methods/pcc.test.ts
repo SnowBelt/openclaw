@@ -168,6 +168,14 @@ describe("Project Command Center gateway methods", () => {
       proofLevel: "local",
       completedAt: "2026-01-01T00:00:00.000Z",
     });
+    ledger.receipts.push({
+      id: "legacy-receipt-without-proof",
+      projectId: project.id,
+      milestoneId: "missing-milestone",
+      summary: "Legacy imported receipt omitted proof evidence ids.",
+      proofLevel: "local",
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
     ledger.decisions.push({
       id: "bad-imported-decision",
       projectId: project.id,
@@ -195,6 +203,7 @@ describe("Project Command Center gateway methods", () => {
         "Integrity issue: sub-milestone has missing parent milestone: Orphan imported sub-step",
         "Integrity issue: receipt references missing milestone: bad-imported-receipt",
         "Integrity issue: receipt references non-passing proof evidence: failed-imported-evidence",
+        "Integrity issue: receipt has no proof evidence ids: legacy-receipt-without-proof",
         "Integrity issue: decision references missing sub-milestone: bad-imported-decision",
         "Integrity issue: last-known-good references non-passing evidence: failed-imported-evidence",
       ]),
