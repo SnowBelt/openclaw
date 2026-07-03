@@ -233,6 +233,9 @@ import {
 } from "./nodes.js";
 import {
   PccCompletionReceiptSchema,
+  PccDecisionSchema,
+  PccDecisionsAddParamsSchema,
+  PccDecisionsAddResultSchema,
   PccEvidenceAddParamsSchema,
   PccEvidenceAddResultSchema,
   PccEvidenceKindSchema,
@@ -497,6 +500,9 @@ export const ProtocolSchemas = {
   PccPermissionGrant: PccPermissionGrantSchema,
   PccEvidence: PccEvidenceSchema,
   PccCompletionReceipt: PccCompletionReceiptSchema,
+  PccDecision: PccDecisionSchema,
+  PccDecisionsAddParams: PccDecisionsAddParamsSchema,
+  PccDecisionsAddResult: PccDecisionsAddResultSchema,
   PccLastKnownGood: PccLastKnownGoodSchema,
   PccLastKnownGoodUpsertParams: PccLastKnownGoodUpsertParamsSchema,
   PccLastKnownGoodUpsertResult: PccLastKnownGoodUpsertResultSchema,

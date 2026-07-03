@@ -106,6 +106,7 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "pcc.permissions.upsert", scope: "operator.approvals" },
   { name: "pcc.evidence.add", scope: "operator.write" },
   { name: "pcc.receipts.add", scope: "operator.write" },
+  { name: "pcc.decisions.add", scope: "operator.write" },
   { name: "pcc.lastKnownGood.upsert", scope: "operator.write" },
   { name: "pcc.summary.get", scope: "operator.read" },
   { name: "taskFlows.list", scope: "operator.read" },

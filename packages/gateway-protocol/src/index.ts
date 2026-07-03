@@ -418,6 +418,7 @@ import {
   type PccPermissionGrant,
   type PccEvidence,
   type PccCompletionReceipt,
+  type PccDecision,
   type PccLastKnownGood,
   type PccProjectSummary,
   type PccPortfolioSummary,
@@ -429,11 +430,14 @@ import {
   type PccSubMilestonesUpsertResult,
   type PccPermissionsUpsertResult,
   type PccEvidenceAddResult,
+  type PccDecisionsAddResult,
   type PccReceiptsAddResult,
   type PccLastKnownGoodUpsertResult,
   type PccSummaryGetResult,
   type PccEvidenceAddParams,
   PccEvidenceAddParamsSchema,
+  type PccDecisionsAddParams,
+  PccDecisionsAddParamsSchema,
   type PccLastKnownGoodUpsertParams,
   PccLastKnownGoodUpsertParamsSchema,
   type PccMilestonesUpsertParams,
@@ -802,6 +806,9 @@ export const validatePccPermissionsUpsertParams = lazyCompile<PccPermissionsUpse
 );
 export const validatePccEvidenceAddParams = lazyCompile<PccEvidenceAddParams>(
   PccEvidenceAddParamsSchema,
+);
+export const validatePccDecisionsAddParams = lazyCompile<PccDecisionsAddParams>(
+  PccDecisionsAddParamsSchema,
 );
 export const validatePccReceiptsAddParams = lazyCompile<PccReceiptsAddParams>(
   PccReceiptsAddParamsSchema,
@@ -1534,6 +1541,7 @@ export type {
   PccPermissionGrant,
   PccEvidence,
   PccCompletionReceipt,
+  PccDecision,
   PccLastKnownGood,
   PccProjectSummary,
   PccPortfolioSummary,
@@ -1553,6 +1561,8 @@ export type {
   PccPermissionsUpsertResult,
   PccEvidenceAddParams,
   PccEvidenceAddResult,
+  PccDecisionsAddParams,
+  PccDecisionsAddResult,
   PccReceiptsAddParams,
   PccReceiptsAddResult,
   PccLastKnownGoodUpsertParams,

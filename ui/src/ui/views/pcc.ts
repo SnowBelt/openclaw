@@ -43,6 +43,7 @@ import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
 import type {
   PccCompletionReceipt,
+  PccDecision,
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
@@ -1277,6 +1278,63 @@ function formatReceiptDate(value: string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatDecisionDate(value: string): string {
+  return formatReceiptDate(value);
+}
+
+function renderDecisionCard(decision: PccDecision, evidence: PccEvidence[]) {
+  const linkedEvidence = evidence.filter((item) => decision.evidenceIds?.includes(item.id));
+  return html`<article class="pcc-decision" data-pcc-decision>
+    <div class="pcc-decision__header">
+      <div>
+        <strong>${decision.title}</strong>
+        <span
+          >${formatDecisionDate(decision.decidedAt)}${decision.decidedBy
+            ? ` · ${decision.decidedBy}`
+            : ""}</span
+        >
+      </div>
+    </div>
+    <p>${decision.summary}</p>
+    ${decision.rationale ? html`<p><strong>Why:</strong> ${decision.rationale}</p>` : nothing}
+    ${decision.impact ? html`<p><strong>Impact:</strong> ${decision.impact}</p>` : nothing}
+    ${decision.alternatives?.length
+      ? html`<details class="pcc-decision__details">
+          <summary>Alternatives considered</summary>
+          <ul>
+            ${decision.alternatives.map((item) => html`<li>${item}</li>`)}
+          </ul>
+        </details>`
+      : nothing}
+    ${linkedEvidence.length
+      ? html`<ul class="pcc-decision__evidence">
+          ${linkedEvidence.map(
+            (item) => html`<li>
+              <strong>${formatStatus(item.kind)}</strong>
+              <span>${item.summary || item.command || item.path || item.url || item.status}</span>
+            </li>`,
+          )}
+        </ul>`
+      : nothing}
+  </article>`;
+}
+
+function renderDecisionList(detail: PccProjectDetail) {
+  const decisions = detail.decisions ?? [];
+  return html`<section class="pcc-decisions" data-pcc-decisions>
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Decisions</h4>
+        <p>Important choices that future agents should not rediscover.</p>
+      </div>
+      <span>${decisions.length} recorded</span>
+    </div>
+    ${decisions.length
+      ? decisions.map((decision) => renderDecisionCard(decision, detail.evidence ?? []))
+      : html`<div class="pcc-empty pcc-empty--small">No decisions recorded yet</div>`}
+  </section>`;
 }
 
 function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[]) {
@@ -2550,8 +2608,8 @@ function renderProjectDetail(props: PccDashboardProps) {
       <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
         <summary>Details</summary>
         ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
-        ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
-        ${renderImpactDetailCards(detail, props)}
+        ${renderDecisionList(detail)} ${renderPhaseOverview(detail)}
+        ${renderWorkflowQualityCard(detail)} ${renderImpactDetailCards(detail, props)}
       </details>
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">

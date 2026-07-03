@@ -120,6 +120,20 @@ const receipt = {
   completedAt: "2026-06-26T00:00:00Z",
 };
 
+const decision = {
+  id: "decision-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  title: "Use receipt-gated completion",
+  summary: "Do not mark milestones complete without evidence-backed receipts.",
+  rationale: "This keeps future agents from repeating false completion claims.",
+  alternatives: ["Manual status only"],
+  impact: "Better handoff trust.",
+  decidedBy: "Codex",
+  evidenceIds: ["evidence-1"],
+  decidedAt: "2026-07-03T12:30:00Z",
+};
+
 const lastKnownGood = {
   id: "lkg-1",
   projectId: "project-1",
@@ -177,6 +191,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
       permissions: [permission],
       evidence: [],
       receipts: [],
+      decisions: [],
       lastKnownGood: [],
       summary,
     },
@@ -289,6 +304,36 @@ describe("renderPccDashboard", () => {
     expect(history?.textContent).toContain("Runtime serves the verified PCC build.");
     expect(history?.textContent).toContain("SHA 8bc48f54c4ec");
     expect(history?.querySelector("[data-pcc-last-known-good]")).not.toBeNull();
+  });
+
+  it("renders project decisions in the details layer", () => {
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [],
+          decisions: [decision],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    const decisions = container.querySelector("[data-pcc-decisions]");
+    expect(decisions?.textContent).toContain("Decisions");
+    expect(decisions?.textContent).toContain("Use receipt-gated completion");
+    expect(decisions?.textContent).toContain(
+      "Do not mark milestones complete without evidence-backed receipts.",
+    );
+    expect(decisions?.textContent).toContain("Why:");
+    expect(decisions?.textContent).toContain("Better handoff trust.");
+    expect(decisions?.textContent).toContain("Local PCC proof passed");
+    expect(decisions?.querySelector("[data-pcc-decision]")).not.toBeNull();
   });
 
   it("renders Simple, Detailed, and Agent view controls", () => {

@@ -8,6 +8,7 @@ import {
   errorShape,
   formatValidationErrors,
   type PccCompletionReceipt,
+  type PccDecision,
   type PccEvidence,
   type PccLastKnownGood,
   type PccMilestone,
@@ -17,6 +18,7 @@ import {
   type PccProject,
   type PccProjectSummary,
   type PccStatus,
+  validatePccDecisionsAddParams,
   validatePccEvidenceAddParams,
   validatePccLastKnownGoodUpsertParams,
   validatePccMilestonesUpsertParams,
@@ -39,6 +41,7 @@ type PccLedger = {
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
+  decisions: PccDecision[];
   lastKnownGood: PccLastKnownGood[];
 };
 
@@ -115,6 +118,7 @@ function defaultLedger(): PccLedger {
     permissions: [],
     evidence: [],
     receipts: [],
+    decisions: [],
     lastKnownGood: [],
   };
 }
@@ -142,6 +146,7 @@ function assertLedger(value: unknown): PccLedger {
     permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
     evidence: Array.isArray(raw.evidence) ? raw.evidence : [],
     receipts: Array.isArray(raw.receipts) ? raw.receipts : [],
+    decisions: Array.isArray(raw.decisions) ? raw.decisions : [],
     lastKnownGood: Array.isArray(raw.lastKnownGood) ? raw.lastKnownGood : [],
   };
 }
@@ -344,6 +349,9 @@ function latestProjectActivity(ledger: PccLedger, project: PccProject): string |
   }
   for (const receipt of ledger.receipts.filter((item) => item.projectId === project.id)) {
     addActivityCandidate(candidates, receipt.completedAt, `Receipt added: ${receipt.summary}`);
+  }
+  for (const decision of ledger.decisions.filter((item) => item.projectId === project.id)) {
+    addActivityCandidate(candidates, decision.decidedAt, `Decision: ${decision.title}`);
   }
   for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
     addActivityCandidate(candidates, entry.verifiedAt, `Verified: ${entry.subsystem}`);
@@ -745,6 +753,47 @@ function validateSubMilestoneReferences(
   return null;
 }
 
+function validateDecisionReferences(
+  ledger: PccLedger,
+  input: {
+    projectId: string;
+    milestoneId?: string;
+    subMilestoneId?: string;
+    evidenceIds?: string[];
+  },
+): string | null {
+  const project = projectOrError(ledger, input.projectId);
+  if (!project) {
+    return `project not found: ${input.projectId}`;
+  }
+  if (input.milestoneId) {
+    const milestone = milestoneOrError(ledger, input.milestoneId);
+    if (!milestone || milestone.projectId !== input.projectId) {
+      return `milestone not found in project: ${input.milestoneId}`;
+    }
+  }
+  if (input.subMilestoneId) {
+    const subMilestone = subMilestoneOrError(ledger, input.subMilestoneId);
+    if (!subMilestone || subMilestone.projectId !== input.projectId) {
+      return `sub-milestone not found in project: ${input.subMilestoneId}`;
+    }
+    if (input.milestoneId && subMilestone.milestoneId !== input.milestoneId) {
+      return `sub-milestone does not belong to milestone: ${input.subMilestoneId}`;
+    }
+  }
+  const duplicateEvidenceIds = duplicateIds(input.evidenceIds);
+  if (duplicateEvidenceIds.length > 0) {
+    return `duplicate decision evidence id: ${duplicateEvidenceIds[0]}`;
+  }
+  for (const evidenceId of input.evidenceIds ?? []) {
+    const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+    if (!evidence || evidence.projectId !== input.projectId) {
+      return `evidence not found in project: ${evidenceId}`;
+    }
+  }
+  return null;
+}
+
 function ensureMilestoneCanBeComplete(
   ledger: PccLedger,
   milestoneId: string,
@@ -1037,6 +1086,7 @@ function responseForProject(ledger: PccLedger, project: PccProject) {
     permissions: ledger.permissions.filter((permission) => permission.projectId === project.id),
     evidence: ledger.evidence.filter((evidence) => evidence.projectId === project.id),
     receipts: ledger.receipts.filter((receipt) => receipt.projectId === project.id),
+    decisions: ledger.decisions.filter((decision) => decision.projectId === project.id),
     lastKnownGood: ledger.lastKnownGood.filter((entry) => entry.projectId === project.id),
     summary: summarizeProject(ledger, project),
   };
@@ -1353,6 +1403,68 @@ export const pccHandlers: GatewayRequestHandlers = {
           };
           ledger.evidence.push(evidence);
           return { evidence, summary: summarizeProject(ledger, project) };
+        },
+        { write: true },
+      );
+      if ("error" in result) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, result.error ?? "PCC request failed"),
+        );
+        return;
+      }
+      respond(true, result);
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.decisions.add": ({ params, respond }) => {
+    if (!validatePccDecisionsAddParams(params)) {
+      respondInvalid(respond, "pcc.decisions.add", validatePccDecisionsAddParams.errors);
+      return;
+    }
+    try {
+      const result = withLedger(
+        (ledger) => {
+          const referenceError = validateDecisionReferences(ledger, params.decision);
+          if (referenceError) {
+            return { error: referenceError };
+          }
+          const project = projectOrError(ledger, params.decision.projectId);
+          if (!project) {
+            return { error: `project not found: ${params.decision.projectId}` };
+          }
+          const timestamp = nowIso();
+          const decision: PccDecision = {
+            id: makeId("decision", params.decision.title),
+            projectId: params.decision.projectId,
+            title: params.decision.title,
+            summary: params.decision.summary,
+            decidedAt: timestamp,
+            ...(params.decision.milestoneId ? { milestoneId: params.decision.milestoneId } : {}),
+            ...(params.decision.subMilestoneId
+              ? { subMilestoneId: params.decision.subMilestoneId }
+              : {}),
+            ...(params.decision.rationale !== undefined
+              ? { rationale: params.decision.rationale }
+              : {}),
+            ...(params.decision.alternatives !== undefined
+              ? { alternatives: params.decision.alternatives }
+              : {}),
+            ...(params.decision.impact !== undefined ? { impact: params.decision.impact } : {}),
+            ...(params.decision.decidedBy !== undefined
+              ? { decidedBy: params.decision.decidedBy }
+              : {}),
+            ...(params.decision.evidenceIds !== undefined
+              ? { evidenceIds: params.decision.evidenceIds }
+              : {}),
+            ...(params.decision.metadata !== undefined
+              ? { metadata: params.decision.metadata }
+              : {}),
+          };
+          ledger.decisions.push(decision);
+          return { decision, summary: summarizeProject(ledger, project) };
         },
         { write: true },
       );

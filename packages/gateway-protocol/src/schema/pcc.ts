@@ -242,6 +242,25 @@ export const PccCompletionReceiptSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const PccDecisionSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    projectId: NonEmptyString,
+    milestoneId: Type.Optional(NonEmptyString),
+    subMilestoneId: Type.Optional(NonEmptyString),
+    title: NonEmptyString,
+    summary: NonEmptyString,
+    rationale: Type.Optional(Type.String({ maxLength: 20_000 })),
+    alternatives: Type.Optional(StringListSchema),
+    impact: Type.Optional(Type.String({ maxLength: 20_000 })),
+    decidedBy: Type.Optional(Type.String({ maxLength: 512 })),
+    decidedAt: TimestampSchema,
+    evidenceIds: Type.Optional(IdListSchema),
+    metadata: Type.Optional(MetadataSchema),
+  },
+  { additionalProperties: false },
+);
+
 export const PccLastKnownGoodSchema = Type.Object(
   {
     id: NonEmptyString,
@@ -327,6 +346,7 @@ export const PccProjectsGetResultSchema = Type.Object(
     permissions: Type.Array(PccPermissionGrantSchema),
     evidence: Type.Array(PccEvidenceSchema),
     receipts: Type.Array(PccCompletionReceiptSchema),
+    decisions: Type.Array(PccDecisionSchema),
     lastKnownGood: Type.Array(PccLastKnownGoodSchema),
     summary: PccProjectSummarySchema,
   },
@@ -536,6 +556,36 @@ export const PccReceiptsAddResultSchema = Type.Object(
     receipt: PccCompletionReceiptSchema,
     milestone: PccMilestoneSchema,
     lastKnownGood: PccLastKnownGoodSchema,
+    summary: PccProjectSummarySchema,
+  },
+  { additionalProperties: false },
+);
+
+export const PccDecisionsAddParamsSchema = Type.Object(
+  {
+    decision: Type.Object(
+      {
+        projectId: NonEmptyString,
+        milestoneId: Type.Optional(NonEmptyString),
+        subMilestoneId: Type.Optional(NonEmptyString),
+        title: NonEmptyString,
+        summary: NonEmptyString,
+        rationale: Type.Optional(Type.String({ maxLength: 20_000 })),
+        alternatives: Type.Optional(StringListSchema),
+        impact: Type.Optional(Type.String({ maxLength: 20_000 })),
+        decidedBy: Type.Optional(Type.String({ maxLength: 512 })),
+        evidenceIds: Type.Optional(IdListSchema),
+        metadata: Type.Optional(MetadataSchema),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const PccDecisionsAddResultSchema = Type.Object(
+  {
+    decision: PccDecisionSchema,
     summary: PccProjectSummarySchema,
   },
   { additionalProperties: false },

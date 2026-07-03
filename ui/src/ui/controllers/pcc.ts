@@ -21,6 +21,7 @@ import type { GatewayBrowserClient } from "../gateway.ts";
 import { buildPccChatSyncProposals, type PccChatSyncProposal } from "../pcc-chat-sync.ts";
 import type {
   PccCompletionReceipt,
+  PccDecision,
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
@@ -40,6 +41,7 @@ export type PccProjectDetail = {
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
+  decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
   summary: PccProjectSummary;
 };
@@ -158,6 +160,7 @@ type PccProjectsGetResult = {
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
+  decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
   summary: PccProjectSummary;
 };
@@ -697,6 +700,7 @@ function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDeta
     permissions: detail.permissions ?? [],
     evidence: detail.evidence ?? [],
     receipts: detail.receipts ?? [],
+    decisions: (detail.decisions ?? []).toSorted((a, b) => b.decidedAt.localeCompare(a.decidedAt)),
     lastKnownGood: (detail.lastKnownGood ?? []).toSorted(
       (a, b) => Date.parse(b.verifiedAt) - Date.parse(a.verifiedAt),
     ),

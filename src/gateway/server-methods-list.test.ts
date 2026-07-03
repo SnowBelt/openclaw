@@ -60,6 +60,7 @@ describe("listGatewayMethods", () => {
     expect(methods).toContain("pcc.subMilestones.upsert");
     expect(methods).toContain("pcc.permissions.upsert");
     expect(methods).toContain("pcc.receipts.add");
+    expect(methods).toContain("pcc.decisions.add");
     expect(methods).toContain("pcc.lastKnownGood.upsert");
   });
 

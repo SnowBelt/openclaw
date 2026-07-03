@@ -166,6 +166,16 @@ const receipt = {
   completedAt: "2026-06-26T00:00:00Z",
 };
 
+const decision = {
+  id: "decision-1",
+  projectId: "project-1",
+  milestoneId: "milestone-1",
+  title: "Use durable decision log",
+  summary: "Record project choices as first-class PCC records.",
+  decidedBy: "Codex",
+  decidedAt: "2026-06-26T01:00:00Z",
+};
+
 const summary = {
   id: "project-1",
   title: "Project Command Center",
@@ -553,6 +563,7 @@ describe("PCC CRUD controller", () => {
       project,
       milestones: [milestone],
       permissions: [permission],
+      decisions: [decision],
       summary,
     });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
@@ -564,6 +575,7 @@ describe("PCC CRUD controller", () => {
     expect(state.pccProjectDetail?.milestones[0]?.title).toBe("CRUD UI");
     expect(state.pccProjectDetail?.subMilestones).toEqual([]);
     expect(state.pccProjectDetail?.permissions[0]?.id).toBe("permission-1");
+    expect(state.pccProjectDetail?.decisions?.[0]?.title).toBe("Use durable decision log");
   });
 
   it("opens project and milestone editors", () => {
@@ -644,6 +656,7 @@ describe("PCC CRUD controller", () => {
           permissions: [],
           evidence: [],
           receipts: [],
+          decisions: [],
           summary,
         };
       }
@@ -705,6 +718,7 @@ describe("PCC CRUD controller", () => {
           permissions: [],
           evidence: [],
           receipts: [],
+          decisions: [],
           summary,
         };
       }
@@ -773,6 +787,7 @@ describe("PCC CRUD controller", () => {
           permissions: [],
           evidence: [],
           receipts: [],
+          decisions: [],
           summary,
         };
       }
@@ -844,6 +859,7 @@ describe("PCC CRUD controller", () => {
           permissions: [],
           evidence: [],
           receipts: [],
+          decisions: [],
           summary,
         };
       }
@@ -938,6 +954,7 @@ describe("PCC CRUD controller", () => {
           permissions: [],
           evidence: [],
           receipts: [],
+          decisions: [],
           summary,
         };
       }

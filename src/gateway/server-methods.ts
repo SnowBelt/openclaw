@@ -451,6 +451,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "pcc.permissions.upsert",
       "pcc.evidence.add",
       "pcc.receipts.add",
+      "pcc.decisions.add",
       "pcc.lastKnownGood.upsert",
       "pcc.summary.get",
     ],

@@ -776,6 +776,73 @@
   margin-bottom: 6px;
 }
 
+.pcc-decisions {
+  display: grid;
+  gap: 10px;
+}
+
+.pcc-decision {
+  background: color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 78%, transparent);
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.pcc-decision__header {
+  align-items: start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.pcc-decision__header div {
+  display: grid;
+  gap: 3px;
+}
+
+.pcc-decision__header strong {
+  color: var(--text, #111827);
+  font-size: 0.9rem;
+}
+
+.pcc-decision__header span,
+.pcc-decision p,
+.pcc-decision__details,
+.pcc-decision__evidence span {
+  color: var(--text-muted, #64748b);
+  font-size: 0.82rem;
+}
+
+.pcc-decision p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pcc-decision__details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.pcc-decision__details ul,
+.pcc-decision__evidence {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.pcc-decision__evidence li {
+  display: grid;
+  gap: 2px;
+}
+
+.pcc-decision__evidence strong {
+  font-size: 0.78rem;
+}
+
 .pcc-evidence-list {
   display: grid;
   gap: 8px;

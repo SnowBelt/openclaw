@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ProtocolSchemas,
+  validatePccDecisionsAddParams,
   validatePccMilestonesUpsertParams,
   validatePccPermissionsUpsertParams,
   validatePccProjectsUpsertParams,
@@ -16,6 +17,8 @@ describe("Project Command Center protocol schemas", () => {
     expect(ProtocolSchemas.PccSubMilestone).toBeTruthy();
     expect(ProtocolSchemas.PccPermissionGrant).toBeTruthy();
     expect(ProtocolSchemas.PccCompletionReceipt).toBeTruthy();
+    expect(ProtocolSchemas.PccDecision).toBeTruthy();
+    expect(ProtocolSchemas.PccDecisionsAddParams).toBeTruthy();
     expect(ProtocolSchemas.PccLastKnownGoodUpsertParams).toBeTruthy();
   });
 
@@ -106,6 +109,33 @@ describe("Project Command Center protocol schemas", () => {
         permission: {
           projectId: "project-pcc",
           type: "unknown_permission",
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates project decisions", () => {
+    expect(
+      validatePccDecisionsAddParams({
+        decision: {
+          projectId: "project-pcc",
+          milestoneId: "milestone-ledger",
+          title: "Use receipt-gated completion",
+          summary: "Milestones only become complete after evidence-backed receipts exist.",
+          rationale: "This prevents false completion claims.",
+          alternatives: ["Manual status only"],
+          impact: "Improves future handoff trust.",
+          decidedBy: "Codex",
+          evidenceIds: ["evidence-local-test"],
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      validatePccDecisionsAddParams({
+        decision: {
+          projectId: "project-pcc",
+          summary: "missing title",
         },
       }),
     ).toBe(false);

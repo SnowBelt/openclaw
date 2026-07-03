@@ -276,6 +276,112 @@ describe("Project Command Center gateway methods", () => {
     expect(detail.lastKnownGood).toHaveLength(1);
   });
 
+  it("stores decision records and rejects orphaned decision links", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Decision project" } }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Choose execution path",
+          status: "in_progress",
+        },
+      }),
+    );
+    const { subMilestone } = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          title: "Document decision",
+          status: "not_started",
+        },
+      }),
+    );
+    const { evidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "manual_review",
+          status: "passed",
+          summary: "User approved the smaller durable path.",
+        },
+      }),
+    );
+
+    const decisionPayload = okPayload<{
+      decision: {
+        id: string;
+        title: string;
+        summary: string;
+        milestoneId?: string;
+        subMilestoneId?: string;
+        evidenceIds?: string[];
+      };
+      summary: { recentActivity?: string };
+    }>(
+      await invoke("pcc.decisions.add", {
+        decision: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          subMilestoneId: subMilestone.id,
+          title: "Use first-class decision log",
+          summary: "Capture project choices as durable PCC records instead of prose-only notes.",
+          rationale: "Future agents need to know why a path was chosen before changing it.",
+          alternatives: ["Keep decisions in receipts only", "Store decisions in project metadata"],
+          impact: "Improves handoff quality and prevents repeated debates.",
+          decidedBy: "Codex",
+          evidenceIds: [evidence.id],
+        },
+      }),
+    );
+
+    expect(decisionPayload.decision.id).toMatch(/^decision-/);
+    expect(decisionPayload.decision.title).toBe("Use first-class decision log");
+    expect(decisionPayload.decision.milestoneId).toBe(milestone.id);
+    expect(decisionPayload.decision.subMilestoneId).toBe(subMilestone.id);
+    expect(decisionPayload.decision.evidenceIds).toEqual([evidence.id]);
+
+    const detail = okPayload<{ decisions: Array<{ id: string; summary: string }> }>(
+      await invoke("pcc.projects.get", { projectId: project.id }),
+    );
+    expect(detail.decisions).toEqual([
+      expect.objectContaining({
+        id: decisionPayload.decision.id,
+        summary: "Capture project choices as durable PCC records instead of prose-only notes.",
+      }),
+    ]);
+
+    const listPayload = okPayload<{ projects: Array<{ id: string; recentActivity?: string }> }>(
+      await invoke("pcc.projects.list", {}),
+    );
+    expect(listPayload.projects.find((item) => item.id === project.id)?.recentActivity).toContain(
+      "Decision: Use first-class decision log",
+    );
+
+    const orphan = await invoke("pcc.decisions.add", {
+      decision: {
+        projectId: project.id,
+        milestoneId: "missing-milestone",
+        title: "Invalid decision",
+        summary: "This must not be stored.",
+      },
+    });
+    expect(errorMessage(orphan)).toContain("milestone not found in project");
+
+    const duplicateEvidence = await invoke("pcc.decisions.add", {
+      decision: {
+        projectId: project.id,
+        title: "Duplicate evidence decision",
+        summary: "This must not be stored.",
+        evidenceIds: [evidence.id, evidence.id],
+      },
+    });
+    expect(errorMessage(duplicateEvidence)).toContain("duplicate decision evidence id");
+  });
+
   it("stores sub-milestones and gates parent completion on their proof state", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Sub-milestone project" } }),
