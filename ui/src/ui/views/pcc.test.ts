@@ -340,6 +340,7 @@ describe("renderPccDashboard", () => {
     expect(decisions?.textContent).toContain("Better handoff trust.");
     expect(decisions?.textContent).toContain("Local PCC proof passed");
     expect(decisions?.querySelector("[data-pcc-decision]")).not.toBeNull();
+    expect(container.textContent).toContain("1 recorded");
   });
 
   it("opens a decision form and lets users select related proof", () => {
@@ -375,9 +376,11 @@ describe("renderPccDashboard", () => {
       }),
     );
 
+    container.querySelector<HTMLButtonElement>("[data-pcc-snapshot-add-decision]")?.click();
     container.querySelector<HTMLButtonElement>("[data-pcc-open-decision-form]")?.click();
-    expect(onOpenDecisionForm).toHaveBeenCalledTimes(1);
+    expect(onOpenDecisionForm).toHaveBeenCalledTimes(2);
 
+    expect(container.querySelector("[data-pcc-decision-capture]")).not.toBeNull();
     const form = container.querySelector<HTMLFormElement>("[data-pcc-decision-form]");
     expect(form).not.toBeNull();
     expect(form?.textContent).toContain("Related proof");

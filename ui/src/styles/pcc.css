@@ -2472,3 +2472,12 @@
   color: var(--text-muted, #64748b);
   font-size: 0.78rem;
 }
+
+.pcc-decision-capture {
+  background: color-mix(in srgb, var(--accent, #007aff) 5%, var(--surface-raised, #fff));
+  border: 1px solid color-mix(in srgb, var(--accent, #007aff) 18%, var(--border, #d8d8df));
+  border-radius: 22px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}

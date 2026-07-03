@@ -1509,6 +1509,22 @@ function renderDecisionForm(detail: PccProjectDetail, props: PccDashboardProps) 
   </form>`;
 }
 
+function renderDecisionCapturePanel(detail: PccProjectDetail, props: PccDashboardProps) {
+  if (!props.decisionFormOpen) {
+    return nothing;
+  }
+  return html`<section class="pcc-decision-capture" data-pcc-decision-capture>
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Decision capture</p>
+        <h4>Add a project decision</h4>
+        <p>Record the choice once so future agents do not rediscover it.</p>
+      </div>
+    </div>
+    ${renderDecisionForm(detail, props)}
+  </section>`;
+}
+
 function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) {
   const decisions = detail.decisions ?? [];
   return html`<section class="pcc-decisions" data-pcc-decisions>
@@ -1527,7 +1543,6 @@ function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) 
         Add decision
       </button>
     </div>
-    ${props.decisionFormOpen ? renderDecisionForm(detail, props) : nothing}
     <span class="pcc-decisions__count">${decisions.length} recorded</span>
     ${decisions.length
       ? decisions.map((decision) => renderDecisionCard(decision, detail.evidence ?? []))
@@ -2563,6 +2578,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       ${renderTruthFact("Next milestone", next?.title ?? "None")}
       ${renderTruthFact("Worker", worker)}
       ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
+      ${renderTruthFact("Decisions", `${detail.decisions?.length ?? 0} recorded`)}
       ${renderTruthFact("Needs you", decision)}
     </dl>
     <section class="pcc-project-brief" data-pcc-project-brief>
@@ -2592,6 +2608,15 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       </button>
       <button class="btn btn--subtle" type="button" @click=${() => props.onOpenMilestoneEditor()}>
         New milestone
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-snapshot-add-decision
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onOpenDecisionForm?.()}
+      >
+        Add decision
       </button>
       ${project.status === "archived"
         ? html`<button
@@ -2801,8 +2826,8 @@ function renderProjectDetail(props: PccDashboardProps) {
   const permissions = detail.permissions ?? [];
   return html`
     <aside class="pcc-detail pcc-detail--${mode}" data-pcc-detail data-pcc-detail-mode=${mode}>
-      ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
-      ${renderWorkLoopCard(props)}
+      ${renderProjectSnapshot(detail, props)} ${renderDecisionCapturePanel(detail, props)}
+      ${renderMilestoneJourney(detail, props)} ${renderWorkLoopCard(props)}
       <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
         <summary>Details</summary>
         ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
