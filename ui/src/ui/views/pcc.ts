@@ -372,6 +372,42 @@ function terminalStatus(status: PccStatus): boolean {
   return ["complete", "complete_with_maintenance", "skipped", "archived"].includes(status);
 }
 
+function projectIsOverdue(project: PccProjectSummary): boolean {
+  if (PROJECT_TERMINAL_STATUSES.has(project.status) || !project.dueDate) {
+    return false;
+  }
+  const parsed = Date.parse(project.dueDate);
+  return Number.isFinite(parsed) && parsed < Date.now();
+}
+
+function projectNeedsAttention(project: PccProjectSummary): boolean {
+  return (
+    project.status === "needs_approval" ||
+    project.status === "blocked" ||
+    project.milestoneCounts.needsApproval > 0 ||
+    project.milestoneCounts.blocked > 0 ||
+    projectIsOverdue(project) ||
+    project.health === "Overdue" ||
+    project.health === "At risk"
+  );
+}
+
+function projectAttentionLine(project: PccProjectSummary): string {
+  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
+    return project.nextActions[0] ?? "Approval needed";
+  }
+  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
+    return project.nextActions[0] ?? "Blocked work needs review";
+  }
+  if (projectIsOverdue(project) || project.health === "Overdue") {
+    return `Overdue since ${formatProjectDate(project.dueDate)}`;
+  }
+  if (project.health === "At risk") {
+    return "At risk; review blockers, proof, and next action";
+  }
+  return project.nextActions[0] ?? "Needs review";
+}
+
 function workStateForProject(
   project: PccProjectSummary,
   detail?: PccProjectDetail,
@@ -1383,12 +1419,7 @@ function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilt
     return project.status === "on_hold" || project.status === "deferred";
   }
   if (filter === "needs_you") {
-    return (
-      project.status === "needs_approval" ||
-      project.status === "blocked" ||
-      project.milestoneCounts.needsApproval > 0 ||
-      project.milestoneCounts.blocked > 0
-    );
+    return projectNeedsAttention(project);
   }
   return ![
     "archived",
@@ -1527,6 +1558,7 @@ function renderTopPortfolioMetrics(
     ${renderMetric("Active", portfolio?.active ?? 0)}
     ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
     ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
+    ${renderMetric("Needs attention", projects.filter(projectNeedsAttention).length)}
     ${renderMetric(
       "Average completion",
       `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
@@ -1542,10 +1574,7 @@ function renderTodayView(props: PccDashboardProps) {
       ["in_progress", "active"].includes(project.status) ||
       workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
   );
-  const needsYou = topProject(
-    props,
-    (project) => project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0,
-  );
+  const needsYou = topProject(props, projectNeedsAttention);
   const blocked = topProject(
     props,
     (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
@@ -1580,7 +1609,8 @@ function renderTodayView(props: PccDashboardProps) {
         props,
         "Needs You",
         needsYou ?? blocked,
-        "No approvals or blockers need you.",
+        "No approvals, blockers, or overdue projects need you.",
+        needsYou ? projectAttentionLine(needsYou) : undefined,
       )}
       ${renderTodayPrimaryCard(props, "Next Best Action", nextBest, "No ready action recorded.")}
       <article class="pcc-today__primary-card" data-pcc-portfolio-progress>
@@ -1588,7 +1618,7 @@ function renderTodayView(props: PccDashboardProps) {
         <strong>${average}%</strong>
         <em>
           ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
-          ${portfolio?.needsApproval ?? 0} need you
+          ${props.projects.filter(projectNeedsAttention).length} need attention
         </em>
       </article>
     </div>
@@ -1608,12 +1638,9 @@ function renderTodayView(props: PccDashboardProps) {
           <strong>Needs You</strong>
           <ul>
             ${props.projects
-              .filter(
-                (project) =>
-                  project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0,
-              )
+              .filter(projectNeedsAttention)
               .slice(0, 8)
-              .map((project) => html`<li>${project.title}</li>`)}
+              .map((project) => html`<li>${project.title} — ${projectAttentionLine(project)}</li>`)}
           </ul>
         </article>
         <article>

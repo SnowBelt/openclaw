@@ -273,6 +273,59 @@ describe("renderPccDashboard", () => {
     expect(agent.textContent).toContain("Low-reasoning execution details");
   });
 
+  it("routes overdue active projects into Needs You instead of hiding them in normal active work", () => {
+    const overdueSummary = {
+      ...summary,
+      id: "project-overdue",
+      title: "Overdue Launch",
+      status: "active" as const,
+      dueDate: "2000-01-01T00:00:00.000Z",
+      health: "On track",
+      milestoneCounts: {
+        ...summary.milestoneCounts,
+        blocked: 0,
+        needsApproval: 0,
+      },
+      nextActions: ["Review overdue launch plan"],
+    };
+    const container = renderView(
+      createProps({
+        projects: [overdueSummary],
+        portfolio: {
+          projectsTotal: 1,
+          active: 1,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 42,
+          nextActions: ["Review overdue launch plan"],
+        },
+        selectedProjectId: "project-overdue",
+        projectDetail: {
+          project: { ...project, id: "project-overdue", title: "Overdue Launch" },
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: overdueSummary,
+        },
+        projectDetails: {},
+      }),
+    );
+    const text = container.textContent ?? "";
+
+    expect(text).toContain("Needs attention");
+    expect(text).toContain("Overdue Launch");
+    expect(text).toContain("Overdue since");
+    expect(text).toContain("1 need attention");
+    const needsYouTab = [
+      ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-project-tabs] button"),
+    ].find((button) => button.textContent?.includes("Needs You"));
+    expect(needsYouTab?.textContent).toContain("1");
+  });
+
   it("filters project cards with a skim-first project search", () => {
     const onSetProjectSearchQuery = vi.fn();
     const kitchenSummary = {
