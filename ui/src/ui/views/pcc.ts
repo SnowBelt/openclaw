@@ -3557,6 +3557,14 @@ function renderGeneratedPlanPreview(props: PccDashboardProps) {
   </section>`;
 }
 
+function renderEditorActionError(props: PccDashboardProps) {
+  return props.actionError
+    ? html`<p class="pcc-editor__error" role="alert" data-pcc-editor-error>
+        <strong>Could not save</strong><span>${props.actionError}</span>
+      </p>`
+    : nothing;
+}
+
 function renderProjectEditor(props: PccDashboardProps) {
   const form = props.projectForm;
   const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
@@ -3610,6 +3618,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           ×
         </button>
       </header>
+      ${renderEditorActionError(props)}
       ${creating
         ? html`<label class="pcc-editor__hero-field">
             Describe what you want to build
@@ -3833,6 +3842,7 @@ function renderMilestoneEditor(props: PccDashboardProps) {
         <p class="pcc-kicker">Milestone</p>
         <h3>${props.editorMode === "edit-milestone" ? "Edit milestone" : "Create milestone"}</h3>
       </header>
+      ${renderEditorActionError(props)}
       <label
         >Title<input
           required

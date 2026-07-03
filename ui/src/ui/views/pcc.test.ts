@@ -1130,6 +1130,32 @@ describe("renderPccDashboard", () => {
     expect(onSaveProject).toHaveBeenCalledTimes(1);
   });
 
+  it("shows project editor save errors next to the form", () => {
+    const container = renderView(
+      createProps({
+        actionError: "Project title already exists: SNES Game Creator",
+        editorMode: "edit-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          id: "project-1",
+          title: "SNES Game Creator",
+          goal: "Build a safe SNES workflow.",
+          intakeAnswers,
+          intakeApproved: true,
+          planPreviewAccepted: true,
+        },
+      }),
+    );
+
+    const editorError = container.querySelector(
+      '[data-pcc-editor="project"] [data-pcc-editor-error]',
+    );
+    expect(editorError).not.toBeNull();
+    expect(editorError?.getAttribute("role")).toBe("alert");
+    expect(editorError?.textContent).toContain("Could not save");
+    expect(editorError?.textContent).toContain("Project title already exists");
+  });
+
   it("blocks blank intake before project setup can be saved", () => {
     const container = renderView(
       createProps({
@@ -1478,6 +1504,29 @@ describe("renderPccDashboard", () => {
 
     container.querySelector<HTMLButtonElement>("[data-pcc-chat-sync-proposal] button")?.click();
     expect(onApplyChatSyncProposal).toHaveBeenCalledWith(proposal);
+  });
+
+  it("shows milestone editor validation errors next to the form", () => {
+    const container = renderView(
+      createProps({
+        actionError: "Milestone title already used by milestone-1: Intake",
+        editorMode: "edit-milestone",
+        milestoneForm: {
+          ...EMPTY_PCC_MILESTONE_FORM,
+          id: "milestone-2",
+          projectId: "project-1",
+          title: "Intake",
+        },
+      }),
+    );
+
+    const editorError = container.querySelector(
+      '[data-pcc-editor="milestone"] [data-pcc-editor-error]',
+    );
+    expect(editorError).not.toBeNull();
+    expect(editorError?.getAttribute("role")).toBe("alert");
+    expect(editorError?.textContent).toContain("Could not save");
+    expect(editorError?.textContent).toContain("Milestone title already used");
   });
 
   it("renders milestone editor and status actions", () => {

@@ -465,6 +465,23 @@
   line-height: 1.4;
 }
 
+.pcc-editor__error {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: 16px;
+  color: var(--text);
+  display: grid;
+  gap: 4px;
+  line-height: 1.35;
+  margin: 0;
+  padding: 12px 14px;
+}
+
+.pcc-editor__error span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .pcc-empty--small {
   box-shadow: none;
   padding: 18px;
