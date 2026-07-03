@@ -10,6 +10,8 @@ import {
   dismissPccSetupAutofill,
   dismissPccChatSync,
   loadPccDashboard,
+  movePccMilestoneBefore,
+  movePccSubMilestoneBefore,
   openPccDecisionForm,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -1162,6 +1164,107 @@ describe("PCC CRUD controller", () => {
       }),
     });
     expect(state.pccProjectDetail?.milestones).toHaveLength(1);
+  });
+
+  it("saves milestone and sub-milestone reorder through temporary order slots", async () => {
+    const firstMilestone = { ...milestone, order: 10 };
+    const secondMilestone = { ...milestone, id: "milestone-2", title: "Second", order: 20 };
+    const thirdMilestone = { ...milestone, id: "milestone-3", title: "Third", order: 30 };
+    const firstSubMilestone = { ...subMilestone, order: 10 };
+    const secondSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-2",
+      title: "Second sub-step",
+      order: 20,
+    };
+    const thirdSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-3",
+      title: "Third sub-step",
+      order: 30,
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [firstMilestone, secondMilestone, thirdMilestone],
+          subMilestones: [firstSubMilestone, secondSubMilestone, thirdSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [firstMilestone, secondMilestone, thirdMilestone],
+        subMilestones: [firstSubMilestone, secondSubMilestone, thirdSubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await movePccMilestoneBefore(state, thirdMilestone, secondMilestone);
+
+    const milestoneWrites = request.mock.calls.filter(
+      ([method]) => method === "pcc.milestones.upsert",
+    );
+    expect(milestoneWrites.slice(0, 4)).toEqual([
+      [
+        "pcc.milestones.upsert",
+        { milestone: expect.objectContaining({ id: "milestone-3", order: -1_000_000 }) },
+      ],
+      [
+        "pcc.milestones.upsert",
+        { milestone: expect.objectContaining({ id: "milestone-2", order: -1_000_001 }) },
+      ],
+      [
+        "pcc.milestones.upsert",
+        { milestone: expect.objectContaining({ id: "milestone-3", order: 20 }) },
+      ],
+      [
+        "pcc.milestones.upsert",
+        { milestone: expect.objectContaining({ id: "milestone-2", order: 30 }) },
+      ],
+    ]);
+
+    request.mockClear();
+    await movePccSubMilestoneBefore(state, thirdSubMilestone, secondSubMilestone);
+
+    const subMilestoneWrites = request.mock.calls.filter(
+      ([method]) => method === "pcc.subMilestones.upsert",
+    );
+    expect(subMilestoneWrites.slice(0, 4)).toEqual([
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-3", order: -1_000_000 }) },
+      ],
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: -1_000_001 }) },
+      ],
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-3", order: 20 }) },
+      ],
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: 30 }) },
+      ],
+    ]);
   });
 
   it("updates milestone status", async () => {

@@ -310,18 +310,18 @@ function timestampStringValue(value: unknown): string | undefined {
 }
 
 function addActivityCandidate(
-  candidates: Array<{ at: string; label: string }>,
+  candidates: Array<{ at: string; label: string; sequence: number }>,
   at: unknown,
   label: string,
 ): void {
   const timestamp = timestampStringValue(at);
   if (timestamp) {
-    candidates.push({ at: timestamp, label });
+    candidates.push({ at: timestamp, label, sequence: candidates.length });
   }
 }
 
 function latestProjectActivity(ledger: PccLedger, project: PccProject): string | undefined {
-  const candidates: Array<{ at: string; label: string }> = [];
+  const candidates: Array<{ at: string; label: string; sequence: number }> = [];
   addActivityCandidate(candidates, project.updatedAt, "Project updated");
   for (const milestone of ledger.milestones.filter((item) => item.projectId === project.id)) {
     addActivityCandidate(candidates, milestone.updatedAt, `Milestone updated: ${milestone.title}`);
@@ -356,7 +356,9 @@ function latestProjectActivity(ledger: PccLedger, project: PccProject): string |
   for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
     addActivityCandidate(candidates, entry.verifiedAt, `Verified: ${entry.subsystem}`);
   }
-  const latest = candidates.toSorted((a, b) => b.at.localeCompare(a.at))[0];
+  const latest = candidates.toSorted(
+    (a, b) => b.at.localeCompare(a.at) || b.sequence - a.sequence,
+  )[0];
   return latest ? `${latest.label} · ${latest.at}` : undefined;
 }
 
@@ -616,6 +618,52 @@ function duplicateIds(ids: readonly string[] | undefined): string[] {
   return [...duplicates];
 }
 
+function participatesInSequence(status: PccStatus | undefined): boolean {
+  return !SKIPPED_STATUSES.has(status ?? "not_started");
+}
+
+function validateMilestoneOrder(
+  ledger: PccLedger,
+  projectId: string,
+  milestoneId: string,
+  order: number | undefined,
+  status: PccStatus,
+): string | null {
+  if (order === undefined || !participatesInSequence(status)) {
+    return null;
+  }
+  const conflicting = ledger.milestones.find(
+    (milestone) =>
+      milestone.projectId === projectId &&
+      milestone.id !== milestoneId &&
+      milestone.order === order &&
+      participatesInSequence(milestone.status),
+  );
+  return conflicting ? `milestone order ${order} already used by ${conflicting.id}` : null;
+}
+
+function validateSubMilestoneOrder(
+  ledger: PccLedger,
+  projectId: string,
+  milestoneId: string,
+  subMilestoneId: string,
+  order: number | undefined,
+  status: PccStatus,
+): string | null {
+  if (order === undefined || !participatesInSequence(status)) {
+    return null;
+  }
+  const conflicting = ledger.subMilestones.find(
+    (subMilestone) =>
+      subMilestone.projectId === projectId &&
+      subMilestone.milestoneId === milestoneId &&
+      subMilestone.id !== subMilestoneId &&
+      subMilestone.order === order &&
+      participatesInSequence(subMilestone.status),
+  );
+  return conflicting ? `sub-milestone order ${order} already used by ${conflicting.id}` : null;
+}
+
 function dependencyCreatesCycle(
   items: readonly { id: string; dependsOn?: string[] }[],
   itemId: string,
@@ -864,6 +912,11 @@ function upsertMilestone(
   if (transitionError) {
     return { error: transitionError };
   }
+  const order = input.order ?? existing?.order;
+  const orderError = validateMilestoneOrder(ledger, input.projectId, id, order, status);
+  if (orderError) {
+    return { error: orderError };
+  }
   const receiptIds = input.receiptIds ?? existing?.receiptIds;
   const referenceError = validateMilestoneReferences(ledger, input.projectId, id, {
     dependsOn: input.dependsOn ?? existing?.dependsOn,
@@ -895,11 +948,7 @@ function upsertMilestone(
       : existing?.owner !== undefined
         ? { owner: existing.owner }
         : {}),
-    ...(input.order !== undefined
-      ? { order: input.order }
-      : existing?.order !== undefined
-        ? { order: existing.order }
-        : {}),
+    ...(order !== undefined ? { order } : {}),
     ...(input.percentComplete !== undefined
       ? { percentComplete: input.percentComplete }
       : existing?.percentComplete !== undefined
@@ -991,6 +1040,18 @@ function upsertSubMilestone(
   if (transitionError) {
     return { error: transitionError };
   }
+  const order = input.order ?? existing?.order;
+  const orderError = validateSubMilestoneOrder(
+    ledger,
+    input.projectId,
+    input.milestoneId,
+    id,
+    order,
+    status,
+  );
+  if (orderError) {
+    return { error: orderError };
+  }
   const referenceError = validateSubMilestoneReferences(
     ledger,
     input.projectId,
@@ -1014,11 +1075,7 @@ function upsertSubMilestone(
     status,
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
-    ...(input.order !== undefined
-      ? { order: input.order }
-      : existing?.order !== undefined
-        ? { order: existing.order }
-        : {}),
+    ...(order !== undefined ? { order } : {}),
     ...(input.owner !== undefined
       ? { owner: input.owner }
       : existing?.owner !== undefined

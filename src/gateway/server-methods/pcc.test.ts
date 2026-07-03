@@ -861,6 +861,94 @@ describe("Project Command Center gateway methods", () => {
     ).toContain("sub-milestone dependency not found under milestone");
   });
 
+  it("rejects duplicate active milestone and sub-milestone order values", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Ordered project" } }),
+    );
+    const firstMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "First ordered milestone",
+          order: 10,
+          status: "not_started",
+        },
+      }),
+    ).milestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            projectId: project.id,
+            title: "Conflicting ordered milestone",
+            order: 10,
+            status: "not_started",
+          },
+        }),
+      ),
+    ).toContain(`milestone order 10 already used by ${firstMilestone.id}`);
+
+    const archivedDuplicate = okPayload<{ milestone: { id: string; order: number } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Archived duplicate order",
+          order: 10,
+          status: "archived",
+        },
+      }),
+    ).milestone;
+    expect(archivedDuplicate.order).toBe(10);
+
+    const firstSubMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: firstMilestone.id,
+          title: "First ordered sub-step",
+          order: 1,
+          status: "not_started",
+        },
+      }),
+    ).subMilestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            projectId: project.id,
+            milestoneId: firstMilestone.id,
+            title: "Conflicting ordered sub-step",
+            order: 1,
+            status: "not_started",
+          },
+        }),
+      ),
+    ).toContain(`sub-milestone order 1 already used by ${firstSubMilestone.id}`);
+
+    const otherMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Other parent milestone",
+          order: 20,
+        },
+      }),
+    ).milestone;
+    const otherParentDuplicate = okPayload<{ subMilestone: { order: number } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: otherMilestone.id,
+          title: "Same order under another milestone",
+          order: 1,
+        },
+      }),
+    ).subMilestone;
+    expect(otherParentDuplicate.order).toBe(1);
+  });
+
   it("rejects moving existing milestones and sub-milestones to another parent", async () => {
     const firstProject = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "First project" } }),

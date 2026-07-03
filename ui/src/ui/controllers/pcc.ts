@@ -1556,13 +1556,18 @@ export async function movePccMilestoneBefore(
         throw new Error("Target milestone was not found.");
       }
       ordered.splice(targetIndex, 0, source);
-      for (const [index, milestone] of ordered.entries()) {
-        const nextOrder = (index + 1) * 10;
-        if (milestone.order !== nextOrder) {
-          await state.client.request("pcc.milestones.upsert", {
-            milestone: { ...milestone, order: nextOrder },
-          });
-        }
+      const changed = ordered
+        .map((milestone, index) => ({ milestone, nextOrder: (index + 1) * 10 }))
+        .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
+      for (const [index, { milestone }] of changed.entries()) {
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: { ...milestone, order: -1_000_000 - index },
+        });
+      }
+      for (const { milestone, nextOrder } of changed) {
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: { ...milestone, order: nextOrder },
+        });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, source.projectId);
@@ -1601,13 +1606,18 @@ export async function movePccSubMilestoneBefore(
         throw new Error("Target sub-milestone was not found.");
       }
       siblings.splice(targetIndex, 0, source);
-      for (const [index, subMilestone] of siblings.entries()) {
-        const nextOrder = (index + 1) * 10;
-        if (subMilestone.order !== nextOrder) {
-          await state.client.request("pcc.subMilestones.upsert", {
-            subMilestone: { ...subMilestone, order: nextOrder },
-          });
-        }
+      const changed = siblings
+        .map((subMilestone, index) => ({ subMilestone, nextOrder: (index + 1) * 10 }))
+        .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder);
+      for (const [index, { subMilestone }] of changed.entries()) {
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: { ...subMilestone, order: -1_000_000 - index },
+        });
+      }
+      for (const { subMilestone, nextOrder } of changed) {
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: { ...subMilestone, order: nextOrder },
+        });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, source.projectId);
