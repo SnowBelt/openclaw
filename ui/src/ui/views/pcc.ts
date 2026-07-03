@@ -1962,6 +1962,119 @@ function renderTodayPrimaryCard(
   </article>`;
 }
 
+function attentionRank(project: PccProjectSummary): number {
+  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
+    return 0;
+  }
+  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
+    return 1;
+  }
+  if (projectIsOverdue(project) || project.health === "Overdue") {
+    return 2;
+  }
+  if (project.health === "At risk") {
+    return 3;
+  }
+  return 4;
+}
+
+function attentionKind(project: PccProjectSummary): string {
+  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
+    return "Needs approval";
+  }
+  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
+    return "Blocked";
+  }
+  if (projectIsOverdue(project) || project.health === "Overdue") {
+    return "Overdue";
+  }
+  if (project.health === "At risk") {
+    return "At risk";
+  }
+  return "Needs review";
+}
+
+function getAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
+  return projects.filter(projectNeedsAttention).toSorted((a, b) => {
+    const rank = attentionRank(a) - attentionRank(b);
+    if (rank !== 0) {
+      return rank;
+    }
+    return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+  });
+}
+
+function projectPriorityLabel(props: PccDashboardProps, project: PccProjectSummary): string {
+  const priority = props.projectDetails?.[project.id]?.project.priority;
+  return typeof priority === "number" ? String(priority) : "—";
+}
+
+function renderNeedsAttentionNow(props: PccDashboardProps) {
+  const attentionProjects = getAttentionProjects(props.projects);
+  if (attentionProjects.length === 0) {
+    return html`<section
+      class="pcc-needs-attention pcc-needs-attention--empty"
+      data-pcc-needs-attention-now
+      aria-label="Needs attention now"
+    >
+      <div>
+        <p class="pcc-kicker">Needs Attention Now</p>
+        <h3>Nothing needs you right now</h3>
+        <p>No blocked, overdue, high-risk, or approval-needed projects are active.</p>
+      </div>
+    </section>`;
+  }
+  return html`<section
+    class="pcc-needs-attention"
+    data-pcc-needs-attention-now
+    aria-label="Needs attention now"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Needs Attention Now</p>
+        <h3>
+          ${attentionProjects.length} project${attentionProjects.length === 1 ? "" : "s"} need
+          attention
+        </h3>
+        <p>Resolve these first before starting more work.</p>
+      </div>
+      <span>${attentionProjects.length} item${attentionProjects.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="pcc-needs-attention__list">
+      ${attentionProjects.slice(0, 5).map(
+        (project) => html`<article class="pcc-needs-attention__item" data-pcc-attention-item>
+          <div>
+            <span class="pcc-status">${attentionKind(project)}</span>
+            <strong>${project.title}</strong>
+            <p>${projectAttentionLine(project)}</p>
+          </div>
+          <dl>
+            <div>
+              <dt>Priority</dt>
+              <dd>${projectPriorityLabel(props, project)}</dd>
+            </div>
+            <div>
+              <dt>Due</dt>
+              <dd>${formatProjectDate(project.dueDate)}</dd>
+            </div>
+            <div>
+              <dt>Progress</dt>
+              <dd>${clampPercent(project.percentComplete)}%</dd>
+            </div>
+          </dl>
+          <button
+            class="btn btn--subtle"
+            type="button"
+            @click=${() => props.onSelectProject(project.id)}
+          >
+            Open
+          </button>
+        </article>`,
+      )}
+    </div>
+  </section>`;
+}
+
 function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilter): boolean {
   if (filter === "all") {
     return true;
@@ -4221,7 +4334,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
           </div>`
         : nothing}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
-      ${renderTodayView(props)} ${renderProjectFilterTabs(props, allProjects)}
+      ${renderTodayView(props)} ${renderNeedsAttentionNow(props)}
+      ${renderProjectFilterTabs(props, allProjects)}
       ${renderProjectSearch(props, projects.length, filteredByTab.length)}
       <details class="pcc-detail-drawer pcc-top-proof-drawer">
         <summary>Needs You details</summary>

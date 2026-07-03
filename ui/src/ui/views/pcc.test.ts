@@ -630,6 +630,66 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).not.toContain("No projects yet");
   });
 
+  it("renders a global needs-attention queue with direct project navigation", () => {
+    const onSelectProject = vi.fn();
+    const blockedProject = {
+      ...summary,
+      id: "project-blocked",
+      title: "Blocked Launch",
+      status: "blocked" as const,
+      priority: 1,
+      milestoneCounts: { ...summary.milestoneCounts, blocked: 2, needsApproval: 0 },
+      nextActions: ["Fix failed proof"],
+      health: "At risk",
+    };
+    const activeProject = {
+      ...summary,
+      id: "project-active",
+      title: "Healthy Project",
+      status: "active" as const,
+      priority: 3,
+      milestoneCounts: {
+        total: 3,
+        complete: 1,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: ["Continue local proof"],
+      health: "On track",
+    };
+    const container = renderView(
+      createProps({
+        projects: [activeProject, blockedProject],
+        onSelectProject,
+        portfolio: {
+          projectsTotal: 2,
+          active: 1,
+          blocked: 1,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 21,
+          nextActions: [],
+        },
+      }),
+    );
+
+    const attention = container.querySelector("[data-pcc-needs-attention-now]");
+    expect(attention).not.toBeNull();
+    expect(attention?.textContent).toContain("Needs Attention Now");
+    expect(attention?.textContent).toContain("Blocked Launch");
+    expect(attention?.textContent).toContain("Fix failed proof");
+    expect(attention?.textContent).not.toContain("Healthy Project");
+    expect(container.querySelectorAll("[data-pcc-attention-item]")).toHaveLength(1);
+
+    [...attention!.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Open"))
+      ?.click();
+    expect(onSelectProject).toHaveBeenCalledWith("project-blocked");
+  });
+
   it("renders an error state and keeps refresh usable", () => {
     const onRefresh = vi.fn();
     const container = renderView(createProps({ error: "gateway offline", onRefresh }));
