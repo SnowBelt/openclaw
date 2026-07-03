@@ -835,6 +835,46 @@ describe("renderPccDashboard", () => {
     expect(save?.disabled).toBe(true);
   });
 
+  it("generates missing project intake answers from the editor", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Kitchen Remodel Planner",
+          goal: "Plan a kitchen remodel from estimate through final inspection.",
+          projectDescription:
+            "I need a complete plan for remodeling my kitchen without missing permits, contractors, materials, inspections, or budget checkpoints.",
+          intakeAnswers: { goal: "" },
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("Generate intake answers with AI"),
+    );
+    expect(generate).toBeTruthy();
+
+    generate?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        goal: "Plan a kitchen remodel from estimate through final inspection.",
+        intakeAnswers: expect.objectContaining({
+          goal: "Plan a kitchen remodel from estimate through final inspection.",
+          firstDeliverable: expect.stringContaining("Kitchen Remodel Planner"),
+          doneProof: expect.stringContaining("completion receipt"),
+          constraints: expect.stringContaining("separate approval"),
+          owner: "Local Project Manager",
+          blockers: expect.stringContaining("Unknown blockers"),
+        }),
+        planPreviewAccepted: false,
+      }),
+    );
+  });
+
   it("renders project-manager and Codex planning gates in project intake", () => {
     const onProjectFormChange = vi.fn();
     const codexContainer = renderView(

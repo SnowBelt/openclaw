@@ -721,6 +721,55 @@ function metadataString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
+function projectIntakeSourceText(form: PccProjectFormState): string {
+  return [form.projectDescription, form.goal, form.title].filter(Boolean).join("\n").trim();
+}
+
+function draftProjectIntakeAnswers(form: PccProjectFormState): Record<string, string> {
+  const source = projectIntakeSourceText(form);
+  const title = form.title.trim() || source.split(/\r?\n/u).find(Boolean)?.trim() || "this project";
+  const goal = form.goal.trim() || source || `Complete ${title} with a verified PCC plan.`;
+  const firstDeliverable = source
+    ? `A reviewed PCC plan for ${title} with ordered milestones, sub-milestones, owners, and proof gates generated from the project prompt.`
+    : `A reviewed PCC plan for ${title} with ordered milestones, sub-milestones, owners, and proof gates.`;
+  const highReasoning =
+    form.plannerMode === "codex" ||
+    form.plannerMode === "high_reasoning_codex" ||
+    form.planningMode === "codex_full_plan";
+  const generated = {
+    goal,
+    firstDeliverable,
+    doneProof:
+      "Every milestone has acceptance criteria, proof requirements, and a completion receipt before PCC marks it complete.",
+    constraints: highReasoning
+      ? "Codex or high-reasoning planning requires explicit approval before token spend; destructive, remote, publish, runtime, and reboot actions need separate approval."
+      : "Do not run destructive, remote, publish, runtime, reboot, or high-token actions without separate approval.",
+    owner: highReasoning ? "Codex planning with user approval" : "Local Project Manager",
+    blockers:
+      "Unknown blockers must be converted into PCC permission, tool, source, or proof gaps before work starts.",
+  };
+  return Object.fromEntries(
+    Object.entries(generated).map(([key, value]) => {
+      const existing = form.intakeAnswers[key]?.trim();
+      return [key, existing || value];
+    }),
+  );
+}
+
+function projectIntakeDraftPatch(form: PccProjectFormState): Partial<PccProjectFormState> {
+  const intakeAnswers = draftProjectIntakeAnswers(form);
+  const goal = form.goal.trim() || intakeAnswers.goal;
+  const title = form.title.trim() || goal.replace(/[.!?]$/u, "").slice(0, 90) || "Untitled Project";
+  const recommendation = recommendPccWorkflow({ title, goal, intakeAnswers });
+  return {
+    title,
+    goal,
+    intakeAnswers,
+    workflowTemplateId: form.workflowTemplateId || recommendation.templateId,
+    planPreviewAccepted: false,
+  };
+}
+
 function setupEvaluationForDetail(detail: PccProjectDetail) {
   return evaluatePccProjectSetup({
     project: detail.project,
@@ -2747,8 +2796,22 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         <h4>Make this project runnable</h4>
         <p>Required answers keep PCC from generating vague milestones.</p>
       </div>
-      <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
+      <div class="pcc-intake-wizard__header-actions">
+        <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() => props.onProjectFormChange(projectIntakeDraftPatch(form))}
+        >
+          Generate intake answers with AI
+        </button>
+      </div>
     </div>
+    <p class="pcc-intake-wizard__hint">
+      AI fills these answers from the project prompt, title, and goal. Review the draft before
+      saving.
+    </p>
     <div class="pcc-intake-wizard__questions">
       ${PCC_REQUIRED_INTAKE_QUESTIONS.map((question) => {
         const value = form.intakeAnswers[question.id] ?? "";

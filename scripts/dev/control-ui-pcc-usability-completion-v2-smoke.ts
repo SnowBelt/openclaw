@@ -256,7 +256,11 @@ async function main(): Promise<void> {
       onDismissActionNotice: () => calls.push("dismiss-notice"),
       onOpenProjectEditor: () => calls.push("edit-project"),
       onOpenMilestoneEditor: () => calls.push("edit-milestone"),
-      onProjectFormChange: () => undefined,
+      onProjectFormChange: (patch: { intakeAnswers?: Record<string, string> }) => {
+        if (patch.intakeAnswers?.firstDeliverable && patch.intakeAnswers.doneProof) {
+          calls.push("generate-intake-answers");
+        }
+      },
       onMilestoneFormChange: () => undefined,
       onSaveProject: () => undefined,
       onSaveMilestone: () => undefined,
@@ -301,8 +305,17 @@ async function main(): Promise<void> {
     requireText(text, "GPT-5.5 High Reasoning");
     requireText(text, "High-reasoning / Codex permission");
     requireText(text, "Setup needs a few answers");
+    requireText(text, "Generate intake answers with AI");
     requireText(text, "Milestone Journey");
     requireText(text, "Reliable action mutations");
+
+    const generateIntakeButton = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Generate intake answers with AI"),
+    );
+    generateIntakeButton?.click();
+    if (!calls.includes("generate-intake-answers")) {
+      throw new Error("PCC usability completion smoke did not wire intake AI generation");
+    }
 
     const menuButton = requireSelector(
       root,

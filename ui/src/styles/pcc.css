@@ -1396,6 +1396,19 @@
   margin: 0;
 }
 
+.pcc-intake-wizard__header-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pcc-intake-wizard__hint {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+
 .pcc-intake-wizard__questions {
   display: grid;
   gap: 10px;
