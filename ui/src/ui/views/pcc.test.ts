@@ -733,9 +733,13 @@ describe("renderPccDashboard", () => {
     expect(milestoneMenu?.classList.contains("is-open")).toBe(true);
     expect(milestoneMenu?.textContent).toContain("Remove from active plan");
     expect(milestoneMenu?.textContent).not.toContain("Delete");
-    [...(milestoneMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
-      .find((button) => button.textContent?.includes("Remove from active plan"))
-      ?.click();
+    const removeMilestoneButton = [
+      ...(milestoneMenu?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+    ].find((button) => button.textContent?.includes("Remove from active plan"));
+    removeMilestoneButton?.click();
+    expect(removeMilestoneButton?.textContent).toContain("Confirm remove");
+    expect(onSetMilestoneStatus).not.toHaveBeenCalled();
+    removeMilestoneButton?.click();
     expect(onSetMilestoneStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: "milestone-1" }),
       "archived",

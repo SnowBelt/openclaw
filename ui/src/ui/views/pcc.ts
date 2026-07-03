@@ -253,18 +253,57 @@ function confirmAction(message: string): boolean {
   return globalThis.confirm?.(message) ?? true;
 }
 
-function confirmedSkipNote(message: string): string | null {
-  if (!confirmAction(message)) {
-    return null;
-  }
+function confirmedSkipNote(): string {
   return "Skipped from the PCC action menu.";
 }
 
-function confirmedRemoveNote(message: string): string | null {
-  if (!confirmAction(message)) {
-    return null;
-  }
+function confirmedRemoveNote(): string {
   return "Removed from the active PCC plan from the action menu.";
+}
+
+function armPccConfirmationButton(button: HTMLButtonElement, label: string): void {
+  button.dataset.pccConfirmArmed = "true";
+  button.dataset.pccConfirmOriginalLabel = button.textContent?.trim() ?? "";
+  button.textContent = label;
+  button.classList.add("is-confirming");
+}
+
+function resetPccConfirmationButton(button: HTMLButtonElement): void {
+  const originalLabel = button.dataset.pccConfirmOriginalLabel;
+  if (originalLabel) {
+    button.textContent = originalLabel;
+  }
+  delete button.dataset.pccConfirmArmed;
+  delete button.dataset.pccConfirmOriginalLabel;
+  button.classList.remove("is-confirming");
+}
+
+function resetSiblingPccConfirmations(button: HTMLButtonElement): void {
+  const root = button.closest(".pcc-shell") ?? button.getRootNode();
+  if (!("querySelectorAll" in root)) {
+    return;
+  }
+  const queryRoot = root as ParentNode;
+  queryRoot
+    .querySelectorAll<HTMLButtonElement>("[data-pcc-confirm-armed='true']")
+    .forEach((armed: HTMLButtonElement) => {
+      if (armed !== button) {
+        resetPccConfirmationButton(armed);
+      }
+    });
+}
+
+function runPccConfirmedButtonAction(event: Event, confirmLabel: string, action: () => void): void {
+  event.preventDefault();
+  event.stopPropagation();
+  const button = event.currentTarget as HTMLButtonElement;
+  if (button.dataset.pccConfirmArmed === "true") {
+    resetPccConfirmationButton(button);
+    action();
+    return;
+  }
+  resetSiblingPccConfirmations(button);
+  armPccConfirmationButton(button, confirmLabel);
 }
 
 function togglePccActionMenu(event: Event): void {
@@ -302,6 +341,20 @@ function closePccActionMenu(event: Event): void {
 function runPccMenuAction(event: Event, action: () => void): void {
   closePccActionMenu(event);
   action();
+}
+
+function runPccConfirmedMenuAction(event: Event, confirmLabel: string, action: () => void): void {
+  const button = event.currentTarget as HTMLButtonElement;
+  if (button.dataset.pccConfirmArmed === "true") {
+    closePccActionMenu(event);
+    resetPccConfirmationButton(button);
+    action();
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  resetSiblingPccConfirmations(button);
+  armPccConfirmationButton(button, confirmLabel);
 }
 
 function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
@@ -2645,11 +2698,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         : html`<button
             class="btn btn--subtle"
             type="button"
-            @click=${() => {
-              if (confirmAction("Archive this project?")) {
-                props.onSetProjectStatus(project, "archived");
-              }
-            }}
+            @click=${(event: Event) =>
+              runPccConfirmedButtonAction(event, "Confirm archive", () =>
+                props.onSetProjectStatus(project, "archived"),
+              )}
           >
             Archive
           </button>`}
@@ -2995,9 +3047,8 @@ function renderChatSyncCard(props: PccDashboardProps) {
 }
 
 function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardProps) {
-  const skipNote = () => confirmedSkipNote("Skip this milestone and its unfinished sub-steps?");
-  const removeNote = () =>
-    confirmedRemoveNote("Remove this milestone and its unfinished sub-steps from the active plan?");
+  const skipNote = () => confirmedSkipNote();
+  const removeNote = () => confirmedRemoveNote();
   const menuId = `pcc-action-menu-${milestone.id}`;
   return html`<div class="pcc-action-menu" data-pcc-action-menu>
     <button
@@ -3027,11 +3078,8 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
         role="menuitem"
         ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          runPccMenuAction(event, () => {
-            const note = skipNote();
-            if (note !== null) {
-              props.onSetMilestoneStatus(milestone, "skipped", note);
-            }
+          runPccConfirmedMenuAction(event, "Confirm skip", () => {
+            props.onSetMilestoneStatus(milestone, "skipped", skipNote());
           });
         }}
       >
@@ -3062,11 +3110,8 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
         role="menuitem"
         ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          runPccMenuAction(event, () => {
-            const note = removeNote();
-            if (note !== null) {
-              props.onSetMilestoneStatus(milestone, "archived", note);
-            }
+          runPccConfirmedMenuAction(event, "Confirm remove", () => {
+            props.onSetMilestoneStatus(milestone, "archived", removeNote());
           });
         }}
       >
@@ -3097,8 +3142,8 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
 }
 
 function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccDashboardProps) {
-  const skipNote = () => confirmedSkipNote("Skip this sub-step?");
-  const removeNote = () => confirmedRemoveNote("Remove this sub-step from the active plan?");
+  const skipNote = () => confirmedSkipNote();
+  const removeNote = () => confirmedRemoveNote();
   const menuId = `pcc-submilestone-action-menu-${subMilestone.id}`;
   return html`<div class="pcc-action-menu pcc-action-menu--sub" data-pcc-submilestone-action-menu>
     <button
@@ -3118,11 +3163,8 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
         role="menuitem"
         ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          runPccMenuAction(event, () => {
-            const note = skipNote();
-            if (note !== null) {
-              props.onSetSubMilestoneStatus?.(subMilestone, "skipped", note);
-            }
+          runPccConfirmedMenuAction(event, "Confirm skip", () => {
+            props.onSetSubMilestoneStatus?.(subMilestone, "skipped", skipNote());
           });
         }}
       >
@@ -3153,11 +3195,8 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
         role="menuitem"
         ?disabled=${props.actionBusy}
         @click=${(event: Event) => {
-          runPccMenuAction(event, () => {
-            const note = removeNote();
-            if (note !== null) {
-              props.onSetSubMilestoneStatus?.(subMilestone, "archived", note);
-            }
+          runPccConfirmedMenuAction(event, "Confirm remove", () => {
+            props.onSetSubMilestoneStatus?.(subMilestone, "archived", removeNote());
           });
         }}
       >
@@ -3328,12 +3367,10 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         <button
           class="btn btn--subtle"
           type="button"
-          @click=${() => {
-            const note = confirmedSkipNote("Skip this milestone and its unfinished sub-steps?");
-            if (note !== null) {
-              props.onSetMilestoneStatus(milestone, "skipped", note);
-            }
-          }}
+          @click=${(event: Event) =>
+            runPccConfirmedButtonAction(event, "Confirm skip", () =>
+              props.onSetMilestoneStatus(milestone, "skipped", confirmedSkipNote()),
+            )}
         >
           Skip
         </button>
@@ -3349,9 +3386,11 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
           type="button"
           ?disabled=${!canComplete}
           title=${canComplete ? "Mark complete" : "Completion receipt required"}
-          @click=${() => {
-            if (canComplete && confirmAction("Mark this milestone complete?")) {
-              props.onSetMilestoneStatus(milestone, "complete");
+          @click=${(event: Event) => {
+            if (canComplete) {
+              runPccConfirmedButtonAction(event, "Confirm complete", () =>
+                props.onSetMilestoneStatus(milestone, "complete"),
+              );
             }
           }}
         >

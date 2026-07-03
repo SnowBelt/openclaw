@@ -2260,6 +2260,13 @@
   background: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
+.pcc-action-menu__items button.is-confirming,
+.btn.is-confirming {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border));
+  color: var(--danger);
+}
+
 .pcc-action-menu__items label {
   display: flex;
   gap: 8px;
