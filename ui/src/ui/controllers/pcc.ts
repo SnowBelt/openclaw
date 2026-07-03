@@ -22,6 +22,7 @@ import { buildPccChatSyncProposals, type PccChatSyncProposal } from "../pcc-chat
 import type {
   PccCompletionReceipt,
   PccEvidence,
+  PccLastKnownGood,
   PccMilestone,
   PccSubMilestone,
   PccPermissionGrant,
@@ -39,6 +40,7 @@ export type PccProjectDetail = {
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
+  lastKnownGood?: PccLastKnownGood[];
   summary: PccProjectSummary;
 };
 
@@ -156,6 +158,7 @@ type PccProjectsGetResult = {
   permissions: PccPermissionGrant[];
   evidence: PccEvidence[];
   receipts: PccCompletionReceipt[];
+  lastKnownGood?: PccLastKnownGood[];
   summary: PccProjectSummary;
 };
 
@@ -693,6 +696,9 @@ function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDeta
     permissions: detail.permissions ?? [],
     evidence: detail.evidence ?? [],
     receipts: detail.receipts ?? [],
+    lastKnownGood: (detail.lastKnownGood ?? []).toSorted(
+      (a, b) => Date.parse(b.verifiedAt) - Date.parse(a.verifiedAt),
+    ),
     summary: safeProjectSummary(detail.summary),
   };
 }

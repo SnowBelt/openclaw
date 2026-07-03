@@ -44,6 +44,7 @@ import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-conte
 import type {
   PccCompletionReceipt,
   PccEvidence,
+  PccLastKnownGood,
   PccMilestone,
   PccSubMilestone,
   PccPermissionGrant,
@@ -646,6 +647,39 @@ function renderImpactAttentionInbox(props: PccDashboardProps) {
   </section>`;
 }
 
+function formatVerifiedAt(value: string): string {
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? value : formatUpdatedAt(time);
+}
+
+function renderLastKnownGoodList(entries: readonly PccLastKnownGood[] | undefined) {
+  const sorted = (entries ?? []).toSorted(
+    (a, b) => Date.parse(b.verifiedAt) - Date.parse(a.verifiedAt),
+  );
+  if (sorted.length === 0) {
+    return nothing;
+  }
+  return html`<div class="pcc-last-known-good" data-pcc-last-known-good>
+    <p class="pcc-kicker">Last verified</p>
+    <ul>
+      ${sorted.slice(0, 6).map(
+        (entry) => html`<li>
+          <strong>${entry.subsystem}</strong>
+          <span>${entry.summary}</span>
+          <small>
+            Verified ${formatVerifiedAt(entry.verifiedAt)}
+            ${entry.sha ? html` · SHA ${entry.sha.slice(0, 12)}` : nothing}
+            ${entry.evidenceIds?.length
+              ? html` · ${entry.evidenceIds.length} evidence
+                link${entry.evidenceIds.length === 1 ? "" : "s"}`
+              : nothing}
+          </small>
+        </li>`,
+      )}
+    </ul>
+  </div>`;
+}
+
 function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardProps) {
   const input = impactInputFromDetail(detail);
   const readiness = buildPccMilestoneReadiness(input).slice(0, 5);
@@ -714,14 +748,17 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
       </article>
       <article class="pcc-impact-card" data-pcc-project-history>
         <p class="pcc-kicker">Project history</p>
-        <h4>Receipts drawer</h4>
+        <h4>Receipts and verified state</h4>
+        ${renderLastKnownGoodList(detail.lastKnownGood)}
         ${timeline.length
           ? html`<ul>
               ${timeline.map(
                 (item) => html`<li><strong>${item.title}</strong><span>${item.summary}</span></li>`,
               )}
             </ul>`
-          : html`<p>No receipts or evidence yet.</p>`}
+          : !detail.lastKnownGood?.length
+            ? html`<p>No receipts, evidence, or verified state yet.</p>`
+            : nothing}
       </article>
       <article class="pcc-impact-card" data-pcc-any-source-intake>
         <p class="pcc-kicker">Any-source intake</p>

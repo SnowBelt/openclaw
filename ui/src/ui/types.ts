@@ -966,6 +966,8 @@ export type PccEvidence =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccEvidence;
 export type PccCompletionReceipt =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccCompletionReceipt;
+export type PccLastKnownGood =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccLastKnownGood;
 export type PccPermissionStatus =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPermissionStatus;
 export type PccProjectSummary =

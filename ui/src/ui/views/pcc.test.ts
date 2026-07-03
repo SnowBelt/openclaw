@@ -120,6 +120,18 @@ const receipt = {
   completedAt: "2026-06-26T00:00:00Z",
 };
 
+const lastKnownGood = {
+  id: "lkg-1",
+  projectId: "project-1",
+  subsystem: "Production runtime",
+  summary: "Runtime serves the verified PCC build.",
+  evidenceIds: ["evidence-1"],
+  sha: "8bc48f54c4ec59f4deff058c0e5f6ca37c18b10a",
+  runtimePath: "/Users/openclaw/OpenClaw-dashboard-production-runtime",
+  screenshotPath: "/tmp/openclaw-dashboard-pcc-proof.png",
+  verifiedAt: "2026-07-03T12:00:00Z",
+};
+
 const summary = {
   id: "project-1",
   title: "Project Command Center",
@@ -165,6 +177,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
       permissions: [permission],
       evidence: [],
       receipts: [],
+      lastKnownGood: [],
       summary,
     },
     actionBusy: false,
@@ -250,6 +263,32 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-production-truth]")).not.toBeNull();
     expect(text).toContain("Production truth");
     expect(text).toContain("PCC remote Workflow Sanity proof missing");
+  });
+
+  it("renders last-known-good verified state in project history details", () => {
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [],
+          lastKnownGood: [lastKnownGood],
+          summary,
+        },
+      }),
+    );
+
+    const history = container.querySelector("[data-pcc-project-history]");
+    expect(history?.textContent).toContain("Receipts and verified state");
+    expect(history?.textContent).toContain("Last verified");
+    expect(history?.textContent).toContain("Production runtime");
+    expect(history?.textContent).toContain("Runtime serves the verified PCC build.");
+    expect(history?.textContent).toContain("SHA 8bc48f54c4ec");
+    expect(history?.querySelector("[data-pcc-last-known-good]")).not.toBeNull();
   });
 
   it("renders Simple, Detailed, and Agent view controls", () => {
