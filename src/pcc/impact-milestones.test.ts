@@ -11,6 +11,7 @@ import type {
 import {
   buildPccAttentionInbox,
   buildPccDependencyInsights,
+  buildPccIntegrityFindings,
   buildPccMilestoneReadiness,
   buildPccProofFreshness,
   buildPccRecoveryPlaybooks,
@@ -163,6 +164,45 @@ describe("PCC impact milestones", () => {
     const inbox = buildPccAttentionInbox([input()]);
     expect(inbox.some((item) => item.category === "permission")).toBe(true);
     expect(inbox.some((item) => item.category === "proof")).toBe(true);
+  });
+
+  it("surfaces plan integrity findings for orphaned children and broken dependencies", () => {
+    const brokenInput = {
+      ...input(),
+      milestones: [
+        ...milestones,
+        {
+          ...milestones[0],
+          id: "m4",
+          title: "Ready milestone",
+          order: 1,
+          dependsOn: ["missing-milestone"],
+        },
+      ],
+      subMilestones: [
+        ...subMilestones,
+        {
+          ...subMilestones[0],
+          id: "orphan-sub",
+          milestoneId: "missing-parent",
+          dependsOn: ["missing-item"],
+        },
+      ],
+    };
+
+    const findings = buildPccIntegrityFindings(brokenInput);
+    expect(findings.map((finding) => finding.title)).toEqual(
+      expect.arrayContaining([
+        "Orphaned sub-milestone: Run proof",
+        "Broken dependency: Ready milestone",
+        "Duplicate milestone title: ready milestone",
+        "Duplicate milestone order: 1",
+      ]),
+    );
+    expect(findings[0]?.severity).toBe("critical");
+    expect(
+      buildPccAttentionInbox([brokenInput]).some((item) => item.category === "integrity"),
+    ).toBe(true);
   });
 
   it("reports proof freshness and receipt history", () => {

@@ -1430,6 +1430,31 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).toContain("/tmp/pcc-proof.png");
   });
 
+  it("surfaces plan integrity issues in the impact detail drawer", () => {
+    const container = renderView(
+      createProps({
+        viewMode: "agent",
+        projectDetail: {
+          project,
+          milestones: [
+            milestone,
+            { ...milestone, id: "duplicate", title: milestone.title, order: milestone.order },
+          ],
+          subMilestones: [{ ...subMilestone, id: "orphan", milestoneId: "missing-parent" }],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+
+    const integrity = container.querySelector("[data-pcc-plan-integrity]");
+    expect(integrity?.textContent).toContain("Plan integrity");
+    expect(integrity?.textContent).toContain("Orphaned sub-milestone");
+    expect(integrity?.textContent).toContain("Duplicate milestone title");
+  });
+
   it("renders current truth, ready queue, sub-milestones, and work lanes", () => {
     const onUpdateWorkLoop = vi.fn();
     const container = renderView(

@@ -44,7 +44,7 @@ export type PccAttentionItem = {
   projectTitle: string;
   title: string;
   reason: string;
-  category: "blocked" | "permission" | "codex" | "proof" | "quality" | "recovery";
+  category: "blocked" | "permission" | "codex" | "proof" | "quality" | "recovery" | "integrity";
   severity: "critical" | "high" | "medium" | "low";
 };
 
@@ -61,6 +61,14 @@ export type PccRecoveryPlaybook = {
   reason: string;
   nextAction: string;
   requiresPermission: boolean;
+};
+
+export type PccIntegrityFinding = {
+  id: string;
+  title: string;
+  reason: string;
+  severity: "critical" | "high" | "medium" | "low";
+  repair: string;
 };
 
 export type PccDependencyInsight = {
@@ -162,6 +170,133 @@ function orderedMilestones(input: PccImpactDetailInput): PccMilestone[] {
   return [...input.milestones].toSorted((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
 }
 
+function normalizedTitle(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/\s+/gu, " ");
+}
+
+function duplicateGroups<T>(items: readonly T[], keyFor: (item: T) => string): string[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = keyFor(item);
+    if (key) {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
+}
+
+export function buildPccIntegrityFindings(input: PccImpactDetailInput): PccIntegrityFinding[] {
+  const findings: PccIntegrityFinding[] = [];
+  const milestoneIds = new Set(input.milestones.map((milestone) => milestone.id));
+  const subMilestones = input.subMilestones ?? [];
+  const projectId = input.project.id;
+
+  for (const milestone of input.milestones) {
+    if (milestone.projectId !== projectId) {
+      findings.push({
+        id: `milestone-project:${milestone.id}`,
+        title: `Milestone outside project: ${milestone.title}`,
+        reason: `Milestone belongs to ${milestone.projectId}, not ${projectId}.`,
+        severity: "critical",
+        repair: "Move the milestone to the correct project or remove it from this project detail.",
+      });
+    }
+    for (const dependencyId of milestone.dependsOn ?? []) {
+      if (!milestoneIds.has(dependencyId)) {
+        findings.push({
+          id: `milestone-dependency:${milestone.id}:${dependencyId}`,
+          title: `Broken dependency: ${milestone.title}`,
+          reason: `Depends on missing milestone ${dependencyId}.`,
+          severity: "high",
+          repair:
+            "Reconnect the dependency to an existing milestone or remove the stale dependency.",
+        });
+      }
+    }
+  }
+
+  for (const subMilestone of subMilestones) {
+    if (subMilestone.projectId !== projectId) {
+      findings.push({
+        id: `sub-project:${subMilestone.id}`,
+        title: `Sub-milestone outside project: ${subMilestone.title}`,
+        reason: `Sub-milestone belongs to ${subMilestone.projectId}, not ${projectId}.`,
+        severity: "critical",
+        repair:
+          "Move the sub-milestone to the correct project or remove it from this project detail.",
+      });
+    }
+    if (!milestoneIds.has(subMilestone.milestoneId)) {
+      findings.push({
+        id: `sub-orphan:${subMilestone.id}`,
+        title: `Orphaned sub-milestone: ${subMilestone.title}`,
+        reason: `Parent milestone ${subMilestone.milestoneId} does not exist.`,
+        severity: "critical",
+        repair: "Attach the sub-milestone to an existing milestone or archive it.",
+      });
+    }
+    for (const dependencyId of subMilestone.dependsOn ?? []) {
+      if (
+        !milestoneIds.has(dependencyId) &&
+        !subMilestones.some((item) => item.id === dependencyId)
+      ) {
+        findings.push({
+          id: `sub-dependency:${subMilestone.id}:${dependencyId}`,
+          title: `Broken sub-milestone dependency: ${subMilestone.title}`,
+          reason: `Depends on missing item ${dependencyId}.`,
+          severity: "high",
+          repair: "Reconnect the dependency to an existing milestone/sub-milestone or remove it.",
+        });
+      }
+    }
+  }
+
+  for (const title of duplicateGroups(input.milestones, (milestone) =>
+    normalizedTitle(milestone.title),
+  )) {
+    findings.push({
+      id: `milestone-title:${title}`,
+      title: `Duplicate milestone title: ${title}`,
+      reason:
+        "Two or more milestones use the same title, which makes handoffs and receipts ambiguous.",
+      severity: "medium",
+      repair: "Rename one milestone so each active milestone is uniquely identifiable.",
+    });
+  }
+
+  for (const order of duplicateGroups(input.milestones, (milestone) =>
+    String(milestone.order ?? ""),
+  )) {
+    findings.push({
+      id: `milestone-order:${order}`,
+      title: `Duplicate milestone order: ${order}`,
+      reason: "Two or more milestones share the same sequence slot.",
+      severity: "medium",
+      repair: "Use milestone reorder controls to save a unique sequence.",
+    });
+  }
+
+  for (const milestone of input.milestones) {
+    const children = subMilestones.filter(
+      (subMilestone) => subMilestone.milestoneId === milestone.id,
+    );
+    for (const order of duplicateGroups(children, (subMilestone) =>
+      String(subMilestone.order ?? ""),
+    )) {
+      findings.push({
+        id: `sub-order:${milestone.id}:${order}`,
+        title: `Duplicate sub-milestone order: ${milestone.title}`,
+        reason: `Two or more sub-milestones share sequence slot ${order}.`,
+        severity: "medium",
+        repair: "Use sub-milestone reorder controls to save a unique sequence.",
+      });
+    }
+  }
+
+  const severityRank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+  return findings.toSorted((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+}
+
 function activeSubMilestones(input: PccImpactDetailInput, milestoneId: string): PccSubMilestone[] {
   return (input.subMilestones ?? [])
     .filter((sub) => sub.milestoneId === milestoneId && !TERMINAL_STATUSES.has(sub.status))
@@ -236,6 +371,17 @@ export function buildPccAttentionInbox(
   const items: PccAttentionItem[] = [];
   for (const detail of details) {
     const projectTitle = detail.project.title;
+    for (const finding of buildPccIntegrityFindings(detail).slice(0, 3)) {
+      items.push({
+        id: `${detail.project.id}:integrity:${finding.id}`,
+        projectId: detail.project.id,
+        projectTitle,
+        title: finding.title,
+        reason: finding.reason,
+        category: "integrity",
+        severity: finding.severity === "critical" ? "critical" : "high",
+      });
+    }
     if (BLOCKED_STATUSES.has(detail.project.status)) {
       items.push({
         id: `${detail.project.id}:project-status`,

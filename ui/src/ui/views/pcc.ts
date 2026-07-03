@@ -3,6 +3,7 @@ import { html, nothing } from "lit";
 import {
   buildPccAttentionInbox,
   buildPccDependencyInsights,
+  buildPccIntegrityFindings,
   buildPccMilestoneReadiness,
   buildPccProofFreshness,
   buildPccRecoveryPlaybooks,
@@ -786,6 +787,7 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
   const freshness = buildPccProofFreshness(input).slice(0, 5);
   const recovery = buildPccRecoveryPlaybooks(input);
   const dependency = buildPccDependencyInsights(input);
+  const integrity = buildPccIntegrityFindings(input).slice(0, 5);
   const timeline = buildPccTimeline(input);
   const importText = props.chatSyncText.trim()
     ? props.chatSyncText
@@ -845,6 +847,27 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
             </li>`,
           )}
         </ul>
+      </article>
+      <article class="pcc-impact-card" data-pcc-plan-integrity>
+        <p class="pcc-kicker">Plan integrity</p>
+        <h4>
+          ${integrity.length
+            ? `${integrity.length} issue${integrity.length === 1 ? "" : "s"}`
+            : "No broken links"}
+        </h4>
+        ${integrity.length
+          ? html`<ul>
+              ${integrity.map(
+                (item) => html`<li>
+                  <strong>${item.title}</strong>
+                  <span>${item.reason}</span>
+                  <small>${item.repair}</small>
+                </li>`,
+              )}
+            </ul>`
+          : html`<p>
+              Milestone links, sub-milestone parents, and sequence slots look consistent.
+            </p>`}
       </article>
       <article class="pcc-impact-card" data-pcc-project-history>
         <p class="pcc-kicker">Project history</p>
