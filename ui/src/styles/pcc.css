@@ -1837,6 +1837,36 @@
   flex: 1 1 160px;
 }
 
+.pcc-project-orientation {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 22px;
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.pcc-project-orientation__crumbs {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.86rem;
+  gap: 8px;
+}
+
+.pcc-project-orientation__crumbs strong {
+  color: var(--text);
+}
+
+.pcc-project-orientation__facts {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
 .pcc-project-snapshot,
 .pcc-milestone-journey,
 .pcc-plan-preview {
@@ -2282,6 +2312,10 @@
 }
 
 @media (max-width: 760px) {
+  .pcc-project-orientation__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .pcc-journey-step__content {
     grid-template-columns: minmax(0, 1fr);
   }

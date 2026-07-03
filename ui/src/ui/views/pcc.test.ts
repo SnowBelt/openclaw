@@ -260,6 +260,13 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Health: Needs approval");
     expect(text).toContain("Due:");
     expect(text).toContain("Activity: Milestone updated: CRUD UI");
+    expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
+      "Project Command Center",
+    );
+    expect(container.querySelector("[data-pcc-breadcrumbs]")?.textContent).toContain("CRUD UI");
+    expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
+      "Recent",
+    );
     expect(text).toContain("Workflow Sanity proof");
     expect(text).toContain("CRUD UI");
     expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);

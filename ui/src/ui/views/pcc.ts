@@ -2713,6 +2713,30 @@ function renderPhaseOverview(detail: PccProjectDetail) {
   </section>`;
 }
 
+function renderProjectOrientation(detail: PccProjectDetail) {
+  const project = detail.project;
+  const current = currentMilestoneForDetail(detail);
+  const next = nextMilestoneForDetail(detail);
+  return html`<nav
+    class="pcc-project-orientation"
+    data-pcc-project-orientation
+    aria-label="Project orientation"
+  >
+    <div class="pcc-project-orientation__crumbs" data-pcc-breadcrumbs>
+      <span>Project Command Center</span>
+      <span aria-hidden="true">›</span>
+      <strong>${project.title}</strong>
+      ${current ? html`<span aria-hidden="true">›</span><span>${current.title}</span>` : nothing}
+    </div>
+    <dl class="pcc-project-orientation__facts">
+      ${renderTruthFact("Due", formatProjectDate(detail.summary.dueDate))}
+      ${renderTruthFact("Recent", formatProjectActivity(detail.summary.recentActivity))}
+      ${renderTruthFact("Current", current?.title ?? "Not started")}
+      ${renderTruthFact("Next", next?.title ?? detail.summary.nextActions[0] ?? "None")}
+    </dl>
+  </nav>`;
+}
+
 function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProps) {
   const project = detail.project;
   const percent = clampPercent(detail.summary.percentComplete);
@@ -3008,8 +3032,9 @@ function renderProjectDetail(props: PccDashboardProps) {
   const permissions = detail.permissions ?? [];
   return html`
     <aside class="pcc-detail pcc-detail--${mode}" data-pcc-detail data-pcc-detail-mode=${mode}>
-      ${renderProjectSnapshot(detail, props)} ${renderDecisionCapturePanel(detail, props)}
-      ${renderMilestoneJourney(detail, props)} ${renderWorkLoopCard(props)}
+      ${renderProjectOrientation(detail)} ${renderProjectSnapshot(detail, props)}
+      ${renderDecisionCapturePanel(detail, props)} ${renderMilestoneJourney(detail, props)}
+      ${renderWorkLoopCard(props)}
       <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
         <summary>Details</summary>
         ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
