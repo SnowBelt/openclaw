@@ -55,6 +55,13 @@ const COMPLETE_STATUSES = new Set<PccStatus>(["complete", "complete_with_mainten
 const BLOCKED_STATUSES = new Set<PccStatus>(["blocked", "failed"]);
 const WAITING_STATUSES = new Set<PccStatus>(["needs_approval", "deferred", "on_hold"]);
 const SKIPPED_STATUSES = new Set<PccStatus>(["skipped", "archived"]);
+const PROJECT_TERMINAL_STATUSES = new Set<PccStatus>([
+  "complete",
+  "complete_with_maintenance",
+  "skipped",
+  "archived",
+]);
+const PCC_STALE_PROJECT_DAYS = 14;
 const REOPEN_STATUSES = new Set<PccStatus>(["reopened", "not_started"]);
 const ACTIVE_WORK_STATUSES = new Set<PccStatus>([
   "active",
@@ -398,6 +405,39 @@ function projectHealthLabel(
   return project.status.replace(/_/gu, " ");
 }
 
+function projectSummaryIsOverdue(project: PccProjectSummary): boolean {
+  if (PROJECT_TERMINAL_STATUSES.has(project.status) || !project.dueDate) {
+    return false;
+  }
+  const parsed = Date.parse(project.dueDate);
+  return Number.isFinite(parsed) && parsed < Date.now();
+}
+
+function projectSummaryIsStale(project: PccProjectSummary): boolean {
+  if (PROJECT_TERMINAL_STATUSES.has(project.status)) {
+    return false;
+  }
+  const updatedAt = Date.parse(project.updatedAt);
+  if (!Number.isFinite(updatedAt)) {
+    return false;
+  }
+  return Date.now() - updatedAt > PCC_STALE_PROJECT_DAYS * 24 * 60 * 60 * 1_000;
+}
+
+function projectSummaryNeedsAttention(project: PccProjectSummary): boolean {
+  return (
+    project.status === "needs_approval" ||
+    project.status === "blocked" ||
+    project.milestoneCounts.needsApproval > 0 ||
+    project.milestoneCounts.blocked > 0 ||
+    project.proofGaps.length > 0 ||
+    projectSummaryIsOverdue(project) ||
+    projectSummaryIsStale(project) ||
+    project.health === "Overdue" ||
+    project.health === "At risk"
+  );
+}
+
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -554,6 +594,10 @@ function summarizePortfolio(ledger: PccLedger): PccPortfolioSummary {
     ).length,
     blocked: ledger.projects.filter((project) => BLOCKED_STATUSES.has(project.status)).length,
     needsApproval: ledger.projects.filter((project) => project.status === "needs_approval").length,
+    needsAttention: projectSummaries.filter(projectSummaryNeedsAttention).length,
+    proofGaps: projectSummaries.filter((project) => project.proofGaps.length > 0).length,
+    overdue: projectSummaries.filter(projectSummaryIsOverdue).length,
+    stale: projectSummaries.filter(projectSummaryIsStale).length,
     complete: ledger.projects.filter((project) => COMPLETE_STATUSES.has(project.status)).length,
     archived: ledger.projects.filter((project) => project.status === "archived").length,
     averagePercentComplete,

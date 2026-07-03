@@ -1339,4 +1339,57 @@ describe("Project Command Center gateway methods", () => {
     expect(summary.portfolio.active).toBe(1);
     expect(summary.portfolio.archived).toBe(1);
   });
+
+  it("summarizes portfolio attention, proof-gap, overdue, and stale counts", async () => {
+    await invoke("pcc.projects.upsert", {
+      project: { id: "project-active", title: "Active project", status: "active" },
+    });
+    await invoke("pcc.projects.upsert", {
+      project: {
+        id: "project-overdue",
+        title: "Overdue project",
+        status: "active",
+        metadata: { dueDate: "2000-01-01T00:00:00.000Z" },
+      },
+    });
+    await invoke("pcc.projects.upsert", {
+      project: { id: "project-approval", title: "Approval project", status: "needs_approval" },
+    });
+    await invoke("pcc.projects.upsert", {
+      project: { id: "project-proof-gap", title: "Proof gap project", status: "active" },
+    });
+    const ledgerPath = pccTesting.ledgerPath();
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      projects: Array<Record<string, unknown>>;
+      milestones: Array<Record<string, unknown>>;
+    };
+    const staleProject = ledger.projects.find((project) => project.id === "project-active");
+    expect(staleProject).toBeTruthy();
+    staleProject!.updatedAt = "2000-01-02T00:00:00.000Z";
+    ledger.milestones.push({
+      id: "milestone-proof-gap",
+      projectId: "project-proof-gap",
+      title: "Imported completed milestone without receipt",
+      status: "complete",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const summary = okPayload<{
+      portfolio: {
+        projectsTotal: number;
+        needsAttention?: number;
+        proofGaps?: number;
+        overdue?: number;
+        stale?: number;
+      };
+    }>(await invoke("pcc.summary.get", {}));
+
+    expect(summary.portfolio.projectsTotal).toBe(4);
+    expect(summary.portfolio.needsAttention).toBe(4);
+    expect(summary.portfolio.proofGaps).toBe(1);
+    expect(summary.portfolio.overdue).toBe(1);
+    expect(summary.portfolio.stale).toBe(1);
+  });
 });
