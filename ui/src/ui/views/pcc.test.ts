@@ -1469,6 +1469,39 @@ describe("renderPccDashboard", () => {
     expect(writeText.mock.calls[0]?.[0]).toContain("Worker: local_openclaw_agent");
   });
 
+  it("requires inline confirmation for risky chat sync proposals", () => {
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmSpy);
+    const onApplyChatSyncProposal = vi.fn();
+    const proposal = {
+      id: "chat-plan-risky",
+      kind: "update_milestone" as const,
+      title: "Skip stale milestone",
+      summary: "Chat suggests skipping a milestone.",
+      risky: true,
+      milestoneId: "milestone-1",
+      milestonePatch: { projectId: "project-1", title: "CRUD UI", status: "skipped" as const },
+    };
+    const container = renderView(
+      createProps({
+        chatSyncProposals: [proposal],
+        onApplyChatSyncProposal,
+      }),
+    );
+
+    const applyButton = container.querySelector<HTMLButtonElement>(
+      "[data-pcc-chat-sync-proposal] button",
+    );
+    applyButton?.click();
+    expect(applyButton?.textContent).toContain("Confirm apply");
+    expect(onApplyChatSyncProposal).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    applyButton?.click();
+    expect(onApplyChatSyncProposal).toHaveBeenCalledWith(proposal);
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
   it("renders and applies reviewable chat sync proposals", () => {
     const onChatSyncTextChange = vi.fn();
     const onPreviewChatSync = vi.fn();

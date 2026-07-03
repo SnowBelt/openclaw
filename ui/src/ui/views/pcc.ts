@@ -3002,10 +3002,14 @@ function renderChatSyncProposal(proposal: PccChatSyncProposal, props: PccDashboa
       class="btn btn--subtle"
       type="button"
       ?disabled=${props.actionBusy}
-      @click=${() => {
-        if (!proposal.risky || confirmAction("Apply this chat-suggested PCC update?")) {
-          props.onApplyChatSyncProposal(proposal);
+      @click=${(event: Event) => {
+        if (proposal.risky) {
+          runPccConfirmedButtonAction(event, "Confirm apply", () =>
+            props.onApplyChatSyncProposal(proposal),
+          );
+          return;
         }
+        props.onApplyChatSyncProposal(proposal);
       }}
     >
       Apply
