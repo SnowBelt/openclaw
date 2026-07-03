@@ -404,6 +404,39 @@ describe("renderPccDashboard", () => {
     expect(onCancelDecisionForm).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the decision form when legacy evidence is missing kind or status", () => {
+    const legacyEvidence = {
+      ...evidence,
+      kind: undefined,
+      status: undefined,
+    } as unknown as typeof evidence;
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [legacyEvidence],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        },
+        decisionFormOpen: true,
+        decisionForm: {
+          ...EMPTY_PCC_DECISION_FORM,
+          title: "Record a legacy proof choice",
+          summary: "Keep old proof usable.",
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-decision-capture]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-decision-form]")).not.toBeNull();
+    expect(container.textContent).toContain("Not recorded");
+  });
+
   it("renders Simple, Detailed, and Agent view controls", () => {
     const onSetViewMode = vi.fn();
     const simple = renderView(createProps({ viewMode: "simple", onSetViewMode }));

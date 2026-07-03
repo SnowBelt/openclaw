@@ -230,8 +230,12 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-function formatStatus(status: string): string {
-  return status
+function formatStatus(status: string | null | undefined): string {
+  const value = typeof status === "string" ? status.trim() : "";
+  if (!value) {
+    return "Not recorded";
+  }
+  return value
     .split("_")
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -1328,8 +1332,8 @@ function renderDecisionCard(decision: PccDecision, evidence: PccEvidence[]) {
   </article>`;
 }
 
-function parseDecisionEvidenceIds(value: string): string[] {
-  return value
+function parseDecisionEvidenceIds(value: string | null | undefined): string[] {
+  return (value ?? "")
     .split(/[\n,]+/u)
     .map((item) => item.trim())
     .filter(Boolean);
