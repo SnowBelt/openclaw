@@ -1395,6 +1395,93 @@ describe("renderPccDashboard", () => {
     expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps production truth scoped to the PCC project even when another project is selected", () => {
+    const verifiedSha = "4d8408034d7131470980c316a2af2f311aa6b785";
+    const pccDetail = {
+      project: {
+        ...project,
+        id: "project-command-center",
+        title: "Project Command Center",
+        metadata: {
+          ...project.metadata,
+          pccProductionTruth: {
+            latestVerifiedSha: verifiedSha,
+            runtimeSha: verifiedSha,
+            remoteProofPassed: true,
+            runtimeProofPassed: true,
+            browserProofScreenshotPath: "/tmp/pcc-proof.png",
+          },
+        },
+      },
+      milestones: [
+        {
+          ...milestone,
+          id: "pcc-proof",
+          projectId: "project-command-center",
+          title: "PCC runtime proof",
+          status: "complete" as const,
+          receiptIds: ["receipt-1"],
+          metadata: { requiresRemoteProof: true, requiresRuntimeProof: true },
+        },
+      ],
+      subMilestones: [],
+      permissions: [],
+      evidence: [
+        {
+          ...evidence,
+          id: "remote-proof",
+          projectId: "project-command-center",
+          milestoneId: "pcc-proof",
+          kind: "remote_ci" as const,
+        },
+        {
+          ...evidence,
+          id: "browser-proof",
+          projectId: "project-command-center",
+          milestoneId: "pcc-proof",
+          kind: "browser_proof" as const,
+        },
+      ],
+      receipts: [{ ...receipt, projectId: "project-command-center", milestoneId: "pcc-proof" }],
+      decisions: [],
+      lastKnownGood: [],
+      summary: { ...summary, id: "project-command-center", title: "Project Command Center" },
+    };
+    const selectedNonPccDetail = {
+      project: {
+        ...project,
+        id: "project-snes",
+        title: "SNES Game Creator",
+        metadata: {},
+      },
+      milestones: [],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      decisions: [],
+      lastKnownGood: [],
+      summary: { ...summary, id: "project-snes", title: "SNES Game Creator" },
+    };
+
+    const container = renderView(
+      createProps({
+        selectedProjectId: "project-snes",
+        projectDetail: selectedNonPccDetail,
+        projectDetails: {
+          "project-command-center": pccDetail,
+          "project-snes": selectedNonPccDetail,
+        },
+      }),
+    );
+
+    const productionTruth = container.querySelector("[data-pcc-production-truth]");
+    expect(productionTruth?.textContent).toContain("Current");
+    expect(productionTruth?.textContent).toContain(verifiedSha.slice(0, 12));
+    expect(productionTruth?.textContent).toContain("Passed");
+    expect(productionTruth?.textContent).not.toContain("PCC remote Workflow Sanity proof missing");
+  });
+
   it("renders production truth as current when proof metadata and receipts align", () => {
     const container = renderView(
       createProps({

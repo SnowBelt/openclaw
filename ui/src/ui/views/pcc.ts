@@ -597,8 +597,23 @@ function renderTruthFact(label: string, value: string) {
   </div>`;
 }
 
+function productionTruthDetail(props: PccDashboardProps): PccProjectDetail | null {
+  const details = Object.values(props.projectDetails ?? {});
+  return (
+    details.find(
+      (detail) =>
+        detail.project.id === "project-command-center" ||
+        detail.project.title === "Project Command Center",
+    ) ??
+    (props.projectDetail?.project.id === "project-command-center" ||
+    props.projectDetail?.project.title === "Project Command Center"
+      ? props.projectDetail
+      : null)
+  );
+}
+
 function renderProductionTruthCard(props: PccDashboardProps) {
-  const detail = props.projectDetail;
+  const detail = productionTruthDetail(props);
   const truth = buildPccProductionTruth({
     project: detail?.project,
     milestones: detail?.milestones ?? [],
@@ -675,7 +690,7 @@ function renderProductionTruthCard(props: PccDashboardProps) {
 }
 
 function renderProductionTruthDrawer(props: PccDashboardProps) {
-  const detail = props.projectDetail;
+  const detail = productionTruthDetail(props);
   const truth = buildPccProductionTruth({
     project: detail?.project,
     milestones: detail?.milestones ?? [],
