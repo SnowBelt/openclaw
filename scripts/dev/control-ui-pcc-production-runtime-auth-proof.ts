@@ -172,7 +172,9 @@ async function runBrowserProof(options: ProofOptions) {
           .waitFor({ state: "visible", timeout: 45_000 });
       }
     }
-    const setupRepair = page.getByRole("button", { name: /Fill missing setup with AI/i }).first();
+    const setupRepair = page
+      .getByRole("button", { name: /Fill missing setup with AI|Generate setup with AI/i })
+      .first();
     if (await setupRepair.isVisible().catch(() => false)) {
       await setupRepair.click({ force: true });
       await page
@@ -239,7 +241,8 @@ async function runBrowserProof(options: ProofOptions) {
       setupRepair:
         options.profile === "production-current" ||
         has("Setup needs a few answers") ||
-        has("Fill missing setup with AI"),
+        has("Fill missing setup with AI") ||
+        has("Generate setup with AI"),
       autofillPreview:
         options.profile === "production-current" ||
         !autofillPreviewOpened ||
