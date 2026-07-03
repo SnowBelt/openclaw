@@ -276,6 +276,11 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Permission needed");
     expect(text).toContain("Remote Proof");
     expect(text).toContain("Today");
+    expect(text).toContain("Recent Activity");
+    expect(text).toContain("What changed recently");
+    expect(container.querySelector("[data-pcc-recent-activity]")?.textContent).toContain(
+      "Milestone updated: CRUD UI",
+    );
     expect(text).toContain("Needs You");
     expect(text).toContain("Project Snapshot");
     expect(text).toContain("Milestone Journey");
@@ -292,6 +297,46 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-production-truth]")).not.toBeNull();
     expect(text).toContain("Production truth");
     expect(text).toContain("PCC remote Workflow Sanity proof missing");
+  });
+
+  it("sorts recent activity so the newest project update is easiest to skim", () => {
+    const older = {
+      ...summary,
+      id: "older-project",
+      title: "Older Project",
+      recentActivity: "Project updated · 2026-06-01T00:00:00Z",
+      updatedAt: "2026-06-01T00:00:00Z",
+    };
+    const newer = {
+      ...summary,
+      id: "newer-project",
+      title: "Newer Project",
+      recentActivity: "Decision: Pick final architecture · 2026-07-03T14:00:00Z",
+      updatedAt: "2026-07-03T14:00:00Z",
+    };
+    const container = renderView(
+      createProps({
+        projects: [older, summary, newer],
+        portfolio: {
+          projectsTotal: 3,
+          active: 3,
+          blocked: 0,
+          needsApproval: 1,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 42,
+          nextActions: ["Run remote proof"],
+        },
+      }),
+    );
+
+    const recent = container.querySelector("[data-pcc-recent-activity]");
+    expect(recent).not.toBeNull();
+    const items = [...recent!.querySelectorAll(".pcc-recent-activity__item")];
+    expect(items).toHaveLength(3);
+    expect(items[0]?.textContent).toContain("Newer Project");
+    expect(items[0]?.textContent).toContain("Decision: Pick final architecture");
+    expect(items[2]?.textContent).toContain("Older Project");
   });
 
   it("renders last-known-good verified state in project history details", () => {

@@ -917,6 +917,30 @@ function formatProjectActivity(value: string | undefined): string {
   return `${label} · ${formatUpdatedAt(time)}`;
 }
 
+function projectActivityParts(value: string | undefined): { label: string; time: number } | null {
+  if (!value) {
+    return null;
+  }
+  const [label, at] = value.split(" · ");
+  const time = Date.parse(at ?? "");
+  if (!label?.trim() || Number.isNaN(time)) {
+    return null;
+  }
+  return { label: label.trim(), time };
+}
+
+function projectRecentActivityItems(projects: readonly PccProjectSummary[]) {
+  return projects
+    .map((project) => ({ project, activity: projectActivityParts(project.recentActivity) }))
+    .filter(
+      (item): item is { project: PccProjectSummary; activity: { label: string; time: number } } =>
+        item.activity !== null,
+    )
+    .toSorted(
+      (a, b) => b.activity.time - a.activity.time || a.project.title.localeCompare(b.project.title),
+    );
+}
+
 function projectDetailIntakeSourceText(detail: PccProjectDetail | null | undefined): string {
   if (!detail) {
     return "";
@@ -2268,6 +2292,57 @@ function renderProjectSearch(props: PccDashboardProps, visibleCount: number, fil
   </section>`;
 }
 
+function renderRecentActivityFeed(props: PccDashboardProps) {
+  const items = projectRecentActivityItems(props.projects).slice(0, 5);
+  return html`<section
+    class="pcc-recent-activity"
+    data-pcc-recent-activity
+    aria-label="Recent activity"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Recent Activity</p>
+        <h3>What changed recently</h3>
+        <p>Latest project, milestone, proof, permission, receipt, and decision updates.</p>
+      </div>
+      <span>${items.length ? `${items.length} latest` : "No activity"}</span>
+    </div>
+    ${items.length
+      ? html`<ol class="pcc-recent-activity__list">
+          ${items.map(
+            ({ project, activity }) => html`<li class="pcc-recent-activity__item">
+              <div>
+                <strong>${project.title}</strong>
+                <span>${activity.label}</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>When</dt>
+                  <dd>${formatUpdatedAt(activity.time)}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>${formatStatus(project.status)}</dd>
+                </div>
+                <div>
+                  <dt>Progress</dt>
+                  <dd>${clampPercent(project.percentComplete)}%</dd>
+                </div>
+              </dl>
+              <button
+                class="btn btn--subtle"
+                type="button"
+                @click=${() => props.onSelectProject(project.id)}
+              >
+                Open
+              </button>
+            </li>`,
+          )}
+        </ol>`
+      : html`<p class="pcc-empty pcc-empty--small">No recent project activity yet.</p>`}
+  </section>`;
+}
+
 function renderTopPortfolioMetrics(
   props: PccDashboardProps,
   projects: readonly PccProjectSummary[],
@@ -2346,6 +2421,7 @@ function renderTodayView(props: PccDashboardProps) {
         </em>
       </article>
     </div>
+    ${renderRecentActivityFeed(props)}
     <details class="pcc-today__drawer">
       <summary>Show all project queues</summary>
       <div class="pcc-today__queues">
