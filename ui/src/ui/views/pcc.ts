@@ -1925,6 +1925,7 @@ function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) 
 
 function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[]) {
   const proofEvidenceIds = stringArray(receipt.proofEvidenceIds);
+  const artifactRefs = stringArray(receipt.artifactRefs);
   const proofItems = evidence.filter((item) => proofEvidenceIds.includes(item.id));
   return html`
     <details class="pcc-receipt" data-pcc-receipt>
@@ -1943,10 +1944,22 @@ function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[
           <dd>${proofEvidenceIds.length} item${proofEvidenceIds.length === 1 ? "" : "s"}</dd>
         </div>
         <div>
+          <dt>Artifacts</dt>
+          <dd>${artifactRefs.length} ref${artifactRefs.length === 1 ? "" : "s"}</dd>
+        </div>
+        <div>
           <dt>By</dt>
           <dd>${receipt.completedBy || "Not recorded"}</dd>
         </div>
       </dl>
+      ${artifactRefs.length
+        ? html`<div class="pcc-receipt__note" data-pcc-receipt-artifacts>
+            <strong>Artifacts</strong>
+            <ul>
+              ${artifactRefs.map((artifact) => html`<li>${artifact}</li>`)}
+            </ul>
+          </div>`
+        : nothing}
       ${proofItems.length
         ? html`<ul class="pcc-receipt__list">
             ${proofItems.map(

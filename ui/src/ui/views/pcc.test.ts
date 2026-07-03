@@ -1386,7 +1386,15 @@ describe("renderPccDashboard", () => {
           milestones: [{ ...milestone, status: "proof_pending" }],
           permissions: [],
           evidence: [evidence],
-          receipts: [receipt],
+          receipts: [
+            {
+              ...receipt,
+              artifactRefs: [
+                "/tmp/openclaw-dashboard-pcc-proof.png",
+                "https://github.com/SnowBelt/openclaw/actions/runs/123",
+              ],
+            },
+          ],
           summary,
         },
       }),
@@ -1394,6 +1402,11 @@ describe("renderPccDashboard", () => {
 
     expect(container.querySelectorAll("[data-pcc-receipt]")).toHaveLength(1);
     expect(container.querySelectorAll("[data-pcc-evidence-list]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-receipt-artifacts]")?.textContent).toContain(
+      "/tmp/openclaw-dashboard-pcc-proof.png",
+    );
+    expect(container.querySelector("[data-pcc-receipt]")?.textContent).toContain("Artifacts");
+    expect(container.querySelector("[data-pcc-receipt]")?.textContent).toContain("2 refs");
     expect(container.textContent).toContain("Completion receipt");
     expect(container.textContent).toContain("Do not redo");
     expect(container.textContent).toContain("Local PCC proof passed");
