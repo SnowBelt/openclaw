@@ -200,6 +200,23 @@ async function main(): Promise<void> {
       },
       projects: [
         summary,
+        {
+          ...summary,
+          id: "stale",
+          title: "Stale Project",
+          status: "active",
+          milestoneCounts: {
+            total: 2,
+            complete: 1,
+            blocked: 0,
+            needsApproval: 0,
+            deferred: 0,
+            skipped: 0,
+          },
+          nextActions: [],
+          health: "On track",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
         { ...summary, id: "held", title: "Held Project", status: "on_hold" },
         { ...summary, id: "archived", title: "Archived Project", status: "archived" },
       ],
@@ -290,6 +307,7 @@ async function main(): Promise<void> {
 
     requireSelector(root, "[data-pcc-top-metrics]");
     requireSelector(root, "[data-pcc-project-tabs]");
+    requireSelector(root, "[data-pcc-needs-attention-now]");
     requireSelector(root, "[data-pcc-action-notice]");
     requireSelector(root, "[data-pcc-proof-badge]");
     requireSelector(root, "[data-pcc-planner-model]");
@@ -301,6 +319,8 @@ async function main(): Promise<void> {
     requireText(text, "On Hold");
     requireText(text, "Archived");
     requireText(text, "Proof:");
+    requireText(text, "Stale Project");
+    requireText(text, "No recorded update since");
     requireText(text, "Best available");
     requireText(text, "GPT-5.5 High Reasoning");
     requireText(text, "High-reasoning / Codex permission");
