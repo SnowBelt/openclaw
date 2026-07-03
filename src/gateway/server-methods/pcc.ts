@@ -837,6 +837,11 @@ function upsertMilestone(
     return { error: `project not found: ${input.projectId}` };
   }
   const existing = input.id ? milestoneOrError(ledger, input.id) : null;
+  if (existing && existing.projectId !== input.projectId) {
+    return {
+      error: `milestone ${existing.id} belongs to project ${existing.projectId}; cannot move to project ${input.projectId}`,
+    };
+  }
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("milestone", input.title);
   const status = input.status ?? existing?.status ?? "not_started";
@@ -954,6 +959,16 @@ function upsertSubMilestone(
     return { error: `milestone not found: ${input.milestoneId}` };
   }
   const existing = input.id ? subMilestoneOrError(ledger, input.id) : null;
+  if (existing && existing.projectId !== input.projectId) {
+    return {
+      error: `sub-milestone ${existing.id} belongs to project ${existing.projectId}; cannot move to project ${input.projectId}`,
+    };
+  }
+  if (existing && existing.milestoneId !== input.milestoneId) {
+    return {
+      error: `sub-milestone ${existing.id} belongs to milestone ${existing.milestoneId}; cannot move to milestone ${input.milestoneId}`,
+    };
+  }
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("submilestone", input.title);
   const status = input.status ?? existing?.status ?? "not_started";

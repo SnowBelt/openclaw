@@ -733,6 +733,77 @@ describe("Project Command Center gateway methods", () => {
     ).toContain("sub-milestone dependency not found under milestone");
   });
 
+  it("rejects moving existing milestones and sub-milestones to another parent", async () => {
+    const firstProject = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "First project" } }),
+    ).project;
+    const secondProject = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Second project" } }),
+    ).project;
+    const firstMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: firstProject.id, title: "First milestone" },
+      }),
+    ).milestone;
+    const secondMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: firstProject.id, title: "Second milestone" },
+      }),
+    ).milestone;
+    const otherProjectMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: secondProject.id, title: "Other project milestone" },
+      }),
+    ).milestone;
+    const subMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: firstProject.id,
+          milestoneId: firstMilestone.id,
+          title: "Pinned sub-step",
+        },
+      }),
+    ).subMilestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            id: firstMilestone.id,
+            projectId: secondProject.id,
+            title: "Moved milestone",
+          },
+        }),
+      ),
+    ).toContain(`milestone ${firstMilestone.id} belongs to project ${firstProject.id}`);
+
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            id: subMilestone.id,
+            projectId: secondProject.id,
+            milestoneId: otherProjectMilestone.id,
+            title: "Moved sub-step",
+          },
+        }),
+      ),
+    ).toContain(`sub-milestone ${subMilestone.id} belongs to project ${firstProject.id}`);
+
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            id: subMilestone.id,
+            projectId: firstProject.id,
+            milestoneId: secondMilestone.id,
+            title: "Moved sub-step",
+          },
+        }),
+      ),
+    ).toContain(`sub-milestone ${subMilestone.id} belongs to milestone ${firstMilestone.id}`);
+  });
+
   it("summarizes portfolio status without showing archived projects by default", async () => {
     const active = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", {
