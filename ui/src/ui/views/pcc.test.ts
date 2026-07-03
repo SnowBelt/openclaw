@@ -311,6 +311,29 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("PCC remote Workflow Sanity proof missing");
   });
 
+  it("routes integrity and proof gaps into Needs You", () => {
+    const container = renderView(
+      createProps({
+        projects: [
+          {
+            ...summary,
+            status: "active",
+            health: "On track",
+            proofGaps: ["Integrity issue: receipt references missing milestone: receipt-1"],
+            milestoneCounts: { ...summary.milestoneCounts, blocked: 0, needsApproval: 0 },
+          },
+        ],
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-needs-attention-now]")?.textContent).toContain(
+      "Integrity/proof gap",
+    );
+    expect(container.querySelector("[data-pcc-needs-attention-now]")?.textContent).toContain(
+      "Project Command Center",
+    );
+  });
+
   it("shows proof gaps as blocker context when no action blocker exists", () => {
     const container = renderView(
       createProps({
@@ -768,6 +791,7 @@ describe("renderPccDashboard", () => {
         skipped: 0,
       },
       nextActions: ["Continue local proof"],
+      proofGaps: [],
       health: "On track",
     };
     const container = renderView(

@@ -473,6 +473,7 @@ function projectNeedsAttention(project: PccProjectSummary): boolean {
     project.status === "blocked" ||
     project.milestoneCounts.needsApproval > 0 ||
     project.milestoneCounts.blocked > 0 ||
+    project.proofGaps.length > 0 ||
     projectIsOverdue(project) ||
     projectIsStale(project) ||
     project.health === "Overdue" ||
@@ -504,6 +505,9 @@ function workStateForProject(
   detail?: PccProjectDetail,
 ): "Working" | "Paused" | "Blocked" | "Waiting for you" | "Off" {
   if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
+    return "Blocked";
+  }
+  if (project.proofGaps.length > 0) {
     return "Blocked";
   }
   if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
@@ -2034,6 +2038,9 @@ function attentionKind(project: PccProjectSummary): string {
   }
   if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
     return "Blocked";
+  }
+  if (project.proofGaps.length > 0) {
+    return "Integrity/proof gap";
   }
   if (projectIsOverdue(project) || project.health === "Overdue") {
     return "Overdue";

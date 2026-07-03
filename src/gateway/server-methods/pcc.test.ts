@@ -131,6 +131,76 @@ describe("Project Command Center gateway methods", () => {
     expect(milestonePayload.milestone.id).toMatch(/^milestone-/);
   });
 
+  it("surfaces imported ledger integrity gaps in project summaries", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Imported broken project" } }),
+    );
+    const ledgerPath = pccTesting.ledgerPath();
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      subMilestones: Array<Record<string, unknown>>;
+      evidence: Array<Record<string, unknown>>;
+      receipts: Array<Record<string, unknown>>;
+      decisions: Array<Record<string, unknown>>;
+      lastKnownGood: Array<Record<string, unknown>>;
+    };
+    ledger.subMilestones.push({
+      id: "orphan-sub-step",
+      projectId: project.id,
+      milestoneId: "missing-milestone",
+      title: "Orphan imported sub-step",
+      status: "not_started",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.evidence.push({
+      id: "failed-imported-evidence",
+      projectId: project.id,
+      kind: "local_test",
+      status: "failed",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.receipts.push({
+      id: "bad-imported-receipt",
+      projectId: project.id,
+      milestoneId: "missing-milestone",
+      summary: "Imported receipt should not be trusted.",
+      proofEvidenceIds: ["failed-imported-evidence"],
+      proofLevel: "local",
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.decisions.push({
+      id: "bad-imported-decision",
+      projectId: project.id,
+      subMilestoneId: "missing-sub-step",
+      title: "Imported decision",
+      summary: "Imported decision references a missing sub-step.",
+      decidedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.lastKnownGood.push({
+      id: "bad-imported-lkg",
+      projectId: project.id,
+      subsystem: "Imported proof",
+      summary: "Imported last-known-good references failed evidence.",
+      evidenceIds: ["failed-imported-evidence"],
+      verifiedAt: "2026-01-01T00:00:00.000Z",
+    });
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const listPayload = okPayload<{ projects: Array<{ id: string; proofGaps: string[] }> }>(
+      await invoke("pcc.projects.list", {}),
+    );
+    const summary = listPayload.projects.find((item) => item.id === project.id);
+    expect(summary?.proofGaps).toEqual(
+      expect.arrayContaining([
+        "Integrity issue: sub-milestone has missing parent milestone: Orphan imported sub-step",
+        "Integrity issue: receipt references missing milestone: bad-imported-receipt",
+        "Integrity issue: receipt references non-passing proof evidence: failed-imported-evidence",
+        "Integrity issue: decision references missing sub-milestone: bad-imported-decision",
+        "Integrity issue: last-known-good references non-passing evidence: failed-imported-evidence",
+      ]),
+    );
+  });
+
   it("summarizes legacy rows with missing activity timestamps", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Legacy timestamp project" } }),

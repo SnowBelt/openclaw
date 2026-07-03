@@ -398,6 +398,77 @@ function projectHealthLabel(
   return project.status.replace(/_/gu, " ");
 }
 
+function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] {
+  const gaps: string[] = [];
+  const projectMilestoneIds = new Set(
+    ledger.milestones
+      .filter((milestone) => milestone.projectId === project.id)
+      .map((milestone) => milestone.id),
+  );
+  const projectSubMilestoneIds = new Set(
+    ledger.subMilestones
+      .filter((subMilestone) => subMilestone.projectId === project.id)
+      .map((subMilestone) => subMilestone.id),
+  );
+  for (const subMilestone of ledger.subMilestones.filter((item) => item.projectId === project.id)) {
+    if (!projectMilestoneIds.has(subMilestone.milestoneId)) {
+      gaps.push(
+        `Integrity issue: sub-milestone has missing parent milestone: ${subMilestone.title}`,
+      );
+    }
+  }
+  for (const permission of ledger.permissions.filter((item) => item.projectId === project.id)) {
+    if (permission.milestoneId && !projectMilestoneIds.has(permission.milestoneId)) {
+      gaps.push(`Integrity issue: permission references missing milestone: ${permission.id}`);
+    }
+  }
+  for (const evidence of ledger.evidence.filter((item) => item.projectId === project.id)) {
+    if (evidence.milestoneId && !projectMilestoneIds.has(evidence.milestoneId)) {
+      gaps.push(`Integrity issue: evidence references missing milestone: ${evidence.id}`);
+    }
+  }
+  for (const receipt of ledger.receipts.filter((item) => item.projectId === project.id)) {
+    if (!projectMilestoneIds.has(receipt.milestoneId)) {
+      gaps.push(`Integrity issue: receipt references missing milestone: ${receipt.id}`);
+    }
+    for (const evidenceId of receipt.proofEvidenceIds) {
+      const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+      if (!evidence || evidence.projectId !== project.id) {
+        gaps.push(`Integrity issue: receipt references missing proof evidence: ${evidenceId}`);
+      } else if (evidence.status !== "passed") {
+        gaps.push(`Integrity issue: receipt references non-passing proof evidence: ${evidenceId}`);
+      }
+    }
+  }
+  for (const decision of ledger.decisions.filter((item) => item.projectId === project.id)) {
+    if (decision.milestoneId && !projectMilestoneIds.has(decision.milestoneId)) {
+      gaps.push(`Integrity issue: decision references missing milestone: ${decision.id}`);
+    }
+    if (decision.subMilestoneId && !projectSubMilestoneIds.has(decision.subMilestoneId)) {
+      gaps.push(`Integrity issue: decision references missing sub-milestone: ${decision.id}`);
+    }
+    for (const evidenceId of decision.evidenceIds ?? []) {
+      const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+      if (!evidence || evidence.projectId !== project.id) {
+        gaps.push(`Integrity issue: decision references missing evidence: ${evidenceId}`);
+      }
+    }
+  }
+  for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
+    for (const evidenceId of entry.evidenceIds ?? []) {
+      const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+      if (!evidence || evidence.projectId !== project.id) {
+        gaps.push(`Integrity issue: last-known-good references missing evidence: ${evidenceId}`);
+      } else if (evidence.status !== "passed") {
+        gaps.push(
+          `Integrity issue: last-known-good references non-passing evidence: ${evidenceId}`,
+        );
+      }
+    }
+  }
+  return [...new Set(gaps)];
+}
+
 function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSummary {
   const milestones = ledger.milestones.filter((milestone) => milestone.projectId === project.id);
   const percentComplete = summarizeWeightedProjectPercent(ledger, project, milestones);
@@ -417,8 +488,9 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     .toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.updatedAt.localeCompare(b.updatedAt))
     .slice(0, 10)
     .map((milestone) => `${milestone.title}: ${milestone.blocker || milestone.status}`);
-  const proofGaps = milestones
-    .flatMap((milestone) => {
+  const proofGaps = [
+    ...projectIntegrityGaps(ledger, project),
+    ...milestones.flatMap((milestone) => {
       const gaps: string[] = [];
       if (COMPLETE_STATUSES.has(milestone.status) && !hasReceipt(ledger, milestone.id)) {
         gaps.push(`Completion receipt missing for ${milestone.title}`);
@@ -430,8 +502,8 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
         gaps.push(`Incomplete sub-milestones remain for ${milestone.title}`);
       }
       return gaps;
-    })
-    .slice(0, 20);
+    }),
+  ].slice(0, 20);
   const dueDate = projectDueDate(project);
   return {
     id: project.id,
