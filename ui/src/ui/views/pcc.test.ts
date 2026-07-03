@@ -690,6 +690,46 @@ describe("renderPccDashboard", () => {
     expect(onSelectProject).toHaveBeenCalledWith("project-blocked");
   });
 
+  it("surfaces stale active projects in the needs-attention queue", () => {
+    const staleProject = {
+      ...summary,
+      id: "project-stale",
+      title: "Stale Project",
+      status: "active" as const,
+      milestoneCounts: {
+        total: 3,
+        complete: 1,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: [],
+      health: "On track",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const container = renderView(
+      createProps({
+        projects: [staleProject],
+        portfolio: {
+          projectsTotal: 1,
+          active: 1,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 33,
+          nextActions: [],
+        },
+      }),
+    );
+
+    const attention = container.querySelector("[data-pcc-needs-attention-now]");
+    expect(attention?.textContent).toContain("Stale Project");
+    expect(attention?.textContent).toContain("Stale");
+    expect(attention?.textContent).toContain("No recorded update since");
+  });
+
   it("renders an error state and keeps refresh usable", () => {
     const onRefresh = vi.fn();
     const container = renderView(createProps({ error: "gateway offline", onRefresh }));

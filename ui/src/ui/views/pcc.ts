@@ -445,12 +445,25 @@ function terminalStatus(status: PccStatus): boolean {
   return ["complete", "complete_with_maintenance", "skipped", "archived"].includes(status);
 }
 
+const PCC_STALE_PROJECT_DAYS = 14;
+
 function projectIsOverdue(project: PccProjectSummary): boolean {
   if (PROJECT_TERMINAL_STATUSES.has(project.status) || !project.dueDate) {
     return false;
   }
   const parsed = Date.parse(project.dueDate);
   return Number.isFinite(parsed) && parsed < Date.now();
+}
+
+function projectIsStale(project: PccProjectSummary): boolean {
+  if (PROJECT_TERMINAL_STATUSES.has(project.status)) {
+    return false;
+  }
+  const updatedAt = Date.parse(project.updatedAt);
+  if (!Number.isFinite(updatedAt)) {
+    return false;
+  }
+  return Date.now() - updatedAt > PCC_STALE_PROJECT_DAYS * 24 * 60 * 60 * 1_000;
 }
 
 function projectNeedsAttention(project: PccProjectSummary): boolean {
@@ -460,6 +473,7 @@ function projectNeedsAttention(project: PccProjectSummary): boolean {
     project.milestoneCounts.needsApproval > 0 ||
     project.milestoneCounts.blocked > 0 ||
     projectIsOverdue(project) ||
+    projectIsStale(project) ||
     project.health === "Overdue" ||
     project.health === "At risk"
   );
@@ -477,6 +491,9 @@ function projectAttentionLine(project: PccProjectSummary): string {
   }
   if (project.health === "At risk") {
     return "At risk; review blockers, proof, and next action";
+  }
+  if (projectIsStale(project)) {
+    return `No recorded update since ${formatProjectDate(project.updatedAt)}`;
   }
   return project.nextActions[0] ?? "Needs review";
 }
@@ -1975,7 +1992,10 @@ function attentionRank(project: PccProjectSummary): number {
   if (project.health === "At risk") {
     return 3;
   }
-  return 4;
+  if (projectIsStale(project)) {
+    return 4;
+  }
+  return 5;
 }
 
 function attentionKind(project: PccProjectSummary): string {
@@ -1990,6 +2010,9 @@ function attentionKind(project: PccProjectSummary): string {
   }
   if (project.health === "At risk") {
     return "At risk";
+  }
+  if (projectIsStale(project)) {
+    return "Stale";
   }
   return "Needs review";
 }
