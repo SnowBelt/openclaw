@@ -853,7 +853,7 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-codex-planning-gate]")).not.toBeNull();
-    expect(codexContainer.textContent).toContain("Planner permission required");
+    expect(codexContainer.textContent).toContain("High-reasoning / Codex permission");
 
     const pmContainer = renderView(
       createProps({

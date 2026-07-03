@@ -140,10 +140,13 @@ import {
   applyPccChatSyncProposal,
   dismissPccSetupAutofill,
   dismissPccChatSync,
+  dismissPccActionNotice,
   loadPccDashboard,
   preparePccNextWorkItem,
   previewPccSetupAutofill,
   previewPccChatSync,
+  movePccMilestoneBefore,
+  movePccSubMilestoneBefore,
   openPccMilestoneEditor,
   openPccProjectEditor,
   savePccMilestone,
@@ -158,6 +161,7 @@ import {
   updatePccWorkLoopSettings,
   updatePccChatSyncText,
   updatePccMilestoneForm,
+  updatePccProjectFilter,
   updatePccProjectForm,
   updatePccViewMode,
 } from "./controllers/pcc.ts";
@@ -2813,6 +2817,8 @@ export function renderApp(state: AppViewState) {
                 projectDetails: state.pccProjectDetails,
                 actionBusy: state.pccActionBusy,
                 actionError: state.pccActionError,
+                actionNotice: state.pccActionNotice,
+                projectFilter: state.pccProjectFilter,
                 editorMode: state.pccEditorMode,
                 projectForm: state.pccProjectForm,
                 milestoneForm: state.pccMilestoneForm,
@@ -2822,6 +2828,8 @@ export function renderApp(state: AppViewState) {
                 chatSyncError: state.pccChatSyncError,
                 viewMode: state.pccViewMode,
                 onSetViewMode: (mode) => updatePccViewMode(state, mode),
+                onSetProjectFilter: (filter) => updatePccProjectFilter(state, filter),
+                onDismissActionNotice: () => dismissPccActionNotice(state),
                 onRefresh: () => void loadPccDashboard(state),
                 onSelectProject: (projectId) => void selectPccProject(state, projectId),
                 onOpenProjectEditor: (project) => openPccProjectEditor(state, project),
@@ -2837,6 +2845,10 @@ export function renderApp(state: AppViewState) {
                   void setPccMilestoneStatus(state, milestone, status, note),
                 onSetMilestoneStopHere: (milestone, stopHere) =>
                   void setPccMilestoneStopHere(state, milestone, stopHere),
+                onMoveMilestoneBefore: (source, target) =>
+                  void movePccMilestoneBefore(state, source, target),
+                onMoveSubMilestoneBefore: (source, target) =>
+                  void movePccSubMilestoneBefore(state, source, target),
                 onSetSubMilestoneStatus: (subMilestone, status, note) =>
                   void setPccSubMilestoneStatus(state, subMilestone, status, note),
                 onAddCompletionReceipt: (milestone) =>

@@ -44,10 +44,12 @@ import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
 import type {
+  PccActionNotice,
   PccAutofillPreview,
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
+  PccProjectFilter,
   PccProjectFormState,
   PccViewMode,
 } from "./controllers/pcc.ts";
@@ -212,6 +214,8 @@ export type AppViewState = {
   pccProjectDetails: Record<string, PccProjectDetail>;
   pccActionBusy: boolean;
   pccActionError: string | null;
+  pccActionNotice?: PccActionNotice | null;
+  pccProjectFilter?: PccProjectFilter;
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;

@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 Docs: https://docs.openclaw.ai
 
@@ -23,6 +23,7 @@ Docs: https://docs.openclaw.ai
 - Performance: prewarm TUI runtime plugins, deduplicate plugin auto-enable fanout, trim dense text-delta snapshots, and reuse prepared startup model metadata. (#90782, #89978, #91580, #91531) Thanks @RomneyDa and @ai-hpc.
 - Control UI/Chat: add Approval Cards so pending exec and plugin approvals appear directly in Chat with readable metadata, queue count, Allow once, Always allow, and Deny actions while preserving the existing approval modal.
 - Control UI/Chat: render command, proof, and artifact tool results as readable cards with verified status evidence, run metadata, artifact paths, and raw details instead of dense raw tool payloads.
+- Control UI/PCC: make Project Command Center actions and planning easier to use with visible action receipts, active/on-hold/archive tabs, top portfolio metrics, draggable milestone ordering, refreshed planner selection, and a collapsed proof badge for progressive disclosure.
 
 ### Fixes
 

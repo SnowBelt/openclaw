@@ -2054,3 +2054,96 @@
     right: auto;
   }
 }
+
+.pcc-project-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.pcc-project-tabs button {
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, white);
+  color: var(--text-muted);
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pcc-project-tabs button.is-selected {
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.pcc-today__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pcc-today__metric {
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, white);
+}
+
+.pcc-today__metric strong {
+  display: block;
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+.pcc-today__metric span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.pcc-callout--success {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--hairline));
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+}
+
+.pcc-proof-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.pcc-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  color: var(--text-muted);
+  cursor: grab;
+  user-select: none;
+}
+
+.pcc-journey-step[draggable="true"],
+.pcc-submilestone[draggable="true"] {
+  cursor: grab;
+}
+
+.pcc-journey-step[draggable="true"]:active,
+.pcc-submilestone[draggable="true"]:active,
+.pcc-drag-handle:active {
+  cursor: grabbing;
+}

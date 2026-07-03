@@ -358,7 +358,7 @@ async function main(): Promise<void> {
       "Describe what you want to build",
       "Planner",
       "Generated plan preview",
-      "Planner permission required",
+      "High-reasoning / Codex permission",
       "Approve and create",
       "Regenerate",
       "Cancel",

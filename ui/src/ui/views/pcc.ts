@@ -29,11 +29,13 @@ import {
   type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
 import type {
+  PccActionNotice,
   PccAutofillPreview,
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
   PccPlannerMode,
+  PccProjectFilter,
   PccProjectFormState,
   PccViewMode,
 } from "../controllers/pcc.ts";
@@ -63,6 +65,8 @@ export type PccDashboardProps = {
   projectDetails?: Record<string, PccProjectDetail>;
   actionBusy: boolean;
   actionError: string | null;
+  actionNotice?: PccActionNotice | null;
+  projectFilter?: PccProjectFilter;
   editorMode: PccEditorMode;
   projectForm: PccProjectFormState;
   milestoneForm: PccMilestoneFormState;
@@ -72,6 +76,8 @@ export type PccDashboardProps = {
   chatSyncError: string | null;
   viewMode?: PccViewMode;
   onSetViewMode?: (mode: PccViewMode) => void;
+  onSetProjectFilter?: (filter: PccProjectFilter) => void;
+  onDismissActionNotice?: () => void;
   onRefresh: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenProjectEditor: (project?: PccProject) => void;
@@ -84,6 +90,8 @@ export type PccDashboardProps = {
   onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
   onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus, note?: string) => void;
   onSetMilestoneStopHere: (milestone: PccMilestone, stopHere: boolean) => void;
+  onMoveMilestoneBefore?: (source: PccMilestone, target: PccMilestone) => void;
+  onMoveSubMilestoneBefore?: (source: PccSubMilestone, target: PccSubMilestone) => void;
   onSetSubMilestoneStatus?: (
     subMilestone: PccSubMilestone,
     status: PccStatus,
@@ -139,11 +147,31 @@ const PARALLEL_WORK_OPTIONS = [
 ] as const;
 
 const PLANNER_MODE_OPTIONS = [
+  ["best_available", "Best available"],
   ["local_project_manager", "Local Project Manager"],
   ["local_model", "Local model"],
   ["codex", "Codex"],
   ["high_reasoning_codex", "High-reasoning Codex"],
 ] as const;
+
+const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
+  ["active", "Active"],
+  ["needs_you", "Needs You"],
+  ["on_hold", "On Hold"],
+  ["archived", "Archived"],
+  ["all", "All"],
+];
+
+const PLANNER_MODEL_OPTIONS = [
+  ["best-available", "Best available from last refresh"],
+  ["gpt-5.5-high-reasoning", "GPT-5.5 High Reasoning"],
+  ["gpt-5.5", "GPT-5.5 Standard"],
+  ["local-project-manager", "Local Project Manager"],
+  ["local-model", "Local model"],
+] as const;
+
+let draggedPccMilestoneId: string | null = null;
+let draggedPccSubMilestoneId: string | null = null;
 
 const LANE_LABELS = [
   ["user", "User"],
@@ -517,8 +545,9 @@ function renderProductionTruthDrawer(props: PccDashboardProps) {
     receipts: detail?.receipts ?? [],
   });
   const openByDefault = pccViewMode(props) !== "simple" && truth.status !== "current";
+  const badgeLabel = truth.status === "current" ? "Proof: Current" : `Proof: ${truth.label}`;
   return html`<details class="pcc-detail-drawer pcc-top-proof-drawer" ?open=${openByDefault}>
-    <summary>Production truth</summary>
+    <summary><span class="pcc-proof-badge" data-pcc-proof-badge>${badgeLabel}</span></summary>
     ${renderProductionTruthCard(props)}
   </details>`;
 }
@@ -1233,6 +1262,72 @@ function renderTodayPrimaryCard(
   </article>`;
 }
 
+function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilter): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "archived") {
+    return project.status === "archived";
+  }
+  if (filter === "on_hold") {
+    return project.status === "on_hold" || project.status === "deferred";
+  }
+  if (filter === "needs_you") {
+    return (
+      project.status === "needs_approval" ||
+      project.status === "blocked" ||
+      project.milestoneCounts.needsApproval > 0 ||
+      project.milestoneCounts.blocked > 0
+    );
+  }
+  return ![
+    "archived",
+    "complete",
+    "complete_with_maintenance",
+    "skipped",
+    "on_hold",
+    "deferred",
+  ].includes(project.status);
+}
+
+function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly PccProjectSummary[]) {
+  const selected = props.projectFilter ?? "active";
+  return html`<nav class="pcc-project-tabs" data-pcc-project-tabs aria-label="Project filters">
+    ${PROJECT_FILTER_OPTIONS.map(([filter, label]) => {
+      const count = projects.filter((project) => projectMatchesFilter(project, filter)).length;
+      return html`<button
+        type="button"
+        class=${filter === selected ? "is-selected" : ""}
+        aria-pressed=${filter === selected}
+        @click=${() => props.onSetProjectFilter?.(filter)}
+      >
+        ${label} <span>${count}</span>
+      </button>`;
+    })}
+  </nav>`;
+}
+
+function renderTopPortfolioMetrics(
+  props: PccDashboardProps,
+  projects: readonly PccProjectSummary[],
+) {
+  const portfolio = props.portfolio;
+  return html`<section
+    class="pcc-today__metrics"
+    data-pcc-top-metrics
+    aria-label="Portfolio metrics"
+  >
+    ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
+    ${renderMetric("Active", portfolio?.active ?? 0)}
+    ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
+    ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
+    ${renderMetric(
+      "Average completion",
+      `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
+    )}
+  </section>`;
+}
+
 function renderTodayView(props: PccDashboardProps) {
   const portfolio = props.portfolio;
   const working = topProject(
@@ -1264,6 +1359,7 @@ function renderTodayView(props: PccDashboardProps) {
       </div>
       <span>${formatUpdatedAt(props.updatedAt)}</span>
     </div>
+    ${renderTopPortfolioMetrics(props, props.projects)}
     <div class="pcc-today__hero-grid">
       ${renderTodayPrimaryCard(
         props,
@@ -1993,11 +2089,29 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
               return html`<li
                 class="pcc-journey-step pcc-journey-step--${journeyClass}"
                 data-pcc-journey-step
+                data-pcc-milestone-id=${milestone.id}
+                draggable="true"
+                @dragstart=${() => {
+                  draggedPccMilestoneId = milestone.id;
+                }}
+                @dragover=${(event: DragEvent) => event.preventDefault()}
+                @drop=${(event: DragEvent) => {
+                  event.preventDefault();
+                  const source = milestones.find((item) => item.id === draggedPccMilestoneId);
+                  draggedPccMilestoneId = null;
+                  if (source && source.id !== milestone.id) {
+                    props.onMoveMilestoneBefore?.(source, milestone);
+                  }
+                }}
+                @dragend=${() => {
+                  draggedPccMilestoneId = null;
+                }}
               >
                 <div
                   class="pcc-journey-step__marker"
                   aria-label=${`Step ${globalIndex} of ${milestones.length}`}
                 >
+                  <span class="pcc-drag-handle" aria-label="Drag to reorder milestone">☰</span>
                   ${globalIndex}
                 </div>
                 <div class="pcc-journey-step__content">
@@ -2452,8 +2566,29 @@ function renderSubMilestoneList(
       const percent = subMilestoneDisplayPercent(subMilestone);
       const complete =
         subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance";
-      return html`<li class="pcc-submilestone" data-pcc-submilestone>
+      return html`<li
+        class="pcc-submilestone"
+        data-pcc-submilestone
+        data-pcc-submilestone-id=${subMilestone.id}
+        draggable="true"
+        @dragstart=${() => {
+          draggedPccSubMilestoneId = subMilestone.id;
+        }}
+        @dragover=${(event: DragEvent) => event.preventDefault()}
+        @drop=${(event: DragEvent) => {
+          event.preventDefault();
+          const source = subMilestones.find((item) => item.id === draggedPccSubMilestoneId);
+          draggedPccSubMilestoneId = null;
+          if (source && source.id !== subMilestone.id) {
+            props.onMoveSubMilestoneBefore?.(source, subMilestone);
+          }
+        }}
+        @dragend=${() => {
+          draggedPccSubMilestoneId = null;
+        }}
+      >
         <div class="pcc-submilestone__main">
+          <span class="pcc-drag-handle" aria-label="Drag to reorder sub-milestone">☰</span>
           <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
           <div>
             <strong>${subMilestone.title}</strong>
@@ -2717,10 +2852,10 @@ function renderGeneratedPlanPreview(props: PccDashboardProps) {
     </div>
     ${plannerNeedsPermission
       ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
-          <strong>Planner permission required</strong>
+          <strong>High-reasoning / Codex permission</strong>
           <span
-            >PCC can save the template preview now, but Codex refinement will stay blocked until
-            permission is granted.</span
+            >This planner may spend tokens. Allow it for this plan only, or keep the generated local
+            preview without Codex refinement.</span
           >
         </div>`
       : form.plannerMode === "local_project_manager"
@@ -2859,15 +2994,21 @@ function renderProjectEditor(props: PccDashboardProps) {
         </label>
         <label>
           Planner model
-          <input
+          <select
             data-pcc-planner-model
-            placeholder="Optional model id"
-            .value=${form.plannerModelId}
-            @input=${(event: Event) =>
+            .value=${form.plannerModelId || "best-available"}
+            @change=${(event: Event) =>
               props.onProjectFormChange({
-                plannerModelId: (event.target as HTMLInputElement).value,
+                plannerModelId: (event.target as HTMLSelectElement).value,
               })}
-          />
+          >
+            ${PLANNER_MODEL_OPTIONS.map(
+              ([value, label]) => html`<option value=${value}>${label}</option>`,
+            )}
+          </select>
+          <small
+            >Last refreshed with dashboard data. Use Refresh to update model availability.</small
+          >
         </label>
       </div>
       <div class="pcc-editor__grid">
@@ -3105,8 +3246,10 @@ function renderMilestoneEditor(props: PccDashboardProps) {
 }
 
 export function renderPccDashboard(props: PccDashboardProps) {
-  const portfolio = props.portfolio;
-  const projects = props.projects;
+  const allProjects = props.projects;
+  const projects = allProjects.filter((project) =>
+    projectMatchesFilter(project, props.projectFilter ?? "active"),
+  );
   const mode = pccViewMode(props);
   return html`
     <section class="pcc-shell" data-pcc-shell>
@@ -3145,17 +3288,19 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Action failed</strong><span>${props.actionError}</span>
           </div>`
         : nothing}
-      <section class="pcc-metrics" aria-label="Project Command Center summary">
-        ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
-        ${renderMetric("Active", portfolio?.active ?? 0)}
-        ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
-        ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
-        ${renderMetric(
-          "Average completion",
-          `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
-        )}
-      </section>
-      ${renderTodayView(props)}
+      ${props.actionNotice
+        ? html`<div class="pcc-callout pcc-callout--success" data-pcc-action-notice role="status">
+            <strong>Saved</strong><span>${props.actionNotice.text}</span>
+            <button
+              class="btn btn--subtle"
+              type="button"
+              @click=${() => props.onDismissActionNotice?.()}
+            >
+              Dismiss
+            </button>
+          </div>`
+        : nothing}
+      ${renderTodayView(props)} ${renderProjectFilterTabs(props, allProjects)}
       <details class="pcc-detail-drawer pcc-top-proof-drawer">
         <summary>Needs You details</summary>
         ${renderImpactAttentionInbox(props)}
@@ -3168,10 +3313,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
           ${!props.loading && projects.length === 0
             ? html`<div class="pcc-empty" data-pcc-empty>
                 <h3>No projects yet</h3>
-                <p>
-                  Project plans will appear here when OpenClaw records them in the Project Command
-                  Center.
-                </p>
+                <p>No projects match this filter. Use another tab or create a new project.</p>
               </div>`
             : html`<section class="pcc-project-grid" aria-label="Project cards">
                 ${projects.map((project) => renderProjectCard(project, props))}

@@ -221,10 +221,12 @@ import {
 import {
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
+  type PccActionNotice,
   type PccAutofillPreview,
   type PccEditorMode,
   type PccMilestoneFormState,
   type PccProjectDetail,
+  type PccProjectFilter,
   type PccProjectFormState,
   type PccViewMode,
 } from "./controllers/pcc.ts";
@@ -457,6 +459,8 @@ export class OpenClawApp extends LitElement {
   @state() pccProjectDetails: Record<string, PccProjectDetail> = {};
   @state() pccActionBusy = false;
   @state() pccActionError: string | null = null;
+  @state() pccActionNotice: PccActionNotice | null = null;
+  @state() pccProjectFilter: PccProjectFilter = "active";
   @state() pccEditorMode: PccEditorMode = null;
   @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
   @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };
