@@ -1578,6 +1578,29 @@ export async function setPccSubMilestoneStatus(
   );
 }
 
+function orderedMilestoneSequenceItems(detail: PccProjectDetail): PccMilestone[] {
+  return detail.milestones.toSorted(
+    (a, b) =>
+      (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+      a.title.localeCompare(b.title) ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+function orderedSubMilestoneSequenceItems(
+  detail: PccProjectDetail,
+  milestoneId: string,
+): PccSubMilestone[] {
+  return (detail.subMilestones ?? [])
+    .filter((item) => item.milestoneId === milestoneId)
+    .toSorted(
+      (a, b) =>
+        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+        a.title.localeCompare(b.title) ||
+        a.id.localeCompare(b.id),
+    );
+}
+
 export async function movePccMilestoneBefore(
   state: PccDashboardState,
   source: PccMilestone,
@@ -1669,6 +1692,60 @@ export async function movePccSubMilestoneBefore(
       await selectPccProject(state, source.projectId);
     },
     `Saved new sub-step order for ${source.title}.`,
+  );
+}
+
+export async function normalizePccProjectSequence(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before repairing the milestone sequence.";
+    return;
+  }
+  await withPccAction(
+    state,
+    async () => {
+      if (!state.client) {
+        return;
+      }
+      const milestones = orderedMilestoneSequenceItems(detail);
+      const milestoneUpdates = milestones
+        .map((milestone, index) => ({ milestone, nextOrder: (index + 1) * 10 }))
+        .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
+      for (const [index, { milestone }] of milestoneUpdates.entries()) {
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: { ...milestone, order: -2_000_000 - index },
+        });
+      }
+      for (const { milestone, nextOrder } of milestoneUpdates) {
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: { ...milestone, order: nextOrder },
+        });
+      }
+
+      const subMilestoneUpdates: Array<{ subMilestone: PccSubMilestone; nextOrder: number }> = [];
+      for (const milestone of milestones) {
+        const children = orderedSubMilestoneSequenceItems(detail, milestone.id);
+        subMilestoneUpdates.push(
+          ...children
+            .map((subMilestone, index) => ({ subMilestone, nextOrder: (index + 1) * 10 }))
+            .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder),
+        );
+      }
+      for (const [index, { subMilestone }] of subMilestoneUpdates.entries()) {
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: { ...subMilestone, order: -2_000_000 - index },
+        });
+      }
+      for (const { subMilestone, nextOrder } of subMilestoneUpdates) {
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: { ...subMilestone, order: nextOrder },
+        });
+      }
+
+      await loadPccDashboard(state);
+      await selectPccProject(state, detail.project.id);
+    },
+    "Saved a clean milestone and sub-step sequence.",
   );
 }
 

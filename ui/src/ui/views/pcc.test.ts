@@ -1455,6 +1455,56 @@ describe("renderPccDashboard", () => {
     expect(integrity?.textContent).toContain("Duplicate milestone title");
   });
 
+  it("shows sequence normalization only for order integrity issues", () => {
+    const onNormalizeProjectSequence = vi.fn();
+    const sequenceContainer = renderView(
+      createProps({
+        viewMode: "agent",
+        onNormalizeProjectSequence,
+        projectDetail: {
+          project,
+          milestones: [
+            milestone,
+            {
+              ...milestone,
+              id: "duplicate-order",
+              title: "Second milestone",
+              order: milestone.order,
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+
+    const normalize = sequenceContainer.querySelector<HTMLButtonElement>(
+      "[data-pcc-normalize-sequence]",
+    );
+    expect(normalize?.textContent).toContain("Normalize sequence");
+    normalize?.click();
+    expect(onNormalizeProjectSequence).toHaveBeenCalledTimes(1);
+
+    const dependencyContainer = renderView(
+      createProps({
+        viewMode: "agent",
+        projectDetail: {
+          project,
+          milestones: [{ ...milestone, dependsOn: ["missing-dependency"] }],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+    expect(dependencyContainer.querySelector("[data-pcc-normalize-sequence]")).toBeNull();
+  });
+
   it("renders current truth, ready queue, sub-milestones, and work lanes", () => {
     const onUpdateWorkLoop = vi.fn();
     const container = renderView(

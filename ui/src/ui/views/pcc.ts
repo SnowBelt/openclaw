@@ -105,6 +105,7 @@ export type PccDashboardProps = {
   onSetMilestoneStopHere: (milestone: PccMilestone, stopHere: boolean) => void;
   onMoveMilestoneBefore?: (source: PccMilestone, target: PccMilestone) => void;
   onMoveSubMilestoneBefore?: (source: PccSubMilestone, target: PccSubMilestone) => void;
+  onNormalizeProjectSequence?: () => void;
   onSetSubMilestoneStatus?: (
     subMilestone: PccSubMilestone,
     status: PccStatus,
@@ -787,7 +788,11 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
   const freshness = buildPccProofFreshness(input).slice(0, 5);
   const recovery = buildPccRecoveryPlaybooks(input);
   const dependency = buildPccDependencyInsights(input);
-  const integrity = buildPccIntegrityFindings(input).slice(0, 5);
+  const allIntegrity = buildPccIntegrityFindings(input);
+  const integrity = allIntegrity.slice(0, 5);
+  const canNormalizeSequence = allIntegrity.some(
+    (item) => item.id.startsWith("milestone-order:") || item.id.startsWith("sub-order:"),
+  );
   const timeline = buildPccTimeline(input);
   const importText = props.chatSyncText.trim()
     ? props.chatSyncText
@@ -868,6 +873,17 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
           : html`<p>
               Milestone links, sub-milestone parents, and sequence slots look consistent.
             </p>`}
+        ${canNormalizeSequence
+          ? html`<button
+              type="button"
+              class="pcc-button pcc-button--secondary"
+              data-pcc-normalize-sequence
+              ?disabled=${props.actionBusy}
+              @click=${() => props.onNormalizeProjectSequence?.()}
+            >
+              Normalize sequence
+            </button>`
+          : nothing}
       </article>
       <article class="pcc-impact-card" data-pcc-project-history>
         <p class="pcc-kicker">Project history</p>

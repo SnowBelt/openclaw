@@ -148,6 +148,7 @@ import {
   previewPccChatSync,
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
+  normalizePccProjectSequence,
   openPccDecisionForm,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -2863,6 +2864,7 @@ export function renderApp(state: AppViewState) {
                   void movePccMilestoneBefore(state, source, target),
                 onMoveSubMilestoneBefore: (source, target) =>
                   void movePccSubMilestoneBefore(state, source, target),
+                onNormalizeProjectSequence: () => void normalizePccProjectSequence(state),
                 onSetSubMilestoneStatus: (subMilestone, status, note) =>
                   void setPccSubMilestoneStatus(state, subMilestone, status, note),
                 onAddCompletionReceipt: (milestone) =>

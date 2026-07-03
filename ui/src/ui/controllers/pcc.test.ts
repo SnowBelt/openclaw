@@ -12,6 +12,7 @@ import {
   loadPccDashboard,
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
+  normalizePccProjectSequence,
   openPccDecisionForm,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -1331,6 +1332,90 @@ describe("PCC CRUD controller", () => {
         { subMilestone: expect.objectContaining({ id: "submilestone-2", order: 30 }) },
       ],
     ]);
+  });
+
+  it("normalizes milestone and sub-milestone sequence slots with temporary orders", async () => {
+    const firstMilestone = { ...milestone, order: 20 };
+    const secondMilestone = { ...milestone, id: "milestone-2", title: "Second", order: 20 };
+    const firstSubMilestone = { ...subMilestone, order: 5 };
+    const secondSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-2",
+      title: "Second sub-step",
+      order: 5,
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [firstMilestone, secondMilestone],
+          subMilestones: [firstSubMilestone, secondSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [firstMilestone, secondMilestone],
+        subMilestones: [firstSubMilestone, secondSubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        summary,
+      },
+    });
+
+    await normalizePccProjectSequence(state);
+
+    const milestoneWrites = request.mock.calls.filter(
+      ([method]) => method === "pcc.milestones.upsert",
+    );
+    expect(milestoneWrites).toEqual([
+      [
+        "pcc.milestones.upsert",
+        { milestone: expect.objectContaining({ id: "milestone-1", order: -2_000_000 }) },
+      ],
+      [
+        "pcc.milestones.upsert",
+        { milestone: expect.objectContaining({ id: "milestone-1", order: 10 }) },
+      ],
+    ]);
+    const subMilestoneWrites = request.mock.calls.filter(
+      ([method]) => method === "pcc.subMilestones.upsert",
+    );
+    expect(subMilestoneWrites).toEqual([
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-1", order: -2_000_000 }) },
+      ],
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: -2_000_001 }) },
+      ],
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-1", order: 10 }) },
+      ],
+      [
+        "pcc.subMilestones.upsert",
+        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: 20 }) },
+      ],
+    ]);
+    expect(state.pccActionNotice?.text).toBe("Saved a clean milestone and sub-step sequence.");
   });
 
   it("updates milestone status", async () => {
