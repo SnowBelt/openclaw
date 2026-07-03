@@ -216,6 +216,7 @@ export type AppViewState = {
   pccActionError: string | null;
   pccActionNotice?: PccActionNotice | null;
   pccProjectFilter?: PccProjectFilter;
+  pccProjectSearchQuery?: string;
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;

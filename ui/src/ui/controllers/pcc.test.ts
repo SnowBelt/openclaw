@@ -25,6 +25,7 @@ import {
   updatePccAutofillApproval,
   updatePccChatSyncText,
   updatePccViewMode,
+  updatePccProjectSearchQuery,
   type PccDashboardState,
 } from "./pcc.ts";
 
@@ -49,6 +50,7 @@ function createState(overrides: Partial<PccDashboardState> = {}): PccDashboardSt
     pccChatSyncProposals: [],
     pccChatSyncError: null,
     pccViewMode: "simple",
+    pccProjectSearchQuery: "",
     ...overrides,
   };
 }
@@ -194,6 +196,16 @@ const portfolio = {
 };
 
 describe("loadPccDashboard", () => {
+  it("updates project search query state", () => {
+    const requestUpdate = vi.fn();
+    const state = createState({ requestUpdate });
+
+    updatePccProjectSearchQuery(state, "blocked proof");
+
+    expect(state.pccProjectSearchQuery).toBe("blocked proof");
+    expect(requestUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it("loads project list and portfolio summary", async () => {
     const request = vi
       .fn()

@@ -461,6 +461,7 @@ export class OpenClawApp extends LitElement {
   @state() pccActionError: string | null = null;
   @state() pccActionNotice: PccActionNotice | null = null;
   @state() pccProjectFilter: PccProjectFilter = "active";
+  @state() pccProjectSearchQuery = "";
   @state() pccEditorMode: PccEditorMode = null;
   @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
   @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };

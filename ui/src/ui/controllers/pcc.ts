@@ -128,6 +128,7 @@ export type PccDashboardState = {
   pccActionError: string | null;
   pccActionNotice?: PccActionNotice | null;
   pccProjectFilter?: PccProjectFilter;
+  pccProjectSearchQuery?: string;
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
@@ -817,6 +818,11 @@ export function updatePccViewMode(state: PccDashboardState, mode: PccViewMode): 
 
 export function updatePccProjectFilter(state: PccDashboardState, filter: PccProjectFilter): void {
   state.pccProjectFilter = filter;
+  state.requestUpdate?.();
+}
+
+export function updatePccProjectSearchQuery(state: PccDashboardState, query: string): void {
+  state.pccProjectSearchQuery = query;
   state.requestUpdate?.();
 }
 

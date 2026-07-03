@@ -67,6 +67,7 @@ export type PccDashboardProps = {
   actionError: string | null;
   actionNotice?: PccActionNotice | null;
   projectFilter?: PccProjectFilter;
+  projectSearchQuery?: string;
   editorMode: PccEditorMode;
   projectForm: PccProjectFormState;
   milestoneForm: PccMilestoneFormState;
@@ -77,6 +78,7 @@ export type PccDashboardProps = {
   viewMode?: PccViewMode;
   onSetViewMode?: (mode: PccViewMode) => void;
   onSetProjectFilter?: (filter: PccProjectFilter) => void;
+  onSetProjectSearchQuery?: (query: string) => void;
   onDismissActionNotice?: () => void;
   onRefresh: () => void;
   onSelectProject: (projectId: string) => void;
@@ -1372,6 +1374,72 @@ function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilt
   ].includes(project.status);
 }
 
+function normalizeProjectSearchQuery(query: string | undefined): string[] {
+  return (query ?? "")
+    .toLocaleLowerCase()
+    .split(/\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function projectSearchText(project: PccProjectSummary, detail?: PccProjectDetail): string {
+  const parts = [
+    project.title,
+    project.status,
+    project.health ?? "",
+    project.recentActivity ?? "",
+    ...(project.nextActions ?? []),
+    ...(project.proofGaps ?? []),
+  ];
+  if (detail) {
+    parts.push(detail.project.goal ?? "", detail.project.owner ?? "");
+    for (const milestone of detail.milestones) {
+      parts.push(
+        milestone.title,
+        milestone.status,
+        milestone.phaseId ?? "",
+        milestone.blocker ?? "",
+        milestone.implementationPlan ?? "",
+      );
+      parts.push(...(milestone.acceptanceCriteria ?? []));
+    }
+    for (const subMilestone of detail.subMilestones ?? []) {
+      parts.push(
+        subMilestone.title,
+        subMilestone.status,
+        subMilestone.owner ?? "",
+        subMilestone.blocker ?? "",
+        subMilestone.implementationPlan ?? "",
+      );
+      parts.push(...(subMilestone.acceptanceCriteria ?? []));
+    }
+    for (const permission of detail.permissions) {
+      parts.push(permission.type, permission.status, permission.target ?? "");
+      parts.push(...(permission.allowedActions ?? []), ...(permission.forbiddenActions ?? []));
+    }
+    for (const evidence of detail.evidence) {
+      parts.push(evidence.summary ?? "");
+    }
+    for (const receipt of detail.receipts) {
+      parts.push(receipt.summary ?? "");
+    }
+  }
+  return parts.join("\n").toLocaleLowerCase();
+}
+
+function projectMatchesSearch(
+  project: PccProjectSummary,
+  query: string | undefined,
+  detail?: PccProjectDetail,
+): boolean {
+  const terms = normalizeProjectSearchQuery(query);
+  if (terms.length === 0) {
+    return true;
+  }
+  const text = projectSearchText(project, detail);
+  return terms.every((term) => text.includes(term));
+}
+
 function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly PccProjectSummary[]) {
   const selected = props.projectFilter ?? "active";
   return html`<nav class="pcc-project-tabs" data-pcc-project-tabs aria-label="Project filters">
@@ -1387,6 +1455,36 @@ function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly Pc
       </button>`;
     })}
   </nav>`;
+}
+
+function renderProjectSearch(props: PccDashboardProps, visibleCount: number, filterCount: number) {
+  const query = props.projectSearchQuery ?? "";
+  const hasQuery = query.trim().length > 0;
+  return html`<section class="pcc-project-search" data-pcc-project-search>
+    <label>
+      <span>Search projects</span>
+      <input
+        type="search"
+        aria-label="Search projects"
+        placeholder="Search title, status, next action, blocker, proof, or owner"
+        .value=${query}
+        @input=${(event: Event) =>
+          props.onSetProjectSearchQuery?.((event.target as HTMLInputElement).value)}
+      />
+    </label>
+    <span class="pcc-project-search__count">
+      ${hasQuery ? `Showing ${visibleCount} of ${filterCount}` : `${filterCount} shown`}
+    </span>
+    ${hasQuery
+      ? html`<button
+          class="btn btn--subtle"
+          type="button"
+          @click=${() => props.onSetProjectSearchQuery?.("")}
+        >
+          Clear search
+        </button>`
+      : nothing}
+  </section>`;
 }
 
 function renderTopPortfolioMetrics(
@@ -3343,8 +3441,16 @@ function renderMilestoneEditor(props: PccDashboardProps) {
 
 export function renderPccDashboard(props: PccDashboardProps) {
   const allProjects = props.projects;
-  const projects = allProjects.filter((project) =>
+  const filteredByTab = allProjects.filter((project) =>
     projectMatchesFilter(project, props.projectFilter ?? "active"),
+  );
+  const projects = filteredByTab.filter((project) =>
+    projectMatchesSearch(
+      project,
+      props.projectSearchQuery,
+      props.projectDetails?.[project.id] ??
+        (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined),
+    ),
   );
   const mode = pccViewMode(props);
   return html`
@@ -3397,6 +3503,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
           </div>`
         : nothing}
       ${renderTodayView(props)} ${renderProjectFilterTabs(props, allProjects)}
+      ${renderProjectSearch(props, projects.length, filteredByTab.length)}
       <details class="pcc-detail-drawer pcc-top-proof-drawer">
         <summary>Needs You details</summary>
         ${renderImpactAttentionInbox(props)}
@@ -3409,7 +3516,11 @@ export function renderPccDashboard(props: PccDashboardProps) {
           ${!props.loading && projects.length === 0
             ? html`<div class="pcc-empty" data-pcc-empty>
                 <h3>No projects yet</h3>
-                <p>No projects match this filter. Use another tab or create a new project.</p>
+                <p>
+                  ${props.projectSearchQuery?.trim()
+                    ? "No projects match this search. Clear search or try another term."
+                    : "No projects match this filter. Use another tab or create a new project."}
+                </p>
               </div>`
             : html`<section class="pcc-project-grid" aria-label="Project cards">
                 ${projects.map((project) => renderProjectCard(project, props))}

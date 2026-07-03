@@ -162,6 +162,7 @@ import {
   updatePccChatSyncText,
   updatePccMilestoneForm,
   updatePccProjectFilter,
+  updatePccProjectSearchQuery,
   updatePccProjectForm,
   updatePccViewMode,
 } from "./controllers/pcc.ts";
@@ -2819,6 +2820,7 @@ export function renderApp(state: AppViewState) {
                 actionError: state.pccActionError,
                 actionNotice: state.pccActionNotice,
                 projectFilter: state.pccProjectFilter,
+                projectSearchQuery: state.pccProjectSearchQuery,
                 editorMode: state.pccEditorMode,
                 projectForm: state.pccProjectForm,
                 milestoneForm: state.pccMilestoneForm,
@@ -2829,6 +2831,7 @@ export function renderApp(state: AppViewState) {
                 viewMode: state.pccViewMode,
                 onSetViewMode: (mode) => updatePccViewMode(state, mode),
                 onSetProjectFilter: (filter) => updatePccProjectFilter(state, filter),
+                onSetProjectSearchQuery: (query) => updatePccProjectSearchQuery(state, query),
                 onDismissActionNotice: () => dismissPccActionNotice(state),
                 onRefresh: () => void loadPccDashboard(state),
                 onSelectProject: (projectId) => void selectPccProject(state, projectId),

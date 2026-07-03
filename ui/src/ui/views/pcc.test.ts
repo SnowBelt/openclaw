@@ -273,6 +273,66 @@ describe("renderPccDashboard", () => {
     expect(agent.textContent).toContain("Low-reasoning execution details");
   });
 
+  it("filters project cards with a skim-first project search", () => {
+    const onSetProjectSearchQuery = vi.fn();
+    const kitchenSummary = {
+      ...summary,
+      id: "project-2",
+      title: "Kitchen Remodel",
+      status: "active" as const,
+      nextActions: ["Choose contractor"],
+      proofGaps: [],
+      health: "On track",
+    };
+    const kitchenDetail = {
+      project: {
+        ...project,
+        id: "project-2",
+        title: "Kitchen Remodel",
+        goal: "Manage permits, contractor bids, inspections, and budget checkpoints.",
+      },
+      milestones: [
+        {
+          ...milestone,
+          id: "milestone-2",
+          projectId: "project-2",
+          title: "Permit checklist",
+        },
+      ],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: kitchenSummary,
+    };
+    const container = renderView(
+      createProps({
+        projects: [summary, kitchenSummary],
+        projectDetails: { "project-1": createProps().projectDetail!, "project-2": kitchenDetail },
+        projectSearchQuery: "permits",
+        onSetProjectSearchQuery,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-project-search]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
+    expect(container.textContent).toContain("Kitchen Remodel");
+    expect(container.textContent).not.toContain("Health: Needs approval");
+    expect(container.textContent).toContain("Showing 1 of 2");
+
+    const search = container.querySelector<HTMLInputElement>(
+      '[data-pcc-project-search] input[type="search"]',
+    );
+    search!.value = "contractor";
+    search?.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(onSetProjectSearchQuery).toHaveBeenCalledWith("contractor");
+
+    [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Clear search"))
+      ?.click();
+    expect(onSetProjectSearchQuery).toHaveBeenCalledWith("");
+  });
+
   it("renders an empty state", () => {
     const container = renderView(
       createProps({

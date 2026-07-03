@@ -2092,6 +2092,53 @@
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
+.pcc-project-search {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 94%, white);
+  border: 1px solid var(--hairline);
+  border-radius: 20px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  margin: -4px 0 18px;
+  padding: 12px;
+}
+
+.pcc-project-search label {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.pcc-project-search label span,
+.pcc-project-search__count {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-project-search input {
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  font: inherit;
+  min-height: 40px;
+  padding: 9px 12px;
+}
+
+.pcc-project-search input:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--hairline));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: none;
+}
+
+@media (max-width: 780px) {
+  .pcc-project-search {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pcc-today__metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
