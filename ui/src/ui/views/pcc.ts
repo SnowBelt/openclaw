@@ -3264,6 +3264,113 @@ function renderProjectOrientation(detail: PccProjectDetail) {
   </nav>`;
 }
 
+type PccProjectActivityItem = {
+  kind: string;
+  title: string;
+  summary: string;
+  at: number;
+};
+
+function activityTime(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function pushProjectActivity(
+  items: PccProjectActivityItem[],
+  kind: string,
+  title: string,
+  summary: string,
+  value: string | undefined,
+): void {
+  const at = activityTime(value);
+  if (at === null) {
+    return;
+  }
+  items.push({ kind, title, summary, at });
+}
+
+function projectActivityTimeline(detail: PccProjectDetail): PccProjectActivityItem[] {
+  const items: PccProjectActivityItem[] = [];
+  pushProjectActivity(
+    items,
+    "Project",
+    detail.project.title,
+    `Project status is ${formatStatus(detail.project.status)}.`,
+    detail.project.updatedAt,
+  );
+  for (const milestone of detail.milestones) {
+    pushProjectActivity(
+      items,
+      "Milestone",
+      milestone.title,
+      `${formatStatus(milestone.status)} · ${clampPercent(milestone.percentComplete ?? 0)}% complete`,
+      milestone.updatedAt,
+    );
+  }
+  for (const subMilestone of detail.subMilestones ?? []) {
+    pushProjectActivity(
+      items,
+      "Sub-step",
+      subMilestone.title,
+      `${formatStatus(subMilestone.status)} · ${clampPercent(subMilestone.percentComplete ?? 0)}% complete`,
+      subMilestone.updatedAt,
+    );
+  }
+  for (const evidence of detail.evidence ?? []) {
+    pushProjectActivity(
+      items,
+      "Evidence",
+      evidence.summary ?? evidence.kind,
+      `${formatStatus(evidence.kind)} · ${formatStatus(evidence.status)}`,
+      evidence.createdAt,
+    );
+  }
+  for (const receipt of detail.receipts ?? []) {
+    pushProjectActivity(
+      items,
+      "Receipt",
+      receipt.summary,
+      `${formatStatus(receipt.proofLevel)} proof by ${receipt.completedBy ?? "unknown"}`,
+      receipt.completedAt,
+    );
+  }
+  for (const decision of detail.decisions ?? []) {
+    pushProjectActivity(items, "Decision", decision.title, decision.summary, decision.decidedAt);
+  }
+  return items.toSorted((a, b) => b.at - a.at || a.title.localeCompare(b.title)).slice(0, 6);
+}
+
+function renderProjectActivityTimeline(detail: PccProjectDetail) {
+  const items = projectActivityTimeline(detail);
+  return html`<section class="pcc-project-activity" data-pcc-project-activity>
+    <div class="pcc-section-heading">
+      <div>
+        <span>Project activity</span>
+        <p>Latest project, milestone, sub-step, evidence, receipt, and decision changes.</p>
+      </div>
+      <strong>${items.length ? `${items.length} latest` : "No activity"}</strong>
+    </div>
+    ${items.length
+      ? html`<ol class="pcc-project-activity__list">
+          ${items.map(
+            (item) => html`<li>
+              <span class="pcc-status">${item.kind}</span>
+              <div>
+                <strong>${item.title}</strong>
+                <p>${item.summary}</p>
+              </div>
+              <time datetime=${new Date(item.at).toISOString()}>${formatUpdatedAt(item.at)}</time>
+            </li>`,
+          )}
+        </ol>`
+      : html`<p class="pcc-empty pcc-empty--small">No project activity recorded yet.</p>`}
+  </section>`;
+}
+
 function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProps) {
   const project = detail.project;
   const percent = clampPercent(detail.summary.percentComplete);
@@ -3341,6 +3448,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             <p>No outcome metrics recorded yet.</p>
           </section>`;
     })()}
+    ${renderProjectActivityTimeline(detail)}
     <div class="pcc-primary-action" data-pcc-primary-action>
       <span>Primary action</span>
       <button

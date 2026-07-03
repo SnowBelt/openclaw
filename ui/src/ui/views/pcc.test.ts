@@ -318,6 +318,60 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("PCC remote Workflow Sanity proof missing");
   });
 
+  it("shows a selected-project activity timeline from milestones, proof, receipts, and decisions", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: { ...project, updatedAt: "2026-07-03T10:00:00Z" },
+          milestones: [{ ...milestone, title: "Plan workflow", updatedAt: "2026-07-03T11:00:00Z" }],
+          subMilestones: [
+            {
+              ...subMilestone,
+              title: "Write acceptance criteria",
+              status: "complete",
+              percentComplete: 100,
+              updatedAt: "2026-07-03T12:00:00Z",
+            },
+          ],
+          permissions: [],
+          evidence: [
+            {
+              ...evidence,
+              summary: "Focused project proof passed",
+              createdAt: "2026-07-03T13:00:00Z",
+            },
+          ],
+          receipts: [
+            {
+              ...receipt,
+              summary: "Project activity receipt recorded",
+              completedAt: "2026-07-03T14:00:00Z",
+            },
+          ],
+          decisions: [
+            {
+              ...decision,
+              title: "Use activity timeline",
+              summary: "Selected project needs a local audit trail.",
+              decidedAt: "2026-07-03T15:00:00Z",
+            },
+          ],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    const activity = container.querySelector("[data-pcc-project-activity]");
+    expect(activity).not.toBeNull();
+    expect(activity?.textContent).toContain("Project activity");
+    expect(activity?.textContent).toContain("Use activity timeline");
+    expect(activity?.textContent).toContain("Project activity receipt recorded");
+    expect(activity?.textContent).toContain("Focused project proof passed");
+    expect(activity?.textContent).toContain("Write acceptance criteria");
+    expect(activity?.textContent).toContain("Plan workflow");
+  });
+
   it("routes integrity and proof gaps into Needs You", () => {
     const container = renderView(
       createProps({

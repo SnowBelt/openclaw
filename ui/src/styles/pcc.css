@@ -323,6 +323,62 @@
   margin: 0;
 }
 
+.pcc-project-activity {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.pcc-project-activity .pcc-section-heading {
+  align-items: start;
+  margin: 0;
+}
+
+.pcc-project-activity .pcc-section-heading span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-project-activity .pcc-section-heading p {
+  color: var(--text-secondary);
+  margin: 3px 0 0;
+}
+
+.pcc-project-activity__list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pcc-project-activity__list li {
+  align-items: start;
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 76%, transparent);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding-top: 8px;
+}
+
+.pcc-project-activity__list strong,
+.pcc-project-activity__list p {
+  overflow-wrap: anywhere;
+}
+
+.pcc-project-activity__list p,
+.pcc-project-activity__list time {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  margin: 2px 0 0;
+}
+
 .pcc-primary-action {
   align-items: center;
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
