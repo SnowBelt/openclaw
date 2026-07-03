@@ -995,6 +995,38 @@ function upsertSubMilestone(
   return { subMilestone, milestone };
 }
 
+function screenshotPathFromEvidence(evidence: readonly PccEvidence[]): string | undefined {
+  return evidence.find((item) => item.kind === "browser_proof" && item.path)?.path;
+}
+
+function shaFromEvidence(evidence: readonly PccEvidence[]): string | undefined {
+  return evidence.find((item) => item.sha)?.sha;
+}
+
+function lastKnownGoodFromReceipt(
+  ledger: PccLedger,
+  milestone: PccMilestone,
+  receipt: PccCompletionReceipt,
+  evidence: readonly PccEvidence[],
+): PccLastKnownGood {
+  const subsystem = `Milestone: ${milestone.title}`;
+  const existing = ledger.lastKnownGood.find(
+    (entry) => entry.projectId === receipt.projectId && entry.subsystem === subsystem,
+  );
+  return {
+    id: existing?.id ?? makeId("lkg", milestone.title),
+    projectId: receipt.projectId,
+    subsystem,
+    summary: receipt.summary,
+    evidenceIds: receipt.proofEvidenceIds,
+    verifiedAt: receipt.completedAt,
+    ...(shaFromEvidence(evidence) ? { sha: shaFromEvidence(evidence) } : {}),
+    ...(screenshotPathFromEvidence(evidence)
+      ? { screenshotPath: screenshotPathFromEvidence(evidence) }
+      : {}),
+  };
+}
+
 function responseForProject(ledger: PccLedger, project: PccProject) {
   return {
     project,
@@ -1362,6 +1394,9 @@ export const pccHandlers: GatewayRequestHandlers = {
           if (missingEvidence.length > 0) {
             return { error: `proof evidence not found: ${missingEvidence.join(", ")}` };
           }
+          const linkedEvidence = ledger.evidence.filter((evidence) =>
+            params.receipt.proofEvidenceIds.includes(evidence.id),
+          );
           const timestamp = nowIso();
           const receipt: PccCompletionReceipt = {
             id: makeId("receipt", milestone.title),
@@ -1385,6 +1420,13 @@ export const pccHandlers: GatewayRequestHandlers = {
               : {}),
           };
           ledger.receipts.push(receipt);
+          const lastKnownGood = lastKnownGoodFromReceipt(
+            ledger,
+            milestone,
+            receipt,
+            linkedEvidence,
+          );
+          setAt(ledger.lastKnownGood, lastKnownGood);
           const updatedMilestone: PccMilestone = {
             ...milestone,
             status: "complete",
@@ -1396,6 +1438,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           return {
             receipt,
             milestone: updatedMilestone,
+            lastKnownGood,
             summary: summarizeProject(ledger, project),
           };
         },

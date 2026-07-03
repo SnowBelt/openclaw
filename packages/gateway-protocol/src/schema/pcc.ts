@@ -535,6 +535,7 @@ export const PccReceiptsAddResultSchema = Type.Object(
   {
     receipt: PccCompletionReceiptSchema,
     milestone: PccMilestoneSchema,
+    lastKnownGood: PccLastKnownGoodSchema,
     summary: PccProjectSummarySchema,
   },
   { additionalProperties: false },

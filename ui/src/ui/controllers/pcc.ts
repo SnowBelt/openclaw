@@ -175,6 +175,7 @@ type PccPermissionsUpsertResult = {
 type PccReceiptsAddResult = {
   receipt: PccCompletionReceipt;
   milestone: PccMilestone;
+  lastKnownGood?: PccLastKnownGood;
   summary: PccProjectSummary;
 };
 

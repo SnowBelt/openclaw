@@ -229,15 +229,24 @@ describe("Project Command Center gateway methods", () => {
         evidence: {
           projectId: project.id,
           milestoneId: milestone.id,
-          kind: "local_test",
+          kind: "browser_proof",
           status: "passed",
           command: "pnpm test src/gateway/server-methods/pcc.test.ts",
           exitCode: 0,
+          path: "/tmp/openclaw-pcc-receipt-proof.png",
+          sha: "63216a766d7bc20da500a887ad668951cb0a881e",
         },
       }),
     );
     const receiptPayload = okPayload<{
       milestone: { status: string; percentComplete: number };
+      lastKnownGood: {
+        subsystem: string;
+        summary: string;
+        evidenceIds: string[];
+        screenshotPath?: string;
+        sha?: string;
+      };
       summary: { percentComplete: number };
     }>(
       await invoke("pcc.receipts.add", {
@@ -254,7 +263,17 @@ describe("Project Command Center gateway methods", () => {
 
     expect(receiptPayload.milestone.status).toBe("complete");
     expect(receiptPayload.milestone.percentComplete).toBe(100);
+    expect(receiptPayload.lastKnownGood.subsystem).toBe("Milestone: Receipt-backed milestone");
+    expect(receiptPayload.lastKnownGood.summary).toBe("Local PCC server-method test passed.");
+    expect(receiptPayload.lastKnownGood.evidenceIds).toEqual([evidence.id]);
+    expect(receiptPayload.lastKnownGood.screenshotPath).toBe("/tmp/openclaw-pcc-receipt-proof.png");
+    expect(receiptPayload.lastKnownGood.sha).toBe("63216a766d7bc20da500a887ad668951cb0a881e");
     expect(receiptPayload.summary.percentComplete).toBe(100);
+
+    const detail = okPayload<{ lastKnownGood: unknown[] }>(
+      await invoke("pcc.projects.get", { projectId: project.id }),
+    );
+    expect(detail.lastKnownGood).toHaveLength(1);
   });
 
   it("stores sub-milestones and gates parent completion on their proof state", async () => {
