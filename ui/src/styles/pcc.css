@@ -2411,3 +2411,64 @@
 .pcc-drag-handle:active {
   cursor: grabbing;
 }
+
+.pcc-decision-form__evidence {
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 70%, transparent);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.pcc-decision-form__evidence > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.pcc-decision-form__evidence > div:first-child span {
+  color: var(--text-muted, #64748b);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-decision-form__evidence > div:first-child p {
+  color: var(--text-muted, #64748b);
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.pcc-decision-form__evidence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pcc-decision-form__evidence-list label {
+  align-items: start;
+  background: var(--surface-raised, #fff);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 70%, transparent);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 9px 10px;
+}
+
+.pcc-decision-form__evidence-list label > span {
+  display: grid;
+  gap: 2px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.pcc-decision-form__evidence-list strong {
+  color: var(--text, #111827);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.pcc-decision-form__evidence-list small {
+  color: var(--text-muted, #64748b);
+  font-size: 0.78rem;
+}

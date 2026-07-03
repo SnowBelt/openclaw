@@ -1328,6 +1328,31 @@ function renderDecisionCard(decision: PccDecision, evidence: PccEvidence[]) {
   </article>`;
 }
 
+function parseDecisionEvidenceIds(value: string): string[] {
+  return value
+    .split(/[\n,]+/u)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatDecisionEvidenceIds(ids: readonly string[]): string {
+  return [...new Set(ids)].join(", ");
+}
+
+function updateDecisionEvidenceSelection(
+  props: PccDashboardProps,
+  evidenceId: string,
+  selected: boolean,
+): void {
+  const ids = new Set(parseDecisionEvidenceIds(props.decisionForm.evidenceIds));
+  if (selected) {
+    ids.add(evidenceId);
+  } else {
+    ids.delete(evidenceId);
+  }
+  props.onDecisionFormChange?.({ evidenceIds: formatDecisionEvidenceIds([...ids]) });
+}
+
 function renderDecisionForm(detail: PccProjectDetail, props: PccDashboardProps) {
   const form = props.decisionForm;
   const availableSubMilestones = (detail.subMilestones ?? []).filter(
@@ -1427,16 +1452,47 @@ function renderDecisionForm(detail: PccProjectDetail, props: PccDashboardProps) 
           props.onDecisionFormChange?.({ impact: (event.target as HTMLTextAreaElement).value })}
       ></textarea>
     </label>
-    <label>
-      <span>Evidence IDs</span>
-      <input
-        type="text"
-        .value=${form.evidenceIds}
-        placeholder="Optional: comma-separated evidence IDs"
-        @input=${(event: Event) =>
-          props.onDecisionFormChange?.({ evidenceIds: (event.target as HTMLInputElement).value })}
-      />
-    </label>
+    <section class="pcc-decision-form__evidence" data-pcc-decision-evidence-picker>
+      <div>
+        <span>Related proof</span>
+        <p>Select proof instead of copying raw evidence IDs.</p>
+      </div>
+      ${detail.evidence.length
+        ? html`<div class="pcc-decision-form__evidence-list">
+            ${detail.evidence.map((item) => {
+              const selected = parseDecisionEvidenceIds(form.evidenceIds).includes(item.id);
+              return html`<label>
+                <input
+                  type="checkbox"
+                  .checked=${selected}
+                  @change=${(event: Event) =>
+                    updateDecisionEvidenceSelection(
+                      props,
+                      item.id,
+                      (event.target as HTMLInputElement).checked,
+                    )}
+                />
+                <span>
+                  <strong
+                    >${item.summary || item.command || item.path || item.url || item.id}</strong
+                  >
+                  <small>${formatStatus(item.kind)} · ${formatStatus(item.status)}</small>
+                </span>
+              </label>`;
+            })}
+          </div>`
+        : html`<p class="pcc-muted">No proof has been recorded for this project yet.</p>`}
+      <label>
+        <span>Evidence IDs</span>
+        <input
+          type="text"
+          .value=${form.evidenceIds}
+          placeholder="Optional: comma-separated evidence IDs"
+          @input=${(event: Event) =>
+            props.onDecisionFormChange?.({ evidenceIds: (event.target as HTMLInputElement).value })}
+        />
+      </label>
+    </section>
     <div class="pcc-decision-form__actions">
       <button class="btn btn--primary" type="submit" ?disabled=${props.actionBusy}>
         Save decision

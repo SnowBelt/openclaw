@@ -342,6 +342,65 @@ describe("renderPccDashboard", () => {
     expect(decisions?.querySelector("[data-pcc-decision]")).not.toBeNull();
   });
 
+  it("opens a decision form and lets users select related proof", () => {
+    const onOpenDecisionForm = vi.fn();
+    const onDecisionFormChange = vi.fn();
+    const onSaveDecision = vi.fn();
+    const onCancelDecisionForm = vi.fn();
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        },
+        decisionFormOpen: true,
+        decisionForm: {
+          ...EMPTY_PCC_DECISION_FORM,
+          title: "Choose proof source",
+          summary: "Use the local proof receipt.",
+          milestoneId: milestone.id,
+        },
+        onOpenDecisionForm,
+        onDecisionFormChange,
+        onSaveDecision,
+        onCancelDecisionForm,
+      }),
+    );
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-open-decision-form]")?.click();
+    expect(onOpenDecisionForm).toHaveBeenCalledTimes(1);
+
+    const form = container.querySelector<HTMLFormElement>("[data-pcc-decision-form]");
+    expect(form).not.toBeNull();
+    expect(form?.textContent).toContain("Related proof");
+    expect(form?.textContent).toContain("Select proof instead of copying raw evidence IDs.");
+    expect(form?.textContent).toContain("Local PCC proof passed");
+
+    const evidenceCheckbox = form?.querySelector<HTMLInputElement>(
+      "[data-pcc-decision-evidence-picker] input[type='checkbox']",
+    );
+    expect(evidenceCheckbox).not.toBeNull();
+    if (evidenceCheckbox) {
+      evidenceCheckbox.checked = true;
+      evidenceCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    expect(onDecisionFormChange).toHaveBeenCalledWith({ evidenceIds: evidence.id });
+
+    form?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(onSaveDecision).toHaveBeenCalledTimes(1);
+
+    form?.querySelectorAll<HTMLButtonElement>("button")?.[1]?.click();
+    expect(onCancelDecisionForm).toHaveBeenCalledTimes(1);
+  });
+
   it("renders Simple, Detailed, and Agent view controls", () => {
     const onSetViewMode = vi.fn();
     const simple = renderView(createProps({ viewMode: "simple", onSetViewMode }));
