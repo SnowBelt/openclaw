@@ -1840,6 +1840,7 @@ describe("renderPccDashboard", () => {
 
   it("keeps AI intake autofill visible while editing a project with missing setup", () => {
     const onProjectFormChange = vi.fn();
+    const onPreviewSetupAutofill = vi.fn();
     const container = renderView(
       createProps({
         editorMode: "edit-project",
@@ -1866,6 +1867,7 @@ describe("renderPccDashboard", () => {
           intakeApproved: false,
         },
         onProjectFormChange,
+        onPreviewSetupAutofill,
       }),
     );
 
@@ -1879,15 +1881,8 @@ describe("renderPccDashboard", () => {
 
     autofill?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        goal: expect.stringContaining("SNES Game Creator"),
-        intakeAnswers: expect.objectContaining({
-          goal: expect.stringContaining("SNES Game Creator"),
-          firstDeliverable: expect.stringContaining("SNES Game Creator"),
-        }),
-      }),
-    );
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onProjectFormChange).not.toHaveBeenCalled();
   });
 
   it("lets the project intake answers page preview AI answers before applying to a saved project", () => {
@@ -1963,7 +1958,7 @@ describe("renderPccDashboard", () => {
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-page-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Generate visible answers with AI");
+    expect(pageAutofill?.textContent).toContain("Fill visible answers with AI");
 
     pageAutofill?.click();
 
@@ -1980,9 +1975,9 @@ describe("renderPccDashboard", () => {
     expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
 
     const previewFullRepair = intakeTools?.querySelector<HTMLButtonElement>(
-      "[data-pcc-project-intake-preview-full-repair]",
+      "[data-pcc-project-intake-autofill]",
     );
-    expect(previewFullRepair?.textContent).toContain("Preview full setup repair");
+    expect(previewFullRepair?.textContent).toContain("Preview & apply AI setup");
 
     previewFullRepair?.click();
 

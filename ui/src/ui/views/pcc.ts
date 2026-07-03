@@ -1179,6 +1179,10 @@ function canPreviewProjectIntakeAutofill(props: PccDashboardProps): boolean {
 }
 
 function runProjectIntakeAutofill(props: PccDashboardProps): void {
+  if (canPreviewProjectIntakeAutofill(props)) {
+    props.onPreviewSetupAutofill?.();
+    return;
+  }
   runProjectIntakeFormAutofill(props);
 }
 
@@ -1199,7 +1203,7 @@ function renderProjectIntakeFormAutofillButton(
     data-pcc-project-intake-ai-generate
     title="Generate the visible project intake answers from the project prompt, title, goal, and current context before saving."
     ?disabled=${props.actionBusy}
-    @click=${() => runProjectIntakeAutofill(props)}
+    @click=${() => runProjectIntakeFormAutofill(props)}
   >
     ${label}
   </button>`;
@@ -1925,6 +1929,9 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   const next = detail ? nextMilestoneForDetail(detail) : undefined;
   const workState = workStateForProject(project, detail);
   const outcomeMetricCount = detail ? projectOutcomeMetrics(detail.project).length : 0;
+  const outcomeMetricLabel = outcomeMetricCount
+    ? `Outcomes: ${outcomeMetricCount} metric${outcomeMetricCount === 1 ? "" : "s"}`
+    : "Outcomes: Missing";
   const onHold = projectIsOnHold(project);
   return html`
     <article
@@ -1949,12 +1956,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
         <span>Health: ${project.health ?? formatStatus(project.status)}</span>
         <span>Priority: ${projectPriorityLabel(props, project)}</span>
-        <span
-          >Outcomes:
-          ${outcomeMetricCount
-            ? `${outcomeMetricCount} metric${outcomeMetricCount === 1 ? "" : "s"}`
-            : "Missing"}</span
-        >
+        <span>${outcomeMetricLabel}</span>
         <span>Blocker: ${projectBlockerLine(project)}</span>
         <span>Due: ${formatProjectDate(project.dueDate)}</span>
         <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
@@ -4024,17 +4026,9 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Generate visible answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Fill visible answers with AI")}
         ${canPreviewFullSetupRepair
-          ? html`<button
-              class="btn btn--subtle"
-              type="button"
-              data-pcc-project-intake-preview-full-repair
-              ?disabled=${props.actionBusy}
-              @click=${() => props.onPreviewSetupAutofill?.()}
-            >
-              Preview full setup repair
-            </button>`
+          ? renderProjectIntakeAutofillButton(props, "Preview & apply AI setup")
           : nothing}
       </div>
     </div>
