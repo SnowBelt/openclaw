@@ -896,6 +896,21 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccProjectDetails = state.pccProjectDetail
       ? { ...state.pccProjectDetails, [state.pccProjectDetail.project.id]: state.pccProjectDetail }
       : state.pccProjectDetails;
+    const pccProjectSummary = projects.find((project) => project.id === "project-command-center");
+    if (pccProjectSummary && !state.pccProjectDetails[pccProjectSummary.id]) {
+      try {
+        const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
+          projectId: pccProjectSummary.id,
+        });
+        const normalized = normalizePccProjectDetail(detail);
+        state.pccProjectDetails = {
+          ...state.pccProjectDetails,
+          [normalized.project.id]: normalized,
+        };
+      } catch {
+        // Keep the dashboard usable if the optional production-truth preload fails.
+      }
+    }
     state.pccUpdatedAt = Date.now();
   } catch (err) {
     state.pccError = formatConnectError(err) || "Project Command Center unavailable";

@@ -246,6 +246,37 @@ describe("loadPccDashboard", () => {
     expect(state.pccUpdatedAt).toEqual(expect.any(Number));
   });
 
+  it("preloads Project Command Center detail for the global production-truth surface", async () => {
+    const pccSummary = {
+      ...summary,
+      id: "project-command-center",
+      title: "Project Command Center",
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ projects: [pccSummary] })
+      .mockResolvedValueOnce({ portfolio })
+      .mockResolvedValueOnce({
+        project: { ...project, id: "project-command-center", title: "Project Command Center" },
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary: pccSummary,
+      });
+    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+
+    await loadPccDashboard(state);
+
+    expect(request).toHaveBeenNthCalledWith(3, "pcc.projects.get", {
+      projectId: "project-command-center",
+    });
+    expect(state.pccProjectDetails["project-command-center"]?.project.title).toBe(
+      "Project Command Center",
+    );
+  });
+
   it("computes fallback portfolio attention metrics when summary omits them", async () => {
     const stale = {
       ...summary,
