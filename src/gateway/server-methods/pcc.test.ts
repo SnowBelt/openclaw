@@ -861,6 +861,87 @@ describe("Project Command Center gateway methods", () => {
     ).toContain("sub-milestone dependency not found under milestone");
   });
 
+  it("rejects duplicate active milestone and sub-milestone titles", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Named project" } }),
+    );
+    const firstMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Gather Requirements",
+          status: "not_started",
+        },
+      }),
+    ).milestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            projectId: project.id,
+            title: "  gather   requirements  ",
+            status: "not_started",
+          },
+        }),
+      ),
+    ).toContain(`milestone title already used by ${firstMilestone.id}`);
+
+    const archivedDuplicate = okPayload<{ milestone: { title: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Gather Requirements",
+          status: "archived",
+        },
+      }),
+    ).milestone;
+    expect(archivedDuplicate.title).toBe("Gather Requirements");
+
+    const firstSubMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: firstMilestone.id,
+          title: "Draft Brief",
+          status: "not_started",
+        },
+      }),
+    ).subMilestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            projectId: project.id,
+            milestoneId: firstMilestone.id,
+            title: "draft brief",
+            status: "not_started",
+          },
+        }),
+      ),
+    ).toContain(`sub-milestone title already used by ${firstSubMilestone.id}`);
+
+    const otherMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Other parent",
+        },
+      }),
+    ).milestone;
+    const otherParentDuplicate = okPayload<{ subMilestone: { title: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: otherMilestone.id,
+          title: "Draft Brief",
+        },
+      }),
+    ).subMilestone;
+    expect(otherParentDuplicate.title).toBe("Draft Brief");
+  });
+
   it("rejects duplicate active milestone and sub-milestone order values", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Ordered project" } }),

@@ -622,6 +622,54 @@ function participatesInSequence(status: PccStatus | undefined): boolean {
   return !SKIPPED_STATUSES.has(status ?? "not_started");
 }
 
+function normalizedTitle(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function validateMilestoneTitle(
+  ledger: PccLedger,
+  projectId: string,
+  milestoneId: string,
+  title: string,
+  status: PccStatus,
+): string | null {
+  if (!participatesInSequence(status)) {
+    return null;
+  }
+  const normalized = normalizedTitle(title);
+  const conflicting = ledger.milestones.find(
+    (milestone) =>
+      milestone.projectId === projectId &&
+      milestone.id !== milestoneId &&
+      normalizedTitle(milestone.title) === normalized &&
+      participatesInSequence(milestone.status),
+  );
+  return conflicting ? `milestone title already used by ${conflicting.id}: ${title}` : null;
+}
+
+function validateSubMilestoneTitle(
+  ledger: PccLedger,
+  projectId: string,
+  milestoneId: string,
+  subMilestoneId: string,
+  title: string,
+  status: PccStatus,
+): string | null {
+  if (!participatesInSequence(status)) {
+    return null;
+  }
+  const normalized = normalizedTitle(title);
+  const conflicting = ledger.subMilestones.find(
+    (subMilestone) =>
+      subMilestone.projectId === projectId &&
+      subMilestone.milestoneId === milestoneId &&
+      subMilestone.id !== subMilestoneId &&
+      normalizedTitle(subMilestone.title) === normalized &&
+      participatesInSequence(subMilestone.status),
+  );
+  return conflicting ? `sub-milestone title already used by ${conflicting.id}: ${title}` : null;
+}
+
 function validateMilestoneOrder(
   ledger: PccLedger,
   projectId: string,
@@ -912,6 +960,10 @@ function upsertMilestone(
   if (transitionError) {
     return { error: transitionError };
   }
+  const titleError = validateMilestoneTitle(ledger, input.projectId, id, input.title, status);
+  if (titleError) {
+    return { error: titleError };
+  }
   const order = input.order ?? existing?.order;
   const orderError = validateMilestoneOrder(ledger, input.projectId, id, order, status);
   if (orderError) {
@@ -1039,6 +1091,17 @@ function upsertSubMilestone(
   const transitionError = validateStatusTransition("sub-milestone", existing?.status, status);
   if (transitionError) {
     return { error: transitionError };
+  }
+  const titleError = validateSubMilestoneTitle(
+    ledger,
+    input.projectId,
+    input.milestoneId,
+    id,
+    input.title,
+    status,
+  );
+  if (titleError) {
+    return { error: titleError };
   }
   const order = input.order ?? existing?.order;
   const orderError = validateSubMilestoneOrder(
