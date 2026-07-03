@@ -7,8 +7,8 @@ import type {
   PccStatus,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 
-export const PCC_LATEST_VERIFIED_BRANCH = "codex/pcc-portfolio-orchestration-v1-20260627";
-export const PCC_LATEST_VERIFIED_SHA = "4d8408034d7131470980c316a2af2f311aa6b785";
+export const PCC_LATEST_VERIFIED_BRANCH = "codex/pcc-usability-completion-v2-20260702";
+export const PCC_LATEST_VERIFIED_SHA = "98723615c988f4ded568806d51b63f54412aa556";
 
 export type PccProductionTruthStatus = "current" | "stale" | "proof_missing" | "blocked";
 
@@ -45,8 +45,13 @@ export type PccProductionTruthSummary = {
 };
 
 const COMPLETE_STATUSES = new Set<PccStatus>(["complete", "complete_with_maintenance"]);
-const REMOTE_PROOF_STATUSES = new Set(["remote_ci"]);
-const RUNTIME_PROOF_STATUSES = new Set(["runtime_status", "browser_proof", "screenshot"]);
+const REMOTE_PROOF_STATUSES = new Set(["remote_ci", "remote_workflow_sanity"]);
+const RUNTIME_PROOF_STATUSES = new Set([
+  "runtime_status",
+  "browser_proof",
+  "authenticated_browser_proof",
+  "screenshot",
+]);
 
 function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -103,16 +108,20 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
   const latestVerifiedSha =
     input.latestVerifiedSha ?? metadataString(meta.latestVerifiedSha) ?? PCC_LATEST_VERIFIED_SHA;
   const runtimeSha = input.runtimeSha ?? metadataString(meta.runtimeSha);
-  const remoteProofPassed =
-    input.remoteProofPassed ?? metadataBoolean(meta.remoteProofPassed) ?? false;
-  const runtimeProofPassed =
-    input.runtimeProofPassed ?? metadataBoolean(meta.runtimeProofPassed) ?? false;
   const browserProofScreenshotPath =
     input.browserProofScreenshotPath ?? metadataString(meta.browserProofScreenshotPath);
   const blockedReason = input.blockedReason ?? metadataString(meta.blockedReason);
   const milestones = input.milestones ?? [];
   const receipts = input.receipts ?? [];
   const evidence = input.evidence ?? [];
+  const remoteProofPassed =
+    input.remoteProofPassed ??
+    metadataBoolean(meta.remoteProofPassed) ??
+    evidence.some((entry) => evidenceKindMatches(entry, REMOTE_PROOF_STATUSES));
+  const runtimeProofPassed =
+    input.runtimeProofPassed ??
+    metadataBoolean(meta.runtimeProofPassed) ??
+    evidence.some((entry) => evidenceKindMatches(entry, RUNTIME_PROOF_STATUSES));
   const completedMilestones = milestones
     .filter((milestone) => COMPLETE_STATUSES.has(milestone.status))
     .map((milestone) => milestone.title);
