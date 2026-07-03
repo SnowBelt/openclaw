@@ -427,6 +427,34 @@ describe("renderPccDashboard", () => {
     expect(items[2]?.textContent).toContain("Older Project");
   });
 
+  it("uses authoritative portfolio attention counts in top metrics", () => {
+    const container = renderView(
+      createProps({
+        portfolio: {
+          projectsTotal: 9,
+          active: 6,
+          blocked: 2,
+          needsApproval: 3,
+          needsAttention: 7,
+          proofGaps: 4,
+          overdue: 1,
+          stale: 2,
+          complete: 1,
+          archived: 2,
+          averagePercentComplete: 58,
+          nextActions: ["Review blocked work"],
+        },
+      }),
+    );
+
+    const metrics = container.querySelector("[data-pcc-top-metrics]");
+    const progress = container.querySelector("[data-pcc-portfolio-progress]");
+    expect(metrics?.textContent).toContain("9");
+    expect(metrics?.textContent).toContain("7");
+    expect(metrics?.textContent).toContain("58%");
+    expect(progress?.textContent).toContain("7 need attention");
+  });
+
   it("renders last-known-good verified state in project history details", () => {
     const container = renderView(
       createProps({
@@ -978,7 +1006,7 @@ describe("renderPccDashboard", () => {
     const primaryButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-primary-action] button",
     );
-    expect(primaryButton?.textContent).toContain("Fill missing setup with AI");
+    expect(primaryButton?.textContent).toContain("Generate setup with AI");
     expect(container.querySelector("[data-pcc-setup-repair-issues]")?.textContent).toContain(
       "Required intake answer missing",
     );
@@ -1620,7 +1648,7 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Project intake answers can be generated.",
+      "Generate missing answers with AI.",
     );
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.matches("[data-pcc-project-intake-autofill]"),
@@ -1682,7 +1710,7 @@ describe("renderPccDashboard", () => {
     const autofill = container.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
-    expect(autofill?.textContent).toContain("Fill missing setup with AI");
+    expect(autofill?.textContent).toContain("Generate setup with AI");
 
     autofill?.click();
 
@@ -1759,16 +1787,18 @@ describe("renderPccDashboard", () => {
       }),
     );
 
+    expect(
+      container.querySelector("[data-pcc-project-intake-answers-page]")?.textContent,
+    ).toContain("Project intake answers");
     const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Project intake answers can be generated.",
+      "Generate missing answers with AI.",
     );
     expect(intakeTools?.textContent).toContain("AI can fill any blanks here.");
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-page-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Auto-fill");
-    expect(pageAutofill?.textContent).toContain("answers with AI");
+    expect(pageAutofill?.textContent).toContain("Generate visible answers with AI");
 
     pageAutofill?.click();
 

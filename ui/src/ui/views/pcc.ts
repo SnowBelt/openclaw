@@ -411,7 +411,7 @@ function nextSubMilestoneForMilestone(
 
 function primaryActionForDetail(detail: PccProjectDetail): string {
   if (!setupEvaluationForDetail(detail).runnable) {
-    return "Fill missing setup with AI";
+    return "Generate setup with AI";
   }
   const permission = detail.permissions.find((item) => item.status === "needed");
   if (permission) {
@@ -1092,7 +1092,7 @@ function renderProjectIntakeFormAutofillButton(
   label = "Generate answers with AI",
 ) {
   return html`<button
-    class="btn"
+    class="btn pcc-intake-wizard__primary-ai"
     type="button"
     data-pcc-project-intake-page-autofill
     data-pcc-project-intake-ai-generate
@@ -1106,11 +1106,11 @@ function renderProjectIntakeFormAutofillButton(
 
 function renderProjectIntakeAutofillButton(
   props: PccDashboardProps,
-  label = "Fill missing fields with AI",
+  label = "Generate answers with AI",
 ) {
   const previewsLedgerRepair = canPreviewProjectIntakeAutofill(props);
   return html`<button
-    class="btn"
+    class="btn pcc-intake-wizard__primary-ai"
     type="button"
     data-pcc-project-intake-autofill
     title=${previewsLedgerRepair
@@ -1246,7 +1246,7 @@ function renderSetupRepairCard(
         ?disabled=${props.actionBusy}
         @click=${() => props.onPreviewSetupAutofill?.()}
       >
-        Fill missing setup with AI
+        Generate setup with AI
       </button>
       <button
         class="btn btn--subtle"
@@ -2392,6 +2392,8 @@ function renderTopPortfolioMetrics(
   projects: readonly PccProjectSummary[],
 ) {
   const portfolio = props.portfolio;
+  const needsAttentionCount =
+    portfolio?.needsAttention ?? projects.filter(projectNeedsAttention).length;
   return html`<section
     class="pcc-today__metrics"
     data-pcc-top-metrics
@@ -2401,7 +2403,7 @@ function renderTopPortfolioMetrics(
     ${renderMetric("Active", portfolio?.active ?? 0)}
     ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
     ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
-    ${renderMetric("Needs attention", projects.filter(projectNeedsAttention).length)}
+    ${renderMetric("Needs attention", needsAttentionCount)}
     ${renderMetric(
       "Average completion",
       `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
@@ -2428,6 +2430,8 @@ function renderTodayView(props: PccDashboardProps) {
   );
   const nextBest = needsYou ?? blocked ?? ready ?? working;
   const average = clampPercent(portfolio?.averagePercentComplete ?? 0);
+  const needsAttentionCount =
+    portfolio?.needsAttention ?? props.projects.filter(projectNeedsAttention).length;
   return html`<section class="pcc-today" data-pcc-today aria-label="Today">
     <div class="pcc-section-heading">
       <div>
@@ -2461,7 +2465,7 @@ function renderTodayView(props: PccDashboardProps) {
         <strong>${average}%</strong>
         <em>
           ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
-          ${props.projects.filter(projectNeedsAttention).length} need attention
+          ${needsAttentionCount} need attention
         </em>
       </article>
     </div>
@@ -2767,7 +2771,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   const message = projectIsTerminal(detail.project)
     ? "Project is complete or archived; reopen it before starting new work."
     : !setupEvaluation.runnable
-      ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Fill missing setup with AI or Edit manually before starting.`
+      ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Generate setup with AI or Edit manually before starting.`
       : (next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.");
   const prepareNeedsSetupRepair = !setupEvaluation.runnable && !projectIsTerminal(detail.project);
   return html`
@@ -2818,7 +2822,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
             ? props.onPreviewSetupAutofill
             : props.onPrepareNextWorkItem}
         >
-          ${prepareNeedsSetupRepair ? "Fill missing setup with AI" : "Prepare next safe task"}
+          ${prepareNeedsSetupRepair ? "Generate setup with AI" : "Prepare next safe task"}
         </button>
       </div>
       <div class="pcc-work-loop__toggles">
@@ -3854,16 +3858,20 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     intakeAnswers: form.intakeAnswers,
   });
   const canPreviewFullSetupRepair = Boolean(props.projectDetail && props.onPreviewSetupAutofill);
-  return html`<section class="pcc-intake-wizard" data-pcc-intake-wizard>
+  return html`<section
+    class="pcc-intake-wizard"
+    data-pcc-intake-wizard
+    data-pcc-project-intake-answers-page
+  >
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">Project intake</p>
-        <h4>Make this project runnable</h4>
-        <p>Required answers keep PCC from generating vague milestones.</p>
+        <h4>Project intake answers</h4>
+        <p>Generate or edit the required answers before PCC creates or resumes work.</p>
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill intake with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -3872,13 +3880,13 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     </p>
     <section class="pcc-intake-wizard__generate-card" data-pcc-intake-generate-card>
       <div>
-        <strong>Project intake answers can be generated.</strong>
+        <strong>Generate missing answers with AI.</strong>
         <span
-          >Use this when blanks such as Goal block the setup quality gate. PCC drafts answers first;
-          you stay in control before saving or applying.</span
+          >Use this when blanks such as Goal block the setup quality gate. PCC generates a draft
+          first; you stay in control before saving or applying.</span
         >
       </div>
-      ${renderProjectIntakeFormAutofillButton(props, "Auto-fill intake with AI")}
+      ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
     </section>
     <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
       <div>
@@ -3889,7 +3897,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill visible answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Generate visible answers with AI")}
         ${canPreviewFullSetupRepair
           ? html`<button
               class="btn btn--subtle"
@@ -4096,7 +4104,7 @@ function renderProjectEditor(props: PccDashboardProps) {
         </div>
         ${needsAiDraft
           ? html`<div class="pcc-editor__header-actions">
-              ${renderProjectIntakeAutofillButton(props, "Fill missing setup with AI")}
+              ${renderProjectIntakeAutofillButton(props, "Generate setup with AI")}
               <span class="pcc-status">${intakeSummary}</span>
             </div>`
           : html`<span class="pcc-status">Setup ready</span>`}
@@ -4133,7 +4141,7 @@ function renderProjectEditor(props: PccDashboardProps) {
                 prompt and existing project context. You can edit before saving.</span
               >
             </div>
-            ${renderProjectIntakeAutofillButton(props)}
+            ${renderProjectIntakeAutofillButton(props, "Generate setup with AI")}
           </section>`
         : nothing}
       <div class="pcc-editor__grid">

@@ -1587,6 +1587,10 @@
   justify-content: flex-end;
 }
 
+.pcc-intake-wizard__primary-ai {
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .pcc-intake-wizard__hint {
   color: var(--text-secondary);
   font-size: 0.86rem;
