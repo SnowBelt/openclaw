@@ -181,6 +181,12 @@ function hasReceipt(ledger: PccLedger, milestoneId: string): boolean {
   return ledger.receipts.some((receipt) => receipt.milestoneId === milestoneId);
 }
 
+function evidenceIsPassed(ledger: PccLedger, evidenceId: string): boolean {
+  return ledger.evidence.some(
+    (evidence) => evidence.id === evidenceId && evidence.status === "passed",
+  );
+}
+
 function subMilestonesForMilestone(ledger: PccLedger, milestoneId: string): PccSubMilestone[] {
   return ledger.subMilestones.filter((subMilestone) => subMilestone.milestoneId === milestoneId);
 }
@@ -779,6 +785,9 @@ function validateMilestoneReferences(
     if (!evidence || evidence.projectId !== projectId) {
       return `evidence not found in project: ${evidenceId}`;
     }
+    if (evidence.milestoneId && evidence.milestoneId !== milestoneId) {
+      return `evidence belongs to another milestone: ${evidenceId}`;
+    }
   }
   for (const receiptId of input.receiptIds ?? []) {
     const receipt = ledger.receipts.find((item) => item.id === receiptId);
@@ -845,6 +854,9 @@ function validateSubMilestoneReferences(
     if (!evidence || evidence.projectId !== projectId) {
       return `evidence not found in project: ${evidenceId}`;
     }
+    if (evidence.milestoneId && evidence.milestoneId !== milestoneId) {
+      return `evidence belongs to another milestone: ${evidenceId}`;
+    }
   }
   for (const receiptId of input.receiptIds ?? []) {
     const receipt = ledger.receipts.find((item) => item.id === receiptId);
@@ -901,6 +913,30 @@ function validateDecisionReferences(
     if (!evidence || evidence.projectId !== input.projectId) {
       return `evidence not found in project: ${evidenceId}`;
     }
+  }
+  return null;
+}
+
+function ensureSubMilestoneCanBeComplete(
+  ledger: PccLedger,
+  status: PccStatus,
+  requiredEvidenceIds: readonly string[] | undefined,
+  receiptIds: readonly string[] | undefined,
+): string | null {
+  if (!COMPLETE_STATUSES.has(status)) {
+    return null;
+  }
+  if (receiptIds && receiptIds.length > 0) {
+    return null;
+  }
+  if (!requiredEvidenceIds || requiredEvidenceIds.length === 0) {
+    return "complete sub-milestone status requires passed evidence or a parent completion receipt";
+  }
+  const missingPassedEvidence = requiredEvidenceIds.find(
+    (evidenceId) => !evidenceIsPassed(ledger, evidenceId),
+  );
+  if (missingPassedEvidence) {
+    return `complete sub-milestone status requires passed evidence: ${missingPassedEvidence}`;
   }
   return null;
 }
@@ -1115,6 +1151,8 @@ function upsertSubMilestone(
   if (orderError) {
     return { error: orderError };
   }
+  const requiredEvidenceIds = input.requiredEvidenceIds ?? existing?.requiredEvidenceIds;
+  const receiptIds = input.receiptIds ?? existing?.receiptIds;
   const referenceError = validateSubMilestoneReferences(
     ledger,
     input.projectId,
@@ -1122,13 +1160,22 @@ function upsertSubMilestone(
     id,
     {
       dependsOn: input.dependsOn ?? existing?.dependsOn,
-      requiredEvidenceIds: input.requiredEvidenceIds,
-      receiptIds: input.receiptIds,
+      requiredEvidenceIds,
+      receiptIds,
       permissionGrantIds: input.permissionGrantIds,
     },
   );
   if (referenceError) {
     return { error: referenceError };
+  }
+  const completeError = ensureSubMilestoneCanBeComplete(
+    ledger,
+    status,
+    requiredEvidenceIds,
+    receiptIds,
+  );
+  if (completeError) {
+    return { error: completeError };
   }
   const subMilestone: PccSubMilestone = {
     id,
@@ -1154,16 +1201,8 @@ function upsertSubMilestone(
       : existing?.dependsOn !== undefined
         ? { dependsOn: existing.dependsOn }
         : {}),
-    ...(input.requiredEvidenceIds !== undefined
-      ? { requiredEvidenceIds: input.requiredEvidenceIds }
-      : existing?.requiredEvidenceIds !== undefined
-        ? { requiredEvidenceIds: existing.requiredEvidenceIds }
-        : {}),
-    ...(input.receiptIds !== undefined
-      ? { receiptIds: input.receiptIds }
-      : existing?.receiptIds !== undefined
-        ? { receiptIds: existing.receiptIds }
-        : {}),
+    ...(requiredEvidenceIds !== undefined ? { requiredEvidenceIds } : {}),
+    ...(receiptIds !== undefined ? { receiptIds } : {}),
     ...(input.permissionGrantIds !== undefined
       ? { permissionGrantIds: input.permissionGrantIds }
       : existing?.permissionGrantIds !== undefined
@@ -1679,6 +1718,10 @@ export const pccHandlers: GatewayRequestHandlers = {
             return {
               error: `proof evidence belongs to another milestone: ${wrongMilestoneEvidence.id}`,
             };
+          }
+          const failedEvidence = linkedEvidence.find((evidence) => evidence.status !== "passed");
+          if (failedEvidence) {
+            return { error: `proof evidence has not passed: ${failedEvidence.id}` };
           }
           const timestamp = nowIso();
           const receipt: PccCompletionReceipt = {

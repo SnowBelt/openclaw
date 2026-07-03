@@ -201,6 +201,47 @@ describe("Project Command Center gateway methods", () => {
     expect(withSkipped.project.percentComplete).toBe(7);
   });
 
+  it("rejects completion receipts backed by non-passing evidence", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Failed proof project" } }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Needs passing proof",
+          status: "proof_pending",
+        },
+      }),
+    );
+    const { evidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "failed",
+          command: "pnpm test failing-proof.test.ts",
+          exitCode: 1,
+        },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.receipts.add", {
+          receipt: {
+            projectId: project.id,
+            milestoneId: milestone.id,
+            summary: "This failed proof must not complete the milestone.",
+            proofEvidenceIds: [evidence.id],
+            proofLevel: "local",
+          },
+        }),
+      ),
+    ).toContain(`proof evidence has not passed: ${evidence.id}`);
+  });
+
   it("blocks complete milestone claims until a completion receipt is added", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Truthful completion" } }),
@@ -743,6 +784,85 @@ describe("Project Command Center gateway methods", () => {
         }),
       ),
     ).toContain("sub-milestone status skipped must be reopened before changing to in_progress");
+  });
+
+  it("proof-gates complete sub-milestone status", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Sub proof project" } }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Parent milestone", status: "not_started" },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            projectId: project.id,
+            milestoneId: milestone.id,
+            title: "Cannot complete without proof",
+            status: "complete",
+          },
+        }),
+      ),
+    ).toContain("complete sub-milestone status requires passed evidence");
+
+    const { evidence: failedEvidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "failed",
+          command: "pnpm test sub-proof.test.ts",
+          exitCode: 1,
+        },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            projectId: project.id,
+            milestoneId: milestone.id,
+            title: "Cannot complete with failed proof",
+            status: "complete",
+            requiredEvidenceIds: [failedEvidence.id],
+          },
+        }),
+      ),
+    ).toContain(`complete sub-milestone status requires passed evidence: ${failedEvidence.id}`);
+
+    const { evidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "passed",
+          command: "pnpm test sub-proof.test.ts",
+          exitCode: 0,
+        },
+      }),
+    );
+    const { subMilestone } = okPayload<{
+      subMilestone: { status: string; requiredEvidenceIds: string[] };
+    }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          title: "Complete with passed proof",
+          status: "complete",
+          requiredEvidenceIds: [evidence.id],
+        },
+      }),
+    );
+    expect(subMilestone.status).toBe("complete");
+    expect(subMilestone.requiredEvidenceIds).toEqual([evidence.id]);
   });
 
   it("rejects broken milestone and sub-milestone references", async () => {
