@@ -325,12 +325,12 @@ async function main(): Promise<void> {
     requireText(text, "GPT-5.5 High Reasoning");
     requireText(text, "High-reasoning / Codex permission");
     requireText(text, "Setup needs a few answers");
-    requireText(text, "Auto-fill visible answers with AI");
+    requireText(text, "Generate visible answers with AI");
     requireText(text, "Milestone Journey");
     requireText(text, "Reliable action mutations");
 
     const generateIntakeButton = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.includes("Auto-fill visible answers with AI"),
+      (button) => button.textContent?.includes("Generate visible answers with AI"),
     );
     generateIntakeButton?.click();
     if (!calls.includes("draft-intake-answers")) {

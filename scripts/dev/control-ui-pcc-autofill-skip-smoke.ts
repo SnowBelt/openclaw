@@ -21,6 +21,19 @@ function requireSelector(root: ParentNode, selector: string): Element {
   return found;
 }
 
+function clickMenuButton(menu: HTMLElement, label: string, confirm = false): void {
+  const button = [...menu.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
+    item.textContent?.includes(label),
+  );
+  if (!button) {
+    throw new Error(`PCC autofill/skip smoke missing menu action: ${label}`);
+  }
+  button.click();
+  if (confirm) {
+    button.click();
+  }
+}
+
 async function main(): Promise<void> {
   const artifactDir = join(".artifacts", "control-ui-pcc-autofill-skip-smoke", stamp());
   mkdirSync(artifactDir, { recursive: true });
@@ -224,7 +237,7 @@ async function main(): Promise<void> {
       "AI Autofill Preview",
       "Apply Autofill",
       "Approve this setup after applying",
-      "Remove from plan",
+      "Remove from active plan",
       "Milestone Journey",
       "Simple",
     ]) {
@@ -247,29 +260,25 @@ async function main(): Promise<void> {
       ?.click();
 
     const actionMenus = [...root.querySelectorAll<HTMLElement>("[data-pcc-action-menu]")];
-    actionMenus[0]!.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
-    if (!actionMenus[0]!.classList.contains("is-open")) {
+    const milestoneMenu = actionMenus[0];
+    if (!milestoneMenu) {
+      throw new Error("missing milestone action menu");
+    }
+    milestoneMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.click();
+    if (!milestoneMenu.classList.contains("is-open")) {
       throw new Error("milestone action menu did not open on click");
     }
-    [...actionMenus[0]!.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Skip"))
-      ?.click();
-    actionMenus[0]!.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
-    [...actionMenus[0]!.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Remove from plan"))
-      ?.click();
+    clickMenuButton(milestoneMenu, "Skip", true);
+    milestoneMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.click();
+    clickMenuButton(milestoneMenu, "Remove from active plan", true);
     const subMenu = root.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]")!;
     subMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
     if (!subMenu.classList.contains("is-open")) {
       throw new Error("sub-milestone action menu did not open on click");
     }
-    [...subMenu.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Skip"))
-      ?.click();
+    clickMenuButton(subMenu, "Skip", true);
     subMenu.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")!.click();
-    [...subMenu.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Reopen"))
-      ?.click();
+    clickMenuButton(subMenu, "Reopen");
 
     for (const expected of [
       "preview-autofill",
