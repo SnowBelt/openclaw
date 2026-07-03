@@ -135,6 +135,9 @@ const summary = {
   },
   nextActions: ["Run remote proof"],
   proofGaps: ["Workflow Sanity proof"],
+  health: "Needs approval",
+  dueDate: "2099-01-15T00:00:00.000Z",
+  recentActivity: "Milestone updated: CRUD UI · 2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
 };
 
@@ -220,6 +223,9 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("2/5");
     expect(text).toContain("milestones complete");
     expect(text).toContain("Run remote proof");
+    expect(text).toContain("Health: Needs approval");
+    expect(text).toContain("Due:");
+    expect(text).toContain("Activity: Milestone updated: CRUD UI");
     expect(text).toContain("Workflow Sanity proof");
     expect(text).toContain("CRUD UI");
     expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);

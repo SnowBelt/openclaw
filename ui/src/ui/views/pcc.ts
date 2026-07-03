@@ -721,6 +721,36 @@ function metadataString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
+function formatProjectDate(value: string | undefined): string {
+  if (!value) {
+    return "No due date";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatProjectActivity(value: string | undefined): string {
+  if (!value) {
+    return "No recent activity";
+  }
+  const [label, at] = value.split(" · ");
+  if (!at) {
+    return value;
+  }
+  const time = Date.parse(at);
+  if (Number.isNaN(time)) {
+    return value;
+  }
+  return `${label} · ${formatUpdatedAt(time)}`;
+}
+
 function projectIntakeSourceText(form: PccProjectFormState): string {
   return [form.projectDescription, form.goal, form.title].filter(Boolean).join("\n").trim();
 }
@@ -1228,8 +1258,11 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       </div>
       <div class="pcc-project-card__meta pcc-project-card__meta--skim">
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
+        <span>Health: ${project.health ?? formatStatus(project.status)}</span>
+        <span>Due: ${formatProjectDate(project.dueDate)}</span>
         <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
         <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
+        <span>Activity: ${formatProjectActivity(project.recentActivity)}</span>
         <span>Work: ${workState}</span>
       </div>
       <button

@@ -76,6 +76,7 @@ describe("Project Command Center gateway methods", () => {
           title: "Project Command Center",
           status: "active",
           phases: [{ id: "foundation", title: "Foundation", status: "active" }],
+          metadata: { dueDate: "2099-01-15T00:00:00.000Z" },
         },
       }),
     );
@@ -106,6 +107,11 @@ describe("Project Command Center gateway methods", () => {
     const listPayload = okPayload<{ projects: Array<{ id: string; percentComplete: number }> }>(
       await invoke("pcc.projects.list", {}),
     );
+    expect(listPayload.projects[0]).toMatchObject({
+      health: "On track",
+      dueDate: "2099-01-15T00:00:00.000Z",
+      recentActivity: expect.stringContaining("Milestone updated: Durable ledger foundation"),
+    });
     expect(listPayload.projects).toEqual([
       {
         id: projectId,
@@ -115,6 +121,9 @@ describe("Project Command Center gateway methods", () => {
         milestoneCounts: expect.any(Object),
         nextActions: expect.any(Array),
         proofGaps: [],
+        health: "On track",
+        dueDate: "2099-01-15T00:00:00.000Z",
+        recentActivity: expect.any(String),
         updatedAt: expect.any(String),
       },
     ]);

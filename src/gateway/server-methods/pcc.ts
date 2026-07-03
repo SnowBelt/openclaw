@@ -277,6 +277,84 @@ function summarizeWeightedProjectPercent(
   return COMPLETE_STATUSES.has(project.status) ? 100 : 0;
 }
 
+function metadataStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function projectDueDate(project: PccProject): string | undefined {
+  const metadata = project.metadata ?? {};
+  return (
+    metadataStringValue(metadata.dueDate) ??
+    metadataStringValue(metadata.pccDueDate) ??
+    metadataStringValue(metadata.targetDate)
+  );
+}
+
+function latestProjectActivity(ledger: PccLedger, project: PccProject): string | undefined {
+  const candidates: Array<{ at: string; label: string }> = [
+    { at: project.updatedAt, label: "Project updated" },
+  ];
+  for (const milestone of ledger.milestones.filter((item) => item.projectId === project.id)) {
+    candidates.push({ at: milestone.updatedAt, label: `Milestone updated: ${milestone.title}` });
+  }
+  for (const subMilestone of ledger.subMilestones.filter((item) => item.projectId === project.id)) {
+    candidates.push({
+      at: subMilestone.updatedAt,
+      label: `Sub-milestone updated: ${subMilestone.title}`,
+    });
+  }
+  for (const permission of ledger.permissions.filter((item) => item.projectId === project.id)) {
+    candidates.push({
+      at: permission.updatedAt,
+      label: `Permission ${permission.status}: ${permission.type}`,
+    });
+  }
+  for (const evidence of ledger.evidence.filter((item) => item.projectId === project.id)) {
+    candidates.push({
+      at: evidence.createdAt,
+      label: `Evidence ${evidence.status}: ${evidence.kind}`,
+    });
+  }
+  for (const receipt of ledger.receipts.filter((item) => item.projectId === project.id)) {
+    candidates.push({ at: receipt.completedAt, label: `Receipt added: ${receipt.summary}` });
+  }
+  for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
+    candidates.push({ at: entry.verifiedAt, label: `Verified: ${entry.subsystem}` });
+  }
+  const latest = candidates.toSorted((a, b) => b.at.localeCompare(a.at))[0];
+  return latest ? `${latest.label} · ${latest.at}` : undefined;
+}
+
+function projectHealthLabel(
+  project: PccProject,
+  counts: ProjectStatusCounts,
+  dueDate: string | undefined,
+): string {
+  if (project.status === "blocked" || counts.blocked > 0) {
+    return "Blocked";
+  }
+  if (project.status === "needs_approval" || counts.needsApproval > 0) {
+    return "Needs approval";
+  }
+  if (dueDate && !COMPLETE_STATUSES.has(project.status) && Date.parse(dueDate) < Date.now()) {
+    return "Overdue";
+  }
+  if (WAITING_STATUSES.has(project.status)) {
+    return "Waiting";
+  }
+  if (COMPLETE_STATUSES.has(project.status)) {
+    return "Complete";
+  }
+  if (
+    project.status === "active" ||
+    project.status === "in_progress" ||
+    project.status === "reopened"
+  ) {
+    return "On track";
+  }
+  return project.status.replace(/_/gu, " ");
+}
+
 function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSummary {
   const milestones = ledger.milestones.filter((milestone) => milestone.projectId === project.id);
   const percentComplete = summarizeWeightedProjectPercent(ledger, project, milestones);
@@ -311,6 +389,7 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
       return gaps;
     })
     .slice(0, 20);
+  const dueDate = projectDueDate(project);
   return {
     id: project.id,
     title: project.title,
@@ -319,6 +398,9 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     milestoneCounts: counts,
     nextActions,
     proofGaps,
+    health: projectHealthLabel(project, counts, dueDate),
+    ...(dueDate ? { dueDate } : {}),
+    recentActivity: latestProjectActivity(ledger, project),
     updatedAt: project.updatedAt,
   };
 }
