@@ -2814,6 +2814,7 @@ export function renderApp(state: AppViewState) {
               m.renderPccDashboard({
                 loading: state.pccLoading,
                 error: state.pccError,
+                connected: state.connected,
                 projects: state.pccProjects,
                 portfolio: state.pccPortfolioSummary,
                 updatedAt: state.pccUpdatedAt,

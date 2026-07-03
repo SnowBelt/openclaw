@@ -60,6 +60,7 @@ import type {
 export type PccDashboardProps = {
   loading: boolean;
   error: string | null;
+  connected?: boolean;
   projects: PccProjectSummary[];
   portfolio: PccPortfolioSummary | null;
   updatedAt: number | null;
@@ -1054,13 +1055,14 @@ function runProjectIntakeFormAutofill(props: PccDashboardProps): void {
 
 function renderProjectIntakeFormAutofillButton(
   props: PccDashboardProps,
-  label = "Auto-fill this page with AI",
+  label = "Generate answers with AI",
 ) {
   return html`<button
     class="btn"
     type="button"
     data-pcc-project-intake-page-autofill
-    title="Draft the visible project intake answers into this form before saving."
+    data-pcc-project-intake-ai-generate
+    title="Generate the visible project intake answers from the project prompt, title, goal, and current context before saving."
     ?disabled=${props.actionBusy}
     @click=${() => runProjectIntakeFormAutofill(props)}
   >
@@ -2217,6 +2219,23 @@ function renderPccLoadingState() {
       <p>Fetching projects, milestones, proof, and latest activity.</p>
     </div>
   </div>`;
+}
+
+function renderPccOfflineState(props: PccDashboardProps) {
+  if (props.connected !== false) {
+    return nothing;
+  }
+  return html`<section class="pcc-offline-state" data-pcc-offline-state role="status">
+    <div>
+      <p class="pcc-kicker">Offline</p>
+      <h3>Project Command Center is disconnected</h3>
+      <p>
+        You can review the last loaded project data, but changes cannot be saved until the Gateway
+        reconnects.
+      </p>
+    </div>
+    <button class="btn btn--subtle" type="button" @click=${props.onRefresh}>Retry refresh</button>
+  </section>`;
 }
 
 function renderProjectSearch(props: PccDashboardProps, visibleCount: number, filterCount: number) {
@@ -3714,13 +3733,23 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
-      AI fills these answers from the project prompt, title, and goal. Review the draft before
-      saving.
+      AI fills these answers from the project prompt, title, goal, and current milestone context.
+      Review the draft before saving.
     </p>
+    <section class="pcc-intake-wizard__generate-card" data-pcc-intake-generate-card>
+      <div>
+        <strong>Project intake answers can be generated.</strong>
+        <span
+          >Use this when blanks such as Goal block the setup quality gate. PCC drafts answers first;
+          you stay in control before saving or applying.</span
+        >
+      </div>
+      ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
+    </section>
     <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
       <div>
         <strong>AI can fill any blanks here.</strong>
@@ -3730,7 +3759,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill visible answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Generate visible answers with AI")}
         ${canPreviewFullSetupRepair
           ? html`<button
               class="btn btn--subtle"
@@ -4357,7 +4386,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
           </div>`
         : nothing}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
-      ${renderTodayView(props)} ${renderNeedsAttentionNow(props)}
+      ${renderPccOfflineState(props)} ${renderTodayView(props)} ${renderNeedsAttentionNow(props)}
       ${renderProjectFilterTabs(props, allProjects)}
       ${renderProjectSearch(props, projects.length, filteredByTab.length)}
       <details class="pcc-detail-drawer pcc-top-proof-drawer">

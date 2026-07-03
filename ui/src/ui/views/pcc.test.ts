@@ -175,6 +175,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
   return {
     loading: false,
     error: null,
+    connected: true,
     updatedAt: 1_772_000_000_000,
     portfolio: {
       projectsTotal: 1,
@@ -740,6 +741,23 @@ describe("renderPccDashboard", () => {
       button.textContent?.includes("Refresh"),
     );
     refresh?.click();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a page-level offline state without hiding last loaded projects", () => {
+    const onRefresh = vi.fn();
+    const container = renderView(createProps({ connected: false, onRefresh }));
+
+    const offline = container.querySelector("[data-pcc-offline-state]");
+    expect(offline).not.toBeNull();
+    expect(offline?.getAttribute("role")).toBe("status");
+    expect(offline?.textContent).toContain("Project Command Center is disconnected");
+    expect(offline?.textContent).toContain("changes cannot be saved");
+    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
+
+    [...offline!.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Retry refresh"))
+      ?.click();
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
@@ -1426,6 +1444,9 @@ describe("renderPccDashboard", () => {
       }),
     );
 
+    expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
+      "Project intake answers can be generated.",
+    );
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.matches("[data-pcc-project-intake-autofill]"),
     );
@@ -1564,11 +1585,15 @@ describe("renderPccDashboard", () => {
     );
 
     const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
+    expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
+      "Project intake answers can be generated.",
+    );
     expect(intakeTools?.textContent).toContain("AI can fill any blanks here.");
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-page-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Auto-fill visible answers with AI");
+    expect(pageAutofill?.textContent).toContain("Generate");
+    expect(pageAutofill?.textContent).toContain("answers with AI");
 
     pageAutofill?.click();
 
