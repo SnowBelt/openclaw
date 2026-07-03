@@ -530,6 +530,14 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
     ]);
   }
   for (const [milestoneId, children] of childGroups) {
+    for (const title of duplicateIntegrityKeys(children, (subMilestone) =>
+      normalizedIntegrityKey(subMilestone.title),
+    )) {
+      const parent = projectMilestones.find((milestone) => milestone.id === milestoneId);
+      gaps.push(
+        `Integrity issue: duplicate sub-milestone title under ${parent?.title ?? milestoneId}: ${title}`,
+      );
+    }
     for (const order of duplicateIntegrityKeys(children, (subMilestone) =>
       subMilestone.order === undefined ? "" : String(subMilestone.order),
     )) {

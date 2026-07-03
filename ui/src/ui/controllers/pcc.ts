@@ -1725,6 +1725,51 @@ function staleDependencyFilteredItem<T extends { dependsOn?: string[] }>(
     : { ...item, dependsOn: nextDependsOn };
 }
 
+function normalizedRepairTitle(value: string): string {
+  return value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+}
+
+function uniqueRepairTitle(value: string, used: Set<string>): string {
+  const base = value.trim().replace(/\s+/gu, " ") || "Untitled";
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(normalizedRepairTitle(candidate))) {
+    candidate = `${base} (${suffix})`;
+    suffix += 1;
+  }
+  used.add(normalizedRepairTitle(candidate));
+  return candidate;
+}
+
+function duplicateTitleRepairs<T extends { title: string }>(items: readonly T[]): T[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = normalizedRepairTitle(item.title);
+    if (key) {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  const used = new Set(
+    items
+      .map((item) => normalizedRepairTitle(item.title))
+      .filter((key) => key && counts.get(key) === 1),
+  );
+  const seenDuplicateTitles = new Set<string>();
+  return items.flatMap((item) => {
+    const key = normalizedRepairTitle(item.title);
+    if ((counts.get(key) ?? 0) <= 1) {
+      return [];
+    }
+    if (!seenDuplicateTitles.has(key)) {
+      seenDuplicateTitles.add(key);
+      used.add(key);
+      return [];
+    }
+    const nextTitle = uniqueRepairTitle(item.title, used);
+    return nextTitle === item.title ? [] : [{ ...item, title: nextTitle }];
+  });
+}
+
 export async function normalizePccProjectSequence(state: PccDashboardState): Promise<void> {
   const detail = state.pccProjectDetail;
   if (!detail) {
@@ -1776,6 +1821,40 @@ export async function normalizePccProjectSequence(state: PccDashboardState): Pro
       await selectPccProject(state, detail.project.id);
     },
     "Saved a clean milestone and sub-step sequence.",
+  );
+}
+
+export async function repairPccDuplicateTitles(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before repairing duplicate titles.";
+    return;
+  }
+  await withPccAction(
+    state,
+    async () => {
+      if (!state.client) {
+        return;
+      }
+      const milestoneUpdates = duplicateTitleRepairs(orderedMilestoneSequenceItems(detail));
+
+      const subMilestoneUpdates: PccSubMilestone[] = [];
+      for (const milestone of orderedMilestoneSequenceItems(detail)) {
+        subMilestoneUpdates.push(
+          ...duplicateTitleRepairs(orderedSubMilestoneSequenceItems(detail, milestone.id)),
+        );
+      }
+
+      for (const milestone of milestoneUpdates) {
+        await state.client.request("pcc.milestones.upsert", { milestone });
+      }
+      for (const subMilestone of subMilestoneUpdates) {
+        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+      }
+      await loadPccDashboard(state);
+      await selectPccProject(state, detail.project.id);
+    },
+    "Made duplicate milestone and sub-step titles unique.",
   );
 }
 

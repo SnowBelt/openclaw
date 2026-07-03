@@ -187,6 +187,12 @@ describe("PCC impact milestones", () => {
           milestoneId: "missing-parent",
           dependsOn: ["missing-item"],
         },
+        {
+          ...subMilestones[0],
+          id: "duplicate-sub-title",
+          title: subMilestones[0]?.title ?? "Run proof",
+          order: 2,
+        },
       ],
     };
 
@@ -197,6 +203,7 @@ describe("PCC impact milestones", () => {
         "Broken dependency: Ready milestone",
         "Duplicate milestone title: ready milestone",
         "Duplicate milestone order: 1",
+        "Duplicate sub-milestone title: run proof",
       ]),
     );
     expect(findings[0]?.severity).toBe("critical");

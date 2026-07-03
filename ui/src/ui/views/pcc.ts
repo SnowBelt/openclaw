@@ -107,6 +107,7 @@ export type PccDashboardProps = {
   onMoveSubMilestoneBefore?: (source: PccSubMilestone, target: PccSubMilestone) => void;
   onNormalizeProjectSequence?: () => void;
   onRemoveStaleDependencies?: () => void;
+  onRepairDuplicateTitles?: () => void;
   onSetSubMilestoneStatus?: (
     subMilestone: PccSubMilestone,
     status: PccStatus,
@@ -797,6 +798,9 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
   const canRemoveStaleDependencies = allIntegrity.some(
     (item) => item.id.startsWith("milestone-dependency:") || item.id.startsWith("sub-dependency:"),
   );
+  const canRepairDuplicateTitles = allIntegrity.some(
+    (item) => item.id.startsWith("milestone-title:") || item.id.startsWith("sub-title:"),
+  );
   const timeline = buildPccTimeline(input);
   const importText = props.chatSyncText.trim()
     ? props.chatSyncText
@@ -877,8 +881,19 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
           : html`<p>
               Milestone links, sub-milestone parents, and sequence slots look consistent.
             </p>`}
-        ${canNormalizeSequence || canRemoveStaleDependencies
+        ${canNormalizeSequence || canRemoveStaleDependencies || canRepairDuplicateTitles
           ? html`<div class="pcc-inline-actions" data-pcc-integrity-actions>
+              ${canRepairDuplicateTitles
+                ? html`<button
+                    type="button"
+                    class="pcc-button pcc-button--secondary"
+                    data-pcc-repair-duplicate-titles
+                    ?disabled=${props.actionBusy}
+                    @click=${() => props.onRepairDuplicateTitles?.()}
+                  >
+                    Make titles unique
+                  </button>`
+                : nothing}
               ${canNormalizeSequence
                 ? html`<button
                     type="button"

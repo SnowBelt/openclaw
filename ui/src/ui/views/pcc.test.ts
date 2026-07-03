@@ -1458,11 +1458,13 @@ describe("renderPccDashboard", () => {
   it("shows sequence normalization only for order integrity issues", () => {
     const onNormalizeProjectSequence = vi.fn();
     const onRemoveStaleDependencies = vi.fn();
+    const onRepairDuplicateTitles = vi.fn();
     const sequenceContainer = renderView(
       createProps({
         viewMode: "agent",
         onNormalizeProjectSequence,
         onRemoveStaleDependencies,
+        onRepairDuplicateTitles,
         projectDetail: {
           project,
           milestones: [
@@ -1513,6 +1515,37 @@ describe("renderPccDashboard", () => {
     expect(removeStale?.textContent).toContain("Remove stale dependencies");
     removeStale?.click();
     expect(onRemoveStaleDependencies).toHaveBeenCalledTimes(1);
+
+    const duplicateTitleContainer = renderView(
+      createProps({
+        viewMode: "agent",
+        onRepairDuplicateTitles,
+        projectDetail: {
+          project,
+          milestones: [
+            milestone,
+            {
+              ...milestone,
+              id: "duplicate-title",
+              title: milestone.title,
+              order: 20,
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+      }),
+    );
+    expect(duplicateTitleContainer.querySelector("[data-pcc-normalize-sequence]")).toBeNull();
+    const repairTitles = duplicateTitleContainer.querySelector<HTMLButtonElement>(
+      "[data-pcc-repair-duplicate-titles]",
+    );
+    expect(repairTitles?.textContent).toContain("Make titles unique");
+    repairTitles?.click();
+    expect(onRepairDuplicateTitles).toHaveBeenCalledTimes(1);
   });
 
   it("renders current truth, ready queue, sub-milestones, and work lanes", () => {

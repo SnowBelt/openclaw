@@ -149,6 +149,7 @@ import {
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
   normalizePccProjectSequence,
+  repairPccDuplicateTitles,
   removePccStaleDependencies,
   openPccDecisionForm,
   openPccMilestoneEditor,
@@ -2867,6 +2868,7 @@ export function renderApp(state: AppViewState) {
                   void movePccSubMilestoneBefore(state, source, target),
                 onNormalizeProjectSequence: () => void normalizePccProjectSequence(state),
                 onRemoveStaleDependencies: () => void removePccStaleDependencies(state),
+                onRepairDuplicateTitles: () => void repairPccDuplicateTitles(state),
                 onSetSubMilestoneStatus: (subMilestone, status, note) =>
                   void setPccSubMilestoneStatus(state, subMilestone, status, note),
                 onAddCompletionReceipt: (milestone) =>

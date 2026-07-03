@@ -194,6 +194,16 @@ describe("Project Command Center gateway methods", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     ledger.subMilestones.push({
+      id: "duplicate-child-title",
+      projectId: project.id,
+      milestoneId: "duplicate-one",
+      title: "Duplicate child order one",
+      status: "not_started",
+      order: 2,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.subMilestones.push({
       id: "orphan-sub-step",
       projectId: project.id,
       milestoneId: "missing-milestone",
@@ -265,6 +275,7 @@ describe("Project Command Center gateway methods", () => {
         "Integrity issue: duplicate milestone order: 10",
         "Integrity issue: sub-milestone has mismatched project reference: Mismatched imported sub-step",
         "Integrity issue: sub-milestone dependency is missing: Duplicate child order one -> missing-child-dependency",
+        "Integrity issue: duplicate sub-milestone title under Duplicate plan step: duplicate child order one",
         "Integrity issue: duplicate sub-milestone order under Duplicate plan step: 1",
         "Integrity issue: sub-milestone has missing parent milestone: Orphan imported sub-step",
         "Integrity issue: receipt references missing milestone: bad-imported-receipt",

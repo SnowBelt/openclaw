@@ -13,6 +13,7 @@ import {
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
   normalizePccProjectSequence,
+  repairPccDuplicateTitles,
   removePccStaleDependencies,
   openPccDecisionForm,
   openPccMilestoneEditor,
@@ -1479,6 +1480,83 @@ describe("PCC CRUD controller", () => {
       }),
     });
     expect(state.pccActionNotice?.text).toBe("Removed stale dependency links from this project.");
+  });
+
+  it("repairs duplicate milestone and sub-milestone titles deterministically", async () => {
+    const firstMilestone = { ...milestone, title: "Plan", order: 10 };
+    const duplicateMilestone = { ...milestone, id: "milestone-2", title: "Plan", order: 20 };
+    const existingSuffixMilestone = {
+      ...milestone,
+      id: "milestone-3",
+      title: "Plan (2)",
+      order: 30,
+    };
+    const firstSubMilestone = { ...subMilestone, title: "Gather proof", order: 10 };
+    const duplicateSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-2",
+      title: "Gather proof",
+      order: 20,
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [
+            firstMilestone,
+            { ...duplicateMilestone, title: "Plan (3)" },
+            existingSuffixMilestone,
+          ],
+          subMilestones: [
+            firstSubMilestone,
+            { ...duplicateSubMilestone, title: "Gather proof (2)" },
+          ],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [firstMilestone, duplicateMilestone, existingSuffixMilestone],
+        subMilestones: [firstSubMilestone, duplicateSubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        summary,
+      },
+    });
+
+    await repairPccDuplicateTitles(state);
+
+    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", {
+      milestone: expect.objectContaining({ id: "milestone-2", title: "Plan (3)" }),
+    });
+    expect(request).toHaveBeenCalledWith("pcc.subMilestones.upsert", {
+      subMilestone: expect.objectContaining({ id: "submilestone-2", title: "Gather proof (2)" }),
+    });
+    expect(request).not.toHaveBeenCalledWith(
+      "pcc.milestones.upsert",
+      expect.objectContaining({
+        milestone: expect.objectContaining({ id: "milestone-1" }),
+      }),
+    );
+    expect(state.pccActionNotice?.text).toBe(
+      "Made duplicate milestone and sub-step titles unique.",
+    );
   });
 
   it("updates milestone status", async () => {

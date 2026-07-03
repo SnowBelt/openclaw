@@ -280,6 +280,17 @@ export function buildPccIntegrityFindings(input: PccImpactDetailInput): PccInteg
     const children = subMilestones.filter(
       (subMilestone) => subMilestone.milestoneId === milestone.id,
     );
+    for (const title of duplicateGroups(children, (subMilestone) =>
+      normalizedTitle(subMilestone.title),
+    )) {
+      findings.push({
+        id: `sub-title:${milestone.id}:${title}`,
+        title: `Duplicate sub-milestone title: ${title}`,
+        reason: `Two or more sub-milestones under ${milestone.title} use the same title.`,
+        severity: "medium",
+        repair: "Rename one sub-milestone so each active sub-step is uniquely identifiable.",
+      });
+    }
     for (const order of duplicateGroups(children, (subMilestone) =>
       String(subMilestone.order ?? ""),
     )) {
