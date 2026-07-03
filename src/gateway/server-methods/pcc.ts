@@ -1536,6 +1536,10 @@ export const pccHandlers: GatewayRequestHandlers = {
           if (!milestone || milestone.projectId !== project.id) {
             return { error: `milestone not found: ${params.receipt.milestoneId}` };
           }
+          const duplicateEvidenceIds = duplicateIds(params.receipt.proofEvidenceIds);
+          if (duplicateEvidenceIds.length > 0) {
+            return { error: `duplicate proof evidence id: ${duplicateEvidenceIds[0]}` };
+          }
           const missingEvidence = params.receipt.proofEvidenceIds.filter(
             (id) =>
               !ledger.evidence.some(
@@ -1631,6 +1635,10 @@ export const pccHandlers: GatewayRequestHandlers = {
           const project = projectOrError(ledger, params.entry.projectId);
           if (!project) {
             return { error: `project not found: ${params.entry.projectId}` };
+          }
+          const duplicateEvidenceIds = duplicateIds(params.entry.evidenceIds);
+          if (duplicateEvidenceIds.length > 0) {
+            return { error: `duplicate evidence id: ${duplicateEvidenceIds[0]}` };
           }
           const missingEvidence = (params.entry.evidenceIds ?? []).filter(
             (id) =>

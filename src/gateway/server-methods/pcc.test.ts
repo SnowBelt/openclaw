@@ -356,6 +356,54 @@ describe("Project Command Center gateway methods", () => {
     ).toContain(`proof evidence belongs to another milestone: ${evidence.id}`);
   });
 
+  it("rejects duplicate evidence references in receipts and last-known-good records", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Duplicate proof references" } }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Receipt proof" },
+      }),
+    );
+    const { evidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "passed",
+          command: "pnpm test src/gateway/server-methods/pcc.test.ts",
+        },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.receipts.add", {
+          receipt: {
+            projectId: project.id,
+            milestoneId: milestone.id,
+            summary: "Duplicate proof evidence should be rejected.",
+            proofEvidenceIds: [evidence.id, evidence.id],
+          },
+        }),
+      ),
+    ).toContain(`duplicate proof evidence id: ${evidence.id}`);
+
+    expect(
+      errorMessage(
+        await invoke("pcc.lastKnownGood.upsert", {
+          entry: {
+            projectId: project.id,
+            subsystem: "duplicate-proof-subsystem",
+            summary: "Duplicate evidence should be rejected.",
+            evidenceIds: [evidence.id, evidence.id],
+          },
+        }),
+      ),
+    ).toContain(`duplicate evidence id: ${evidence.id}`);
+  });
+
   it("stores decision records and rejects orphaned decision links", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Decision project" } }),
