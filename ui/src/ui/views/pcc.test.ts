@@ -1137,6 +1137,33 @@ describe("renderPccDashboard", () => {
     expect(onSaveProject).toHaveBeenCalledTimes(1);
   });
 
+  it("uses inline confirmation before discarding a project draft from cancel", () => {
+    const confirmSpy = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirmSpy);
+    const onCancelEditor = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Draft PCC",
+          goal: "Make project work easier.",
+        },
+        onCancelEditor,
+      }),
+    );
+
+    const cancelButton = container.querySelector<HTMLButtonElement>("[data-pcc-project-cancel]");
+    cancelButton?.click();
+    expect(cancelButton?.textContent).toContain("Discard draft");
+    expect(onCancelEditor).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    cancelButton?.click();
+    expect(onCancelEditor).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
   it("shows project editor save errors next to the form", () => {
     const container = renderView(
       createProps({
@@ -1334,15 +1361,33 @@ describe("renderPccDashboard", () => {
 
     const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
     expect(intakeTools?.textContent).toContain("AI can fill any blanks here.");
-    const generate = intakeTools?.querySelector<HTMLButtonElement>(
-      "[data-pcc-project-intake-autofill]",
+    const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
+      "[data-pcc-project-intake-page-autofill]",
     );
-    expect(generate?.textContent).toContain("Generate intake answers with AI");
+    expect(pageAutofill?.textContent).toContain("Auto-fill visible answers with AI");
 
-    generate?.click();
+    pageAutofill?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "SNES Game Creator",
+        goal: "Create a readable SNES-style game workflow.",
+        intakeAnswers: expect.objectContaining({
+          goal: "Create a readable SNES-style game workflow.",
+          doneProof: expect.stringContaining("completion receipt"),
+        }),
+      }),
+    );
+    expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
+
+    const previewFullRepair = intakeTools?.querySelector<HTMLButtonElement>(
+      "[data-pcc-project-intake-preview-full-repair]",
+    );
+    expect(previewFullRepair?.textContent).toContain("Preview full setup repair");
+
+    previewFullRepair?.click();
 
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
-    expect(onProjectFormChange).not.toHaveBeenCalled();
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
     expect(container.textContent).toContain("AI Autofill Preview");
 

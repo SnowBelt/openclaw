@@ -380,6 +380,15 @@ function confirmEditorClose(props: PccDashboardProps): void {
   props.onCancelEditor();
 }
 
+function runPccEditorCancelAction(event: Event, props: PccDashboardProps): void {
+  if (props.editorMode === "create-project" && editorHasDraft(props.projectForm)) {
+    runPccConfirmedButtonAction(event, "Discard draft", props.onCancelEditor);
+    return;
+  }
+  event.preventDefault();
+  props.onCancelEditor();
+}
+
 function phaseTitleForMilestone(detail: PccProjectDetail, milestone: PccMilestone): string {
   if (!milestone.phaseId) {
     return "Project sequence";
@@ -1017,9 +1026,29 @@ function runProjectIntakeAutofill(props: PccDashboardProps): void {
     props.onPreviewSetupAutofill?.();
     return;
   }
+  runProjectIntakeFormAutofill(props);
+}
+
+function runProjectIntakeFormAutofill(props: PccDashboardProps): void {
   props.onProjectFormChange(
     projectIntakeDraftPatch(props.projectForm, projectFormContextDetail(props)),
   );
+}
+
+function renderProjectIntakeFormAutofillButton(
+  props: PccDashboardProps,
+  label = "Auto-fill this page with AI",
+) {
+  return html`<button
+    class="btn"
+    type="button"
+    data-pcc-project-intake-page-autofill
+    title="Draft the visible project intake answers into this form before saving."
+    ?disabled=${props.actionBusy}
+    @click=${() => runProjectIntakeFormAutofill(props)}
+  >
+    ${label}
+  </button>`;
 }
 
 function renderProjectIntakeAutofillButton(
@@ -3423,7 +3452,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeAutofillButton(props, "Generate intake answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -3439,7 +3468,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeAutofillButton(props, "Generate intake answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill visible answers with AI")}
         ${canPreviewFullSetupRepair
           ? html`<button
               class="btn btn--subtle"
@@ -3860,7 +3889,12 @@ function renderProjectEditor(props: PccDashboardProps) {
         >
           Regenerate with AI
         </button>
-        <button class="btn btn--subtle" type="button" @click=${() => confirmEditorClose(props)}>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          data-pcc-project-cancel
+          @click=${(event: Event) => runPccEditorCancelAction(event, props)}
+        >
           Cancel
         </button>
       </footer>

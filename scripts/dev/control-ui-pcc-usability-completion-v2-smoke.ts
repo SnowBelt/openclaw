@@ -305,19 +305,24 @@ async function main(): Promise<void> {
     requireText(text, "GPT-5.5 High Reasoning");
     requireText(text, "High-reasoning / Codex permission");
     requireText(text, "Setup needs a few answers");
-    requireText(text, "Generate intake answers with AI");
+    requireText(text, "Auto-fill visible answers with AI");
     requireText(text, "Milestone Journey");
     requireText(text, "Reliable action mutations");
 
     const generateIntakeButton = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.includes("Generate intake answers with AI"),
+      (button) => button.textContent?.includes("Auto-fill visible answers with AI"),
     );
     generateIntakeButton?.click();
+    if (!calls.includes("draft-intake-answers")) {
+      throw new Error("PCC usability completion smoke did not draft intake answers into the form");
+    }
+
+    const previewRepairButton = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes("Preview full setup repair"),
+    );
+    previewRepairButton?.click();
     if (!calls.includes("preview-autofill")) {
       throw new Error("PCC usability completion smoke did not open intake AI preview");
-    }
-    if (calls.includes("draft-intake-answers")) {
-      throw new Error("PCC usability completion smoke bypassed the intake AI preview");
     }
 
     const menuButton = requireSelector(
