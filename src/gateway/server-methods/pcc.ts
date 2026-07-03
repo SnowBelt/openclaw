@@ -379,6 +379,7 @@ function projectHealthLabel(
   project: PccProject,
   counts: ProjectStatusCounts,
   dueDate: string | undefined,
+  proofGaps: readonly string[] = [],
 ): string {
   if (project.status === "blocked" || counts.blocked > 0) {
     return "Blocked";
@@ -388,6 +389,9 @@ function projectHealthLabel(
   }
   if (dueDate && !COMPLETE_STATUSES.has(project.status) && Date.parse(dueDate) < Date.now()) {
     return "Overdue";
+  }
+  if (proofGaps.length > 0 && !PROJECT_TERMINAL_STATUSES.has(project.status)) {
+    return "At risk";
   }
   if (WAITING_STATUSES.has(project.status)) {
     return "Waiting";
@@ -444,22 +448,94 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function normalizedIntegrityKey(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function duplicateIntegrityKeys<T>(items: readonly T[], keyFor: (item: T) => string): string[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = keyFor(item);
+    if (!key) {
+      continue;
+    }
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
+}
+
 function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] {
   const gaps: string[] = [];
-  const projectMilestoneIds = new Set(
-    ledger.milestones
-      .filter((milestone) => milestone.projectId === project.id)
-      .map((milestone) => milestone.id),
+  const projectMilestones = ledger.milestones.filter(
+    (milestone) => milestone.projectId === project.id,
   );
+  const projectSubMilestones = ledger.subMilestones.filter(
+    (subMilestone) => subMilestone.projectId === project.id,
+  );
+  const projectMilestoneIds = new Set(projectMilestones.map((milestone) => milestone.id));
   const projectSubMilestoneIds = new Set(
-    ledger.subMilestones
-      .filter((subMilestone) => subMilestone.projectId === project.id)
-      .map((subMilestone) => subMilestone.id),
+    projectSubMilestones.map((subMilestone) => subMilestone.id),
   );
-  for (const subMilestone of ledger.subMilestones.filter((item) => item.projectId === project.id)) {
+
+  for (const milestone of projectMilestones) {
+    for (const dependencyId of milestone.dependsOn ?? []) {
+      if (!projectMilestoneIds.has(dependencyId)) {
+        gaps.push(
+          `Integrity issue: milestone dependency is missing: ${milestone.title} -> ${dependencyId}`,
+        );
+      }
+    }
+  }
+
+  for (const title of duplicateIntegrityKeys(projectMilestones, (milestone) =>
+    normalizedIntegrityKey(milestone.title),
+  )) {
+    gaps.push(`Integrity issue: duplicate milestone title: ${title}`);
+  }
+
+  for (const order of duplicateIntegrityKeys(projectMilestones, (milestone) =>
+    milestone.order === undefined ? "" : String(milestone.order),
+  )) {
+    gaps.push(`Integrity issue: duplicate milestone order: ${order}`);
+  }
+
+  for (const subMilestone of ledger.subMilestones.filter(
+    (item) => item.projectId !== project.id && projectMilestoneIds.has(item.milestoneId),
+  )) {
+    gaps.push(
+      `Integrity issue: sub-milestone has mismatched project reference: ${subMilestone.title}`,
+    );
+  }
+
+  for (const subMilestone of projectSubMilestones) {
     if (!projectMilestoneIds.has(subMilestone.milestoneId)) {
       gaps.push(
         `Integrity issue: sub-milestone has missing parent milestone: ${subMilestone.title}`,
+      );
+    }
+    for (const dependencyId of subMilestone.dependsOn ?? []) {
+      if (!projectMilestoneIds.has(dependencyId) && !projectSubMilestoneIds.has(dependencyId)) {
+        gaps.push(
+          `Integrity issue: sub-milestone dependency is missing: ${subMilestone.title} -> ${dependencyId}`,
+        );
+      }
+    }
+  }
+
+  const childGroups = new Map<string, PccSubMilestone[]>();
+  for (const subMilestone of projectSubMilestones) {
+    childGroups.set(subMilestone.milestoneId, [
+      ...(childGroups.get(subMilestone.milestoneId) ?? []),
+      subMilestone,
+    ]);
+  }
+  for (const [milestoneId, children] of childGroups) {
+    for (const order of duplicateIntegrityKeys(children, (subMilestone) =>
+      subMilestone.order === undefined ? "" : String(subMilestone.order),
+    )) {
+      const parent = projectMilestones.find((milestone) => milestone.id === milestoneId);
+      gaps.push(
+        `Integrity issue: duplicate sub-milestone order under ${parent?.title ?? milestoneId}: ${order}`,
       );
     }
   }
@@ -572,7 +648,7 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     milestoneCounts: counts,
     nextActions,
     proofGaps,
-    health: projectHealthLabel(project, counts, dueDate),
+    health: projectHealthLabel(project, counts, dueDate, proofGaps),
     ...(dueDate ? { dueDate } : {}),
     recentActivity: latestProjectActivity(ledger, project),
     updatedAt: project.updatedAt,

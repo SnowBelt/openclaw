@@ -137,12 +137,62 @@ describe("Project Command Center gateway methods", () => {
     );
     const ledgerPath = pccTesting.ledgerPath();
     const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
       evidence: Array<Record<string, unknown>>;
       receipts: Array<Record<string, unknown>>;
       decisions: Array<Record<string, unknown>>;
       lastKnownGood: Array<Record<string, unknown>>;
     };
+    ledger.milestones.push({
+      id: "duplicate-one",
+      projectId: project.id,
+      title: "Duplicate plan step",
+      status: "active",
+      order: 10,
+      dependsOn: ["missing-dependency"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.milestones.push({
+      id: "duplicate-two",
+      projectId: project.id,
+      title: " duplicate plan step ",
+      status: "not_started",
+      order: 10,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.subMilestones.push({
+      id: "mismatched-project-sub-step",
+      projectId: "other-project",
+      milestoneId: "duplicate-one",
+      title: "Mismatched imported sub-step",
+      status: "not_started",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.subMilestones.push({
+      id: "duplicate-child-order-one",
+      projectId: project.id,
+      milestoneId: "duplicate-one",
+      title: "Duplicate child order one",
+      status: "not_started",
+      order: 1,
+      dependsOn: ["missing-child-dependency"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    ledger.subMilestones.push({
+      id: "duplicate-child-order-two",
+      projectId: project.id,
+      milestoneId: "duplicate-one",
+      title: "Duplicate child order two",
+      status: "not_started",
+      order: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
     ledger.subMilestones.push({
       id: "orphan-sub-step",
       projectId: project.id,
@@ -204,12 +254,18 @@ describe("Project Command Center gateway methods", () => {
     });
     fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
 
-    const listPayload = okPayload<{ projects: Array<{ id: string; proofGaps: string[] }> }>(
-      await invoke("pcc.projects.list", {}),
-    );
+    const listPayload = okPayload<{
+      projects: Array<{ id: string; proofGaps: string[]; health: string }>;
+    }>(await invoke("pcc.projects.list", {}));
     const summary = listPayload.projects.find((item) => item.id === project.id);
     expect(summary?.proofGaps).toEqual(
       expect.arrayContaining([
+        "Integrity issue: milestone dependency is missing: Duplicate plan step -> missing-dependency",
+        "Integrity issue: duplicate milestone title: duplicate plan step",
+        "Integrity issue: duplicate milestone order: 10",
+        "Integrity issue: sub-milestone has mismatched project reference: Mismatched imported sub-step",
+        "Integrity issue: sub-milestone dependency is missing: Duplicate child order one -> missing-child-dependency",
+        "Integrity issue: duplicate sub-milestone order under Duplicate plan step: 1",
         "Integrity issue: sub-milestone has missing parent milestone: Orphan imported sub-step",
         "Integrity issue: receipt references missing milestone: bad-imported-receipt",
         "Integrity issue: receipt references non-passing proof evidence: failed-imported-evidence",
@@ -220,6 +276,7 @@ describe("Project Command Center gateway methods", () => {
         "Integrity issue: last-known-good has malformed evidence ids: bad-imported-lkg",
       ]),
     );
+    expect(summary?.health).toBe("At risk");
   });
 
   it("summarizes legacy rows with missing activity timestamps", async () => {
