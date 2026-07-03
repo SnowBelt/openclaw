@@ -543,6 +543,122 @@ function upsertProject(
   return setAt(ledger.projects, project);
 }
 
+function duplicateIds(ids: readonly string[] | undefined): string[] {
+  if (!ids) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) {
+      duplicates.add(id);
+    }
+    seen.add(id);
+  }
+  return [...duplicates];
+}
+
+function validateMilestoneReferences(
+  ledger: PccLedger,
+  projectId: string,
+  milestoneId: string,
+  input: {
+    dependsOn?: string[];
+    requiredEvidenceIds?: string[];
+    receiptIds?: string[];
+    permissionGrantIds?: string[];
+  },
+): string | null {
+  const duplicateDependencyIds = duplicateIds(input.dependsOn);
+  if (duplicateDependencyIds.length > 0) {
+    return `duplicate milestone dependency id: ${duplicateDependencyIds[0]}`;
+  }
+  for (const dependencyId of input.dependsOn ?? []) {
+    if (dependencyId === milestoneId) {
+      return "milestone cannot depend on itself";
+    }
+    const dependency = milestoneOrError(ledger, dependencyId);
+    if (!dependency || dependency.projectId !== projectId) {
+      return `milestone dependency not found in project: ${dependencyId}`;
+    }
+  }
+  for (const evidenceId of input.requiredEvidenceIds ?? []) {
+    const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+    if (!evidence || evidence.projectId !== projectId) {
+      return `evidence not found in project: ${evidenceId}`;
+    }
+  }
+  for (const receiptId of input.receiptIds ?? []) {
+    const receipt = ledger.receipts.find((item) => item.id === receiptId);
+    if (!receipt || receipt.projectId !== projectId || receipt.milestoneId !== milestoneId) {
+      return `receipt not found for milestone: ${receiptId}`;
+    }
+  }
+  for (const permissionId of input.permissionGrantIds ?? []) {
+    const permission = ledger.permissions.find((item) => item.id === permissionId);
+    if (!permission || permission.projectId !== projectId) {
+      return `permission grant not found in project: ${permissionId}`;
+    }
+    if (permission.milestoneId && permission.milestoneId !== milestoneId) {
+      return `permission grant belongs to another milestone: ${permissionId}`;
+    }
+  }
+  return null;
+}
+
+function validateSubMilestoneReferences(
+  ledger: PccLedger,
+  projectId: string,
+  milestoneId: string,
+  subMilestoneId: string,
+  input: {
+    dependsOn?: string[];
+    requiredEvidenceIds?: string[];
+    receiptIds?: string[];
+    permissionGrantIds?: string[];
+  },
+): string | null {
+  const duplicateDependencyIds = duplicateIds(input.dependsOn);
+  if (duplicateDependencyIds.length > 0) {
+    return `duplicate sub-milestone dependency id: ${duplicateDependencyIds[0]}`;
+  }
+  for (const dependencyId of input.dependsOn ?? []) {
+    if (dependencyId === subMilestoneId) {
+      return "sub-milestone cannot depend on itself";
+    }
+    const dependency = subMilestoneOrError(ledger, dependencyId);
+    if (
+      !dependency ||
+      dependency.projectId !== projectId ||
+      dependency.milestoneId !== milestoneId
+    ) {
+      return `sub-milestone dependency not found under milestone: ${dependencyId}`;
+    }
+  }
+  for (const evidenceId of input.requiredEvidenceIds ?? []) {
+    const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+    if (!evidence || evidence.projectId !== projectId) {
+      return `evidence not found in project: ${evidenceId}`;
+    }
+  }
+  for (const receiptId of input.receiptIds ?? []) {
+    const receipt = ledger.receipts.find((item) => item.id === receiptId);
+    if (!receipt || receipt.projectId !== projectId || receipt.milestoneId !== milestoneId) {
+      return `receipt not found for parent milestone: ${receiptId}`;
+    }
+  }
+  for (const permissionId of input.permissionGrantIds ?? []) {
+    const permission = ledger.permissions.find((item) => item.id === permissionId);
+    if (!permission || permission.projectId !== projectId) {
+      return `permission grant not found in project: ${permissionId}`;
+    }
+    if (permission.milestoneId && permission.milestoneId !== milestoneId) {
+      return `permission grant belongs to another milestone: ${permissionId}`;
+    }
+  }
+  return null;
+}
+
 function ensureMilestoneCanBeComplete(
   ledger: PccLedger,
   milestoneId: string,
@@ -590,6 +706,15 @@ function upsertMilestone(
   const id = existing?.id ?? input.id ?? makeId("milestone", input.title);
   const status = input.status ?? existing?.status ?? "not_started";
   const receiptIds = input.receiptIds ?? existing?.receiptIds;
+  const referenceError = validateMilestoneReferences(ledger, input.projectId, id, {
+    dependsOn: input.dependsOn,
+    requiredEvidenceIds: input.requiredEvidenceIds,
+    receiptIds,
+    permissionGrantIds: input.permissionGrantIds,
+  });
+  if (referenceError) {
+    return { error: referenceError };
+  }
   const completeError = ensureMilestoneCanBeComplete(ledger, id, status, receiptIds);
   if (completeError) {
     return { error: completeError };
@@ -693,6 +818,21 @@ function upsertSubMilestone(
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("submilestone", input.title);
   const status = input.status ?? existing?.status ?? "not_started";
+  const referenceError = validateSubMilestoneReferences(
+    ledger,
+    input.projectId,
+    input.milestoneId,
+    id,
+    {
+      dependsOn: input.dependsOn,
+      requiredEvidenceIds: input.requiredEvidenceIds,
+      receiptIds: input.receiptIds,
+      permissionGrantIds: input.permissionGrantIds,
+    },
+  );
+  if (referenceError) {
+    return { error: referenceError };
+  }
   const subMilestone: PccSubMilestone = {
     id,
     projectId: input.projectId,

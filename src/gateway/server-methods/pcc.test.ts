@@ -412,6 +412,87 @@ describe("Project Command Center gateway methods", () => {
     expect(projectDetail.lastKnownGood).toHaveLength(1);
   });
 
+  it("rejects broken milestone and sub-milestone references", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Integrity project" } }),
+    );
+    const firstMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "First", status: "not_started" },
+      }),
+    ).milestone;
+    const secondMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Second",
+          status: "not_started",
+          dependsOn: [firstMilestone.id],
+        },
+      }),
+    ).milestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            id: secondMilestone.id,
+            projectId: project.id,
+            title: "Second",
+            dependsOn: ["missing-milestone"],
+          },
+        }),
+      ),
+    ).toContain("milestone dependency not found in project");
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            id: firstMilestone.id,
+            projectId: project.id,
+            title: "First",
+            dependsOn: [firstMilestone.id],
+          },
+        }),
+      ),
+    ).toContain("milestone cannot depend on itself");
+
+    const firstSubMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: firstMilestone.id,
+          title: "First sub-step",
+        },
+      }),
+    ).subMilestone;
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            id: firstSubMilestone.id,
+            projectId: project.id,
+            milestoneId: firstMilestone.id,
+            title: "First sub-step",
+            dependsOn: [firstSubMilestone.id],
+          },
+        }),
+      ),
+    ).toContain("sub-milestone cannot depend on itself");
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            projectId: project.id,
+            milestoneId: firstMilestone.id,
+            title: "Second sub-step",
+            dependsOn: ["missing-submilestone"],
+          },
+        }),
+      ),
+    ).toContain("sub-milestone dependency not found under milestone");
+  });
+
   it("summarizes portfolio status without showing archived projects by default", async () => {
     const active = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", {
