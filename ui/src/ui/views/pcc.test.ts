@@ -602,6 +602,34 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).toContain("Select a project");
   });
 
+  it("renders loading without misreporting an empty portfolio", () => {
+    const container = renderView(
+      createProps({
+        loading: true,
+        projects: [],
+        selectedProjectId: null,
+        projectDetail: null,
+        portfolio: {
+          projectsTotal: 0,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 0,
+          nextActions: [],
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-loading-state]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-loading-state]")?.getAttribute("role")).toBe(
+      "status",
+    );
+    expect(container.textContent).toContain("Loading Project Command Center");
+    expect(container.textContent).not.toContain("No projects yet");
+  });
+
   it("renders an error state and keeps refresh usable", () => {
     const onRefresh = vi.fn();
     const container = renderView(createProps({ error: "gateway offline", onRefresh }));

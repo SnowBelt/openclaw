@@ -1837,6 +1837,38 @@
   flex: 1 1 160px;
 }
 
+.pcc-loading-state {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-radius: 20px;
+  color: var(--text);
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.pcc-loading-state p {
+  color: var(--muted);
+  margin: 3px 0 0;
+}
+
+.pcc-loading-state__spinner {
+  animation: pcc-spin 0.8s linear infinite;
+  border: 2px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  border-top-color: var(--accent);
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+}
+
+@keyframes pcc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .pcc-project-orientation {
   align-items: center;
   background: color-mix(in srgb, var(--surface) 78%, transparent);

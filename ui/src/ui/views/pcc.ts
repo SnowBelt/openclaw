@@ -2068,6 +2068,21 @@ function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly Pc
   </nav>`;
 }
 
+function renderPccLoadingState() {
+  return html`<div
+    class="pcc-loading-state"
+    data-pcc-loading-state
+    role="status"
+    aria-live="polite"
+  >
+    <span class="pcc-loading-state__spinner" aria-hidden="true"></span>
+    <div>
+      <strong>Loading Project Command Center</strong>
+      <p>Fetching projects, milestones, proof, and latest activity.</p>
+    </div>
+  </div>`;
+}
+
 function renderProjectSearch(props: PccDashboardProps, visibleCount: number, filterCount: number) {
   const query = props.projectSearchQuery ?? "";
   const hasQuery = query.trim().length > 0;
@@ -4205,6 +4220,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
             </button>
           </div>`
         : nothing}
+      ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderTodayView(props)} ${renderProjectFilterTabs(props, allProjects)}
       ${renderProjectSearch(props, projects.length, filteredByTab.length)}
       <details class="pcc-detail-drawer pcc-top-proof-drawer">
@@ -4216,18 +4232,20 @@ export function renderPccDashboard(props: PccDashboardProps) {
 
       <div class="pcc-layout">
         <section class="pcc-projects" aria-label="Projects">
-          ${!props.loading && projects.length === 0
-            ? html`<div class="pcc-empty" data-pcc-empty>
-                <h3>No projects yet</h3>
-                <p>
-                  ${props.projectSearchQuery?.trim()
-                    ? "No projects match this search. Clear search or try another term."
-                    : "No projects match this filter. Use another tab or create a new project."}
-                </p>
-              </div>`
-            : html`<section class="pcc-project-grid" aria-label="Project cards">
-                ${projects.map((project) => renderProjectCard(project, props))}
-              </section>`}
+          ${props.loading && projects.length === 0
+            ? renderPccLoadingState()
+            : !props.loading && projects.length === 0
+              ? html`<div class="pcc-empty" data-pcc-empty>
+                  <h3>No projects yet</h3>
+                  <p>
+                    ${props.projectSearchQuery?.trim()
+                      ? "No projects match this search. Clear search or try another term."
+                      : "No projects match this filter. Use another tab or create a new project."}
+                  </p>
+                </div>`
+              : html`<section class="pcc-project-grid" aria-label="Project cards">
+                  ${projects.map((project) => renderProjectCard(project, props))}
+                </section>`}
         </section>
         ${renderProjectDetail(props)}
       </div>
