@@ -1005,6 +1005,20 @@ describe("renderPccDashboard", () => {
     const container = renderView(
       createProps({
         editorMode: "edit-project",
+        projectDetail: {
+          project: {
+            ...project,
+            id: "project-1",
+            title: "SNES Game Creator",
+            goal: "",
+          },
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: { ...summary, title: "SNES Game Creator" },
+        },
         projectForm: {
           ...EMPTY_PCC_PROJECT_FORM,
           id: "project-1",
@@ -1019,6 +1033,7 @@ describe("renderPccDashboard", () => {
 
     expect(container.querySelector("[data-pcc-project-intake-ai-repair]")).not.toBeNull();
     expect(container.querySelector("details[open] [data-pcc-intake-wizard]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-intake-answer-ai-tools]")).not.toBeNull();
     const autofill = container.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
@@ -1035,6 +1050,73 @@ describe("renderPccDashboard", () => {
         }),
       }),
     );
+  });
+
+  it("lets the project intake answers page generate answers from selected project context", () => {
+    const onProjectFormChange = vi.fn();
+    const onPreviewSetupAutofill = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "edit-project",
+        projectDetail: {
+          project: {
+            ...project,
+            id: "snes",
+            title: "SNES Game Creator",
+            goal: "Create a readable SNES-style game workflow.",
+          },
+          milestones: [
+            {
+              ...milestone,
+              projectId: "snes",
+              title: "Verify SNES toolchain and emulator smoke path",
+              status: "not_started",
+            },
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: { ...summary, id: "snes", title: "SNES Game Creator" },
+        },
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          id: "snes",
+          title: "SNES Game Creator",
+          goal: "",
+          intakeAnswers: { goal: "" },
+          intakeApproved: false,
+        },
+        onProjectFormChange,
+        onPreviewSetupAutofill,
+      }),
+    );
+
+    const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
+    expect(intakeTools?.textContent).toContain("AI can fill any blanks here.");
+    const generate = intakeTools?.querySelector<HTMLButtonElement>(
+      "[data-pcc-project-intake-autofill]",
+    );
+    expect(generate?.textContent).toContain("Generate answers with AI");
+
+    generate?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        goal: "Create a readable SNES-style game workflow.",
+        intakeAnswers: expect.objectContaining({
+          goal: "Create a readable SNES-style game workflow.",
+          firstDeliverable: expect.stringContaining(
+            "Verify SNES toolchain and emulator smoke path",
+          ),
+        }),
+      }),
+    );
+
+    container
+      .querySelector<HTMLButtonElement>("[data-pcc-project-intake-preview-full-repair]")
+      ?.click();
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
   });
 
   it("renders project-manager and Codex planning gates in project intake", () => {

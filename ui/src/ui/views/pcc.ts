@@ -790,16 +790,64 @@ function formatProjectActivity(value: string | undefined): string {
   return `${label} · ${formatUpdatedAt(time)}`;
 }
 
-function projectIntakeSourceText(form: PccProjectFormState): string {
-  return [form.projectDescription, form.goal, form.title].filter(Boolean).join("\n").trim();
+function projectDetailIntakeSourceText(detail: PccProjectDetail | null | undefined): string {
+  if (!detail) {
+    return "";
+  }
+  const projectMetadata = metadataObject(detail.project.metadata);
+  return [
+    detail.project.title,
+    detail.project.goal ?? "",
+    metadataString(projectMetadata.pccProjectDescription, ""),
+    ...detail.milestones.flatMap((milestone) => [
+      milestone.title,
+      milestone.implementationPlan ?? "",
+      milestone.blocker ?? "",
+    ]),
+    ...(detail.subMilestones ?? []).flatMap((subMilestone) => [
+      subMilestone.title,
+      subMilestone.implementationPlan ?? "",
+      subMilestone.blocker ?? "",
+    ]),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
 }
 
-function draftProjectIntakeAnswers(form: PccProjectFormState): Record<string, string> {
-  const source = projectIntakeSourceText(form);
-  const title = form.title.trim() || source.split(/\r?\n/u).find(Boolean)?.trim() || "this project";
-  const goal = form.goal.trim() || source || `Complete ${title} with a verified PCC plan.`;
+function projectIntakeSourceText(
+  form: PccProjectFormState,
+  detail?: PccProjectDetail | null,
+): string {
+  return [form.projectDescription, form.goal, form.title, projectDetailIntakeSourceText(detail)]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function draftProjectIntakeAnswers(
+  form: PccProjectFormState,
+  detail?: PccProjectDetail | null,
+): Record<string, string> {
+  const source = projectIntakeSourceText(form, detail);
+  const title =
+    form.title.trim() ||
+    detail?.project.title.trim() ||
+    source.split(/\r?\n/u).find(Boolean)?.trim() ||
+    "this project";
+  const goal =
+    form.goal.trim() ||
+    detail?.project.goal?.trim() ||
+    source ||
+    `Complete ${title} with a verified PCC plan.`;
+  const nextMilestone = detail?.milestones.find(
+    (milestone) =>
+      !["complete", "complete_with_maintenance", "skipped", "archived"].includes(milestone.status),
+  );
   const firstDeliverable = source
-    ? `A reviewed PCC plan for ${title} with ordered milestones, sub-milestones, owners, and proof gates generated from the project prompt.`
+    ? nextMilestone
+      ? `A reviewed plan to complete the next milestone, ${nextMilestone.title}, with ordered sub-milestones, owners, and proof gates generated from the project context.`
+      : `A reviewed PCC plan for ${title} with ordered milestones, sub-milestones, owners, and proof gates generated from the project prompt.`
     : `A reviewed PCC plan for ${title} with ordered milestones, sub-milestones, owners, and proof gates.`;
   const highReasoning =
     form.plannerMode === "codex" ||
@@ -825,8 +873,11 @@ function draftProjectIntakeAnswers(form: PccProjectFormState): Record<string, st
   );
 }
 
-function projectIntakeDraftPatch(form: PccProjectFormState): Partial<PccProjectFormState> {
-  const intakeAnswers = draftProjectIntakeAnswers(form);
+function projectIntakeDraftPatch(
+  form: PccProjectFormState,
+  detail?: PccProjectDetail | null,
+): Partial<PccProjectFormState> {
+  const intakeAnswers = draftProjectIntakeAnswers(form, detail);
   const goal = form.goal.trim() || intakeAnswers.goal;
   const title = form.title.trim() || goal.replace(/[.!?]$/u, "").slice(0, 90) || "Untitled Project";
   const recommendation = recommendPccWorkflow({ title, goal, intakeAnswers });
@@ -849,6 +900,14 @@ function projectIntakeNeedsAiDraft(form: PccProjectFormState): boolean {
   );
 }
 
+function projectFormContextDetail(props: PccDashboardProps): PccProjectDetail | null {
+  return props.editorMode === "edit-project" &&
+    props.projectForm.id &&
+    props.projectDetail?.project.id === props.projectForm.id
+    ? props.projectDetail
+    : null;
+}
+
 function renderProjectIntakeAutofillButton(
   props: PccDashboardProps,
   label = "Fill missing fields with AI",
@@ -857,8 +916,12 @@ function renderProjectIntakeAutofillButton(
     class="btn"
     type="button"
     data-pcc-project-intake-autofill
+    title="Generate the missing project intake answers from the prompt and current project context."
     ?disabled=${props.actionBusy}
-    @click=${() => props.onProjectFormChange(projectIntakeDraftPatch(props.projectForm))}
+    @click=${() =>
+      props.onProjectFormChange(
+        projectIntakeDraftPatch(props.projectForm, projectFormContextDetail(props)),
+      )}
   >
     ${label}
   </button>`;
@@ -2973,6 +3036,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     goal: form.goal,
     intakeAnswers: form.intakeAnswers,
   });
+  const canPreviewFullSetupRepair = Boolean(props.projectDetail && props.onPreviewSetupAutofill);
   return html`<section class="pcc-intake-wizard" data-pcc-intake-wizard>
     <div class="pcc-section-heading">
       <div>
@@ -2982,13 +3046,36 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeAutofillButton(props, "Autofill intake answers with AI")}
+        ${renderProjectIntakeAutofillButton(props, "Generate answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
       AI fills these answers from the project prompt, title, and goal. Review the draft before
       saving.
     </p>
+    <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
+      <div>
+        <strong>AI can fill any blanks here.</strong>
+        <span
+          >Use the current project context to draft missing intake answers. Existing answers stay
+          unchanged unless you edit them.</span
+        >
+      </div>
+      <div class="pcc-intake-wizard__ai-actions">
+        ${renderProjectIntakeAutofillButton(props, "Generate answers with AI")}
+        ${canPreviewFullSetupRepair
+          ? html`<button
+              class="btn btn--subtle"
+              type="button"
+              data-pcc-project-intake-preview-full-repair
+              ?disabled=${props.actionBusy}
+              @click=${() => props.onPreviewSetupAutofill?.()}
+            >
+              Preview full setup repair
+            </button>`
+          : nothing}
+      </div>
+    </div>
     <div class="pcc-intake-wizard__questions">
       ${PCC_REQUIRED_INTAKE_QUESTIONS.map((question) => {
         const value = form.intakeAnswers[question.id] ?? "";
@@ -3037,7 +3124,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     ${missing.length || !form.intakeApproved
       ? html`<p class="pcc-intake-wizard__missing" data-pcc-intake-blocked>
           ${missing.length
-            ? "Complete every intake answer before saving."
+            ? "Complete every intake answer before saving, or choose Generate answers with AI."
             : "Approve the intake brief before saving."}
         </p>`
       : nothing}
@@ -3379,7 +3466,10 @@ function renderProjectEditor(props: PccDashboardProps) {
           class="btn btn--subtle"
           type="button"
           data-pcc-project-regenerate-ai
-          @click=${() => props.onProjectFormChange(projectIntakeDraftPatch(form))}
+          @click=${() =>
+            props.onProjectFormChange(
+              projectIntakeDraftPatch(form, projectFormContextDetail(props)),
+            )}
         >
           Regenerate with AI
         </button>

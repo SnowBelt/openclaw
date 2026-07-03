@@ -1445,6 +1445,36 @@
   font-size: 0.86rem;
 }
 
+.pcc-intake-wizard__ai-tools {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface-card));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+  border-radius: 16px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.pcc-intake-wizard__ai-tools strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.pcc-intake-wizard__ai-tools span {
+  color: var(--text-secondary);
+  display: block;
+  font-size: 0.84rem;
+  margin-top: 2px;
+}
+
+.pcc-intake-wizard__ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .pcc-intake-wizard__questions {
   display: grid;
   gap: 10px;
