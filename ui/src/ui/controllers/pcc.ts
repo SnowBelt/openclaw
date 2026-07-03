@@ -825,6 +825,12 @@ async function withPccAction(
   action: () => Promise<void>,
   successMessage?: string,
 ): Promise<void> {
+  if (state.pccActionBusy) {
+    state.pccActionError =
+      "Another Project Command Center action is already running. Wait for it to finish before starting another change.";
+    state.requestUpdate?.();
+    return;
+  }
   if (!state.client || !state.connected) {
     state.pccActionError =
       "Project Command Center is offline or disconnected. Changes were not saved; reconnect and try again.";
@@ -880,10 +886,15 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
 }
 
 export async function selectPccProject(state: PccDashboardState, projectId: string): Promise<void> {
-  await withPccAction(state, async () => {
-    if (!state.client) {
-      return;
-    }
+  if (!state.client || !state.connected) {
+    state.pccActionError =
+      "Project Command Center is offline or disconnected. Project details could not be loaded.";
+    state.requestUpdate?.();
+    return;
+  }
+  state.pccActionError = null;
+  state.requestUpdate?.();
+  try {
     const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
       projectId,
     });
@@ -894,7 +905,11 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
       [detail.project.id]: state.pccProjectDetail,
     };
     refreshPccChatSyncProposals(state);
-  });
+  } catch (err) {
+    setActionError(state, err);
+  } finally {
+    state.requestUpdate?.();
+  }
 }
 
 export function openPccProjectEditor(state: PccDashboardState, project?: PccProject): void {

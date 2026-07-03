@@ -1106,6 +1106,23 @@ describe("PCC CRUD controller", () => {
     expect(requestUpdate).toHaveBeenCalled();
   });
 
+  it("blocks overlapping PCC actions before any duplicate ledger write", async () => {
+    const request = vi.fn();
+    const requestUpdate = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccActionBusy: true,
+      requestUpdate,
+    });
+
+    await setPccMilestoneStatus(state, milestone, "deferred");
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionBusy).toBe(true);
+    expect(state.pccActionError).toContain("already running");
+    expect(requestUpdate).toHaveBeenCalled();
+  });
+
   it("creates a scoped Codex planning permission only when Codex planning is requested", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "pcc.projects.upsert") {
