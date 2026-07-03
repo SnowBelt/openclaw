@@ -100,18 +100,30 @@ async function runBrowserProof(options: ProofOptions) {
   const targetProject = page
     .locator(".pcc-project-card", { hasText: options.projectTitle })
     .first();
-  const projectCardCount = await targetProject.count();
+  let projectCardCount = await targetProject.count();
+  if ((await page.locator(".pcc-project-card").count()) === 0) {
+    const allProjectsTab = page.locator(".pcc-project-tabs button", { hasText: /All/i }).last();
+    if (await allProjectsTab.isVisible().catch(() => false)) {
+      await allProjectsTab.click({ force: true });
+      await page
+        .locator(".pcc-project-card")
+        .first()
+        .waitFor({ state: "visible", timeout: 15_000 })
+        .catch(() => undefined);
+      projectCardCount = await targetProject.count();
+    }
+  }
   const targetOpenButton =
     projectCardCount > 0
-      ? targetProject.locator("button", { hasText: /^Open$/ }).first()
-      : page.locator(".pcc-project-card button", { hasText: /^Open$/ }).first();
+      ? targetProject.locator("button", { hasText: /Open/i }).first()
+      : page.locator(".pcc-project-card button", { hasText: /Open/i }).first();
   const targetSelectedButton =
     projectCardCount > 0
-      ? targetProject.locator("button", { hasText: /^Selected$/ }).first()
-      : page.locator(".pcc-project-card button", { hasText: /^Selected$/ }).first();
-  const anyOpenButton = page.locator(".pcc-project-card button", { hasText: /^Open$/ }).first();
+      ? targetProject.locator("button", { hasText: /Selected/i }).first()
+      : page.locator(".pcc-project-card button", { hasText: /Selected/i }).first();
+  const anyOpenButton = page.locator(".pcc-project-card button", { hasText: /Open/i }).first();
   const anySelectedButton = page
-    .locator(".pcc-project-card button", { hasText: /^Selected$/ })
+    .locator(".pcc-project-card button", { hasText: /Selected/i })
     .first();
   const pickVisibleButton = async () => {
     const candidates = [targetOpenButton, targetSelectedButton, anyOpenButton, anySelectedButton];
