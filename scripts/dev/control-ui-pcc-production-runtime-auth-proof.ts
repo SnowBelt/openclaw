@@ -101,12 +101,36 @@ async function runBrowserProof(options: ProofOptions) {
     .locator(".pcc-project-card", { hasText: options.projectTitle })
     .first();
   const projectCardCount = await targetProject.count();
-  const openButton =
+  const targetOpenButton =
     projectCardCount > 0
-      ? targetProject.locator("button", { hasText: "Open" }).first()
-      : page.locator(".pcc-project-card button", { hasText: "Open" }).first();
-  await openButton.waitFor({ state: "visible", timeout: 45_000 });
-  await openButton.click();
+      ? targetProject.locator("button", { hasText: /^Open$/ }).first()
+      : page.locator(".pcc-project-card button", { hasText: /^Open$/ }).first();
+  const targetSelectedButton =
+    projectCardCount > 0
+      ? targetProject.locator("button", { hasText: /^Selected$/ }).first()
+      : page.locator(".pcc-project-card button", { hasText: /^Selected$/ }).first();
+  const anyOpenButton = page.locator(".pcc-project-card button", { hasText: /^Open$/ }).first();
+  const anySelectedButton = page
+    .locator(".pcc-project-card button", { hasText: /^Selected$/ })
+    .first();
+  const pickVisibleButton = async () => {
+    const candidates = [targetOpenButton, targetSelectedButton, anyOpenButton, anySelectedButton];
+    for (const candidate of candidates) {
+      if (await candidate.isVisible().catch(() => false)) {
+        return candidate;
+      }
+    }
+    return undefined;
+  };
+  let openButton = await pickVisibleButton();
+  if (!openButton) {
+    await page.locator(".pcc-project-card").first().waitFor({ state: "visible", timeout: 45_000 });
+    openButton = await pickVisibleButton();
+  }
+  if (!openButton) {
+    throw new Error("PCC proof could not find a visible project Open or Selected button");
+  }
+  await openButton.click({ force: true }).catch(() => undefined);
   await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
   const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').last();
   if (await agentMode.isVisible().catch(() => false)) {
