@@ -1062,6 +1062,7 @@ function projectIntakeSourceText(
 function draftProjectIntakeAnswers(
   form: PccProjectFormState,
   detail?: PccProjectDetail | null,
+  options: { preserveExisting?: boolean } = {},
 ): Record<string, string> {
   const source = projectIntakeSourceText(form, detail);
   const title =
@@ -1099,12 +1100,33 @@ function draftProjectIntakeAnswers(
     blockers:
       "Unknown blockers must be converted into PCC permission, tool, source, or proof gaps before work starts.",
   };
+  const preserveExisting = options.preserveExisting ?? true;
   return Object.fromEntries(
     Object.entries(generated).map(([key, value]) => {
       const existing = form.intakeAnswers[key]?.trim();
-      return [key, existing || value];
+      return [key, preserveExisting && existing ? existing : value];
     }),
   );
+}
+
+function projectIntakeAnswerDraftPatch(
+  form: PccProjectFormState,
+  questionId: string,
+  detail?: PccProjectDetail | null,
+): Partial<PccProjectFormState> {
+  const intakeAnswers = draftProjectIntakeAnswers(form, detail, { preserveExisting: false });
+  const nextValue = intakeAnswers[questionId]?.trim();
+  if (!nextValue) {
+    return {};
+  }
+  return {
+    intakeAnswers: {
+      ...form.intakeAnswers,
+      [questionId]: nextValue,
+    },
+    ...(questionId === "goal" && !form.goal.trim() ? { goal: nextValue } : {}),
+    planPreviewAccepted: false,
+  };
 }
 
 function projectIntakeDraftPatch(
@@ -3984,8 +4006,26 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
     <div class="pcc-intake-wizard__questions">
       ${PCC_REQUIRED_INTAKE_QUESTIONS.map((question) => {
         const value = form.intakeAnswers[question.id] ?? "";
-        return html`<label>
-          ${question.label}
+        const hasValue = Boolean(value.trim());
+        return html`<label class="pcc-intake-wizard__question">
+          <span class="pcc-intake-wizard__question-header">
+            <span>${question.label}</span>
+            <button
+              class="btn btn--subtle pcc-intake-wizard__question-ai"
+              type="button"
+              data-pcc-intake-question-ai-fill=${question.id}
+              title=${hasValue
+                ? `Regenerate ${question.label} from the current project context.`
+                : `Fill ${question.label} from the current project context.`}
+              ?disabled=${props.actionBusy}
+              @click=${() =>
+                props.onProjectFormChange(
+                  projectIntakeAnswerDraftPatch(form, question.id, projectFormContextDetail(props)),
+                )}
+            >
+              ${hasValue ? "Regenerate with AI" : "AI fill"}
+            </button>
+          </span>
           <textarea
             aria-label=${question.prompt}
             placeholder=${question.prompt}

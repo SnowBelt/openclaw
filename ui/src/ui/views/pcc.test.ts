@@ -1791,6 +1791,46 @@ describe("renderPccDashboard", () => {
     );
   });
 
+  it("shows per-question AI fill controls on project intake answers", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Kitchen Remodel Planner",
+          goal: "Plan a kitchen remodel from estimate through final inspection.",
+          projectDescription:
+            "I need a complete plan for remodeling my kitchen without missing permits, contractors, materials, inspections, or budget checkpoints.",
+          intakeAnswers: { goal: "", owner: "User" },
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    const goalFill = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-intake-question-ai-fill="goal"]',
+    );
+    expect(goalFill?.textContent).toContain("AI fill");
+
+    goalFill?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intakeAnswers: expect.objectContaining({
+          goal: "Plan a kitchen remodel from estimate through final inspection.",
+          owner: "User",
+        }),
+        planPreviewAccepted: false,
+      }),
+    );
+
+    const ownerRegenerate = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-intake-question-ai-fill="owner"]',
+    );
+    expect(ownerRegenerate?.textContent).toContain("Regenerate with AI");
+  });
+
   it("keeps AI intake autofill visible while editing a project with missing setup", () => {
     const onProjectFormChange = vi.fn();
     const container = renderView(

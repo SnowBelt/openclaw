@@ -1652,6 +1652,25 @@
   gap: 10px;
 }
 
+
+.pcc-intake-wizard__question {
+  gap: 8px !important;
+}
+
+.pcc-intake-wizard__question-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.pcc-intake-wizard__question-ai {
+  font-size: 0.78rem;
+  min-height: 30px;
+  padding: 5px 9px;
+  text-transform: none;
+}
+
 .pcc-intake-wizard__approval {
   align-items: center;
   border: 1px solid var(--border-subtle);
