@@ -264,6 +264,7 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Run remote proof");
     expect(text).toContain("Outcome metrics");
     expect(text).toContain("User understands next action in under 5 seconds.");
+    expect(text).toContain("Outcomes: 2 metrics");
     expect(text).toContain("Health: Needs approval");
     expect(text).toContain("Priority: 3");
     expect(text).toContain("Blocker: Run remote proof");

@@ -1924,6 +1924,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
   const next = detail ? nextMilestoneForDetail(detail) : undefined;
   const workState = workStateForProject(project, detail);
+  const outcomeMetricCount = detail ? projectOutcomeMetrics(detail.project).length : 0;
   const onHold = projectIsOnHold(project);
   return html`
     <article
@@ -1948,6 +1949,12 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
         <span>Health: ${project.health ?? formatStatus(project.status)}</span>
         <span>Priority: ${projectPriorityLabel(props, project)}</span>
+        <span
+          >Outcomes:
+          ${outcomeMetricCount
+            ? `${outcomeMetricCount} metric${outcomeMetricCount === 1 ? "" : "s"}`
+            : "Missing"}</span
+        >
         <span>Blocker: ${projectBlockerLine(project)}</span>
         <span>Due: ${formatProjectDate(project.dueDate)}</span>
         <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
