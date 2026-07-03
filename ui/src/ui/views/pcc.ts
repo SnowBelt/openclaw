@@ -1088,7 +1088,7 @@ function renderProjectIntakeFormAutofillButton(
     data-pcc-project-intake-ai-generate
     title="Generate the visible project intake answers from the project prompt, title, goal, and current context before saving."
     ?disabled=${props.actionBusy}
-    @click=${() => runProjectIntakeFormAutofill(props)}
+    @click=${() => runProjectIntakeAutofill(props)}
   >
     ${label}
   </button>`;
@@ -1808,7 +1808,9 @@ function renderPermissionList(permissions: PccPermissionGrant[], props: PccDashb
 function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps) {
   const percent = clampPercent(project.percentComplete);
   const selected = project.id === props.selectedProjectId;
-  const detail = props.projectDetails?.[project.id];
+  const detail =
+    props.projectDetails?.[project.id] ??
+    (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined);
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
   const next = detail ? nextMilestoneForDetail(detail) : undefined;
   const workState = workStateForProject(project, detail);
@@ -1835,6 +1837,8 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       <div class="pcc-project-card__meta pcc-project-card__meta--skim">
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
         <span>Health: ${project.health ?? formatStatus(project.status)}</span>
+        <span>Priority: ${projectPriorityLabel(props, project)}</span>
+        <span>Blocker: ${projectBlockerLine(project)}</span>
         <span>Due: ${formatProjectDate(project.dueDate)}</span>
         <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
         <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
@@ -2054,8 +2058,36 @@ function getAttentionProjects(projects: readonly PccProjectSummary[]): PccProjec
 }
 
 function projectPriorityLabel(props: PccDashboardProps, project: PccProjectSummary): string {
-  const priority = props.projectDetails?.[project.id]?.project.priority;
+  const detail =
+    props.projectDetails?.[project.id] ??
+    (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined);
+  const priority = detail?.project.priority;
   return typeof priority === "number" ? String(priority) : "—";
+}
+
+function projectBlockerLine(project: PccProjectSummary): string {
+  const explicit = project.nextActions.find((action) =>
+    /block|missing|approval|overdue|risk|failed|proof/iu.test(action),
+  );
+  if (explicit) {
+    return explicit;
+  }
+  if (project.proofGaps.length > 0) {
+    return project.proofGaps[0] ?? "Proof gap recorded";
+  }
+  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
+    return "Blocked milestone needs review.";
+  }
+  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
+    return "Approval needed before work can continue.";
+  }
+  if (project.health === "Overdue") {
+    return "Due date is past target.";
+  }
+  if (project.health === "At risk") {
+    return "Project is marked at risk.";
+  }
+  return "No blocker recorded";
 }
 
 function renderNeedsAttentionNow(props: PccDashboardProps) {
@@ -2975,6 +3007,11 @@ function renderProjectOrientation(detail: PccProjectDetail) {
       ${current ? html`<span aria-hidden="true">›</span><span>${current.title}</span>` : nothing}
     </div>
     <dl class="pcc-project-orientation__facts">
+      ${renderTruthFact("Health", detail.summary.health ?? formatStatus(project.status))}
+      ${renderTruthFact(
+        "Priority",
+        typeof project.priority === "number" ? String(project.priority) : "—",
+      )}
       ${renderTruthFact("Due", formatProjectDate(detail.summary.dueDate))}
       ${renderTruthFact("Recent", formatProjectActivity(detail.summary.recentActivity))}
       ${renderTruthFact("Current", current?.title ?? "Not started")}
@@ -3027,6 +3064,11 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     </div>
     <dl class="pcc-project-snapshot__facts">
       ${renderTruthFact("Status", formatStatus(project.status))}
+      ${renderTruthFact("Health", detail.summary.health ?? formatStatus(project.status))}
+      ${renderTruthFact(
+        "Priority",
+        typeof project.priority === "number" ? String(project.priority) : "—",
+      )}
       ${renderTruthFact("Current milestone", current?.title ?? "Not started")}
       ${renderTruthFact("Next milestone", next?.title ?? "None")}
       ${renderTruthFact("Worker", worker)}
@@ -3809,7 +3851,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill intake with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -3824,7 +3866,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
           you stay in control before saving or applying.</span
         >
       </div>
-      ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
+      ${renderProjectIntakeFormAutofillButton(props, "Auto-fill intake with AI")}
     </section>
     <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
       <div>
@@ -3835,7 +3877,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Generate visible answers with AI")}
+        ${renderProjectIntakeFormAutofillButton(props, "Auto-fill visible answers with AI")}
         ${canPreviewFullSetupRepair
           ? html`<button
               class="btn btn--subtle"

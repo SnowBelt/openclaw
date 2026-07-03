@@ -259,12 +259,20 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("milestones complete");
     expect(text).toContain("Run remote proof");
     expect(text).toContain("Health: Needs approval");
+    expect(text).toContain("Priority: 3");
+    expect(text).toContain("Blocker: Run remote proof");
     expect(text).toContain("Due:");
     expect(text).toContain("Activity: Milestone updated: CRUD UI");
     expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
       "Project Command Center",
     );
     expect(container.querySelector("[data-pcc-breadcrumbs]")?.textContent).toContain("CRUD UI");
+    expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
+      "Health",
+    );
+    expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
+      "Priority",
+    );
     expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
       "Recent",
     );
@@ -283,6 +291,10 @@ describe("renderPccDashboard", () => {
     );
     expect(text).toContain("Needs You");
     expect(text).toContain("Project Snapshot");
+    expect(container.querySelector("[data-pcc-project-snapshot]")?.textContent).toContain("Health");
+    expect(container.querySelector("[data-pcc-project-snapshot]")?.textContent).toContain(
+      "Priority",
+    );
     expect(text).toContain("Milestone Journey");
     expect(text).toContain("Attention inbox");
     expect(text).toContain("Low-reasoning readiness");
@@ -297,6 +309,23 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-production-truth]")).not.toBeNull();
     expect(text).toContain("Production truth");
     expect(text).toContain("PCC remote Workflow Sanity proof missing");
+  });
+
+  it("shows proof gaps as blocker context when no action blocker exists", () => {
+    const container = renderView(
+      createProps({
+        projects: [
+          {
+            ...summary,
+            nextActions: ["Continue implementation"],
+            proofGaps: ["Browser proof missing"],
+          },
+        ],
+      }),
+    );
+
+    const card = container.querySelector("[data-pcc-project-card]");
+    expect(card?.textContent).toContain("Blocker: Browser proof missing");
   });
 
   it("sorts recent activity so the newest project update is easiest to skim", () => {
@@ -1637,22 +1666,13 @@ describe("renderPccDashboard", () => {
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-page-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Generate");
+    expect(pageAutofill?.textContent).toContain("Auto-fill");
     expect(pageAutofill?.textContent).toContain("answers with AI");
 
     pageAutofill?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "SNES Game Creator",
-        goal: "Create a readable SNES-style game workflow.",
-        intakeAnswers: expect.objectContaining({
-          goal: "Create a readable SNES-style game workflow.",
-          doneProof: expect.stringContaining("completion receipt"),
-        }),
-      }),
-    );
-    expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onProjectFormChange).not.toHaveBeenCalled();
 
     const previewFullRepair = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-preview-full-repair]",
@@ -1661,7 +1681,7 @@ describe("renderPccDashboard", () => {
 
     previewFullRepair?.click();
 
-    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(2);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
     expect(container.textContent).toContain("AI Autofill Preview");
 
