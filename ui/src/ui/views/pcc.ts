@@ -1215,6 +1215,7 @@ function renderProjectIntakeFormAutofillButton(
     class="btn pcc-intake-wizard__primary-ai"
     type="button"
     data-pcc-project-intake-page-autofill
+    data-pcc-project-intake-autofill
     data-pcc-project-intake-ai-generate
     title="Generate the visible project intake answers from the project prompt, title, goal, and current context before saving."
     ?disabled=${props.actionBusy}
@@ -1544,6 +1545,106 @@ function receiptsForMilestone(
   return (detail?.receipts ?? []).filter(
     (receipt) => receipt.milestoneId === milestone.id || milestone.receiptIds?.includes(receipt.id),
   );
+}
+
+function evidenceForSubMilestone(
+  detail: PccProjectDetail | null,
+  subMilestone: PccSubMilestone,
+): PccEvidence[] {
+  return (detail?.evidence ?? []).filter((evidence) =>
+    subMilestone.requiredEvidenceIds?.includes(evidence.id),
+  );
+}
+
+function receiptsForSubMilestone(
+  detail: PccProjectDetail | null,
+  subMilestone: PccSubMilestone,
+): PccCompletionReceipt[] {
+  return (detail?.receipts ?? []).filter((receipt) =>
+    subMilestone.receiptIds?.includes(receipt.id),
+  );
+}
+
+function decisionsForSubMilestone(
+  detail: PccProjectDetail | null,
+  subMilestone: PccSubMilestone,
+): PccDecision[] {
+  return (detail?.decisions ?? []).filter(
+    (decision) => decision.subMilestoneId === subMilestone.id,
+  );
+}
+
+function subMilestoneDependencyTitles(
+  detail: PccProjectDetail | null,
+  subMilestone: PccSubMilestone,
+): string[] {
+  const dependencies = new Set(stringArray(subMilestone.dependsOn));
+  if (dependencies.size === 0) {
+    return [];
+  }
+  const siblings = new Map((detail?.subMilestones ?? []).map((item) => [item.id, item.title]));
+  return [...dependencies].map((id) => siblings.get(id) ?? `Missing dependency: ${id}`);
+}
+
+function renderSubMilestoneDrilldown(subMilestone: PccSubMilestone, props: PccDashboardProps) {
+  const evidence = evidenceForSubMilestone(props.projectDetail, subMilestone);
+  const receipts = receiptsForSubMilestone(props.projectDetail, subMilestone);
+  const decisions = decisionsForSubMilestone(props.projectDetail, subMilestone);
+  const dependencies = subMilestoneDependencyTitles(props.projectDetail, subMilestone);
+  const criteria = subMilestone.acceptanceCriteria ?? [];
+  return html`<details class="pcc-submilestone__drilldown" data-pcc-submilestone-drilldown>
+    <summary>Details, proof, and dependencies</summary>
+    <div class="pcc-submilestone__detail-grid">
+      <section>
+        <strong>Next step</strong>
+        <p>
+          ${subMilestone.blocker || subMilestone.implementationPlan || "No next step recorded."}
+        </p>
+      </section>
+      <section>
+        <strong>Acceptance criteria</strong>
+        ${criteria.length
+          ? html`<ul>
+              ${criteria.map((item) => html`<li>${item}</li>`)}
+            </ul>`
+          : html`<p>No acceptance criteria recorded.</p>`}
+      </section>
+      <section>
+        <strong>Dependencies</strong>
+        ${dependencies.length
+          ? html`<ul>
+              ${dependencies.map((item) => html`<li>${item}</li>`)}
+            </ul>`
+          : html`<p>No dependencies recorded.</p>`}
+      </section>
+      <section>
+        <strong>Evidence</strong>
+        ${evidence.length
+          ? html`<ul>
+              ${evidence.map(
+                (item) => html`<li>${formatStatus(item.status)} · ${item.summary}</li>`,
+              )}
+            </ul>`
+          : html`<p>No evidence linked yet.</p>`}
+      </section>
+      <section>
+        <strong>Receipts</strong>
+        ${receipts.length
+          ? html`<ul>
+              ${receipts.map((item) => html`<li>${item.summary}</li>`)}
+            </ul>`
+          : html`<p>No completion receipt linked yet.</p>`}
+      </section>
+      <section>
+        <strong>Decisions</strong>
+        ${decisions.length
+          ? html`<ul>
+              ${decisions.map((item) => html`<li>${item.title}</li>`)}
+            </ul>`
+          : html`<p>No decisions linked yet.</p>`}
+      </section>
+    </div>
+  </details>`;
 }
 
 function formatReceiptDate(value: string): string {
@@ -3419,6 +3520,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                             </p>
                             ${renderSubMilestoneList(milestone, props, {
                               compact: mode !== "agent",
+                              showDrilldown: true,
                             })}
                             <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
                               <summary>Proof, receipts, permissions, and actions</summary>
@@ -3812,7 +3914,7 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
 function renderSubMilestoneList(
   milestone: PccMilestone,
   props: PccDashboardProps,
-  options: { compact?: boolean } = {},
+  options: { compact?: boolean; showDrilldown?: boolean } = {},
 ) {
   const subMilestones = subMilestonesForMilestone(props.projectDetail, milestone);
   if (subMilestones.length === 0) {
@@ -3876,6 +3978,9 @@ function renderSubMilestoneList(
         </div>
         ${subMilestone.blocker
           ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
+          : nothing}
+        ${options.showDrilldown || !options.compact
+          ? renderSubMilestoneDrilldown(subMilestone, props)
           : nothing}
       </li>`;
     })}

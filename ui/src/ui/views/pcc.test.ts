@@ -1022,6 +1022,86 @@ describe("renderPccDashboard", () => {
     expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
   });
 
+  it("shows sub-milestone drill-down detail without cluttering simple mode", () => {
+    const prerequisite = {
+      ...subMilestone,
+      id: "submilestone-prereq",
+      title: "Gather source proof",
+      status: "complete" as const,
+      receiptIds: ["receipt-prereq"],
+    };
+    const target = {
+      ...subMilestone,
+      id: "submilestone-target",
+      title: "Run acceptance proof",
+      dependsOn: ["submilestone-prereq"],
+      requiredEvidenceIds: ["evidence-sub"],
+      receiptIds: ["receipt-sub"],
+      acceptanceCriteria: ["Acceptance proof exits 0"],
+      implementationPlan: "Run the focused acceptance proof and attach the receipt.",
+    };
+    const subEvidence = {
+      ...evidence,
+      id: "evidence-sub",
+      summary: "Sub-milestone acceptance proof passed",
+    };
+    const subReceipt = {
+      ...receipt,
+      id: "receipt-sub",
+      summary: "Sub-milestone completion receipt recorded.",
+    };
+    const subDecision = {
+      ...decision,
+      id: "decision-sub",
+      subMilestoneId: "submilestone-target",
+      title: "Use focused acceptance proof",
+    };
+
+    const detailed = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [prerequisite, target],
+          permissions: [],
+          evidence: [subEvidence],
+          receipts: [subReceipt],
+          decisions: [subDecision],
+          summary,
+        },
+        viewMode: "detailed",
+      }),
+    );
+
+    const drilldowns = detailed.querySelectorAll("[data-pcc-submilestone-drilldown]");
+    expect(drilldowns.length).toBeGreaterThan(0);
+    const text = detailed.textContent ?? "";
+    expect(text).toContain("Details, proof, and dependencies");
+    expect(text).toContain("Acceptance proof exits 0");
+    expect(text).toContain("Gather source proof");
+    expect(text).toContain("Sub-milestone acceptance proof passed");
+    expect(text).toContain("Sub-milestone completion receipt recorded.");
+    expect(text).toContain("Use focused acceptance proof");
+
+    const simple = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [prerequisite, target],
+          permissions: [],
+          evidence: [subEvidence],
+          receipts: [subReceipt],
+          decisions: [subDecision],
+          summary,
+        },
+        viewMode: "simple",
+      }),
+    );
+
+    expect(simple.querySelector("[data-pcc-submilestone-drilldown]")).toBeNull();
+  });
+
   it("opens milestone and sub-milestone action menus and supports reversible removal", () => {
     vi.stubGlobal(
       "confirm",
@@ -2061,9 +2141,10 @@ describe("renderPccDashboard", () => {
     );
     expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
 
-    const previewFullRepair = intakeTools?.querySelector<HTMLButtonElement>(
-      "[data-pcc-project-intake-autofill]",
-    );
+    const previewFullRepair = [
+      ...(intakeTools?.querySelectorAll<HTMLButtonElement>("[data-pcc-project-intake-autofill]") ??
+        []),
+    ].find((button) => button.textContent?.includes("Preview & apply AI setup"));
     expect(previewFullRepair?.textContent).toContain("Preview & apply AI setup");
 
     previewFullRepair?.click();
