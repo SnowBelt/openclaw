@@ -102,6 +102,17 @@ export type PccProjectFormState = {
   intakeApproved: boolean;
 };
 
+export type PccDecisionFormState = {
+  title: string;
+  summary: string;
+  rationale: string;
+  impact: string;
+  milestoneId: string;
+  subMilestoneId: string;
+  evidenceIds: string;
+  decidedBy: string;
+};
+
 export type PccMilestoneFormState = {
   id: string | null;
   projectId: string | null;
@@ -137,6 +148,8 @@ export type PccDashboardState = {
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
+  pccDecisionFormOpen?: boolean;
+  pccDecisionForm: PccDecisionFormState;
   pccAutofillPreview?: PccAutofillPreview | null;
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];
@@ -175,6 +188,11 @@ type PccPermissionsUpsertResult = {
   summary: PccProjectSummary;
 };
 
+type PccDecisionsAddResult = {
+  decision: PccDecision;
+  summary: PccProjectSummary;
+};
+
 type PccReceiptsAddResult = {
   receipt: PccCompletionReceipt;
   milestone: PccMilestone;
@@ -209,6 +227,17 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   runtimeActionsAllowed: false,
   intakeAnswers: {},
   intakeApproved: false,
+};
+
+export const EMPTY_PCC_DECISION_FORM: PccDecisionFormState = {
+  title: "",
+  summary: "",
+  rationale: "",
+  impact: "",
+  milestoneId: "",
+  subMilestoneId: "",
+  evidenceIds: "",
+  decidedBy: "",
 };
 
 export const EMPTY_PCC_MILESTONE_FORM: PccMilestoneFormState = {
@@ -890,6 +919,80 @@ export function updatePccProjectForm(
   }
   state.pccProjectForm = nextForm;
   state.requestUpdate?.();
+}
+
+export function openPccDecisionForm(state: PccDashboardState): void {
+  state.pccDecisionFormOpen = true;
+  state.pccDecisionForm = {
+    ...EMPTY_PCC_DECISION_FORM,
+    decidedBy: "User",
+  };
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function cancelPccDecisionForm(state: PccDashboardState): void {
+  state.pccDecisionFormOpen = false;
+  state.pccDecisionForm = { ...EMPTY_PCC_DECISION_FORM };
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
+export function updatePccDecisionForm(
+  state: PccDashboardState,
+  patch: Partial<PccDecisionFormState>,
+): void {
+  state.pccDecisionForm = { ...state.pccDecisionForm, ...patch };
+  state.requestUpdate?.();
+}
+
+function decisionEvidenceIds(value: string): string[] | undefined {
+  const ids = value
+    .split(/[\n,]+/u)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return ids.length > 0 ? ids : undefined;
+}
+
+export async function savePccDecision(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before recording a decision.";
+    state.requestUpdate?.();
+    return;
+  }
+  const form = state.pccDecisionForm;
+  const title = form.title.trim();
+  const summary = form.summary.trim();
+  if (!title || !summary) {
+    state.pccActionError = "Decision title and summary are required.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const evidenceIds = decisionEvidenceIds(form.evidenceIds);
+    await state.client.request<PccDecisionsAddResult>("pcc.decisions.add", {
+      decision: {
+        projectId: detail.project.id,
+        title,
+        summary,
+        ...(form.milestoneId ? { milestoneId: form.milestoneId } : {}),
+        ...(form.subMilestoneId ? { subMilestoneId: form.subMilestoneId } : {}),
+        ...(form.rationale.trim() ? { rationale: form.rationale.trim() } : {}),
+        ...(form.impact.trim() ? { impact: form.impact.trim() } : {}),
+        ...(form.decidedBy.trim() ? { decidedBy: form.decidedBy.trim() } : {}),
+        ...(evidenceIds ? { evidenceIds } : {}),
+      },
+    });
+    state.pccDecisionFormOpen = false;
+    state.pccDecisionForm = { ...EMPTY_PCC_DECISION_FORM };
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+    state.pccActionNotice = { kind: "success", text: "Decision recorded." };
+  });
 }
 
 export function updatePccMilestoneForm(

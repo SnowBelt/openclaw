@@ -46,6 +46,7 @@ import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exe
 import type {
   PccActionNotice,
   PccAutofillPreview,
+  PccDecisionFormState,
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
@@ -220,6 +221,8 @@ export type AppViewState = {
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
+  pccDecisionFormOpen?: boolean;
+  pccDecisionForm: PccDecisionFormState;
   pccAutofillPreview?: PccAutofillPreview | null;
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];

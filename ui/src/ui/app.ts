@@ -219,10 +219,12 @@ import {
   type PatternLabDashboardSnapshot,
 } from "./controllers/pattern-lab-dashboard.ts";
 import {
+  EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
   type PccActionNotice,
   type PccAutofillPreview,
+  type PccDecisionFormState,
   type PccEditorMode,
   type PccMilestoneFormState,
   type PccProjectDetail,
@@ -465,6 +467,8 @@ export class OpenClawApp extends LitElement {
   @state() pccEditorMode: PccEditorMode = null;
   @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
   @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };
+  @state() pccDecisionFormOpen = false;
+  @state() pccDecisionForm: PccDecisionFormState = { ...EMPTY_PCC_DECISION_FORM };
   @state() pccAutofillPreview: PccAutofillPreview | null = null;
   @state() pccChatSyncText = "";
   @state() pccChatSyncProposals: PccChatSyncProposal[] = [];

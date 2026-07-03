@@ -2,7 +2,11 @@
 
 import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_PCC_MILESTONE_FORM, EMPTY_PCC_PROJECT_FORM } from "../controllers/pcc.ts";
+import {
+  EMPTY_PCC_DECISION_FORM,
+  EMPTY_PCC_MILESTONE_FORM,
+  EMPTY_PCC_PROJECT_FORM,
+} from "../controllers/pcc.ts";
 import { renderPccDashboard, type PccDashboardProps } from "./pcc.ts";
 
 const project = {
@@ -200,6 +204,8 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     editorMode: null,
     projectForm: { ...EMPTY_PCC_PROJECT_FORM },
     milestoneForm: { ...EMPTY_PCC_MILESTONE_FORM, projectId: "project-1" },
+    decisionFormOpen: false,
+    decisionForm: { ...EMPTY_PCC_DECISION_FORM },
     chatSyncText: "",
     chatSyncProposals: [],
     chatSyncError: null,
@@ -1181,7 +1187,7 @@ describe("renderPccDashboard", () => {
     const generate = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
-    expect(generate?.textContent).toContain("Generate answers with AI");
+    expect(generate?.textContent).toContain("Generate intake answers with AI");
 
     generate?.click();
 

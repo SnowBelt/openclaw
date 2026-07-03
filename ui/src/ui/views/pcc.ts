@@ -31,6 +31,7 @@ import {
 import type {
   PccActionNotice,
   PccAutofillPreview,
+  PccDecisionFormState,
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
@@ -73,6 +74,8 @@ export type PccDashboardProps = {
   editorMode: PccEditorMode;
   projectForm: PccProjectFormState;
   milestoneForm: PccMilestoneFormState;
+  decisionFormOpen?: boolean;
+  decisionForm: PccDecisionFormState;
   autofillPreview?: PccAutofillPreview | null;
   chatSyncText: string;
   chatSyncProposals: PccChatSyncProposal[];
@@ -90,6 +93,10 @@ export type PccDashboardProps = {
   onMilestoneFormChange: (patch: Partial<PccMilestoneFormState>) => void;
   onSaveProject: () => void;
   onSaveMilestone: () => void;
+  onOpenDecisionForm?: () => void;
+  onDecisionFormChange?: (patch: Partial<PccDecisionFormState>) => void;
+  onSaveDecision?: () => void;
+  onCancelDecisionForm?: () => void;
   onCancelEditor: () => void;
   onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
   onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus, note?: string) => void;
@@ -1321,7 +1328,132 @@ function renderDecisionCard(decision: PccDecision, evidence: PccEvidence[]) {
   </article>`;
 }
 
-function renderDecisionList(detail: PccProjectDetail) {
+function renderDecisionForm(detail: PccProjectDetail, props: PccDashboardProps) {
+  const form = props.decisionForm;
+  const availableSubMilestones = (detail.subMilestones ?? []).filter(
+    (item) => !form.milestoneId || item.milestoneId === form.milestoneId,
+  );
+  return html`<form
+    class="pcc-decision-form"
+    data-pcc-decision-form
+    @submit=${(event: Event) => {
+      event.preventDefault();
+      props.onSaveDecision?.();
+    }}
+  >
+    <div class="pcc-form-grid pcc-form-grid--two">
+      <label>
+        <span>Decision title</span>
+        <input
+          type="text"
+          .value=${form.title}
+          placeholder="Example: Use receipt-gated completion"
+          @input=${(event: Event) =>
+            props.onDecisionFormChange?.({ title: (event.target as HTMLInputElement).value })}
+        />
+      </label>
+      <label>
+        <span>Decided by</span>
+        <input
+          type="text"
+          .value=${form.decidedBy}
+          placeholder="User, Codex, OpenClaw"
+          @input=${(event: Event) =>
+            props.onDecisionFormChange?.({ decidedBy: (event.target as HTMLInputElement).value })}
+        />
+      </label>
+    </div>
+    <label>
+      <span>Summary</span>
+      <textarea
+        rows="2"
+        .value=${form.summary}
+        placeholder="State the choice in one or two sentences."
+        @input=${(event: Event) =>
+          props.onDecisionFormChange?.({ summary: (event.target as HTMLTextAreaElement).value })}
+      ></textarea>
+    </label>
+    <div class="pcc-form-grid pcc-form-grid--two">
+      <label>
+        <span>Milestone</span>
+        <select
+          .value=${form.milestoneId}
+          @change=${(event: Event) =>
+            props.onDecisionFormChange?.({
+              milestoneId: (event.target as HTMLSelectElement).value,
+              subMilestoneId: "",
+            })}
+        >
+          <option value="">Project-level decision</option>
+          ${detail.milestones.map(
+            (milestone) => html`<option value=${milestone.id}>${milestone.title}</option>`,
+          )}
+        </select>
+      </label>
+      <label>
+        <span>Sub-milestone</span>
+        <select
+          .value=${form.subMilestoneId}
+          ?disabled=${availableSubMilestones.length === 0}
+          @change=${(event: Event) =>
+            props.onDecisionFormChange?.({
+              subMilestoneId: (event.target as HTMLSelectElement).value,
+            })}
+        >
+          <option value="">None</option>
+          ${availableSubMilestones.map(
+            (subMilestone) => html`<option value=${subMilestone.id}>${subMilestone.title}</option>`,
+          )}
+        </select>
+      </label>
+    </div>
+    <label>
+      <span>Why</span>
+      <textarea
+        rows="2"
+        .value=${form.rationale}
+        placeholder="Why this is the right path."
+        @input=${(event: Event) =>
+          props.onDecisionFormChange?.({ rationale: (event.target as HTMLTextAreaElement).value })}
+      ></textarea>
+    </label>
+    <label>
+      <span>Impact</span>
+      <textarea
+        rows="2"
+        .value=${form.impact}
+        placeholder="What future workers should remember."
+        @input=${(event: Event) =>
+          props.onDecisionFormChange?.({ impact: (event.target as HTMLTextAreaElement).value })}
+      ></textarea>
+    </label>
+    <label>
+      <span>Evidence IDs</span>
+      <input
+        type="text"
+        .value=${form.evidenceIds}
+        placeholder="Optional: comma-separated evidence IDs"
+        @input=${(event: Event) =>
+          props.onDecisionFormChange?.({ evidenceIds: (event.target as HTMLInputElement).value })}
+      />
+    </label>
+    <div class="pcc-decision-form__actions">
+      <button class="btn btn--primary" type="submit" ?disabled=${props.actionBusy}>
+        Save decision
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onCancelDecisionForm?.()}
+      >
+        Cancel
+      </button>
+    </div>
+  </form>`;
+}
+
+function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) {
   const decisions = detail.decisions ?? [];
   return html`<section class="pcc-decisions" data-pcc-decisions>
     <div class="pcc-section-heading">
@@ -1329,8 +1461,18 @@ function renderDecisionList(detail: PccProjectDetail) {
         <h4>Decisions</h4>
         <p>Important choices that future agents should not rediscover.</p>
       </div>
-      <span>${decisions.length} recorded</span>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-open-decision-form
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onOpenDecisionForm?.()}
+      >
+        Add decision
+      </button>
     </div>
+    ${props.decisionFormOpen ? renderDecisionForm(detail, props) : nothing}
+    <span class="pcc-decisions__count">${decisions.length} recorded</span>
     ${decisions.length
       ? decisions.map((decision) => renderDecisionCard(decision, detail.evidence ?? []))
       : html`<div class="pcc-empty pcc-empty--small">No decisions recorded yet</div>`}
@@ -2608,7 +2750,7 @@ function renderProjectDetail(props: PccDashboardProps) {
       <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
         <summary>Details</summary>
         ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
-        ${renderDecisionList(detail)} ${renderPhaseOverview(detail)}
+        ${renderDecisionList(detail, props)} ${renderPhaseOverview(detail)}
         ${renderWorkflowQualityCard(detail)} ${renderImpactDetailCards(detail, props)}
       </details>
       ${mode === "simple"
@@ -3141,7 +3283,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeAutofillButton(props, "Generate answers with AI")}
+        ${renderProjectIntakeAutofillButton(props, "Generate intake answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -3157,7 +3299,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeAutofillButton(props, "Generate answers with AI")}
+        ${renderProjectIntakeAutofillButton(props, "Generate intake answers with AI")}
         ${canPreviewFullSetupRepair
           ? html`<button
               class="btn btn--subtle"

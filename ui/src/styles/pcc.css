@@ -781,6 +781,51 @@
   gap: 10px;
 }
 
+.pcc-decision-form {
+  background: color-mix(in srgb, var(--surface, #f7f7fa) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 74%, transparent);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.pcc-decision-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.pcc-decision-form label > span,
+.pcc-decisions__count {
+  color: var(--text-muted, #64748b);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-decision-form input,
+.pcc-decision-form select,
+.pcc-decision-form textarea {
+  background: var(--surface-raised, #fff);
+  border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 82%, transparent);
+  border-radius: 12px;
+  color: var(--text, #111827);
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.pcc-decision-form textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.pcc-decision-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .pcc-decision {
   background: color-mix(in srgb, var(--surface-raised, #fff) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--border, #d8d8df) 78%, transparent);

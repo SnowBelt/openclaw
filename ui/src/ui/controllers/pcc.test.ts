@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
   addPccCompletionReceipt,
@@ -9,10 +10,12 @@ import {
   dismissPccSetupAutofill,
   dismissPccChatSync,
   loadPccDashboard,
+  openPccDecisionForm,
   openPccMilestoneEditor,
   openPccProjectEditor,
   previewPccSetupAutofill,
   previewPccChatSync,
+  savePccDecision,
   savePccMilestone,
   savePccProject,
   selectPccProject,
@@ -24,6 +27,7 @@ import {
   preparePccNextWorkItem,
   updatePccAutofillApproval,
   updatePccChatSyncText,
+  updatePccDecisionForm,
   updatePccViewMode,
   updatePccProjectSearchQuery,
   type PccDashboardState,
@@ -46,6 +50,8 @@ function createState(overrides: Partial<PccDashboardState> = {}): PccDashboardSt
     pccEditorMode: null,
     pccProjectForm: { ...EMPTY_PCC_PROJECT_FORM },
     pccMilestoneForm: { ...EMPTY_PCC_MILESTONE_FORM },
+    pccDecisionFormOpen: false,
+    pccDecisionForm: { ...EMPTY_PCC_DECISION_FORM },
     pccChatSyncText: "",
     pccChatSyncProposals: [],
     pccChatSyncError: null,
@@ -576,6 +582,103 @@ describe("PCC CRUD controller", () => {
     expect(state.pccProjectDetail?.subMilestones).toEqual([]);
     expect(state.pccProjectDetail?.permissions[0]?.id).toBe("permission-1");
     expect(state.pccProjectDetail?.decisions?.[0]?.title).toBe("Use durable decision log");
+  });
+
+  it("records a project decision through the controller", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.decisions.add") {
+        return { decision, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [],
+          decisions: [decision],
+          lastKnownGood: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [evidence],
+        receipts: [],
+        decisions: [],
+        lastKnownGood: [],
+        summary,
+      },
+    });
+
+    openPccDecisionForm(state);
+    updatePccDecisionForm(state, {
+      title: "Use durable decision log",
+      summary: "Record project choices as first-class PCC records.",
+      rationale: "Future agents need this context.",
+      impact: "Less repeated debate.",
+      milestoneId: milestone.id,
+      subMilestoneId: subMilestone.id,
+      evidenceIds: evidence.id,
+      decidedBy: "Codex",
+    });
+
+    await savePccDecision(state);
+
+    expect(request).toHaveBeenCalledWith("pcc.decisions.add", {
+      decision: {
+        projectId: project.id,
+        title: "Use durable decision log",
+        summary: "Record project choices as first-class PCC records.",
+        milestoneId: milestone.id,
+        subMilestoneId: subMilestone.id,
+        rationale: "Future agents need this context.",
+        impact: "Less repeated debate.",
+        decidedBy: "Codex",
+        evidenceIds: [evidence.id],
+      },
+    });
+    expect(state.pccDecisionFormOpen).toBe(false);
+    expect(state.pccActionNotice?.text).toBe("Decision recorded.");
+    expect(state.pccProjectDetail?.decisions?.[0]?.id).toBe("decision-1");
+  });
+
+  it("requires decision title and summary before saving", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        lastKnownGood: [],
+        summary,
+      },
+    });
+
+    openPccDecisionForm(state);
+    await savePccDecision(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toBe("Decision title and summary are required.");
   });
 
   it("opens project and milestone editors", () => {
