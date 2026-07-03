@@ -443,4 +443,99 @@ describe("auditSelfImprovementOpportunities", () => {
       ]),
     );
   });
+
+  it("routes blocked Control Director readiness as project health without making it the Governor", async () => {
+    const auditEvents: SelfImprovementAuditEvent[] = [
+      {
+        id: "sie_control_director_blocked",
+        createdAt: now,
+        actor: "cli",
+        kind: "control_director_readiness",
+        targetId: "control-director",
+        summary: "Checked Control Director readiness: blocked.",
+        metadata: {
+          readiness: "blocked",
+          ready: false,
+          completionGrade: 9.1,
+          criticality: 10,
+          primaryModel: "ollama/openclaw-control-gemma4-31b-q8:latest",
+          firstFallback: "ollama/openclaw-control-qwen25-32b:latest",
+          nextBuildGap: "Gemma Control alias answers Ollama /api/chat smoke: status=500",
+          failedCritical: ["Gemma Control alias answers Ollama /api/chat smoke"],
+          failedFacts: ["critical:Gemma Control alias answers Ollama /api/chat smoke:status=500"],
+        },
+      },
+    ];
+
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "program-manager" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [],
+      auditEvents,
+      skillWorkshopProposals: [],
+    });
+
+    const recommendation = result.recommendations.find(
+      (entry) => entry.title === "Control Director readiness needs self-improvement review",
+    );
+    expect(recommendation).toMatchObject({
+      category: "project_health",
+      title: "Control Director readiness needs self-improvement review",
+      route: { role: "program_manager" },
+      safety: { mode: "recommendation_only", mutationAllowed: false },
+      source: { kind: "agent", agentId: "main" },
+    });
+    expect(recommendation?.summary).toContain("recommendation-only");
+    expect(recommendation?.evidence.join(" ")).toContain(
+      "ollama/openclaw-control-gemma4-31b-q8:latest",
+    );
+  });
+
+  it("does not reopen stale Control Director readiness after a newer ready event", async () => {
+    const auditEvents: SelfImprovementAuditEvent[] = [
+      {
+        id: "sie_control_director_blocked",
+        createdAt: now - 1_000,
+        actor: "cli",
+        kind: "control_director_readiness",
+        targetId: "control-director",
+        summary: "Checked Control Director readiness: blocked.",
+        metadata: {
+          readiness: "blocked",
+          ready: false,
+          nextBuildGap: "old blocked readiness",
+        },
+      },
+      {
+        id: "sie_control_director_ready",
+        createdAt: now,
+        actor: "cli",
+        kind: "control_director_readiness",
+        targetId: "control-director",
+        summary: "Checked Control Director readiness: ready.",
+        metadata: {
+          readiness: "ready",
+          ready: true,
+          primaryModel: "ollama/openclaw-control-gemma4-31b-q8:latest",
+          firstFallback: "ollama/openclaw-control-qwen25-32b:latest",
+        },
+      },
+    ];
+
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "program-manager" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [],
+      auditEvents,
+      skillWorkshopProposals: [],
+    });
+
+    expect(
+      result.recommendations.find(
+        (entry) => entry.title === "Control Director readiness needs self-improvement review",
+      ),
+    ).toBeUndefined();
+  });
 });

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildControlDirectorReadinessScorecard } from "../../scripts/control-director-readiness.mjs";
+import {
+  buildControlDirectorReadinessAuditEvent,
+  buildControlDirectorReadinessScorecard,
+} from "../../scripts/control-director-readiness.mjs";
 
 function createConfig() {
   return {
@@ -8,7 +11,7 @@ function createConfig() {
         ollama: {
           models: [
             {
-              id: "openclaw-control-qwen36-27b:latest",
+              id: "openclaw-control-gemma4-31b-q8:latest",
               contextWindow: 262144,
               contextTokens: 64000,
               params: {
@@ -26,8 +29,8 @@ function createConfig() {
     agents: {
       defaults: {
         models: {
-          "ollama/openclaw-control-qwen36-27b:latest": {
-            alias: "openclaw-control-qwen36-27b",
+          "ollama/openclaw-control-gemma4-31b-q8:latest": {
+            alias: "openclaw-control-gemma4-31b-q8",
             params: {
               num_ctx: 64000,
               temperature: 0.2,
@@ -43,7 +46,7 @@ function createConfig() {
           id: "main",
           name: "Control Director",
           model: {
-            primary: "openclaw-control-qwen36-27b",
+            primary: "openclaw-control-gemma4-31b-q8",
             fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
           },
           thinkingDefault: "off",
@@ -59,8 +62,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -84,14 +87,10 @@ describe("control-director-readiness", () => {
     expect(scorecard.nextBuildGap).toContain("No critical");
   });
 
-  it("flags model digest drift as a critical readiness gap", () => {
+  it("flags a missing Gemma control alias as a critical readiness gap", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
-      ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "alias" }],
-        ["qwen3.6:27b-q8_0", { digest: "tag" }],
-        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
-      ]),
+      ollamaModels: new Map([["openclaw-control-qwen25-32b:latest", { digest: "fallback" }]]),
       ollamaEnv: {
         OLLAMA_FLASH_ATTENTION: "1",
         OLLAMA_KV_CACHE_TYPE: "q8_0",
@@ -109,16 +108,16 @@ describe("control-director-readiness", () => {
     });
 
     expect(scorecard.productionReady).toBe(false);
-    expect(scorecard.failedCritical).toContain("Control alias digest matches qwen3.6 tag");
-    expect(scorecard.nextBuildGap).toContain("Control alias digest");
+    expect(scorecard.failedCritical).toContain("Ollama Gemma Control alias is installed");
+    expect(scorecard.nextBuildGap).toContain("Ollama Gemma Control alias is installed");
   });
 
   it("flags a missing thinking escalation policy as a critical readiness gap", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -147,8 +146,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -177,8 +176,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -207,8 +206,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -237,8 +236,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -267,8 +266,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -297,8 +296,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -327,8 +326,8 @@ describe("control-director-readiness", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -353,12 +352,12 @@ describe("control-director-readiness", () => {
     );
   });
 
-  it("flags Qwen3.6 model-load smoke failures as a critical readiness gap", () => {
+  it("flags Gemma model-load smoke failures as a critical readiness gap", () => {
     const scorecard = buildControlDirectorReadinessScorecard({
       config: createConfig(),
       ollamaModels: new Map([
-        ["openclaw-control-qwen36-27b:latest", { digest: "same" }],
-        ["qwen3.6:27b-q8_0", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
         ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
       ]),
       ollamaEnv: {
@@ -383,8 +382,44 @@ describe("control-director-readiness", () => {
 
     expect(scorecard.productionReady).toBe(false);
     expect(scorecard.failedCritical).toContain(
-      "Qwen3.6 Control alias answers Ollama /api/chat smoke",
+      "Gemma Control alias answers Ollama /api/chat smoke",
     );
-    expect(scorecard.nextBuildGap).toContain("Qwen3.6 Control alias answers");
+    expect(scorecard.nextBuildGap).toContain("Gemma Control alias answers");
+  });
+
+  it("builds a sanitized Self-Improvement audit event without making the Governor the Control Director", () => {
+    const scorecard = buildControlDirectorReadinessScorecard({
+      config: createConfig(),
+      ollamaModels: new Map([
+        ["openclaw-control-gemma4-31b-q8:latest", { digest: "same" }],
+        ["openclaw-control-qwen25-32b:latest", { digest: "fallback" }],
+      ]),
+      ollamaEnv: {
+        OLLAMA_FLASH_ATTENTION: "1",
+        OLLAMA_KV_CACHE_TYPE: "q8_0",
+        OLLAMA_NUM_PARALLEL: "1",
+      },
+      ollamaPrimaryChatSmoke: { ok: true, detail: "status=200" },
+      thinkingEscalationPolicy: true,
+      continueUntilCompletePolicy: true,
+      completionEvidencePolicy: true,
+      explicitStatusPolicy: true,
+      runtimeFinalOutputGuard: true,
+      runtimeJudgeCompletionGate: true,
+      runtimeTruthGate: true,
+      runtimeTruthEvidenceIngestion: true,
+    });
+
+    const event = buildControlDirectorReadinessAuditEvent(scorecard, 1_782_570_000_000);
+
+    expect(event.kind).toBe("control_director_readiness");
+    expect(event.targetId).toBe("control-director");
+    expect(event.actor).toBe("cli");
+    expect(event.metadata).toMatchObject({
+      readiness: "ready",
+      ready: true,
+      primaryModel: "ollama/openclaw-control-gemma4-31b-q8:latest",
+      firstFallback: "ollama/openclaw-control-qwen25-32b:latest",
+    });
   });
 });

@@ -102,6 +102,88 @@ pnpm snes:team -- --mode apply-human-visual-approval \
 
 Then rerun `complete-platform-mvp` to complete `PCC-060-package-readiness`.
 
+## Prompt-to-game prototype commands
+
+Use the PCC `create-game` mode for the platform-safe prompt-to-game prototype:
+
+```bash
+pnpm snes:team -- --mode create-game \
+  --project demo-created-game \
+  --template platformer \
+  --prompt fixtures/snes-demo-prompt.txt \
+  --json
+```
+
+The same behavior is available through the standalone wrapper:
+
+```bash
+node scripts/snes-create-game.mjs \
+  --project demo-created-game \
+  --template platformer \
+  --prompt fixtures/snes-demo-prompt.txt \
+  --json
+```
+
+This initializes a generic PCC project, attaches a reusable clean-room template,
+validates the state, and emits the first worker packet. It does not call hosted
+models, download commercial material, build a ROM, or write removable media.
+
+Reusable templates are listed with:
+
+```bash
+pnpm snes:team -- --mode list-templates --json
+```
+
+Available template ids are `platformer`, `top-down-adventure`, `maze-action`,
+`shooter`, and `puzzle-platformer`.
+
+The package script alias `pnpm snes:create-game` is intentionally not required
+for this milestone because `package.json` may contain unrelated dirty-tree work.
+Use `pnpm snes:team -- --mode create-game` until a clean package-script change
+is separately approved.
+
+## Generic platform validators
+
+Validate a production-facing sprite intent:
+
+```bash
+pnpm snes:team -- --mode asset-intent-validate \
+  --asset-intent fixtures/generic-sprite-intent.json \
+  --json
+```
+
+Validate the generic production art pipeline contract:
+
+```bash
+pnpm snes:team -- --mode asset-pipeline-validate \
+  --asset-pipeline fixtures/generic-asset-pipeline.json \
+  --json
+```
+
+Validate a generic level JSON contract:
+
+```bash
+pnpm snes:team -- --mode level-validate \
+  --level fixtures/generic-level.json \
+  --json
+```
+
+Run the clean-room prompt-to-ROM regression benchmark scaffold:
+
+```bash
+pnpm snes:team -- --mode regression-benchmark \
+  --project demo-pcc-v2 \
+  --json
+```
+
+Refresh dashboard data for visual approval and platform readiness:
+
+```bash
+pnpm snes:team -- --mode dashboard-snapshot \
+  --project demo-pcc-v2 \
+  --json
+```
+
 ## Generic proof requirements
 
 Asset intent milestones must prove:

@@ -201,6 +201,41 @@ describe("self-improvement audit events", () => {
     expect(raw).not.toContain("private chain");
   });
 
+  it("accepts sanitized Control Director readiness events", async () => {
+    await appendSelfImprovementAuditEvent({
+      stateDir: tmpDir,
+      event: {
+        actor: "cli",
+        kind: "control_director_readiness",
+        targetId: "control-director",
+        summary: "Checked Control Director readiness: ready.",
+        metadata: {
+          readiness: "ready",
+          ready: true,
+          primaryModel: "ollama/openclaw-control-gemma4-31b-q8:latest",
+          firstFallback: "ollama/openclaw-control-qwen25-32b:latest",
+        },
+      },
+    });
+
+    const [event] = await listSelfImprovementAuditEvents({
+      stateDir: tmpDir,
+      kind: "control_director_readiness",
+    });
+    expect(event).toMatchObject({
+      actor: "cli",
+      kind: "control_director_readiness",
+      targetId: "control-director",
+      summary: "Checked Control Director readiness: ready.",
+      metadata: {
+        readiness: "ready",
+        ready: true,
+        primaryModel: "ollama/openclaw-control-gemma4-31b-q8:latest",
+        firstFallback: "ollama/openclaw-control-qwen25-32b:latest",
+      },
+    });
+  });
+
   it("lists sanitized events newest first with optional kind filtering", async () => {
     await appendSelfImprovementAuditEvent({
       stateDir: tmpDir,

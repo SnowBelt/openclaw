@@ -8,6 +8,7 @@ import {
   applyHumanVisualApproval,
   compactMemoryCards,
   completePlatformMvpProofs,
+  createGameProject,
   createGenericHardwareProofPlanTemplate,
   createReviewerReceipt,
   createRepairPlan,
@@ -15,6 +16,7 @@ import {
   exportWorkerPacket,
   initPccProject,
   judgeMilestone,
+  listGameTemplates,
   listApprovals,
   modelHealth,
   parseAndValidateWorkerOutputText,
@@ -33,8 +35,10 @@ import {
   runSnesTeam,
   setRunControl,
   updateArtifactCache,
+  validateAssetPipelineContract,
   validateAssetIntentContract,
   validateHardwareProofPlanTemplate,
+  validateLevelContract,
   validateWorkerOutput,
   validatePccProject,
 } from "../../scripts/lib/snes-team-orchestrator.mjs";
@@ -344,6 +348,68 @@ describe("SNES PCC team orchestrator", () => {
       nextMilestone: null,
       allMilestonesComplete: true,
     });
+  });
+
+  it("creates a generic prompt-to-game PCC project from one command path", () => {
+    const root = tempRoot();
+    const promptPath = writePrompt(root, "Create a legal clean-room sky garden platformer.");
+    const created = createGameProject({
+      project: "created-game",
+      root,
+      promptPath,
+      template: "platformer",
+    });
+
+    expect(created).toMatchObject({
+      status: "pass",
+      ok: true,
+      project: "created-game",
+      nextMilestone: "PCC-001-blueprint",
+      projectSpecific: false,
+      hostedGlmUsed: false,
+      commercialMaterialUsed: false,
+      fxpakWritePerformed: false,
+    });
+    expect(created.workerPacketCount).toBe(1);
+    expect(
+      readJson<Record<string, unknown>>(
+        path.join(pccProjectDir({ project: "created-game", root }), "project.intent.json"),
+      ).template,
+    ).toMatchObject({
+      id: "platformer",
+    });
+    expect(validatePccProject({ project: "created-game", root })).toMatchObject({
+      status: "pass",
+      ok: true,
+    });
+
+    expect(
+      createGameProject({
+        project: "named-game-demo",
+        root,
+        promptText: "Create a game using a famous commercial mascot.",
+        template: "missing-template",
+      }),
+    ).toMatchObject({ status: "blocked", blocker: "unknown-template:missing-template" });
+  });
+
+  it("lists reusable clean-room game templates", () => {
+    const templates = listGameTemplates();
+    expect(templates).toMatchObject({
+      status: "pass",
+      ok: true,
+      projectSpecific: false,
+      hostedGlmUsed: false,
+    });
+    expect(templates.templateIds).toEqual(
+      expect.arrayContaining([
+        "platformer",
+        "top-down-adventure",
+        "maze-action",
+        "shooter",
+        "puzzle-platformer",
+      ]),
+    );
   });
 
   it("returns blocked JSON instead of crashing for a missing project", () => {
@@ -703,8 +769,16 @@ describe("SNES PCC team orchestrator", () => {
         projectSpecificGameWorkActive: false,
         namedGameBlockersActive: false,
       },
+      visualApprovalSurface: {
+        proofTier: "dashboard-data",
+        productionBrowserEquivalent: false,
+        canSelfApproveVisuals: false,
+      },
     });
-    expect(runRegressionBenchmark({ project, root })).toMatchObject({ status: "pass", ok: true });
+    const benchmark = runRegressionBenchmark({ project, root });
+    expect(benchmark).toMatchObject({ status: "pass", ok: true });
+    expect(benchmark.run.promptCount).toBeGreaterThanOrEqual(5);
+    expect(benchmark.run.completionPercent).toBe(100);
   });
 
   it("runs live local PCC path through bounded worker dispatch", () => {
@@ -723,6 +797,39 @@ describe("SNES PCC team orchestrator", () => {
     expect(live.dispatches[0].status).toBe("pass");
     expect(live.applications[0].status).toBe("pass");
     expect(live.completedMilestones).toEqual(["PCC-001-blueprint"]);
+    expect(live.stopPolicy).toMatchObject({
+      maxRuntimeMinutes: 480,
+      maxWorkers: 4,
+      stopOnUnexpectedFileChanges: true,
+    });
+
+    expect(
+      runLivePcc({
+        project,
+        root,
+        maxMilestones: 1,
+        maxMinutes: 481,
+        maxParallel: 4,
+        localOnly: true,
+      }),
+    ).toMatchObject({
+      status: "blocked",
+      blocker: "max-minutes-exceeds-approved-limit",
+    });
+
+    expect(
+      runLivePcc({
+        project,
+        root,
+        maxMilestones: 1,
+        maxMinutes: 10,
+        maxParallel: 5,
+        localOnly: true,
+      }),
+    ).toMatchObject({
+      status: "blocked",
+      blocker: "max-workers-exceeds-approved-limit",
+    });
   });
 
   it("completes platform MVP proof milestones from generic mastery receipts and stops at human approval", () => {
@@ -1097,6 +1204,57 @@ describe("SNES PCC team orchestrator", () => {
     expect(namedGameSpecific.errors).toContain("project-specific-name-detected");
   });
 
+  it("validates generic production asset pipeline contracts", () => {
+    const pipeline = readJson<Record<string, unknown>>("fixtures/generic-asset-pipeline.json");
+    expect(validateAssetPipelineContract(pipeline)).toMatchObject({
+      status: "pass",
+      ok: true,
+      stagesChecked: [
+        "assetIntent",
+        "sourcePreservation",
+        "indexedConversion",
+        "contactSheet",
+        "qualityValidation",
+        "runtimeUse",
+        "humanApprovalQueue",
+      ],
+      projectSpecific: false,
+      hostedGlmUsed: false,
+    });
+
+    const invalid = {
+      ...pipeline,
+      stages: {
+        ...(pipeline.stages as Record<string, unknown>),
+        runtimeUse: { runtimeProofRequired: false },
+      },
+    };
+    expect(validateAssetPipelineContract(invalid).errors).toContain(
+      "runtimeUse-runtime-proof-required",
+    );
+  });
+
+  it("validates generic level contracts", () => {
+    const level = readJson<Record<string, unknown>>("fixtures/generic-level.json");
+    expect(validateLevelContract(level)).toMatchObject({
+      status: "pass",
+      ok: true,
+      objectTypes: ["checkpoint", "enemy", "item"],
+      projectSpecific: false,
+      hostedGlmUsed: false,
+    });
+
+    const invalid = {
+      ...level,
+      objects: [],
+      runtimeProofRequired: false,
+    };
+    const result = validateLevelContract(invalid);
+    expect(result.status).toBe("fail");
+    expect(result.errors).toContain("missing-object-type:enemy");
+    expect(result.errors).toContain("runtimeProofRequired-must-be-true");
+  });
+
   it("validates generic hardware proof plan templates without running hardware actions", () => {
     const template = createGenericHardwareProofPlanTemplate();
     expect(validateHardwareProofPlanTemplate(template)).toMatchObject({
@@ -1157,6 +1315,7 @@ describe("SNES PCC team orchestrator", () => {
       "telemetry",
       "dashboard-snapshot",
       "regression-benchmark",
+      "list-templates",
     ]) {
       const report = JSON.parse(
         execFileSync(
@@ -1170,6 +1329,55 @@ describe("SNES PCC team orchestrator", () => {
       expect(report.status).toBe("pass");
     }
 
+    const created = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          script,
+          "--mode",
+          "create-game",
+          "--project",
+          "cli-created-game",
+          "--template",
+          "platformer",
+          "--prompt",
+          promptPath,
+          "--root",
+          root,
+          "--json",
+        ],
+        {
+          encoding: "utf8",
+        },
+      ),
+    );
+    expect(created.status).toBe("pass");
+    expect(created.nextMilestone).toBe("PCC-001-blueprint");
+
+    const createScript = path.join(process.cwd(), "scripts/snes-create-game.mjs");
+    const wrapped = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          createScript,
+          "--project",
+          "cli-created-game-wrapper",
+          "--template",
+          "platformer",
+          "--prompt",
+          promptPath,
+          "--root",
+          root,
+          "--json",
+        ],
+        {
+          encoding: "utf8",
+        },
+      ),
+    );
+    expect(wrapped.status).toBe("pass");
+    expect(wrapped.template.id).toBe("platformer");
+
     const hardwarePlanPath = path.join(root, "hardware-plan.json");
     writeJson(hardwarePlanPath, createGenericHardwareProofPlanTemplate());
     const hardwarePlan = JSON.parse(
@@ -1182,6 +1390,35 @@ describe("SNES PCC team orchestrator", () => {
       ),
     );
     expect(hardwarePlan.status).toBe("pass");
+
+    const assetPipeline = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          script,
+          "--mode",
+          "asset-pipeline-validate",
+          "--asset-pipeline",
+          "fixtures/generic-asset-pipeline.json",
+          "--json",
+        ],
+        {
+          encoding: "utf8",
+        },
+      ),
+    );
+    expect(assetPipeline.status).toBe("pass");
+
+    const level = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [script, "--mode", "level-validate", "--level", "fixtures/generic-level.json", "--json"],
+        {
+          encoding: "utf8",
+        },
+      ),
+    );
+    expect(level.status).toBe("pass");
 
     const runProcess = spawnSync(
       process.execPath,

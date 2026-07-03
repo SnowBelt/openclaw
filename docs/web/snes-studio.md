@@ -112,6 +112,13 @@ The dashboard groups the builder into five modes:
 5. **Ship** for ROM build status, emulator proof, FXPAK package planning, and
    hardware proof checklist.
 
+The platform-safe prompt-to-game prototype is driven by PCC, not by a named-game
+script. Use `pnpm snes:team -- --mode create-game --project <id> --template platformer --prompt <file> --json`
+to initialize a clean-room project, attach a reusable template, validate PCC
+state, and emit the first worker packet. Use
+`pnpm snes:team -- --mode list-templates --json` to list reusable game
+templates, and use the platform runbook for the exact validator commands.
+
 Production cannot be marked complete from prose, procedural previews, or
 converted placeholder PNGs. Real graphics require source paths, hashes,
 provenance, palette/frame/tile metadata, visual maturity, and review proof

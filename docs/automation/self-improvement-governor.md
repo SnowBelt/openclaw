@@ -13,6 +13,11 @@ inspects OpenClaw state, writes durable recommendation records, groups recurring
 patterns into scorecards, generates pending proposal records, and routes each
 recommendation to the right OpenClaw agent role.
 
+It is separate from the Control Director. The Control Director can emit
+readiness and completion-discipline signals, but it does not own Governor model
+policy, scanning, routing, recommendation closure, or procedural-memory
+curation.
+
 It does **not** directly merge, push, release, delete files, expose secrets, or
 write skills. Code/config changes still require tests or explicit operator
 approval. Skill updates stay in Skill Workshop pending/quarantined review until
@@ -30,6 +35,7 @@ The MVP scanner is deterministic and checks:
 - model routing, provider, fallback, auth, rate-limit, and timeout errors
 - Governor model-review audit events, including local/hosted fallback and invalid JSON
 - Governor audit-ledger signals for repeated instruction, efficiency, risk, and metric gaps
+- Control Director readiness audit events, as recommendation-only project-health signals
 - failed cron/background jobs
 - Skill Workshop pending and quarantined proposals
 - efficiency signals, such as latency, cost, duplicate work, token waste, and timeouts

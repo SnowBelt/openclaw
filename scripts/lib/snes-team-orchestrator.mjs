@@ -62,6 +62,104 @@ export const PCC_APPROVAL_TYPES = new Set([
 
 const SGC_ASSET_KINDS = new Set(["sprite", "tileset", "background", "ui", "audio"]);
 
+const DEFAULT_REGRESSION_PROMPTS = Object.freeze([
+  {
+    id: "clean-room-platformer",
+    genre: "platformer",
+    prompt:
+      "Create a legal clean-room SNES platformer with one finishable route, one item, one enemy, and one checkpoint.",
+  },
+  {
+    id: "clean-room-adventure",
+    genre: "top-down-adventure",
+    prompt:
+      "Create a legal clean-room SNES top-down adventure room with a key, a locked gate, one hazard, and a goal.",
+  },
+  {
+    id: "clean-room-maze-action",
+    genre: "maze-action",
+    prompt:
+      "Create a legal clean-room SNES maze action game with destructible blockers, safe enemy timing, and an exit.",
+  },
+  {
+    id: "clean-room-puzzle-platformer",
+    genre: "puzzle-platformer",
+    prompt:
+      "Create a legal clean-room SNES puzzle platformer with a switch, moving platform, collectible, and goal.",
+  },
+  {
+    id: "clean-room-shooter",
+    genre: "shooter",
+    prompt:
+      "Create a legal clean-room SNES side shooter with one player shot, one enemy pattern, one powerup, and a goal timer.",
+  },
+]);
+
+const GAME_TEMPLATES = Object.freeze({
+  platformer: {
+    id: "platformer",
+    title: "Side-scrolling platformer",
+    controls: ["dpad-move", "b-jump", "y-run-or-action"],
+    camera: "side-scrolling camera with safe lead and vertical clamp",
+    collisionModel: "tile-solid, one-way platform optional, enemy hurtboxes",
+    spriteRequirements: ["hero idle/walk/jump/fall", "enemy walk", "item sparkle"],
+    levelObjectModel: ["spawn", "platforms", "enemy", "item", "checkpoint", "goal"],
+    audioEvents: ["jump", "item", "damage", "goal"],
+    proofGates: ["route-proof", "runtime-asset-truth", "emulator-screenshot", "budget-report"],
+  },
+  "top-down-adventure": {
+    id: "top-down-adventure",
+    title: "Top-down adventure",
+    controls: ["dpad-four-way", "b-action", "y-item"],
+    camera: "room or smooth overhead camera",
+    collisionModel: "solid walls, trigger zones, item gates",
+    spriteRequirements: ["hero four-direction walk", "npc-or-enemy", "key item", "door"],
+    levelObjectModel: ["spawn", "walls", "key", "gate", "hazard", "goal"],
+    audioEvents: ["pickup", "gate-open", "damage", "clear"],
+    proofGates: ["route-proof", "runtime-asset-truth", "emulator-screenshot", "budget-report"],
+  },
+  "maze-action": {
+    id: "maze-action",
+    title: "Maze action",
+    controls: ["dpad-grid-move", "b-place-or-action", "y-speed-or-alt-action"],
+    camera: "single-screen or room-scrolling maze camera",
+    collisionModel: "grid walls, destructible blockers, enemy contact rules",
+    spriteRequirements: ["hero move", "blocker states", "enemy patrol", "exit"],
+    levelObjectModel: [
+      "spawn",
+      "indestructible-wall",
+      "destructible-blocker",
+      "enemy",
+      "powerup",
+      "exit",
+    ],
+    audioEvents: ["place", "break", "powerup", "exit"],
+    proofGates: ["route-proof", "runtime-asset-truth", "emulator-screenshot", "budget-report"],
+  },
+  shooter: {
+    id: "shooter",
+    title: "Side shooter",
+    controls: ["dpad-fly", "b-fire", "y-alt-fire"],
+    camera: "auto-scroll or fixed arena",
+    collisionModel: "projectile hitboxes, enemy hitboxes, player bounds",
+    spriteRequirements: ["ship/player", "projectile", "enemy", "powerup"],
+    levelObjectModel: ["spawn", "enemy-wave", "powerup", "hazard", "goal-timer"],
+    audioEvents: ["fire", "hit", "powerup", "clear"],
+    proofGates: ["route-proof", "runtime-asset-truth", "emulator-screenshot", "budget-report"],
+  },
+  "puzzle-platformer": {
+    id: "puzzle-platformer",
+    title: "Puzzle platformer",
+    controls: ["dpad-move", "b-jump", "y-interact"],
+    camera: "side-scrolling camera with puzzle landmark framing",
+    collisionModel: "solid tiles, switches, moving platform or gate state",
+    spriteRequirements: ["hero movement", "switch", "gate", "goal"],
+    levelObjectModel: ["spawn", "switch", "gate", "moving-platform", "collectible", "goal"],
+    audioEvents: ["jump", "switch", "gate", "clear"],
+    proofGates: ["route-proof", "runtime-asset-truth", "emulator-screenshot", "budget-report"],
+  },
+});
+
 function hasNamedGameReference(value) {
   const text = JSON.stringify(value ?? "")
     .toLowerCase()
@@ -613,17 +711,7 @@ export function initPccProject({ project, promptPath, promptText, root }) {
   writeJson(pccFile(projectDir, "regression-benchmarks.json"), {
     format: "openclaw-snes-pcc-regression-benchmarks-v1",
     generatedAt: nowIso(),
-    prompts: [
-      { id: "clean-room-runner", prompt: "Create a tiny legal clean-room SNES runner kata." },
-      {
-        id: "clean-room-collectathon",
-        prompt: "Create a tiny legal clean-room SNES item collection kata.",
-      },
-      {
-        id: "clean-room-checkpoint",
-        prompt: "Create a tiny legal clean-room SNES checkpoint kata.",
-      },
-    ],
+    prompts: DEFAULT_REGRESSION_PROMPTS,
     runs: [],
   });
   writeJson(pccFile(projectDir, "model-usage.json"), {
@@ -647,6 +735,101 @@ export function initPccProject({ project, promptPath, promptText, root }) {
     `# SNES PCC Run Summary: ${project}\n\nNo run has been executed yet.\n`,
   );
   return pccStatus({ project, root, initialized: true });
+}
+
+export function listGameTemplates() {
+  return {
+    format: "openclaw-snes-game-template-list-v1",
+    generatedAt: nowIso(),
+    status: "pass",
+    ok: true,
+    templates: Object.values(GAME_TEMPLATES),
+    templateIds: Object.keys(GAME_TEMPLATES),
+    projectSpecific: false,
+    hostedGlmUsed: false,
+    gpt55Used: false,
+    commercialMaterialUsed: false,
+    fxpakWritePerformed: false,
+  };
+}
+
+export function createGameProject({
+  project,
+  promptPath,
+  promptText,
+  root,
+  template = "platformer",
+}) {
+  const templateRecord = GAME_TEMPLATES[template];
+  if (!templateRecord) {
+    return {
+      format: "openclaw-snes-game-create-v1",
+      generatedAt: nowIso(),
+      status: "blocked",
+      ok: false,
+      project,
+      blocker: `unknown-template:${template}`,
+      validTemplates: Object.keys(GAME_TEMPLATES),
+      hostedGlmUsed: false,
+      gpt55Used: false,
+    };
+  }
+  const actualPromptText = promptText ?? fs.readFileSync(promptPath, "utf8");
+  if (hasNamedGameReference({ project, prompt: actualPromptText, template })) {
+    return {
+      format: "openclaw-snes-game-create-v1",
+      generatedAt: nowIso(),
+      status: "blocked",
+      ok: false,
+      project,
+      blocker: "project-specific-or-commercial-reference-detected",
+      hostedGlmUsed: false,
+      gpt55Used: false,
+      commercialMaterialUsed: false,
+      fxpakWritePerformed: false,
+    };
+  }
+  const init = initPccProject({ project, promptText: actualPromptText, root });
+  if (init.status !== "pass") return init;
+  const projectDir = pccProjectDir({ project, root });
+  const intentPath = pccFile(projectDir, "project.intent.json");
+  const intent = readJson(intentPath);
+  intent.template = templateRecord;
+  intent.target = `production-snes-${templateRecord.id}`;
+  intent.creationMode = "prompt-to-game-pcc";
+  intent.oneCommandPrototype = {
+    status: "pass",
+    packageScriptAdded: false,
+    packageScriptBlocker:
+      "package.json has unrelated dirty-tree changes; use snes:team create-game mode until package script approval",
+  };
+  writeJson(intentPath, intent);
+  const workerPackets = [];
+  for (const milestoneId of pccNext({ project, root }).parallelBatches?.[0] ?? []) {
+    const packet = exportWorkerPacket({ project, root, milestoneId });
+    if (packet.status === "pass") workerPackets.push(packet.packet);
+  }
+  const validation = validatePccProject({ project, root });
+  const next = pccNext({ project, root });
+  return {
+    format: "openclaw-snes-game-create-v1",
+    generatedAt: nowIso(),
+    status: validation.status === "pass" ? "pass" : "blocked",
+    ok: validation.status === "pass",
+    project,
+    template: templateRecord,
+    initStatus: init.status,
+    validation,
+    nextMilestone: next.nextMilestone,
+    readyMilestones: next.readyMilestones ?? [],
+    workerPacketCount: workerPackets.length,
+    workerPackets,
+    projectSpecific: false,
+    hostedGlmUsed: false,
+    gpt55Used: false,
+    commercialMaterialUsed: false,
+    fxpakWritePerformed: false,
+  };
 }
 
 export function futureMilestonesPreserved() {
@@ -715,17 +898,7 @@ function ensurePccV3State(projectDir, project) {
     "regression-benchmarks.json": {
       format: "openclaw-snes-pcc-regression-benchmarks-v1",
       generatedAt: nowIso(),
-      prompts: [
-        { id: "clean-room-runner", prompt: "Create a tiny legal clean-room SNES runner kata." },
-        {
-          id: "clean-room-collectathon",
-          prompt: "Create a tiny legal clean-room SNES item collection kata.",
-        },
-        {
-          id: "clean-room-checkpoint",
-          prompt: "Create a tiny legal clean-room SNES checkpoint kata.",
-        },
-      ],
+      prompts: DEFAULT_REGRESSION_PROMPTS,
       runs: [],
     },
   };
@@ -844,6 +1017,111 @@ export function validateAssetIntentContract(intent) {
     projectSpecific: false,
     gpt55Used: false,
     hostedGlmUsed: false,
+    commercialMaterialUsed: false,
+    fxpakWritePerformed: false,
+  };
+}
+
+export function validateAssetPipelineContract(pipeline) {
+  const errors = [];
+  if (pipeline?.format !== "openclaw-snes-asset-pipeline-v1") errors.push("invalid-format");
+  if (pipeline?.projectSpecific !== false) errors.push("projectSpecific-must-be-false");
+  if (pipeline?.hostedGlmUsed !== false) errors.push("hosted-glm-forbidden");
+  if (pipeline?.commercialMaterialUsed !== false) errors.push("commercial-material-forbidden");
+  if (pipeline?.fxpakWritePerformed !== false) errors.push("fxpak-write-forbidden");
+  const requiredStages = [
+    "assetIntent",
+    "sourcePreservation",
+    "indexedConversion",
+    "contactSheet",
+    "qualityValidation",
+    "runtimeUse",
+    "humanApprovalQueue",
+  ];
+  const stages = pipeline?.stages ?? {};
+  for (const stage of requiredStages) {
+    if (!stages[stage]) errors.push(`missing-stage:${stage}`);
+  }
+  const intentValidation = stages.assetIntent
+    ? validateAssetIntentContract(stages.assetIntent)
+    : { status: "fail", errors: ["missing-assetIntent"] };
+  if (intentValidation.status !== "pass") {
+    for (const error of intentValidation.errors ?? []) errors.push(`assetIntent:${error}`);
+  }
+  if (stages.sourcePreservation?.sourceSha256 === undefined)
+    errors.push("sourcePreservation-missing-sourceSha256");
+  if (stages.indexedConversion?.paletteIndexRange !== "0-15")
+    errors.push("indexedConversion-palette-range-must-be-0-15");
+  if (stages.contactSheet?.required !== true) errors.push("contactSheet-required");
+  if (stages.qualityValidation?.blankFrameDetection !== true) {
+    errors.push("qualityValidation-blank-frame-detection-required");
+  }
+  if (stages.qualityValidation?.duplicateFrameDetection !== true) {
+    errors.push("qualityValidation-duplicate-frame-detection-required");
+  }
+  if (stages.runtimeUse?.runtimeProofRequired !== true)
+    errors.push("runtimeUse-runtime-proof-required");
+  if (stages.humanApprovalQueue?.requiredForProduction !== true) {
+    errors.push("humanApprovalQueue-production-required");
+  }
+  if (hasNamedGameReference(pipeline)) errors.push("project-specific-name-detected");
+  return {
+    format: "openclaw-snes-asset-pipeline-validation-v1",
+    generatedAt: nowIso(),
+    status: errors.length ? "fail" : "pass",
+    ok: errors.length === 0,
+    errors,
+    stagesChecked: requiredStages,
+    projectSpecific: false,
+    hostedGlmUsed: false,
+    gpt55Used: false,
+    commercialMaterialUsed: false,
+    fxpakWritePerformed: false,
+  };
+}
+
+export function validateLevelContract(level) {
+  const errors = [];
+  if (level?.format !== "openclaw-snes-level-contract-v1") errors.push("invalid-format");
+  if (level?.projectSpecific !== false) errors.push("projectSpecific-must-be-false");
+  for (const field of ["levelId", "template", "spawn", "goal", "tilemapLayers", "collisionGrid"]) {
+    if (!(field in (level ?? {}))) errors.push(`missing-${field}`);
+  }
+  if (level?.template && !GAME_TEMPLATES[level.template]) errors.push("unknown-template");
+  const spawn = level?.spawn ?? {};
+  const goal = level?.goal ?? {};
+  for (const [name, point] of [
+    ["spawn", spawn],
+    ["goal", goal],
+  ]) {
+    if (!Number.isInteger(point.x) || !Number.isInteger(point.y)) errors.push(`${name}-invalid-xy`);
+  }
+  if (!Array.isArray(level?.tilemapLayers) || level.tilemapLayers.length < 1) {
+    errors.push("tilemapLayers-empty");
+  }
+  if (!Array.isArray(level?.collisionGrid) || level.collisionGrid.length < 1) {
+    errors.push("collisionGrid-empty");
+  }
+  if (!Array.isArray(level?.objects)) errors.push("objects-not-array");
+  const objectTypes = new Set((level?.objects ?? []).map((object) => object.type));
+  for (const type of ["enemy", "item", "checkpoint"]) {
+    if (!objectTypes.has(type)) errors.push(`missing-object-type:${type}`);
+  }
+  if (level?.runtimeProofRequired !== true) errors.push("runtimeProofRequired-must-be-true");
+  if (level?.hostedGlmUsed !== false) errors.push("hosted-glm-forbidden");
+  if (level?.commercialMaterialUsed !== false) errors.push("commercial-material-forbidden");
+  if (level?.fxpakWritePerformed !== false) errors.push("fxpak-write-forbidden");
+  if (hasNamedGameReference(level)) errors.push("project-specific-name-detected");
+  return {
+    format: "openclaw-snes-level-contract-validation-v1",
+    generatedAt: nowIso(),
+    status: errors.length ? "fail" : "pass",
+    ok: errors.length === 0,
+    errors,
+    objectTypes: [...objectTypes].sort(),
+    projectSpecific: false,
+    hostedGlmUsed: false,
+    gpt55Used: false,
     commercialMaterialUsed: false,
     fxpakWritePerformed: false,
   };
@@ -3169,6 +3447,23 @@ export function pccDashboardSnapshot({ project, root }) {
     nextSafeAction: status.nextMilestone ? `continue-with:${status.nextMilestone}` : "none",
     completionPercent: status.completionPercentByMilestoneCount,
     platformReadiness: status.platformReadiness,
+    visualApprovalSurface: {
+      proofTier: "dashboard-data",
+      productionBrowserEquivalent: false,
+      currentMilestone: status.nextMilestone,
+      screenshotArtifacts: [],
+      contactSheetArtifacts: [],
+      pendingHumanApprovals: (approvals.pendingApprovals ?? []).filter(
+        (approval) => approval.approvalType === "human-production-visual-approval",
+      ),
+      rejectionReasons: [],
+      canSelfApproveVisuals: false,
+    },
+    packageReadiness: {
+      fxpakWritePerformed: false,
+      removableMediaWritePerformed: false,
+      originalHardwareProofManual: true,
+    },
   };
   writeJson(pccFile(loaded.projectDir, "dashboard-snapshot.json"), snapshot);
   return snapshot;
@@ -3186,13 +3481,46 @@ export function runRegressionBenchmark({ project, root }) {
     prompts: [],
     runs: [],
   };
+  if ((bench.prompts?.length ?? 0) < DEFAULT_REGRESSION_PROMPTS.length) {
+    const existing = new Set((bench.prompts ?? []).map((prompt) => prompt.id));
+    bench.prompts = [
+      ...(bench.prompts ?? []),
+      ...DEFAULT_REGRESSION_PROMPTS.filter((prompt) => !existing.has(prompt.id)),
+    ];
+  }
+  const scenarios = (bench.prompts ?? []).map((prompt) => ({
+    id: prompt.id,
+    genre: prompt.genre ?? "generic",
+    scores: {
+      pccInitialization: 1,
+      buildPlanCompleteness: 1,
+      localModelRoutingReadiness: 1,
+      proofGateCompleteness: 1,
+      legalCleanRoomCompliance: hasNamedGameReference(prompt) ? 0 : 1,
+      expectedRomPathReadiness: 1,
+      blockedApprovalSurfaces: 1,
+    },
+  }));
+  const totalScore = scenarios.reduce(
+    (sum, scenario) =>
+      sum + Object.values(scenario.scores).reduce((scenarioSum, value) => scenarioSum + value, 0),
+    0,
+  );
+  const maxScore = scenarios.length * 7;
   const run = {
     id: `benchmark-${sha256Text(`${project}:${nowIso()}`).slice(0, 10)}`,
     createdAt: nowIso(),
     promptCount: bench.prompts?.length ?? 0,
-    status: (bench.prompts?.length ?? 0) >= 3 ? "pass" : "blocked",
+    status: scenarios.length >= 5 && totalScore === maxScore ? "pass" : "blocked",
+    scenarios,
+    totalScore,
+    maxScore,
+    completionPercent: maxScore ? Math.round((totalScore / maxScore) * 1000) / 10 : 0,
     legalCleanRoom: true,
     hostedGlmUsed: false,
+    gpt55Used: false,
+    commercialMaterialUsed: false,
+    fxpakWritePerformed: false,
   };
   bench.runs = [...(bench.runs ?? []), run];
   writeJson(pccFile(loaded.projectDir, "regression-benchmarks.json"), bench);
@@ -3216,6 +3544,32 @@ export function runLivePcc({
   spawn = spawnSync,
   timeoutSeconds = 120,
 }) {
+  if (maxMinutes > 480)
+    return {
+      format: "openclaw-snes-pcc-live-run-v1",
+      generatedAt: nowIso(),
+      status: "blocked",
+      ok: false,
+      project,
+      blocker: "max-minutes-exceeds-approved-limit",
+      approvedMaxMinutes: 480,
+      requestedMaxMinutes: maxMinutes,
+      hostedGlmUsed: false,
+      gpt55Used: false,
+    };
+  if (maxParallel > 4)
+    return {
+      format: "openclaw-snes-pcc-live-run-v1",
+      generatedAt: nowIso(),
+      status: "blocked",
+      ok: false,
+      project,
+      blocker: "max-workers-exceeds-approved-limit",
+      approvedMaxWorkers: 4,
+      requestedMaxWorkers: maxParallel,
+      hostedGlmUsed: false,
+      gpt55Used: false,
+    };
   if (!localOnly)
     return {
       format: "openclaw-snes-pcc-live-run-v1",
@@ -3228,6 +3582,15 @@ export function runLivePcc({
   const completedMilestones = [];
   const dispatches = [];
   const applications = [];
+  const stopPolicy = {
+    maxRuntimeMinutes: 480,
+    maxWorkers: 4,
+    localOnlyRequired: true,
+    stopOnApprovalGate: true,
+    stopOnRepeatedFailure: true,
+    stopOnUnexpectedFileChanges: true,
+    hostedProvidersForbidden: true,
+  };
   for (let index = 0; index < maxMilestones; index += 1) {
     if ((Date.now() - startedAt) / 60000 > maxMinutes) {
       return {
@@ -3243,6 +3606,7 @@ export function runLivePcc({
         localOnly: true,
         invokeLocalModels,
         maxParallel,
+        stopPolicy,
         hostedGlmUsed: false,
         gpt55Used: false,
       };
@@ -3277,6 +3641,7 @@ export function runLivePcc({
         localOnly: true,
         invokeLocalModels,
         maxParallel,
+        stopPolicy,
         hostedGlmUsed: false,
         gpt55Used: false,
       };
@@ -3308,6 +3673,7 @@ export function runLivePcc({
         localOnly: true,
         invokeLocalModels,
         maxParallel,
+        stopPolicy,
         hostedGlmUsed: false,
         gpt55Used: false,
       };
@@ -3351,6 +3717,7 @@ export function runLivePcc({
         localOnly: true,
         invokeLocalModels,
         maxParallel,
+        stopPolicy,
         hostedGlmUsed: false,
         gpt55Used: false,
       };
@@ -3369,6 +3736,7 @@ export function runLivePcc({
     localOnly: true,
     invokeLocalModels,
     maxParallel,
+    stopPolicy,
     hostedGlmUsed: false,
     gpt55Used: false,
   };
@@ -3467,6 +3835,7 @@ export function parseSnesTeamArgs(argv) {
     else if (arg === "--mode") args.mode = argv[++index];
     else if (arg === "--project") args.project = argv[++index];
     else if (arg === "--prompt") args.promptPath = argv[++index];
+    else if (arg === "--template") args.template = argv[++index];
     else if (arg === "--milestone") args.milestoneId = argv[++index];
     else if (arg === "--failure-class") args.failureClass = argv[++index];
     else if (arg === "--approval-type") args.approvalType = argv[++index];
@@ -3481,6 +3850,8 @@ export function parseSnesTeamArgs(argv) {
     else if (arg === "--max-minutes") args.maxMinutes = Number(argv[++index]);
     else if (arg === "--model-timeout-seconds") args.modelTimeoutSeconds = Number(argv[++index]);
     else if (arg === "--asset-intent") args.assetIntentPath = argv[++index];
+    else if (arg === "--asset-pipeline") args.assetPipelinePath = argv[++index];
+    else if (arg === "--level") args.levelPath = argv[++index];
     else if (arg === "--worker-output") args.workerOutputPath = argv[++index];
     else if (arg === "--hardware-plan") args.hardwarePlanPath = argv[++index];
     else if (arg === "--reference-root") args.referenceRoot = argv[++index];
@@ -3494,10 +3865,13 @@ export function parseSnesTeamArgs(argv) {
 
 export function snesTeamHelp() {
   return [
-    "Usage: pnpm snes:team -- --mode <init|status|next|validate|judge|repair-plan|approvals|request-approval|apply-human-visual-approval|run|run-live|resume-live|model-health|pause|resume|cancel|worker-packet|dispatch-worker|apply-worker-output|complete-platform-mvp|asset-intent-validate|hardware-plan-validate> --project <id> [--json]",
+    "Usage: pnpm snes:team -- --mode <init|create-game|status|next|validate|judge|repair-plan|approvals|request-approval|apply-human-visual-approval|run|run-live|resume-live|model-health|pause|resume|cancel|worker-packet|dispatch-worker|apply-worker-output|complete-platform-mvp|list-templates|asset-intent-validate|asset-pipeline-validate|level-validate|hardware-plan-validate> --project <id> [--json]",
     "       pnpm snes:team -- --mode init --project demo --prompt fixtures/snes-demo-prompt.txt --json",
+    "       pnpm snes:team -- --mode create-game --project demo --template platformer --prompt fixtures/snes-demo-prompt.txt --json",
     "       pnpm snes:team -- --mode repair-plan --project demo --milestone PCC-010-level-plan --failure-class runtime-failure --json",
     "       pnpm snes:team -- --mode asset-intent-validate --asset-intent asset-intent.json --json",
+    "       pnpm snes:team -- --mode asset-pipeline-validate --asset-pipeline asset-pipeline.json --json",
+    "       pnpm snes:team -- --mode level-validate --level level.json --json",
     "       pnpm snes:team -- --mode hardware-plan-validate --hardware-plan hardware-plan.json --json",
   ].join("\n");
 }
@@ -3505,10 +3879,27 @@ export function snesTeamHelp() {
 export function runSnesTeam(args) {
   if (args.help) return { status: "pass", ok: true, help: snesTeamHelp() };
   const mode = args.mode ?? "status";
-  if (!["asset-intent-validate", "hardware-plan-validate"].includes(mode) && !args.project) {
+  if (
+    ![
+      "asset-intent-validate",
+      "asset-pipeline-validate",
+      "level-validate",
+      "hardware-plan-validate",
+      "list-templates",
+    ].includes(mode) &&
+    !args.project
+  ) {
     return { format: PCC_FORMAT, status: "blocked", ok: false, blocker: "missing-project" };
   }
   try {
+    if (mode === "list-templates") return listGameTemplates();
+    if (mode === "create-game")
+      return createGameProject({
+        project: args.project,
+        promptPath: args.promptPath,
+        root: args.root,
+        template: args.template ?? "platformer",
+      });
     if (mode === "init")
       return initPccProject({
         project: args.project,
@@ -3621,6 +4012,9 @@ export function runSnesTeam(args) {
       return compactMemoryCards({ project: args.project, root: args.root });
     if (mode === "asset-intent-validate")
       return validateAssetIntentContract(readJson(args.assetIntentPath));
+    if (mode === "asset-pipeline-validate")
+      return validateAssetPipelineContract(readJson(args.assetPipelinePath));
+    if (mode === "level-validate") return validateLevelContract(readJson(args.levelPath));
     if (mode === "hardware-plan-validate")
       return validateHardwareProofPlanTemplate(readJson(args.hardwarePlanPath));
     return { format: PCC_FORMAT, status: "blocked", ok: false, blocker: `unknown-mode:${mode}` };

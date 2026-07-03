@@ -1217,6 +1217,86 @@ function auditSelfImprovementReviewEvents(
   };
 }
 
+function auditControlDirectorReadinessEvents(
+  events: SelfImprovementAuditEvent[],
+  params: SelfImprovementAuditInput & { now: number },
+): RecommendationDraft | null {
+  const readinessEvents = events
+    .filter((event) => event.kind === "control_director_readiness")
+    .toSorted((left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id));
+  const latest = readinessEvents[0];
+  if (!latest) {
+    return null;
+  }
+  const readiness = auditMetadataString(latest, "readiness") ?? "blocked";
+  if (readiness === "ready") {
+    return null;
+  }
+  const completionGrade = auditMetadataNumber(latest, "completionGrade");
+  const nextBuildGap =
+    auditMetadataString(latest, "nextBuildGap") ?? "Control Director readiness is not ready.";
+  const primaryModel = auditMetadataString(latest, "primaryModel");
+  const firstFallback = auditMetadataString(latest, "firstFallback");
+  const failedCritical = auditMetadataStringArray(latest, "failedCritical");
+  const failedFacts = auditMetadataStringArray(latest, "failedFacts");
+  const route = resolveSelfImprovementRoute({ cfg: params.cfg, category: "project_health" });
+  return {
+    category: "project_health",
+    severity: readiness === "blocked" ? "high" : "medium",
+    priority: readiness === "blocked" ? "high" : "medium",
+    impact: "high",
+    effort: "medium",
+    title: "Control Director readiness needs self-improvement review",
+    summary:
+      "The Control Director readiness gate reported degraded or blocked state. The Governor is routing a recommendation-only follow-up instead of changing model policy, runtime config, or production state directly.",
+    source: {
+      kind: "agent",
+      label: "Control Director readiness audit event",
+      agentId: "main",
+    },
+    route,
+    recommendedAction:
+      "Have the Program Manager sequence the Control Director remediation, then route implementation to Builder Agent or verification to QA Test Agent with explicit proof before closure.",
+    requiredEvidence: [
+      "Run `pnpm control-director:readiness -- --record-self-improvement` and attach the current scorecard.",
+      "Run `pnpm control-director:eval` after any code/config change and attach the result.",
+      "If model aliases or Ollama service settings changed, rerun the Control Director chat smoke and attach proof.",
+    ],
+    evidence: [
+      `Latest readiness: ${readiness}`,
+      completionGrade !== undefined ? `Completion grade: ${completionGrade}/10` : "",
+      `Next build gap: ${nextBuildGap}`,
+      primaryModel ? `Primary model: ${primaryModel}` : "",
+      firstFallback ? `First fallback: ${firstFallback}` : "",
+      ...failedCritical.map((entry) => `Failed critical check: ${entry}`),
+      ...failedFacts.map((entry) => `Failed readiness fact: ${entry}`),
+      ...readinessEvents.slice(0, 4).map((event) => `${event.id}: ${event.summary}`),
+    ],
+    confidence: readinessEvents.length > 1 ? 0.82 : 0.72,
+  };
+}
+
+async function listSelfImprovementAuditEventsForScan(
+  input: SelfImprovementAuditInput,
+): Promise<SelfImprovementAuditEvent[]> {
+  if (input.auditEvents) {
+    return input.auditEvents;
+  }
+  const [recentEvents, controlDirectorEvents] = await Promise.all([
+    listSelfImprovementAuditEvents({ stateDir: input.stateDir, limit: 100 }),
+    listSelfImprovementAuditEvents({
+      stateDir: input.stateDir,
+      kind: "control_director_readiness",
+      limit: 100,
+    }),
+  ]);
+  return [
+    ...new Map(
+      [...recentEvents, ...controlDirectorEvents].map((event) => [event.id, event]),
+    ).values(),
+  ];
+}
+
 function dedupeRecommendations(
   recommendations: SelfImprovementRecommendation[],
 ): SelfImprovementRecommendation[] {
@@ -1261,12 +1341,11 @@ export async function auditSelfImprovementOpportunities(
       .filter((draft): draft is RecommendationDraft => Boolean(draft)),
     auditSkillWorkshopQueue(skillWorkshopProposals, { ...input, now }),
   ].filter((draft): draft is RecommendationDraft => Boolean(draft));
-  const auditEvents =
-    input.auditEvents ??
-    (await listSelfImprovementAuditEvents({ stateDir: input.stateDir, limit: 100 }));
+  const auditEvents = await listSelfImprovementAuditEventsForScan(input);
   const auditEventDrafts = [
     auditSelfImprovementModelPreflightEvents(auditEvents, { ...input, now }),
     auditSelfImprovementReviewEvents(auditEvents, { ...input, now }),
+    auditControlDirectorReadinessEvents(auditEvents, { ...input, now }),
     ...auditContinuousImprovementAuditEvents(auditEvents, { ...input, now }),
   ].filter((draft): draft is RecommendationDraft => Boolean(draft));
   const recommendations = dedupeRecommendations(

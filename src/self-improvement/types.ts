@@ -440,6 +440,7 @@ export type SelfImprovementAuditEventKind =
   | "analysis_run"
   | "model_preflight"
   | "reviewer_eval_run"
+  | "control_director_readiness"
   | "operational_health_snapshot"
   | "production_check"
   | "retention_maintenance"
