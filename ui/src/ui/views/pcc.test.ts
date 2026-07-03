@@ -919,7 +919,7 @@ describe("renderPccDashboard", () => {
     );
 
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-      button.textContent?.includes("Generate intake answers with AI"),
+      button.matches("[data-pcc-project-intake-autofill]"),
     );
     expect(generate).toBeTruthy();
 
@@ -937,6 +937,43 @@ describe("renderPccDashboard", () => {
           blockers: expect.stringContaining("Unknown blockers"),
         }),
         planPreviewAccepted: false,
+      }),
+    );
+  });
+
+  it("keeps AI intake autofill visible while editing a project with missing setup", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "edit-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          id: "project-1",
+          title: "SNES Game Creator",
+          goal: "",
+          intakeAnswers: { goal: "" },
+          intakeApproved: false,
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-project-intake-ai-repair]")).not.toBeNull();
+    expect(container.querySelector("details[open] [data-pcc-intake-wizard]")).not.toBeNull();
+    const autofill = container.querySelector<HTMLButtonElement>(
+      "[data-pcc-project-intake-autofill]",
+    );
+    expect(autofill?.textContent).toContain("Fill missing setup with AI");
+
+    autofill?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        goal: expect.stringContaining("SNES Game Creator"),
+        intakeAnswers: expect.objectContaining({
+          goal: expect.stringContaining("SNES Game Creator"),
+          firstDeliverable: expect.stringContaining("SNES Game Creator"),
+        }),
       }),
     );
   });

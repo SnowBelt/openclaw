@@ -536,6 +536,18 @@ describe("Project Command Center gateway methods", () => {
         }),
       ),
     ).toContain("milestone cannot depend on itself");
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            id: firstMilestone.id,
+            projectId: project.id,
+            title: "First",
+            dependsOn: [secondMilestone.id],
+          },
+        }),
+      ),
+    ).toContain("milestone dependencies cannot create a cycle");
 
     const firstSubMilestone = okPayload<{ subMilestone: { id: string } }>(
       await invoke("pcc.subMilestones.upsert", {
@@ -559,13 +571,36 @@ describe("Project Command Center gateway methods", () => {
         }),
       ),
     ).toContain("sub-milestone cannot depend on itself");
+    const secondSubMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: firstMilestone.id,
+          title: "Second sub-step",
+          dependsOn: [firstSubMilestone.id],
+        },
+      }),
+    ).subMilestone;
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            id: firstSubMilestone.id,
+            projectId: project.id,
+            milestoneId: firstMilestone.id,
+            title: "First sub-step",
+            dependsOn: [secondSubMilestone.id],
+          },
+        }),
+      ),
+    ).toContain("sub-milestone dependencies cannot create a cycle");
     expect(
       errorMessage(
         await invoke("pcc.subMilestones.upsert", {
           subMilestone: {
             projectId: project.id,
             milestoneId: firstMilestone.id,
-            title: "Second sub-step",
+            title: "Missing dependency sub-step",
             dependsOn: ["missing-submilestone"],
           },
         }),

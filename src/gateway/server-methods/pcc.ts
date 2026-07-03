@@ -593,6 +593,34 @@ function duplicateIds(ids: readonly string[] | undefined): string[] {
   return [...duplicates];
 }
 
+function dependencyCreatesCycle(
+  items: readonly { id: string; dependsOn?: string[] }[],
+  itemId: string,
+  nextDependsOn: readonly string[],
+): boolean {
+  const dependencyMap = new Map<string, readonly string[]>();
+  for (const item of items) {
+    dependencyMap.set(item.id, item.id === itemId ? nextDependsOn : (item.dependsOn ?? []));
+  }
+  if (!dependencyMap.has(itemId)) {
+    dependencyMap.set(itemId, nextDependsOn);
+  }
+  const seen = new Set<string>();
+  const visits = [...nextDependsOn];
+  while (visits.length > 0) {
+    const dependencyId = visits.pop();
+    if (!dependencyId || seen.has(dependencyId)) {
+      continue;
+    }
+    if (dependencyId === itemId) {
+      return true;
+    }
+    seen.add(dependencyId);
+    visits.push(...(dependencyMap.get(dependencyId) ?? []));
+  }
+  return false;
+}
+
 function validateMilestoneReferences(
   ledger: PccLedger,
   projectId: string,
@@ -608,7 +636,8 @@ function validateMilestoneReferences(
   if (duplicateDependencyIds.length > 0) {
     return `duplicate milestone dependency id: ${duplicateDependencyIds[0]}`;
   }
-  for (const dependencyId of input.dependsOn ?? []) {
+  const dependencyIds = input.dependsOn ?? [];
+  for (const dependencyId of dependencyIds) {
     if (dependencyId === milestoneId) {
       return "milestone cannot depend on itself";
     }
@@ -616,6 +645,15 @@ function validateMilestoneReferences(
     if (!dependency || dependency.projectId !== projectId) {
       return `milestone dependency not found in project: ${dependencyId}`;
     }
+  }
+  if (
+    dependencyCreatesCycle(
+      ledger.milestones.filter((milestone) => milestone.projectId === projectId),
+      milestoneId,
+      dependencyIds,
+    )
+  ) {
+    return "milestone dependencies cannot create a cycle";
   }
   for (const evidenceId of input.requiredEvidenceIds ?? []) {
     const evidence = ledger.evidence.find((item) => item.id === evidenceId);
@@ -657,7 +695,8 @@ function validateSubMilestoneReferences(
   if (duplicateDependencyIds.length > 0) {
     return `duplicate sub-milestone dependency id: ${duplicateDependencyIds[0]}`;
   }
-  for (const dependencyId of input.dependsOn ?? []) {
+  const dependencyIds = input.dependsOn ?? [];
+  for (const dependencyId of dependencyIds) {
     if (dependencyId === subMilestoneId) {
       return "sub-milestone cannot depend on itself";
     }
@@ -669,6 +708,18 @@ function validateSubMilestoneReferences(
     ) {
       return `sub-milestone dependency not found under milestone: ${dependencyId}`;
     }
+  }
+  if (
+    dependencyCreatesCycle(
+      ledger.subMilestones.filter(
+        (subMilestone) =>
+          subMilestone.projectId === projectId && subMilestone.milestoneId === milestoneId,
+      ),
+      subMilestoneId,
+      dependencyIds,
+    )
+  ) {
+    return "sub-milestone dependencies cannot create a cycle";
   }
   for (const evidenceId of input.requiredEvidenceIds ?? []) {
     const evidence = ledger.evidence.find((item) => item.id === evidenceId);
@@ -746,7 +797,7 @@ function upsertMilestone(
   }
   const receiptIds = input.receiptIds ?? existing?.receiptIds;
   const referenceError = validateMilestoneReferences(ledger, input.projectId, id, {
-    dependsOn: input.dependsOn,
+    dependsOn: input.dependsOn ?? existing?.dependsOn,
     requiredEvidenceIds: input.requiredEvidenceIds,
     receiptIds,
     permissionGrantIds: input.permissionGrantIds,
@@ -867,7 +918,7 @@ function upsertSubMilestone(
     input.milestoneId,
     id,
     {
-      dependsOn: input.dependsOn,
+      dependsOn: input.dependsOn ?? existing?.dependsOn,
       requiredEvidenceIds: input.requiredEvidenceIds,
       receiptIds: input.receiptIds,
       permissionGrantIds: input.permissionGrantIds,

@@ -376,6 +376,14 @@
   justify-content: space-between;
 }
 
+.pcc-editor__header-actions {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .pcc-editor__header p {
   color: var(--muted);
   margin: 6px 0 0;
@@ -435,6 +443,28 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.pcc-editor__ai-repair {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 18px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.pcc-editor__ai-repair div {
+  display: grid;
+  gap: 4px;
+}
+
+.pcc-editor__ai-repair span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .pcc-empty--small {
   box-shadow: none;
   padding: 18px;
@@ -462,6 +492,12 @@
 
   .pcc-editor__grid {
     grid-template-columns: 1fr;
+  }
+
+  .pcc-editor__ai-repair,
+  .pcc-editor__header-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

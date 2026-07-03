@@ -802,6 +802,31 @@ function projectIntakeDraftPatch(form: PccProjectFormState): Partial<PccProjectF
   };
 }
 
+function projectIntakeNeedsAiDraft(form: PccProjectFormState): boolean {
+  return (
+    !form.title.trim() ||
+    !form.goal.trim() ||
+    pccMissingRequiredIntakeAnswers(form.intakeAnswers).length > 0 ||
+    !form.intakeApproved ||
+    !form.planPreviewAccepted
+  );
+}
+
+function renderProjectIntakeAutofillButton(
+  props: PccDashboardProps,
+  label = "Fill missing fields with AI",
+) {
+  return html`<button
+    class="btn"
+    type="button"
+    data-pcc-project-intake-autofill
+    ?disabled=${props.actionBusy}
+    @click=${() => props.onProjectFormChange(projectIntakeDraftPatch(props.projectForm))}
+  >
+    ${label}
+  </button>`;
+}
+
 function setupEvaluationForDetail(detail: PccProjectDetail) {
   return evaluatePccProjectSetup({
     project: detail.project,
@@ -2929,14 +2954,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        <button
-          class="btn btn--subtle"
-          type="button"
-          ?disabled=${props.actionBusy}
-          @click=${() => props.onProjectFormChange(projectIntakeDraftPatch(form))}
-        >
-          Generate intake answers with AI
-        </button>
+        ${renderProjectIntakeAutofillButton(props, "Autofill intake answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -3094,6 +3112,12 @@ function renderProjectEditor(props: PccDashboardProps) {
   const projectSaveBlocked = creating
     ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
     : false;
+  const needsAiDraft = projectIntakeNeedsAiDraft(form);
+  const intakeSummary = missingIntake.length
+    ? `${missingIntake.length} missing`
+    : form.intakeApproved
+      ? "approved"
+      : "needs approval";
   return html`
     <form
       class="pcc-editor pcc-editor--project"
@@ -3119,6 +3143,12 @@ function renderProjectEditor(props: PccDashboardProps) {
               </p>`
             : nothing}
         </div>
+        ${needsAiDraft
+          ? html`<div class="pcc-editor__header-actions">
+              ${renderProjectIntakeAutofillButton(props, "Fill missing setup with AI")}
+              <span class="pcc-status">${intakeSummary}</span>
+            </div>`
+          : html`<span class="pcc-status">Setup ready</span>`}
         <button
           class="pcc-editor__close"
           type="button"
@@ -3141,6 +3171,18 @@ function renderProjectEditor(props: PccDashboardProps) {
                 })}
             ></textarea>
           </label>`
+        : nothing}
+      ${needsAiDraft
+        ? html`<section class="pcc-editor__ai-repair" data-pcc-project-intake-ai-repair>
+            <div>
+              <strong>Let AI fill the setup fields</strong>
+              <span
+                >Drafts the title, goal, intake answers, workflow, owners, and proof rules from the
+                prompt and existing project context. You can edit before saving.</span
+              >
+            </div>
+            ${renderProjectIntakeAutofillButton(props)}
+          </section>`
         : nothing}
       <div class="pcc-editor__grid">
         <label>
@@ -3233,8 +3275,8 @@ function renderProjectEditor(props: PccDashboardProps) {
           </select>
         </label>
       </div>
-      <details class="pcc-detail-drawer" ?open=${creating}>
-        <summary>Project intake answers</summary>
+      <details class="pcc-detail-drawer" ?open=${creating || needsAiDraft}>
+        <summary>Project intake answers · ${intakeSummary}</summary>
         ${renderProjectIntakeWizard(props)}
       </details>
       ${renderGeneratedPlanPreview(props)}
@@ -3298,10 +3340,10 @@ function renderProjectEditor(props: PccDashboardProps) {
         <button
           class="btn btn--subtle"
           type="button"
-          @click=${() =>
-            props.onProjectFormChange({ projectDescription: form.projectDescription ?? "" })}
+          data-pcc-project-regenerate-ai
+          @click=${() => props.onProjectFormChange(projectIntakeDraftPatch(form))}
         >
-          Regenerate
+          Regenerate with AI
         </button>
         <button class="btn btn--subtle" type="button" @click=${() => confirmEditorClose(props)}>
           Cancel
