@@ -1037,6 +1037,34 @@ describe("PCC CRUD controller", () => {
     expect(state.pccActionError).toContain("Required project intake answers");
   });
 
+  it("reports disconnected saves clearly and clears stale success notices", async () => {
+    const request = vi.fn();
+    const requestUpdate = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      connected: false,
+      requestUpdate,
+      pccActionNotice: { kind: "success", text: "Saved stale state." },
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Offline project",
+        goal: "Track disconnected saves.",
+        planPreviewAccepted: true,
+        intakeApproved: true,
+        intakeAnswers,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionNotice).toBeNull();
+    expect(state.pccActionBusy).toBe(false);
+    expect(state.pccActionError).toContain("offline or disconnected");
+    expect(state.pccActionError).toContain("Changes were not saved");
+    expect(requestUpdate).toHaveBeenCalled();
+  });
+
   it("creates a scoped Codex planning permission only when Codex planning is requested", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "pcc.projects.upsert") {

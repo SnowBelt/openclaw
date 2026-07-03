@@ -783,7 +783,10 @@ async function withPccAction(
   successMessage?: string,
 ): Promise<void> {
   if (!state.client || !state.connected) {
-    state.pccActionError = "Project Command Center unavailable";
+    state.pccActionError =
+      "Project Command Center is offline or disconnected. Changes were not saved; reconnect and try again.";
+    state.pccActionNotice = null;
+    state.pccActionBusy = false;
     state.requestUpdate?.();
     return;
   }
