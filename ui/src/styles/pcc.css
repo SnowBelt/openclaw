@@ -280,6 +280,49 @@
   overflow: hidden;
 }
 
+
+.pcc-outcome-metrics {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.pcc-outcome-metrics > span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-outcome-metrics ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pcc-outcome-metrics li {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.pcc-outcome-metrics li::before {
+  color: var(--accent);
+  content: "✓";
+  font-weight: 800;
+  margin-right: 8px;
+}
+
+.pcc-outcome-metrics--empty p {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
 .pcc-primary-action {
   align-items: center;
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
@@ -2386,7 +2429,8 @@
     grid-template-columns: 1fr;
   }
 
-  .pcc-primary-action {
+
+.pcc-primary-action {
     grid-template-columns: 1fr;
   }
 

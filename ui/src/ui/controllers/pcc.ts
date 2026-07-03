@@ -90,6 +90,7 @@ export type PccProjectFormState = {
   status: PccStatus;
   priority: string;
   dueDate: string;
+  outcomeMetrics: string;
   workflowTemplateId: string;
   planningMode: PccPlanningMode;
   plannerMode: PccPlannerMode;
@@ -217,6 +218,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   status: "active",
   priority: "3",
   dueDate: "",
+  outcomeMetrics: "",
   workflowTemplateId: "software-product",
   planningMode: "local_project_manager",
   plannerMode: "best_available",
@@ -302,6 +304,23 @@ function metadataObject(value: unknown): Record<string, unknown> {
 
 function metadataString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function metadataStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function outcomeMetricsText(value: unknown): string {
+  return metadataStringArray(value).join("\n");
+}
+
+function parseOutcomeMetrics(value: string): string[] {
+  return value
+    .split(/\r?\n/u)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function metadataBoolean(value: unknown, fallback: boolean): boolean {
@@ -747,6 +766,7 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     status: project.status,
     priority: String(project.priority ?? 3),
     dueDate: metadataDateInput(metadata.dueDate ?? metadata.pccDueDate),
+    outcomeMetrics: outcomeMetricsText(metadata.pccOutcomeMetrics),
     workflowTemplateId: metadataString(metadata.pccWorkflowTemplateId, "software-product"),
     planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
     plannerMode: metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
@@ -1224,6 +1244,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     }
     const priority = parseOptionalInteger(form.priority);
     const dueDate = normalizeDateInput(form.dueDate);
+    const outcomeMetrics = parseOutcomeMetrics(form.outcomeMetrics);
     const now = new Date().toISOString();
     const recommendedWorkflow = recommendPccWorkflow({
       title: form.title,
@@ -1290,6 +1311,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlannerMode: form.plannerMode,
             pccPlannerModelId: form.plannerModelId,
             pccProjectDescription: form.projectDescription,
+            pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
               ? { dueDate, pccDueDate: dueDate }
               : { dueDate: undefined, pccDueDate: undefined }),
@@ -1310,6 +1332,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlannerMode: form.plannerMode,
             pccPlannerModelId: form.plannerModelId,
             pccProjectDescription: form.projectDescription,
+            pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
               ? { dueDate, pccDueDate: dueDate }
               : { dueDate: undefined, pccDueDate: undefined }),

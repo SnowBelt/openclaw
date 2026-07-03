@@ -1021,6 +1021,8 @@ describe("PCC CRUD controller", () => {
         status: "active",
         priority: "3",
         dueDate: "2099-01-15",
+        outcomeMetrics:
+          "User understands next action in under 5 seconds.\nEvery milestone has receipt-backed proof.",
         workflowTemplateId: "software-product",
         planningMode: "template_only",
         plannerMode: "local_model",
@@ -1046,6 +1048,10 @@ describe("PCC CRUD controller", () => {
           pccWorkflowTemplateId: "software-product",
           dueDate: "2099-01-15T00:00:00.000Z",
           pccDueDate: "2099-01-15T00:00:00.000Z",
+          pccOutcomeMetrics: [
+            "User understands next action in under 5 seconds.",
+            "Every milestone has receipt-backed proof.",
+          ],
           pccIntake: expect.objectContaining({ approved: true }),
           pccQualityGate: expect.objectContaining({ status: "passing" }),
           pccSetupScore: expect.objectContaining({ runnable: true }),

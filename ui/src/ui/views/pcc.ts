@@ -970,6 +970,16 @@ function metadataString(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
 
+function metadataStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function projectOutcomeMetrics(project: unknown): string[] {
+  return metadataStringArray(metadataObject(metadataObject(project).metadata).pccOutcomeMetrics);
+}
+
 function formatProjectDate(value: string | undefined): string {
   if (!value) {
     return "No due date";
@@ -2293,6 +2303,7 @@ function normalizeProjectSearchQuery(query: string | undefined): string[] {
 function projectSearchText(project: PccProjectSummary, detail?: PccProjectDetail): string {
   const parts = [
     project.title,
+    ...projectOutcomeMetrics(project),
     project.status,
     project.health ?? "",
     project.recentActivity ?? "",
@@ -2301,6 +2312,7 @@ function projectSearchText(project: PccProjectSummary, detail?: PccProjectDetail
   ];
   if (detail) {
     parts.push(detail.project.goal ?? "", detail.project.owner ?? "");
+    parts.push(...projectOutcomeMetrics(detail.project));
     for (const milestone of detail.milestones) {
       parts.push(
         milestone.title,
@@ -3187,6 +3199,23 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       <span>Project brief</span>
       <p>${project.goal || "No project goal recorded yet."}</p>
     </section>
+    ${(() => {
+      const metrics = projectOutcomeMetrics(project);
+      return metrics.length
+        ? html`<section class="pcc-outcome-metrics" data-pcc-outcome-metrics>
+            <span>Outcome metrics</span>
+            <ul>
+              ${metrics.map((metric) => html`<li>${metric}</li>`)}
+            </ul>
+          </section>`
+        : html`<section
+            class="pcc-outcome-metrics pcc-outcome-metrics--empty"
+            data-pcc-outcome-metrics
+          >
+            <span>Outcome metrics</span>
+            <p>No outcome metrics recorded yet.</p>
+          </section>`;
+    })()}
     <div class="pcc-primary-action" data-pcc-primary-action>
       <span>Primary action</span>
       <button
@@ -4291,6 +4320,18 @@ function renderProjectEditor(props: PccDashboardProps) {
           .value=${form.goal}
           @input=${(event: Event) =>
             props.onProjectFormChange({ goal: (event.target as HTMLTextAreaElement).value })}
+        ></textarea>
+      </label>
+      <label>
+        Outcome metrics
+        <textarea
+          data-pcc-project-outcome-metrics
+          placeholder="One measurable outcome per line, e.g. Dashboard answers next action in under 5 seconds."
+          .value=${form.outcomeMetrics}
+          @input=${(event: Event) =>
+            props.onProjectFormChange({
+              outcomeMetrics: (event.target as HTMLTextAreaElement).value,
+            })}
         ></textarea>
       </label>
       <div class="pcc-editor__grid">

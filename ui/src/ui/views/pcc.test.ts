@@ -31,6 +31,10 @@ const project = {
     pccQualityGate: { status: "passing" },
     pccSetupScore: { score: 100, runnable: true },
     pccCompliance: { badge: "Passing", status: "passing" },
+    pccOutcomeMetrics: [
+      "User understands next action in under 5 seconds.",
+      "Every completed milestone has receipt-backed proof.",
+    ],
   },
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
@@ -258,6 +262,8 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("2/5");
     expect(text).toContain("milestones complete");
     expect(text).toContain("Run remote proof");
+    expect(text).toContain("Outcome metrics");
+    expect(text).toContain("User understands next action in under 5 seconds.");
     expect(text).toContain("Health: Needs approval");
     expect(text).toContain("Priority: 3");
     expect(text).toContain("Blocker: Run remote proof");
