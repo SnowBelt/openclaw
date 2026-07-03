@@ -762,6 +762,75 @@ describe("renderPccDashboard", () => {
     );
   });
 
+  it("supports keyboard-accessible milestone and sub-milestone reordering", () => {
+    const onMoveMilestoneBefore = vi.fn();
+    const onMoveSubMilestoneBefore = vi.fn();
+    const secondMilestone = {
+      ...milestone,
+      id: "milestone-2",
+      title: "Runtime proof",
+      order: 2,
+      status: "not_started" as const,
+    };
+    const secondSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-2",
+      title: "Save browser screenshot",
+      order: 2,
+    };
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone, secondMilestone],
+          subMilestones: [subMilestone, secondSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+        onMoveMilestoneBefore,
+        onMoveSubMilestoneBefore,
+      }),
+    );
+
+    const secondMilestoneUp = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-milestone-id="milestone-2"] [data-pcc-reorder="milestone-up"]',
+    );
+    secondMilestoneUp?.click();
+    expect(onMoveMilestoneBefore).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "milestone-2" }),
+      expect.objectContaining({ id: "milestone-1" }),
+    );
+
+    const firstMilestoneDown = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-milestone-id="milestone-1"] [data-pcc-reorder="milestone-down"]',
+    );
+    firstMilestoneDown?.click();
+    expect(onMoveMilestoneBefore).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "milestone-2" }),
+      expect.objectContaining({ id: "milestone-1" }),
+    );
+
+    const secondSubUp = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-submilestone-id="submilestone-2"] [data-pcc-reorder="submilestone-up"]',
+    );
+    secondSubUp?.click();
+    expect(onMoveSubMilestoneBefore).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "submilestone-2" }),
+      expect.objectContaining({ id: "submilestone-1" }),
+    );
+
+    const firstSubDown = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-submilestone-id="submilestone-1"] [data-pcc-reorder="submilestone-down"]',
+    );
+    firstSubDown?.click();
+    expect(onMoveSubMilestoneBefore).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "submilestone-2" }),
+      expect.objectContaining({ id: "submilestone-1" }),
+    );
+  });
+
   it("renders Stop Here controls and calls the milestone stop callback", () => {
     const onSetMilestoneStopHere = vi.fn();
     const container = renderView(

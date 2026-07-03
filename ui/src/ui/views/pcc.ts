@@ -1832,6 +1832,91 @@ function subMilestoneDisplayPercent(subMilestone: PccSubMilestone): number {
   return clampPercent(subMilestone.percentComplete ?? 0);
 }
 
+function renderMilestoneReorderControls(
+  milestones: readonly PccMilestone[],
+  milestone: PccMilestone,
+  props: PccDashboardProps,
+) {
+  const index = milestones.findIndex((item) => item.id === milestone.id);
+  const previous = index > 0 ? milestones[index - 1] : undefined;
+  const next = index >= 0 && index < milestones.length - 1 ? milestones[index + 1] : undefined;
+  return html`<span class="pcc-reorder-controls" data-pcc-milestone-reorder>
+    <button
+      type="button"
+      data-pcc-reorder="milestone-up"
+      aria-label=${`Move ${milestone.title} up`}
+      ?disabled=${props.actionBusy || !previous || !props.onMoveMilestoneBefore}
+      @click=${(event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (previous) {
+          props.onMoveMilestoneBefore?.(milestone, previous);
+        }
+      }}
+    >
+      ↑
+    </button>
+    <button
+      type="button"
+      data-pcc-reorder="milestone-down"
+      aria-label=${`Move ${milestone.title} down`}
+      ?disabled=${props.actionBusy || !next || !props.onMoveMilestoneBefore}
+      @click=${(event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (next) {
+          props.onMoveMilestoneBefore?.(next, milestone);
+        }
+      }}
+    >
+      ↓
+    </button>
+  </span>`;
+}
+
+function renderSubMilestoneReorderControls(
+  subMilestones: readonly PccSubMilestone[],
+  subMilestone: PccSubMilestone,
+  props: PccDashboardProps,
+) {
+  const index = subMilestones.findIndex((item) => item.id === subMilestone.id);
+  const previous = index > 0 ? subMilestones[index - 1] : undefined;
+  const next =
+    index >= 0 && index < subMilestones.length - 1 ? subMilestones[index + 1] : undefined;
+  return html`<span class="pcc-reorder-controls" data-pcc-submilestone-reorder>
+    <button
+      type="button"
+      data-pcc-reorder="submilestone-up"
+      aria-label=${`Move ${subMilestone.title} up`}
+      ?disabled=${props.actionBusy || !previous || !props.onMoveSubMilestoneBefore}
+      @click=${(event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (previous) {
+          props.onMoveSubMilestoneBefore?.(subMilestone, previous);
+        }
+      }}
+    >
+      ↑
+    </button>
+    <button
+      type="button"
+      data-pcc-reorder="submilestone-down"
+      aria-label=${`Move ${subMilestone.title} down`}
+      ?disabled=${props.actionBusy || !next || !props.onMoveSubMilestoneBefore}
+      @click=${(event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (next) {
+          props.onMoveSubMilestoneBefore?.(next, subMilestone);
+        }
+      }}
+    >
+      ↓
+    </button>
+  </span>`;
+}
+
 function itemWorkerLabel(item: PccMilestone | PccSubMilestone): string {
   const metadata = metadataObject(item.metadata);
   return responsibilityLabel(
@@ -2823,7 +2908,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                   aria-label=${`Step ${globalIndex} of ${milestones.length}`}
                 >
                   <span class="pcc-drag-handle" aria-label="Drag to reorder milestone">☰</span>
-                  ${globalIndex}
+                  ${globalIndex} ${renderMilestoneReorderControls(milestones, milestone, props)}
                 </div>
                 <div class="pcc-journey-step__content">
                   <details ?open=${mode !== "simple" && journeyClass === "current"}>
@@ -3291,6 +3376,7 @@ function renderSubMilestoneList(
       >
         <div class="pcc-submilestone__main">
           <span class="pcc-drag-handle" aria-label="Drag to reorder sub-milestone">☰</span>
+          ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}
           <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
           <div>
             <strong>${subMilestone.title}</strong>
