@@ -1132,10 +1132,6 @@ function canPreviewProjectIntakeAutofill(props: PccDashboardProps): boolean {
 }
 
 function runProjectIntakeAutofill(props: PccDashboardProps): void {
-  if (canPreviewProjectIntakeAutofill(props)) {
-    props.onPreviewSetupAutofill?.();
-    return;
-  }
   runProjectIntakeFormAutofill(props);
 }
 

@@ -1887,8 +1887,17 @@ describe("renderPccDashboard", () => {
 
     pageAutofill?.click();
 
-    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
-    expect(onProjectFormChange).not.toHaveBeenCalled();
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        goal: "Create a readable SNES-style game workflow.",
+        intakeAnswers: expect.objectContaining({
+          goal: "Create a readable SNES-style game workflow.",
+          firstDeliverable: expect.stringContaining("Verify SNES toolchain"),
+        }),
+        planPreviewAccepted: false,
+      }),
+    );
+    expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
 
     const previewFullRepair = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-preview-full-repair]",
@@ -1897,7 +1906,7 @@ describe("renderPccDashboard", () => {
 
     previewFullRepair?.click();
 
-    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(2);
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
     expect(container.textContent).toContain("AI Autofill Preview");
 
