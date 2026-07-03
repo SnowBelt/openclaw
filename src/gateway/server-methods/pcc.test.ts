@@ -131,6 +131,34 @@ describe("Project Command Center gateway methods", () => {
     expect(milestonePayload.milestone.id).toMatch(/^milestone-/);
   });
 
+  it("summarizes legacy rows with missing activity timestamps", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Legacy timestamp project" } }),
+    );
+    const ledgerPath = pccTesting.ledgerPath();
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      permissions: Array<Record<string, unknown>>;
+    };
+    ledger.permissions.push({
+      id: "legacy-permission",
+      projectId: project.id,
+      type: "remote_proof",
+      status: "needed",
+      riskLevel: "medium",
+      allowedActions: ["run proof"],
+      usedCount: 0,
+      auditLog: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const listPayload = okPayload<{ projects: Array<{ id: string; recentActivity?: string }> }>(
+      await invoke("pcc.projects.list", {}),
+    );
+    const summary = listPayload.projects.find((item) => item.id === project.id);
+    expect(summary?.recentActivity).toContain("Project updated");
+  });
+
   it("adds default phases and calculates weighted phase completion", async () => {
     const { project } = okPayload<{
       project: { id: string; phases: Array<{ id: string; weight?: number }> };

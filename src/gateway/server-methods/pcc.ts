@@ -290,36 +290,53 @@ function projectDueDate(project: PccProject): string | undefined {
   );
 }
 
+function timestampStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function addActivityCandidate(
+  candidates: Array<{ at: string; label: string }>,
+  at: unknown,
+  label: string,
+): void {
+  const timestamp = timestampStringValue(at);
+  if (timestamp) {
+    candidates.push({ at: timestamp, label });
+  }
+}
+
 function latestProjectActivity(ledger: PccLedger, project: PccProject): string | undefined {
-  const candidates: Array<{ at: string; label: string }> = [
-    { at: project.updatedAt, label: "Project updated" },
-  ];
+  const candidates: Array<{ at: string; label: string }> = [];
+  addActivityCandidate(candidates, project.updatedAt, "Project updated");
   for (const milestone of ledger.milestones.filter((item) => item.projectId === project.id)) {
-    candidates.push({ at: milestone.updatedAt, label: `Milestone updated: ${milestone.title}` });
+    addActivityCandidate(candidates, milestone.updatedAt, `Milestone updated: ${milestone.title}`);
   }
   for (const subMilestone of ledger.subMilestones.filter((item) => item.projectId === project.id)) {
-    candidates.push({
-      at: subMilestone.updatedAt,
-      label: `Sub-milestone updated: ${subMilestone.title}`,
-    });
+    addActivityCandidate(
+      candidates,
+      subMilestone.updatedAt,
+      `Sub-milestone updated: ${subMilestone.title}`,
+    );
   }
   for (const permission of ledger.permissions.filter((item) => item.projectId === project.id)) {
-    candidates.push({
-      at: permission.updatedAt,
-      label: `Permission ${permission.status}: ${permission.type}`,
-    });
+    addActivityCandidate(
+      candidates,
+      permission.updatedAt,
+      `Permission ${permission.status}: ${permission.type}`,
+    );
   }
   for (const evidence of ledger.evidence.filter((item) => item.projectId === project.id)) {
-    candidates.push({
-      at: evidence.createdAt,
-      label: `Evidence ${evidence.status}: ${evidence.kind}`,
-    });
+    addActivityCandidate(
+      candidates,
+      evidence.createdAt,
+      `Evidence ${evidence.status}: ${evidence.kind}`,
+    );
   }
   for (const receipt of ledger.receipts.filter((item) => item.projectId === project.id)) {
-    candidates.push({ at: receipt.completedAt, label: `Receipt added: ${receipt.summary}` });
+    addActivityCandidate(candidates, receipt.completedAt, `Receipt added: ${receipt.summary}`);
   }
   for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
-    candidates.push({ at: entry.verifiedAt, label: `Verified: ${entry.subsystem}` });
+    addActivityCandidate(candidates, entry.verifiedAt, `Verified: ${entry.subsystem}`);
   }
   const latest = candidates.toSorted((a, b) => b.at.localeCompare(a.at))[0];
   return latest ? `${latest.label} · ${latest.at}` : undefined;
