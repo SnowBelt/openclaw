@@ -276,6 +276,86 @@ describe("Project Command Center gateway methods", () => {
     expect(detail.lastKnownGood).toHaveLength(1);
   });
 
+  it("rejects cross-project milestone links for permissions and evidence", async () => {
+    const firstProject = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Permission project" } }),
+    ).project;
+    const secondProject = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Other permission project" } }),
+    ).project;
+    const otherMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: secondProject.id, title: "Other milestone" },
+      }),
+    ).milestone;
+
+    expect(
+      errorMessage(
+        await invoke("pcc.permissions.upsert", {
+          permission: {
+            projectId: firstProject.id,
+            milestoneId: otherMilestone.id,
+            type: "remote_proof",
+            allowedActions: ["run proof"],
+          },
+        }),
+      ),
+    ).toContain(`milestone not found in project: ${otherMilestone.id}`);
+
+    expect(
+      errorMessage(
+        await invoke("pcc.evidence.add", {
+          evidence: {
+            projectId: firstProject.id,
+            milestoneId: otherMilestone.id,
+            kind: "local_test",
+            status: "passed",
+          },
+        }),
+      ),
+    ).toContain(`milestone not found in project: ${otherMilestone.id}`);
+  });
+
+  it("rejects receipt proof evidence attached to another milestone", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Receipt evidence integrity" } }),
+    );
+    const firstMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "First receipt milestone" },
+      }),
+    ).milestone;
+    const secondMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Second receipt milestone" },
+      }),
+    ).milestone;
+    const { evidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: firstMilestone.id,
+          kind: "local_test",
+          status: "passed",
+          command: "pnpm test src/gateway/server-methods/pcc.test.ts",
+        },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.receipts.add", {
+          receipt: {
+            projectId: project.id,
+            milestoneId: secondMilestone.id,
+            summary: "Wrong milestone proof should not complete this milestone.",
+            proofEvidenceIds: [evidence.id],
+          },
+        }),
+      ),
+    ).toContain(`proof evidence belongs to another milestone: ${evidence.id}`);
+  });
+
   it("stores decision records and rejects orphaned decision links", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Decision project" } }),

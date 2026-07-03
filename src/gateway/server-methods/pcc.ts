@@ -474,6 +474,21 @@ function subMilestoneOrError(ledger: PccLedger, subMilestoneId: string): PccSubM
   return ledger.subMilestones.find((subMilestone) => subMilestone.id === subMilestoneId) ?? null;
 }
 
+function validateMilestoneBelongsToProject(
+  ledger: PccLedger,
+  milestoneId: string | undefined,
+  projectId: string,
+): string | null {
+  if (!milestoneId) {
+    return null;
+  }
+  const milestone = milestoneOrError(ledger, milestoneId);
+  if (!milestone || milestone.projectId !== projectId) {
+    return `milestone not found in project: ${milestoneId}`;
+  }
+  return null;
+}
+
 function setAt<T extends { id: string }>(items: T[], item: T): T {
   const index = items.findIndex((existing) => existing.id === item.id);
   if (index === -1) {
@@ -1282,15 +1297,22 @@ export const pccHandlers: GatewayRequestHandlers = {
           if (!project) {
             return { error: `project not found: ${params.permission.projectId}` };
           }
-          if (
-            params.permission.milestoneId &&
-            !milestoneOrError(ledger, params.permission.milestoneId)
-          ) {
-            return { error: `milestone not found: ${params.permission.milestoneId}` };
-          }
           const existing = params.permission.id
             ? ledger.permissions.find((permission) => permission.id === params.permission.id)
             : null;
+          if (existing && existing.projectId !== params.permission.projectId) {
+            return {
+              error: `permission ${existing.id} belongs to project ${existing.projectId}; cannot move to project ${params.permission.projectId}`,
+            };
+          }
+          const milestoneError = validateMilestoneBelongsToProject(
+            ledger,
+            params.permission.milestoneId ?? existing?.milestoneId,
+            params.permission.projectId,
+          );
+          if (milestoneError) {
+            return { error: milestoneError };
+          }
           const timestamp = nowIso();
           const status = params.permission.status ?? existing?.status ?? "needed";
           const auditLog = [
@@ -1390,11 +1412,13 @@ export const pccHandlers: GatewayRequestHandlers = {
           if (!project) {
             return { error: `project not found: ${params.evidence.projectId}` };
           }
-          if (
-            params.evidence.milestoneId &&
-            !milestoneOrError(ledger, params.evidence.milestoneId)
-          ) {
-            return { error: `milestone not found: ${params.evidence.milestoneId}` };
+          const milestoneError = validateMilestoneBelongsToProject(
+            ledger,
+            params.evidence.milestoneId,
+            params.evidence.projectId,
+          );
+          if (milestoneError) {
+            return { error: milestoneError };
           }
           const evidence: PccEvidence = {
             id: makeId("evidence", params.evidence.kind),
@@ -1524,6 +1548,14 @@ export const pccHandlers: GatewayRequestHandlers = {
           const linkedEvidence = ledger.evidence.filter((evidence) =>
             params.receipt.proofEvidenceIds.includes(evidence.id),
           );
+          const wrongMilestoneEvidence = linkedEvidence.find(
+            (evidence) => evidence.milestoneId && evidence.milestoneId !== milestone.id,
+          );
+          if (wrongMilestoneEvidence) {
+            return {
+              error: `proof evidence belongs to another milestone: ${wrongMilestoneEvidence.id}`,
+            };
+          }
           const timestamp = nowIso();
           const receipt: PccCompletionReceipt = {
             id: makeId("receipt", milestone.title),
