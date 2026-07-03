@@ -746,6 +746,12 @@ function formatVerifiedAt(value: string): string {
   return Number.isNaN(time) ? value : formatUpdatedAt(time);
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function renderLastKnownGoodList(entries: readonly PccLastKnownGood[] | undefined) {
   const sorted = (entries ?? []).toSorted(
     (a, b) => Date.parse(b.verifiedAt) - Date.parse(a.verifiedAt),
@@ -763,9 +769,9 @@ function renderLastKnownGoodList(entries: readonly PccLastKnownGood[] | undefine
           <small>
             Verified ${formatVerifiedAt(entry.verifiedAt)}
             ${entry.sha ? html` · SHA ${entry.sha.slice(0, 12)}` : nothing}
-            ${entry.evidenceIds?.length
-              ? html` · ${entry.evidenceIds.length} evidence
-                link${entry.evidenceIds.length === 1 ? "" : "s"}`
+            ${stringArray(entry.evidenceIds).length
+              ? html` · ${stringArray(entry.evidenceIds).length} evidence
+                link${stringArray(entry.evidenceIds).length === 1 ? "" : "s"}`
               : nothing}
           </small>
         </li>`,
@@ -1437,7 +1443,8 @@ function formatDecisionDate(value: string): string {
 }
 
 function renderDecisionCard(decision: PccDecision, evidence: PccEvidence[]) {
-  const linkedEvidence = evidence.filter((item) => decision.evidenceIds?.includes(item.id));
+  const decisionEvidenceIds = stringArray(decision.evidenceIds);
+  const linkedEvidence = evidence.filter((item) => decisionEvidenceIds.includes(item.id));
   return html`<article class="pcc-decision" data-pcc-decision>
     <div class="pcc-decision__header">
       <div>
@@ -1696,7 +1703,8 @@ function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) 
 }
 
 function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[]) {
-  const proofItems = evidence.filter((item) => receipt.proofEvidenceIds.includes(item.id));
+  const proofEvidenceIds = stringArray(receipt.proofEvidenceIds);
+  const proofItems = evidence.filter((item) => proofEvidenceIds.includes(item.id));
   return html`
     <details class="pcc-receipt" data-pcc-receipt>
       <summary>
@@ -1711,10 +1719,7 @@ function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[
         </div>
         <div>
           <dt>Evidence</dt>
-          <dd>
-            ${receipt.proofEvidenceIds.length}
-            item${receipt.proofEvidenceIds.length === 1 ? "" : "s"}
-          </dd>
+          <dd>${proofEvidenceIds.length} item${proofEvidenceIds.length === 1 ? "" : "s"}</dd>
         </div>
         <div>
           <dt>By</dt>

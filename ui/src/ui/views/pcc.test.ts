@@ -1235,6 +1235,47 @@ describe("renderPccDashboard", () => {
     expect(add?.disabled).toBe(true);
   });
 
+  it("renders legacy receipt and evidence-link rows without crashing detail view", () => {
+    const legacyReceipt = {
+      ...receipt,
+      id: "legacy-receipt",
+      proofEvidenceIds: undefined,
+    } as unknown as typeof receipt;
+    const legacyDecision = {
+      ...decision,
+      id: "legacy-decision",
+      evidenceIds: "evidence-1",
+    } as unknown as typeof decision;
+    const legacyLastKnownGood = {
+      ...lastKnownGood,
+      id: "legacy-lkg",
+      evidenceIds: "evidence-1",
+    } as unknown as typeof lastKnownGood;
+
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [{ ...milestone, status: "proof_pending" }],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [legacyReceipt],
+          decisions: [legacyDecision],
+          lastKnownGood: [legacyLastKnownGood],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.querySelectorAll("[data-pcc-receipt]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-pcc-decision]")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-pcc-last-known-good]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-receipt]")?.textContent).toMatch(
+      /Evidence\s+0\s+items/,
+    );
+    expect(container.textContent).toContain("Use receipt-gated completion");
+  });
+
   it("enables Add receipt only when passed evidence exists and no receipt is recorded", () => {
     const onAddCompletionReceipt = vi.fn();
     const container = renderView(

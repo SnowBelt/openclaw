@@ -398,6 +398,12 @@ function projectHealthLabel(
   return project.status.replace(/_/gu, " ");
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] {
   const gaps: string[] = [];
   const projectMilestoneIds = new Set(
@@ -431,9 +437,10 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
     if (!projectMilestoneIds.has(receipt.milestoneId)) {
       gaps.push(`Integrity issue: receipt references missing milestone: ${receipt.id}`);
     }
-    const proofEvidenceIds = Array.isArray(receipt.proofEvidenceIds)
-      ? receipt.proofEvidenceIds
-      : [];
+    if (receipt.proofEvidenceIds !== undefined && !Array.isArray(receipt.proofEvidenceIds)) {
+      gaps.push(`Integrity issue: receipt has malformed proof evidence ids: ${receipt.id}`);
+    }
+    const proofEvidenceIds = stringArray(receipt.proofEvidenceIds);
     if (proofEvidenceIds.length === 0) {
       gaps.push(`Integrity issue: receipt has no proof evidence ids: ${receipt.id}`);
     }
@@ -453,7 +460,10 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
     if (decision.subMilestoneId && !projectSubMilestoneIds.has(decision.subMilestoneId)) {
       gaps.push(`Integrity issue: decision references missing sub-milestone: ${decision.id}`);
     }
-    for (const evidenceId of decision.evidenceIds ?? []) {
+    if (decision.evidenceIds !== undefined && !Array.isArray(decision.evidenceIds)) {
+      gaps.push(`Integrity issue: decision has malformed evidence ids: ${decision.id}`);
+    }
+    for (const evidenceId of stringArray(decision.evidenceIds)) {
       const evidence = ledger.evidence.find((item) => item.id === evidenceId);
       if (!evidence || evidence.projectId !== project.id) {
         gaps.push(`Integrity issue: decision references missing evidence: ${evidenceId}`);
@@ -461,7 +471,10 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
     }
   }
   for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
-    for (const evidenceId of entry.evidenceIds ?? []) {
+    if (entry.evidenceIds !== undefined && !Array.isArray(entry.evidenceIds)) {
+      gaps.push(`Integrity issue: last-known-good has malformed evidence ids: ${entry.id}`);
+    }
+    for (const evidenceId of stringArray(entry.evidenceIds)) {
       const evidence = ledger.evidence.find((item) => item.id === evidenceId);
       if (!evidence || evidence.projectId !== project.id) {
         gaps.push(`Integrity issue: last-known-good references missing evidence: ${evidenceId}`);

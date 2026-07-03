@@ -176,12 +176,22 @@ describe("Project Command Center gateway methods", () => {
       proofLevel: "local",
       completedAt: "2026-01-01T00:00:00.000Z",
     });
+    ledger.receipts.push({
+      id: "malformed-proof-receipt",
+      projectId: project.id,
+      milestoneId: "missing-milestone",
+      summary: "Legacy imported receipt stored proof ids as a scalar.",
+      proofEvidenceIds: "failed-imported-evidence",
+      proofLevel: "local",
+      completedAt: "2026-01-01T00:00:00.000Z",
+    });
     ledger.decisions.push({
       id: "bad-imported-decision",
       projectId: project.id,
       subMilestoneId: "missing-sub-step",
       title: "Imported decision",
       summary: "Imported decision references a missing sub-step.",
+      evidenceIds: "failed-imported-evidence",
       decidedAt: "2026-01-01T00:00:00.000Z",
     });
     ledger.lastKnownGood.push({
@@ -189,7 +199,7 @@ describe("Project Command Center gateway methods", () => {
       projectId: project.id,
       subsystem: "Imported proof",
       summary: "Imported last-known-good references failed evidence.",
-      evidenceIds: ["failed-imported-evidence"],
+      evidenceIds: "failed-imported-evidence",
       verifiedAt: "2026-01-01T00:00:00.000Z",
     });
     fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
@@ -204,8 +214,10 @@ describe("Project Command Center gateway methods", () => {
         "Integrity issue: receipt references missing milestone: bad-imported-receipt",
         "Integrity issue: receipt references non-passing proof evidence: failed-imported-evidence",
         "Integrity issue: receipt has no proof evidence ids: legacy-receipt-without-proof",
+        "Integrity issue: receipt has malformed proof evidence ids: malformed-proof-receipt",
         "Integrity issue: decision references missing sub-milestone: bad-imported-decision",
-        "Integrity issue: last-known-good references non-passing evidence: failed-imported-evidence",
+        "Integrity issue: decision has malformed evidence ids: bad-imported-decision",
+        "Integrity issue: last-known-good has malformed evidence ids: bad-imported-lkg",
       ]),
     );
   });
