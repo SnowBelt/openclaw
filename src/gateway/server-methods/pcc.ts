@@ -52,6 +52,16 @@ const COMPLETE_STATUSES = new Set<PccStatus>(["complete", "complete_with_mainten
 const BLOCKED_STATUSES = new Set<PccStatus>(["blocked", "failed"]);
 const WAITING_STATUSES = new Set<PccStatus>(["needs_approval", "deferred", "on_hold"]);
 const SKIPPED_STATUSES = new Set<PccStatus>(["skipped", "archived"]);
+const REOPEN_STATUSES = new Set<PccStatus>(["reopened", "not_started"]);
+const ACTIVE_WORK_STATUSES = new Set<PccStatus>([
+  "active",
+  "in_progress",
+  "proof_pending",
+  "local_proof_complete",
+  "remote_proof_complete",
+  "runtime_proof_complete",
+  "persistence_proof_complete",
+]);
 const DEFAULT_PCC_PHASES: PccProject["phases"] = [
   { id: "setup", title: "Setup", status: "not_started", weight: 10, order: 0 },
   { id: "tools-skills", title: "Tools/Skills", status: "not_started", weight: 15, order: 1 },
@@ -503,13 +513,18 @@ function upsertProject(
     phases?: PccProject["phases"];
     metadata?: PccProject["metadata"];
   },
-): PccProject {
+): { project?: PccProject; error?: string } {
   const existing = input.id ? projectOrError(ledger, input.id) : null;
   const timestamp = nowIso();
+  const status = input.status ?? existing?.status ?? "active";
+  const transitionError = validateStatusTransition("project", existing?.status, status);
+  if (transitionError) {
+    return { error: transitionError };
+  }
   const project: PccProject = {
     id: existing?.id ?? input.id ?? makeId("project", input.title),
     title: input.title,
-    status: input.status ?? existing?.status ?? "active",
+    status,
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
     ...(input.goal !== undefined
@@ -540,7 +555,27 @@ function upsertProject(
         ? { metadata: existing.metadata }
         : {}),
   };
-  return setAt(ledger.projects, project);
+  return { project: setAt(ledger.projects, project) };
+}
+
+function validateStatusTransition(
+  label: string,
+  currentStatus: PccStatus | undefined,
+  nextStatus: PccStatus,
+): string | null {
+  if (!currentStatus || currentStatus === nextStatus) {
+    return null;
+  }
+  if (REOPEN_STATUSES.has(nextStatus) || nextStatus === "archived") {
+    return null;
+  }
+  if (SKIPPED_STATUSES.has(currentStatus) && !SKIPPED_STATUSES.has(nextStatus)) {
+    return `${label} status ${currentStatus} must be reopened before changing to ${nextStatus}`;
+  }
+  if (COMPLETE_STATUSES.has(currentStatus) && ACTIVE_WORK_STATUSES.has(nextStatus)) {
+    return `${label} status ${currentStatus} must be reopened before changing to ${nextStatus}`;
+  }
+  return null;
 }
 
 function duplicateIds(ids: readonly string[] | undefined): string[] {
@@ -705,6 +740,10 @@ function upsertMilestone(
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("milestone", input.title);
   const status = input.status ?? existing?.status ?? "not_started";
+  const transitionError = validateStatusTransition("milestone", existing?.status, status);
+  if (transitionError) {
+    return { error: transitionError };
+  }
   const receiptIds = input.receiptIds ?? existing?.receiptIds;
   const referenceError = validateMilestoneReferences(ledger, input.projectId, id, {
     dependsOn: input.dependsOn,
@@ -818,6 +857,10 @@ function upsertSubMilestone(
   const timestamp = nowIso();
   const id = existing?.id ?? input.id ?? makeId("submilestone", input.title);
   const status = input.status ?? existing?.status ?? "not_started";
+  const transitionError = validateStatusTransition("sub-milestone", existing?.status, status);
+  if (transitionError) {
+    return { error: transitionError };
+  }
   const referenceError = validateSubMilestoneReferences(
     ledger,
     input.projectId,
@@ -957,11 +1000,22 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const result = withLedger(
         (ledger) => {
-          const project = upsertProject(ledger, params.project);
-          return { project, summary: summarizeProject(ledger, project) };
+          const upsert = upsertProject(ledger, params.project);
+          if (upsert.error || !upsert.project) {
+            return { error: upsert.error ?? "project upsert failed" };
+          }
+          return { project: upsert.project, summary: summarizeProject(ledger, upsert.project) };
         },
         { write: true },
       );
+      if ("error" in result) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, result.error ?? "PCC request failed"),
+        );
+        return;
+      }
       respond(true, result);
     } catch (error) {
       respondUnhandled(respond, error);

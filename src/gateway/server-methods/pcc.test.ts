@@ -412,6 +412,86 @@ describe("Project Command Center gateway methods", () => {
     expect(projectDetail.lastKnownGood).toHaveLength(1);
   });
 
+  it("rejects direct terminal-to-active status transitions", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Transition project", status: "active" },
+      }),
+    );
+    await invoke("pcc.projects.upsert", {
+      project: { id: project.id, title: "Transition project", status: "archived" },
+    });
+
+    expect(
+      errorMessage(
+        await invoke("pcc.projects.upsert", {
+          project: { id: project.id, title: "Transition project", status: "active" },
+        }),
+      ),
+    ).toContain("project status archived must be reopened before changing to active");
+
+    const reopenedProject = okPayload<{ project: { status: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: project.id, title: "Transition project", status: "reopened" },
+      }),
+    ).project;
+    expect(reopenedProject.status).toBe("reopened");
+
+    const archivedMilestone = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Archived milestone", status: "archived" },
+      }),
+    ).milestone;
+    expect(
+      errorMessage(
+        await invoke("pcc.milestones.upsert", {
+          milestone: {
+            id: archivedMilestone.id,
+            projectId: project.id,
+            title: "Archived milestone",
+            status: "in_progress",
+          },
+        }),
+      ),
+    ).toContain("milestone status archived must be reopened before changing to in_progress");
+
+    const resetMilestone = okPayload<{ milestone: { status: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          id: archivedMilestone.id,
+          projectId: project.id,
+          title: "Archived milestone",
+          status: "not_started",
+        },
+      }),
+    ).milestone;
+    expect(resetMilestone.status).toBe("not_started");
+
+    const archivedSubMilestone = okPayload<{ subMilestone: { id: string } }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: archivedMilestone.id,
+          title: "Archived sub-step",
+          status: "skipped",
+        },
+      }),
+    ).subMilestone;
+    expect(
+      errorMessage(
+        await invoke("pcc.subMilestones.upsert", {
+          subMilestone: {
+            id: archivedSubMilestone.id,
+            projectId: project.id,
+            milestoneId: archivedMilestone.id,
+            title: "Archived sub-step",
+            status: "in_progress",
+          },
+        }),
+      ),
+    ).toContain("sub-milestone status skipped must be reopened before changing to in_progress");
+  });
+
   it("rejects broken milestone and sub-milestone references", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Integrity project" } }),
