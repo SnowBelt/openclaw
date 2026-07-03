@@ -1457,10 +1457,12 @@ describe("renderPccDashboard", () => {
 
   it("shows sequence normalization only for order integrity issues", () => {
     const onNormalizeProjectSequence = vi.fn();
+    const onRemoveStaleDependencies = vi.fn();
     const sequenceContainer = renderView(
       createProps({
         viewMode: "agent",
         onNormalizeProjectSequence,
+        onRemoveStaleDependencies,
         projectDetail: {
           project,
           milestones: [
@@ -1487,10 +1489,12 @@ describe("renderPccDashboard", () => {
     expect(normalize?.textContent).toContain("Normalize sequence");
     normalize?.click();
     expect(onNormalizeProjectSequence).toHaveBeenCalledTimes(1);
+    expect(sequenceContainer.querySelector("[data-pcc-remove-stale-dependencies]")).toBeNull();
 
     const dependencyContainer = renderView(
       createProps({
         viewMode: "agent",
+        onRemoveStaleDependencies,
         projectDetail: {
           project,
           milestones: [{ ...milestone, dependsOn: ["missing-dependency"] }],
@@ -1503,6 +1507,12 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(dependencyContainer.querySelector("[data-pcc-normalize-sequence]")).toBeNull();
+    const removeStale = dependencyContainer.querySelector<HTMLButtonElement>(
+      "[data-pcc-remove-stale-dependencies]",
+    );
+    expect(removeStale?.textContent).toContain("Remove stale dependencies");
+    removeStale?.click();
+    expect(onRemoveStaleDependencies).toHaveBeenCalledTimes(1);
   });
 
   it("renders current truth, ready queue, sub-milestones, and work lanes", () => {

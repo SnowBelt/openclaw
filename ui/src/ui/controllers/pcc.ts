@@ -1695,6 +1695,36 @@ export async function movePccSubMilestoneBefore(
   );
 }
 
+function validMilestoneDependencyIdsForDetail(detail: PccProjectDetail): Set<string> {
+  return new Set(detail.milestones.map((milestone) => milestone.id));
+}
+
+function validSubMilestoneDependencyIdsForDetail(
+  detail: PccProjectDetail,
+  milestoneId: string,
+): Set<string> {
+  return new Set([
+    ...detail.milestones.map((milestone) => milestone.id),
+    ...(detail.subMilestones ?? [])
+      .filter((subMilestone) => subMilestone.milestoneId === milestoneId)
+      .map((subMilestone) => subMilestone.id),
+  ]);
+}
+
+function staleDependencyFilteredItem<T extends { dependsOn?: string[] }>(
+  item: T,
+  validIds: ReadonlySet<string>,
+  selfId: string,
+): T | null {
+  if (!item.dependsOn?.length) {
+    return null;
+  }
+  const nextDependsOn = item.dependsOn.filter((id) => id !== selfId && validIds.has(id));
+  return nextDependsOn.length === item.dependsOn.length
+    ? null
+    : { ...item, dependsOn: nextDependsOn };
+}
+
 export async function normalizePccProjectSequence(state: PccDashboardState): Promise<void> {
   const detail = state.pccProjectDetail;
   if (!detail) {
@@ -1746,6 +1776,48 @@ export async function normalizePccProjectSequence(state: PccDashboardState): Pro
       await selectPccProject(state, detail.project.id);
     },
     "Saved a clean milestone and sub-step sequence.",
+  );
+}
+
+export async function removePccStaleDependencies(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before repairing stale dependencies.";
+    return;
+  }
+  await withPccAction(
+    state,
+    async () => {
+      if (!state.client) {
+        return;
+      }
+      const milestoneDependencyIds = validMilestoneDependencyIdsForDetail(detail);
+      const milestoneUpdates = detail.milestones
+        .map((milestone) =>
+          staleDependencyFilteredItem(milestone, milestoneDependencyIds, milestone.id),
+        )
+        .filter((milestone): milestone is PccMilestone => milestone !== null);
+      const subMilestoneUpdates = (detail.subMilestones ?? [])
+        .map((subMilestone) =>
+          staleDependencyFilteredItem(
+            subMilestone,
+            validSubMilestoneDependencyIdsForDetail(detail, subMilestone.milestoneId),
+            subMilestone.id,
+          ),
+        )
+        .filter((subMilestone): subMilestone is PccSubMilestone => subMilestone !== null);
+
+      for (const milestone of milestoneUpdates) {
+        await state.client.request("pcc.milestones.upsert", { milestone });
+      }
+      for (const subMilestone of subMilestoneUpdates) {
+        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+      }
+
+      await loadPccDashboard(state);
+      await selectPccProject(state, detail.project.id);
+    },
+    "Removed stale dependency links from this project.",
   );
 }
 

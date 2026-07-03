@@ -13,6 +13,7 @@ import {
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
   normalizePccProjectSequence,
+  removePccStaleDependencies,
   openPccDecisionForm,
   openPccMilestoneEditor,
   openPccProjectEditor,
@@ -1416,6 +1417,68 @@ describe("PCC CRUD controller", () => {
       ],
     ]);
     expect(state.pccActionNotice?.text).toBe("Saved a clean milestone and sub-step sequence.");
+  });
+
+  it("removes only stale dependency links from milestones and sub-milestones", async () => {
+    const firstMilestone = { ...milestone, dependsOn: ["missing-milestone"] };
+    const secondMilestone = { ...milestone, id: "milestone-2", title: "Second", order: 20 };
+    const firstSubMilestone = {
+      ...subMilestone,
+      dependsOn: ["missing-sub-step", "submilestone-2", "milestone-2"],
+    };
+    const secondSubMilestone = {
+      ...subMilestone,
+      id: "submilestone-2",
+      title: "Second sub-step",
+      order: 20,
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [firstMilestone, secondMilestone],
+          subMilestones: [firstSubMilestone, secondSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [firstMilestone, secondMilestone],
+        subMilestones: [firstSubMilestone, secondSubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        summary,
+      },
+    });
+
+    await removePccStaleDependencies(state);
+
+    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", {
+      milestone: expect.objectContaining({ id: "milestone-1", dependsOn: [] }),
+    });
+    expect(request).toHaveBeenCalledWith("pcc.subMilestones.upsert", {
+      subMilestone: expect.objectContaining({
+        id: "submilestone-1",
+        dependsOn: ["submilestone-2", "milestone-2"],
+      }),
+    });
+    expect(state.pccActionNotice?.text).toBe("Removed stale dependency links from this project.");
   });
 
   it("updates milestone status", async () => {

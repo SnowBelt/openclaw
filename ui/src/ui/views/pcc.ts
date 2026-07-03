@@ -106,6 +106,7 @@ export type PccDashboardProps = {
   onMoveMilestoneBefore?: (source: PccMilestone, target: PccMilestone) => void;
   onMoveSubMilestoneBefore?: (source: PccSubMilestone, target: PccSubMilestone) => void;
   onNormalizeProjectSequence?: () => void;
+  onRemoveStaleDependencies?: () => void;
   onSetSubMilestoneStatus?: (
     subMilestone: PccSubMilestone,
     status: PccStatus,
@@ -793,6 +794,9 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
   const canNormalizeSequence = allIntegrity.some(
     (item) => item.id.startsWith("milestone-order:") || item.id.startsWith("sub-order:"),
   );
+  const canRemoveStaleDependencies = allIntegrity.some(
+    (item) => item.id.startsWith("milestone-dependency:") || item.id.startsWith("sub-dependency:"),
+  );
   const timeline = buildPccTimeline(input);
   const importText = props.chatSyncText.trim()
     ? props.chatSyncText
@@ -873,16 +877,31 @@ function renderImpactDetailCards(detail: PccProjectDetail, props: PccDashboardPr
           : html`<p>
               Milestone links, sub-milestone parents, and sequence slots look consistent.
             </p>`}
-        ${canNormalizeSequence
-          ? html`<button
-              type="button"
-              class="pcc-button pcc-button--secondary"
-              data-pcc-normalize-sequence
-              ?disabled=${props.actionBusy}
-              @click=${() => props.onNormalizeProjectSequence?.()}
-            >
-              Normalize sequence
-            </button>`
+        ${canNormalizeSequence || canRemoveStaleDependencies
+          ? html`<div class="pcc-inline-actions" data-pcc-integrity-actions>
+              ${canNormalizeSequence
+                ? html`<button
+                    type="button"
+                    class="pcc-button pcc-button--secondary"
+                    data-pcc-normalize-sequence
+                    ?disabled=${props.actionBusy}
+                    @click=${() => props.onNormalizeProjectSequence?.()}
+                  >
+                    Normalize sequence
+                  </button>`
+                : nothing}
+              ${canRemoveStaleDependencies
+                ? html`<button
+                    type="button"
+                    class="pcc-button pcc-button--secondary"
+                    data-pcc-remove-stale-dependencies
+                    ?disabled=${props.actionBusy}
+                    @click=${() => props.onRemoveStaleDependencies?.()}
+                  >
+                    Remove stale dependencies
+                  </button>`
+                : nothing}
+            </div>`
           : nothing}
       </article>
       <article class="pcc-impact-card" data-pcc-project-history>
