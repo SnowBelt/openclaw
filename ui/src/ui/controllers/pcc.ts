@@ -85,6 +85,7 @@ export type PccProjectFormState = {
   projectDescription: string;
   status: PccStatus;
   priority: string;
+  dueDate: string;
   workflowTemplateId: string;
   planningMode: PccPlanningMode;
   plannerMode: PccPlannerMode;
@@ -190,6 +191,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   projectDescription: "",
   status: "active",
   priority: "3",
+  dueDate: "",
   workflowTemplateId: "software-product",
   planningMode: "local_project_manager",
   plannerMode: "best_available",
@@ -268,6 +270,26 @@ function metadataString(value: unknown, fallback: string): string {
 
 function metadataBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function metadataDateInput(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return "";
+  }
+  return new Date(parsed).toISOString().slice(0, 10);
+}
+
+function normalizeDateInput(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const parsed = Date.parse(`${trimmed}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
 }
 
 function plannerModeToPlanningMode(mode: PccPlannerMode, codexAllowed = false): PccPlanningMode {
@@ -645,6 +667,7 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     projectDescription: metadataString(metadata.pccProjectDescription, project.goal ?? ""),
     status: project.status,
     priority: String(project.priority ?? 3),
+    dueDate: metadataDateInput(metadata.dueDate ?? metadata.pccDueDate),
     workflowTemplateId: metadataString(metadata.pccWorkflowTemplateId, "software-product"),
     planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
     plannerMode: metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
@@ -1025,6 +1048,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       return;
     }
     const priority = parseOptionalInteger(form.priority);
+    const dueDate = normalizeDateInput(form.dueDate);
     const now = new Date().toISOString();
     const recommendedWorkflow = recommendPccWorkflow({
       title: form.title,
@@ -1091,6 +1115,9 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlannerMode: form.plannerMode,
             pccPlannerModelId: form.plannerModelId,
             pccProjectDescription: form.projectDescription,
+            ...(dueDate
+              ? { dueDate, pccDueDate: dueDate }
+              : { dueDate: undefined, pccDueDate: undefined }),
             pccPlanPreviewAccepted: form.planPreviewAccepted,
             pccCodexPlanningAllowed: form.codexPlanningAllowed,
             pccRemoteProofAllowed: form.remoteProofAllowed,
@@ -1108,6 +1135,9 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlannerMode: form.plannerMode,
             pccPlannerModelId: form.plannerModelId,
             pccProjectDescription: form.projectDescription,
+            ...(dueDate
+              ? { dueDate, pccDueDate: dueDate }
+              : { dueDate: undefined, pccDueDate: undefined }),
             pccPlanPreviewAccepted: form.planPreviewAccepted,
             pccIntake: intakeMetadata,
           },

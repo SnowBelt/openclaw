@@ -864,6 +864,7 @@ describe("renderPccDashboard", () => {
           goal: "A skimmable PCC view.",
           projectDescription: "Build a skimmable PCC view.",
           priority: "4",
+          dueDate: "2099-01-15",
           intakeAnswers,
           intakeApproved: true,
           planPreviewAccepted: true,
@@ -876,6 +877,11 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector('[data-pcc-editor="project"]')).not.toBeNull();
     expect(container.querySelector("[data-pcc-intake-wizard]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-workflow-recommendation]")).not.toBeNull();
+    const dueDate = container.querySelector<HTMLInputElement>("[data-pcc-project-due-date]");
+    expect(dueDate?.value).toBe("2099-01-15");
+    dueDate!.value = "2099-01-16";
+    dueDate?.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(onProjectFormChange).toHaveBeenCalledWith({ dueDate: "2099-01-16" });
     container
       .querySelector<HTMLInputElement>("input[required]")
       ?.dispatchEvent(new InputEvent("input", { bubbles: true }));

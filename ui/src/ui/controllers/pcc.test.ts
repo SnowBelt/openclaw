@@ -569,9 +569,13 @@ describe("PCC CRUD controller", () => {
   it("opens project and milestone editors", () => {
     const state = createState({ pccSelectedProjectId: "project-1" });
 
-    openPccProjectEditor(state, project);
+    openPccProjectEditor(state, {
+      ...project,
+      metadata: { ...project.metadata, dueDate: "2099-01-15T00:00:00.000Z" },
+    });
     expect(state.pccEditorMode).toBe("edit-project");
     expect(state.pccProjectForm.title).toBe("Project Command Center");
+    expect(state.pccProjectForm.dueDate).toBe("2099-01-15");
 
     openPccMilestoneEditor(state, milestone);
     expect(state.pccEditorMode).toBe("edit-milestone");
@@ -854,6 +858,7 @@ describe("PCC CRUD controller", () => {
         projectDescription: "Track all projects from a single Project Command Center.",
         status: "active",
         priority: "3",
+        dueDate: "2099-01-15",
         workflowTemplateId: "software-product",
         planningMode: "template_only",
         plannerMode: "local_model",
@@ -877,6 +882,8 @@ describe("PCC CRUD controller", () => {
         priority: 3,
         metadata: expect.objectContaining({
           pccWorkflowTemplateId: "software-product",
+          dueDate: "2099-01-15T00:00:00.000Z",
+          pccDueDate: "2099-01-15T00:00:00.000Z",
           pccIntake: expect.objectContaining({ approved: true }),
           pccQualityGate: expect.objectContaining({ status: "passing" }),
           pccSetupScore: expect.objectContaining({ runnable: true }),

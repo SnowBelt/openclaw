@@ -302,6 +302,7 @@ function editorHasDraft(form: PccProjectFormState): boolean {
     form.projectDescription.trim() ||
     form.title.trim() ||
     form.goal.trim() ||
+    form.dueDate.trim() ||
     Object.values(form.intakeAnswers ?? {}).some((value) => value.trim()),
   );
 }
@@ -3203,6 +3204,16 @@ function renderProjectEditor(props: PccDashboardProps) {
             .value=${form.priority}
             @input=${(event: Event) =>
               props.onProjectFormChange({ priority: (event.target as HTMLInputElement).value })}
+          />
+        </label>
+        <label>
+          Due date
+          <input
+            type="date"
+            data-pcc-project-due-date
+            .value=${form.dueDate}
+            @input=${(event: Event) =>
+              props.onProjectFormChange({ dueDate: (event.target as HTMLInputElement).value })}
           />
         </label>
       </div>
