@@ -258,7 +258,7 @@ async function main(): Promise<void> {
       onOpenMilestoneEditor: () => calls.push("edit-milestone"),
       onProjectFormChange: (patch: { intakeAnswers?: Record<string, string> }) => {
         if (patch.intakeAnswers?.firstDeliverable && patch.intakeAnswers.doneProof) {
-          calls.push("generate-intake-answers");
+          calls.push("draft-intake-answers");
         }
       },
       onMilestoneFormChange: () => undefined,
@@ -313,8 +313,11 @@ async function main(): Promise<void> {
       (button) => button.textContent?.includes("Generate intake answers with AI"),
     );
     generateIntakeButton?.click();
-    if (!calls.includes("generate-intake-answers")) {
-      throw new Error("PCC usability completion smoke did not wire intake AI generation");
+    if (!calls.includes("preview-autofill")) {
+      throw new Error("PCC usability completion smoke did not open intake AI preview");
+    }
+    if (calls.includes("draft-intake-answers")) {
+      throw new Error("PCC usability completion smoke bypassed the intake AI preview");
     }
 
     const menuButton = requireSelector(

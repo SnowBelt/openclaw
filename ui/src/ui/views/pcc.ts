@@ -957,20 +957,34 @@ function projectFormContextDetail(props: PccDashboardProps): PccProjectDetail | 
     : null;
 }
 
+function canPreviewProjectIntakeAutofill(props: PccDashboardProps): boolean {
+  return Boolean(projectFormContextDetail(props) && props.onPreviewSetupAutofill);
+}
+
+function runProjectIntakeAutofill(props: PccDashboardProps): void {
+  if (canPreviewProjectIntakeAutofill(props)) {
+    props.onPreviewSetupAutofill?.();
+    return;
+  }
+  props.onProjectFormChange(
+    projectIntakeDraftPatch(props.projectForm, projectFormContextDetail(props)),
+  );
+}
+
 function renderProjectIntakeAutofillButton(
   props: PccDashboardProps,
   label = "Fill missing fields with AI",
 ) {
+  const previewsLedgerRepair = canPreviewProjectIntakeAutofill(props);
   return html`<button
     class="btn"
     type="button"
     data-pcc-project-intake-autofill
-    title="Generate the missing project intake answers from the prompt and current project context."
+    title=${previewsLedgerRepair
+      ? "Preview AI-generated intake answers before applying them to this project."
+      : "Generate the missing project intake answers from the prompt and current form context."}
     ?disabled=${props.actionBusy}
-    @click=${() =>
-      props.onProjectFormChange(
-        projectIntakeDraftPatch(props.projectForm, projectFormContextDetail(props)),
-      )}
+    @click=${() => runProjectIntakeAutofill(props)}
   >
     ${label}
   </button>`;
@@ -3379,8 +3393,8 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       <div>
         <strong>AI can fill any blanks here.</strong>
         <span
-          >Use the current project context to draft missing intake answers. Existing answers stay
-          unchanged unless you edit them.</span
+          >Use the current project context to draft missing intake answers. Existing project setup
+          opens a preview before PCC writes anything.</span
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
@@ -3398,6 +3412,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
           : nothing}
       </div>
     </div>
+    ${renderAutofillPreview(props)}
     <div class="pcc-intake-wizard__questions">
       ${PCC_REQUIRED_INTAKE_QUESTIONS.map((question) => {
         const value = form.intakeAnswers[question.id] ?? "";

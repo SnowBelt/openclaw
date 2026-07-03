@@ -1237,9 +1237,10 @@ describe("renderPccDashboard", () => {
     );
   });
 
-  it("lets the project intake answers page generate answers from selected project context", () => {
+  it("lets the project intake answers page preview AI answers before applying to a saved project", () => {
     const onProjectFormChange = vi.fn();
     const onPreviewSetupAutofill = vi.fn();
+    const onApplySetupAutofill = vi.fn();
     const container = renderView(
       createProps({
         editorMode: "edit-project",
@@ -1272,8 +1273,29 @@ describe("renderPccDashboard", () => {
           intakeAnswers: { goal: "" },
           intakeApproved: false,
         },
+        autofillPreview: {
+          projectId: "snes",
+          goal: "Create a readable SNES-style game workflow.",
+          intakeAnswers: {
+            ...intakeAnswers,
+            goal: "Create a readable SNES-style game workflow.",
+          },
+          intakeApproved: false,
+          workflowTemplateId: "software-product",
+          workflowTitle: "Software Product",
+          summary: "PCC drafted missing setup for SNES Game Creator from existing project context.",
+          milestoneUpdates: [
+            {
+              id: "milestone-1",
+              title: "Verify SNES toolchain and emulator smoke path",
+              fields: ["implementation plan", "proof requirements"],
+            },
+          ],
+          subMilestoneUpdates: [],
+        },
         onProjectFormChange,
         onPreviewSetupAutofill,
+        onApplySetupAutofill,
       }),
     );
 
@@ -1286,22 +1308,13 @@ describe("renderPccDashboard", () => {
 
     generate?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        goal: "Create a readable SNES-style game workflow.",
-        intakeAnswers: expect.objectContaining({
-          goal: "Create a readable SNES-style game workflow.",
-          firstDeliverable: expect.stringContaining(
-            "Verify SNES toolchain and emulator smoke path",
-          ),
-        }),
-      }),
-    );
-
-    container
-      .querySelector<HTMLButtonElement>("[data-pcc-project-intake-preview-full-repair]")
-      ?.click();
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onProjectFormChange).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
+    expect(container.textContent).toContain("AI Autofill Preview");
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-autofill-preview] button")?.click();
+    expect(onApplySetupAutofill).toHaveBeenCalledTimes(1);
   });
 
   it("renders project-manager and Codex planning gates in project intake", () => {
