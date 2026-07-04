@@ -1207,6 +1207,12 @@ function runProjectIntakeFormAutofill(props: PccDashboardProps): void {
   );
 }
 
+function projectIntakePrimaryAiLabel(props: PccDashboardProps): string {
+  return canPreviewProjectIntakeAutofill(props)
+    ? "Fill missing setup with AI"
+    : "Generate answers with AI";
+}
+
 function renderProjectIntakeFormAutofillButton(
   props: PccDashboardProps,
   label = "Generate answers with AI",
@@ -1217,6 +1223,7 @@ function renderProjectIntakeFormAutofillButton(
     data-pcc-project-intake-page-autofill
     data-pcc-project-intake-autofill
     data-pcc-project-intake-ai-generate
+    data-pcc-project-intake-form-only-autofill
     title="Generate the visible project intake answers from the project prompt, title, goal, and current context before saving."
     ?disabled=${props.actionBusy}
     @click=${() => runProjectIntakeFormAutofill(props)}
@@ -1227,15 +1234,18 @@ function renderProjectIntakeFormAutofillButton(
 
 function renderProjectIntakeAutofillButton(
   props: PccDashboardProps,
-  label = "Generate answers with AI",
+  label = projectIntakePrimaryAiLabel(props),
 ) {
   const previewsLedgerRepair = canPreviewProjectIntakeAutofill(props);
   return html`<button
     class="btn pcc-intake-wizard__primary-ai"
     type="button"
+    data-pcc-project-intake-page-autofill
     data-pcc-project-intake-autofill
+    data-pcc-project-intake-ai-generate
+    data-pcc-project-intake-primary-ai
     title=${previewsLedgerRepair
-      ? "Preview AI-generated intake answers before applying them to this project."
+      ? "Preview AI-generated intake answers before applying them to this saved project."
       : "Generate the missing project intake answers from the prompt and current form context."}
     ?disabled=${props.actionBusy}
     @click=${() => runProjectIntakeAutofill(props)}
@@ -4241,7 +4251,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
+        ${renderProjectIntakeAutofillButton(props)}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -4256,7 +4266,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
           first; you stay in control before saving or applying.</span
         >
       </div>
-      ${renderProjectIntakeFormAutofillButton(props, "Generate answers with AI")}
+      ${renderProjectIntakeAutofillButton(props)}
     </section>
     <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
       <div>
@@ -4267,9 +4277,9 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeFormAutofillButton(props, "Fill visible answers with AI")}
+        ${renderProjectIntakeAutofillButton(props)}
         ${canPreviewFullSetupRepair
-          ? renderProjectIntakeAutofillButton(props, "Preview & apply AI setup")
+          ? renderProjectIntakeFormAutofillButton(props, "Draft visible fields only")
           : nothing}
       </div>
     </div>

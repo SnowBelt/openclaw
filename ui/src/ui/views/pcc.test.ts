@@ -2190,11 +2190,21 @@ describe("renderPccDashboard", () => {
     );
     expect(intakeTools?.textContent).toContain("AI can fill any blanks here.");
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
-      "[data-pcc-project-intake-page-autofill]",
+      "[data-pcc-project-intake-primary-ai]",
     );
-    expect(pageAutofill?.textContent).toContain("Fill visible answers with AI");
+    expect(pageAutofill?.textContent).toContain("Fill missing setup with AI");
 
     pageAutofill?.click();
+
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onProjectFormChange).not.toHaveBeenCalled();
+
+    const formOnlyDraft = intakeTools?.querySelector<HTMLButtonElement>(
+      "[data-pcc-project-intake-form-only-autofill]",
+    );
+    expect(formOnlyDraft?.textContent).toContain("Draft visible fields only");
+
+    formOnlyDraft?.click();
 
     expect(onProjectFormChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2206,17 +2216,6 @@ describe("renderPccDashboard", () => {
         planPreviewAccepted: false,
       }),
     );
-    expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
-
-    const previewFullRepair = [
-      ...(intakeTools?.querySelectorAll<HTMLButtonElement>("[data-pcc-project-intake-autofill]") ??
-        []),
-    ].find((button) => button.textContent?.includes("Preview & apply AI setup"));
-    expect(previewFullRepair?.textContent).toContain("Preview & apply AI setup");
-
-    previewFullRepair?.click();
-
-    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
     expect(container.textContent).toContain("AI Autofill Preview");
 
