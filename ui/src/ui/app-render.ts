@@ -132,6 +132,7 @@ import {
   updateExecApprovalsFormValue,
 } from "./controllers/exec-approvals.ts";
 import { loadLogs } from "./controllers/logs.ts";
+import { loadModels } from "./controllers/models.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import {
   addPccCompletionReceipt,
@@ -2839,6 +2840,22 @@ export function renderApp(state: AppViewState) {
                 chatSyncProposals: state.pccChatSyncProposals,
                 chatSyncError: state.pccChatSyncError,
                 viewMode: state.pccViewMode,
+                modelCatalog: state.chatModelCatalog ?? [],
+                modelsLoading: state.chatModelsLoading,
+                onRefreshModelCatalog: () => {
+                  if (!state.client) {
+                    return;
+                  }
+                  state.chatModelsLoading = true;
+                  void loadModels(state.client)
+                    .then((models) => {
+                      state.chatModelCatalog = models;
+                    })
+                    .finally(() => {
+                      state.chatModelsLoading = false;
+                      (state as { requestUpdate?: () => void }).requestUpdate?.();
+                    });
+                },
                 onSetViewMode: (mode) => updatePccViewMode(state, mode),
                 onSetProjectFilter: (filter) => updatePccProjectFilter(state, filter),
                 onSetProjectSearchQuery: (query) => updatePccProjectSearchQuery(state, query),

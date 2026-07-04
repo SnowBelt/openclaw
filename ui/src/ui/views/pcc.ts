@@ -56,6 +56,7 @@ import type {
   PccProject,
   PccProjectSummary,
   PccStatus,
+  ModelCatalogEntry,
 } from "../types.ts";
 
 export type PccDashboardProps = {
@@ -83,6 +84,9 @@ export type PccDashboardProps = {
   chatSyncProposals: PccChatSyncProposal[];
   chatSyncError: string | null;
   viewMode?: PccViewMode;
+  modelCatalog?: ModelCatalogEntry[];
+  modelsLoading?: boolean;
+  onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
   onSetProjectFilter?: (filter: PccProjectFilter) => void;
   onSetProjectSearchQuery?: (query: string) => void;
@@ -178,13 +182,40 @@ const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["all", "All"],
 ];
 
-const PLANNER_MODEL_OPTIONS = [
-  ["best-available", "Best available from last refresh"],
-  ["gpt-5.5-high-reasoning", "GPT-5.5 High Reasoning"],
-  ["gpt-5.5", "GPT-5.5 Standard"],
-  ["local-project-manager", "Local Project Manager"],
-  ["local-model", "Local model"],
-] as const;
+function formatPlannerModelLabel(entry: ModelCatalogEntry): string {
+  const display = entry.name || entry.id;
+  return entry.provider ? `${display} · ${entry.provider}` : display;
+}
+
+function plannerModelOptions(props: PccDashboardProps): Array<[string, string]> {
+  const catalogOptions = (props.modelCatalog ?? []).map(
+    (entry) =>
+      [
+        entry.provider ? `${entry.provider}:${entry.id}` : entry.id,
+        formatPlannerModelLabel(entry),
+      ] satisfies [string, string],
+  );
+  return [
+    ["best-available", "Best available from last refresh"],
+    ...catalogOptions,
+    ...(catalogOptions.length === 0
+      ? ([
+          ["local-project-manager", "Local Project Manager"],
+          ["local-model", "Local model"],
+        ] as Array<[string, string]>)
+      : []),
+  ];
+}
+
+function plannerModelRefreshLabel(props: PccDashboardProps): string {
+  if (props.modelsLoading) {
+    return "Refreshing models…";
+  }
+  const count = props.modelCatalog?.length ?? 0;
+  return count > 0
+    ? `Last refresh: ${count} configured model${count === 1 ? "" : "s"}`
+    : "No configured models from last refresh";
+}
 
 let draggedPccMilestoneId: string | null = null;
 let draggedPccSubMilestoneId: string | null = null;
@@ -1279,6 +1310,131 @@ function renderProjectIntakeAutofillButton(
   >
     ${label}
   </button>`;
+}
+
+const PCC_AI_REGENERATE_SECTIONS = [
+  ["goal", "Goal"],
+  ["intake", "Intake answers"],
+  ["workflow", "Workflow"],
+  ["milestones", "Milestones"],
+  ["submilestones", "Sub-milestones"],
+  ["criteria", "Acceptance criteria"],
+  ["proof", "Proof requirements"],
+  ["permissions", "Permissions"],
+  ["blockers", "Blockers"],
+  ["handoff", "Handoff packet"],
+] as const;
+
+function runSectionAiRegenerate(props: PccDashboardProps): void {
+  if (canPreviewProjectIntakeAutofill(props)) {
+    props.onPreviewSetupAutofill?.();
+    return;
+  }
+  runProjectIntakeFormAutofill(props);
+}
+
+function renderSectionAiRegeneratePanel(props: PccDashboardProps) {
+  return html`<section class="pcc-ai-regenerate" data-pcc-section-ai-regenerate>
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">AI edit</p>
+        <h4>Regenerate any section</h4>
+        <p>
+          Preview changes before PCC writes goal, intake, workflow, milestones, proof, permissions,
+          blockers, or handoff details.
+        </p>
+      </div>
+      <span>No token spend unless separately approved</span>
+    </div>
+    <div class="pcc-ai-regenerate__grid">
+      ${PCC_AI_REGENERATE_SECTIONS.map(
+        ([id, label]) => html`<button
+          class="btn btn--subtle"
+          type="button"
+          data-pcc-section-ai-regenerate=${id}
+          ?disabled=${props.actionBusy}
+          @click=${() => runSectionAiRegenerate(props)}
+        >
+          Regenerate ${label}
+        </button>`,
+      )}
+    </div>
+  </section>`;
+}
+
+function renderProjectEditModeTabs() {
+  return html`<nav
+    class="pcc-edit-mode-tabs"
+    data-pcc-project-edit-modes
+    aria-label="Project edit modes"
+  >
+    <button class="btn btn--subtle" type="button" data-pcc-edit-mode="simple">Simple Edit</button>
+    <button class="btn btn--subtle" type="button" data-pcc-edit-mode="advanced">
+      Advanced Edit
+    </button>
+    <button class="btn btn--subtle" type="button" data-pcc-edit-mode="ai">AI Edit</button>
+  </nav>`;
+}
+
+function renderPlannerPermissionCard(props: PccDashboardProps) {
+  const form = props.projectForm;
+  const needsPermission =
+    form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex";
+  if (!needsPermission) {
+    return nothing;
+  }
+  return html`<section class="pcc-planner-permission" data-pcc-planner-permission-card>
+    <div>
+      <p class="pcc-kicker">Planner permission</p>
+      <h4>${form.codexPlanningAllowed ? "Planner allowed" : "Codex planning needs approval"}</h4>
+      <p>
+        Codex and high-reasoning planners may spend tokens. This card is the single place to allow
+        that planner for PCC setup.
+      </p>
+    </div>
+    <div class="pcc-planner-permission__fields">
+      <label>
+        Scope
+        <select data-pcc-planner-permission-scope>
+          <option value="plan">This plan only</option>
+          <option value="project">This project</option>
+          <option value="ask">Ask every time</option>
+        </select>
+      </label>
+      <label>
+        Optional budget
+        <input
+          data-pcc-planner-permission-budget
+          type="text"
+          placeholder="Example: $5 or 50k tokens"
+        />
+      </label>
+    </div>
+    <div class="pcc-planner-permission__actions">
+      <button
+        class="btn"
+        type="button"
+        data-pcc-planner-permission-allow
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onProjectFormChange({ codexPlanningAllowed: true })}
+      >
+        Allow
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-planner-permission-cancel
+        ?disabled=${props.actionBusy}
+        @click=${() =>
+          props.onProjectFormChange({
+            plannerMode: "best_available",
+            codexPlanningAllowed: false,
+          })}
+      >
+        Cancel
+      </button>
+    </div>
+  </section>`;
 }
 
 function setupEvaluationForDetail(detail: PccProjectDetail) {
@@ -3809,7 +3965,12 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                   class="pcc-journey-step__marker"
                   aria-label=${`Step ${globalIndex} of ${milestones.length}`}
                 >
-                  <span class="pcc-drag-handle" aria-label="Drag to reorder milestone">☰</span>
+                  <span
+                    class="pcc-drag-handle"
+                    data-pcc-drag-handle="milestone"
+                    aria-label="Drag to reorder milestone"
+                    >☰</span
+                  >
                   ${globalIndex} ${renderMilestoneReorderControls(milestones, milestone, props)}
                 </div>
                 <div class="pcc-journey-step__content">
@@ -4284,7 +4445,12 @@ function renderSubMilestoneList(
         }}
       >
         <div class="pcc-submilestone__main">
-          <span class="pcc-drag-handle" aria-label="Drag to reorder sub-milestone">☰</span>
+          <span
+            class="pcc-drag-handle"
+            data-pcc-drag-handle="submilestone"
+            aria-label="Drag to reorder sub-milestone"
+            >☰</span
+          >
           ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}
           <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
           <div>
@@ -4715,7 +4881,8 @@ function renderProjectEditor(props: PccDashboardProps) {
           ×
         </button>
       </header>
-      ${renderEditorActionError(props)}
+      ${renderEditorActionError(props)} ${renderProjectEditModeTabs()}
+      ${renderSectionAiRegeneratePanel(props)}
       ${creating
         ? html`<label class="pcc-editor__hero-field">
             Describe what you want to build
@@ -4818,13 +4985,20 @@ function renderProjectEditor(props: PccDashboardProps) {
                 plannerModelId: (event.target as HTMLSelectElement).value,
               })}
           >
-            ${PLANNER_MODEL_OPTIONS.map(
+            ${plannerModelOptions(props).map(
               ([value, label]) => html`<option value=${value}>${label}</option>`,
             )}
           </select>
-          <small
-            >Last refreshed with dashboard data. Use Refresh to update model availability.</small
+          <small data-pcc-model-refresh-status>${plannerModelRefreshLabel(props)}</small>
+          <button
+            class="btn btn--subtle"
+            type="button"
+            data-pcc-refresh-models
+            ?disabled=${props.modelsLoading}
+            @click=${() => props.onRefreshModelCatalog?.()}
           >
+            Refresh models
+          </button>
         </label>
       </div>
       <div class="pcc-editor__grid">
@@ -4859,19 +5033,8 @@ function renderProjectEditor(props: PccDashboardProps) {
         <summary>Project intake answers · ${intakeSummary}</summary>
         ${renderProjectIntakeWizard(props)}
       </details>
-      ${renderGeneratedPlanPreview(props)}
+      ${renderGeneratedPlanPreview(props)} ${renderPlannerPermissionCard(props)}
       <div class="pcc-intake-options" data-pcc-workflow-intake>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${form.codexPlanningAllowed}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                codexPlanningAllowed: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Allow selected Codex/high-reasoning planner for this plan
-        </label>
         <label>
           <input
             type="checkbox"
