@@ -1990,7 +1990,6 @@ jobs:
 
       - name: Run scoped changed gate
         env:
-          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
           OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
