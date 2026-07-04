@@ -235,7 +235,7 @@ async function main(): Promise<void> {
       "Setup needs a few answers",
       "Fill missing setup with AI",
       "AI Autofill Preview",
-      "Apply Autofill",
+      "Apply draft",
       "Approve this setup after applying",
       "Remove from active plan",
       "Milestone Journey",
@@ -256,7 +256,7 @@ async function main(): Promise<void> {
       ?.click();
     root.querySelector<HTMLInputElement>(".pcc-autofill-preview__approval input")?.click();
     [...root.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Apply Autofill"))
+      .find((button) => button.textContent?.includes("Apply draft"))
       ?.click();
 
     const actionMenus = [...root.querySelectorAll<HTMLElement>("[data-pcc-action-menu]")];
