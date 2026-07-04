@@ -852,22 +852,24 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
     return Number.isFinite(updated) && now - updated > 14 * 24 * 60 * 60 * 1_000;
   }).length;
   const proofGaps = projects.filter((project) => project.proofGaps.length > 0).length;
+  const deferredOutOfUrgentStatuses = new Set(["archived", "skipped", "on_hold", "deferred"]);
   const needsAttention = projects.filter(
     (project) =>
-      project.status === "needs_approval" ||
-      project.status === "blocked" ||
-      project.milestoneCounts.needsApproval > 0 ||
-      project.milestoneCounts.blocked > 0 ||
-      project.proofGaps.length > 0 ||
-      project.health === "Overdue" ||
-      project.health === "At risk" ||
-      (!terminalStatuses.has(project.status) &&
-        project.dueDate !== undefined &&
-        Number.isFinite(Date.parse(project.dueDate)) &&
-        Date.parse(project.dueDate) < now) ||
-      (!terminalStatuses.has(project.status) &&
-        Number.isFinite(Date.parse(project.updatedAt)) &&
-        now - Date.parse(project.updatedAt) > 14 * 24 * 60 * 60 * 1_000),
+      !deferredOutOfUrgentStatuses.has(project.status) &&
+      (project.status === "needs_approval" ||
+        project.status === "blocked" ||
+        project.milestoneCounts.needsApproval > 0 ||
+        project.milestoneCounts.blocked > 0 ||
+        project.proofGaps.length > 0 ||
+        project.health === "Overdue" ||
+        project.health === "At risk" ||
+        (!terminalStatuses.has(project.status) &&
+          project.dueDate !== undefined &&
+          Number.isFinite(Date.parse(project.dueDate)) &&
+          Date.parse(project.dueDate) < now) ||
+        (!terminalStatuses.has(project.status) &&
+          Number.isFinite(Date.parse(project.updatedAt)) &&
+          now - Date.parse(project.updatedAt) > 14 * 24 * 60 * 60 * 1_000)),
   ).length;
   const averagePercentComplete =
     total === 0
@@ -876,7 +878,15 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
           projects.reduce((sum, project) => sum + clampPercent(project.percentComplete), 0) / total,
         );
   const active = projects.filter(
-    (project) => !["archived", "complete", "skipped"].includes(project.status),
+    (project) =>
+      ![
+        "archived",
+        "complete",
+        "complete_with_maintenance",
+        "skipped",
+        "on_hold",
+        "deferred",
+      ].includes(project.status),
   ).length;
   return {
     projectsTotal: total,

@@ -174,6 +174,39 @@ function normalizedTitle(value: string): string {
   return value.trim().toLocaleLowerCase().replace(/\s+/gu, " ");
 }
 
+function receiptEvidenceIntegrityFindings(
+  receipts: readonly PccCompletionReceipt[],
+  evidence: readonly PccEvidence[],
+  milestoneIds: ReadonlySet<string>,
+): PccIntegrityFinding[] {
+  const evidenceIds = new Set(evidence.map((entry) => entry.id));
+  const findings: PccIntegrityFinding[] = [];
+  for (const receipt of receipts) {
+    if (!milestoneIds.has(receipt.milestoneId)) {
+      findings.push({
+        id: `receipt-milestone:${receipt.id}:${receipt.milestoneId}`,
+        title: `Receipt references missing milestone: ${receipt.id}`,
+        reason: `Receipt milestone ${receipt.milestoneId} does not exist in this project.`,
+        severity: "critical",
+        repair: "Reconnect the receipt to an existing milestone or archive the stale receipt.",
+      });
+    }
+    for (const evidenceId of receipt.proofEvidenceIds ?? []) {
+      if (!evidenceIds.has(evidenceId)) {
+        findings.push({
+          id: `receipt-evidence:${receipt.id}:${evidenceId}`,
+          title: `Receipt references missing proof evidence: ${evidenceId}`,
+          reason: `Receipt ${receipt.id} cites proof evidence ${evidenceId}, but that evidence record is missing.`,
+          severity: "critical",
+          repair:
+            "Restore the missing evidence record or update the receipt to cite existing proof.",
+        });
+      }
+    }
+  }
+  return findings;
+}
+
 function duplicateGroups<T>(items: readonly T[], keyFor: (item: T) => string): string[] {
   const counts = new Map<string, number>();
   for (const item of items) {
@@ -190,6 +223,10 @@ export function buildPccIntegrityFindings(input: PccImpactDetailInput): PccInteg
   const milestoneIds = new Set(input.milestones.map((milestone) => milestone.id));
   const subMilestones = input.subMilestones ?? [];
   const projectId = input.project.id;
+
+  findings.push(
+    ...receiptEvidenceIntegrityFindings(input.receipts ?? [], input.evidence ?? [], milestoneIds),
+  );
 
   for (const milestone of input.milestones) {
     if (milestone.projectId !== projectId) {

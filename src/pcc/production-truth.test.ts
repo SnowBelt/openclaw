@@ -100,4 +100,30 @@ describe("PCC production truth", () => {
     expect(truth.remoteProofRequired).toEqual(["Production proof"]);
     expect(truth.runtimeProofRequired).toEqual(["Production proof"]);
   });
+
+  it("marks production truth as needs repair when receipts cite missing proof evidence", () => {
+    const truth = buildPccProductionTruth({
+      project,
+      milestones: [milestone()],
+      evidence: [evidence("remote_ci")],
+      receipts: [
+        {
+          ...receipt,
+          proofEvidenceIds: ["remote_ci-1", "missing-browser-proof"],
+        },
+      ],
+      runtimeSha: PCC_LATEST_VERIFIED_SHA,
+      remoteProofPassed: true,
+      runtimeProofPassed: true,
+      browserProofScreenshotPath: "/tmp/pcc-proof.png",
+    });
+
+    expect(truth.status).toBe("needs_repair");
+    expect(truth.missingEvidenceReferences).toEqual([
+      "Receipt receipt-1 references missing proof evidence: missing-browser-proof",
+    ]);
+    expect(truth.proofGaps).toContain(
+      "Receipt receipt-1 references missing proof evidence: missing-browser-proof",
+    );
+  });
 });

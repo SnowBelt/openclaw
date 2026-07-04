@@ -301,16 +301,33 @@ describe("loadPccDashboard", () => {
       milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
       dueDate: "2000-01-02T00:00:00.000Z",
     };
+    const onHold = {
+      ...summary,
+      id: "on-hold-project",
+      status: "on_hold" as const,
+      proofGaps: ["Deferred browser proof"],
+      milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 1 },
+      health: "At risk",
+    };
+    const deferred = {
+      ...summary,
+      id: "deferred-project",
+      status: "deferred" as const,
+      proofGaps: ["Deferred remote proof"],
+      milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 0 },
+      health: "Overdue",
+    };
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ projects: [stale, proofGap, overdue] })
+      .mockResolvedValueOnce({ projects: [stale, proofGap, overdue, onHold, deferred] })
       .mockResolvedValueOnce({});
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
 
     await loadPccDashboard(state);
 
     expect(state.pccPortfolioSummary?.needsAttention).toBe(3);
-    expect(state.pccPortfolioSummary?.proofGaps).toBe(1);
+    expect(state.pccPortfolioSummary?.active).toBe(3);
+    expect(state.pccPortfolioSummary?.proofGaps).toBe(3);
     expect(state.pccPortfolioSummary?.overdue).toBe(1);
     expect(state.pccPortfolioSummary?.stale).toBe(1);
   });

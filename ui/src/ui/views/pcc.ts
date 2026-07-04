@@ -366,6 +366,27 @@ function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary
   return project.status === "on_hold" || project.status === "deferred";
 }
 
+function projectIsDeferredOutOfUrgent(
+  project: Pick<PccProject, "status"> | PccProjectSummary,
+): boolean {
+  return ["archived", "skipped", "on_hold", "deferred"].includes(project.status);
+}
+
+function projectIsTerminalForWork(
+  project: Pick<PccProject, "status"> | PccProjectSummary,
+): boolean {
+  return ["complete", "complete_with_maintenance", "archived", "skipped"].includes(project.status);
+}
+
+function projectCanBeNextBestAction(project: PccProjectSummary): boolean {
+  return !projectIsDeferredOutOfUrgent(project) && !projectIsTerminalForWork(project);
+}
+
+function compactSignalText(value: string, max = 130): string {
+  const normalized = value.trim().replace(/\s+/gu, " ");
+  return normalized.length > max ? `${normalized.slice(0, max - 1).trimEnd()}…` : normalized;
+}
+
 function editorHasDraft(form: PccProjectFormState): boolean {
   return Boolean(
     form.projectDescription.trim() ||
@@ -472,6 +493,9 @@ function projectIsStale(project: PccProjectSummary): boolean {
 }
 
 function projectNeedsAttention(project: PccProjectSummary): boolean {
+  if (projectIsDeferredOutOfUrgent(project)) {
+    return false;
+  }
   return (
     project.status === "needs_approval" ||
     project.status === "blocked" ||
@@ -1350,7 +1374,7 @@ function renderAutofillPreview(props: PccDashboardProps) {
         ?disabled=${props.actionBusy}
         @click=${() => props.onApplySetupAutofill?.()}
       >
-        Apply Autofill
+        ${preview.intakeApproved ? "Apply + approve setup" : "Apply draft"}
       </button>
       <button
         class="btn btn--subtle"
@@ -1423,7 +1447,7 @@ function renderSetupRepairCard(
         @click=${() =>
           props.projectDetail && props.onOpenProjectEditor(props.projectDetail.project)}
       >
-        Use Codex planner…
+        Request Codex planner permission…
       </button>
       <button
         class="btn btn--subtle"
@@ -2147,7 +2171,11 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
     (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined);
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
   const next = detail ? nextMilestoneForDetail(detail) : undefined;
-  const workState = workStateForProject(project, detail);
+  const workState = projectIsTerminalForWork(project)
+    ? project.status === "complete_with_maintenance"
+      ? "Maintenance"
+      : formatStatus(project.status)
+    : workStateForProject(project, detail);
   const onHold = projectIsOnHold(project);
   const blocker = projectBlockerLine(project);
   const recentActivity = formatProjectActivity(project.recentActivity);
@@ -2183,12 +2211,26 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
         <span>Work: ${workState}</span>
       </div>
       <div class="pcc-project-card__sequence" data-pcc-project-card-sequence>
-        <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
-        <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
+        ${projectIsTerminalForWork(project)
+          ? html`<span
+              >Work:
+              ${project.status === "complete_with_maintenance"
+                ? "Maintenance only"
+                : formatStatus(project.status)}</span
+            >`
+          : html`<span
+                >${onHold
+                  ? "On hold"
+                  : `Current: ${compactSignalText(current?.title ?? "Not started", 90)}`}</span
+              >
+              <span
+                >Next:
+                ${compactSignalText(next?.title ?? project.nextActions[0] ?? "None", 110)}</span
+              >`}
       </div>
       ${blocker !== "None"
         ? html`<p class="pcc-project-card__signal" data-pcc-project-card-blocker>
-            Needs: ${blocker}
+            Blocked by: ${blocker}
           </p>`
         : nothing}
       ${recentActivity !== "No recent activity"
@@ -2435,14 +2477,17 @@ function projectPriorityLabel(props: PccDashboardProps, project: PccProjectSumma
 }
 
 function projectBlockerLine(project: PccProjectSummary): string {
+  if (projectIsOnHold(project)) {
+    return "Project is on hold.";
+  }
   const explicit = project.nextActions.find((action) =>
     /block|missing|approval|overdue|risk|failed|proof/iu.test(action),
   );
   if (explicit) {
-    return explicit;
+    return compactSignalText(explicit);
   }
   if (project.proofGaps.length > 0) {
-    return project.proofGaps[0] ?? "Proof gap recorded";
+    return compactSignalText(project.proofGaps[0] ?? "Proof gap recorded");
   }
   if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
     return "Blocked milestone needs review.";
@@ -2556,6 +2601,21 @@ function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilt
   ].includes(project.status);
 }
 
+function effectiveProjectFilter(
+  props: PccDashboardProps,
+  projects: readonly PccProjectSummary[],
+): PccProjectFilter {
+  const selected = props.projectFilter ?? "active";
+  if (props.projectFilter) {
+    return selected;
+  }
+  const activeCount = projects.filter((project) => projectMatchesFilter(project, "active")).length;
+  const needsYouCount = projects.filter((project) =>
+    projectMatchesFilter(project, "needs_you"),
+  ).length;
+  return activeCount === 0 && needsYouCount > 0 ? "needs_you" : selected;
+}
+
 function normalizeProjectSearchQuery(query: string | undefined): string[] {
   return (query ?? "")
     .toLocaleLowerCase()
@@ -2625,7 +2685,7 @@ function projectMatchesSearch(
 }
 
 function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly PccProjectSummary[]) {
-  const selected = props.projectFilter ?? "active";
+  const selected = effectiveProjectFilter(props, projects);
   return html`<nav class="pcc-project-tabs" data-pcc-project-tabs aria-label="Project filters">
     ${PROJECT_FILTER_OPTIONS.map(([filter, label]) => {
       const count = projects.filter((project) => projectMatchesFilter(project, filter)).length;
@@ -2682,7 +2742,7 @@ function renderProjectSearch(props: PccDashboardProps, visibleCount: number, fil
       <input
         type="search"
         aria-label="Search projects"
-        placeholder="Search title, status, next action, blocker, proof, or owner"
+        placeholder=${`Search ${formatStatus(props.projectFilter ?? "active")} projects by title, status, next action, blocker, proof, or owner`}
         .value=${query}
         @input=${(event: Event) =>
           props.onSetProjectSearchQuery?.((event.target as HTMLInputElement).value)}
@@ -2797,13 +2857,22 @@ function renderTodayView(props: PccDashboardProps) {
   const needsYou = topProject(props, projectNeedsAttention);
   const blocked = topProject(
     props,
-    (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
+    (project) =>
+      projectCanBeNextBestAction(project) &&
+      (project.status === "blocked" || project.milestoneCounts.blocked > 0),
   );
   const ready = topProject(
     props,
-    (project) => project.nextActions.length > 0 && project.status !== "blocked",
+    (project) =>
+      projectCanBeNextBestAction(project) &&
+      project.nextActions.length > 0 &&
+      project.status !== "blocked",
   );
-  const nextBest = needsYou ?? blocked ?? ready ?? working;
+  const nextBest =
+    (needsYou && projectCanBeNextBestAction(needsYou) ? needsYou : undefined) ??
+    blocked ??
+    ready ??
+    working;
   const average = clampPercent(portfolio?.averagePercentComplete ?? 0);
   const needsAttentionCount =
     portfolio?.needsAttention ?? props.projects.filter(projectNeedsAttention).length;
@@ -2844,7 +2913,6 @@ function renderTodayView(props: PccDashboardProps) {
         </em>
       </article>
     </div>
-    ${renderRecentActivityFeed(props)}
     <details class="pcc-today__drawer">
       <summary>Show all project queues</summary>
       <div class="pcc-today__queues">
@@ -4009,6 +4077,8 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
     <button
       class="pcc-action-menu__trigger"
       data-pcc-action-menu-trigger
+      data-pcc-milestone-actions
+      title="Milestone actions"
       type="button"
       aria-expanded="false"
       aria-controls=${menuId}
@@ -4104,6 +4174,8 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
     <button
       class="pcc-action-menu__trigger"
       data-pcc-action-menu-trigger
+      data-pcc-submilestone-actions
+      title="Sub-step actions"
       type="button"
       aria-expanded="false"
       aria-controls=${menuId}
@@ -4798,7 +4870,7 @@ function renderProjectEditor(props: PccDashboardProps) {
                 codexPlanningAllowed: (event.target as HTMLInputElement).checked,
               })}
           />
-          Allow Codex/high-reasoning planning
+          Allow selected Codex/high-reasoning planner for this plan
         </label>
         <label>
           <input
@@ -5123,8 +5195,9 @@ function renderProjectListEmptyState(
 
 export function renderPccDashboard(props: PccDashboardProps) {
   const allProjects = props.projects;
+  const selectedFilter = effectiveProjectFilter(props, allProjects);
   const filteredByTab = allProjects.filter((project) =>
-    projectMatchesFilter(project, props.projectFilter ?? "active"),
+    projectMatchesFilter(project, selectedFilter),
   );
   const projects = filteredByTab.filter((project) =>
     projectMatchesSearch(
@@ -5184,14 +5257,18 @@ export function renderPccDashboard(props: PccDashboardProps) {
           ${props.loading && projects.length === 0
             ? renderPccLoadingState()
             : !props.loading && projects.length === 0
-              ? renderProjectListEmptyState(props, allProjects, filteredByTab.length)
+              ? renderProjectListEmptyState(
+                  { ...props, projectFilter: selectedFilter },
+                  allProjects,
+                  filteredByTab.length,
+                )
               : html`<section class="pcc-project-grid" aria-label="Project cards">
                   ${projects.map((project) => renderProjectCard(project, props))}
                 </section>`}
         </section>
         ${renderProjectDetail(props)}
       </div>
-
+      ${renderRecentActivityFeed(props)}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? renderProjectEditor(props)
         : nothing}

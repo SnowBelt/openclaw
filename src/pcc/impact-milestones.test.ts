@@ -194,11 +194,20 @@ describe("PCC impact milestones", () => {
           order: 2,
         },
       ],
+      receipts: [
+        {
+          ...receipt,
+          milestoneId: "missing-milestone",
+          proofEvidenceIds: ["ev1", "missing-proof"],
+        },
+      ],
     };
 
     const findings = buildPccIntegrityFindings(brokenInput);
     expect(findings.map((finding) => finding.title)).toEqual(
       expect.arrayContaining([
+        "Receipt references missing milestone: receipt-1",
+        "Receipt references missing proof evidence: missing-proof",
         "Orphaned sub-milestone: Run proof",
         "Broken dependency: Ready milestone",
         "Duplicate milestone title: ready milestone",

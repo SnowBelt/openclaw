@@ -270,7 +270,7 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Health: Needs approval");
     expect(text).toContain("Priority: 3");
     expect(container.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
-      "Needs: Run remote proof",
+      "Blocked by: Run remote proof",
     );
     expect(text).toContain("Due:");
     expect(container.querySelector("[data-pcc-project-card-activity]")?.textContent).toContain(
@@ -416,7 +416,7 @@ describe("renderPccDashboard", () => {
 
     const card = container.querySelector("[data-pcc-project-card]");
     expect(card?.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
-      "Needs: Browser proof missing",
+      "Blocked by: Browser proof missing",
     );
   });
 
@@ -759,6 +759,122 @@ describe("renderPccDashboard", () => {
       ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-project-tabs] button"),
     ].find((button) => button.textContent?.includes("Needs You"));
     expect(needsYouTab?.textContent).toContain("1");
+  });
+
+  it("defaults to Needs You when no active projects exist but a maintenance project needs proof repair", () => {
+    const maintenanceSummary = {
+      ...summary,
+      id: "project-maintenance",
+      title: "Project Command Center",
+      status: "complete_with_maintenance" as const,
+      proofGaps: ["Receipt references missing proof evidence: browser-proof"],
+      milestoneCounts: { ...summary.milestoneCounts, blocked: 0, needsApproval: 0 },
+      nextActions: ["Repair missing proof evidence"],
+    };
+    const onHoldSummary = {
+      ...summary,
+      id: "project-on-hold",
+      title: "Paused Project",
+      status: "on_hold" as const,
+      proofGaps: ["Deferred proof"],
+      milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 0 },
+      nextActions: ["Deferred by user"],
+    };
+    const container = renderView(
+      createProps({
+        projects: [onHoldSummary, maintenanceSummary],
+        selectedProjectId: "project-maintenance",
+        projectDetail: {
+          project: {
+            ...project,
+            id: "project-maintenance",
+            title: "Project Command Center",
+            status: "complete_with_maintenance",
+          },
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: maintenanceSummary,
+        },
+        portfolio: {
+          projectsTotal: 2,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 1,
+          archived: 0,
+          averagePercentComplete: 50,
+          nextActions: ["Repair missing proof evidence"],
+        },
+      }),
+    );
+
+    const selectedTab = [
+      ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-project-tabs] button"),
+    ].find((button) => button.getAttribute("aria-pressed") === "true");
+    expect(selectedTab?.textContent).toContain("Needs You");
+    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-project-card]")?.textContent).toContain(
+      "Project Command Center",
+    );
+  });
+
+  it("keeps on-hold projects out of Needs Attention and Next Best Action", () => {
+    const onHoldSummary = {
+      ...summary,
+      id: "project-on-hold",
+      title: "Paused Project",
+      status: "on_hold" as const,
+      proofGaps: ["Deferred proof"],
+      health: "At risk",
+      milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 1 },
+      nextActions: ["Deferred by user"],
+    };
+    const container = renderView(
+      createProps({
+        projects: [onHoldSummary],
+        selectedProjectId: "project-on-hold",
+        projectDetail: {
+          project: {
+            ...project,
+            id: "project-on-hold",
+            title: "Paused Project",
+            status: "on_hold",
+          },
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: onHoldSummary,
+        },
+        portfolio: {
+          projectsTotal: 1,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 42,
+          nextActions: [],
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-needs-attention-now]")?.textContent).toContain(
+      "Nothing needs you right now",
+    );
+    expect(container.querySelector('[data-pcc-today-card="Needs You"]')?.textContent).toContain(
+      "No approvals, blockers, or overdue projects need you.",
+    );
+    expect(
+      container.querySelector('[data-pcc-today-card="Next Best Action"]')?.textContent,
+    ).toContain("No ready action recorded.");
+    expect(container.querySelector('[data-pcc-today-card="Needs You"]')?.textContent).not.toContain(
+      "Paused Project",
+    );
   });
 
   it("filters project cards with a skim-first project search", () => {
@@ -1144,8 +1260,45 @@ describe("renderPccDashboard", () => {
     expect(skimFacts).not.toContain("Outcomes:");
     expect(sequence).toContain("Current: CRUD UI");
     expect(sequence).toContain("Next:");
-    expect(blocker).toContain("Needs:");
+    expect(blocker).toContain("Blocked by:");
     expect(activity).toContain("Recent:");
+  });
+
+  it("shows maintenance work state for complete-with-maintenance projects instead of fake current work", () => {
+    const maintenanceSummary = {
+      ...summary,
+      status: "complete_with_maintenance" as const,
+      milestoneCounts: {
+        ...summary.milestoneCounts,
+        total: 28,
+        complete: 27,
+        blocked: 0,
+        needsApproval: 0,
+      },
+      proofGaps: [],
+      nextActions: ["Actual Reboot Persistence Proof remains on hold."],
+    };
+    const container = renderView(
+      createProps({
+        projectFilter: "all",
+        projects: [maintenanceSummary],
+        projectDetail: {
+          project: { ...project, status: "complete_with_maintenance" },
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: maintenanceSummary,
+        },
+      }),
+    );
+
+    const card = container.querySelector("[data-pcc-project-card]");
+    const sequence = card?.querySelector("[data-pcc-project-card-sequence]")?.textContent ?? "";
+    expect(card?.textContent).toContain("Work: Maintenance");
+    expect(sequence).toContain("Maintenance only");
+    expect(sequence).not.toContain("Current: Not started");
   });
 
   it("keeps long project goals out of cards and readable in selected detail", () => {
@@ -1366,6 +1519,8 @@ describe("renderPccDashboard", () => {
     const milestoneTrigger = milestoneMenu?.querySelector<HTMLButtonElement>(
       "[data-pcc-action-menu-trigger]",
     );
+    expect(milestoneTrigger?.hasAttribute("data-pcc-milestone-actions")).toBe(true);
+    expect(milestoneTrigger?.getAttribute("title")).toBe("Milestone actions");
     milestoneTrigger?.click();
     expect(milestoneMenu?.classList.contains("is-open")).toBe(true);
     expect(milestoneMenu?.textContent).toContain("Remove from active plan");
@@ -1386,6 +1541,8 @@ describe("renderPccDashboard", () => {
 
     const subMenu = container.querySelector<HTMLElement>("[data-pcc-submilestone-action-menu]");
     const subTrigger = subMenu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]");
+    expect(subTrigger?.hasAttribute("data-pcc-submilestone-actions")).toBe(true);
+    expect(subTrigger?.getAttribute("title")).toBe("Sub-step actions");
     subTrigger?.click();
     expect(subMenu?.classList.contains("is-open")).toBe(true);
     expect(subMenu?.textContent).toContain("Remove from active plan");
@@ -1814,7 +1971,14 @@ describe("renderPccDashboard", () => {
           kind: "browser_proof" as const,
         },
       ],
-      receipts: [{ ...receipt, projectId: "project-command-center", milestoneId: "pcc-proof" }],
+      receipts: [
+        {
+          ...receipt,
+          projectId: "project-command-center",
+          milestoneId: "pcc-proof",
+          proofEvidenceIds: ["remote-proof", "browser-proof"],
+        },
+      ],
       decisions: [],
       lastKnownGood: [],
       summary: { ...summary, id: "project-command-center", title: "Project Command Center" },
@@ -2463,9 +2627,34 @@ describe("renderPccDashboard", () => {
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
     expect(container.textContent).toContain("AI Autofill Preview");
+    expect(container.querySelector("[data-pcc-autofill-preview]")?.textContent).toContain(
+      "Apply draft",
+    );
 
     container.querySelector<HTMLButtonElement>("[data-pcc-autofill-preview] button")?.click();
     expect(onApplySetupAutofill).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes approved setup autofill apply wording explicit", () => {
+    const container = renderView(
+      createProps({
+        autofillPreview: {
+          projectId: "project-1",
+          goal: "Track every project.",
+          intakeAnswers,
+          intakeApproved: true,
+          workflowTemplateId: "software-product",
+          workflowTitle: "Software Product",
+          summary: "PCC drafted and approved missing setup from existing context.",
+          milestoneUpdates: [],
+          subMilestoneUpdates: [],
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-autofill-preview]")?.textContent).toContain(
+      "Apply + approve setup",
+    );
   });
 
   it("renders project-manager and Codex planning gates in project intake", () => {

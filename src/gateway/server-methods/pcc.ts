@@ -429,6 +429,9 @@ function projectSummaryIsStale(project: PccProjectSummary): boolean {
 }
 
 function projectSummaryNeedsAttention(project: PccProjectSummary): boolean {
+  if (["archived", "skipped", "on_hold", "deferred"].includes(project.status)) {
+    return false;
+  }
   return (
     project.status === "needs_approval" ||
     project.status === "blocked" ||
