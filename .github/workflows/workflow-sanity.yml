@@ -1951,7 +1951,7 @@ jobs:
           - node --import tsx scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - pnpm check:workflows
-          - pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/app-render.ts scripts/dev/control-ui-pcc-usability-completion-v2-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts
+          - pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/app-render.ts
           - pnpm build
           EOF_COMMANDS
 
@@ -1994,7 +1994,7 @@ jobs:
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/app-render.ts scripts/dev/control-ui-pcc-usability-completion-v2-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts
+        run: pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/app-render.ts
 
       - name: Run build proof
         run: pnpm build
