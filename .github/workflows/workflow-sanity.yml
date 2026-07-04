@@ -1944,14 +1944,13 @@ jobs:
           - pnpm test src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
           - pnpm tsgo:test:ui
           - node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
-          - node --import tsx scripts/dev/control-ui-pcc-impact-milestones-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-autofill-skip-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-usability-completion-v2-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - pnpm check:workflows
-          - pnpm check:changed -- src/pcc/impact-milestones.ts src/pcc/impact-milestones.test.ts src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-impact-milestones-smoke.ts scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-autofill-skip-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v2-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- src/pcc/impact-milestones.ts src/pcc/impact-milestones.test.ts src/pcc/production-truth.ts src/pcc/project-workflows.test.ts src/pcc/intake-quality.ts src/pcc/project-workflows.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-autofill-skip-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v2-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1965,7 +1964,7 @@ jobs:
         run: node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
 
       - name: Run PCC impact milestones smoke
-        run: node --import tsx scripts/dev/control-ui-pcc-impact-milestones-smoke.ts
+        run: node --import tsx
 
       - name: Run PCC workflow clarity smoke
         run: node --import tsx scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts

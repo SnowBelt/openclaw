@@ -4335,7 +4335,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
       </div>
       <div class="pcc-intake-wizard__header-actions">
         <span class="pcc-status">${missing.length ? `${missing.length} missing` : "Answered"}</span>
-        ${renderProjectIntakeAutofillButton(props)}
+        ${renderProjectIntakeFormAutofillButton(props, "Autofill answers with AI")}
       </div>
     </div>
     <p class="pcc-intake-wizard__hint">
@@ -4350,7 +4350,12 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
           first; you stay in control before saving or applying.</span
         >
       </div>
-      ${renderProjectIntakeAutofillButton(props)}
+      <div class="pcc-intake-wizard__ai-actions">
+        ${renderProjectIntakeFormAutofillButton(props, "Autofill answers with AI")}
+        ${canPreviewFullSetupRepair
+          ? renderProjectIntakeAutofillButton(props, "Preview full setup repair")
+          : nothing}
+      </div>
     </section>
     <div class="pcc-intake-wizard__ai-tools" data-pcc-intake-answer-ai-tools>
       <div>
@@ -4361,9 +4366,9 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
         >
       </div>
       <div class="pcc-intake-wizard__ai-actions">
-        ${renderProjectIntakeAutofillButton(props)}
+        ${renderProjectIntakeFormAutofillButton(props, "Autofill answers with AI")}
         ${canPreviewFullSetupRepair
-          ? renderProjectIntakeFormAutofillButton(props, "Draft visible fields only")
+          ? renderProjectIntakeAutofillButton(props, "Preview full setup repair")
           : nothing}
       </div>
     </div>
