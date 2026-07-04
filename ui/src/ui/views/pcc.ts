@@ -1473,7 +1473,7 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
   }
   return html`<section class="pcc-planner-permission" data-pcc-planner-permission-card>
     <div>
-      <p class="pcc-kicker">Planner permission</p>
+      <p class="pcc-kicker">High-reasoning / Codex permission</p>
       <h4>${form.codexPlanningAllowed ? "Planner allowed" : "Codex planning needs approval"}</h4>
       <p>
         Codex and high-reasoning planners may spend tokens. This card is the single place to allow
