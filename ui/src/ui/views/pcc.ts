@@ -4990,6 +4990,23 @@ function renderPccActionFeedback(props: PccDashboardProps) {
       </div>
     </div>`;
   }
+  if (props.actionBusy) {
+    return html`<div
+      class="pcc-callout pcc-callout--busy"
+      data-pcc-action-busy
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div>
+        <strong>Saving PCC change</strong>
+        <span>Writing the update and refreshing the project state.</span>
+        <small
+          >Controls are temporarily disabled so the ledger does not receive duplicate writes.</small
+        >
+      </div>
+    </div>`;
+  }
   return nothing;
 }
 

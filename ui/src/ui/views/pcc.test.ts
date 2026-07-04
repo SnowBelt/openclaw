@@ -420,6 +420,18 @@ describe("renderPccDashboard", () => {
     );
   });
 
+  it("announces in-flight PCC saves instead of silently disabling controls", () => {
+    const container = renderView(createProps({ actionBusy: true }));
+    const busy = container.querySelector("[data-pcc-action-busy]");
+
+    expect(busy).not.toBeNull();
+    expect(busy?.getAttribute("role")).toBe("status");
+    expect(busy?.getAttribute("aria-live")).toBe("polite");
+    expect(busy?.getAttribute("aria-busy")).toBe("true");
+    expect(busy?.textContent).toContain("Saving PCC change");
+    expect(busy?.textContent).toContain("ledger does not receive duplicate writes");
+  });
+
   it("renders action feedback with recovery actions instead of silent save ambiguity", () => {
     const onRefresh = vi.fn();
     const onDismissActionNotice = vi.fn();
