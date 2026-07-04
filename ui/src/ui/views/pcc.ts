@@ -2110,6 +2110,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
     <article
       class="pcc-project-card ${selected ? "is-selected" : ""} ${onHold ? "is-on-hold" : ""}"
       data-pcc-project-card
+      data-pcc-project-id=${project.id}
     >
       <div class="pcc-project-card__topline">
         <div>
@@ -2140,6 +2141,10 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       <button
         class="btn btn--subtle"
         type="button"
+        data-pcc-project-open
+        data-pcc-project-open-surface="card"
+        data-pcc-project-id=${project.id}
+        aria-label=${`Open ${project.title}`}
         @click=${() => props.onSelectProject(project.id)}
       >
         ${selected ? "Selected" : "Open"}
@@ -2290,10 +2295,21 @@ function renderTodayPrimaryCard(
   empty: string,
   detail?: string,
 ) {
-  return html`<article class="pcc-today__primary-card">
+  return html`<article
+    class="pcc-today__primary-card"
+    data-pcc-today-card=${label}
+    data-pcc-project-id=${project?.id ?? ""}
+  >
     <span>${label}</span>
     ${project
-      ? html`<button type="button" @click=${() => props.onSelectProject(project.id)}>
+      ? html`<button
+          type="button"
+          data-pcc-project-open
+          data-pcc-project-open-surface="today"
+          data-pcc-project-id=${project.id}
+          aria-label=${`Open ${project.title} from ${label}`}
+          @click=${() => props.onSelectProject(project.id)}
+        >
           <strong>${project.title}</strong>
           <em>${detail ?? projectActionLine(project, props.projectDetails?.[project.id])}</em>
         </button>`
@@ -2418,7 +2434,11 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
     </div>
     <div class="pcc-needs-attention__list">
       ${attentionProjects.slice(0, 5).map(
-        (project) => html`<article class="pcc-needs-attention__item" data-pcc-attention-item>
+        (project) => html`<article
+          class="pcc-needs-attention__item"
+          data-pcc-attention-item
+          data-pcc-project-id=${project.id}
+        >
           <div>
             <span class="pcc-status">${attentionKind(project)}</span>
             <strong>${project.title}</strong>
@@ -2441,6 +2461,10 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
           <button
             class="btn btn--subtle"
             type="button"
+            data-pcc-project-open
+            data-pcc-project-open-surface="attention"
+            data-pcc-project-id=${project.id}
+            aria-label=${`Open ${project.title} from Needs Attention`}
             @click=${() => props.onSelectProject(project.id)}
           >
             Open
@@ -2639,7 +2663,11 @@ function renderRecentActivityFeed(props: PccDashboardProps) {
     ${items.length
       ? html`<ol class="pcc-recent-activity__list">
           ${items.map(
-            ({ project, activity }) => html`<li class="pcc-recent-activity__item">
+            ({ project, activity }) => html`<li
+              class="pcc-recent-activity__item"
+              data-pcc-recent-activity-item
+              data-pcc-project-id=${project.id}
+            >
               <div>
                 <strong>${project.title}</strong>
                 <span>${activity.label}</span>
@@ -2661,6 +2689,10 @@ function renderRecentActivityFeed(props: PccDashboardProps) {
               <button
                 class="btn btn--subtle"
                 type="button"
+                data-pcc-project-open
+                data-pcc-project-open-surface="recent-activity"
+                data-pcc-project-id=${project.id}
+                aria-label=${`Open ${project.title} from Recent Activity`}
                 @click=${() => props.onSelectProject(project.id)}
               >
                 Open

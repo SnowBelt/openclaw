@@ -853,6 +853,45 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).not.toContain("No projects yet");
   });
 
+  it("exposes stable project open selectors across dashboard surfaces", () => {
+    const onSelectProject = vi.fn();
+    const container = renderView(createProps({ onSelectProject }));
+
+    const cardOpen = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-project-open-surface="card"][data-pcc-project-id="project-1"]',
+    );
+    const todayOpen = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-project-open-surface="today"][data-pcc-project-id="project-1"]',
+    );
+    const attentionOpen = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-project-open-surface="attention"][data-pcc-project-id="project-1"]',
+    );
+    const recentOpen = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-project-open-surface="recent-activity"][data-pcc-project-id="project-1"]',
+    );
+
+    expect(
+      container.querySelector('[data-pcc-project-card][data-pcc-project-id="project-1"]'),
+    ).not.toBeNull();
+    expect(cardOpen?.getAttribute("aria-label")).toBe("Open Project Command Center");
+    expect(todayOpen?.getAttribute("aria-label")).toContain("Open Project Command Center");
+    expect(attentionOpen?.getAttribute("aria-label")).toBe(
+      "Open Project Command Center from Needs Attention",
+    );
+    expect(recentOpen?.getAttribute("aria-label")).toBe(
+      "Open Project Command Center from Recent Activity",
+    );
+
+    cardOpen?.click();
+    todayOpen?.click();
+    attentionOpen?.click();
+    recentOpen?.click();
+
+    expect(onSelectProject).toHaveBeenCalledTimes(4);
+    expect(onSelectProject).toHaveBeenNthCalledWith(1, "project-1");
+    expect(onSelectProject).toHaveBeenNthCalledWith(4, "project-1");
+  });
+
   it("renders a global needs-attention queue with direct project navigation", () => {
     const onSelectProject = vi.fn();
     const blockedProject = {
