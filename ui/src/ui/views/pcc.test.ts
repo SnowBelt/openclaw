@@ -825,6 +825,75 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).toContain("Select a project");
   });
 
+  it("guides empty Active views toward actionable project tabs", () => {
+    const onSetProjectFilter = vi.fn();
+    const maintenanceProject = {
+      ...summary,
+      id: "project-maintenance",
+      title: "Project Command Center",
+      status: "complete_with_maintenance" as const,
+      milestoneCounts: {
+        total: 28,
+        complete: 27,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: ["Record production proof"],
+      proofGaps: ["Browser proof missing"],
+      health: "Needs review",
+    };
+    const onHoldProject = {
+      ...summary,
+      id: "project-on-hold",
+      title: "SNES Game Creator",
+      status: "on_hold" as const,
+      milestoneCounts: {
+        total: 7,
+        complete: 0,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: ["Fill missing setup"],
+      proofGaps: ["Setup missing"],
+      health: "At risk",
+    };
+
+    const container = renderView(
+      createProps({
+        projects: [maintenanceProject, onHoldProject],
+        selectedProjectId: "project-maintenance",
+        projectFilter: "active",
+        onSetProjectFilter,
+        portfolio: {
+          projectsTotal: 2,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 1,
+          archived: 0,
+          averagePercentComplete: 49,
+          nextActions: ["Fill missing setup"],
+        },
+      }),
+    );
+
+    expect(
+      container.querySelector('[data-pcc-empty][data-pcc-project-empty-state="active"]'),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("No projects in this view");
+    expect(container.textContent).toContain("need your attention now");
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-empty-show-needs-you]")?.click();
+    container.querySelector<HTMLButtonElement>("[data-pcc-empty-show-all]")?.click();
+
+    expect(onSetProjectFilter).toHaveBeenCalledWith("needs_you");
+    expect(onSetProjectFilter).toHaveBeenCalledWith("all");
+  });
+
   it("renders loading without misreporting an empty portfolio", () => {
     const container = renderView(
       createProps({

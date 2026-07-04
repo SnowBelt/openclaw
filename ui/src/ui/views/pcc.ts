@@ -4976,6 +4976,65 @@ function renderPccActionFeedback(props: PccDashboardProps) {
   return nothing;
 }
 
+function renderProjectListEmptyState(
+  props: PccDashboardProps,
+  allProjects: readonly PccProjectSummary[],
+  filteredByTabCount: number,
+) {
+  const selected = props.projectFilter ?? "active";
+  const searchActive = Boolean(props.projectSearchQuery?.trim());
+  const needsYouCount = allProjects.filter((project) =>
+    projectMatchesFilter(project, "needs_you"),
+  ).length;
+  const allCount = allProjects.length;
+  const canShowNeedsYou = !searchActive && selected !== "needs_you" && needsYouCount > 0;
+  const canShowAll = !searchActive && selected !== "all" && allCount > 0;
+  return html`<div class="pcc-empty" data-pcc-empty data-pcc-project-empty-state=${selected}>
+    <h3>
+      ${searchActive
+        ? "No matching projects"
+        : allCount === 0
+          ? "No projects yet"
+          : "No projects in this view"}
+    </h3>
+    <p>
+      ${searchActive
+        ? "No projects match this search. Clear search or try another term."
+        : allCount === 0
+          ? "Create a new project to start building a plan."
+          : canShowNeedsYou
+            ? `${needsYouCount} project${needsYouCount === 1 ? "" : "s"} need your attention now. Switch to Needs You to see the most important work first.`
+            : filteredByTabCount === 0
+              ? "This tab is empty. Switch views to browse projects without changing their status."
+              : "No projects match this filter. Use another tab or create a new project."}
+    </p>
+    ${canShowNeedsYou || canShowAll
+      ? html`<div class="pcc-empty__actions" data-pcc-empty-actions>
+          ${canShowNeedsYou
+            ? html`<button
+                class="btn"
+                type="button"
+                data-pcc-empty-show-needs-you
+                @click=${() => props.onSetProjectFilter?.("needs_you")}
+              >
+                Show Needs You (${needsYouCount})
+              </button>`
+            : nothing}
+          ${canShowAll
+            ? html`<button
+                class="btn btn--subtle"
+                type="button"
+                data-pcc-empty-show-all
+                @click=${() => props.onSetProjectFilter?.("all")}
+              >
+                Show All (${allCount})
+              </button>`
+            : nothing}
+        </div>`
+      : nothing}
+  </div>`;
+}
+
 export function renderPccDashboard(props: PccDashboardProps) {
   const allProjects = props.projects;
   const filteredByTab = allProjects.filter((project) =>
@@ -5039,14 +5098,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
           ${props.loading && projects.length === 0
             ? renderPccLoadingState()
             : !props.loading && projects.length === 0
-              ? html`<div class="pcc-empty" data-pcc-empty>
-                  <h3>No projects yet</h3>
-                  <p>
-                    ${props.projectSearchQuery?.trim()
-                      ? "No projects match this search. Clear search or try another term."
-                      : "No projects match this filter. Use another tab or create a new project."}
-                  </p>
-                </div>`
+              ? renderProjectListEmptyState(props, allProjects, filteredByTab.length)
               : html`<section class="pcc-project-grid" aria-label="Project cards">
                   ${projects.map((project) => renderProjectCard(project, props))}
                 </section>`}
