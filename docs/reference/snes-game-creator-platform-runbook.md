@@ -218,3 +218,27 @@ Every platform-only report must include:
 
 Completion language must distinguish platform readiness from finished-game
 production.
+
+## SNES Asset Studio v1
+
+SNES Asset Studio turns a user-provided image into a local, deterministic, SNES-safe asset candidate. It is platform-only infrastructure: it preserves the original source image, creates an asset intent, converts the image into a 16-color indexed PNG sprite sheet, creates a contact sheet, and writes receipts that keep static asset proof separate from runtime ROM proof.
+
+Use the script alias when available:
+
+```bash
+pnpm snes:asset-studio -- preserve --project <project-id> --asset-id <asset-id> --kind sprite --source <image-path> --json
+pnpm snes:asset-studio -- intent --project <project-id> --asset-id <asset-id> --kind sprite --dimensions 32x32 --frames 4 --json
+pnpm snes:asset-studio -- convert --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- contact-sheet --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- pipeline --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- insert --project <project-id> --asset-id <asset-id> --target player.sprite --json
+pnpm snes:asset-studio -- runtime-proof-plan --project <project-id> --asset-id <asset-id> --json
+```
+
+Completion rules:
+
+- Source preservation, conversion, contact sheet, and manifest insertion are not runtime proof.
+- Runtime proof still requires a ROM build plus emulator screenshot/OAM/tilemap signature.
+- Production art still requires human visual approval.
+- Local redraw attempts must stay local-only. If no local image generator is configured, write a blocked receipt instead of falling back to hosted providers.
+- Do not use commercial game names, copied commercial assets, source leaks, disassemblies, hosted image generation, hosted GLM, paid tools, FXPAK writes, Discord delivery, or named-game scope while running platform-only work.

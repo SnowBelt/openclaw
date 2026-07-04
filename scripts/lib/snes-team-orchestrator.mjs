@@ -3433,6 +3433,11 @@ export function pccDashboardSnapshot({ project, root }) {
   if (blocked) return blocked;
   const status = pccStatus({ project, root });
   const approvals = listApprovals({ project, root });
+  const assetManifestPath = pccFile(loaded.projectDir, "asset-manifest.json");
+  const assetManifest = fs.existsSync(assetManifestPath)
+    ? readJson(assetManifestPath)
+    : { format: "openclaw-snes-asset-manifest-v1", project, assets: [] };
+  const assetRecords = assetManifest.assets ?? [];
   const snapshot = {
     format: "openclaw-snes-pcc-dashboard-snapshot-v1",
     generatedAt: nowIso(),
@@ -3458,6 +3463,21 @@ export function pccDashboardSnapshot({ project, root }) {
       ),
       rejectionReasons: [],
       canSelfApproveVisuals: false,
+    },
+    assetStudio: {
+      proofTier: "dashboard-data",
+      productionBrowserEquivalent: false,
+      manifestPath: assetManifestPath,
+      assetCount: assetRecords.length,
+      assets: assetRecords.map((asset) => ({
+        assetId: asset.assetId,
+        kind: asset.kind,
+        target: asset.target,
+        convertedSha256: asset.convertedSha256,
+        runtimeProofRequired: asset.runtimeProofRequired !== false,
+        runtimeProofSatisfied: false,
+      })),
+      runtimeProofSatisfied: false,
     },
     packageReadiness: {
       fxpakWritePerformed: false,

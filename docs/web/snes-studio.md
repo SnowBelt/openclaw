@@ -933,3 +933,20 @@ PCC v3 adds dispatch dry-runs, worker sandbox contracts, write-surface guards, p
 ## PCC local model execution
 
 SNES Studio PCC supports local-only worker execution through installed Ollama/OpenClaw models. Browser, hardware, FXPAK, and human visual proof remain separate gates; local worker execution alone does not make a game production complete.
+
+## SNES Asset Studio
+
+SNES Asset Studio is the platform workflow for turning an uploaded local image into a reusable SNES asset candidate. It preserves the source image, records SHA-256 receipts, converts the image into a 16-color SNES-safe PNG sheet, creates a contact sheet, and inserts the asset into a generic PCC asset manifest.
+
+The first MVP surface is local CLI proof:
+
+```bash
+pnpm snes:asset-studio -- preserve --project <project-id> --asset-id <asset-id> --kind sprite --source <image-path> --json
+pnpm snes:asset-studio -- intent --project <project-id> --asset-id <asset-id> --kind sprite --dimensions 32x32 --frames 4 --json
+pnpm snes:asset-studio -- convert --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- contact-sheet --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- pipeline --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- insert --project <project-id> --asset-id <asset-id> --target player.sprite --json
+```
+
+The dashboard can display asset-manifest cards after insertion, but static image conversion is not enough to claim the asset appears in-game. A production claim still needs ROM build proof, emulator runtime proof, and human approval for production-facing visuals.

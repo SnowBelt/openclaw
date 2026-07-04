@@ -137,7 +137,7 @@ Completion rules:
 
 ## Image Asset Delegation
 
-When a user provides or requests an image for an SNES/16-bit game, use the `snes-16bit-image-assets` skill. This includes title portraits, character sprites, enemy sprites, item sprites, background layers, tilesets, and UI icons. Preserve the source image, convert it into a deterministic SNES-safe asset, request only local GLM-5.2 structured JSON patches, and require executable visual QA before claiming the asset is used.
+When a user provides or requests an image for a generic SNES/16-bit game, use SNES Asset Studio first: preserve the source image, create an asset intent, convert it into a deterministic 16-color SNES-safe asset, create a contact sheet, insert it into the asset manifest, and keep runtime ROM proof separate from static image proof. Optional redraw attempts must be local-only and must write a blocked receipt if no local image generator is available.
 
 For Metro Bomberman character repair work, also use the specialized character skills when they apply:
 
