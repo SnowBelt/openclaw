@@ -2101,11 +2101,10 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
   const next = detail ? nextMilestoneForDetail(detail) : undefined;
   const workState = workStateForProject(project, detail);
-  const outcomeMetricCount = detail ? projectOutcomeMetrics(detail.project).length : 0;
-  const outcomeMetricLabel = outcomeMetricCount
-    ? `Outcomes: ${outcomeMetricCount} metric${outcomeMetricCount === 1 ? "" : "s"}`
-    : "Outcomes: Missing";
   const onHold = projectIsOnHold(project);
+  const blocker = projectBlockerLine(project);
+  const recentActivity = formatProjectActivity(project.recentActivity);
+  const dueDate = formatProjectDate(project.dueDate);
   return html`
     <article
       class="pcc-project-card ${selected ? "is-selected" : ""} ${onHold ? "is-on-hold" : ""}"
@@ -2126,18 +2125,30 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
           <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
         </div>
       </div>
-      <div class="pcc-project-card__meta pcc-project-card__meta--skim">
+      <div
+        class="pcc-project-card__meta pcc-project-card__meta--skim"
+        data-pcc-project-card-skim-facts
+      >
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
         <span>Health: ${project.health ?? formatStatus(project.status)}</span>
         <span>Priority: ${projectPriorityLabel(props, project)}</span>
-        <span>${outcomeMetricLabel}</span>
-        <span>Blocker: ${projectBlockerLine(project)}</span>
-        <span>Due: ${formatProjectDate(project.dueDate)}</span>
-        <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
-        <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
-        <span>Activity: ${formatProjectActivity(project.recentActivity)}</span>
+        <span>Due: ${dueDate}</span>
         <span>Work: ${workState}</span>
       </div>
+      <div class="pcc-project-card__sequence" data-pcc-project-card-sequence>
+        <span>${onHold ? "On hold" : `Current: ${current?.title ?? "Not started"}`}</span>
+        <span>Next: ${next?.title ?? project.nextActions[0] ?? "None"}</span>
+      </div>
+      ${blocker !== "None"
+        ? html`<p class="pcc-project-card__signal" data-pcc-project-card-blocker>
+            Needs: ${blocker}
+          </p>`
+        : nothing}
+      ${recentActivity !== "No recent activity"
+        ? html`<p class="pcc-project-card__activity" data-pcc-project-card-activity>
+            Recent: ${recentActivity}
+          </p>`
+        : nothing}
       <button
         class="btn btn--subtle"
         type="button"

@@ -280,7 +280,6 @@
   overflow: hidden;
 }
 
-
 .pcc-outcome-metrics {
   background: var(--surface-card);
   border: 1px solid var(--border-subtle);
@@ -1790,7 +1789,6 @@
   gap: 10px;
 }
 
-
 .pcc-intake-wizard__question {
   gap: 8px !important;
 }
@@ -2162,7 +2160,32 @@
 }
 
 .pcc-project-card__meta--skim span {
-  flex: 1 1 160px;
+  flex: 1 1 132px;
+}
+
+.pcc-project-card__sequence {
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 18px;
+  color: var(--text);
+  display: grid;
+  gap: 6px;
+  font-size: 0.88rem;
+  padding: 10px 12px;
+}
+
+.pcc-project-card__signal,
+.pcc-project-card__activity {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--muted);
+  font-size: 0.86rem;
+  margin: 0;
+  padding-left: 10px;
+}
+
+.pcc-project-card__signal {
+  border-left-color: color-mix(in srgb, var(--danger) 58%, var(--accent));
+  color: var(--text);
 }
 
 .pcc-loading-state {
@@ -2524,8 +2547,7 @@
     grid-template-columns: 1fr;
   }
 
-
-.pcc-primary-action {
+  .pcc-primary-action {
     grid-template-columns: 1fr;
   }
 

@@ -264,12 +264,18 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Run remote proof");
     expect(text).toContain("Outcome metrics");
     expect(text).toContain("User understands next action in under 5 seconds.");
-    expect(text).toContain("Outcomes: 2 metrics");
+    expect(container.querySelector("[data-pcc-outcome-metrics]")?.textContent).toContain(
+      "User understands next action in under 5 seconds.",
+    );
     expect(text).toContain("Health: Needs approval");
     expect(text).toContain("Priority: 3");
-    expect(text).toContain("Blocker: Run remote proof");
+    expect(container.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
+      "Needs: Run remote proof",
+    );
     expect(text).toContain("Due:");
-    expect(text).toContain("Activity: Milestone updated: CRUD UI");
+    expect(container.querySelector("[data-pcc-project-card-activity]")?.textContent).toContain(
+      "Recent: Milestone updated: CRUD UI",
+    );
     expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
       "Project Command Center",
     );
@@ -409,7 +415,9 @@ describe("renderPccDashboard", () => {
     );
 
     const card = container.querySelector("[data-pcc-project-card]");
-    expect(card?.textContent).toContain("Blocker: Browser proof missing");
+    expect(card?.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
+      "Needs: Browser proof missing",
+    );
   });
 
   it("renders action feedback with recovery actions instead of silent save ambiguity", () => {
@@ -1105,6 +1113,27 @@ describe("renderPccDashboard", () => {
     );
     edit?.click();
     expect(onOpenProjectEditor).toHaveBeenCalledWith(project);
+  });
+
+  it("keeps project cards skim-first while preserving sequence and signals", () => {
+    const container = renderView(createProps());
+    const skimFacts =
+      container.querySelector("[data-pcc-project-card-skim-facts]")?.textContent ?? "";
+    const sequence = container.querySelector("[data-pcc-project-card-sequence]")?.textContent ?? "";
+    const blocker = container.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
+    const activity = container.querySelector("[data-pcc-project-card-activity]")?.textContent ?? "";
+
+    expect(skimFacts).toContain("2/5 milestones");
+    expect(skimFacts).toContain("Health: Needs approval");
+    expect(skimFacts).toContain("Priority:");
+    expect(skimFacts).toContain("Due:");
+    expect(skimFacts).toContain("Work:");
+    expect(skimFacts).not.toContain("Activity:");
+    expect(skimFacts).not.toContain("Outcomes:");
+    expect(sequence).toContain("Current: CRUD UI");
+    expect(sequence).toContain("Next:");
+    expect(blocker).toContain("Needs:");
+    expect(activity).toContain("Recent:");
   });
 
   it("keeps long project goals out of cards and readable in selected detail", () => {
