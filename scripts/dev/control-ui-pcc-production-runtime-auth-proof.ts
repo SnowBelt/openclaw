@@ -187,7 +187,7 @@ async function runBrowserProof(options: ProofOptions) {
     if ((await visibleActionMenu.count()) > 0) {
       await visibleActionMenu.click({ force: true });
       await page
-        .getByRole("menuitem", { name: "Delete / Remove from plan" })
+        .getByRole("menuitem", { name: "Remove from active plan" })
         .first()
         .waitFor({ state: "visible", timeout: 10_000 });
     }
@@ -249,7 +249,7 @@ async function runBrowserProof(options: ProofOptions) {
         has("AI Autofill Preview"),
       actionMenu:
         options.profile === "production-current" ||
-        (has("Delete / Remove from plan") && has("Stop here")),
+        (has("Remove from active plan") && has("Stop here")),
     },
     sample: normalizedText.slice(0, 2_000),
   };
