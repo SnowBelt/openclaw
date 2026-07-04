@@ -873,6 +873,176 @@ describe("PCC CRUD controller", () => {
     expect(state.pccAutofillPreview).toBeNull();
   });
 
+  it("autofill creates workflow milestones when a non-terminal project has no active milestones", async () => {
+    const emptyProject = {
+      ...project,
+      id: "project-empty",
+      title: "Kitchen Remodel Planner",
+      goal: "",
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccIntake: { approved: false, answers: { ...intakeAnswers, goal: "" } },
+      },
+    };
+    const detail = {
+      project: emptyProject,
+      milestones: [],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: { ...summary, id: "project-empty", title: "Kitchen Remodel Planner" },
+    };
+    const preview = buildPccSetupAutofillPreview(detail, true);
+    expect(preview.generatedMilestones?.length).toBeGreaterThan(0);
+    expect(preview.generatedMilestones?.[0]?.subMilestoneTitles.length).toBeGreaterThan(0);
+
+    let createdMilestoneCount = 0;
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "pcc.projects.upsert") {
+        return { project: emptyProject, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        createdMilestoneCount += 1;
+        const milestonePayload = (params as { milestone: typeof milestone }).milestone;
+        return {
+          milestone: {
+            ...milestonePayload,
+            id: `generated-${createdMilestoneCount}`,
+            createdAt: "2026-06-26T00:00:00Z",
+            updatedAt: "2026-06-26T00:00:00Z",
+          },
+          summary,
+        };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return { ...detail, decisions: [] };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccAutofillPreview: preview,
+    });
+
+    await applyPccSetupAutofill(state);
+
+    expect(request.mock.calls[0]).toEqual([
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({
+          id: "project-empty",
+          goal: "Kitchen Remodel Planner",
+          status: "active",
+          metadata: expect.objectContaining({
+            pccIntake: expect.objectContaining({ approved: true }),
+          }),
+        }),
+      }),
+    ]);
+    const milestoneCreates = request.mock.calls.filter(
+      ([method]) => method === "pcc.milestones.upsert",
+    );
+    const subMilestoneCreates = request.mock.calls.filter(
+      ([method]) => method === "pcc.subMilestones.upsert",
+    );
+    expect(milestoneCreates.length).toBeGreaterThan(0);
+    expect(subMilestoneCreates.length).toBeGreaterThan(0);
+    expect(subMilestoneCreates[0]?.[1]).toEqual(
+      expect.objectContaining({
+        subMilestone: expect.objectContaining({
+          projectId: "project-empty",
+          milestoneId: expect.stringMatching(/^generated-/u),
+        }),
+      }),
+    );
+  });
+
+  it("autofill creates sub-milestones for active milestones that have none", async () => {
+    const childlessMilestone = {
+      ...milestone,
+      id: "milestone-childless",
+      title: "Build MVP",
+      implementationPlan: "",
+      acceptanceCriteria: [],
+      metadata: {},
+    };
+    const onHoldProject = {
+      ...project,
+      status: "on_hold" as const,
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccIntake: { approved: false, answers: { ...intakeAnswers, goal: "" } },
+      },
+    };
+    const detail = {
+      project: onHoldProject,
+      milestones: [childlessMilestone],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: { ...summary, status: "on_hold" as const },
+    };
+    const preview = buildPccSetupAutofillPreview(detail);
+    expect(preview.generatedSubMilestones?.length).toBeGreaterThan(0);
+    expect(preview.generatedSubMilestones?.[0]?.milestoneId).toBe("milestone-childless");
+
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "pcc.projects.upsert") {
+        return { project: onHoldProject, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: childlessMilestone, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone: (params as { subMilestone: typeof subMilestone }).subMilestone };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return { ...detail, decisions: [] };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccAutofillPreview: preview,
+    });
+
+    await applyPccSetupAutofill(state);
+
+    expect(request.mock.calls[0]).toEqual([
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({ id: "project-1", status: "on_hold" }),
+      }),
+    ]);
+    expect(
+      request.mock.calls.some(
+        ([method, params]) =>
+          method === "pcc.subMilestones.upsert" &&
+          (params as { subMilestone: { milestoneId: string } }).subMilestone.milestoneId ===
+            "milestone-childless",
+      ),
+    ).toBe(true);
+  });
+
   it("skips milestones with unfinished sub-milestones and reopens them", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "pcc.milestones.upsert") {

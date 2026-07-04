@@ -1270,7 +1270,9 @@ function renderAutofillPreview(props: PccDashboardProps) {
   if (!preview) {
     return nothing;
   }
-  return html`<section class="pcc-autofill-preview" data-pcc-autofill-preview>
+  const generatedMilestones = preview.generatedMilestones ?? [];
+  const generatedSubMilestones = preview.generatedSubMilestones ?? [];
+  return html`<section class="pcc-autofill-preview" data-pcc-autofill-preview tabindex="-1">
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">AI Autofill Preview</p>
@@ -1296,8 +1298,33 @@ function renderAutofillPreview(props: PccDashboardProps) {
         <dt>Sub-step fixes</dt>
         <dd>${preview.subMilestoneUpdates.length}</dd>
       </div>
+      <div>
+        <dt>New milestones</dt>
+        <dd>${generatedMilestones.length}</dd>
+      </div>
+      <div>
+        <dt>New sub-steps</dt>
+        <dd>${generatedSubMilestones.length}</dd>
+      </div>
     </dl>
     <ul class="pcc-autofill-preview__changes">
+      ${generatedMilestones
+        .slice(0, 4)
+        .map(
+          (item) =>
+            html`<li>
+              <strong>${item.title}</strong> · creates milestone with
+              ${item.subMilestoneTitles.length} sub-steps
+            </li>`,
+        )}
+      ${generatedSubMilestones
+        .slice(0, 4)
+        .map(
+          (item) =>
+            html`<li>
+              <strong>${item.title}</strong> · creates sub-step under ${item.milestoneTitle}
+            </li>`,
+        )}
       ${preview.milestoneUpdates
         .slice(0, 4)
         .map((item) => html`<li><strong>${item.title}</strong> · ${item.fields.join(", ")}</li>`)}
@@ -1319,6 +1346,7 @@ function renderAutofillPreview(props: PccDashboardProps) {
       <button
         class="btn"
         type="button"
+        data-pcc-autofill-apply
         ?disabled=${props.actionBusy}
         @click=${() => props.onApplySetupAutofill?.()}
       >
@@ -1348,7 +1376,11 @@ function renderSetupRepairCard(
   evaluation: ReturnType<typeof setupEvaluationForDetail>,
   props: PccDashboardProps,
 ) {
-  if (evaluation.runnable) {
+  if (
+    evaluation.runnable ||
+    !props.projectDetail ||
+    projectIsTerminal(props.projectDetail.project)
+  ) {
     return nothing;
   }
   const issues = [
@@ -1377,10 +1409,21 @@ function renderSetupRepairCard(
       <button
         class="btn"
         type="button"
+        data-pcc-setup-repair-ai-fill
         ?disabled=${props.actionBusy}
         @click=${() => props.onPreviewSetupAutofill?.()}
       >
-        Generate setup with AI
+        Fill missing setup with AI
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-setup-repair-codex-planner
+        ?disabled=${props.actionBusy}
+        @click=${() =>
+          props.projectDetail && props.onOpenProjectEditor(props.projectDetail.project)}
+      >
+        Use Codex planner…
       </button>
       <button
         class="btn btn--subtle"
@@ -1392,6 +1435,10 @@ function renderSetupRepairCard(
         Edit manually
       </button>
     </div>
+    <p class="pcc-setup-repair__codex-note" data-pcc-setup-repair-codex-note>
+      Codex planning requires approval before token spend. Local AI autofill is the default safe
+      repair.
+    </p>
     ${renderAutofillPreview(props)}
   </section>`;
 }

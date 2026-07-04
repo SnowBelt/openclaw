@@ -80,6 +80,13 @@ export type PccAutofillPreview = {
   summary: string;
   milestoneUpdates: Array<{ id: string; title: string; fields: string[] }>;
   subMilestoneUpdates: Array<{ id: string; title: string; fields: string[] }>;
+  generatedMilestones?: Array<{ title: string; fields: string[]; subMilestoneTitles: string[] }>;
+  generatedSubMilestones?: Array<{
+    milestoneId: string;
+    milestoneTitle: string;
+    title: string;
+    fields: string[];
+  }>;
 };
 
 export type PccProjectFormState = {
@@ -209,6 +216,13 @@ const DEFAULT_COUNTS = {
   deferred: 0,
   skipped: 0,
 };
+
+const PCC_TERMINAL_STATUSES = new Set<PccStatus>([
+  "complete",
+  "complete_with_maintenance",
+  "skipped",
+  "archived",
+]);
 
 export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   id: null,
@@ -633,6 +647,127 @@ function buildSubMilestoneAutofillPatch(subMilestone: PccSubMilestone): SubMiles
   };
 }
 
+function activeMilestonesForSetup(detail: PccProjectDetail): PccMilestone[] {
+  return detail.milestones.filter((milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status));
+}
+
+function workflowDraftForSetup(detail: PccProjectDetail, previewGoal?: string) {
+  const existingWorkflow = metadataString(
+    metadataObject(detail.project.metadata).pccWorkflowTemplateId,
+    "",
+  );
+  const workflow = recommendPccWorkflow({
+    title: detail.project.title,
+    goal: previewGoal ?? autofillGoal(detail),
+    intakeAnswers: pccIntakeAnswersFromMetadata(detail.project.metadata),
+  });
+  return buildPccWorkflowDraft({
+    title: detail.project.title,
+    goal: previewGoal ?? autofillGoal(detail),
+    templateId: existingWorkflow || workflow.templateId,
+    priority: detail.project.priority,
+    planningMode: "local_project_manager",
+    codexPlanningAllowed: false,
+    remoteProofAllowed: false,
+    runtimeActionsAllowed: false,
+  });
+}
+
+function fallbackSubMilestonesFor(milestone: PccMilestone) {
+  return [
+    {
+      title: `Clarify ${milestone.title} result`,
+      status: "not_started" as PccStatus,
+      order: 1,
+      implementationPlan: `Write the exact expected result for ${milestone.title} and stop if the result is unclear.`,
+      acceptanceCriteria: [`${milestone.title} has a clear expected result.`],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        parallelSafe: true,
+      },
+    },
+    {
+      title: `Execute ${milestone.title} safely`,
+      status: "not_started" as PccStatus,
+      order: 2,
+      implementationPlan: `Execute ${milestone.title} using the parent milestone implementation plan. Stop on missing permission, proof, source, or tool access.`,
+      acceptanceCriteria: [`${milestone.title} has an observable result or exact blocker.`],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        parallelSafe: true,
+      },
+    },
+    {
+      title: `Record ${milestone.title} proof`,
+      status: "not_started" as PccStatus,
+      order: 3,
+      implementationPlan: `Record proof, remaining blockers, and a completion receipt candidate for ${milestone.title}.`,
+      acceptanceCriteria: [`${milestone.title} proof or blocker is recorded in PCC.`],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        parallelSafe: true,
+      },
+    },
+  ];
+}
+
+function generatedSubMilestoneDraftsFor(detail: PccProjectDetail, milestone: PccMilestone) {
+  const draft = workflowDraftForSetup(detail);
+  return (
+    draft.subMilestonesByMilestoneTitle[milestone.title] ?? fallbackSubMilestonesFor(milestone)
+  );
+}
+
+function generatedSubMilestonePreviews(detail: PccProjectDetail) {
+  const subMilestones = detail.subMilestones ?? [];
+  return activeMilestonesForSetup(detail)
+    .filter(
+      (milestone) =>
+        !subMilestones.some(
+          (subMilestone) =>
+            subMilestone.milestoneId === milestone.id &&
+            !PCC_TERMINAL_STATUSES.has(subMilestone.status),
+        ),
+    )
+    .flatMap((milestone) =>
+      generatedSubMilestoneDraftsFor(detail, milestone).map((subMilestone) => ({
+        milestoneId: milestone.id,
+        milestoneTitle: milestone.title,
+        title: subMilestone.title,
+        fields: [
+          "sub-milestone",
+          "implementation plan",
+          "acceptance criteria",
+          "owner",
+          "proof requirement",
+        ],
+      })),
+    );
+}
+
+function generatedMilestonePreviews(detail: PccProjectDetail, goal: string) {
+  if (activeMilestonesForSetup(detail).length > 0) {
+    return [];
+  }
+  const draft = workflowDraftForSetup(detail, goal);
+  return draft.milestones.map((milestone) => ({
+    title: milestone.title,
+    fields: [
+      "milestone",
+      "implementation plan",
+      "acceptance criteria",
+      "owner",
+      "proof requirement",
+    ],
+    subMilestoneTitles: (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []).map(
+      (subMilestone) => subMilestone.title,
+    ),
+  }));
+}
+
 export function buildPccSetupAutofillPreview(
   detail: PccProjectDetail,
   intakeApproved = false,
@@ -665,9 +800,10 @@ export function buildPccSetupAutofillPreview(
       title: patch.subMilestone.title,
       fields: patch.fields,
     }));
+  const goal = autofillGoal(detail);
   return {
     projectId: detail.project.id,
-    goal: autofillGoal(detail),
+    goal,
     intakeAnswers,
     intakeApproved,
     workflowTemplateId: workflow.templateId,
@@ -675,6 +811,8 @@ export function buildPccSetupAutofillPreview(
     summary: `PCC drafted missing setup for ${detail.project.title} from existing project context.`,
     milestoneUpdates,
     subMilestoneUpdates,
+    generatedMilestones: generatedMilestonePreviews(detail, goal),
+    generatedSubMilestones: generatedSubMilestonePreviews(detail),
   };
 }
 
@@ -1130,6 +1268,13 @@ export function previewPccSetupAutofill(state: PccDashboardState): void {
   state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, false);
   state.pccActionError = null;
   state.requestUpdate?.();
+  if (typeof document !== "undefined") {
+    setTimeout(() => {
+      const preview = document.querySelector<HTMLElement>("[data-pcc-autofill-preview]");
+      preview?.scrollIntoView({ block: "center", behavior: "smooth" });
+      preview?.focus({ preventScroll: true });
+    }, 0);
+  }
 }
 
 export function updatePccAutofillApproval(state: PccDashboardState, approved: boolean): void {
@@ -1200,6 +1345,83 @@ function applySubMilestoneAutofill(
   );
 }
 
+function generatedExistingSubMilestonesForApply(
+  detail: PccProjectDetail,
+): Array<Omit<PccSubMilestone, "id" | "createdAt" | "updatedAt">> {
+  const existingSubMilestones = detail.subMilestones ?? [];
+  return activeMilestonesForSetup(detail)
+    .filter(
+      (milestone) =>
+        !existingSubMilestones.some(
+          (subMilestone) =>
+            subMilestone.milestoneId === milestone.id &&
+            !PCC_TERMINAL_STATUSES.has(subMilestone.status),
+        ),
+    )
+    .flatMap((milestone) =>
+      generatedSubMilestoneDraftsFor(detail, milestone).map((subMilestone) =>
+        Object.assign({}, subMilestone, {
+          projectId: detail.project.id,
+          milestoneId: milestone.id,
+        }),
+      ),
+    );
+}
+
+function evaluationMilestonesWithGenerated(
+  detail: PccProjectDetail,
+  patchedMilestones: PccMilestone[],
+  preview: PccAutofillPreview,
+  now: string,
+): PccMilestone[] {
+  if (activeMilestonesForSetup(detail).length > 0) {
+    return patchedMilestones;
+  }
+  const draft = workflowDraftForSetup(detail, preview.goal);
+  return draft.milestones.map((milestone, index) =>
+    Object.assign({}, milestone, {
+      id: `preview-generated-milestone-${index}`,
+      projectId: detail.project.id,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  );
+}
+
+function evaluationSubMilestonesWithGenerated(
+  detail: PccProjectDetail,
+  patchedSubMilestones: PccSubMilestone[],
+  preview: PccAutofillPreview,
+  now: string,
+): PccSubMilestone[] {
+  const generatedExisting = generatedExistingSubMilestonesForApply(detail).map(
+    (subMilestone, index) =>
+      Object.assign({}, subMilestone, {
+        id: `preview-generated-submilestone-${index}`,
+        createdAt: now,
+        updatedAt: now,
+      }),
+  );
+  if (activeMilestonesForSetup(detail).length > 0) {
+    return [...patchedSubMilestones, ...generatedExisting];
+  }
+  const draft = workflowDraftForSetup(detail, preview.goal);
+  return [
+    ...patchedSubMilestones,
+    ...draft.milestones.flatMap((milestone, milestoneIndex) =>
+      (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []).map((subMilestone, subIndex) =>
+        Object.assign({}, subMilestone, {
+          id: `preview-generated-submilestone-${milestoneIndex}-${subIndex}`,
+          projectId: detail.project.id,
+          milestoneId: `preview-generated-milestone-${milestoneIndex}`,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ),
+    ),
+  ];
+}
+
 export async function applyPccSetupAutofill(state: PccDashboardState): Promise<void> {
   const detail = state.pccProjectDetail;
   if (!detail) {
@@ -1214,10 +1436,22 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
     const patchedMilestones = applyMilestoneAutofill(detail.milestones, preview);
     const patchedSubMilestones = applySubMilestoneAutofill(detail.subMilestones ?? [], preview);
     const projectBase = projectWithAutofill(detail, preview, now);
+    const evaluationMilestones = evaluationMilestonesWithGenerated(
+      detail,
+      patchedMilestones,
+      preview,
+      now,
+    );
+    const evaluationSubMilestones = evaluationSubMilestonesWithGenerated(
+      detail,
+      patchedSubMilestones,
+      preview,
+      now,
+    );
     const evaluation = evaluatePccProjectSetup({
       project: projectBase,
-      milestones: patchedMilestones,
-      subMilestones: patchedSubMilestones,
+      milestones: evaluationMilestones,
+      subMilestones: evaluationSubMilestones,
     });
     const projectForUpsert = withPccPhase2Metadata(projectBase, evaluation, now);
     await state.client.request("pcc.projects.upsert", {
@@ -1233,9 +1467,50 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
     )) {
       await state.client.request("pcc.subMilestones.upsert", { subMilestone });
     }
+    if (activeMilestonesForSetup(detail).length === 0) {
+      const draft = workflowDraftForSetup(detail, preview.goal);
+      for (const milestone of draft.milestones) {
+        const created = await state.client.request<{ milestone: PccMilestone }>(
+          "pcc.milestones.upsert",
+          { milestone: { ...milestone, projectId: detail.project.id } },
+        );
+        for (const subMilestone of draft.subMilestonesByMilestoneTitle[milestone.title] ?? []) {
+          await state.client.request("pcc.subMilestones.upsert", {
+            subMilestone: {
+              ...subMilestone,
+              projectId: detail.project.id,
+              milestoneId: created.milestone.id,
+            },
+          });
+        }
+      }
+    } else {
+      for (const subMilestone of generatedExistingSubMilestonesForApply(detail)) {
+        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+      }
+    }
     state.pccAutofillPreview = null;
     await loadPccDashboard(state);
     await selectPccProject(state, detail.project.id);
+    const refreshed = state.pccProjectDetail;
+    const refreshedEvaluation =
+      refreshed && refreshed.project.id === detail.project.id
+        ? evaluatePccProjectSetup({
+            project: refreshed.project,
+            milestones: refreshed.milestones,
+            subMilestones: refreshed.subMilestones ?? [],
+          })
+        : evaluation;
+    const remainingIssue =
+      refreshedEvaluation.missing[0] ??
+      refreshedEvaluation.violations[0] ??
+      refreshedEvaluation.needsReview[0];
+    setActionNotice(
+      state,
+      remainingIssue
+        ? `Setup repair applied. Review and approve intake before work starts. Remaining blocker: ${remainingIssue}`
+        : "Setup repair applied. Review and approve intake before work starts.",
+    );
   });
 }
 

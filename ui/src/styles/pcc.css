@@ -2632,6 +2632,18 @@
   line-height: 1.4;
 }
 
+.pcc-setup-repair__codex-note {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.pcc-autofill-preview:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline-offset: 3px;
+}
+
 .pcc-autofill-preview__changes {
   display: grid;
   gap: 8px;

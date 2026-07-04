@@ -1217,12 +1217,44 @@ describe("renderPccDashboard", () => {
       "[data-pcc-primary-action] button",
     );
     expect(primaryButton?.textContent).toContain("Generate setup with AI");
+    const setupRepairButton = container.querySelector<HTMLButtonElement>(
+      "[data-pcc-setup-repair-ai-fill]",
+    );
+    expect(setupRepairButton?.textContent).toContain("Fill missing setup with AI");
+    expect(container.querySelector("[data-pcc-setup-repair-codex-note]")?.textContent).toContain(
+      "Codex planning requires approval before token spend",
+    );
     expect(container.querySelector("[data-pcc-setup-repair-issues]")?.textContent).toContain(
       "Required intake answer missing",
     );
-    primaryButton?.click();
+    setupRepairButton?.click();
     expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
     expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("hides setup repair on terminal projects", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: {
+            ...project,
+            status: "archived",
+            goal: "",
+            metadata: {
+              pccIntake: { approved: false, answers: { goal: "" } },
+            },
+          },
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: { ...summary, status: "archived" },
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-setup-repair]")).toBeNull();
   });
 
   it("shows sub-milestone drill-down detail without cluttering simple mode", () => {
