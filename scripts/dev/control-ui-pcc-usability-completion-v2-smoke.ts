@@ -311,6 +311,7 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-action-notice]");
     requireSelector(root, "[data-pcc-proof-badge]");
     requireSelector(root, "[data-pcc-planner-model]");
+    requireSelector(root, "[data-pcc-model-refresh-status]");
     requireSelector(root, "[data-pcc-setup-repair]");
     requireSelector(root, '[data-pcc-milestone-id="action-reliability"] .pcc-drag-handle');
     requireSelector(root, '[data-pcc-submilestone-id="sub-action-notice"] .pcc-drag-handle');
@@ -322,7 +323,7 @@ async function main(): Promise<void> {
     requireText(text, "Stale Project");
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
-    requireText(text, "GPT-5.5 High Reasoning");
+    requireText(text, "No configured models from last refresh");
     requireText(text, "High-reasoning / Codex permission");
     requireText(text, "Setup needs a few answers");
     requireText(text, "Autofill answers with AI");
