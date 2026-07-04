@@ -31,11 +31,13 @@ import {
 } from "../../../../src/pcc/work-loop.js";
 import type {
   PccActionNotice,
+  PccAiRegenerateSection,
   PccAutofillPreview,
   PccDecisionFormState,
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
+  PccProjectEditMode,
   PccPlannerMode,
   PccProjectFilter,
   PccProjectFormState,
@@ -74,6 +76,7 @@ export type PccDashboardProps = {
   actionNotice?: PccActionNotice | null;
   projectFilter?: PccProjectFilter;
   projectSearchQuery?: string;
+  projectEditMode?: PccProjectEditMode;
   editorMode: PccEditorMode;
   projectForm: PccProjectFormState;
   milestoneForm: PccMilestoneFormState;
@@ -86,11 +89,15 @@ export type PccDashboardProps = {
   viewMode?: PccViewMode;
   modelCatalog?: ModelCatalogEntry[];
   modelsLoading?: boolean;
+  modelsLastRefreshedAt?: number | null;
+  modelsFallback?: boolean;
   onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
+  onSetProjectEditMode?: (mode: PccProjectEditMode) => void;
   onSetProjectFilter?: (filter: PccProjectFilter) => void;
   onSetProjectSearchQuery?: (query: string) => void;
   onDismissActionNotice?: () => void;
+  onUndoAction?: () => void;
   onRefresh: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenProjectEditor: (project?: PccProject) => void;
@@ -122,7 +129,9 @@ export type PccDashboardProps = {
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
   onPrepareNextWorkItem: () => void;
   onPreviewSetupAutofill?: () => void;
+  onPreviewSectionAutofill?: (section: PccAiRegenerateSection) => void;
   onApplySetupAutofill?: () => void;
+  onApproveSetupAutofill?: () => void;
   onDismissSetupAutofill?: () => void;
   onSetAutofillApproval?: (approved: boolean) => void;
   onChatSyncTextChange: (text: string) => void;
@@ -212,9 +221,16 @@ function plannerModelRefreshLabel(props: PccDashboardProps): string {
     return "Refreshing models…";
   }
   const count = props.modelCatalog?.length ?? 0;
+  const freshness = props.modelsLastRefreshedAt
+    ? new Date(props.modelsLastRefreshedAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "not refreshed in this session";
+  const fallback = props.modelsFallback ? " · using cached fallback" : "";
   return count > 0
-    ? `Last refresh: ${count} configured model${count === 1 ? "" : "s"}`
-    : "No configured models from last refresh";
+    ? `Last refresh: ${freshness} · ${count} configured model${count === 1 ? "" : "s"}${fallback}`
+    : `No configured models from last refresh (${freshness})`;
 }
 
 let draggedPccMilestoneId: string | null = null;
@@ -298,13 +314,23 @@ function confirmedRemoveNote(): string {
 }
 
 function armPccConfirmationButton(button: HTMLButtonElement, label: string): void {
+  resetPccConfirmationButton(button);
   button.dataset.pccConfirmArmed = "true";
   button.dataset.pccConfirmOriginalLabel = button.textContent?.trim() ?? "";
   button.textContent = label;
   button.classList.add("is-confirming");
+  const popover = document.createElement("span");
+  popover.className = "pcc-confirm-popover";
+  popover.dataset.pccConfirmPopover = "true";
+  popover.textContent = `${label} to continue.`;
+  button.insertAdjacentElement("afterend", popover);
 }
 
 function resetPccConfirmationButton(button: HTMLButtonElement): void {
+  const popover = button.nextElementSibling;
+  if (popover instanceof HTMLElement && popover.dataset.pccConfirmPopover === "true") {
+    popover.remove();
+  }
   const originalLabel = button.dataset.pccConfirmOriginalLabel;
   if (originalLabel) {
     button.textContent = originalLabel;
@@ -361,6 +387,11 @@ function togglePccActionMenu(event: Event): void {
   });
   menu.classList.toggle("is-open", nextOpen);
   trigger.setAttribute("aria-expanded", String(nextOpen));
+  if (nextOpen) {
+    menu
+      .querySelector<HTMLButtonElement>("[role='menuitem'], [role='menuitemcheckbox'] input")
+      ?.focus();
+  }
 }
 
 function closePccActionMenu(event: Event): void {
@@ -377,6 +408,36 @@ function closePccActionMenu(event: Event): void {
 function runPccMenuAction(event: Event, action: () => void): void {
   closePccActionMenu(event);
   action();
+}
+
+function handlePccActionMenuKeydown(event: KeyboardEvent): void {
+  const menu = event.currentTarget as HTMLElement;
+  const root = menu.closest<HTMLElement>(".pcc-action-menu");
+  const focusable = [
+    ...menu.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
+      "button:not(:disabled), input:not(:disabled)",
+    ),
+  ];
+  const currentIndex = focusable.findIndex((item) => item === document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    root?.classList.remove("is-open");
+    root
+      ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
+      ?.setAttribute("aria-expanded", "false");
+    root?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.focus();
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+    return;
+  }
+  event.preventDefault();
+  const direction = event.key === "ArrowDown" ? 1 : -1;
+  const nextIndex =
+    currentIndex < 0
+      ? 0
+      : (currentIndex + direction + focusable.length) % Math.max(focusable.length, 1);
+  focusable[nextIndex]?.focus();
 }
 
 function runPccConfirmedMenuAction(event: Event, confirmLabel: string, action: () => void): void {
@@ -1325,7 +1386,11 @@ const PCC_AI_REGENERATE_SECTIONS = [
   ["handoff", "Handoff packet"],
 ] as const;
 
-function runSectionAiRegenerate(props: PccDashboardProps): void {
+function runSectionAiRegenerate(props: PccDashboardProps, section: PccAiRegenerateSection): void {
+  if (projectFormContextDetail(props) && props.onPreviewSectionAutofill) {
+    props.onPreviewSectionAutofill?.(section);
+    return;
+  }
   if (canPreviewProjectIntakeAutofill(props)) {
     props.onPreviewSetupAutofill?.();
     return;
@@ -1353,7 +1418,7 @@ function renderSectionAiRegeneratePanel(props: PccDashboardProps) {
           type="button"
           data-pcc-section-ai-regenerate=${id}
           ?disabled=${props.actionBusy}
-          @click=${() => runSectionAiRegenerate(props)}
+          @click=${() => runSectionAiRegenerate(props, id)}
         >
           Regenerate ${label}
         </button>`,
@@ -1362,17 +1427,40 @@ function renderSectionAiRegeneratePanel(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderProjectEditModeTabs() {
+function renderProjectEditModeTabs(props: PccDashboardProps) {
+  const mode = props.projectEditMode ?? "simple";
   return html`<nav
     class="pcc-edit-mode-tabs"
     data-pcc-project-edit-modes
     aria-label="Project edit modes"
   >
-    <button class="btn btn--subtle" type="button" data-pcc-edit-mode="simple">Simple Edit</button>
-    <button class="btn btn--subtle" type="button" data-pcc-edit-mode="advanced">
+    <button
+      class=${mode === "simple" ? "btn" : "btn btn--subtle"}
+      type="button"
+      data-pcc-edit-mode="simple"
+      aria-pressed=${mode === "simple"}
+      @click=${() => props.onSetProjectEditMode?.("simple")}
+    >
+      Simple Edit
+    </button>
+    <button
+      class=${mode === "advanced" ? "btn" : "btn btn--subtle"}
+      type="button"
+      data-pcc-edit-mode="advanced"
+      aria-pressed=${mode === "advanced"}
+      @click=${() => props.onSetProjectEditMode?.("advanced")}
+    >
       Advanced Edit
     </button>
-    <button class="btn btn--subtle" type="button" data-pcc-edit-mode="ai">AI Edit</button>
+    <button
+      class=${mode === "ai" ? "btn" : "btn btn--subtle"}
+      type="button"
+      data-pcc-edit-mode="ai"
+      aria-pressed=${mode === "ai"}
+      @click=${() => props.onSetProjectEditMode?.("ai")}
+    >
+      AI Edit
+    </button>
   </nav>`;
 }
 
@@ -1395,7 +1483,17 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
     <div class="pcc-planner-permission__fields">
       <label>
         Scope
-        <select data-pcc-planner-permission-scope>
+        <select
+          data-pcc-planner-permission-scope
+          .value=${form.plannerPermissionScope}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({
+              plannerPermissionScope: (event.target as HTMLSelectElement).value as
+                | "plan"
+                | "project"
+                | "ask",
+            })}
+        >
           <option value="plan">This plan only</option>
           <option value="project">This project</option>
           <option value="ask">Ask every time</option>
@@ -1407,9 +1505,20 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
           data-pcc-planner-permission-budget
           type="text"
           placeholder="Example: $5 or 50k tokens"
+          .value=${form.plannerPermissionBudget}
+          @input=${(event: Event) =>
+            props.onProjectFormChange({
+              plannerPermissionBudget: (event.target as HTMLInputElement).value,
+            })}
         />
       </label>
     </div>
+    ${form.codexPlanningAllowed
+      ? html`<p data-pcc-planner-permission-saved>
+          Saved scope: ${formatStatus(form.plannerPermissionScope)} · Budget:
+          ${form.plannerPermissionBudget.trim() || "not specified"}
+        </p>`
+      : nothing}
     <div class="pcc-planner-permission__actions">
       <button
         class="btn"
@@ -1459,7 +1568,9 @@ function renderAutofillPreview(props: PccDashboardProps) {
         <h4>Review before applying</h4>
         <p>${preview.summary}</p>
       </div>
-      <span>${preview.workflowTitle}</span>
+      <span
+        >${preview.sectionTitle ? `Scoped: ${preview.sectionTitle}` : preview.workflowTitle}</span
+      >
     </div>
     <dl class="pcc-workflow-quality__facts">
       <div>
@@ -1485,6 +1596,10 @@ function renderAutofillPreview(props: PccDashboardProps) {
       <div>
         <dt>New sub-steps</dt>
         <dd>${generatedSubMilestones.length}</dd>
+      </div>
+      <div>
+        <dt>Scope</dt>
+        <dd>${preview.sectionTitle ?? "Full setup repair"}</dd>
       </div>
     </dl>
     <ul class="pcc-autofill-preview__changes">
@@ -1614,6 +1729,17 @@ function renderSetupRepairCard(
       >
         Edit manually
       </button>
+      ${issues.length === 1 && /approval|review/iu.test(issues[0]?.issue ?? "")
+        ? html`<button
+            class="btn btn--subtle"
+            type="button"
+            data-pcc-setup-approve
+            ?disabled=${props.actionBusy}
+            @click=${() => props.onApproveSetupAutofill?.()}
+          >
+            Approve setup
+          </button>`
+        : nothing}
     </div>
     <p class="pcc-setup-repair__codex-note" data-pcc-setup-repair-codex-note>
       Codex planning requires approval before token spend. Local AI autofill is the default safe
@@ -2985,20 +3111,29 @@ function renderTopPortfolioMetrics(
   const portfolio = props.portfolio;
   const needsAttentionCount =
     portfolio?.needsAttention ?? projects.filter(projectNeedsAttention).length;
+  const runningCount = projects.filter(
+    (project) => workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
+  ).length;
   return html`<section
     class="pcc-today__metrics"
     data-pcc-top-metrics
     aria-label="Portfolio metrics"
   >
-    ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
     ${renderMetric("Active", portfolio?.active ?? 0)}
-    ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
-    ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
-    ${renderMetric("Needs attention", needsAttentionCount)}
-    ${renderMetric(
-      "Average completion",
-      `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
-    )}
+    ${renderMetric("Needs attention", needsAttentionCount)} ${renderMetric("Running", runningCount)}
+    <details class="pcc-today__metrics-more" data-pcc-top-metrics-more>
+      <summary>More metrics</summary>
+      <div>
+        ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
+        ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
+        ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
+        ${renderMetric("Archived", portfolio?.archived ?? 0)}
+        ${renderMetric(
+          "Average completion",
+          `${clampPercent(portfolio?.averagePercentComplete ?? 0)}%`,
+        )}
+      </div>
+    </details>
   </section>`;
 }
 
@@ -3430,106 +3565,110 @@ function renderWorkLoopCard(props: PccDashboardProps) {
           ${prepareNeedsSetupRepair ? "Generate setup with AI" : "Prepare next safe task"}
         </button>
       </div>
-      <div class="pcc-work-loop__toggles">
-        <label>
-          <input
-            type="checkbox"
-            .checked=${settings.stopAfterCurrentTask}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                stopAfterCurrentTask: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Stop after current task
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${settings.stopAfterCurrentMilestone}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                stopAfterCurrentMilestone: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Stop after current milestone
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${settings.continueAroundBlockers}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                continueAroundBlockers: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Continue around blockers
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${settings.stopBeforeCodex}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                stopBeforeCodex: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Stop before Codex
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${settings.stopBeforeDestructiveAction}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                stopBeforeDestructiveAction: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Stop before destructive actions
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${settings.stopBeforeRemoteProof}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                stopBeforeRemoteProof: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Stop before remote proof
-        </label>
-      </div>
-      <div class="pcc-work-loop__parallel" data-pcc-work-lanes>
-        <label>
-          <span>Parallel Work</span>
-          <select
-            .value=${settings.parallelWorkMode}
-            @change=${(event: Event) =>
-              props.onUpdateWorkLoop({
-                parallelWorkMode: (event.target as HTMLSelectElement).value as PccParallelWorkMode,
-              })}
-          >
-            ${renderStringOptions(PARALLEL_WORK_OPTIONS, settings.parallelWorkMode)}
-          </select>
-        </label>
-        <div class="pcc-work-loop__lanes">
-          ${LANE_LABELS.map(
-            ([lane, label]) => html`<label>
-              <input
-                type="checkbox"
-                .checked=${settings.lanes[lane]}
-                @change=${(event: Event) =>
-                  props.onUpdateWorkLoop({
-                    lanes: {
-                      ...settings.lanes,
-                      [lane]: (event.target as HTMLInputElement).checked,
-                    },
-                  })}
-              />
-              ${label}
-            </label>`,
-          )}
+      <details class="pcc-safety-settings" data-pcc-safety-settings>
+        <summary>Safety settings</summary>
+        <div class="pcc-work-loop__toggles">
+          <label>
+            <input
+              type="checkbox"
+              .checked=${settings.stopAfterCurrentTask}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  stopAfterCurrentTask: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Stop after current task
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${settings.stopAfterCurrentMilestone}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  stopAfterCurrentMilestone: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Stop after current milestone
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${settings.continueAroundBlockers}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  continueAroundBlockers: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Continue around blockers
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${settings.stopBeforeCodex}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  stopBeforeCodex: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Stop before Codex
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${settings.stopBeforeDestructiveAction}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  stopBeforeDestructiveAction: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Stop before destructive actions
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${settings.stopBeforeRemoteProof}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  stopBeforeRemoteProof: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Stop before remote proof
+          </label>
         </div>
-      </div>
+        <div class="pcc-work-loop__parallel" data-pcc-work-lanes>
+          <label>
+            <span>Parallel Work</span>
+            <select
+              .value=${settings.parallelWorkMode}
+              @change=${(event: Event) =>
+                props.onUpdateWorkLoop({
+                  parallelWorkMode: (event.target as HTMLSelectElement)
+                    .value as PccParallelWorkMode,
+                })}
+            >
+              ${renderStringOptions(PARALLEL_WORK_OPTIONS, settings.parallelWorkMode)}
+            </select>
+          </label>
+          <div class="pcc-work-loop__lanes">
+            ${LANE_LABELS.map(
+              ([lane, label]) => html`<label>
+                <input
+                  type="checkbox"
+                  .checked=${settings.lanes[lane]}
+                  @change=${(event: Event) =>
+                    props.onUpdateWorkLoop({
+                      lanes: {
+                        ...settings.lanes,
+                        [lane]: (event.target as HTMLInputElement).checked,
+                      },
+                    })}
+                />
+                ${label}
+              </label>`,
+            )}
+          </div>
+        </div>
+      </details>
       <div class="pcc-work-loop__next">
         <span>Next</span>
         <strong>${nextTitle}</strong>
@@ -3780,6 +3919,12 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       <p class="pcc-kicker">Project Snapshot</p>
       <h3>${project.title}</h3>
     </div>
+    ${projectIsOnHold(project)
+      ? html`<div class="pcc-deferred-banner" data-pcc-deferred-project-banner>
+          <strong>Project-specific work is on hold</strong>
+          <span>This project is parked and is not counted as urgent PCC product work.</span>
+        </div>`
+      : nothing}
     <div class="pcc-project-snapshot__progress">
       <strong>${percent}%</strong>
       <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
@@ -3944,10 +4089,6 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                 class="pcc-journey-step pcc-journey-step--${journeyClass}"
                 data-pcc-journey-step
                 data-pcc-milestone-id=${milestone.id}
-                draggable="true"
-                @dragstart=${() => {
-                  draggedPccMilestoneId = milestone.id;
-                }}
                 @dragover=${(event: DragEvent) => event.preventDefault()}
                 @drop=${(event: DragEvent) => {
                   event.preventDefault();
@@ -3968,7 +4109,15 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                   <span
                     class="pcc-drag-handle"
                     data-pcc-drag-handle="milestone"
+                    draggable="true"
                     aria-label="Drag to reorder milestone"
+                    @dragstart=${(event: DragEvent) => {
+                      event.stopPropagation();
+                      draggedPccMilestoneId = milestone.id;
+                    }}
+                    @dragend=${() => {
+                      draggedPccMilestoneId = null;
+                    }}
                     >☰</span
                   >
                   ${globalIndex} ${renderMilestoneReorderControls(milestones, milestone, props)}
@@ -4077,10 +4226,29 @@ function renderProjectDetail(props: PccDashboardProps) {
       ${renderWorkLoopCard(props)}
       <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
         <summary>Details</summary>
-        ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
-        ${renderDecisionList(detail, props)} ${renderProjectReceiptsAndArtifacts(detail)}
-        ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
-        ${renderImpactDetailCards(detail, props)}
+        <div class="pcc-detail-tabs" data-pcc-detail-tabs>
+          <span>Plan</span>
+          <span>Proof</span>
+          <span>Decisions</span>
+          <span>Automation</span>
+          <span>Diagnostics</span>
+        </div>
+        <section data-pcc-detail-tab-panel="plan">
+          ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+          ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
+        </section>
+        <section data-pcc-detail-tab-panel="proof">
+          ${renderProjectReceiptsAndArtifacts(detail)}
+        </section>
+        <section data-pcc-detail-tab-panel="decisions">
+          ${renderDecisionList(detail, props)}
+        </section>
+        <section data-pcc-detail-tab-panel="automation">
+          ${mode === "agent" ? renderContextPackageCard(detail) : nothing}
+        </section>
+        <section data-pcc-detail-tab-panel="diagnostics">
+          ${mode === "simple" ? nothing : renderImpactDetailCards(detail, props)}
+        </section>
       </details>
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">
@@ -4248,7 +4416,12 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
     >
       •••
     </button>
-    <div class="pcc-action-menu__items" id=${menuId} role="menu">
+    <div
+      class="pcc-action-menu__items"
+      id=${menuId}
+      role="menu"
+      @keydown=${handlePccActionMenuKeydown}
+    >
       <button
         type="button"
         role="menuitem"
@@ -4345,7 +4518,12 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
     >
       •••
     </button>
-    <div class="pcc-action-menu__items" id=${menuId} role="menu">
+    <div
+      class="pcc-action-menu__items"
+      id=${menuId}
+      role="menu"
+      @keydown=${handlePccActionMenuKeydown}
+    >
       <button
         type="button"
         role="menuitem"
@@ -4427,10 +4605,6 @@ function renderSubMilestoneList(
         class="pcc-submilestone"
         data-pcc-submilestone
         data-pcc-submilestone-id=${subMilestone.id}
-        draggable="true"
-        @dragstart=${() => {
-          draggedPccSubMilestoneId = subMilestone.id;
-        }}
         @dragover=${(event: DragEvent) => event.preventDefault()}
         @drop=${(event: DragEvent) => {
           event.preventDefault();
@@ -4448,7 +4622,15 @@ function renderSubMilestoneList(
           <span
             class="pcc-drag-handle"
             data-pcc-drag-handle="submilestone"
+            draggable="true"
             aria-label="Drag to reorder sub-milestone"
+            @dragstart=${(event: DragEvent) => {
+              event.stopPropagation();
+              draggedPccSubMilestoneId = subMilestone.id;
+            }}
+            @dragend=${() => {
+              draggedPccSubMilestoneId = null;
+            }}
             >☰</span
           >
           ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}
@@ -4832,6 +5014,7 @@ function renderProjectEditor(props: PccDashboardProps) {
   const form = props.projectForm;
   const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
   const creating = props.editorMode === "create-project";
+  const editMode = props.projectEditMode ?? "simple";
   const projectSaveBlocked = creating
     ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
     : false;
@@ -4881,8 +5064,8 @@ function renderProjectEditor(props: PccDashboardProps) {
           ×
         </button>
       </header>
-      ${renderEditorActionError(props)} ${renderProjectEditModeTabs()}
-      ${renderSectionAiRegeneratePanel(props)}
+      ${renderEditorActionError(props)} ${renderProjectEditModeTabs(props)}
+      ${editMode === "ai" ? renderSectionAiRegeneratePanel(props) : nothing}
       ${creating
         ? html`<label class="pcc-editor__hero-field">
             Describe what you want to build
@@ -5001,63 +5184,72 @@ function renderProjectEditor(props: PccDashboardProps) {
           </button>
         </label>
       </div>
-      <div class="pcc-editor__grid">
-        <label>
-          Workflow template
-          <select
-            .value=${form.workflowTemplateId}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                workflowTemplateId: (event.target as HTMLSelectElement).value,
-              })}
-          >
-            ${PCC_WORKFLOW_TEMPLATES.map(
-              (template) => html`<option value=${template.id}>${template.title}</option>`,
-            )}
-          </select>
-        </label>
-        <label>
-          Status
-          <select
-            .value=${form.status}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                status: (event.target as HTMLSelectElement).value as PccStatus,
-              })}
-          >
-            ${renderStatusOptions(PROJECT_STATUSES)}
-          </select>
-        </label>
-      </div>
-      <details class="pcc-detail-drawer" ?open=${creating || needsAiDraft}>
+      ${editMode !== "simple" || creating
+        ? html`<div class="pcc-editor__grid" data-pcc-advanced-edit-fields>
+            <label>
+              Workflow template
+              <select
+                .value=${form.workflowTemplateId}
+                @change=${(event: Event) =>
+                  props.onProjectFormChange({
+                    workflowTemplateId: (event.target as HTMLSelectElement).value,
+                  })}
+              >
+                ${PCC_WORKFLOW_TEMPLATES.map(
+                  (template) => html`<option value=${template.id}>${template.title}</option>`,
+                )}
+              </select>
+            </label>
+            <label>
+              Status
+              <select
+                .value=${form.status}
+                @change=${(event: Event) =>
+                  props.onProjectFormChange({
+                    status: (event.target as HTMLSelectElement).value as PccStatus,
+                  })}
+              >
+                ${renderStatusOptions(PROJECT_STATUSES)}
+              </select>
+            </label>
+          </div>`
+        : nothing}
+      <details
+        class="pcc-detail-drawer"
+        data-pcc-advanced-intake
+        ?open=${creating || needsAiDraft || editMode === "advanced" || editMode === "ai"}
+      >
         <summary>Project intake answers · ${intakeSummary}</summary>
         ${renderProjectIntakeWizard(props)}
       </details>
-      ${renderGeneratedPlanPreview(props)} ${renderPlannerPermissionCard(props)}
-      <div class="pcc-intake-options" data-pcc-workflow-intake>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${form.remoteProofAllowed}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                remoteProofAllowed: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Allow remote proof when required
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            .checked=${form.runtimeActionsAllowed}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                runtimeActionsAllowed: (event.target as HTMLInputElement).checked,
-              })}
-          />
-          Allow local runtime actions
-        </label>
-      </div>
+      ${editMode === "ai" || creating ? renderGeneratedPlanPreview(props) : nothing}
+      ${renderPlannerPermissionCard(props)}
+      ${editMode !== "simple" || creating
+        ? html`<div class="pcc-intake-options" data-pcc-workflow-intake>
+            <label>
+              <input
+                type="checkbox"
+                .checked=${form.remoteProofAllowed}
+                @change=${(event: Event) =>
+                  props.onProjectFormChange({
+                    remoteProofAllowed: (event.target as HTMLInputElement).checked,
+                  })}
+              />
+              Allow remote proof when required
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                .checked=${form.runtimeActionsAllowed}
+                @change=${(event: Event) =>
+                  props.onProjectFormChange({
+                    runtimeActionsAllowed: (event.target as HTMLInputElement).checked,
+                  })}
+              />
+              Allow local runtime actions
+            </label>
+          </div>`
+        : nothing}
       ${projectSaveBlocked
         ? html`<p class="pcc-intake-wizard__missing" data-pcc-plan-preview-blocked>
             Complete intake approval and review the generated plan preview before creating the
@@ -5259,6 +5451,17 @@ function renderPccActionFeedback(props: PccDashboardProps) {
         <small>PCC reloaded the project after this change.</small>
       </div>
       <div class="pcc-callout__actions">
+        ${props.actionNotice.undoLabel && props.onUndoAction
+          ? html`<button
+              class="btn"
+              type="button"
+              data-pcc-action-undo
+              ?disabled=${props.loading}
+              @click=${() => props.onUndoAction?.()}
+            >
+              ${props.actionNotice.undoLabel}
+            </button>`
+          : nothing}
         <button
           class="btn btn--subtle"
           type="button"

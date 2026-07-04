@@ -228,8 +228,10 @@ import {
   type PccEditorMode,
   type PccMilestoneFormState,
   type PccProjectDetail,
+  type PccProjectEditMode,
   type PccProjectFilter,
   type PccProjectFormState,
+  type PccUndoAction,
   type PccViewMode,
 } from "./controllers/pcc.ts";
 import {
@@ -440,6 +442,8 @@ export class OpenClawApp extends LitElement {
   @state() chatModelSwitchPromises: Record<string, Promise<boolean>> = {};
   @state() chatModelsLoading = false;
   @state() chatModelCatalog: ModelCatalogEntry[] = [];
+  @state() chatModelCatalogRefreshedAt: number | null = null;
+  @state() chatModelCatalogFallback = false;
   @state() sessionSwitchNotice: { id: number; text: string } | null = null;
   @state() sessionSwitchFlashKey: string | null = null;
   @state() chatSessionPickerOpen = false;
@@ -464,6 +468,8 @@ export class OpenClawApp extends LitElement {
   @state() pccActionNotice: PccActionNotice | null = null;
   @state() pccProjectFilter: PccProjectFilter = "active";
   @state() pccProjectSearchQuery = "";
+  @state() pccProjectEditMode: PccProjectEditMode = "simple";
+  pccLastUndoAction: PccUndoAction | null = null;
   @state() pccEditorMode: PccEditorMode = null;
   @state() pccProjectForm: PccProjectFormState = { ...EMPTY_PCC_PROJECT_FORM };
   @state() pccMilestoneForm: PccMilestoneFormState = { ...EMPTY_PCC_MILESTONE_FORM };

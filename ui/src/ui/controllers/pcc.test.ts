@@ -4,6 +4,7 @@ import {
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
   addPccCompletionReceipt,
+  buildPccSectionAutofillPreview,
   applyPccSetupAutofill,
   buildPccSetupAutofillPreview,
   applyPccChatSyncProposal,
@@ -20,6 +21,7 @@ import {
   openPccProjectEditor,
   previewPccSetupAutofill,
   previewPccChatSync,
+  runPccUndoAction,
   savePccDecision,
   savePccMilestone,
   savePccProject,
@@ -34,6 +36,7 @@ import {
   updatePccChatSyncText,
   updatePccDecisionForm,
   updatePccViewMode,
+  updatePccProjectEditMode,
   updatePccProjectSearchQuery,
   type PccDashboardState,
 } from "./pcc.ts";
@@ -1245,6 +1248,8 @@ describe("PCC CRUD controller", () => {
         planningMode: "template_only",
         plannerMode: "local_model",
         plannerModelId: "",
+        plannerPermissionScope: "plan",
+        plannerPermissionBudget: "",
         planPreviewAccepted: true,
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
@@ -1899,5 +1904,143 @@ describe("PCC CRUD controller", () => {
 
     expect(state.pccViewMode).toBe("agent");
     expect(requestUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates PCC project edit mode", () => {
+    const requestUpdate = vi.fn();
+    const state = createState({ requestUpdate });
+
+    updatePccProjectEditMode(state, "advanced");
+
+    expect(state.pccProjectEditMode).toBe("advanced");
+    expect(requestUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds and applies scoped AI regenerate previews without broad milestone writes", async () => {
+    const detail = {
+      project: { ...project, goal: "" },
+      milestones: [milestone],
+      subMilestones: [subMilestone],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary,
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.upsert") {
+        return { project: { ...project, goal: "Track all projects" } };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return detail;
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+    });
+
+    state.pccAutofillPreview = buildPccSectionAutofillPreview(detail, "goal");
+    await applyPccSetupAutofill(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({
+          goal: expect.stringContaining("Project Command Center"),
+        }),
+      }),
+    );
+    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(false);
+    expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(
+      false,
+    );
+  });
+
+  it("blocks dependency-breaking milestone reorders", async () => {
+    const dependency = {
+      ...milestone,
+      id: "milestone-dependency",
+      title: "Prerequisite",
+      order: 1,
+    };
+    const dependent = {
+      ...milestone,
+      id: "milestone-dependent",
+      title: "Dependent",
+      order: 2,
+      dependsOn: ["milestone-dependency"],
+    };
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [dependency, dependent],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await movePccMilestoneBefore(state, dependent, dependency);
+
+    expect(state.pccActionError).toContain("Cannot move before dependency");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("stores undo actions for reversible milestone mutations", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: { ...milestone, status: "deferred" }, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [{ ...milestone, status: "deferred" }],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, milestone, "deferred");
+    expect(state.pccActionNotice?.undoLabel).toBe("Undo");
+    expect(state.pccLastUndoAction?.label).toContain("Restore CRUD UI");
+
+    request.mockClear();
+    await runPccUndoAction(state);
+    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", { milestone });
+    expect(state.pccLastUndoAction).toBeNull();
   });
 });

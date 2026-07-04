@@ -267,7 +267,7 @@
   align-items: start;
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1.58fr);
+  grid-template-columns: minmax(240px, 0.34fr) minmax(0, 1.66fr);
 }
 
 .pcc-projects {
@@ -792,6 +792,18 @@
   overflow: auto;
   white-space: pre-wrap;
   font-size: 0.82rem;
+}
+
+.pcc-safety-settings {
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-color) 88%, transparent);
+  padding: 10px 12px;
+}
+
+.pcc-safety-settings > summary {
+  cursor: pointer;
+  font-weight: 800;
 }
 
 .pcc-receipts {
@@ -1646,6 +1658,21 @@
   margin: 0 14px 14px;
 }
 
+.pcc-detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pcc-detail-tabs span {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 6px 10px;
+}
+
 .pcc-stop-here,
 .pcc-editor__check {
   align-items: center;
@@ -2326,6 +2353,19 @@
   margin: 0;
 }
 
+.pcc-deferred-banner {
+  background: color-mix(in srgb, #f59e0b 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, #f59e0b 32%, var(--border));
+  border-radius: 16px;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.pcc-deferred-banner span {
+  color: var(--muted);
+}
+
 .pcc-project-brief {
   background: color-mix(in srgb, var(--surface) 74%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
@@ -2882,6 +2922,25 @@
   margin-bottom: 14px;
 }
 
+.pcc-today__metrics-more {
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 94%, white);
+  padding: 12px;
+}
+
+.pcc-today__metrics-more summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.pcc-today__metrics-more > div {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin-top: 10px;
+}
+
 .pcc-today__metric {
   border: 1px solid var(--hairline);
   border-radius: 18px;
@@ -2933,15 +2992,20 @@
   user-select: none;
 }
 
-.pcc-journey-step[draggable="true"],
-.pcc-submilestone[draggable="true"] {
-  cursor: grab;
-}
-
-.pcc-journey-step[draggable="true"]:active,
-.pcc-submilestone[draggable="true"]:active,
 .pcc-drag-handle:active {
   cursor: grabbing;
+}
+
+.pcc-confirm-popover {
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 800;
+  margin-left: 6px;
+  padding: 4px 8px;
 }
 
 .pcc-reorder-controls {

@@ -252,6 +252,8 @@ async function main(): Promise<void> {
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
         plannerModelId: "openai:gpt-5.5-high-reasoning",
+        plannerPermissionScope: "plan",
+        plannerPermissionBudget: "",
         planPreviewAccepted: false,
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
@@ -279,6 +281,7 @@ async function main(): Promise<void> {
       chatSyncProposals: [],
       chatSyncError: null,
       viewMode: "detailed",
+      projectEditMode: "ai",
       modelCatalog: [
         {
           id: "gpt-5.5-high-reasoning",
@@ -289,8 +292,10 @@ async function main(): Promise<void> {
         { id: "gpt-5.5", name: "GPT-5.5 Standard", provider: "openai" },
       ],
       modelsLoading: false,
+      modelsLastRefreshedAt: Date.parse("2026-07-04T12:00:00Z"),
       onRefreshModelCatalog: () => calls.push("refresh-models"),
       onSetViewMode: () => undefined,
+      onSetProjectEditMode: (mode: string) => calls.push(`edit-mode:${mode}`),
       onRefresh: () => undefined,
       onSelectProject: (id: string) => calls.push(`select:${id}`),
       onSetProjectFilter: (filter: string) => calls.push(`filter:${filter}`),
@@ -327,6 +332,10 @@ async function main(): Promise<void> {
       onUpdateWorkLoop: () => undefined,
       onPrepareNextWorkItem: () => undefined,
       onPreviewSetupAutofill: () => calls.push("preview-autofill"),
+      onPreviewSectionAutofill: (section: string) => {
+        calls.push(`section:${section}`);
+        calls.push("preview-autofill");
+      },
       onApplySetupAutofill: () => calls.push("apply-autofill"),
       onDismissSetupAutofill: () => calls.push("cancel-autofill"),
       onSetAutofillApproval: () => calls.push("approve-autofill"),
@@ -383,7 +392,8 @@ async function main(): Promise<void> {
     requireText(text, "Simple Edit");
     requireText(text, "Advanced Edit");
     requireText(text, "AI Edit");
-    requireText(text, "Last refresh: 2 configured models");
+    requireText(text, "Last refresh:");
+    requireText(text, "2 configured models");
     if (text.includes("Allow selected Codex/high-reasoning planner for this plan")) {
       throw new Error(
         "PCC usability completion V3 smoke found duplicate high-reasoning checkbox copy",
@@ -439,7 +449,9 @@ async function main(): Promise<void> {
       root,
       '[data-pcc-milestone-id="journey-layout"]',
     ) as HTMLElement;
-    milestone.dispatchEvent(new dom.window.Event("dragstart", { bubbles: true }));
+    milestone
+      .querySelector<HTMLElement>('[data-pcc-drag-handle="milestone"]')
+      ?.dispatchEvent(new dom.window.Event("dragstart", { bubbles: true }));
     const milestoneTarget = requireSelector(
       root,
       '[data-pcc-milestone-id="action-reliability"]',
@@ -453,7 +465,9 @@ async function main(): Promise<void> {
       root,
       '[data-pcc-submilestone-id="sub-keyboard-reorder"]',
     ) as HTMLElement;
-    subMilestone.dispatchEvent(new dom.window.Event("dragstart", { bubbles: true }));
+    subMilestone
+      .querySelector<HTMLElement>('[data-pcc-drag-handle="submilestone"]')
+      ?.dispatchEvent(new dom.window.Event("dragstart", { bubbles: true }));
     const subMilestoneTarget = requireSelector(
       root,
       '[data-pcc-submilestone-id="sub-drag-handle"]',

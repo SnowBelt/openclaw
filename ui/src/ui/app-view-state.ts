@@ -50,8 +50,10 @@ import type {
   PccEditorMode,
   PccMilestoneFormState,
   PccProjectDetail,
+  PccProjectEditMode,
   PccProjectFilter,
   PccProjectFormState,
+  PccUndoAction,
   PccViewMode,
 } from "./controllers/pcc.ts";
 import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
@@ -194,6 +196,8 @@ export type AppViewState = {
   chatModelSwitchPromises: Record<string, Promise<boolean>>;
   chatModelsLoading: boolean;
   chatModelCatalog: ModelCatalogEntry[];
+  chatModelCatalogRefreshedAt?: number | null;
+  chatModelCatalogFallback?: boolean;
   sessionSwitchNotice: { id: number; text: string } | null;
   sessionSwitchFlashKey: string | null;
   chatSessionPickerOpen: boolean;
@@ -218,6 +222,8 @@ export type AppViewState = {
   pccActionNotice?: PccActionNotice | null;
   pccProjectFilter?: PccProjectFilter;
   pccProjectSearchQuery?: string;
+  pccProjectEditMode?: PccProjectEditMode;
+  pccLastUndoAction?: PccUndoAction | null;
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;

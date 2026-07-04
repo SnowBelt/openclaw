@@ -143,10 +143,13 @@ import {
   dismissPccSetupAutofill,
   dismissPccChatSync,
   dismissPccActionNotice,
+  approvePccSetupAutofill,
   loadPccDashboard,
   preparePccNextWorkItem,
+  previewPccSectionAutofill,
   previewPccSetupAutofill,
   previewPccChatSync,
+  runPccUndoAction,
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
   normalizePccProjectSequence,
@@ -172,6 +175,7 @@ import {
   updatePccProjectFilter,
   updatePccProjectSearchQuery,
   updatePccProjectForm,
+  updatePccProjectEditMode,
   updatePccViewMode,
 } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
@@ -2830,6 +2834,7 @@ export function renderApp(state: AppViewState) {
                 actionNotice: state.pccActionNotice,
                 projectFilter: state.pccProjectFilter,
                 projectSearchQuery: state.pccProjectSearchQuery,
+                projectEditMode: state.pccProjectEditMode,
                 editorMode: state.pccEditorMode,
                 projectForm: state.pccProjectForm,
                 milestoneForm: state.pccMilestoneForm,
@@ -2842,14 +2847,20 @@ export function renderApp(state: AppViewState) {
                 viewMode: state.pccViewMode,
                 modelCatalog: state.chatModelCatalog ?? [],
                 modelsLoading: state.chatModelsLoading,
+                modelsLastRefreshedAt: state.chatModelCatalogRefreshedAt,
+                modelsFallback: state.chatModelCatalogFallback,
                 onRefreshModelCatalog: () => {
                   if (!state.client) {
                     return;
                   }
+                  const previousCount = state.chatModelCatalog?.length ?? 0;
                   state.chatModelsLoading = true;
+                  state.chatModelCatalogFallback = false;
                   void loadModels(state.client)
                     .then((models) => {
                       state.chatModelCatalog = models;
+                      state.chatModelCatalogFallback = models.length === 0 && previousCount > 0;
+                      state.chatModelCatalogRefreshedAt = Date.now();
                     })
                     .finally(() => {
                       state.chatModelsLoading = false;
@@ -2857,9 +2868,11 @@ export function renderApp(state: AppViewState) {
                     });
                 },
                 onSetViewMode: (mode) => updatePccViewMode(state, mode),
+                onSetProjectEditMode: (mode) => updatePccProjectEditMode(state, mode),
                 onSetProjectFilter: (filter) => updatePccProjectFilter(state, filter),
                 onSetProjectSearchQuery: (query) => updatePccProjectSearchQuery(state, query),
                 onDismissActionNotice: () => dismissPccActionNotice(state),
+                onUndoAction: () => void runPccUndoAction(state),
                 onRefresh: () => void loadPccDashboard(state),
                 onSelectProject: (projectId) => void selectPccProject(state, projectId),
                 onOpenProjectEditor: (project) => openPccProjectEditor(state, project),
@@ -2895,7 +2908,9 @@ export function renderApp(state: AppViewState) {
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
                 onPreviewSetupAutofill: () => previewPccSetupAutofill(state),
+                onPreviewSectionAutofill: (section) => previewPccSectionAutofill(state, section),
                 onApplySetupAutofill: () => void applyPccSetupAutofill(state),
+                onApproveSetupAutofill: () => void approvePccSetupAutofill(state),
                 onDismissSetupAutofill: () => dismissPccSetupAutofill(state),
                 onSetAutofillApproval: (approved) => updatePccAutofillApproval(state, approved),
                 onChatSyncTextChange: (text) => updatePccChatSyncText(state, text),

@@ -55,6 +55,20 @@ export type PccEditorMode =
 
 export type PccViewMode = "simple" | "detailed" | "agent";
 
+export type PccProjectEditMode = "simple" | "advanced" | "ai";
+
+export type PccAiRegenerateSection =
+  | "goal"
+  | "intake"
+  | "workflow"
+  | "milestones"
+  | "submilestones"
+  | "criteria"
+  | "proof"
+  | "permissions"
+  | "blockers"
+  | "handoff";
+
 export type PccPlannerMode =
   | "best_available"
   | "local_project_manager"
@@ -68,6 +82,11 @@ export type PccActionNotice = {
   kind: "success" | "info";
   text: string;
   undoLabel?: string;
+};
+
+export type PccUndoAction = {
+  label: string;
+  run: () => Promise<void>;
 };
 
 export type PccAutofillPreview = {
@@ -87,6 +106,8 @@ export type PccAutofillPreview = {
     title: string;
     fields: string[];
   }>;
+  section?: PccAiRegenerateSection;
+  sectionTitle?: string;
 };
 
 export type PccProjectFormState = {
@@ -102,6 +123,8 @@ export type PccProjectFormState = {
   planningMode: PccPlanningMode;
   plannerMode: PccPlannerMode;
   plannerModelId: string;
+  plannerPermissionScope: "plan" | "project" | "ask";
+  plannerPermissionBudget: string;
   planPreviewAccepted: boolean;
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
@@ -153,6 +176,8 @@ export type PccDashboardState = {
   pccActionNotice?: PccActionNotice | null;
   pccProjectFilter?: PccProjectFilter;
   pccProjectSearchQuery?: string;
+  pccProjectEditMode?: PccProjectEditMode;
+  pccLastUndoAction?: PccUndoAction | null;
   pccEditorMode: PccEditorMode;
   pccProjectForm: PccProjectFormState;
   pccMilestoneForm: PccMilestoneFormState;
@@ -237,6 +262,8 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   planningMode: "local_project_manager",
   plannerMode: "best_available",
   plannerModelId: "",
+  plannerPermissionScope: "plan",
+  plannerPermissionBudget: "",
   planPreviewAccepted: false,
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
@@ -816,6 +843,47 @@ export function buildPccSetupAutofillPreview(
   };
 }
 
+function pccAiRegenerateSectionTitle(section: PccAiRegenerateSection): string {
+  return section
+    .split("_")
+    .join(" ")
+    .replace(/(^|\s)\S/gu, (value) => value.toLocaleUpperCase());
+}
+
+export function buildPccSectionAutofillPreview(
+  detail: PccProjectDetail,
+  section: PccAiRegenerateSection,
+  intakeApproved = false,
+): PccAutofillPreview {
+  const base = buildPccSetupAutofillPreview(detail, intakeApproved);
+  const sectionTitle = pccAiRegenerateSectionTitle(section);
+  const scoped = {
+    ...base,
+    section,
+    sectionTitle,
+    summary: `PCC drafted a scoped ${sectionTitle} update for ${detail.project.title}.`,
+  };
+  if (section === "goal" || section === "intake" || section === "workflow") {
+    return {
+      ...scoped,
+      milestoneUpdates: [],
+      subMilestoneUpdates: [],
+      generatedMilestones: [],
+      generatedSubMilestones: [],
+    };
+  }
+  if (section === "milestones") {
+    return { ...scoped, subMilestoneUpdates: [], generatedSubMilestones: [] };
+  }
+  if (section === "submilestones") {
+    return { ...scoped, milestoneUpdates: [], generatedMilestones: [] };
+  }
+  if (["criteria", "proof", "permissions", "blockers", "handoff"].includes(section)) {
+    return { ...scoped, generatedMilestones: [], generatedSubMilestones: [] };
+  }
+  return scoped;
+}
+
 function parseAcceptanceCriteria(value: string): string[] | undefined {
   const entries = value
     .split("\n")
@@ -919,6 +987,14 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
     plannerMode: metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
     plannerModelId: metadataString(metadata.pccPlannerModelId, ""),
+    plannerPermissionScope: metadataString(
+      metadataObject(metadata.pccPlannerPermission).scope,
+      "plan",
+    ) as "plan" | "project" | "ask",
+    plannerPermissionBudget: metadataString(
+      metadataObject(metadata.pccPlannerPermission).budget,
+      "",
+    ),
     planPreviewAccepted: true,
     codexPlanningAllowed: metadataBoolean(metadata.pccCodexPlanningAllowed, false),
     remoteProofAllowed: metadataBoolean(metadata.pccRemoteProofAllowed, false),
@@ -977,6 +1053,28 @@ function setActionError(state: PccDashboardState, err: unknown): void {
 
 function setActionNotice(state: PccDashboardState, text: string, undoLabel?: string): void {
   state.pccActionNotice = { kind: "success", text, ...(undoLabel ? { undoLabel } : {}) };
+}
+
+function clearPccUndo(state: PccDashboardState): void {
+  state.pccLastUndoAction = null;
+}
+
+function setPccUndo(state: PccDashboardState, label: string, run: () => Promise<void>): void {
+  state.pccLastUndoAction = { label, run };
+}
+
+export async function runPccUndoAction(state: PccDashboardState): Promise<void> {
+  const action = state.pccLastUndoAction;
+  if (!action) {
+    state.pccActionError = "No Project Command Center action is available to undo.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    await action.run();
+    clearPccUndo(state);
+    setActionNotice(state, `${action.label} undone.`);
+  });
 }
 
 function setupRepairMessage(evaluation: ReturnType<typeof evaluatePccProjectSetup>): string {
@@ -1097,6 +1195,7 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
 
 export function openPccProjectEditor(state: PccDashboardState, project?: PccProject): void {
   state.pccEditorMode = project ? "edit-project" : "create-project";
+  state.pccProjectEditMode = "simple";
   state.pccProjectForm = project ? projectFormFromProject(project) : { ...EMPTY_PCC_PROJECT_FORM };
   state.pccActionError = null;
   state.requestUpdate?.();
@@ -1123,6 +1222,11 @@ export function updatePccViewMode(state: PccDashboardState, mode: PccViewMode): 
   state.requestUpdate?.();
 }
 
+export function updatePccProjectEditMode(state: PccDashboardState, mode: PccProjectEditMode): void {
+  state.pccProjectEditMode = mode;
+  state.requestUpdate?.();
+}
+
 export function updatePccProjectFilter(state: PccDashboardState, filter: PccProjectFilter): void {
   state.pccProjectFilter = filter;
   state.requestUpdate?.();
@@ -1135,6 +1239,7 @@ export function updatePccProjectSearchQuery(state: PccDashboardState, query: str
 
 export function dismissPccActionNotice(state: PccDashboardState): void {
   state.pccActionNotice = null;
+  clearPccUndo(state);
   state.requestUpdate?.();
 }
 
@@ -1287,6 +1392,20 @@ export function previewPccSetupAutofill(state: PccDashboardState): void {
   }
 }
 
+export function previewPccSectionAutofill(
+  state: PccDashboardState,
+  section: PccAiRegenerateSection,
+): void {
+  if (!state.pccProjectDetail) {
+    state.pccActionError = "Select a project before using section AI regeneration.";
+    state.requestUpdate?.();
+    return;
+  }
+  state.pccAutofillPreview = buildPccSectionAutofillPreview(state.pccProjectDetail, section, false);
+  state.pccActionError = null;
+  state.requestUpdate?.();
+}
+
 export function updatePccAutofillApproval(state: PccDashboardState, approved: boolean): void {
   if (!state.pccProjectDetail) {
     return;
@@ -1308,27 +1427,39 @@ function projectWithAutofill(
 ): PccProject {
   const existingIntake = metadataObject(metadataObject(detail.project.metadata).pccIntake);
   const missingQuestionIds = pccMissingRequiredIntakeAnswers(preview.intakeAnswers);
+  const fullRepair = !preview.section;
+  const updateGoal = fullRepair || preview.section === "goal";
+  const updateWorkflow = fullRepair || preview.section === "workflow";
+  const updateIntake = fullRepair || preview.section === "intake";
   return {
     ...detail.project,
-    goal: preview.goal,
+    goal: updateGoal ? preview.goal : detail.project.goal,
     metadata: {
       ...metadataObject(detail.project.metadata),
-      pccWorkflowTemplateId: preview.workflowTemplateId,
-      pccWorkflowTemplateTitle: preview.workflowTitle,
+      ...(updateWorkflow
+        ? {
+            pccWorkflowTemplateId: preview.workflowTemplateId,
+            pccWorkflowTemplateTitle: preview.workflowTitle,
+          }
+        : {}),
       pccPlanPreviewAccepted: true,
       pccSetupAutofill: {
         summary: preview.summary,
         appliedAt: now,
         source: "local_project_manager",
       },
-      pccIntake: {
-        ...existingIntake,
-        answers: preview.intakeAnswers,
-        approved: preview.intakeApproved,
-        ...(preview.intakeApproved ? { approvedAt: now } : {}),
-        missingQuestionIds,
-        status: preview.intakeApproved ? "approved" : "needs_review",
-      },
+      ...(updateIntake
+        ? {
+            pccIntake: {
+              ...existingIntake,
+              answers: preview.intakeAnswers,
+              approved: preview.intakeApproved,
+              ...(preview.intakeApproved ? { approvedAt: now } : {}),
+              missingQuestionIds,
+              status: preview.intakeApproved ? "approved" : "needs_review",
+            },
+          }
+        : {}),
     },
   };
 }
@@ -1477,7 +1608,10 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
     )) {
       await state.client.request("pcc.subMilestones.upsert", { subMilestone });
     }
-    if (activeMilestonesForSetup(detail).length === 0) {
+    if (
+      activeMilestonesForSetup(detail).length === 0 &&
+      (!preview.section || preview.section === "milestones")
+    ) {
       const draft = workflowDraftForSetup(detail, preview.goal);
       for (const milestone of draft.milestones) {
         const created = await state.client.request<{ milestone: PccMilestone }>(
@@ -1494,7 +1628,7 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
           });
         }
       }
-    } else {
+    } else if (!preview.section || preview.section === "submilestones") {
       for (const subMilestone of generatedExistingSubMilestonesForApply(detail)) {
         await state.client.request("pcc.subMilestones.upsert", { subMilestone });
       }
@@ -1522,6 +1656,14 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
         : "Setup repair applied. Review and approve intake before work starts.",
     );
   });
+}
+
+export async function approvePccSetupAutofill(state: PccDashboardState): Promise<void> {
+  if (!state.pccProjectDetail) {
+    return;
+  }
+  state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, true);
+  await applyPccSetupAutofill(state);
 }
 
 export async function savePccProject(state: PccDashboardState): Promise<void> {
@@ -1610,6 +1752,11 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlanningMode: form.planningMode,
             pccPlannerMode: form.plannerMode,
             pccPlannerModelId: form.plannerModelId,
+            pccPlannerPermission: {
+              allowed: form.codexPlanningAllowed,
+              scope: form.plannerPermissionScope,
+              budget: form.plannerPermissionBudget,
+            },
             pccProjectDescription: form.projectDescription,
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
@@ -1631,6 +1778,11 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlanningMode: form.planningMode,
             pccPlannerMode: form.plannerMode,
             pccPlannerModelId: form.plannerModelId,
+            pccPlannerPermission: {
+              allowed: form.codexPlanningAllowed,
+              scope: form.plannerPermissionScope,
+              budget: form.plannerPermissionBudget,
+            },
             pccProjectDescription: form.projectDescription,
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
@@ -1858,39 +2010,55 @@ export async function setPccMilestoneStatus(
   status: PccStatus,
   note?: string,
 ): Promise<void> {
-  await withPccAction(
-    state,
-    async () => {
+  const previousMilestone = milestone;
+  const previousChildren = (state.pccProjectDetail?.subMilestones ?? []).filter(
+    (subMilestone) => subMilestone.milestoneId === milestone.id,
+  );
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
+    const milestoneUpdate = itemWithStatusMetadata(milestone, normalizedStatus, note);
+    await state.client.request("pcc.milestones.upsert", { milestone: milestoneUpdate });
+    if (
+      state.pccProjectDetail &&
+      (normalizedStatus === "skipped" ||
+        normalizedStatus === "archived" ||
+        normalizedStatus === "not_started")
+    ) {
+      const childStatus: PccStatus =
+        normalizedStatus === "not_started" ? "not_started" : normalizedStatus;
+      const childUpdates = (state.pccProjectDetail.subMilestones ?? []).filter(
+        (subMilestone) =>
+          subMilestone.milestoneId === milestone.id &&
+          !["complete", "complete_with_maintenance"].includes(subMilestone.status),
+      );
+      for (const subMilestone of childUpdates) {
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: itemWithStatusMetadata(subMilestone, childStatus, note),
+        });
+      }
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, milestone.projectId);
+    setPccUndo(state, `Restore ${milestone.title}`, async () => {
       if (!state.client) {
         return;
       }
-      const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
-      const milestoneUpdate = itemWithStatusMetadata(milestone, normalizedStatus, note);
-      await state.client.request("pcc.milestones.upsert", { milestone: milestoneUpdate });
-      if (
-        state.pccProjectDetail &&
-        (normalizedStatus === "skipped" ||
-          normalizedStatus === "archived" ||
-          normalizedStatus === "not_started")
-      ) {
-        const childStatus: PccStatus =
-          normalizedStatus === "not_started" ? "not_started" : normalizedStatus;
-        const childUpdates = (state.pccProjectDetail.subMilestones ?? []).filter(
-          (subMilestone) =>
-            subMilestone.milestoneId === milestone.id &&
-            !["complete", "complete_with_maintenance"].includes(subMilestone.status),
-        );
-        for (const subMilestone of childUpdates) {
-          await state.client.request("pcc.subMilestones.upsert", {
-            subMilestone: itemWithStatusMetadata(subMilestone, childStatus, note),
-          });
-        }
+      await state.client.request("pcc.milestones.upsert", { milestone: previousMilestone });
+      for (const subMilestone of previousChildren) {
+        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, milestone.projectId);
-    },
-    `Saved: ${milestone.title} is now ${status.replace(/_/gu, " ")}.`,
-  );
+    });
+    setActionNotice(
+      state,
+      `Saved: ${milestone.title} is now ${status.replace(/_/gu, " ")}.`,
+      "Undo",
+    );
+  });
 }
 
 export async function setPccSubMilestoneStatus(
@@ -1899,21 +2067,33 @@ export async function setPccSubMilestoneStatus(
   status: PccStatus,
   note?: string,
 ): Promise<void> {
-  await withPccAction(
-    state,
-    async () => {
+  const previousSubMilestone = subMilestone;
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
+    await state.client.request("pcc.subMilestones.upsert", {
+      subMilestone: itemWithStatusMetadata(subMilestone, normalizedStatus, note),
+    });
+    await loadPccDashboard(state);
+    await selectPccProject(state, subMilestone.projectId);
+    setPccUndo(state, `Restore ${subMilestone.title}`, async () => {
       if (!state.client) {
         return;
       }
-      const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
       await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: itemWithStatusMetadata(subMilestone, normalizedStatus, note),
+        subMilestone: previousSubMilestone,
       });
       await loadPccDashboard(state);
       await selectPccProject(state, subMilestone.projectId);
-    },
-    `Saved: ${subMilestone.title} is now ${status.replace(/_/gu, " ")}.`,
-  );
+    });
+    setActionNotice(
+      state,
+      `Saved: ${subMilestone.title} is now ${status.replace(/_/gu, " ")}.`,
+      "Undo",
+    );
+  });
 }
 
 function orderedMilestoneSequenceItems(detail: PccProjectDetail): PccMilestone[] {
@@ -1939,6 +2119,28 @@ function orderedSubMilestoneSequenceItems(
     );
 }
 
+function dependencyMoveBlocker(
+  orderedIds: readonly string[],
+  sourceId: string,
+  targetId: string,
+  dependsOn: readonly string[] | undefined,
+): string | null {
+  const nextIds = orderedIds.filter((id) => id !== sourceId);
+  const targetIndex = nextIds.indexOf(targetId);
+  if (targetIndex < 0) {
+    return "Target item was not found.";
+  }
+  nextIds.splice(targetIndex, 0, sourceId);
+  const sourceIndex = nextIds.indexOf(sourceId);
+  const blockingDependency = (dependsOn ?? []).find((id) => {
+    const dependencyIndex = nextIds.indexOf(id);
+    return dependencyIndex >= 0 && dependencyIndex > sourceIndex;
+  });
+  return blockingDependency
+    ? `Cannot move before dependency ${blockingDependency}. Reorder or remove the dependency first.`
+    : null;
+}
+
 export async function movePccMilestoneBefore(
   state: PccDashboardState,
   source: PccMilestone,
@@ -1951,36 +2153,55 @@ export async function movePccMilestoneBefore(
   if (!detail) {
     return;
   }
-  await withPccAction(
-    state,
-    async () => {
+  const dependencyBlocker = dependencyMoveBlocker(
+    orderedMilestoneSequenceItems(detail).map((item) => item.id),
+    source.id,
+    target.id,
+    source.dependsOn,
+  );
+  if (dependencyBlocker) {
+    state.pccActionError = dependencyBlocker;
+    state.requestUpdate?.();
+    return;
+  }
+  const previousMilestones = detail.milestones;
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const ordered = detail.milestones.filter((item) => item.id !== source.id);
+    const targetIndex = ordered.findIndex((item) => item.id === target.id);
+    if (targetIndex < 0) {
+      throw new Error("Target milestone was not found.");
+    }
+    ordered.splice(targetIndex, 0, source);
+    const changed = ordered
+      .map((milestone, index) => ({ milestone, nextOrder: (index + 1) * 10 }))
+      .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
+    for (const [index, { milestone }] of changed.entries()) {
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: { ...milestone, order: -1_000_000 - index },
+      });
+    }
+    for (const { milestone, nextOrder } of changed) {
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: { ...milestone, order: nextOrder },
+      });
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, source.projectId);
+    setPccUndo(state, `Restore milestone order`, async () => {
       if (!state.client) {
         return;
       }
-      const ordered = detail.milestones.filter((item) => item.id !== source.id);
-      const targetIndex = ordered.findIndex((item) => item.id === target.id);
-      if (targetIndex < 0) {
-        throw new Error("Target milestone was not found.");
-      }
-      ordered.splice(targetIndex, 0, source);
-      const changed = ordered
-        .map((milestone, index) => ({ milestone, nextOrder: (index + 1) * 10 }))
-        .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
-      for (const [index, { milestone }] of changed.entries()) {
-        await state.client.request("pcc.milestones.upsert", {
-          milestone: { ...milestone, order: -1_000_000 - index },
-        });
-      }
-      for (const { milestone, nextOrder } of changed) {
-        await state.client.request("pcc.milestones.upsert", {
-          milestone: { ...milestone, order: nextOrder },
-        });
+      for (const milestone of previousMilestones) {
+        await state.client.request("pcc.milestones.upsert", { milestone });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, source.projectId);
-    },
-    `Saved new milestone order for ${source.title}.`,
-  );
+    });
+    setActionNotice(state, `Saved new milestone order for ${source.title}.`, "Undo");
+  });
 }
 
 export async function movePccSubMilestoneBefore(
@@ -1999,38 +2220,62 @@ export async function movePccSubMilestoneBefore(
   if (!detail) {
     return;
   }
-  await withPccAction(
-    state,
-    async () => {
+  const siblingIds = orderedSubMilestoneSequenceItems(detail, source.milestoneId).map(
+    (item) => item.id,
+  );
+  const dependencyBlocker = dependencyMoveBlocker(
+    siblingIds,
+    source.id,
+    target.id,
+    source.dependsOn,
+  );
+  if (dependencyBlocker) {
+    state.pccActionError = dependencyBlocker;
+    state.requestUpdate?.();
+    return;
+  }
+  const previousSubMilestones = (detail.subMilestones ?? []).filter(
+    (item) => item.milestoneId === source.milestoneId,
+  );
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const siblings = (detail.subMilestones ?? [])
+      .filter((item) => item.milestoneId === source.milestoneId)
+      .filter((item) => item.id !== source.id);
+    const targetIndex = siblings.findIndex((item) => item.id === target.id);
+    if (targetIndex < 0) {
+      throw new Error("Target sub-milestone was not found.");
+    }
+    siblings.splice(targetIndex, 0, source);
+    const changed = siblings
+      .map((subMilestone, index) => ({ subMilestone, nextOrder: (index + 1) * 10 }))
+      .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder);
+    for (const [index, { subMilestone }] of changed.entries()) {
+      await state.client.request("pcc.subMilestones.upsert", {
+        subMilestone: { ...subMilestone, order: -1_000_000 - index },
+      });
+    }
+    for (const { subMilestone, nextOrder } of changed) {
+      await state.client.request("pcc.subMilestones.upsert", {
+        subMilestone: { ...subMilestone, order: nextOrder },
+      });
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, source.projectId);
+    setPccUndo(state, `Restore sub-step order`, async () => {
       if (!state.client) {
         return;
       }
-      const siblings = (detail.subMilestones ?? [])
-        .filter((item) => item.milestoneId === source.milestoneId)
-        .filter((item) => item.id !== source.id);
-      const targetIndex = siblings.findIndex((item) => item.id === target.id);
-      if (targetIndex < 0) {
-        throw new Error("Target sub-milestone was not found.");
-      }
-      siblings.splice(targetIndex, 0, source);
-      const changed = siblings
-        .map((subMilestone, index) => ({ subMilestone, nextOrder: (index + 1) * 10 }))
-        .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder);
-      for (const [index, { subMilestone }] of changed.entries()) {
-        await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: { ...subMilestone, order: -1_000_000 - index },
-        });
-      }
-      for (const { subMilestone, nextOrder } of changed) {
-        await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: { ...subMilestone, order: nextOrder },
-        });
+      for (const subMilestone of previousSubMilestones) {
+        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, source.projectId);
-    },
-    `Saved new sub-step order for ${source.title}.`,
-  );
+    });
+    setActionNotice(state, `Saved new sub-step order for ${source.title}.`, "Undo");
+  });
 }
 
 function validMilestoneDependencyIdsForDetail(detail: PccProjectDetail): Set<string> {

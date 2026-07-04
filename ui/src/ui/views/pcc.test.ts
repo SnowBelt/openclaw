@@ -2911,4 +2911,111 @@ describe("renderPccDashboard", () => {
     defer?.click();
     expect(onSetMilestoneStatus).toHaveBeenCalledWith(milestone, "deferred");
   });
+
+  it("renders audit-closure workspace controls without cluttering the default path", () => {
+    const onSetProjectEditMode = vi.fn();
+    const onPreviewSectionAutofill = vi.fn();
+    const onUndoAction = vi.fn();
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        editorMode: "edit-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          id: "project-1",
+          title: "Project Command Center",
+          goal: "Track every project",
+          plannerMode: "best_available",
+          plannerModelId: "best-available",
+          intakeAnswers,
+          intakeApproved: true,
+          planPreviewAccepted: true,
+        },
+        projectEditMode: "ai",
+        onSetProjectEditMode,
+        onPreviewSectionAutofill,
+        onUndoAction,
+        modelCatalog: [{ id: "gpt-5.5", name: "GPT-5.5", provider: "openai" }],
+        modelsLastRefreshedAt: Date.parse("2026-07-04T12:00:00Z"),
+        actionNotice: {
+          kind: "success",
+          text: "Saved new milestone order for Runtime proof.",
+          undoLabel: "Undo",
+        },
+        projectDetail: {
+          project: { ...project, status: "on_hold" as const },
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [decision],
+          summary: { ...summary, status: "on_hold" as const },
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-deferred-project-banner]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-detail-tabs]")?.textContent).toContain("Plan");
+    expect(container.querySelector("[data-pcc-detail-tabs]")?.textContent).toContain("Proof");
+    expect(container.querySelector("[data-pcc-safety-settings]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-action-undo]")).not.toBeNull();
+    container.querySelector<HTMLButtonElement>("[data-pcc-action-undo]")?.click();
+    expect(onUndoAction).toHaveBeenCalledTimes(1);
+
+    const advanced = container.querySelector<HTMLButtonElement>('[data-pcc-edit-mode="advanced"]');
+    advanced?.click();
+    expect(onSetProjectEditMode).toHaveBeenCalledWith("advanced");
+
+    const goalRegenerate = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-section-ai-regenerate="goal"]',
+    );
+    expect(goalRegenerate).not.toBeNull();
+    goalRegenerate?.click();
+    expect(onPreviewSectionAutofill).toHaveBeenCalledWith("goal");
+
+    const milestoneRow = container.querySelector<HTMLElement>("[data-pcc-journey-step]");
+    const milestoneHandle = container.querySelector<HTMLElement>(
+      '[data-pcc-drag-handle="milestone"]',
+    );
+    expect(milestoneRow?.getAttribute("draggable")).toBeNull();
+    expect(milestoneHandle?.getAttribute("draggable")).toBe("true");
+    expect(container.querySelector("[data-pcc-model-refresh-status]")?.textContent).toContain(
+      "Last refresh:",
+    );
+  });
+
+  it("shows confirmation popovers and supports keyboard dismissal for action menus", () => {
+    const onSetMilestoneStatus = vi.fn();
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        },
+        onSetMilestoneStatus,
+      }),
+    );
+
+    const milestoneMenu = container.querySelector<HTMLElement>("[data-pcc-action-menu]");
+    milestoneMenu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.click();
+    const skip = [...(milestoneMenu?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (button) => button.textContent?.includes("Skip"),
+    );
+    skip?.click();
+    expect(container.querySelector("[data-pcc-confirm-popover]")?.textContent).toContain(
+      "Confirm skip",
+    );
+    expect(onSetMilestoneStatus).not.toHaveBeenCalled();
+
+    milestoneMenu
+      ?.querySelector<HTMLElement>(".pcc-action-menu__items")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(milestoneMenu?.classList.contains("is-open")).toBe(false);
+  });
 });
