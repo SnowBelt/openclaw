@@ -766,8 +766,11 @@ function formatVerifiedAt(value: string): string {
 }
 
 function stringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value] : [];
+  }
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
     : [];
 }
 
@@ -1936,6 +1939,8 @@ function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) 
 function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[]) {
   const proofEvidenceIds = stringArray(receipt.proofEvidenceIds);
   const artifactRefs = stringArray(receipt.artifactRefs);
+  const doNotRedo = stringArray(receipt.doNotRedo);
+  const followUpGaps = stringArray(receipt.followUpGaps);
   const proofItems = evidence.filter((item) => proofEvidenceIds.includes(item.id));
   return html`
     <details class="pcc-receipt" data-pcc-receipt>
@@ -1980,19 +1985,19 @@ function renderReceiptCard(receipt: PccCompletionReceipt, evidence: PccEvidence[
             )}
           </ul>`
         : nothing}
-      ${receipt.doNotRedo?.length
+      ${doNotRedo.length
         ? html`<div class="pcc-receipt__note">
             <strong>Do not redo</strong>
             <ul>
-              ${receipt.doNotRedo.map((note) => html`<li>${note}</li>`)}
+              ${doNotRedo.map((note) => html`<li>${note}</li>`)}
             </ul>
           </div>`
         : nothing}
-      ${receipt.followUpGaps?.length
+      ${followUpGaps.length
         ? html`<div class="pcc-receipt__note">
             <strong>Follow-up gaps</strong>
             <ul>
-              ${receipt.followUpGaps.map((gap) => html`<li>${gap}</li>`)}
+              ${followUpGaps.map((gap) => html`<li>${gap}</li>`)}
             </ul>
           </div>`
         : nothing}

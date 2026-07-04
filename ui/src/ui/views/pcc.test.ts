@@ -1457,6 +1457,8 @@ describe("renderPccDashboard", () => {
       ...receipt,
       id: "legacy-receipt",
       proofEvidenceIds: undefined,
+      doNotRedo: "Do not repeat stale runtime proof.",
+      followUpGaps: "Refresh browser proof if runtime changes.",
     } as unknown as typeof receipt;
     const legacyDecision = {
       ...decision,
@@ -1490,6 +1492,12 @@ describe("renderPccDashboard", () => {
     expect(container.querySelectorAll("[data-pcc-last-known-good]")).toHaveLength(1);
     expect(container.querySelector("[data-pcc-receipt]")?.textContent).toMatch(
       /Evidence\s+0\s+items/,
+    );
+    expect(container.querySelector("[data-pcc-receipt]")?.textContent).toContain(
+      "Do not repeat stale runtime proof.",
+    );
+    expect(container.querySelector("[data-pcc-receipt]")?.textContent).toContain(
+      "Refresh browser proof if runtime changes.",
     );
     expect(container.textContent).toContain("Use receipt-gated completion");
   });
