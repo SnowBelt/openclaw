@@ -1970,6 +1970,27 @@ describe("renderPccDashboard", () => {
     expect(onRepairDuplicateTitles).toHaveBeenCalledTimes(1);
   });
 
+  it("renders portfolio work console as honest plan-only guidance, not dead controls", () => {
+    const container = renderView(createProps());
+    const console = container.querySelector("[data-pcc-portfolio-console]");
+    const mode = container.querySelector("[data-pcc-portfolio-plan-mode]");
+
+    expect(console).not.toBeNull();
+    expect(mode?.textContent).toContain("Plan only");
+    expect(mode?.getAttribute("role")).toBe("status");
+    expect(console?.textContent).toContain("No local-safe portfolio work is ready to start.");
+    expect(
+      [...(console?.querySelectorAll<HTMLButtonElement>("button") ?? [])].some((button) =>
+        button.textContent?.includes("Work Ready Projects"),
+      ),
+    ).toBe(false);
+    expect(
+      [...(console?.querySelectorAll<HTMLButtonElement>("button") ?? [])].some((button) =>
+        button.textContent?.includes("Pause All"),
+      ),
+    ).toBe(false);
+  });
+
   it("renders current truth, ready queue, sub-milestones, and work lanes", () => {
     const onUpdateWorkLoop = vi.fn();
     const container = renderView(

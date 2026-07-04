@@ -2931,9 +2931,15 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
       </div>
       <span>${schedule.ready.length} ready</span>
     </div>
-    <div class="pcc-portfolio-console__controls">
-      <button class="btn btn--subtle" type="button" disabled>Work Ready Projects</button>
-      <button class="btn btn--subtle" type="button" disabled>Pause All</button>
+    <div class="pcc-portfolio-console__controls" data-pcc-portfolio-plan-controls>
+      <div class="pcc-portfolio-console__mode" role="status" data-pcc-portfolio-plan-mode>
+        <strong>Plan only</strong>
+        <span>
+          ${schedule.ready.length
+            ? "Ready work exists. Open a project and use Work This Project to start supervised execution."
+            : "No local-safe portfolio work is ready to start."}
+        </span>
+      </div>
       <label
         ><span>Max parallel projects</span><input type="number" min="1" max="16" value="4" readonly
       /></label>

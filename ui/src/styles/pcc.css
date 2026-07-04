@@ -1686,7 +1686,7 @@
   align-items: center;
 }
 
-.pcc-portfolio-console__controls span,
+.pcc-portfolio-console__controls > span,
 .pcc-portfolio-console__controls label,
 .pcc-intake-options label {
   border: 1px solid var(--border-subtle);
@@ -1695,6 +1695,26 @@
   background: var(--surface-muted);
   color: var(--text-secondary);
   font-size: 0.85rem;
+}
+
+.pcc-portfolio-console__mode {
+  align-items: start;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  border-radius: 18px;
+  display: grid;
+  flex: 1 1 280px;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.pcc-portfolio-console__mode strong {
+  color: var(--text);
+}
+
+.pcc-portfolio-console__mode span {
+  color: var(--text-secondary);
+  font-size: 0.86rem;
 }
 
 .pcc-portfolio-console__controls input {
