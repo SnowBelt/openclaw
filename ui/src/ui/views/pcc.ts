@@ -2021,6 +2021,35 @@ function renderEvidenceSummary(evidence: PccEvidence[]) {
   </div>`;
 }
 
+function renderProjectReceiptsAndArtifacts(detail: PccProjectDetail) {
+  const receipts = detail.receipts ?? [];
+  const evidence = detail.evidence ?? [];
+  const artifactCount = receipts.reduce(
+    (total, receipt) => total + stringArray(receipt.artifactRefs).length,
+    0,
+  );
+  return html`<section class="pcc-project-receipts" data-pcc-project-receipts>
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Receipts & Artifacts</h4>
+        <p>Proof receipts, saved artifacts, and do-not-redo notes for this project.</p>
+      </div>
+      <span
+        >${receipts.length} receipt${receipts.length === 1 ? "" : "s"} · ${artifactCount}
+        artifact${artifactCount === 1 ? "" : "s"}</span
+      >
+    </div>
+    ${receipts.length
+      ? html`<div class="pcc-project-receipts__list">
+          ${receipts.map((receipt) => renderReceiptCard(receipt, evidence))}
+        </div>`
+      : html`<div class="pcc-empty pcc-empty--small">
+          No project receipts or artifacts recorded yet
+        </div>`}
+    ${renderEvidenceSummary(evidence)}
+  </section>`;
+}
+
 function renderMilestoneReceipts(milestone: PccMilestone, props: PccDashboardProps) {
   const evidence = evidenceForMilestone(props.projectDetail, milestone);
   const receipts = receiptsForMilestone(props.projectDetail, milestone);
@@ -3719,8 +3748,9 @@ function renderProjectDetail(props: PccDashboardProps) {
       <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
         <summary>Details</summary>
         ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
-        ${renderDecisionList(detail, props)} ${renderPhaseOverview(detail)}
-        ${renderWorkflowQualityCard(detail)} ${renderImpactDetailCards(detail, props)}
+        ${renderDecisionList(detail, props)} ${renderProjectReceiptsAndArtifacts(detail)}
+        ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
+        ${renderImpactDetailCards(detail, props)}
       </details>
       ${mode === "simple"
         ? html`<p class="pcc-simple-hint">

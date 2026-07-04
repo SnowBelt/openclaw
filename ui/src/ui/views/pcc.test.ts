@@ -1400,8 +1400,9 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelectorAll("[data-pcc-receipt]")).toHaveLength(1);
-    expect(container.querySelectorAll("[data-pcc-evidence-list]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-project-receipts]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-receipt]").length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelectorAll("[data-pcc-evidence-list]").length).toBeGreaterThanOrEqual(1);
     expect(container.querySelector("[data-pcc-receipt-artifacts]")?.textContent).toContain(
       "/tmp/openclaw-dashboard-pcc-proof.png",
     );
@@ -1415,6 +1416,40 @@ describe("renderPccDashboard", () => {
       button.textContent?.includes("Add receipt"),
     );
     expect(add?.disabled).toBe(true);
+  });
+
+  it("surfaces project-level receipts and artifact refs in the detail drawer", () => {
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [
+            {
+              ...receipt,
+              artifactRefs: ["/tmp/openclaw-dashboard-pcc-proof.png"],
+            },
+          ],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    const projectReceipts = container.querySelector("[data-pcc-project-receipts]");
+    expect(projectReceipts).not.toBeNull();
+    expect(projectReceipts?.textContent).toContain("Receipts & Artifacts");
+    expect(projectReceipts?.textContent).toContain("1 receipt");
+    expect(projectReceipts?.textContent?.replace(/\s+/g, " ")).toContain("1 artifact");
+    expect(projectReceipts?.textContent).toContain("/tmp/openclaw-dashboard-pcc-proof.png");
+    expect(projectReceipts?.querySelector("[data-pcc-receipt-artifacts]")?.textContent).toContain(
+      "Artifacts",
+    );
   });
 
   it("renders legacy receipt and evidence-link rows without crashing detail view", () => {
@@ -1449,7 +1484,8 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelectorAll("[data-pcc-receipt]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-project-receipts]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-receipt]").length).toBeGreaterThanOrEqual(1);
     expect(container.querySelectorAll("[data-pcc-decision]")).toHaveLength(1);
     expect(container.querySelectorAll("[data-pcc-last-known-good]")).toHaveLength(1);
     expect(container.querySelector("[data-pcc-receipt]")?.textContent).toMatch(
