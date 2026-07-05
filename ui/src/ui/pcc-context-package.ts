@@ -1,4 +1,5 @@
 // Project Command Center context packages provide deterministic handoff text for agents.
+import { pccProofLevelForItem, pccResponsibilityForItem } from "../../../src/pcc/metadata.js";
 import { getPccWorkLoopNext } from "../../../src/pcc/work-loop.js";
 import type { PccProjectDetail } from "./controllers/pcc.ts";
 import type {
@@ -104,10 +105,7 @@ function pushList(lines: string[], title: string, values: readonly string[], emp
 }
 
 function milestoneWorker(milestone: PccMilestone): string {
-  return metadataString(
-    metadataObject(milestone.metadata).pccResponsibility,
-    "local_openclaw_agent",
-  );
+  return pccResponsibilityForItem(milestone) || "local_openclaw_agent";
 }
 
 function milestoneCostRisk(milestone: PccMilestone): string {
@@ -163,7 +161,7 @@ function renderMilestoneBlock(
     lines.push("", "Sub-milestones:");
     for (const subMilestone of subMilestones) {
       lines.push(
-        `- ${subMilestone.title} — ${formatStatus(subMilestone.status)}; worker=${metadataString(metadataObject(subMilestone.metadata).pccResponsibility, subMilestone.owner || "local_openclaw_agent")}; proof=${metadataString(metadataObject(subMilestone.metadata).proofRequired, "not recorded")}`,
+        `- ${subMilestone.title} — ${formatStatus(subMilestone.status)}; worker=${pccResponsibilityForItem(subMilestone) || "local_openclaw_agent"}; proof=${pccProofLevelForItem(subMilestone) || metadataString(metadataObject(subMilestone.metadata).proofRequired, "not recorded")}`,
       );
       if (options.includeTaskPrompt) {
         lines.push(`  Plan: ${subMilestone.implementationPlan || "Missing implementation plan."}`);

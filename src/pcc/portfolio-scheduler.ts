@@ -4,6 +4,7 @@ import type {
   PccProject,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import { pccResponsibilityForItem } from "./metadata.js";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
@@ -92,7 +93,7 @@ function workItem(next: PccWorkLoopNext): PccMilestone | PccSubMilestone | null 
 }
 
 function laneFor(item: PccMilestone | PccSubMilestone | null): string {
-  return metadataString(metadata(item?.metadata).pccResponsibility) ?? "local_openclaw_agent";
+  return item ? pccResponsibilityForItem(item) || "local_openclaw_agent" : "local_openclaw_agent";
 }
 
 function workspaceLockFor(item: PccMilestone | PccSubMilestone | null): string | null {

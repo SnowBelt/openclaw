@@ -54,6 +54,7 @@ describe("listGatewayMethods", () => {
   it("advertises Project Command Center methods", () => {
     const methods = listGatewayMethods();
     expect(methods).toContain("pcc.projects.list");
+    expect(methods).toContain("pcc.ledger.repairCanonicalMetadata");
     expect(methods).toContain("pcc.projects.upsert");
     expect(methods).toContain("pcc.milestones.upsert");
     expect(methods).toContain("pcc.subMilestones.list");

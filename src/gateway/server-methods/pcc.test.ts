@@ -131,6 +131,141 @@ describe("Project Command Center gateway methods", () => {
     expect(milestonePayload.milestone.id).toMatch(/^milestone-/);
   });
 
+  it("canonicalizes future project work item metadata at gateway write time", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", { project: { title: "Future setup project" } }),
+    );
+
+    const milestonePayload = okPayload<{
+      milestone: {
+        id: string;
+        implementationPlan?: string;
+        acceptanceCriteria?: string[];
+        metadata?: Record<string, unknown>;
+      };
+    }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Legacy worker milestone",
+          status: "not_started",
+          metadata: { recommendedWorker: "local model/OpenClaw", proofRequired: "local_test" },
+        },
+      }),
+    );
+
+    expect(milestonePayload.milestone.metadata).toMatchObject({
+      recommendedWorker: "local model/OpenClaw",
+      pccResponsibility: "local_model",
+      pccProofLevel: "local",
+      pccCanonicalizedAt: expect.any(String),
+    });
+    expect(milestonePayload.milestone.implementationPlan).toContain("Legacy worker milestone");
+    expect(milestonePayload.milestone.acceptanceCriteria?.length).toBeGreaterThan(0);
+
+    const subPayload = okPayload<{
+      subMilestone: {
+        implementationPlan?: string;
+        acceptanceCriteria?: string[];
+        metadata?: Record<string, unknown>;
+      };
+    }>(
+      await invoke("pcc.subMilestones.upsert", {
+        subMilestone: {
+          projectId: project.id,
+          milestoneId: milestonePayload.milestone.id,
+          title: "Legacy worker sub-step",
+          status: "not_started",
+          metadata: { recommendedWorker: "High reasoning Codex", proofRequired: "manual_review" },
+        },
+      }),
+    );
+
+    expect(subPayload.subMilestone.metadata).toMatchObject({
+      pccResponsibility: "high_reasoning_codex",
+      pccProofLevel: "manual_review",
+      pccCanonicalizedAt: expect.any(String),
+    });
+    expect(subPayload.subMilestone.implementationPlan).toContain("Legacy worker sub-step");
+    expect(subPayload.subMilestone.acceptanceCriteria?.length).toBeGreaterThan(0);
+  });
+
+  it("repairs legacy active ledger work items without touching archived projects", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Repairable project", status: "on_hold" },
+      }),
+    );
+    const { project: archivedProject } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Archived project", status: "archived" },
+      }),
+    );
+    const ledgerPath = pccTesting.ledgerPath();
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      milestones: Array<Record<string, unknown>>;
+      subMilestones: Array<Record<string, unknown>>;
+    };
+    ledger.milestones.push({
+      id: "legacy-active-milestone",
+      projectId: project.id,
+      title: "Legacy active milestone",
+      status: "on_hold",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      metadata: { recommendedWorker: "OpenClaw local agent" },
+    });
+    ledger.subMilestones.push({
+      id: "legacy-active-sub",
+      projectId: project.id,
+      milestoneId: "legacy-active-milestone",
+      title: "Legacy active sub",
+      status: "on_hold",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      metadata: { recommendedWorker: "Codex" },
+    });
+    ledger.milestones.push({
+      id: "legacy-archived-milestone",
+      projectId: archivedProject.id,
+      title: "Legacy archived milestone",
+      status: "not_started",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      metadata: { recommendedWorker: "Codex" },
+    });
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const repair = okPayload<{
+      repairedMilestoneIds: string[];
+      repairedSubMilestoneIds: string[];
+    }>(await invoke("pcc.ledger.repairCanonicalMetadata", {}));
+
+    expect(repair.repairedMilestoneIds).toEqual(["legacy-active-milestone"]);
+    expect(repair.repairedSubMilestoneIds).toEqual(["legacy-active-sub"]);
+
+    const repairedLedger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      milestones: Array<{ id: string; metadata?: Record<string, unknown> }>;
+      subMilestones: Array<{ id: string; metadata?: Record<string, unknown> }>;
+    };
+    expect(
+      repairedLedger.milestones.find((item) => item.id === "legacy-active-milestone")?.metadata,
+    ).toMatchObject({ pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" });
+    expect(
+      repairedLedger.subMilestones.find((item) => item.id === "legacy-active-sub")?.metadata,
+    ).toMatchObject({ pccResponsibility: "codex", pccProofLevel: "local" });
+    expect(
+      repairedLedger.milestones.find((item) => item.id === "legacy-archived-milestone")?.metadata,
+    ).not.toHaveProperty("pccResponsibility");
+
+    const secondRepair = okPayload<{
+      repairedMilestoneIds: string[];
+      repairedSubMilestoneIds: string[];
+    }>(await invoke("pcc.ledger.repairCanonicalMetadata", {}));
+    expect(secondRepair.repairedMilestoneIds).toEqual([]);
+    expect(secondRepair.repairedSubMilestoneIds).toEqual([]);
+  });
+
   it("surfaces imported ledger integrity gaps in project summaries", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Imported broken project" } }),

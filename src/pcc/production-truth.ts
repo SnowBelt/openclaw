@@ -6,6 +6,7 @@ import type {
   PccProject,
   PccStatus,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import { pccResponsibilityForItem } from "./metadata.js";
 
 export const PCC_LATEST_VERIFIED_BRANCH = "codex/pcc-usability-completion-v2-20260702";
 export const PCC_LATEST_VERIFIED_SHA = "98723615c988f4ded568806d51b63f54412aa556";
@@ -82,7 +83,7 @@ function milestoneNeedsRemoteProof(milestone: PccMilestone): boolean {
   return (
     metadata.requiresRemoteProof === true ||
     metadata.pccProofLevel === "remote" ||
-    metadata.pccResponsibility === "remote_proof"
+    pccResponsibilityForItem(milestone) === "remote_proof"
   );
 }
 

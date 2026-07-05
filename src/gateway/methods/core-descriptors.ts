@@ -99,6 +99,7 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "tools.invoke", scope: "operator.write" },
   { name: "pcc.projects.list", scope: "operator.read" },
   { name: "pcc.projects.get", scope: "operator.read" },
+  { name: "pcc.ledger.repairCanonicalMetadata", scope: "operator.write" },
   { name: "pcc.projects.upsert", scope: "operator.write" },
   { name: "pcc.milestones.upsert", scope: "operator.write" },
   { name: "pcc.subMilestones.list", scope: "operator.read" },

@@ -31,6 +31,10 @@ import {
   validatePccReceiptsAddParams,
   validatePccSummaryGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import {
+  canonicalizePccWorkItemForWrite,
+  repairPccCanonicalWorkItems,
+} from "../../pcc/metadata.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 
 type PccLedger = {
@@ -1241,66 +1245,69 @@ function upsertMilestone(
   if (completeError) {
     return { error: completeError };
   }
-  const milestone: PccMilestone = {
-    id,
-    projectId: input.projectId,
-    title: input.title,
-    status,
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-    ...(input.phaseId !== undefined
-      ? { phaseId: input.phaseId }
-      : existing?.phaseId !== undefined
-        ? { phaseId: existing.phaseId }
-        : {}),
-    ...(input.owner !== undefined
-      ? { owner: input.owner }
-      : existing?.owner !== undefined
-        ? { owner: existing.owner }
-        : {}),
-    ...(order !== undefined ? { order } : {}),
-    ...(input.percentComplete !== undefined
-      ? { percentComplete: input.percentComplete }
-      : existing?.percentComplete !== undefined
-        ? { percentComplete: existing.percentComplete }
-        : {}),
-    ...(input.dependsOn !== undefined
-      ? { dependsOn: input.dependsOn }
-      : existing?.dependsOn !== undefined
-        ? { dependsOn: existing.dependsOn }
-        : {}),
-    ...(input.requiredEvidenceIds !== undefined
-      ? { requiredEvidenceIds: input.requiredEvidenceIds }
-      : existing?.requiredEvidenceIds !== undefined
-        ? { requiredEvidenceIds: existing.requiredEvidenceIds }
-        : {}),
-    ...(receiptIds !== undefined ? { receiptIds } : {}),
-    ...(input.permissionGrantIds !== undefined
-      ? { permissionGrantIds: input.permissionGrantIds }
-      : existing?.permissionGrantIds !== undefined
-        ? { permissionGrantIds: existing.permissionGrantIds }
-        : {}),
-    ...(input.blocker !== undefined
-      ? { blocker: input.blocker }
-      : existing?.blocker !== undefined
-        ? { blocker: existing.blocker }
-        : {}),
-    ...(input.implementationPlan !== undefined
-      ? { implementationPlan: input.implementationPlan }
-      : existing?.implementationPlan !== undefined
-        ? { implementationPlan: existing.implementationPlan }
-        : {}),
-    ...(input.acceptanceCriteria !== undefined
-      ? { acceptanceCriteria: input.acceptanceCriteria }
-      : existing?.acceptanceCriteria !== undefined
-        ? { acceptanceCriteria: existing.acceptanceCriteria }
-        : {}),
-    ...(input.metadata !== undefined
-      ? { metadata: input.metadata }
-      : existing?.metadata !== undefined
-        ? { metadata: existing.metadata }
-        : {}),
-  };
+  const milestone = canonicalizePccWorkItemForWrite<PccMilestone>(
+    {
+      id,
+      projectId: input.projectId,
+      title: input.title,
+      status,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      ...(input.phaseId !== undefined
+        ? { phaseId: input.phaseId }
+        : existing?.phaseId !== undefined
+          ? { phaseId: existing.phaseId }
+          : {}),
+      ...(input.owner !== undefined
+        ? { owner: input.owner }
+        : existing?.owner !== undefined
+          ? { owner: existing.owner }
+          : {}),
+      ...(order !== undefined ? { order } : {}),
+      ...(input.percentComplete !== undefined
+        ? { percentComplete: input.percentComplete }
+        : existing?.percentComplete !== undefined
+          ? { percentComplete: existing.percentComplete }
+          : {}),
+      ...(input.dependsOn !== undefined
+        ? { dependsOn: input.dependsOn }
+        : existing?.dependsOn !== undefined
+          ? { dependsOn: existing.dependsOn }
+          : {}),
+      ...(input.requiredEvidenceIds !== undefined
+        ? { requiredEvidenceIds: input.requiredEvidenceIds }
+        : existing?.requiredEvidenceIds !== undefined
+          ? { requiredEvidenceIds: existing.requiredEvidenceIds }
+          : {}),
+      ...(receiptIds !== undefined ? { receiptIds } : {}),
+      ...(input.permissionGrantIds !== undefined
+        ? { permissionGrantIds: input.permissionGrantIds }
+        : existing?.permissionGrantIds !== undefined
+          ? { permissionGrantIds: existing.permissionGrantIds }
+          : {}),
+      ...(input.blocker !== undefined
+        ? { blocker: input.blocker }
+        : existing?.blocker !== undefined
+          ? { blocker: existing.blocker }
+          : {}),
+      ...(input.implementationPlan !== undefined
+        ? { implementationPlan: input.implementationPlan }
+        : existing?.implementationPlan !== undefined
+          ? { implementationPlan: existing.implementationPlan }
+          : {}),
+      ...(input.acceptanceCriteria !== undefined
+        ? { acceptanceCriteria: input.acceptanceCriteria }
+        : existing?.acceptanceCriteria !== undefined
+          ? { acceptanceCriteria: existing.acceptanceCriteria }
+          : {}),
+      ...(input.metadata !== undefined
+        ? { metadata: input.metadata }
+        : existing?.metadata !== undefined
+          ? { metadata: existing.metadata }
+          : {}),
+    },
+    timestamp,
+  );
   return { milestone: setAt(ledger.milestones, milestone) };
 }
 
@@ -1399,60 +1406,107 @@ function upsertSubMilestone(
   if (completeError) {
     return { error: completeError };
   }
-  const subMilestone: PccSubMilestone = {
-    id,
-    projectId: input.projectId,
-    milestoneId: input.milestoneId,
-    title: input.title,
-    status,
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-    ...(order !== undefined ? { order } : {}),
-    ...(input.owner !== undefined
-      ? { owner: input.owner }
-      : existing?.owner !== undefined
-        ? { owner: existing.owner }
-        : {}),
-    ...(input.percentComplete !== undefined
-      ? { percentComplete: input.percentComplete }
-      : existing?.percentComplete !== undefined
-        ? { percentComplete: existing.percentComplete }
-        : {}),
-    ...(input.dependsOn !== undefined
-      ? { dependsOn: input.dependsOn }
-      : existing?.dependsOn !== undefined
-        ? { dependsOn: existing.dependsOn }
-        : {}),
-    ...(requiredEvidenceIds !== undefined ? { requiredEvidenceIds } : {}),
-    ...(receiptIds !== undefined ? { receiptIds } : {}),
-    ...(input.permissionGrantIds !== undefined
-      ? { permissionGrantIds: input.permissionGrantIds }
-      : existing?.permissionGrantIds !== undefined
-        ? { permissionGrantIds: existing.permissionGrantIds }
-        : {}),
-    ...(input.blocker !== undefined
-      ? { blocker: input.blocker }
-      : existing?.blocker !== undefined
-        ? { blocker: existing.blocker }
-        : {}),
-    ...(input.implementationPlan !== undefined
-      ? { implementationPlan: input.implementationPlan }
-      : existing?.implementationPlan !== undefined
-        ? { implementationPlan: existing.implementationPlan }
-        : {}),
-    ...(input.acceptanceCriteria !== undefined
-      ? { acceptanceCriteria: input.acceptanceCriteria }
-      : existing?.acceptanceCriteria !== undefined
-        ? { acceptanceCriteria: existing.acceptanceCriteria }
-        : {}),
-    ...(input.metadata !== undefined
-      ? { metadata: input.metadata }
-      : existing?.metadata !== undefined
-        ? { metadata: existing.metadata }
-        : {}),
-  };
+  const subMilestone = canonicalizePccWorkItemForWrite<PccSubMilestone>(
+    {
+      id,
+      projectId: input.projectId,
+      milestoneId: input.milestoneId,
+      title: input.title,
+      status,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      ...(order !== undefined ? { order } : {}),
+      ...(input.owner !== undefined
+        ? { owner: input.owner }
+        : existing?.owner !== undefined
+          ? { owner: existing.owner }
+          : {}),
+      ...(input.percentComplete !== undefined
+        ? { percentComplete: input.percentComplete }
+        : existing?.percentComplete !== undefined
+          ? { percentComplete: existing.percentComplete }
+          : {}),
+      ...(input.dependsOn !== undefined
+        ? { dependsOn: input.dependsOn }
+        : existing?.dependsOn !== undefined
+          ? { dependsOn: existing.dependsOn }
+          : {}),
+      ...(requiredEvidenceIds !== undefined ? { requiredEvidenceIds } : {}),
+      ...(receiptIds !== undefined ? { receiptIds } : {}),
+      ...(input.permissionGrantIds !== undefined
+        ? { permissionGrantIds: input.permissionGrantIds }
+        : existing?.permissionGrantIds !== undefined
+          ? { permissionGrantIds: existing.permissionGrantIds }
+          : {}),
+      ...(input.blocker !== undefined
+        ? { blocker: input.blocker }
+        : existing?.blocker !== undefined
+          ? { blocker: existing.blocker }
+          : {}),
+      ...(input.implementationPlan !== undefined
+        ? { implementationPlan: input.implementationPlan }
+        : existing?.implementationPlan !== undefined
+          ? { implementationPlan: existing.implementationPlan }
+          : {}),
+      ...(input.acceptanceCriteria !== undefined
+        ? { acceptanceCriteria: input.acceptanceCriteria }
+        : existing?.acceptanceCriteria !== undefined
+          ? { acceptanceCriteria: existing.acceptanceCriteria }
+          : {}),
+      ...(input.metadata !== undefined
+        ? { metadata: input.metadata }
+        : existing?.metadata !== undefined
+          ? { metadata: existing.metadata }
+          : {}),
+    },
+    timestamp,
+  );
   setAt(ledger.subMilestones, subMilestone);
   return { subMilestone, milestone };
+}
+
+function repairCanonicalMetadataForLedger(
+  ledger: PccLedger,
+  params: Record<string, unknown>,
+): {
+  repairedMilestoneIds: string[];
+  repairedSubMilestoneIds: string[];
+  projectIds: string[];
+} {
+  const projectId = typeof params.projectId === "string" ? params.projectId : undefined;
+  const includeTerminal = params.includeTerminal === true;
+  const eligibleProjectIds = new Set(
+    ledger.projects
+      .filter((project) => !projectId || project.id === projectId)
+      .filter((project) => includeTerminal || !PROJECT_TERMINAL_STATUSES.has(project.status))
+      .map((project) => project.id),
+  );
+  const now = nowIso();
+  const milestoneRepair = repairPccCanonicalWorkItems(
+    ledger.milestones.filter((milestone) => eligibleProjectIds.has(milestone.projectId)),
+    now,
+  );
+  const subMilestoneRepair = repairPccCanonicalWorkItems(
+    ledger.subMilestones.filter((subMilestone) => eligibleProjectIds.has(subMilestone.projectId)),
+    now,
+  );
+  const repairedMilestones = new Map(
+    milestoneRepair.items.map((milestone) => [milestone.id, milestone]),
+  );
+  const repairedSubMilestones = new Map(
+    subMilestoneRepair.items.map((subMilestone) => [subMilestone.id, subMilestone]),
+  );
+  ledger.milestones = ledger.milestones.map(
+    (milestone) => repairedMilestones.get(milestone.id) ?? milestone,
+  );
+  ledger.subMilestones = ledger.subMilestones.map(
+    (subMilestone) => repairedSubMilestones.get(subMilestone.id) ?? subMilestone,
+  );
+  return {
+    repairedMilestoneIds: milestoneRepair.repairedIds,
+    repairedSubMilestoneIds: subMilestoneRepair.repairedIds,
+    projectIds: [...eligibleProjectIds],
+  };
 }
 
 function screenshotPathFromEvidence(evidence: readonly PccEvidence[]): string | undefined {
@@ -1532,6 +1586,16 @@ export const pccHandlers: GatewayRequestHandlers = {
         return;
       }
       respond(true, responseForProject(ledger, project));
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.ledger.repairCanonicalMetadata": ({ params, respond }) => {
+    try {
+      const result = withLedger((ledger) => repairCanonicalMetadataForLedger(ledger, params), {
+        write: true,
+      });
+      respond(true, result);
     } catch (error) {
       respondUnhandled(respond, error);
     }

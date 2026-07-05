@@ -10,6 +10,7 @@ import type {
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import { evaluatePccProjectSetup } from "./intake-quality.js";
+import { pccResponsibilityForItem } from "./metadata.js";
 import { getPccWorkLoopNext } from "./work-loop.js";
 
 export type PccImpactDetailInput = {
@@ -121,13 +122,7 @@ function metadataString(record: Record<string, unknown>, key: string): string | 
 }
 
 function responsibilityFor(item: { owner?: string; metadata?: Record<string, unknown> }): string {
-  const metadata = metadataRecord(item.metadata);
-  return (
-    metadataString(metadata, "pccResponsibility") ??
-    metadataString(metadata, "recommendedLane") ??
-    item.owner ??
-    "local_openclaw_agent"
-  );
+  return pccResponsibilityForItem(item as PccMilestone | PccSubMilestone) || "local_openclaw_agent";
 }
 
 function proofRequiredFor(item: {
