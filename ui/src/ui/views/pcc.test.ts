@@ -267,15 +267,13 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-outcome-metrics]")?.textContent).toContain(
       "User understands next action in under 5 seconds.",
     );
-    expect(text).toContain("Health: Needs approval");
-    expect(text).toContain("Priority: 3");
+    expect(text).toContain("Needs attention");
     expect(container.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
       "Blocked by: Run remote proof",
     );
-    expect(text).toContain("Due:");
-    expect(container.querySelector("[data-pcc-project-card-activity]")?.textContent).toContain(
-      "Recent: Milestone updated: CRUD UI",
-    );
+    expect(
+      container.querySelector("[data-pcc-project-card-skim-facts]")?.textContent,
+    ).not.toContain("Due:");
     expect(container.querySelector("[data-pcc-project-orientation]")?.textContent).toContain(
       "Project Command Center",
     );
@@ -1249,19 +1247,19 @@ describe("renderPccDashboard", () => {
       container.querySelector("[data-pcc-project-card-skim-facts]")?.textContent ?? "";
     const sequence = container.querySelector("[data-pcc-project-card-sequence]")?.textContent ?? "";
     const blocker = container.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
-    const activity = container.querySelector("[data-pcc-project-card-activity]")?.textContent ?? "";
 
     expect(skimFacts).toContain("2/5 milestones");
-    expect(skimFacts).toContain("Health: Needs approval");
-    expect(skimFacts).toContain("Priority:");
-    expect(skimFacts).toContain("Due:");
+    expect(skimFacts).toContain("Needs attention");
     expect(skimFacts).toContain("Work:");
+    expect(skimFacts).not.toContain("Health:");
+    expect(skimFacts).not.toContain("Priority:");
+    expect(skimFacts).not.toContain("Due:");
     expect(skimFacts).not.toContain("Activity:");
     expect(skimFacts).not.toContain("Outcomes:");
     expect(sequence).toContain("Current: CRUD UI");
     expect(sequence).toContain("Next:");
     expect(blocker).toContain("Blocked by:");
-    expect(activity).toContain("Recent:");
+    expect(container.querySelector("[data-pcc-project-card-activity]")).toBeNull();
   });
 
   it("shows maintenance work state for complete-with-maintenance projects instead of fake current work", () => {
@@ -1369,7 +1367,7 @@ describe("renderPccDashboard", () => {
     const primaryButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-primary-action] button",
     );
-    expect(primaryButton?.textContent).toContain("Generate setup with AI");
+    expect(primaryButton?.textContent).toContain("Fix Setup with AI");
     const setupRepairButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-setup-repair-ai-fill]",
     );

@@ -311,7 +311,7 @@ async function main(): Promise<void> {
     ]) {
       requireText(simpleText, label);
     }
-    for (const label of ["Step 1 of 2", "Primary action", "Continue Project"]) {
+    for (const label of ["Step 1 of 2", "Do this next", "Work This Project"]) {
       requireText(simpleText, label);
     }
     requireSelector(root, "[data-pcc-today]");
