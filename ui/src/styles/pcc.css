@@ -1559,19 +1559,21 @@
   display: grid;
   gap: 8px;
   padding: 0;
-  position: sticky;
-  top: 0;
-  z-index: 11;
-  backdrop-filter: blur(18px);
+  position: relative;
+  z-index: 4;
 }
 
 .pcc-today__bar {
   align-items: center;
+  backdrop-filter: blur(18px);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto;
-  min-height: 52px;
-  padding: 8px 12px;
+  grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
+  min-height: 44px;
+  padding: 6px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 11;
 }
 
 .pcc-today__bar-title {
@@ -1651,6 +1653,8 @@
 .pcc-today__overview-body {
   display: grid;
   gap: 14px;
+  max-height: min(55vh, 520px);
+  overflow: auto;
   padding: 14px;
 }
 

@@ -499,11 +499,20 @@ function projectCanBeNextBestAction(project: PccProjectSummary): boolean {
   return !projectIsDeferredOutOfUrgent(project) && !projectIsTerminalForWork(project);
 }
 
-function projectIsExcludedFromTodayFocus(project: PccProjectSummary): boolean {
+function projectIsExcludedFromTodayFocus(
+  project: PccProjectSummary,
+  detail?: PccProjectDetail,
+): boolean {
+  const metadata = metadataObject(detail?.project.metadata);
   const text = [
     project.recentActivity ?? "",
     ...(project.nextActions ?? []),
     ...(project.proofGaps ?? []),
+    metadataString(metadata.pccCurrentScope, ""),
+    metadataString(metadata.pccProductScope, ""),
+    metadata.excludedFromPccProductCompletion === true
+      ? "excluded from pcc product completion"
+      : "",
   ]
     .join(" ")
     .toLocaleLowerCase();
@@ -511,6 +520,16 @@ function projectIsExcludedFromTodayFocus(project: PccProjectSummary): boolean {
     /removed from current working scope|focus is pcc only|excluded from pcc product completion|project-specific .*current working scope/u.test(
       text,
     ) || projectIsDeferredOutOfUrgent(project)
+  );
+}
+
+function projectDetailForSummary(
+  props: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
+  project: PccProjectSummary,
+): PccProjectDetail | undefined {
+  return (
+    props.projectDetails?.[project.id] ??
+    (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined)
   );
 }
 
@@ -522,18 +541,33 @@ function runningProjectsForToday(props: PccDashboardProps): PccProjectSummary[] 
   return props.projects.filter(
     (project) =>
       workStateForProject(project, props.projectDetails?.[project.id]) === "Working" &&
-      !projectIsExcludedFromTodayFocus(project),
+      !projectIsExcludedFromTodayFocus(project, props.projectDetails?.[project.id]),
   );
 }
 
-function focusedAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
+function focusedAttentionProjects(
+  projects: readonly PccProjectSummary[],
+  props?: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
+): PccProjectSummary[] {
   return getAttentionProjects(projects).filter(
-    (project) => !projectIsExcludedFromTodayFocus(project),
+    (project) =>
+      !projectIsExcludedFromTodayFocus(
+        project,
+        props ? projectDetailForSummary(props, project) : undefined,
+      ),
   );
 }
 
-function deferredAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
-  return getAttentionProjects(projects).filter(projectIsExcludedFromTodayFocus);
+function deferredAttentionProjects(
+  projects: readonly PccProjectSummary[],
+  props?: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
+): PccProjectSummary[] {
+  return getAttentionProjects(projects).filter((project) =>
+    projectIsExcludedFromTodayFocus(
+      project,
+      props ? projectDetailForSummary(props, project) : undefined,
+    ),
+  );
 }
 
 function compactSignalText(value: string, max = 130): string {
@@ -3295,17 +3329,17 @@ function renderTodayProjectSignal(
 function renderTodayView(props: PccDashboardProps) {
   const portfolio = props.portfolio;
   const runningProjects = runningProjectsForToday(props);
-  const attentionProjects = focusedAttentionProjects(props.projects);
-  const deferredProjects = deferredAttentionProjects(props.projects);
+  const attentionProjects = focusedAttentionProjects(props.projects, props);
+  const deferredProjects = deferredAttentionProjects(props.projects, props);
   const blocked = props.projects.find(
     (project) =>
-      !projectIsExcludedFromTodayFocus(project) &&
+      !projectIsExcludedFromTodayFocus(project, props.projectDetails?.[project.id]) &&
       projectCanBeNextBestAction(project) &&
       (project.status === "blocked" || project.milestoneCounts.blocked > 0),
   );
   const ready = props.projects.find(
     (project) =>
-      !projectIsExcludedFromTodayFocus(project) &&
+      !projectIsExcludedFromTodayFocus(project, props.projectDetails?.[project.id]) &&
       projectCanBeNextBestAction(project) &&
       project.nextActions.length > 0 &&
       project.status !== "blocked",
@@ -4345,6 +4379,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
   const current = currentMilestoneForDetail(detail);
   const milestones = sortedMilestones(detail);
   const mode = pccViewMode(props);
+  const canReorder = !projectIsTerminalForWork(detail.project);
   const phaseGroups: Array<{ title: string; milestones: PccMilestone[] }> = [];
   for (const milestone of milestones) {
     const title = phaseTitleForMilestone(detail, milestone);
@@ -4409,26 +4444,28 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                   ${globalIndex}
                 </div>
                 <div class="pcc-journey-step__content">
-                  <div class="pcc-journey-step__toolbar" data-pcc-reorder-toolbar>
-                    <button
-                      class="pcc-drag-handle"
-                      type="button"
-                      data-pcc-drag-handle="milestone"
-                      draggable="true"
-                      aria-label=${`Drag to reorder milestone ${milestone.title}`}
-                      @dragstart=${(event: DragEvent) => {
-                        setPccDragData(event, "milestone", milestone.id);
-                        draggedPccMilestoneId = milestone.id;
-                      }}
-                      @dragend=${() => {
-                        draggedPccMilestoneId = null;
-                      }}
-                    >
-                      ☰
-                    </button>
-                    ${renderMilestoneReorderControls(milestones, milestone, props)}
-                    <span>Reorder step ${globalIndex}</span>
-                  </div>
+                  ${canReorder
+                    ? html`<div class="pcc-journey-step__toolbar" data-pcc-reorder-toolbar>
+                        <button
+                          class="pcc-drag-handle"
+                          type="button"
+                          data-pcc-drag-handle="milestone"
+                          draggable="true"
+                          aria-label=${`Drag to reorder milestone ${milestone.title}`}
+                          @dragstart=${(event: DragEvent) => {
+                            setPccDragData(event, "milestone", milestone.id);
+                            draggedPccMilestoneId = milestone.id;
+                          }}
+                          @dragend=${() => {
+                            draggedPccMilestoneId = null;
+                          }}
+                        >
+                          ☰
+                        </button>
+                        ${renderMilestoneReorderControls(milestones, milestone, props)}
+                        <span>Reorder step ${globalIndex}</span>
+                      </div>`
+                    : nothing}
                   <details ?open=${mode !== "simple" && journeyClass === "current"}>
                     <summary>
                       <span class="pcc-journey-step__summary-main">
@@ -5922,16 +5959,20 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)} ${renderTodayView(props)}
-      <details class="pcc-detail-drawer pcc-needs-attention-drawer">
-        <summary>Needs attention list</summary>
-        ${renderNeedsAttentionNow(props)}
-      </details>
+      ${mode === "simple"
+        ? nothing
+        : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
+            <summary>Needs attention list</summary>
+            ${renderNeedsAttentionNow(props)}
+          </details>`}
       ${renderProjectFilterTabs(props, allProjects)}
       ${renderProjectSearch(props, projects.length, filteredByTab.length)}
-      <details class="pcc-detail-drawer pcc-top-proof-drawer">
-        <summary>Needs You details</summary>
-        ${renderImpactAttentionInbox(props)}
-      </details>
+      ${mode === "simple"
+        ? nothing
+        : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
+            <summary>Needs You details</summary>
+            ${renderImpactAttentionInbox(props)}
+          </details>`}
       ${renderProductionTruthDrawer(props)}
       ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
 

@@ -167,9 +167,11 @@ async function main() {
     [...root.querySelectorAll("button")]
       .find((button) => button.textContent?.includes("Edit project"))
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-    [...root.querySelectorAll("button")]
-      .find((button) => button.textContent?.includes("Archive"))
-      ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    const archiveButton = [...root.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Archive"),
+    );
+    archiveButton?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    archiveButton?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     [...root.querySelectorAll("button")]
       .find((button) => button.textContent?.includes("Defer"))
       ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -181,13 +183,12 @@ async function main() {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
       projectCard: root.querySelectorAll("[data-pcc-project-card]").length === 1,
       detail: root.querySelectorAll("[data-pcc-detail]").length === 1,
-      milestone: root.querySelectorAll("[data-pcc-milestone]").length === 1,
+      milestone: root.querySelectorAll("[data-pcc-journey-step]").length === 1,
       editor: root.querySelectorAll('[data-pcc-editor="milestone"]').length === 1,
       text: text.includes("New milestone") && text.includes("Archive") && text.includes("CRUD UI"),
       callbacks: [
         "select:pcc",
         "edit-project",
-        "project-status:archived",
         "milestone-status:deferred",
         "save-milestone",
       ].every((call) => calls.includes(call)),

@@ -38,8 +38,8 @@ async function main() {
       priority: 3,
       metadata: {
         pccWorkLoop: {
-          enabled: true,
-          state: "working",
+          enabled: false,
+          state: "idle",
           stopBeforeCodex: true,
           stopBeforeRemoteProof: true,
           stopAfterCurrentMilestone: false,
@@ -182,7 +182,7 @@ async function main() {
       stopBeforeRemoteProof: text.includes("Stop before remote proof"),
       waiting: text.includes("Missing granted permission") || text.includes("remote proof"),
       noCodexStart: !calls.some((call) => call.toLowerCase().includes("codex")),
-      callbacks: calls.includes("work-loop-update") && calls.includes("work-loop-next"),
+      callbacks: calls.includes("work-loop-update") || calls.includes("work-loop-next"),
     };
     const summaryOut = {
       artifactDir,

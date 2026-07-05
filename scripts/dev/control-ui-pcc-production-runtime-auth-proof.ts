@@ -197,7 +197,7 @@ async function runBrowserProof(options: ProofOptions) {
   const normalizedText = text.replace(/\s+/g, " ");
   const lower = normalizedText.toLowerCase();
   const has = (needle: string) => lower.includes(needle.replace(/\s+/g, " ").toLowerCase());
-  const portfolioConsoleCount = await page.locator("[data-pcc-portfolio-console]").count();
+  const portfolioConsoleCount = await page.locator("[data-pcc-portfolio-console]:visible").count();
   const result = {
     url: redactUrl(page.url()),
     title: await page.title(),
