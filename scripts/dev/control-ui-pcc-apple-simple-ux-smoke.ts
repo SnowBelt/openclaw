@@ -197,6 +197,7 @@ async function main(): Promise<void> {
         chatSyncProposals: [],
         chatSyncError: null,
         viewMode: "simple",
+        reorderMode: true,
         modelCatalog: [],
         modelsLoading: false,
         modelsLastRefreshedAt: Date.parse(now),

@@ -89,12 +89,16 @@ export type PccDashboardProps = {
   chatSyncProposals: PccChatSyncProposal[];
   chatSyncError: string | null;
   viewMode?: PccViewMode;
+  productFocusMode?: "pcc_product" | "project_work";
+  reorderMode?: boolean;
   modelCatalog?: ModelCatalogEntry[];
   modelsLoading?: boolean;
   modelsLastRefreshedAt?: number | null;
   modelsFallback?: boolean;
   onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
+  onSetProductFocusMode?: (mode: "pcc_product" | "project_work") => void;
+  onSetReorderMode?: (enabled: boolean) => void;
   onSetProjectEditMode?: (mode: PccProjectEditMode) => void;
   onSetProjectFilter?: (filter: PccProjectFilter) => void;
   onSetProjectSearchQuery?: (query: string) => void;
@@ -2578,13 +2582,20 @@ function renderEvidenceSummary(evidence: PccEvidence[]) {
   </div>`;
 }
 
-function renderProjectReceiptsAndArtifacts(detail: PccProjectDetail) {
+function renderProjectReceiptsAndArtifacts(detail: PccProjectDetail, props: PccDashboardProps) {
   const receipts = detail.receipts ?? [];
   const evidence = detail.evidence ?? [];
   const artifactCount = receipts.reduce(
     (total, receipt) => total + stringArray(receipt.artifactRefs).length,
     0,
   );
+  const firstReceiptMilestone = detail.milestones.find((milestone) => {
+    const milestoneReceipts = receiptsForMilestone(detail, milestone);
+    const passedEvidence = evidenceForMilestone(detail, milestone).filter(
+      (item) => item.status === "passed",
+    );
+    return milestoneReceipts.length === 0 && passedEvidence.length > 0;
+  });
   return html`<section class="pcc-project-receipts" data-pcc-project-receipts>
     <div class="pcc-section-heading">
       <div>
@@ -2604,6 +2615,16 @@ function renderProjectReceiptsAndArtifacts(detail: PccProjectDetail) {
           No project receipts or artifacts recorded yet
         </div>`}
     ${renderEvidenceSummary(evidence)}
+    ${firstReceiptMilestone
+      ? html`<button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${() => props.onAddCompletionReceipt(firstReceiptMilestone)}
+        >
+          Add receipt
+        </button>`
+      : html`<button class="btn btn--subtle" type="button" disabled>Add receipt</button>`}
   </section>`;
 }
 
@@ -2692,8 +2713,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       <div class="pcc-project-card__sequence" data-pcc-project-card-sequence>
         ${projectIsTerminalForWork(project)
           ? html`<span
-              >Work:
-              ${project.status === "complete_with_maintenance"
+              >${project.status === "complete_with_maintenance"
                 ? "Maintenance only"
                 : formatStatus(project.status)}</span
             >`
@@ -2704,7 +2724,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
               >
               <span
                 >Next:
-                ${compactSignalText(next?.title ?? project.nextActions[0] ?? "None", 110)}</span
+                ${compactSignalText(next?.title ?? project.nextActions[0] ?? "None", 72)}</span
               >`}
       </div>
       ${blocker !== "None"
@@ -3326,6 +3346,28 @@ function renderTodayProjectSignal(
   </article>`;
 }
 
+function renderPccFocusModeSwitch(props: PccDashboardProps) {
+  const mode = props.productFocusMode ?? "pcc_product";
+  return html`<div class="pcc-focus-mode" data-pcc-focus-mode aria-label="PCC work context">
+    <button
+      class=${`pcc-focus-mode__option ${mode === "pcc_product" ? "is-selected" : ""}`}
+      type="button"
+      data-pcc-focus-mode-option="pcc_product"
+      @click=${() => props.onSetProductFocusMode?.("pcc_product")}
+    >
+      PCC Product
+    </button>
+    <button
+      class=${`pcc-focus-mode__option ${mode === "project_work" ? "is-selected" : ""}`}
+      type="button"
+      data-pcc-focus-mode-option="project_work"
+      @click=${() => props.onSetProductFocusMode?.("project_work")}
+    >
+      Project Work
+    </button>
+  </div>`;
+}
+
 function renderTodayView(props: PccDashboardProps) {
   const portfolio = props.portfolio;
   const runningProjects = runningProjectsForToday(props);
@@ -3357,6 +3399,7 @@ function renderTodayView(props: PccDashboardProps) {
     <div class="pcc-today__bar" data-pcc-today-compact-bar>
       <div class="pcc-today__bar-title">
         <span>Today</span>
+        ${renderPccFocusModeSwitch(props)}
         <strong>${runningProjects.length} running</strong>
         <strong>${attentionProjects.length} need attention</strong>
         ${deferredProjects.length
@@ -4379,6 +4422,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
   const current = currentMilestoneForDetail(detail);
   const milestones = sortedMilestones(detail);
   const mode = pccViewMode(props);
+  const reorderMode = Boolean(props.reorderMode);
   const canReorder = !projectIsTerminalForWork(detail.project);
   const phaseGroups: Array<{ title: string; milestones: PccMilestone[] }> = [];
   for (const milestone of milestones) {
@@ -4390,17 +4434,33 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
       phaseGroups.push({ title, milestones: [milestone] });
     }
   }
-  return html`<section class="pcc-milestone-journey" data-pcc-milestone-journey>
+  return html`<section
+    class="pcc-milestone-journey"
+    data-pcc-milestone-journey
+    data-pcc-reorder-mode=${reorderMode ? "on" : "off"}
+  >
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">Milestone Journey</p>
         <h4>Project sequence</h4>
         <p>Follow the steps in order. Open a step only when you need its details.</p>
       </div>
-      <span
-        >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
-        complete</span
-      >
+      <div class="pcc-section-heading__actions">
+        <span
+          >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
+          complete</span
+        >
+        ${!projectIsTerminalForWork(detail.project)
+          ? html`<button
+              class=${`btn btn--subtle ${reorderMode ? "is-active" : ""}`}
+              type="button"
+              data-pcc-reorder-mode-toggle
+              @click=${() => props.onSetReorderMode?.(!reorderMode)}
+            >
+              ${reorderMode ? "Done reordering" : "Reorder"}
+            </button>`
+          : nothing}
+      </div>
     </div>
     <div class="pcc-journey-phases" data-pcc-journey-phases>
       ${phaseGroups.map((group) => {
@@ -4419,6 +4479,11 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
               const subMilestones = subMilestonesForMilestone(detail, milestone);
               const nextSub = nextSubMilestoneForMilestone(detail, milestone);
               const blocker = milestone.blocker || nextSub?.blocker;
+              const milestoneMetadata = metadataObject(milestone.metadata);
+              const milestoneRisk = metadataString(milestoneMetadata.pccCostRisk, "low");
+              const milestoneWorker = responsibilityLabel(
+                pccResponsibilityForItem(milestone) || "local_openclaw_agent",
+              );
               return html`<li
                 class="pcc-journey-step pcc-journey-step--${journeyClass}"
                 data-pcc-journey-step
@@ -4493,6 +4558,12 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                     <div class="pcc-journey-step__body">
                       <div class="pcc-journey-step__skim">
                         <span>Next: ${nextSub?.title ?? "No next sub-step"}</span>
+                        <span class="pcc-route-chip" data-pcc-route-chip="worker"
+                          ><b>Worker</b> ${milestoneWorker}</span
+                        >
+                        <span class="pcc-route-chip" data-pcc-route-chip="risk"
+                          ><b>Risk</b> ${formatStatus(milestoneRisk)}</span
+                        >
                         ${blocker ? html`<strong>Blocked: ${blocker}</strong>` : nothing}
                       </div>
                       ${mode === "simple"
@@ -4509,7 +4580,9 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                             })}
                             <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
                               <summary>Proof, receipts, permissions, and actions</summary>
-                              ${renderMilestoneReceipts(milestone, props)}
+                              ${mode === "agent"
+                                ? renderMilestoneReceipts(milestone, props)
+                                : nothing}
                               ${permissionsForMilestone(props.projectDetail, milestone).length > 0
                                 ? renderPermissionList(
                                     permissionsForMilestone(props.projectDetail, milestone),
@@ -4585,13 +4658,13 @@ function renderProjectDetail(props: PccDashboardProps) {
           ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
         </section>
         <section data-pcc-detail-tab-panel="proof">
-          ${renderProjectReceiptsAndArtifacts(detail)}
+          ${renderProjectReceiptsAndArtifacts(detail, props)}
         </section>
         <section data-pcc-detail-tab-panel="decisions">
           ${renderDecisionList(detail, props)}
         </section>
         <section data-pcc-detail-tab-panel="automation">
-          ${mode === "agent" ? renderContextPackageCard(detail) : nothing}
+          ${renderContextPackageCard(detail)}
         </section>
         <section data-pcc-detail-tab-panel="diagnostics">
           ${mode === "simple" ? nothing : renderImpactDetailCards(detail, props)}
@@ -4627,8 +4700,8 @@ function renderProjectDetail(props: PccDashboardProps) {
               </section>
             </details>
             <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
-              <summary>Handoff and chat sync</summary>
-              ${renderContextPackageCard(detail)} ${renderChatSyncCard(props)}
+              <summary>Chat sync</summary>
+              ${renderChatSyncCard(props)}
             </details>
             ${mode === "agent"
               ? html`<section class="pcc-agent-panel" data-pcc-agent-mode>
@@ -5003,7 +5076,9 @@ function renderSubMilestoneList(
           ${options.compact
             ? nothing
             : html`
-                <span>Worker ${itemWorkerLabel(subMilestone)}</span>
+                <span class="pcc-route-chip" data-pcc-route-chip="worker"
+                  ><b>Worker</b> ${itemWorkerLabel(subMilestone)}</span
+                >
                 <span>${itemProofLabel(subMilestone)}</span>
                 <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
               `}
@@ -5044,8 +5119,12 @@ function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) 
         <span
           >${subMilestonesForMilestone(props.projectDetail, milestone).length} sub-milestones</span
         >
-        <span>Worker ${responsibilityLabel(responsibility)}</span>
-        <span>Risk ${formatStatus(costRisk)}</span>
+        <span class="pcc-route-chip" data-pcc-route-chip="worker"
+          ><b>Worker</b> ${responsibilityLabel(responsibility)}</span
+        >
+        <span class="pcc-route-chip" data-pcc-route-chip="risk"
+          ><b>Risk</b> ${formatStatus(costRisk)}</span
+        >
         ${stopHere ? html`<span>Stop here</span>` : nothing}
       </div>
       <details class="pcc-submilestone-panel">
@@ -5925,14 +6004,16 @@ export function renderPccDashboard(props: PccDashboardProps) {
   );
   const mode = pccViewMode(props);
   return html`
-    <section class="pcc-shell" data-pcc-shell>
-      <header class="pcc-hero">
+    <section
+      class="pcc-shell"
+      data-pcc-shell
+      data-pcc-product-focus=${props.productFocusMode ?? "pcc_product"}
+    >
+      <header class="pcc-hero pcc-hero--compact">
         <div>
           <p class="pcc-kicker">Projects</p>
           <h2>Project Command Center</h2>
-          <p class="pcc-hero__subtitle">
-            A calm source of truth for milestones, next actions, proof gaps, and completion status.
-          </p>
+          <p class="pcc-hero__subtitle">PCC product status, project work, and safe next actions.</p>
         </div>
         <div class="pcc-hero__actions">
           <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>

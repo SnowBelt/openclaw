@@ -89,8 +89,11 @@ if (passing.status !== "passing" || !passing.runnable || passing.score < 100) {
 const projectWithMetadata = withPccPhase2Metadata(project, passing, now);
 const gatedNext = getPccWorkLoopNext({
   project: withPccPhase2Metadata(
-    project,
-    { ...passing, status: "missing", badge: "Missing", runnable: false, score: 75 },
+    {
+      ...project,
+      metadata: { ...project.metadata, pccIntake: { answers, approved: false } },
+    },
+    beforeApproval,
     now,
   ),
   milestones,

@@ -194,6 +194,8 @@ export type PccDashboardState = {
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
   pccViewMode: PccViewMode;
+  pccProductFocusMode?: "pcc_product" | "project_work";
+  pccReorderMode?: boolean;
   requestUpdate?: () => void;
 };
 
@@ -1248,6 +1250,19 @@ export function cancelPccEditor(state: PccDashboardState): void {
 
 export function updatePccViewMode(state: PccDashboardState, mode: PccViewMode): void {
   state.pccViewMode = mode;
+  state.requestUpdate?.();
+}
+
+export function updatePccProductFocusMode(
+  state: PccDashboardState,
+  mode: "pcc_product" | "project_work",
+): void {
+  state.pccProductFocusMode = mode;
+  state.requestUpdate?.();
+}
+
+export function updatePccReorderMode(state: PccDashboardState, enabled: boolean): void {
+  state.pccReorderMode = enabled;
   state.requestUpdate?.();
 }
 

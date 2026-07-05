@@ -144,8 +144,11 @@ assert(passing.score === 100, `passing setup score was ${passing.score}`);
 
 const gatedNext = getPccWorkLoopNext({
   project: withPccPhase2Metadata(
-    project,
-    { ...passing, status: "missing", badge: "Missing", runnable: false, score: 70 },
+    {
+      ...project,
+      metadata: { ...project.metadata, pccIntake: { answers: intakeAnswers, approved: false } },
+    },
+    unapproved,
     now,
   ),
   milestones,

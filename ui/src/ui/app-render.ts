@@ -177,6 +177,8 @@ import {
   updatePccProjectSearchQuery,
   updatePccProjectForm,
   updatePccProjectEditMode,
+  updatePccProductFocusMode,
+  updatePccReorderMode,
   updatePccViewMode,
 } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
@@ -2846,6 +2848,8 @@ export function renderApp(state: AppViewState) {
                 chatSyncProposals: state.pccChatSyncProposals,
                 chatSyncError: state.pccChatSyncError,
                 viewMode: state.pccViewMode,
+                productFocusMode: state.pccProductFocusMode,
+                reorderMode: state.pccReorderMode,
                 modelCatalog: state.chatModelCatalog ?? [],
                 modelsLoading: state.chatModelsLoading,
                 modelsLastRefreshedAt: state.chatModelCatalogRefreshedAt,
@@ -2869,6 +2873,8 @@ export function renderApp(state: AppViewState) {
                     });
                 },
                 onSetViewMode: (mode) => updatePccViewMode(state, mode),
+                onSetProductFocusMode: (mode) => updatePccProductFocusMode(state, mode),
+                onSetReorderMode: (enabled) => updatePccReorderMode(state, enabled),
                 onSetProjectEditMode: (mode) => updatePccProjectEditMode(state, mode),
                 onSetProjectFilter: (filter) => updatePccProjectFilter(state, filter),
                 onSetProjectSearchQuery: (query) => updatePccProjectSearchQuery(state, query),

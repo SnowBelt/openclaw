@@ -234,6 +234,8 @@ export type AppViewState = {
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
   pccViewMode: PccViewMode;
+  pccProductFocusMode?: "pcc_product" | "project_work";
+  pccReorderMode?: boolean;
   sessionsResultAgentId?: string | null;
   chatAgentSessionRowsByAgent?: Record<string, SessionsListResult["sessions"]>;
   announceSessionSwitch?: (sessionKey: string, label: string) => void;

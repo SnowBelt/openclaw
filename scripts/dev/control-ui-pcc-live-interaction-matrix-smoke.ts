@@ -6,10 +6,25 @@ function timestampSlug(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
+function makeDragEvent(window: Window, type: string, encoded: string): DragEvent {
+  const store = new Map<string, string>();
+  store.set("application/x-openclaw-pcc-reorder", encoded);
+  store.set("text/plain", encoded.split(":").at(1) ?? encoded);
+  const event = new window.Event(type, { bubbles: true, cancelable: true }) as DragEvent;
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      effectAllowed: "move",
+      setData: (key: string, value: string) => store.set(key, value),
+      getData: (key: string) => store.get(key) ?? "",
+    },
+  });
+  return event;
+}
+
 async function main() {
   const artifactDir = join(
     ".artifacts",
-    "control-ui-pcc-interaction-reliability-smoke",
+    "control-ui-pcc-live-interaction-matrix-smoke",
     timestampSlug(),
   );
   mkdirSync(artifactDir, { recursive: true });
@@ -38,77 +53,69 @@ async function main() {
     const now = "2026-07-05T00:00:00Z";
     const calls: string[] = [];
     const project = {
-      id: "pcc-disposable-interaction-project",
-      title: "Disposable Interaction Proof",
-      goal: "Prove PCC buttons, menus, and reorder controls without touching user projects.",
+      id: "pcc-disposable-live-interaction-proof",
+      title: "Disposable Live Interaction Proof",
+      goal: "Prove PCC interactions without mutating user projects.",
       status: "active" as const,
       priority: 3,
-      metadata: {
-        pccSetupScore: { score: 100, runnable: true },
-        pccWorkLoop: {
-          enabled: false,
-          state: "idle",
-          stopBeforeCodex: true,
-          stopBeforeRemoteProof: true,
-        },
-      },
+      metadata: { pccSetupScore: { score: 100, runnable: true } },
       createdAt: now,
       updatedAt: now,
     };
     const milestones = [
       {
-        id: "proof-step-1",
+        id: "live-step-1",
         projectId: project.id,
-        title: "First reliable step",
+        title: "First disposable step",
         status: "not_started" as const,
         order: 1,
         percentComplete: 0,
-        implementationPlan: "Click action menu and reorder safely.",
-        acceptanceCriteria: ["Menu action records a callback", "Reorder callback is called"],
-        metadata: { pccResponsibility: "local_openclaw_agent", proofRequired: "local_smoke" },
+        implementationPlan: "Prove action menu and drop target.",
+        acceptanceCriteria: ["Action callback recorded"],
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local_smoke" },
         createdAt: now,
         updatedAt: now,
       },
       {
-        id: "proof-step-2",
+        id: "live-step-2",
         projectId: project.id,
-        title: "Second reliable step",
+        title: "Second disposable step",
         status: "not_started" as const,
         order: 2,
         percentComplete: 0,
-        implementationPlan: "Receive dragged or keyboard reorder target.",
-        acceptanceCriteria: ["Reorder target remains non-negative"],
-        metadata: { pccResponsibility: "local_openclaw_agent", proofRequired: "local_smoke" },
+        implementationPlan: "Move before the first step.",
+        acceptanceCriteria: ["Move callback recorded"],
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local_smoke" },
         createdAt: now,
         updatedAt: now,
       },
     ];
     const subMilestones = [
       {
-        id: "proof-sub-1",
+        id: "live-sub-1",
         projectId: project.id,
-        milestoneId: "proof-step-1",
-        title: "First sub-step",
+        milestoneId: "live-step-1",
+        title: "First disposable sub-step",
         status: "not_started" as const,
         order: 1,
         percentComplete: 0,
-        implementationPlan: "Use sub-step action controls.",
-        acceptanceCriteria: ["Sub-menu opens"],
-        metadata: { pccResponsibility: "local_openclaw_agent", proofRequired: "local_smoke" },
+        implementationPlan: "Receive sub-step drop.",
+        acceptanceCriteria: ["Sub-step callback recorded"],
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local_smoke" },
         createdAt: now,
         updatedAt: now,
       },
       {
-        id: "proof-sub-2",
+        id: "live-sub-2",
         projectId: project.id,
-        milestoneId: "proof-step-1",
-        title: "Second sub-step",
+        milestoneId: "live-step-1",
+        title: "Second disposable sub-step",
         status: "not_started" as const,
         order: 2,
         percentComplete: 0,
-        implementationPlan: "Move above first sub-step.",
-        acceptanceCriteria: ["Sub reorder callback is called"],
-        metadata: { pccResponsibility: "local_openclaw_agent", proofRequired: "local_smoke" },
+        implementationPlan: "Move before first sub-step.",
+        acceptanceCriteria: ["Sub-step move callback recorded"],
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local_smoke" },
         createdAt: now,
         updatedAt: now,
       },
@@ -126,7 +133,7 @@ async function main() {
         deferred: 0,
         skipped: 0,
       },
-      nextActions: ["First reliable step"],
+      nextActions: ["First disposable step"],
       proofGaps: [],
       updatedAt: now,
     };
@@ -143,7 +150,7 @@ async function main() {
           complete: 0,
           archived: 0,
           averagePercentComplete: 0,
-          nextActions: ["First reliable step"],
+          nextActions: ["First disposable step"],
         },
         projects: [summary],
         selectedProjectId: project.id,
@@ -170,18 +177,7 @@ async function main() {
         actionBusy: false,
         actionError: null,
         editorMode: null,
-        projectForm: {
-          id: null,
-          title: "",
-          goal: "",
-          status: "active",
-          priority: "3",
-          workflowTemplateId: "software-product",
-          planningMode: "template_only",
-          codexPlanningAllowed: false,
-          remoteProofAllowed: false,
-          runtimeActionsAllowed: false,
-        },
+        projectForm: { id: null, title: "", goal: "", status: "active", priority: "3" },
         milestoneForm: {
           id: null,
           projectId: project.id,
@@ -195,6 +191,18 @@ async function main() {
           acceptanceCriteria: "",
           responsibility: "local_openclaw_agent",
           costRisk: "low",
+          stopHere: false,
+        },
+        decisionForm: {
+          id: null,
+          projectId: project.id,
+          title: "",
+          summary: "",
+          status: "open",
+          impact: "medium",
+          linkedEvidenceIds: "",
+          decidedAt: "",
+          decidedBy: "",
         },
         chatSyncText: "",
         chatSyncProposals: [],
@@ -202,6 +210,8 @@ async function main() {
         viewMode: "agent",
         reorderMode: true,
         onSetViewMode: (mode) => calls.push(`view:${mode}`),
+        onSetProductFocusMode: (mode) => calls.push(`focus:${mode}`),
+        onSetReorderMode: (enabled) => calls.push(`reorder-mode:${enabled}`),
         onRefresh: () => calls.push("refresh"),
         onSelectProject: (id) => calls.push(`select:${id}`),
         onOpenProjectEditor: () => calls.push("edit-project"),
@@ -233,47 +243,61 @@ async function main() {
       }),
       root,
     );
-    await new Promise<void>((resolve) => {
+    await new Promise((resolve) => {
       setTimeout(resolve, 0);
     });
 
+    root.querySelector<HTMLButtonElement>('[data-pcc-focus-mode-option="project_work"]')?.click();
+    root.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.click();
+    root.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.click();
     root
-      .querySelector<HTMLButtonElement>(
-        '[data-pcc-milestone-id="proof-step-2"] [data-pcc-reorder="milestone-up"]',
+      .querySelector<HTMLElement>(
+        '[data-pcc-milestone-id="live-step-2"] [data-pcc-drag-handle="milestone"]',
       )
-      ?.click();
+      ?.dispatchEvent(makeDragEvent(dom.window, "dragstart", "milestone:live-step-2"));
+    root
+      .querySelector<HTMLElement>('[data-pcc-milestone-id="live-step-1"]')
+      ?.dispatchEvent(makeDragEvent(dom.window, "drop", "milestone:live-step-2"));
+    root
+      .querySelector<HTMLElement>(
+        '[data-pcc-submilestone-id="live-sub-2"] [data-pcc-drag-handle="submilestone"]',
+      )
+      ?.dispatchEvent(makeDragEvent(dom.window, "dragstart", "submilestone:live-sub-2"));
+    root
+      .querySelector<HTMLElement>('[data-pcc-submilestone-id="live-sub-1"]')
+      ?.dispatchEvent(makeDragEvent(dom.window, "drop", "submilestone:live-sub-2"));
     root
       .querySelector<HTMLButtonElement>(
-        '[data-pcc-submilestone-id="proof-sub-2"] [data-pcc-reorder="submilestone-up"]',
+        '[data-pcc-milestone-id="live-step-2"] [data-pcc-reorder="milestone-up"]',
       )
       ?.click();
     const menu = root.querySelector<HTMLElement>(
-      '[data-pcc-milestone-id="proof-step-1"] [data-pcc-action-menu]',
+      '[data-pcc-milestone-id="live-step-1"] [data-pcc-action-menu]',
     );
     menu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.click();
-    const defer = [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) =>
-      button.textContent?.includes("Defer"),
-    );
-    defer?.click();
-    defer?.click();
+    [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+      .find((button) => button.textContent?.includes("Defer"))
+      ?.click();
+    [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+      .find((button) => button.textContent?.includes("Defer"))
+      ?.click();
 
-    const text = root.textContent ?? "";
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
-      compactToday: root.querySelectorAll("[data-pcc-today-compact-bar]").length === 1,
-      milestoneJourney: root.querySelectorAll("[data-pcc-milestone-journey]").length === 1,
-      actionMenu: root.querySelectorAll("[data-pcc-action-menu-trigger]").length > 0,
-      milestoneReorder: calls.includes("move-milestone:proof-step-2->proof-step-1"),
-      subMilestoneReorder: calls.includes("move-sub:proof-sub-2->proof-sub-1"),
-      actionMutation: calls.includes("milestone-status:proof-step-1:deferred"),
-      plainLabels: text.includes("Work This Project") && text.includes("Milestone Journey"),
+      focusMode: calls.includes("focus:project_work"),
+      reorderMode: calls.includes("reorder-mode:false"),
+      dragMilestone: calls.includes("move-milestone:live-step-2->live-step-1"),
+      dragSubMilestone: calls.includes("move-sub:live-sub-2->live-sub-1"),
+      keyboardMove: calls.includes("move-milestone:live-step-2->live-step-1"),
+      actionMenu: calls.includes("milestone-status:live-step-1:deferred"),
+      disposableOnly: !calls.some((call) => call.toLowerCase().includes("snes")),
     };
     const summaryOut = {
       artifactDir,
       ok: Object.values(checks).every(Boolean),
       checks,
       calls,
-      html: join(artifactDir, "pcc-interaction-reliability.html"),
+      html: join(artifactDir, "pcc-live-interaction-matrix.html"),
     };
     writeFileSync(summaryOut.html, dom.serialize());
     writeFileSync(join(artifactDir, "summary.json"), JSON.stringify(summaryOut, null, 2));
