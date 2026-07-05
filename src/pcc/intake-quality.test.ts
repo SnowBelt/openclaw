@@ -44,4 +44,69 @@ describe("PCC intake quality gates", () => {
     expect(evaluation.missing).toContain("No active milestones exist.");
     expect(evaluation.runnable).toBe(false);
   });
+
+  it("accepts legacy recommendedWorker as milestone responsibility", () => {
+    const evaluation = evaluatePccProjectSetup({
+      project: {
+        id: "legacy-project",
+        title: "SNES Game Creator",
+        goal: "Create a safe SNES project workflow.",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+        metadata: {
+          pccWorkflowTemplateId: "snes-studio",
+          pccIntake: {
+            approved: true,
+            answers: {
+              goal: "Create a safe SNES project workflow.",
+              firstDeliverable: "A toolchain preflight.",
+              doneProof: "Read-only proof and receipts.",
+              constraints: "No ROM files or installs without approval.",
+              owner: "OpenClaw local agent",
+              blockers: "Patch tool may be missing.",
+            },
+          },
+        },
+      },
+      milestones: [
+        {
+          id: "legacy-milestone",
+          projectId: "legacy-project",
+          title: "Verify toolchain",
+          status: "not_started",
+          order: 1,
+          implementationPlan: "Run read-only toolchain checks.",
+          acceptanceCriteria: ["Missing tools are recorded."],
+          createdAt: now,
+          updatedAt: now,
+          metadata: {
+            recommendedWorker: "OpenClaw local agent",
+            proofRequired: "local_test",
+          },
+        },
+      ],
+      subMilestones: [
+        {
+          id: "legacy-submilestone",
+          projectId: "legacy-project",
+          milestoneId: "legacy-milestone",
+          title: "List tools",
+          status: "not_started",
+          order: 1,
+          implementationPlan: "List required tools.",
+          acceptanceCriteria: ["Tool list exists."],
+          createdAt: now,
+          updatedAt: now,
+          metadata: {},
+        },
+      ],
+    });
+
+    expect(evaluation.missing).not.toContain(
+      'Milestone "Verify toolchain" is missing an owner/responsibility.',
+    );
+    expect(evaluation.status).toBe("passing");
+    expect(evaluation.runnable).toBe(true);
+  });
 });

@@ -21,6 +21,7 @@ import {
   openPccProjectEditor,
   previewPccSetupAutofill,
   previewPccChatSync,
+  resumePccProjectForWork,
   runPccUndoAction,
   savePccDecision,
   savePccMilestone,
@@ -540,8 +541,8 @@ describe("loadPccDashboard", () => {
 
     expect(request).not.toHaveBeenCalled();
     expect(state.pccAutofillPreview?.goal).toBeTruthy();
-    expect(state.pccActionError).toContain("Setup needs repair:");
-    expect(state.pccActionError).toContain("Review the AI autofill preview");
+    expect(state.pccActionError).toContain("PCC cannot start this project yet:");
+    expect(state.pccActionError).toContain("Review the blocker checklist");
   });
 
   it("prepares the next safe milestone and marks it in progress", async () => {
@@ -1961,6 +1962,217 @@ describe("PCC CRUD controller", () => {
     expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(
       false,
     );
+  });
+
+  it("canonicalizes legacy recommendedWorker during setup autofill", async () => {
+    const legacyMilestone = {
+      ...milestone,
+      metadata: {
+        recommendedWorker: "OpenClaw local agent",
+        proofRequired: "local_test",
+      },
+    };
+    const detail = {
+      project,
+      milestones: [legacyMilestone],
+      subMilestones: [subMilestone],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary,
+    };
+    const preview = buildPccSetupAutofillPreview(detail, true);
+
+    expect(preview.milestoneUpdates).toEqual([
+      expect.objectContaining({ id: "milestone-1", fields: expect.arrayContaining(["owner"]) }),
+    ]);
+
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: legacyMilestone, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return { ...detail, decisions: [] };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccAutofillPreview: preview,
+    });
+
+    await applyPccSetupAutofill(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.milestones.upsert",
+      expect.objectContaining({
+        milestone: expect.objectContaining({
+          metadata: expect.objectContaining({ pccResponsibility: "local_openclaw_agent" }),
+        }),
+      }),
+    );
+  });
+
+  it("blocks prepare on an on-hold project with a resume-specific error", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project: { ...project, status: "on_hold" as const },
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary: { ...summary, status: "on_hold" as const },
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Project is on hold");
+    expect(state.pccActionError).toContain("Resume Project");
+  });
+
+  it("resumes scope-held projects without starting unsafe work", async () => {
+    const heldProject = {
+      ...project,
+      status: "on_hold" as const,
+      metadata: {
+        ...project.metadata,
+        pccCurrentScope: "excluded_project_specific_work",
+      },
+    };
+    const blockedMilestone = {
+      ...milestone,
+      id: "toolchain",
+      status: "on_hold" as const,
+      blocker: "Project-specific work removed from current working scope.",
+      metadata: {
+        recommendedWorker: "local model/OpenClaw",
+        proofRequired: "local_test",
+        blockers: ["patch tool: flips or beat"],
+        excludedFromPccCurrentScope: true,
+        noInstall: true,
+        noRomFiles: true,
+      },
+    };
+    const futureMilestone = {
+      ...milestone,
+      id: "mvp",
+      title: "Build MVP",
+      status: "on_hold" as const,
+      order: 2,
+      blocker: "Project-specific work removed from current working scope.",
+      metadata: {
+        recommendedWorker: "Codex",
+        proofRequired: "runtime",
+        waitingOn: ["toolchain blockers"],
+        excludedFromPccCurrentScope: true,
+        noBuildWorkApproved: true,
+      },
+    };
+    const heldSubMilestone = {
+      ...subMilestone,
+      milestoneId: "toolchain",
+      status: "on_hold" as const,
+      blocker: "Project-specific work removed from current working scope.",
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        proofRequired: "Patch tool command exits 0 or records exact blocker.",
+        excludedFromPccCurrentScope: true,
+      },
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.upsert") {
+        return { project: heldProject, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone: blockedMilestone, summary };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone: heldSubMilestone };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project: { ...heldProject, status: "active" },
+          milestones: [{ ...blockedMilestone, status: "blocked" }, futureMilestone],
+          subMilestones: [heldSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project: heldProject,
+        milestones: [blockedMilestone, futureMilestone],
+        subMilestones: [heldSubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary: { ...summary, status: "on_hold" as const },
+      },
+    });
+
+    await resumePccProjectForWork(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({
+          status: "active",
+          metadata: expect.objectContaining({
+            pccCurrentScope: "active_project_work",
+            pccWorkLoop: expect.objectContaining({ enabled: false, state: "idle" }),
+          }),
+        }),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "pcc.milestones.upsert",
+      expect.objectContaining({
+        milestone: expect.objectContaining({
+          id: "toolchain",
+          status: "blocked",
+          blocker: "Blocked by patch tool: flips or beat.",
+          metadata: expect.objectContaining({
+            excludedFromPccCurrentScope: false,
+            noInstall: true,
+            noRomFiles: true,
+          }),
+        }),
+      }),
+    );
+    expect(request).not.toHaveBeenCalledWith(
+      "pcc.subMilestones.upsert",
+      expect.objectContaining({
+        subMilestone: expect.objectContaining({ status: "in_progress" }),
+      }),
+    );
+    expect(state.pccActionNotice?.text).toContain("Project resumed");
   });
 
   it("blocks dependency-breaking milestone reorders", async () => {

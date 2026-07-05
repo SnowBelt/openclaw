@@ -8,6 +8,8 @@ import type {
   PccStatus,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import { evaluatePccProjectSetup } from "./intake-quality.js";
+import { pccMetadataObject, pccResponsibilityForItem } from "./metadata.js";
 
 export type PccWorkLoopState =
   | "idle"
@@ -154,9 +156,7 @@ const PARALLEL_WORK_MODES: readonly PccParallelWorkMode[] = [
 type WorkItem = PccMilestone | PccSubMilestone;
 
 function metadataObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return pccMetadataObject(value);
 }
 
 function booleanSetting(value: unknown, fallback: boolean): boolean {
@@ -308,7 +308,7 @@ function metadataString(item: WorkItem, key: string): string | null {
 }
 
 function itemResponsibility(item: WorkItem): string {
-  return metadataString(item, "pccResponsibility") ?? "local_openclaw_agent";
+  return pccResponsibilityForItem(item) || "local_openclaw_agent";
 }
 
 function itemCostRisk(item: WorkItem): string {
@@ -371,8 +371,43 @@ function itemBlockerIds(item: WorkItem): { milestoneId: string; subMilestoneId?:
   return { milestoneId: item.id };
 }
 
-function projectSetupBlocker(project: PccProject): PccWorkLoopBlocker | null {
+function projectHasSetupGateMetadata(project: PccProject): boolean {
   const metadata = metadataObject(project.metadata);
+  return Boolean(
+    metadata.pccQualityGate ||
+    metadata.pccSetupScore ||
+    metadata.pccIntake ||
+    metadata.pccWorkflow ||
+    metadata.pccWorkflowTemplateId,
+  );
+}
+
+function firstSetupIssue(evaluation: ReturnType<typeof evaluatePccProjectSetup>): string {
+  return (
+    evaluation.missing[0] ??
+    evaluation.violations[0] ??
+    evaluation.needsReview[0] ??
+    "project setup needs review"
+  );
+}
+
+function projectSetupBlocker(input: PccWorkLoopProject): PccWorkLoopBlocker | null {
+  if (projectHasSetupGateMetadata(input.project)) {
+    const evaluation = evaluatePccProjectSetup({
+      project: input.project,
+      milestones: input.milestones,
+      subMilestones: input.subMilestones ?? [],
+    });
+    if (evaluation.runnable) {
+      return null;
+    }
+    return {
+      kind: "setup_not_ready",
+      message: `Project setup quality gate is ${evaluation.status.replace(/_/g, " ")} (${evaluation.score}/100): ${firstSetupIssue(evaluation)}`,
+    };
+  }
+
+  const metadata = metadataObject(input.project.metadata);
   const qualityGate = metadataObject(metadata.pccQualityGate);
   const setupScore = metadataObject(metadata.pccSetupScore);
   if (!("status" in qualityGate) && !("runnable" in setupScore)) {
@@ -563,7 +598,7 @@ function blockedNext(
 }
 
 export function getPccWorkLoopNext(input: PccWorkLoopProject): PccWorkLoopNext {
-  const setupBlocker = projectSetupBlocker(input.project);
+  const setupBlocker = projectSetupBlocker(input);
   if (setupBlocker) {
     return blockedNext(null, null, setupBlocker);
   }

@@ -142,6 +142,19 @@ describe("PCC guided work loop", () => {
     );
   });
 
+  it("uses legacy recommendedWorker responsibility metadata", () => {
+    const codex = milestone({
+      metadata: { recommendedWorker: "High reasoning Codex", pccCostRisk: "high" },
+    });
+
+    expect(classifyMilestoneBlocker({ project, milestones: [codex] }, codex)?.kind).toBe(
+      "codex_required",
+    );
+    expect(buildMilestoneTaskPrompt({ project, milestones: [codex] }, codex)).toContain(
+      "Responsible worker: high_reasoning_codex",
+    );
+  });
+
   it("stops on missing plans and acceptance criteria", () => {
     expect(
       classifyMilestoneBlocker({ project, milestones: [] }, milestone({ implementationPlan: "" }))
@@ -180,7 +193,39 @@ describe("PCC guided work loop", () => {
 
     expect(next.state).toBe("blocked");
     expect(next.blocker?.kind).toBe("setup_not_ready");
-    expect(next.blocker?.message).toContain("55/100");
+    expect(next.blocker?.message).toContain("40/100");
+    expect(next.blocker?.message).toContain("Required intake answer missing: Goal.");
+  });
+
+  it("does not trust stale passing setup metadata when recomputed setup is missing", () => {
+    const staleProject: PccProject = {
+      ...project,
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccQualityGate: { status: "passing" },
+        pccSetupScore: { score: 100, runnable: true },
+        pccIntake: {
+          approved: true,
+          answers: {
+            goal: "Track projects.",
+            firstDeliverable: "A dashboard.",
+            doneProof: "Tests pass.",
+            constraints: "No destructive actions.",
+            owner: "local_openclaw_agent",
+            blockers: "None.",
+          },
+        },
+      },
+    };
+    const next = getPccWorkLoopNext({
+      project: staleProject,
+      milestones: [milestone({ metadata: { pccProofLevel: "local" } })],
+      subMilestones: [],
+    });
+
+    expect(next.state).toBe("blocked");
+    expect(next.blocker?.kind).toBe("setup_not_ready");
+    expect(next.blocker?.message).toContain("has no sub-milestones");
   });
 
   it("uses sub-milestones before parent milestone work", () => {

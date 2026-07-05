@@ -7,15 +7,21 @@ import {
   withPccPhase2Metadata,
 } from "../../../../src/pcc/intake-quality.js";
 import {
+  normalizePccResponsibility,
+  pccResponsibilityForItem,
+} from "../../../../src/pcc/metadata.js";
+import {
   buildPccWorkflowDraft,
   type PccPlanningMode,
 } from "../../../../src/pcc/project-workflows.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
 import {
+  getPccWorkLoopSettings,
   getPccWorkLoopNext,
   withPccWorkLoopSettings,
   type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
+import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import { buildPccChatSyncProposals, type PccChatSyncProposal } from "../pcc-chat-sync.ts";
@@ -538,10 +544,9 @@ function autofillAnswer(
     (milestone) =>
       !["complete", "complete_with_maintenance", "skipped", "archived"].includes(milestone.status),
   );
-  const defaultOwner = metadataString(
-    metadataObject(nextMilestone?.metadata).pccResponsibility,
-    "local_openclaw_agent",
-  );
+  const defaultOwner = nextMilestone
+    ? pccResponsibilityForItem(nextMilestone) || "local_openclaw_agent"
+    : "local_openclaw_agent";
   switch (questionId) {
     case "goal":
       return autofillGoal(detail);
@@ -616,8 +621,15 @@ function buildMilestoneAutofillPatch(milestone: PccMilestone): MilestoneAutofill
     acceptanceCriteria = defaultAcceptanceCriteria(milestone.title);
     fields.push("acceptance criteria");
   }
-  if (!metadataString(nextMetadata.pccResponsibility, "")) {
-    nextMetadata.pccResponsibility = "local_openclaw_agent";
+  const existingResponsibility =
+    normalizePccResponsibility(nextMetadata.pccResponsibility) ||
+    normalizePccResponsibility(nextMetadata.recommendedWorker) ||
+    normalizePccResponsibility(nextMetadata.pccRecommendedWorker) ||
+    normalizePccResponsibility(milestone.owner) ||
+    "local_openclaw_agent";
+  if (metadataString(nextMetadata.pccResponsibility, "") !== existingResponsibility) {
+    nextMetadata.pccResponsibility = existingResponsibility;
+    nextMetadata.recommendedWorker ??= existingResponsibility;
     fields.push("owner");
   }
   if (
@@ -652,8 +664,15 @@ function buildSubMilestoneAutofillPatch(subMilestone: PccSubMilestone): SubMiles
     acceptanceCriteria = defaultAcceptanceCriteria(subMilestone.title);
     fields.push("acceptance criteria");
   }
-  if (!metadataString(nextMetadata.pccResponsibility, "")) {
-    nextMetadata.pccResponsibility = subMilestone.owner ?? "local_openclaw_agent";
+  const existingResponsibility =
+    normalizePccResponsibility(nextMetadata.pccResponsibility) ||
+    normalizePccResponsibility(nextMetadata.recommendedWorker) ||
+    normalizePccResponsibility(nextMetadata.pccRecommendedWorker) ||
+    normalizePccResponsibility(subMilestone.owner) ||
+    "local_openclaw_agent";
+  if (metadataString(nextMetadata.pccResponsibility, "") !== existingResponsibility) {
+    nextMetadata.pccResponsibility = existingResponsibility;
+    nextMetadata.recommendedWorker ??= existingResponsibility;
     fields.push("owner");
   }
   if (
@@ -1037,10 +1056,7 @@ function milestoneFormFromMilestone(milestone: PccMilestone): PccMilestoneFormSt
     blocker: milestone.blocker ?? "",
     implementationPlan: milestone.implementationPlan ?? "",
     acceptanceCriteria: (milestone.acceptanceCriteria ?? []).join("\n"),
-    responsibility: metadataString(
-      metadataObject(milestone.metadata).pccResponsibility,
-      "local_openclaw_agent",
-    ),
+    responsibility: pccResponsibilityForItem(milestone) || "local_openclaw_agent",
     costRisk: metadataString(metadataObject(milestone.metadata).pccCostRisk, "low"),
     stopHere: metadataBoolean(metadataObject(milestone.metadata).pccStopHere, false),
   };
@@ -1077,13 +1093,26 @@ export async function runPccUndoAction(state: PccDashboardState): Promise<void> 
   });
 }
 
-function setupRepairMessage(evaluation: ReturnType<typeof evaluatePccProjectSetup>): string {
+function setupRepairMessage(
+  evaluation: ReturnType<typeof evaluatePccProjectSetup>,
+  detail?: PccProjectDetail,
+): string {
+  const blockers = detail
+    ? buildPccWorkStartBlockers({
+        project: detail.project,
+        milestones: detail.milestones,
+        subMilestones: detail.subMilestones ?? [],
+        permissions: detail.permissions,
+        receipts: detail.receipts,
+      })
+    : [];
   const firstIssue =
+    blockers[0] ??
     evaluation.missing[0] ??
     evaluation.violations[0] ??
     evaluation.needsReview[0] ??
     "project setup needs review";
-  return `Setup needs repair: ${firstIssue}. Review the AI autofill preview or edit manually before starting work.`;
+  return `PCC cannot start this project yet: ${firstIssue}. Review the blocker checklist, use AI setup repair, or resume the project if it is on hold.`;
 }
 
 async function withPccAction(
@@ -2595,6 +2624,155 @@ function projectUpsertPayload(project: PccProject): {
   };
 }
 
+function stringListFromMetadata(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function scopeExcludedMetadata(metadata: Record<string, unknown>): boolean {
+  return metadata.excludedFromPccCurrentScope === true;
+}
+
+function scopeResumeBlocker(metadata: Record<string, unknown>): string | null {
+  const blockers = [
+    ...stringListFromMetadata(metadata.blockers),
+    ...stringListFromMetadata(metadata.blockedByMissingTools),
+  ];
+  if (blockers.length > 0) {
+    return `Blocked by ${blockers.join(", ")}.`;
+  }
+  const waitingOn = stringListFromMetadata(metadata.waitingOn);
+  if (waitingOn.length > 0) {
+    return `Waiting on ${waitingOn.join(", ")}.`;
+  }
+  return null;
+}
+
+function resumedScopeMetadata(
+  metadata: Record<string, unknown>,
+  now: string,
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    excludedFromPccCurrentScope: false,
+    pccScopeResumedAt: now,
+  };
+}
+
+function resumeScopeHeldMilestone(milestone: PccMilestone, now: string): PccMilestone {
+  const metadata = metadataObject(milestone.metadata);
+  if (milestone.status !== "on_hold" || !scopeExcludedMetadata(metadata)) {
+    return milestone;
+  }
+  const blocker = scopeResumeBlocker(metadata);
+  return {
+    ...milestone,
+    status: blocker ? "blocked" : "not_started",
+    blocker: blocker ?? undefined,
+    updatedAt: now,
+    metadata: resumedScopeMetadata(metadata, now),
+  };
+}
+
+function resumeScopeHeldSubMilestone(
+  subMilestone: PccSubMilestone,
+  parent: PccMilestone | undefined,
+  now: string,
+): PccSubMilestone {
+  const metadata = metadataObject(subMilestone.metadata);
+  if (subMilestone.status !== "on_hold" || !scopeExcludedMetadata(metadata)) {
+    return subMilestone;
+  }
+  const parentMetadata = metadataObject(parent?.metadata);
+  const blocker =
+    scopeResumeBlocker(metadata) ??
+    scopeResumeBlocker(parentMetadata) ??
+    (parent?.status === "blocked" ? `Waiting on ${parent.title}.` : null);
+  return {
+    ...subMilestone,
+    status: blocker ? "blocked" : "not_started",
+    blocker: blocker ?? undefined,
+    updatedAt: now,
+    metadata: resumedScopeMetadata(metadata, now),
+  };
+}
+
+export async function resumePccProjectForWork(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const now = new Date().toISOString();
+    const resumedMilestones = detail.milestones.map((milestone) =>
+      resumeScopeHeldMilestone(milestone, now),
+    );
+    const milestoneById = new Map(resumedMilestones.map((milestone) => [milestone.id, milestone]));
+    const resumedSubMilestones = (detail.subMilestones ?? []).map((subMilestone) =>
+      resumeScopeHeldSubMilestone(subMilestone, milestoneById.get(subMilestone.milestoneId), now),
+    );
+    const metadata = metadataObject(detail.project.metadata);
+    const projectBase: PccProject = {
+      ...detail.project,
+      status: "active",
+      updatedAt: now,
+      metadata: {
+        ...metadata,
+        pccCurrentScope: "active_project_work",
+        excludedFromPccProductCompletion: metadata.excludedFromPccProductCompletion ?? true,
+        pccResumedAt: now,
+        pccWorkLoop: {
+          ...getPccWorkLoopSettings(detail.project),
+          enabled: false,
+          state: "idle",
+          continueAroundBlockers: true,
+          updatedAt: now,
+        },
+      },
+    };
+    const evaluation = evaluatePccProjectSetup({
+      project: projectBase,
+      milestones: resumedMilestones,
+      subMilestones: resumedSubMilestones,
+    });
+    const projectForUpsert = withPccPhase2Metadata(projectBase, evaluation, now);
+    await state.client.request("pcc.projects.upsert", {
+      project: projectUpsertPayload(projectForUpsert),
+    });
+    for (const resumedMilestone of resumedMilestones.filter(
+      (item) => item.updatedAt === now && item.status !== "on_hold",
+    )) {
+      await state.client.request("pcc.milestones.upsert", { milestone: resumedMilestone });
+    }
+    for (const resumedSubMilestone of resumedSubMilestones.filter(
+      (item) => item.updatedAt === now && item.status !== "on_hold",
+    )) {
+      await state.client.request("pcc.subMilestones.upsert", {
+        subMilestone: resumedSubMilestone,
+      });
+    }
+    await loadPccDashboard(state);
+    await selectPccProject(state, detail.project.id);
+    const blockers = buildPccWorkStartBlockers({
+      project: projectForUpsert,
+      milestones: resumedMilestones,
+      subMilestones: resumedSubMilestones,
+      permissions: detail.permissions,
+      receipts: detail.receipts,
+    });
+    setActionNotice(
+      state,
+      blockers.length
+        ? `Project resumed. Next blocker: ${blockers[0]}`
+        : "Project resumed. PCC is ready to prepare the next safe task.",
+    );
+  });
+}
+
 export async function updatePccWorkLoopSettings(
   state: PccDashboardState,
   patch: Partial<PccWorkLoopSettings>,
@@ -2614,7 +2792,12 @@ export async function updatePccWorkLoopSettings(
     });
     if (patch.enabled === true && !setupEvaluation.runnable) {
       state.pccAutofillPreview = buildPccSetupAutofillPreview(detail, false);
-      state.pccActionError = setupRepairMessage(setupEvaluation);
+      state.pccActionError = setupRepairMessage(setupEvaluation, detail);
+      return;
+    }
+    if (patch.enabled === true && detail.project.status === "on_hold") {
+      state.pccActionError =
+        "Project is on hold. Use Resume Project before starting supervised work.";
       return;
     }
     const updatedProject = withPccWorkLoopSettings(detail.project, patch, new Date().toISOString());
@@ -2642,7 +2825,12 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
     });
     if (!setupEvaluation.runnable) {
       state.pccAutofillPreview = buildPccSetupAutofillPreview(detail, false);
-      state.pccActionError = setupRepairMessage(setupEvaluation);
+      state.pccActionError = setupRepairMessage(setupEvaluation, detail);
+      return;
+    }
+    if (detail.project.status === "on_hold") {
+      state.pccActionError =
+        "Project is on hold. Use Resume Project before preparing the next safe task.";
       return;
     }
     const next = getPccWorkLoopNext({

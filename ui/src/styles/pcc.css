@@ -759,6 +759,8 @@
 }
 
 .pcc-work-loop__next {
+  display: grid;
+  justify-content: stretch;
   padding: 12px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.7);
@@ -774,6 +776,16 @@
 
 .pcc-work-loop__next strong {
   display: block;
+}
+
+.pcc-work-loop__blockers {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding-left: 20px;
+  color: var(--text-muted, #64748b);
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .pcc-work-loop__prompt {

@@ -1924,6 +1924,50 @@ describe("renderPccDashboard", () => {
     expect(onPrepareNextWorkItem).toHaveBeenCalledTimes(1);
   });
 
+  it("shows resume as the primary fix for on-hold projects with legacy worker metadata", () => {
+    const onResumeProject = vi.fn();
+    const onPreviewSetupAutofill = vi.fn();
+    const container = renderView(
+      createProps({
+        onResumeProject,
+        onPreviewSetupAutofill,
+        projectDetail: {
+          project: {
+            ...project,
+            status: "on_hold" as const,
+            metadata: {
+              ...project.metadata,
+              pccSetupScore: { score: 100, runnable: true },
+              pccQualityGate: { status: "passing" },
+            },
+          },
+          milestones: [
+            {
+              ...milestone,
+              status: "on_hold" as const,
+              metadata: {
+                recommendedWorker: "OpenClaw local agent",
+                proofRequired: "local_test",
+              },
+            },
+          ],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: { ...summary, status: "on_hold" as const },
+        },
+      }),
+    );
+
+    expect(container.textContent).toContain("Resume Project");
+    expect(container.textContent).toContain("Project is on hold. Resume it before starting");
+    expect(container.textContent).not.toContain("Setup quality gate is missing");
+    container.querySelector<HTMLButtonElement>("[data-pcc-resume-project]")?.click();
+    expect(onResumeProject).toHaveBeenCalledTimes(1);
+    expect(onPreviewSetupAutofill).not.toHaveBeenCalled();
+  });
+
   it("keeps production truth scoped to the PCC project even when another project is selected", () => {
     const verifiedSha = "4d8408034d7131470980c316a2af2f311aa6b785";
     const pccDetail = {

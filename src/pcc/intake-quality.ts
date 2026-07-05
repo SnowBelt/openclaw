@@ -4,6 +4,7 @@ import type {
   PccProject,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import { pccMetadataObject, pccResponsibilityForItem } from "./metadata.js";
 import {
   getPccWorkflowTemplate,
   PCC_WORKFLOW_TEMPLATES,
@@ -72,9 +73,7 @@ export const PCC_REQUIRED_INTAKE_QUESTIONS: readonly PccIntakeQuestion[] = [
 ];
 
 function metadataObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  return pccMetadataObject(value);
 }
 
 function metadataString(value: unknown, fallback = ""): string {
@@ -247,7 +246,7 @@ export function evaluatePccProjectSetup(input: {
     if (!itemHasCriteria(milestone)) {
       missing.push(`Milestone "${milestone.title}" is missing acceptance criteria.`);
     }
-    if (!itemMetadataString(milestone, "pccResponsibility")) {
+    if (!pccResponsibilityForItem(milestone)) {
       missing.push(`Milestone "${milestone.title}" is missing an owner/responsibility.`);
     }
     if (

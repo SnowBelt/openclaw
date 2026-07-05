@@ -17,6 +17,7 @@ import {
   pccMissingRequiredIntakeAnswers,
   recommendPccWorkflow,
 } from "../../../../src/pcc/intake-quality.js";
+import { pccResponsibilityForItem } from "../../../../src/pcc/metadata.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import {
@@ -29,6 +30,7 @@ import {
   type PccParallelWorkMode,
   type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
+import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
 import type {
   PccActionNotice,
   PccAiRegenerateSection,
@@ -128,6 +130,7 @@ export type PccDashboardProps = {
   onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
   onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
   onPrepareNextWorkItem: () => void;
+  onResumeProject?: () => void;
   onPreviewSetupAutofill?: () => void;
   onPreviewSectionAutofill?: (section: PccAiRegenerateSection) => void;
   onApplySetupAutofill?: () => void;
@@ -1554,6 +1557,16 @@ function setupEvaluationForDetail(detail: PccProjectDetail) {
   });
 }
 
+function workStartBlockersForDetail(detail: PccProjectDetail): string[] {
+  return buildPccWorkStartBlockers({
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions,
+    receipts: detail.receipts,
+  });
+}
+
 function renderAutofillPreview(props: PccDashboardProps) {
   const preview = props.autofillPreview;
   if (!preview) {
@@ -1683,6 +1696,7 @@ function renderSetupRepairCard(
     ...evaluation.violations.map((issue) => ({ label: "Violated", issue })),
     ...evaluation.needsReview.map((issue) => ({ label: "Review", issue })),
   ].slice(0, 8);
+  const blockers = workStartBlockersForDetail(props.projectDetail);
   return html`<section class="pcc-setup-repair" data-pcc-setup-repair>
     <div>
       <p class="pcc-kicker">Setup repair</p>
@@ -1694,11 +1708,19 @@ function renderSetupRepairCard(
       </p>
     </div>
     <ul class="pcc-setup-repair__issues" data-pcc-setup-repair-issues>
-      ${issues.length
-        ? issues.map(
-            ({ label, issue }) => html`<li><strong>${label}</strong><span>${issue}</span></li>`,
-          )
-        : html`<li><strong>Review</strong><span>Setup needs review before work starts.</span></li>`}
+      ${blockers.length
+        ? blockers
+            .slice(0, 8)
+            .map(
+              (issue, index) => html`<li><strong>${index + 1}</strong><span>${issue}</span></li>`,
+            )
+        : issues.length
+          ? issues.map(
+              ({ label, issue }) => html`<li><strong>${label}</strong><span>${issue}</span></li>`,
+            )
+          : html`<li>
+              <strong>Review</strong><span>Setup needs review before work starts.</span>
+            </li>`}
     </ul>
     <div class="pcc-setup-repair__actions">
       <button
@@ -1729,6 +1751,17 @@ function renderSetupRepairCard(
       >
         Edit manually
       </button>
+      ${projectIsOnHold(props.projectDetail.project)
+        ? html`<button
+            class="btn btn--subtle"
+            type="button"
+            data-pcc-resume-project
+            ?disabled=${props.actionBusy || !props.onResumeProject}
+            @click=${() => props.onResumeProject?.()}
+          >
+            Resume Project
+          </button>`
+        : nothing}
       ${issues.length === 1 && /approval|review/iu.test(issues[0]?.issue ?? "")
         ? html`<button
             class="btn btn--subtle"
@@ -2644,10 +2677,7 @@ function renderSubMilestoneReorderControls(
 }
 
 function itemWorkerLabel(item: PccMilestone | PccSubMilestone): string {
-  const metadata = metadataObject(item.metadata);
-  return responsibilityLabel(
-    metadataString(metadata.pccResponsibility, item.owner || "local_openclaw_agent"),
-  );
+  return responsibilityLabel(pccResponsibilityForItem(item) || "local_openclaw_agent");
 }
 
 function itemProofLabel(item: PccMilestone | PccSubMilestone): string {
@@ -3508,12 +3538,23 @@ function renderWorkLoopCard(props: PccDashboardProps) {
   const nextTitle = next.subMilestone
     ? `${next.milestone?.title ?? "Milestone"}: ${next.subMilestone.title}`
     : (next.milestone?.title ?? "No eligible milestone");
+  const projectOnHold = projectIsOnHold(detail.project);
+  const workStartBlockers = workStartBlockersForDetail(detail);
   const message = projectIsTerminal(detail.project)
     ? "Project is complete or archived; reopen it before starting new work."
-    : !setupEvaluation.runnable
-      ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Generate setup with AI or Edit manually before starting.`
-      : (next.blocker?.message ?? settings.lastLoopMessage ?? "Ready for the next safe milestone.");
+    : workStartBlockers.length > 0
+      ? (workStartBlockers[0] ?? "Review blockers before starting work.")
+      : !setupEvaluation.runnable
+        ? `Setup quality gate is ${setupEvaluation.badge.toLowerCase()}; use Generate setup with AI or Edit manually before starting.`
+        : (next.blocker?.message ??
+          settings.lastLoopMessage ??
+          "Ready for the next safe milestone.");
   const prepareNeedsSetupRepair = !setupEvaluation.runnable && !projectIsTerminal(detail.project);
+  const workStartDisabled =
+    props.actionBusy ||
+    projectIsTerminal(detail.project) ||
+    projectOnHold ||
+    (!settings.enabled && !setupEvaluation.runnable);
   return html`
     <section class="pcc-work-loop" data-pcc-work-loop aria-label="Guided work loop">
       <div class="pcc-work-loop__header">
@@ -3533,9 +3574,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <button
           class="btn"
           type="button"
-          ?disabled=${props.actionBusy ||
-          projectIsTerminal(detail.project) ||
-          (!settings.enabled && !setupEvaluation.runnable)}
+          ?disabled=${workStartDisabled}
           @click=${() =>
             props.onUpdateWorkLoop({
               enabled: !settings.enabled,
@@ -3544,6 +3583,17 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         >
           ${settings.enabled ? "Turn off" : "Work This Project"}
         </button>
+        ${projectOnHold
+          ? html`<button
+              class="btn"
+              type="button"
+              data-pcc-resume-project
+              ?disabled=${props.actionBusy || !props.onResumeProject}
+              @click=${() => props.onResumeProject?.()}
+            >
+              Resume Project
+            </button>`
+          : nothing}
         <button
           class="btn btn--subtle"
           type="button"
@@ -3557,6 +3607,7 @@ function renderWorkLoopCard(props: PccDashboardProps) {
           type="button"
           ?disabled=${props.actionBusy ||
           projectIsTerminal(detail.project) ||
+          projectOnHold ||
           (prepareNeedsSetupRepair && !props.onPreviewSetupAutofill)}
           @click=${prepareNeedsSetupRepair
             ? props.onPreviewSetupAutofill
@@ -3673,6 +3724,11 @@ function renderWorkLoopCard(props: PccDashboardProps) {
         <span>Next</span>
         <strong>${nextTitle}</strong>
         <p>${message}</p>
+        ${workStartBlockers.length > 1
+          ? html`<ol class="pcc-work-loop__blockers" data-pcc-work-start-blockers>
+              ${workStartBlockers.slice(0, 6).map((blocker) => html`<li>${blocker}</li>`)}
+            </ol>`
+          : nothing}
       </div>
       ${next.taskPrompt
         ? html`<details class="pcc-work-loop__prompt" data-pcc-task-prompt>
@@ -3904,6 +3960,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       return;
     }
     if (projectIsOnHold(project)) {
+      if (props.onResumeProject) {
+        props.onResumeProject();
+        return;
+      }
       props.onSetProjectStatus(project, "active");
       return;
     }
@@ -4672,7 +4732,7 @@ function renderSubMilestoneList(
 function renderMilestoneCard(milestone: PccMilestone, props: PccDashboardProps) {
   const percent = clampPercent(milestone.percentComplete ?? 0);
   const metadata = metadataObject(milestone.metadata);
-  const responsibility = metadataString(metadata.pccResponsibility, "local_openclaw_agent");
+  const responsibility = pccResponsibilityForItem(milestone) || "local_openclaw_agent";
   const costRisk = metadataString(metadata.pccCostRisk, "low");
   const canComplete = receiptsForMilestone(props.projectDetail, milestone).length > 0;
   const stopHere = milestoneStopsHere(milestone);
