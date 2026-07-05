@@ -3386,7 +3386,7 @@ function renderTodayView(props: PccDashboardProps) {
             "No ready action recorded.",
           )}
           <article class="pcc-today__primary-card" data-pcc-portfolio-progress>
-            <span>All Projects Average</span>
+            <span>Portfolio Progress</span>
             <strong>${average}%</strong>
             <em>
               ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
