@@ -499,6 +499,43 @@ function projectCanBeNextBestAction(project: PccProjectSummary): boolean {
   return !projectIsDeferredOutOfUrgent(project) && !projectIsTerminalForWork(project);
 }
 
+function projectIsExcludedFromTodayFocus(project: PccProjectSummary): boolean {
+  const text = [
+    project.recentActivity ?? "",
+    ...(project.nextActions ?? []),
+    ...(project.proofGaps ?? []),
+  ]
+    .join(" ")
+    .toLocaleLowerCase();
+  return (
+    /removed from current working scope|focus is pcc only|excluded from pcc product completion|project-specific .*current working scope/u.test(
+      text,
+    ) || projectIsDeferredOutOfUrgent(project)
+  );
+}
+
+function compactTodaySignal(value: string, max = 78): string {
+  return compactSignalText(value, max);
+}
+
+function runningProjectsForToday(props: PccDashboardProps): PccProjectSummary[] {
+  return props.projects.filter(
+    (project) =>
+      workStateForProject(project, props.projectDetails?.[project.id]) === "Working" &&
+      !projectIsExcludedFromTodayFocus(project),
+  );
+}
+
+function focusedAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
+  return getAttentionProjects(projects).filter(
+    (project) => !projectIsExcludedFromTodayFocus(project),
+  );
+}
+
+function deferredAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
+  return getAttentionProjects(projects).filter(projectIsExcludedFromTodayFocus);
+}
+
 function compactSignalText(value: string, max = 130): string {
   const normalized = value.trim().replace(/\s+/gu, " ");
   return normalized.length > max ? `${normalized.slice(0, max - 1).trimEnd()}…` : normalized;
@@ -2776,45 +2813,9 @@ function milestoneStopsHere(milestone: PccMilestone): boolean {
   return metadataObject(milestone.metadata).pccStopHere === true;
 }
 
-function topProject(
-  props: PccDashboardProps,
-  predicate: (project: PccProjectSummary) => boolean,
-): PccProjectSummary | undefined {
-  return props.projects.find(predicate);
-}
-
 function projectActionLine(project: PccProjectSummary, detail?: PccProjectDetail): string {
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
   return current?.title ?? project.nextActions[0] ?? formatStatus(project.status);
-}
-
-function renderTodayPrimaryCard(
-  props: PccDashboardProps,
-  label: string,
-  project: PccProjectSummary | undefined,
-  empty: string,
-  detail?: string,
-) {
-  return html`<article
-    class="pcc-today__primary-card"
-    data-pcc-today-card=${label}
-    data-pcc-project-id=${project?.id ?? ""}
-  >
-    <span>${label}</span>
-    ${project
-      ? html`<button
-          type="button"
-          data-pcc-project-open
-          data-pcc-project-open-surface="today"
-          data-pcc-project-id=${project.id}
-          aria-label=${`Open ${project.title} from ${label}`}
-          @click=${() => props.onSelectProject(project.id)}
-        >
-          <strong>${project.title}</strong>
-          <em>${detail ?? projectActionLine(project, props.projectDetails?.[project.id])}</em>
-        </button>`
-      : html`<p>${empty}</p>`}
-  </article>`;
 }
 
 function attentionRank(project: PccProjectSummary): number {
@@ -3228,19 +3229,18 @@ function renderTopPortfolioMetrics(
 ) {
   const portfolio = props.portfolio;
   const needsAttentionCount =
-    portfolio?.needsAttention ?? projects.filter(projectNeedsAttention).length;
-  const runningCount = projects.filter(
-    (project) => workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
-  ).length;
+    portfolio?.needsAttention ?? focusedAttentionProjects(projects).length;
+  const runningCount = runningProjectsForToday(props).length;
   return html`<section
     class="pcc-today__metrics"
     data-pcc-top-metrics
     aria-label="Portfolio metrics"
   >
-    ${renderMetric("Active", portfolio?.active ?? 0)}
-    ${renderMetric("Needs attention", needsAttentionCount)} ${renderMetric("Running", runningCount)}
+    ${renderCompactMetric("Active", portfolio?.active ?? 0)}
+    ${renderCompactMetric("Need attention", needsAttentionCount)}
+    ${renderCompactMetric("Running", runningCount)}
     <details class="pcc-today__metrics-more" data-pcc-top-metrics-more>
-      <summary>More metrics</summary>
+      <summary>More</summary>
       <div>
         ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
         ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
@@ -3255,105 +3255,179 @@ function renderTopPortfolioMetrics(
   </section>`;
 }
 
+function renderCompactMetric(label: string, value: string | number) {
+  return html`<span class="pcc-today__compact-metric"><strong>${value}</strong>${label}</span>`;
+}
+
+function renderTodayProjectSignal(
+  props: PccDashboardProps,
+  label: string,
+  project: PccProjectSummary | undefined,
+  empty: string,
+  detail?: string,
+) {
+  return html`<article
+    class="pcc-today__primary-card"
+    data-pcc-today-card=${label}
+    data-pcc-project-id=${project?.id ?? ""}
+  >
+    <span>${label}</span>
+    ${project
+      ? html`<button
+          type="button"
+          data-pcc-project-open
+          data-pcc-project-open-surface="today"
+          data-pcc-project-id=${project.id}
+          aria-label=${`Open ${project.title} from ${label}`}
+          @click=${() => props.onSelectProject(project.id)}
+        >
+          <strong>${project.title}</strong>
+          <em
+            >${compactTodaySignal(
+              detail ?? projectActionLine(project, props.projectDetails?.[project.id]),
+            )}</em
+          >
+        </button>`
+      : html`<p>${empty}</p>`}
+  </article>`;
+}
+
 function renderTodayView(props: PccDashboardProps) {
   const portfolio = props.portfolio;
-  const working = topProject(
-    props,
+  const runningProjects = runningProjectsForToday(props);
+  const attentionProjects = focusedAttentionProjects(props.projects);
+  const deferredProjects = deferredAttentionProjects(props.projects);
+  const blocked = props.projects.find(
     (project) =>
-      ["in_progress", "active"].includes(project.status) ||
-      workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
-  );
-  const needsYou = topProject(props, projectNeedsAttention);
-  const blocked = topProject(
-    props,
-    (project) =>
+      !projectIsExcludedFromTodayFocus(project) &&
       projectCanBeNextBestAction(project) &&
       (project.status === "blocked" || project.milestoneCounts.blocked > 0),
   );
-  const ready = topProject(
-    props,
+  const ready = props.projects.find(
     (project) =>
+      !projectIsExcludedFromTodayFocus(project) &&
       projectCanBeNextBestAction(project) &&
       project.nextActions.length > 0 &&
       project.status !== "blocked",
   );
-  const nextBest =
-    (needsYou && projectCanBeNextBestAction(needsYou) ? needsYou : undefined) ??
-    blocked ??
-    ready ??
-    working;
+  const working = runningProjects[0];
+  const needsYou = attentionProjects[0];
+  const nextBest = needsYou ?? blocked ?? ready ?? working;
+  const nextLabel = nextBest
+    ? `${nextBest.title}: ${compactTodaySignal(projectActionLine(nextBest, props.projectDetails?.[nextBest.id]), 70)}`
+    : "No ready action";
   const average = clampPercent(portfolio?.averagePercentComplete ?? 0);
-  const needsAttentionCount =
-    portfolio?.needsAttention ?? props.projects.filter(projectNeedsAttention).length;
+  const portfolioNeedsAttention = portfolio?.needsAttention ?? attentionProjects.length;
+
   return html`<section class="pcc-today" data-pcc-today aria-label="Today">
-    <div class="pcc-section-heading">
-      <div>
-        <p class="pcc-kicker">Today</p>
-        <h3>Your projects at a glance</h3>
-        <p>Open one project, see the milestone journey, then work the next safe step.</p>
+    <div class="pcc-today__bar" data-pcc-today-compact-bar>
+      <div class="pcc-today__bar-title">
+        <span>Today</span>
+        <strong>${runningProjects.length} running</strong>
+        <strong>${attentionProjects.length} need attention</strong>
+        ${deferredProjects.length
+          ? html`<strong>${deferredProjects.length} deferred</strong>`
+          : nothing}
       </div>
-      <span>${formatUpdatedAt(props.updatedAt)}</span>
+      <button
+        class="pcc-today__next"
+        type="button"
+        ?disabled=${!nextBest}
+        data-pcc-today-next-action
+        @click=${() => nextBest && props.onSelectProject(nextBest.id)}
+      >
+        <span>Next</span>
+        <strong>${nextLabel}</strong>
+      </button>
+      <details class="pcc-today__metrics-more" data-pcc-top-metrics-more>
+        <summary>More</summary>
+        <div>
+          ${renderCompactMetric("Active", portfolio?.active ?? 0)}
+          ${renderCompactMetric("Need attention", portfolioNeedsAttention)}
+          ${renderCompactMetric("Running", runningProjects.length)}
+          ${renderCompactMetric("All projects average", `${average}%`)}
+        </div>
+      </details>
     </div>
-    ${renderTopPortfolioMetrics(props, props.projects)}
-    <div class="pcc-today__hero-grid">
-      ${renderTodayPrimaryCard(
-        props,
-        "Working Now",
-        working,
-        "No project is actively working.",
-        working
-          ? `${workStateForProject(working, props.projectDetails?.[working.id])} · ${projectActionLine(working, props.projectDetails?.[working.id])}`
-          : undefined,
-      )}
-      ${renderTodayPrimaryCard(
-        props,
-        "Needs You",
-        needsYou ?? blocked,
-        "No approvals, blockers, or overdue projects need you.",
-        needsYou ? projectAttentionLine(needsYou) : undefined,
-      )}
-      ${renderTodayPrimaryCard(props, "Next Best Action", nextBest, "No ready action recorded.")}
-      <article class="pcc-today__primary-card" data-pcc-portfolio-progress>
-        <span>Portfolio Progress</span>
-        <strong>${average}%</strong>
-        <em>
-          ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
-          ${needsAttentionCount} need attention
-        </em>
-      </article>
-    </div>
-    <details class="pcc-today__drawer">
-      <summary>Show all project queues</summary>
-      <div class="pcc-today__queues">
-        <article>
-          <strong>Working</strong>
-          <ul>
-            ${props.projects
-              .filter((project) => ["in_progress", "active"].includes(project.status))
-              .slice(0, 8)
-              .map((project) => html`<li>${project.title}</li>`)}
-          </ul>
-        </article>
-        <article>
-          <strong>Needs You</strong>
-          <ul>
-            ${props.projects
-              .filter(projectNeedsAttention)
-              .slice(0, 8)
-              .map((project) => html`<li>${project.title} — ${projectAttentionLine(project)}</li>`)}
-          </ul>
-        </article>
-        <article>
-          <strong>Blocked</strong>
-          <ul>
-            ${props.projects
-              .filter(
-                (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
-              )
-              .slice(0, 8)
-              .map((project) => html`<li>${project.title}</li>`)}
-          </ul>
-        </article>
+
+    <details class="pcc-today__overview" data-pcc-today-overview>
+      <summary>Show overview</summary>
+      <div class="pcc-today__overview-body">
+        <div class="pcc-section-heading pcc-today__overview-heading">
+          <div>
+            <p class="pcc-kicker">Today</p>
+            <h3>Your projects at a glance</h3>
+            <p>Open one project, see the milestone journey, then work the next safe step.</p>
+          </div>
+          <span>${formatUpdatedAt(props.updatedAt)}</span>
+        </div>
+        ${renderTopPortfolioMetrics(props, props.projects)}
+        <div class="pcc-today__hero-grid">
+          ${renderTodayProjectSignal(
+            props,
+            "Working Now",
+            working,
+            "No project is actively working.",
+            working
+              ? `${workStateForProject(working, props.projectDetails?.[working.id])} · ${projectActionLine(working, props.projectDetails?.[working.id])}`
+              : undefined,
+          )}
+          ${renderTodayProjectSignal(
+            props,
+            "Needs You",
+            needsYou ?? blocked,
+            "No approvals, blockers, or overdue projects need you.",
+            needsYou ? projectAttentionLine(needsYou) : undefined,
+          )}
+          ${renderTodayProjectSignal(
+            props,
+            "Next Best Action",
+            nextBest,
+            "No ready action recorded.",
+          )}
+          <article class="pcc-today__primary-card" data-pcc-portfolio-progress>
+            <span>All Projects Average</span>
+            <strong>${average}%</strong>
+            <em>
+              ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
+              ${portfolioNeedsAttention} need attention
+            </em>
+          </article>
+        </div>
+        <details class="pcc-today__drawer">
+          <summary>Show all project queues</summary>
+          <div class="pcc-today__queues">
+            <article>
+              <strong>Working</strong>
+              <ul>
+                ${runningProjects.slice(0, 8).map((project) => html`<li>${project.title}</li>`)}
+              </ul>
+            </article>
+            <article>
+              <strong>Needs You</strong>
+              <ul>
+                ${attentionProjects
+                  .slice(0, 8)
+                  .map(
+                    (project) => html`<li>${project.title} — ${projectAttentionLine(project)}</li>`,
+                  )}
+              </ul>
+            </article>
+            <article>
+              <strong>Deferred / Needs review</strong>
+              <ul>
+                ${deferredProjects
+                  .slice(0, 8)
+                  .map(
+                    (project) =>
+                      html`<li>
+                        ${project.title} — ${compactTodaySignal(projectAttentionLine(project))}
+                      </li>`,
+                  )}
+              </ul>
+            </article>
+          </div>
+        </details>
       </div>
     </details>
   </section>`;

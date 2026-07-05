@@ -875,6 +875,81 @@ describe("renderPccDashboard", () => {
     );
   });
 
+  it("keeps Today compact, collapsed, and deduped from deferred project scope", () => {
+    const scopedOutSummary = {
+      ...summary,
+      id: "snes",
+      title: "SNES Game Creator",
+      status: "active" as const,
+      health: "At risk",
+      percentComplete: 23,
+      milestoneCounts: {
+        total: 7,
+        complete: 1,
+        blocked: 1,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: [
+        "Verify SNES toolchain and emulator smoke path: Project-specific SNES Game Creator work removed from current working scope by user; focus is PCC only.",
+      ],
+      recentActivity: "Project-specific work removed from current working scope by user.",
+    };
+    const completeSummary = {
+      ...summary,
+      id: "pcc-complete",
+      title: "Project Command Center",
+      status: "complete_with_maintenance" as const,
+      health: "Complete",
+      percentComplete: 100,
+      milestoneCounts: {
+        total: 35,
+        complete: 35,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: [],
+      proofGaps: [],
+    };
+    const container = renderView(
+      createProps({
+        projects: [scopedOutSummary, completeSummary],
+        projectDetail: {
+          ...createProps().projectDetail!,
+          summary: completeSummary,
+          project: { ...project, id: "pcc-complete", status: "complete_with_maintenance" as const },
+          milestones: [],
+        },
+        selectedProjectId: "pcc-complete",
+        portfolio: {
+          projectsTotal: 2,
+          active: 1,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 1,
+          archived: 0,
+          averagePercentComplete: 62,
+          nextActions: [],
+        },
+      }),
+    );
+
+    const compact = container.querySelector("[data-pcc-today-compact-bar]");
+    const overview = container.querySelector("[data-pcc-today-overview]") as HTMLDetailsElement;
+    expect(compact).not.toBeNull();
+    expect(overview).not.toBeNull();
+    expect(overview.open).toBe(false);
+    expect(compact?.textContent).toContain("0 running");
+    expect(compact?.textContent).toContain("0 need attention");
+    expect(compact?.textContent).not.toContain("Project-specific SNES Game Creator work removed");
+    expect(
+      container.querySelector('[data-pcc-today-card="Working Now"]')?.textContent,
+    ).not.toContain("SNES Game Creator");
+  });
+
   it("filters project cards with a skim-first project search", () => {
     const onSetProjectSearchQuery = vi.fn();
     const kitchenSummary = {
