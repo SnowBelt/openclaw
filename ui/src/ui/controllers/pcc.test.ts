@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  validatePccMilestonesUpsertParams,
+  validatePccProjectsUpsertParams,
+  validatePccSubMilestonesUpsertParams,
+} from "../../../../packages/gateway-protocol/src/index.js";
+import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
@@ -219,6 +224,24 @@ const portfolio = {
   averagePercentComplete: 25,
   nextActions: ["Build UI shell"],
 };
+
+function assertValidPccWriteParams(method: string, params: unknown): void {
+  if (method === "pcc.projects.upsert" && !validatePccProjectsUpsertParams(params)) {
+    throw new Error(
+      `invalid project upsert payload: ${JSON.stringify(validatePccProjectsUpsertParams.errors)}`,
+    );
+  }
+  if (method === "pcc.milestones.upsert" && !validatePccMilestonesUpsertParams(params)) {
+    throw new Error(
+      `invalid milestone upsert payload: ${JSON.stringify(validatePccMilestonesUpsertParams.errors)}`,
+    );
+  }
+  if (method === "pcc.subMilestones.upsert" && !validatePccSubMilestonesUpsertParams(params)) {
+    throw new Error(
+      `invalid sub-milestone upsert payload: ${JSON.stringify(validatePccSubMilestonesUpsertParams.errors)}`,
+    );
+  }
+}
 
 describe("loadPccDashboard", () => {
   it("updates project search query state", () => {
@@ -1541,11 +1564,11 @@ describe("PCC CRUD controller", () => {
     expect(milestoneWrites.slice(0, 4)).toEqual([
       [
         "pcc.milestones.upsert",
-        { milestone: expect.objectContaining({ id: "milestone-3", order: -1_000_000 }) },
+        { milestone: expect.objectContaining({ id: "milestone-3", order: 1_000_000_000 }) },
       ],
       [
         "pcc.milestones.upsert",
-        { milestone: expect.objectContaining({ id: "milestone-2", order: -1_000_001 }) },
+        { milestone: expect.objectContaining({ id: "milestone-2", order: 1_000_000_001 }) },
       ],
       [
         "pcc.milestones.upsert",
@@ -1566,11 +1589,21 @@ describe("PCC CRUD controller", () => {
     expect(subMilestoneWrites.slice(0, 4)).toEqual([
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-3", order: -1_000_000 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-3",
+            order: 1_000_000_000,
+          }),
+        },
       ],
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: -1_000_001 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-2",
+            order: 1_000_000_001,
+          }),
+        },
       ],
       [
         "pcc.subMilestones.upsert",
@@ -1636,7 +1669,7 @@ describe("PCC CRUD controller", () => {
     expect(milestoneWrites).toEqual([
       [
         "pcc.milestones.upsert",
-        { milestone: expect.objectContaining({ id: "milestone-1", order: -2_000_000 }) },
+        { milestone: expect.objectContaining({ id: "milestone-1", order: 1_000_000_000 }) },
       ],
       [
         "pcc.milestones.upsert",
@@ -1649,11 +1682,21 @@ describe("PCC CRUD controller", () => {
     expect(subMilestoneWrites).toEqual([
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-1", order: -2_000_000 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-1",
+            order: 1_000_000_000,
+          }),
+        },
       ],
       [
         "pcc.subMilestones.upsert",
-        { subMilestone: expect.objectContaining({ id: "submilestone-2", order: -2_000_001 }) },
+        {
+          subMilestone: expect.objectContaining({
+            id: "submilestone-2",
+            order: 1_000_000_001,
+          }),
+        },
       ],
       [
         "pcc.subMilestones.upsert",
@@ -2252,7 +2295,148 @@ describe("PCC CRUD controller", () => {
 
     request.mockClear();
     await runPccUndoAction(state);
-    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", { milestone });
+    expect(request).toHaveBeenCalledWith(
+      "pcc.milestones.upsert",
+      expect.objectContaining({
+        milestone: expect.objectContaining({ id: milestone.id, title: milestone.title }),
+      }),
+    );
     expect(state.pccLastUndoAction).toBeNull();
+  });
+
+  it("sends schema-valid milestone and sub-milestone status payloads for legacy objects", async () => {
+    const legacyMilestone = { ...milestone, order: -10 };
+    const legacySubMilestone = { ...subMilestone, order: -3 };
+    const request = vi.fn(async (method: string, params: unknown) => {
+      assertValidPccWriteParams(method, params);
+      if (method === "pcc.milestones.upsert") {
+        return {
+          milestone: {
+            ...legacyMilestone,
+            ...(params as { milestone: Partial<typeof legacyMilestone> }).milestone,
+            createdAt: legacyMilestone.createdAt,
+            updatedAt: "2026-06-26T00:01:00Z",
+          },
+          summary,
+        };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return {
+          subMilestone: {
+            ...legacySubMilestone,
+            ...(params as { subMilestone: Partial<typeof legacySubMilestone> }).subMilestone,
+            createdAt: legacySubMilestone.createdAt,
+            updatedAt: "2026-06-26T00:01:00Z",
+          },
+        };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [{ ...legacyMilestone, status: "skipped" as const }],
+          subMilestones: [{ ...legacySubMilestone, status: "skipped" as const }],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [legacyMilestone],
+        subMilestones: [legacySubMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await setPccMilestoneStatus(state, legacyMilestone, "skipped", "Not needed.");
+
+    const milestonePayload = request.mock.calls.find(
+      ([method]) => method === "pcc.milestones.upsert",
+    )?.[1] as { milestone: Record<string, unknown> } | undefined;
+    const subMilestonePayload = request.mock.calls.find(
+      ([method]) => method === "pcc.subMilestones.upsert",
+    )?.[1] as { subMilestone: Record<string, unknown> } | undefined;
+    expect(milestonePayload?.milestone).not.toHaveProperty("createdAt");
+    expect(milestonePayload?.milestone).not.toHaveProperty("updatedAt");
+    expect(milestonePayload?.milestone.order).toEqual(expect.any(Number));
+    expect(milestonePayload?.milestone.order).toBeGreaterThanOrEqual(0);
+    expect(subMilestonePayload?.subMilestone).not.toHaveProperty("createdAt");
+    expect(subMilestonePayload?.subMilestone).not.toHaveProperty("updatedAt");
+    expect(subMilestonePayload?.subMilestone.order).toEqual(expect.any(Number));
+    expect(subMilestonePayload?.subMilestone.order).toBeGreaterThanOrEqual(0);
+  });
+
+  it("uses schema-valid positive temporary orders for milestone reordering", async () => {
+    const first = { ...milestone, id: "first", title: "First", order: 10 };
+    const second = { ...milestone, id: "second", title: "Second", order: 20 };
+    const request = vi.fn(async (method: string, params: unknown) => {
+      assertValidPccWriteParams(method, params);
+      if (method === "pcc.milestones.upsert") {
+        return {
+          milestone: {
+            ...first,
+            ...(params as { milestone: Partial<typeof first> }).milestone,
+            createdAt: first.createdAt,
+            updatedAt: "2026-06-26T00:01:00Z",
+          },
+          summary,
+        };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [second, first],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [first, second],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await movePccMilestoneBefore(state, second, first);
+
+    const milestonePayloads = request.mock.calls
+      .filter(([method]) => method === "pcc.milestones.upsert")
+      .map(([, params]) => (params as { milestone: Record<string, unknown> }).milestone);
+    expect(milestonePayloads.length).toBeGreaterThan(0);
+    expect(milestonePayloads.every((payload) => !("createdAt" in payload))).toBe(true);
+    expect(milestonePayloads.every((payload) => !("updatedAt" in payload))).toBe(true);
+    expect(milestonePayloads.every((payload) => Number(payload.order) >= 0)).toBe(true);
+    expect(milestonePayloads.some((payload) => Number(payload.order) >= 1_000_000_000)).toBe(true);
   });
 });

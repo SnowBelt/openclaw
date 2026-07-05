@@ -1630,12 +1630,16 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
     for (const milestone of patchedMilestones.filter((item) =>
       preview.milestoneUpdates.some((update) => update.id === item.id),
     )) {
-      await state.client.request("pcc.milestones.upsert", { milestone });
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: milestoneUpsertPayload(milestone),
+      });
     }
     for (const subMilestone of patchedSubMilestones.filter((item) =>
       preview.subMilestoneUpdates.some((update) => update.id === item.id),
     )) {
-      await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+      await state.client.request("pcc.subMilestones.upsert", {
+        subMilestone: subMilestoneUpsertPayload(subMilestone),
+      });
     }
     if (
       activeMilestonesForSetup(detail).length === 0 &&
@@ -1645,21 +1649,23 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
       for (const milestone of draft.milestones) {
         const created = await state.client.request<{ milestone: PccMilestone }>(
           "pcc.milestones.upsert",
-          { milestone: { ...milestone, projectId: detail.project.id } },
+          { milestone: milestoneUpsertPayload({ ...milestone, projectId: detail.project.id }) },
         );
         for (const subMilestone of draft.subMilestonesByMilestoneTitle[milestone.title] ?? []) {
           await state.client.request("pcc.subMilestones.upsert", {
-            subMilestone: {
+            subMilestone: subMilestoneUpsertPayload({
               ...subMilestone,
               projectId: detail.project.id,
               milestoneId: created.milestone.id,
-            },
+            }),
           });
         }
       }
     } else if (!preview.section || preview.section === "submilestones") {
       for (const subMilestone of generatedExistingSubMilestonesForApply(detail)) {
-        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload(subMilestone),
+        });
       }
     }
     state.pccAutofillPreview = null;
@@ -1828,21 +1834,21 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     });
     const projectForUpsert = withPccPhase2Metadata(baseProject as PccProject, evaluation, now);
     const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
-      project: projectForUpsert,
+      project: projectUpsertPayload(projectForUpsert),
     });
     if (draft && !form.id) {
       for (const milestone of draft.milestones) {
         const created = await state.client.request<{ milestone: PccMilestone }>(
           "pcc.milestones.upsert",
-          { milestone: { ...milestone, projectId: result.project.id } },
+          { milestone: milestoneUpsertPayload({ ...milestone, projectId: result.project.id }) },
         );
         for (const subMilestone of draft.subMilestonesByMilestoneTitle[milestone.title] ?? []) {
           await state.client.request("pcc.subMilestones.upsert", {
-            subMilestone: {
+            subMilestone: subMilestoneUpsertPayload({
               ...subMilestone,
               projectId: result.project.id,
               milestoneId: created.milestone.id,
-            },
+            }),
           });
         }
       }
@@ -1889,19 +1895,17 @@ export async function savePccMilestone(state: PccDashboardState): Promise<void> 
     if (!state.client || !form.projectId) {
       return;
     }
+    const order = parseOptionalInteger(form.order);
+    const percentComplete = parseOptionalPercent(form.percentComplete);
     await state.client.request("pcc.milestones.upsert", {
-      milestone: {
+      milestone: milestoneUpsertPayload({
         ...(form.id ? { id: form.id } : {}),
         projectId: form.projectId,
         title: form.title.trim(),
         status: form.status,
         ...(form.phaseId.trim() ? { phaseId: form.phaseId.trim() } : {}),
-        ...(parseOptionalInteger(form.order) !== undefined
-          ? { order: parseOptionalInteger(form.order) }
-          : {}),
-        ...(parseOptionalPercent(form.percentComplete) !== undefined
-          ? { percentComplete: parseOptionalPercent(form.percentComplete) }
-          : {}),
+        ...(order !== undefined ? { order } : {}),
+        ...(percentComplete !== undefined ? { percentComplete } : {}),
         ...(form.blocker.trim() ? { blocker: form.blocker.trim() } : { blocker: "" }),
         ...(form.implementationPlan.trim()
           ? { implementationPlan: form.implementationPlan.trim() }
@@ -1920,7 +1924,7 @@ export async function savePccMilestone(state: PccDashboardState): Promise<void> 
           pccCostRisk: form.costRisk,
           pccStopHere: form.stopHere,
         },
-      },
+      }),
     });
     state.pccEditorMode = null;
     await loadPccDashboard(state);
@@ -1985,13 +1989,13 @@ export async function setPccMilestoneStopHere(
       return;
     }
     await state.client.request("pcc.milestones.upsert", {
-      milestone: {
+      milestone: milestoneUpsertPayload({
         ...milestone,
         metadata: {
           ...metadataObject(milestone.metadata),
           pccStopHere: stopHere,
         },
-      },
+      }),
     });
     await loadPccDashboard(state);
     await selectPccProject(state, milestone.projectId);
@@ -2049,7 +2053,9 @@ export async function setPccMilestoneStatus(
     }
     const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
     const milestoneUpdate = itemWithStatusMetadata(milestone, normalizedStatus, note);
-    await state.client.request("pcc.milestones.upsert", { milestone: milestoneUpdate });
+    await state.client.request("pcc.milestones.upsert", {
+      milestone: milestoneUpsertPayload(milestoneUpdate),
+    });
     if (
       state.pccProjectDetail &&
       (normalizedStatus === "skipped" ||
@@ -2065,7 +2071,9 @@ export async function setPccMilestoneStatus(
       );
       for (const subMilestone of childUpdates) {
         await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: itemWithStatusMetadata(subMilestone, childStatus, note),
+          subMilestone: subMilestoneUpsertPayload(
+            itemWithStatusMetadata(subMilestone, childStatus, note),
+          ),
         });
       }
     }
@@ -2075,9 +2083,13 @@ export async function setPccMilestoneStatus(
       if (!state.client) {
         return;
       }
-      await state.client.request("pcc.milestones.upsert", { milestone: previousMilestone });
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: milestoneUpsertPayload(previousMilestone),
+      });
       for (const subMilestone of previousChildren) {
-        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload(subMilestone),
+        });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, milestone.projectId);
@@ -2103,7 +2115,9 @@ export async function setPccSubMilestoneStatus(
     }
     const normalizedStatus: PccStatus = status === "reopened" ? "not_started" : status;
     await state.client.request("pcc.subMilestones.upsert", {
-      subMilestone: itemWithStatusMetadata(subMilestone, normalizedStatus, note),
+      subMilestone: subMilestoneUpsertPayload(
+        itemWithStatusMetadata(subMilestone, normalizedStatus, note),
+      ),
     });
     await loadPccDashboard(state);
     await selectPccProject(state, subMilestone.projectId);
@@ -2112,7 +2126,7 @@ export async function setPccSubMilestoneStatus(
         return;
       }
       await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: previousSubMilestone,
+        subMilestone: subMilestoneUpsertPayload(previousSubMilestone),
       });
       await loadPccDashboard(state);
       await selectPccProject(state, subMilestone.projectId);
@@ -2209,12 +2223,12 @@ export async function movePccMilestoneBefore(
       .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
     for (const [index, { milestone }] of changed.entries()) {
       await state.client.request("pcc.milestones.upsert", {
-        milestone: { ...milestone, order: -1_000_000 - index },
+        milestone: milestoneUpsertPayload({ ...milestone, order: temporaryReorderOrder(index) }),
       });
     }
     for (const { milestone, nextOrder } of changed) {
       await state.client.request("pcc.milestones.upsert", {
-        milestone: { ...milestone, order: nextOrder },
+        milestone: milestoneUpsertPayload({ ...milestone, order: nextOrder }),
       });
     }
     await loadPccDashboard(state);
@@ -2224,7 +2238,9 @@ export async function movePccMilestoneBefore(
         return;
       }
       for (const milestone of previousMilestones) {
-        await state.client.request("pcc.milestones.upsert", { milestone });
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload(milestone),
+        });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, source.projectId);
@@ -2283,12 +2299,15 @@ export async function movePccSubMilestoneBefore(
       .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder);
     for (const [index, { subMilestone }] of changed.entries()) {
       await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: { ...subMilestone, order: -1_000_000 - index },
+        subMilestone: subMilestoneUpsertPayload({
+          ...subMilestone,
+          order: temporaryReorderOrder(index),
+        }),
       });
     }
     for (const { subMilestone, nextOrder } of changed) {
       await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: { ...subMilestone, order: nextOrder },
+        subMilestone: subMilestoneUpsertPayload({ ...subMilestone, order: nextOrder }),
       });
     }
     await loadPccDashboard(state);
@@ -2298,7 +2317,9 @@ export async function movePccSubMilestoneBefore(
         return;
       }
       for (const subMilestone of previousSubMilestones) {
-        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload(subMilestone),
+        });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, source.projectId);
@@ -2400,12 +2421,12 @@ export async function normalizePccProjectSequence(state: PccDashboardState): Pro
         .filter(({ milestone, nextOrder }) => milestone.order !== nextOrder);
       for (const [index, { milestone }] of milestoneUpdates.entries()) {
         await state.client.request("pcc.milestones.upsert", {
-          milestone: { ...milestone, order: -2_000_000 - index },
+          milestone: milestoneUpsertPayload({ ...milestone, order: temporaryReorderOrder(index) }),
         });
       }
       for (const { milestone, nextOrder } of milestoneUpdates) {
         await state.client.request("pcc.milestones.upsert", {
-          milestone: { ...milestone, order: nextOrder },
+          milestone: milestoneUpsertPayload({ ...milestone, order: nextOrder }),
         });
       }
 
@@ -2420,12 +2441,15 @@ export async function normalizePccProjectSequence(state: PccDashboardState): Pro
       }
       for (const [index, { subMilestone }] of subMilestoneUpdates.entries()) {
         await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: { ...subMilestone, order: -2_000_000 - index },
+          subMilestone: subMilestoneUpsertPayload({
+            ...subMilestone,
+            order: temporaryReorderOrder(index),
+          }),
         });
       }
       for (const { subMilestone, nextOrder } of subMilestoneUpdates) {
         await state.client.request("pcc.subMilestones.upsert", {
-          subMilestone: { ...subMilestone, order: nextOrder },
+          subMilestone: subMilestoneUpsertPayload({ ...subMilestone, order: nextOrder }),
         });
       }
 
@@ -2458,10 +2482,14 @@ export async function repairPccDuplicateTitles(state: PccDashboardState): Promis
       }
 
       for (const milestone of milestoneUpdates) {
-        await state.client.request("pcc.milestones.upsert", { milestone });
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload(milestone),
+        });
       }
       for (const subMilestone of subMilestoneUpdates) {
-        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload(subMilestone),
+        });
       }
       await loadPccDashboard(state);
       await selectPccProject(state, detail.project.id);
@@ -2499,10 +2527,14 @@ export async function removePccStaleDependencies(state: PccDashboardState): Prom
         .filter((subMilestone): subMilestone is PccSubMilestone => subMilestone !== null);
 
       for (const milestone of milestoneUpdates) {
-        await state.client.request("pcc.milestones.upsert", { milestone });
+        await state.client.request("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload(milestone),
+        });
       }
       for (const subMilestone of subMilestoneUpdates) {
-        await state.client.request("pcc.subMilestones.upsert", { subMilestone });
+        await state.client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload(subMilestone),
+        });
       }
 
       await loadPccDashboard(state);
@@ -2577,14 +2609,14 @@ export async function applyPccChatSyncProposal(
           )
         : null;
       await state.client.request("pcc.milestones.upsert", {
-        milestone: {
+        milestone: milestoneUpsertPayload({
           ...existing,
           ...proposal.milestonePatch,
           metadata: {
             ...metadataObject(existing?.metadata),
             ...metadataObject(proposal.milestonePatch.metadata),
           },
-        },
+        }),
       });
     } else if (proposal.kind === "request_permission") {
       if (!proposal.permission) {
@@ -2602,25 +2634,157 @@ export async function applyPccChatSyncProposal(
   });
 }
 
-function projectUpsertPayload(project: PccProject): {
-  id: string;
+const PCC_TEMP_REORDER_ORDER_BASE = 1_000_000_000;
+const PCC_LEGACY_ORDER_REPAIR_BASE = 2_000_000_000;
+
+type PccProjectUpsertInput = Partial<PccProject> & Pick<PccProject, "title">;
+
+type PccMilestoneUpsertInput = Partial<PccMilestone> & Pick<PccMilestone, "projectId" | "title">;
+
+type PccSubMilestoneUpsertInput = Partial<PccSubMilestone> &
+  Pick<PccSubMilestone, "projectId" | "milestoneId" | "title">;
+
+function projectUpsertPayload(project: PccProjectUpsertInput): {
+  id?: string;
   title: string;
   goal?: string;
-  status: PccStatus;
+  status?: PccStatus;
   owner?: string;
   priority?: number;
   phases?: PccProject["phases"];
   metadata?: PccProject["metadata"];
 } {
   return {
-    id: project.id,
+    ...(project.id !== undefined ? { id: project.id } : {}),
     title: project.title,
     ...(project.goal !== undefined ? { goal: project.goal } : {}),
-    status: project.status,
+    ...(project.status !== undefined ? { status: project.status } : {}),
     ...(project.owner !== undefined ? { owner: project.owner } : {}),
     ...(project.priority !== undefined ? { priority: project.priority } : {}),
     ...(project.phases !== undefined ? { phases: project.phases } : {}),
     ...(project.metadata !== undefined ? { metadata: project.metadata } : {}),
+  };
+}
+
+function stablePositiveHash(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+}
+
+function repairedLegacyOrder(id: string | undefined): number {
+  return PCC_LEGACY_ORDER_REPAIR_BASE + (id ? stablePositiveHash(id) : 0);
+}
+
+function pccOrderForUpsert(order: unknown, id: string | undefined): number | undefined {
+  if (typeof order !== "number" || !Number.isFinite(order)) {
+    return undefined;
+  }
+  const integerOrder = Math.trunc(order);
+  return integerOrder >= 0 ? integerOrder : repairedLegacyOrder(id);
+}
+
+function temporaryReorderOrder(index: number): number {
+  return PCC_TEMP_REORDER_ORDER_BASE + index;
+}
+
+function milestoneUpsertPayload(milestone: PccMilestoneUpsertInput): {
+  id?: string;
+  projectId: string;
+  title: string;
+  status?: PccStatus;
+  phaseId?: string;
+  owner?: string;
+  order?: number;
+  percentComplete?: number;
+  dependsOn?: string[];
+  requiredEvidenceIds?: string[];
+  receiptIds?: string[];
+  permissionGrantIds?: string[];
+  blocker?: string;
+  implementationPlan?: string;
+  acceptanceCriteria?: string[];
+  metadata?: PccMilestone["metadata"];
+} {
+  const order = pccOrderForUpsert(milestone.order, milestone.id);
+  return {
+    ...(milestone.id !== undefined ? { id: milestone.id } : {}),
+    projectId: milestone.projectId,
+    title: milestone.title,
+    ...(milestone.status !== undefined ? { status: milestone.status } : {}),
+    ...(milestone.phaseId !== undefined ? { phaseId: milestone.phaseId } : {}),
+    ...(milestone.owner !== undefined ? { owner: milestone.owner } : {}),
+    ...(order !== undefined ? { order } : {}),
+    ...(milestone.percentComplete !== undefined
+      ? { percentComplete: milestone.percentComplete }
+      : {}),
+    ...(milestone.dependsOn !== undefined ? { dependsOn: milestone.dependsOn } : {}),
+    ...(milestone.requiredEvidenceIds !== undefined
+      ? { requiredEvidenceIds: milestone.requiredEvidenceIds }
+      : {}),
+    ...(milestone.receiptIds !== undefined ? { receiptIds: milestone.receiptIds } : {}),
+    ...(milestone.permissionGrantIds !== undefined
+      ? { permissionGrantIds: milestone.permissionGrantIds }
+      : {}),
+    ...(milestone.blocker !== undefined ? { blocker: milestone.blocker } : {}),
+    ...(milestone.implementationPlan !== undefined
+      ? { implementationPlan: milestone.implementationPlan }
+      : {}),
+    ...(milestone.acceptanceCriteria !== undefined
+      ? { acceptanceCriteria: milestone.acceptanceCriteria }
+      : {}),
+    ...(milestone.metadata !== undefined ? { metadata: milestone.metadata } : {}),
+  };
+}
+
+function subMilestoneUpsertPayload(subMilestone: PccSubMilestoneUpsertInput): {
+  id?: string;
+  projectId: string;
+  milestoneId: string;
+  title: string;
+  status?: PccStatus;
+  order?: number;
+  owner?: string;
+  percentComplete?: number;
+  dependsOn?: string[];
+  requiredEvidenceIds?: string[];
+  receiptIds?: string[];
+  permissionGrantIds?: string[];
+  blocker?: string;
+  implementationPlan?: string;
+  acceptanceCriteria?: string[];
+  metadata?: PccSubMilestone["metadata"];
+} {
+  const order = pccOrderForUpsert(subMilestone.order, subMilestone.id);
+  return {
+    ...(subMilestone.id !== undefined ? { id: subMilestone.id } : {}),
+    projectId: subMilestone.projectId,
+    milestoneId: subMilestone.milestoneId,
+    title: subMilestone.title,
+    ...(subMilestone.status !== undefined ? { status: subMilestone.status } : {}),
+    ...(order !== undefined ? { order } : {}),
+    ...(subMilestone.owner !== undefined ? { owner: subMilestone.owner } : {}),
+    ...(subMilestone.percentComplete !== undefined
+      ? { percentComplete: subMilestone.percentComplete }
+      : {}),
+    ...(subMilestone.dependsOn !== undefined ? { dependsOn: subMilestone.dependsOn } : {}),
+    ...(subMilestone.requiredEvidenceIds !== undefined
+      ? { requiredEvidenceIds: subMilestone.requiredEvidenceIds }
+      : {}),
+    ...(subMilestone.receiptIds !== undefined ? { receiptIds: subMilestone.receiptIds } : {}),
+    ...(subMilestone.permissionGrantIds !== undefined
+      ? { permissionGrantIds: subMilestone.permissionGrantIds }
+      : {}),
+    ...(subMilestone.blocker !== undefined ? { blocker: subMilestone.blocker } : {}),
+    ...(subMilestone.implementationPlan !== undefined
+      ? { implementationPlan: subMilestone.implementationPlan }
+      : {}),
+    ...(subMilestone.acceptanceCriteria !== undefined
+      ? { acceptanceCriteria: subMilestone.acceptanceCriteria }
+      : {}),
+    ...(subMilestone.metadata !== undefined ? { metadata: subMilestone.metadata } : {}),
   };
 }
 
@@ -2746,13 +2910,15 @@ export async function resumePccProjectForWork(state: PccDashboardState): Promise
     for (const resumedMilestone of resumedMilestones.filter(
       (item) => item.updatedAt === now && item.status !== "on_hold",
     )) {
-      await state.client.request("pcc.milestones.upsert", { milestone: resumedMilestone });
+      await state.client.request("pcc.milestones.upsert", {
+        milestone: milestoneUpsertPayload(resumedMilestone),
+      });
     }
     for (const resumedSubMilestone of resumedSubMilestones.filter(
       (item) => item.updatedAt === now && item.status !== "on_hold",
     )) {
       await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: resumedSubMilestone,
+        subMilestone: subMilestoneUpsertPayload(resumedSubMilestone),
       });
     }
     await loadPccDashboard(state);
@@ -2857,17 +3023,17 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
     });
     if (next.subMilestone && !next.blocker && next.subMilestone.status !== "in_progress") {
       await state.client.request("pcc.subMilestones.upsert", {
-        subMilestone: {
+        subMilestone: subMilestoneUpsertPayload({
           ...next.subMilestone,
           status: "in_progress",
-        },
+        }),
       });
     } else if (next.milestone && !next.blocker && next.milestone.status !== "in_progress") {
       await state.client.request("pcc.milestones.upsert", {
-        milestone: {
+        milestone: milestoneUpsertPayload({
           ...next.milestone,
           status: "in_progress",
-        },
+        }),
       });
     }
     await loadPccDashboard(state);
