@@ -1188,6 +1188,43 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
         // Keep the dashboard usable if the optional production-truth preload fails.
       }
     }
+    const selectedProjectStillExists = Boolean(
+      state.pccProjectDetail &&
+      projects.some((project) => project.id === state.pccProjectDetail?.project.id),
+    );
+    if (!selectedProjectStillExists) {
+      const preferredSummary =
+        projects.find((project) => project.id === state.pccSelectedProjectId) ??
+        pccProjectSummary ??
+        projects.find((project) => project.status === "active") ??
+        projects[0];
+      if (preferredSummary) {
+        const cachedDetail = state.pccProjectDetails[preferredSummary.id];
+        if (cachedDetail) {
+          state.pccSelectedProjectId = cachedDetail.project.id;
+          state.pccProjectDetail = cachedDetail;
+        } else {
+          try {
+            const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
+              projectId: preferredSummary.id,
+            });
+            const normalized = normalizePccProjectDetail(detail);
+            state.pccSelectedProjectId = normalized.project.id;
+            state.pccProjectDetail = normalized;
+            state.pccProjectDetails = {
+              ...state.pccProjectDetails,
+              [normalized.project.id]: normalized,
+            };
+          } catch {
+            state.pccSelectedProjectId = null;
+            state.pccProjectDetail = null;
+          }
+        }
+      } else {
+        state.pccSelectedProjectId = null;
+        state.pccProjectDetail = null;
+      }
+    }
     state.pccUpdatedAt = Date.now();
   } catch (err) {
     state.pccError = formatConnectError(err) || "Project Command Center unavailable";
@@ -1198,7 +1235,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
 }
 
 export async function selectPccProject(state: PccDashboardState, projectId: string): Promise<void> {
-  if (!state.client || !state.connected) {
+  if (!state.client) {
     state.pccActionError =
       "Project Command Center is offline or disconnected. Project details could not be loaded.";
     state.requestUpdate?.();
