@@ -54,7 +54,7 @@ function readConfigToken(configPath: string): { url: string; tokenLength: number
     throw new Error("missing local dashboard auth token");
   }
   return {
-    url: `http://127.0.0.1:${port}/pcc#token=${encodeURIComponent(token)}`,
+    url: `http://127.0.0.1:${port}/projects#token=${encodeURIComponent(token)}`,
     tokenLength: token.length,
   };
 }
@@ -62,7 +62,7 @@ function readConfigToken(configPath: string): { url: string; tokenLength: number
 function resolveProofUrl(options: ProofOptions): { url: string; source: string } {
   if (options.authUrl) {
     const url = new URL(options.authUrl);
-    url.pathname = "/pcc";
+    url.pathname = "/projects";
     if (!url.hash.includes("token=") && !url.search.includes("token=")) {
       throw new Error("OPENCLAW_DASHBOARD_AUTH_URL must include token auth");
     }
@@ -92,6 +92,25 @@ async function runBrowserProof(options: ProofOptions) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
   await page.goto(resolved.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.waitForTimeout(12_000);
+  const ensurePccRoute = async () => {
+    const pccShell = page.locator(".pcc-shell").first();
+    if (await pccShell.isVisible().catch(() => false)) {
+      return;
+    }
+    const pccNavLink = page.locator('a[href$="/projects"], a[href="/projects"]').first();
+    if (await pccNavLink.isVisible().catch(() => false)) {
+      await pccNavLink.click({ force: true });
+      await pccShell.waitFor({ state: "visible", timeout: 45_000 });
+      return;
+    }
+    const fallbackUrl = new URL(resolved.url);
+    fallbackUrl.pathname = "/projects";
+    fallbackUrl.hash = "";
+    fallbackUrl.search = "";
+    await page.goto(fallbackUrl.toString(), { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await pccShell.waitFor({ state: "visible", timeout: 45_000 });
+  };
+  await ensurePccRoute();
   const simpleMode = page.locator('[data-pcc-view-mode-option="simple"]').last();
   if (await simpleMode.isVisible().catch(() => false)) {
     await simpleMode.click({ force: true });
@@ -119,12 +138,31 @@ async function runBrowserProof(options: ProofOptions) {
         );
       });
   };
+  const isSelectedProject = async (title: string) => {
+    const detail = page.locator("[data-pcc-detail]").first();
+    if (!(await detail.isVisible().catch(() => false))) {
+      return false;
+    }
+    const actualTitle = (await detail.getAttribute("data-pcc-detail-project-title")) ?? "";
+    if (actualTitle === title) {
+      return true;
+    }
+    const bodyText = ((await detail.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ");
+    return bodyText.includes(title);
+  };
 
+  const productMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
+  if (options.projectTitle === "Project Command Center") {
+    if (await productMode.isVisible().catch(() => false)) {
+      await productMode.click({ force: true }).catch(() => undefined);
+      await page.waitForTimeout(500);
+    }
+  }
   const targetProject = page
     .locator(".pcc-project-card", { hasText: options.projectTitle })
     .first();
   let projectCardCount = await targetProject.count();
-  if ((await page.locator(".pcc-project-card").count()) === 0) {
+  if (projectCardCount === 0 && !(await isSelectedProject(options.projectTitle))) {
     const allProjectsTab = page.locator(".pcc-project-tabs button", { hasText: /All/i }).last();
     if (await allProjectsTab.isVisible().catch(() => false)) {
       await allProjectsTab.click({ force: true });
@@ -136,36 +174,37 @@ async function runBrowserProof(options: ProofOptions) {
       projectCardCount = await targetProject.count();
     }
   }
-  const targetOpenButton =
-    projectCardCount > 0
-      ? targetProject.locator("button", { hasText: /Open/i }).first()
-      : page.locator(".pcc-project-card button", { hasText: /Open/i }).first();
-  const targetSelectedButton =
-    projectCardCount > 0
-      ? targetProject.locator("button", { hasText: /Selected/i }).first()
-      : page.locator(".pcc-project-card button", { hasText: /Selected/i }).first();
-  const anyOpenButton = page.locator(".pcc-project-card button", { hasText: /Open/i }).first();
-  const anySelectedButton = page
-    .locator(".pcc-project-card button", { hasText: /Selected/i })
-    .first();
-  const pickVisibleButton = async () => {
-    const candidates = [targetOpenButton, targetSelectedButton, anyOpenButton, anySelectedButton];
-    for (const candidate of candidates) {
-      if (await candidate.isVisible().catch(() => false)) {
-        return candidate;
+  if (projectCardCount > 0) {
+    const pickVisibleButton = async () => {
+      const candidates = [
+        targetProject.locator("button", { hasText: /Open/i }).first(),
+        targetProject.locator("button", { hasText: /Selected/i }).first(),
+      ];
+      for (const candidate of candidates) {
+        if (await candidate.isVisible().catch(() => false)) {
+          return candidate;
+        }
       }
+      return undefined;
+    };
+    const openButton = await pickVisibleButton();
+    if (openButton) {
+      await openButton.click({ force: true }).catch(() => undefined);
     }
-    return undefined;
-  };
-  let openButton = await pickVisibleButton();
-  if (!openButton) {
-    await page.locator(".pcc-project-card").first().waitFor({ state: "visible", timeout: 45_000 });
-    openButton = await pickVisibleButton();
+  } else if (!(await isSelectedProject(options.projectTitle))) {
+    const cardTexts = await page
+      .locator(".pcc-project-card")
+      .evaluateAll((cards) =>
+        cards
+          .map((card) => card.textContent?.replace(/\s+/g, " ").trim() ?? "")
+          .filter(Boolean)
+          .slice(0, 5),
+      )
+      .catch(() => []);
+    throw new Error(
+      `PCC proof could not find requested project card "${options.projectTitle}". Visible cards: ${cardTexts.join(" | ")}`,
+    );
   }
-  if (!openButton) {
-    throw new Error("PCC proof could not find a visible project Open or Selected button");
-  }
-  await openButton.click({ force: true }).catch(() => undefined);
   await assertSelectedProject(options.projectTitle, "requested project card");
 
   if (options.profile === "functionality-closure" || options.profile === "usability-reliability") {
@@ -183,9 +222,9 @@ async function runBrowserProof(options: ProofOptions) {
           await assertSelectedProject("SNES Game Creator", "Project Work card selection");
         }
       }
-      const productMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
-      if (await productMode.isVisible().catch(() => false)) {
-        await productMode.click({ force: true });
+      const productFocusMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
+      if (await productFocusMode.isVisible().catch(() => false)) {
+        await productFocusMode.click({ force: true });
         await page.waitForTimeout(500);
       }
       const pccProject = page

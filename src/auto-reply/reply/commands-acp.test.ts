@@ -133,11 +133,10 @@ vi.mock("../../infra/outbound/session-binding-service.js", async () => {
   const actual = await vi.importActual<
     typeof import("../../infra/outbound/session-binding-service.js")
   >("../../infra/outbound/session-binding-service.js");
-  const patched = { ...actual } as typeof actual & {
-    getSessionBindingService: () => ReturnType<typeof createAcpCommandSessionBindingService>;
+  return {
+    ...actual,
+    getSessionBindingService: () => createAcpCommandSessionBindingService(),
   };
-  patched.getSessionBindingService = () => createAcpCommandSessionBindingService();
-  return patched;
 });
 
 const { handleAcpCommand } = await import("./commands-acp.js");

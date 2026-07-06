@@ -198,6 +198,7 @@ describe("tabFromPath", () => {
     expect(tabFromPath("/chat")).toBe("chat");
     expect(tabFromPath("/overview")).toBe("overview");
     expect(tabFromPath("/pcc")).toBe("pcc");
+    expect(tabFromPath("/projects")).toBe("pcc");
     expect(tabFromPath("/activity")).toBe("activity");
     expect(tabFromPath("/sessions")).toBe("sessions");
     expect(tabFromPath("/dreaming")).toBe("dreams");
@@ -211,6 +212,7 @@ describe("tabFromPath", () => {
   it("handles base paths", () => {
     expect(tabFromPath("/ui/chat", "/ui")).toBe("chat");
     expect(tabFromPath("/apps/openclaw/sessions", "/apps/openclaw")).toBe("sessions");
+    expect(tabFromPath("/pcc/projects", "/pcc")).toBe("pcc");
   });
 
   it("returns null for unknown path", () => {
@@ -232,6 +234,7 @@ describe("inferBasePathFromPathname", () => {
     expect(inferBasePathFromPathname("/chat")).toBe("");
     expect(inferBasePathFromPathname("/overview")).toBe("");
     expect(inferBasePathFromPathname("/pcc")).toBe("");
+    expect(inferBasePathFromPathname("/projects")).toBe("");
     expect(inferBasePathFromPathname("/dreaming")).toBe("");
     expect(inferBasePathFromPathname("/dreams")).toBe("");
   });
@@ -239,6 +242,7 @@ describe("inferBasePathFromPathname", () => {
   it("infers base path from nested paths", () => {
     expect(inferBasePathFromPathname("/ui/chat")).toBe("/ui");
     expect(inferBasePathFromPathname("/apps/openclaw/sessions")).toBe("/apps/openclaw");
+    expect(inferBasePathFromPathname("/pcc/projects")).toBe("/pcc");
   });
 
   it("handles index.html suffix", () => {
