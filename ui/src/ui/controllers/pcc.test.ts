@@ -702,6 +702,50 @@ describe("PCC CRUD controller", () => {
     expect(state.pccProjectDetail?.decisions?.[0]?.title).toBe("Use durable decision log");
   });
 
+  it("optimistically clears stale selected project detail while loading a different project", async () => {
+    let resolveRequest: (value: unknown) => void = () => {
+      throw new Error("select request did not start");
+    };
+    const request = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    const requestUpdate = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      requestUpdate,
+      pccSelectedProjectId: "project-1",
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    const pending = selectPccProject(state, "project-2");
+
+    expect(state.pccSelectedProjectId).toBe("project-2");
+    expect(state.pccProjectDetail).toBeNull();
+    expect(requestUpdate).toHaveBeenCalled();
+    resolveRequest({
+      project: { ...project, id: "project-2", title: "Second Project" },
+      milestones: [],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: { ...summary, id: "project-2", title: "Second Project" },
+    });
+    await pending;
+    expect(state.pccProjectDetail?.project.id).toBe("project-2");
+  });
+
   it("records a project decision through the controller", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "pcc.decisions.add") {

@@ -1722,7 +1722,7 @@ jobs:
           - node --import tsx scripts/dev/control-ui-pcc-stop-rules-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - pnpm check:workflows
-          - pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-project-manager-intake-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-project-manager-intake-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1757,7 +1757,7 @@ jobs:
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-project-manager-intake-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
+        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-project-manager-intake-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build
@@ -1799,7 +1799,7 @@ jobs:
           - node --import tsx scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - pnpm check:workflows
-          - pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1834,7 +1834,7 @@ jobs:
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts .github/workflows/workflow-sanity.yml
+        run: pnpm check:changed -- src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/project-workflows.ts src/pcc/project-workflows.test.ts src/pcc/portfolio-scheduler.ts src/pcc/portfolio-scheduler.test.ts src/pcc/work-loop.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/pcc-submilestone-smoke-helper.ts scripts/dev/control-ui-pcc-production-truth-smoke.ts scripts/dev/control-ui-pcc-resource-governor-smoke.ts scripts/dev/control-ui-pcc-stop-rules-smoke.ts scripts/dev/control-ui-pcc-phase1-skimmability-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build
@@ -1951,9 +1951,10 @@ jobs:
           - node --import tsx scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - pnpm check:workflows
-          - pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/controllers/pcc.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/controllers/pcc.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1965,9 +1966,6 @@ jobs:
 
       - name: Run PCC project-agnostic smoke
         run: node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
-
-      - name: Run PCC impact milestones smoke
-        run: node --import tsx
 
       - name: Run PCC workflow clarity smoke
         run: node --import tsx scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts
@@ -1990,6 +1988,9 @@ jobs:
       - name: Run PCC Apple-simple UX smoke
         run: node --import tsx scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts
 
+      - name: Run PCC functionality closure smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts
+
       - name: Run PCC browser proof harness self-test
         run: OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
 
@@ -2002,7 +2003,7 @@ jobs:
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/controllers/pcc.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts .github/workflows/workflow-sanity.yml
+        run: pnpm check:changed -- ui/src/ui/views/pcc.ts ui/src/ui/controllers/pcc.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build

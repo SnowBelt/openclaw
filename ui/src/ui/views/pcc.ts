@@ -412,10 +412,26 @@ function togglePccActionMenu(event: Event): void {
       openMenu
         .querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
         ?.setAttribute("aria-expanded", "false");
+      const items = openMenu.querySelector<HTMLElement>(".pcc-action-menu__items");
+      if (items) {
+        items.hidden = true;
+        items.setAttribute("aria-hidden", "true");
+        items.setAttribute("inert", "");
+      }
     }
   });
   menu.classList.toggle("is-open", nextOpen);
   trigger.setAttribute("aria-expanded", String(nextOpen));
+  const items = menu.querySelector<HTMLElement>(".pcc-action-menu__items");
+  if (items) {
+    items.hidden = !nextOpen;
+    items.setAttribute("aria-hidden", String(!nextOpen));
+    if (nextOpen) {
+      items.removeAttribute("inert");
+    } else {
+      items.setAttribute("inert", "");
+    }
+  }
   if (nextOpen) {
     menu
       .querySelector<HTMLButtonElement>("[role='menuitem'], [role='menuitemcheckbox'] input")
@@ -432,6 +448,12 @@ function closePccActionMenu(event: Event): void {
   menu
     ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
     ?.setAttribute("aria-expanded", "false");
+  const items = menu?.querySelector<HTMLElement>(".pcc-action-menu__items");
+  if (items) {
+    items.hidden = true;
+    items.setAttribute("aria-hidden", "true");
+    items.setAttribute("inert", "");
+  }
 }
 
 function runPccMenuAction(event: Event, action: () => void): void {
@@ -454,6 +476,9 @@ function handlePccActionMenuKeydown(event: KeyboardEvent): void {
     root
       ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
       ?.setAttribute("aria-expanded", "false");
+    menu.hidden = true;
+    menu.setAttribute("aria-hidden", "true");
+    menu.setAttribute("inert", "");
     root?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.focus();
     return;
   }
@@ -542,10 +567,8 @@ function compactTodaySignal(value: string, max = 78): string {
 }
 
 function runningProjectsForToday(props: PccDashboardProps): PccProjectSummary[] {
-  return props.projects.filter(
-    (project) =>
-      workStateForProject(project, props.projectDetails?.[project.id]) === "Working" &&
-      !projectIsExcludedFromTodayFocus(project, props.projectDetails?.[project.id]),
+  return focusScopedProjectsForToday(props, props.projects).filter(
+    (project) => workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
   );
 }
 
@@ -560,6 +583,20 @@ function focusedAttentionProjects(
         props ? projectDetailForSummary(props, project) : undefined,
       ),
   );
+}
+
+function focusScopedProjectsForToday(
+  props: Pick<PccDashboardProps, "projectDetails" | "projectDetail" | "productFocusMode">,
+  projects: readonly PccProjectSummary[],
+): PccProjectSummary[] {
+  const productMode = (props.productFocusMode ?? "pcc_product") === "pcc_product";
+  return projects.filter((project) => {
+    const excluded = projectIsExcludedFromTodayFocus(
+      project,
+      projectDetailForSummary(props, project),
+    );
+    return productMode ? !excluded : excluded || project.id !== "project-command-center";
+  });
 }
 
 function deferredAttentionProjects(
@@ -630,6 +667,11 @@ function primaryActionForDetail(detail: PccProjectDetail): string {
   if (projectIsOnHold(detail.project)) {
     return "Resume Project";
   }
+  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+    return detail.project.status === "complete_with_maintenance"
+      ? "Review Maintenance"
+      : "View Proof";
+  }
   if (!setupEvaluationForDetail(detail).runnable) {
     return "Fix Setup with AI";
   }
@@ -640,9 +682,6 @@ function primaryActionForDetail(detail: PccProjectDetail): string {
   if (detail.project.status === "blocked" || detail.summary.milestoneCounts.blocked > 0) {
     return "Resolve Blocker";
   }
-  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
-    return "View Receipt";
-  }
   return "Work This Project";
 }
 
@@ -650,6 +689,11 @@ function primaryActionExplanation(detail: PccProjectDetail): string {
   const setup = setupEvaluationForDetail(detail);
   if (projectIsOnHold(detail.project)) {
     return "Resume the project first. PCC will still stop at missing tools, permissions, proof, or safety gates.";
+  }
+  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+    return detail.project.status === "complete_with_maintenance"
+      ? "The project is complete. Review proof or create a new improvement when maintenance is needed."
+      : "The project is complete and outside the active work path.";
   }
   if (!setup.runnable) {
     return "PCC can draft the missing setup, then you approve it before work starts.";
@@ -661,9 +705,6 @@ function primaryActionExplanation(detail: PccProjectDetail): string {
   if (detail.project.status === "blocked" || detail.summary.milestoneCounts.blocked > 0) {
     return "Review the blocker list, fix the first blocker, then continue.";
   }
-  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
-    return "This project is not in the active work path.";
-  }
   return "PCC will prepare the next safe milestone or sub-step.";
 }
 
@@ -674,11 +715,11 @@ function blockerKindForLine(line: string): string {
   if (/permission|approval|approve/iu.test(line)) {
     return "Needs permission";
   }
-  if (/tool|install|flips|beat|emulator|missing/iu.test(line)) {
-    return "Missing tool";
-  }
   if (/proof|receipt|evidence/iu.test(line)) {
     return "Waiting for proof";
+  }
+  if (/tool|install|flips|beat|emulator/iu.test(line)) {
+    return "Missing tool";
   }
   if (/setup|intake|workflow|owner|responsibility|goal/iu.test(line)) {
     return "Needs setup";
@@ -696,16 +737,19 @@ function blockerFixLabelForLine(line: string): string {
   if (/permission|approval|approve/iu.test(line)) {
     return "Review Permission";
   }
-  if (/tool|install|flips|beat|emulator|missing/iu.test(line)) {
-    return "View Tool Blocker";
-  }
   if (/proof|receipt|evidence/iu.test(line)) {
     return "Open Proof";
+  }
+  if (/tool|install|flips|beat|emulator/iu.test(line)) {
+    return "View Tool Blocker";
   }
   return "Review Blocker";
 }
 
 function blockerLinesForDetail(detail: PccProjectDetail): string[] {
+  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+    return [];
+  }
   const setup = setupEvaluationForDetail(detail);
   const blockers = buildPccWorkStartBlockers({
     project: detail.project,
@@ -2303,6 +2347,12 @@ function renderDecisionForm(detail: PccProjectDetail, props: PccDashboardProps) 
   return html`<form
     class="pcc-decision-form"
     data-pcc-decision-form
+    @keydown=${(event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        props.onCancelDecisionForm?.();
+      }
+    }}
     @submit=${(event: Event) => {
       event.preventDefault();
       props.onSaveDecision?.();
@@ -2455,11 +2505,17 @@ function renderDecisionCapturePanel(detail: PccProjectDetail, props: PccDashboar
   if (!props.decisionFormOpen) {
     return nothing;
   }
-  return html`<section class="pcc-decision-capture" data-pcc-decision-capture>
+  return html`<section
+    class="pcc-decision-capture"
+    data-pcc-decision-capture
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="pcc-decision-capture-title"
+  >
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">Decision capture</p>
-        <h4>Add a project decision</h4>
+        <h4 id="pcc-decision-capture-title">Add a project decision</h4>
         <p>Record the choice once so future agents do not rediscover it.</p>
       </div>
     </div>
@@ -2728,9 +2784,11 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
               >`}
       </div>
       ${blocker !== "None"
-        ? html`<p class="pcc-project-card__signal" data-pcc-project-card-blocker>
-            Blocked by: ${blocker}
-          </p>`
+        ? html`<div class="pcc-project-card__signal" data-pcc-project-card-blocker>
+            <span class="pcc-chip pcc-chip--attention">Blocked</span>
+            <span class="pcc-chip">${blockerKindForLine(blocker)}</span>
+            <span>${compactSignalText(blocker, 62)}</span>
+          </div>`
         : nothing}
       <button
         class="btn btn--subtle"
@@ -3370,18 +3428,20 @@ function renderPccFocusModeSwitch(props: PccDashboardProps) {
 
 function renderTodayView(props: PccDashboardProps) {
   const portfolio = props.portfolio;
+  const focusProjects = focusScopedProjectsForToday(props, props.projects);
   const runningProjects = runningProjectsForToday(props);
-  const attentionProjects = focusedAttentionProjects(props.projects, props);
-  const deferredProjects = deferredAttentionProjects(props.projects, props);
-  const blocked = props.projects.find(
+  const attentionProjects = focusedAttentionProjects(focusProjects, props);
+  const deferredProjects =
+    (props.productFocusMode ?? "pcc_product") === "pcc_product"
+      ? deferredAttentionProjects(props.projects, props)
+      : [];
+  const blocked = focusProjects.find(
     (project) =>
-      !projectIsExcludedFromTodayFocus(project, props.projectDetails?.[project.id]) &&
       projectCanBeNextBestAction(project) &&
       (project.status === "blocked" || project.milestoneCounts.blocked > 0),
   );
-  const ready = props.projects.find(
+  const ready = focusProjects.find(
     (project) =>
-      !projectIsExcludedFromTodayFocus(project, props.projectDetails?.[project.id]) &&
       projectCanBeNextBestAction(project) &&
       project.nextActions.length > 0 &&
       project.status !== "blocked",
@@ -3671,6 +3731,31 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
   }
   const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(detail.project);
+  if (projectIsTerminal(detail.project)) {
+    return html`<section
+      class="pcc-work-loop pcc-work-loop--complete"
+      data-pcc-work-loop
+      data-pcc-work-loop-complete
+      aria-label="Project maintenance"
+    >
+      <div class="pcc-work-loop__header">
+        <div>
+          <p class="pcc-kicker">Maintenance</p>
+          <h4>Project is complete</h4>
+          <p>Active work controls are hidden. Review proof or create a new improvement.</p>
+        </div>
+        <span class="pcc-status pcc-status--complete">Complete</span>
+      </div>
+      <div class="pcc-work-loop__controls">
+        <button class="btn" type="button" @click=${() => props.onSetViewMode?.("detailed")}>
+          View proof
+        </button>
+        <button class="btn btn--subtle" type="button" @click=${() => props.onOpenMilestoneEditor()}>
+          Create improvement
+        </button>
+      </div>
+    </section>`;
+  }
   const next = getPccWorkLoopNext({
     project: detail.project,
     milestones: detail.milestones,
@@ -4187,6 +4272,24 @@ function renderBlockerClarityCenter(
   props: PccDashboardProps,
   setupEvaluation = setupEvaluationForDetail(detail),
 ) {
+  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+    return html`<section
+      class="pcc-blocker-center pcc-blocker-center--ready"
+      data-pcc-blocker-center
+      data-pcc-complete-state
+    >
+      <div>
+        <p class="pcc-kicker">Project complete</p>
+        <h4>
+          ${detail.project.status === "complete_with_maintenance"
+            ? "Complete with maintenance"
+            : "Complete"}
+        </h4>
+        <p>Proof, receipts, and maintenance history are available in Details.</p>
+      </div>
+      <span class="pcc-status pcc-status--complete">Complete</span>
+    </section>`;
+  }
   const blockers = blockerLinesForDetail(detail);
   if (blockers.length === 0 && setupEvaluation.runnable && !projectIsOnHold(detail.project)) {
     return html`<section
@@ -4273,7 +4376,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const needsSetupRepair = !setupEvaluation.runnable;
   const primaryActionDisabled =
     props.actionBusy ||
-    (!projectIsOnHold(project) && needsSetupRepair && !props.onPreviewSetupAutofill);
+    (!PROJECT_TERMINAL_STATUSES.has(project.status) &&
+      !projectIsOnHold(project) &&
+      needsSetupRepair &&
+      !props.onPreviewSetupAutofill);
   const handlePrimaryAction = () => {
     if (projectIsOnHold(project)) {
       if (props.onResumeProject) {
@@ -4281,6 +4387,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         return;
       }
       props.onSetProjectStatus(project, "active");
+      return;
+    }
+    if (PROJECT_TERMINAL_STATUSES.has(project.status)) {
+      props.onSetViewMode?.("detailed");
       return;
     }
     if (needsSetupRepair) {
@@ -4359,7 +4469,9 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             <p>No outcome metrics recorded yet.</p>
           </section>`;
     })()}
-    ${renderSetupRepairCard(setupEvaluation, props)}
+    ${PROJECT_TERMINAL_STATUSES.has(project.status)
+      ? nothing
+      : renderSetupRepairCard(setupEvaluation, props)}
     <div class="pcc-detail__actions">
       <button
         class="btn btn--subtle"
@@ -4423,7 +4535,11 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
   const milestones = sortedMilestones(detail);
   const mode = pccViewMode(props);
   const reorderMode = Boolean(props.reorderMode);
-  const canReorder = !projectIsTerminalForWork(detail.project);
+  const terminalProject = projectIsTerminalForWork(detail.project);
+  const canReorder = !terminalProject;
+  const reorderDisabledReason = terminalProject
+    ? "Completed projects are read-only. Create an improvement or reopen the project before reordering."
+    : "";
   const phaseGroups: Array<{ title: string; milestones: PccMilestone[] }> = [];
   for (const milestone of milestones) {
     const title = phaseTitleForMilestone(detail, milestone);
@@ -4450,15 +4566,20 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
           >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
           complete</span
         >
-        ${!projectIsTerminalForWork(detail.project)
-          ? html`<button
-              class=${`btn btn--subtle ${reorderMode ? "is-active" : ""}`}
-              type="button"
-              data-pcc-reorder-mode-toggle
-              @click=${() => props.onSetReorderMode?.(!reorderMode)}
-            >
-              ${reorderMode ? "Done reordering" : "Reorder"}
-            </button>`
+        <button
+          class=${`btn btn--subtle ${reorderMode ? "is-active" : ""}`}
+          type="button"
+          data-pcc-reorder-mode-toggle
+          ?disabled=${!canReorder}
+          title=${reorderDisabledReason || "Show drag handles and move controls"}
+          @click=${() => canReorder && props.onSetReorderMode?.(!reorderMode)}
+        >
+          ${reorderMode ? "Done reordering" : "Reorder milestones"}
+        </button>
+        ${reorderDisabledReason
+          ? html`<span class="pcc-reorder-disabled-note" data-pcc-reorder-disabled-reason
+              >${reorderDisabledReason}</span
+            >`
           : nothing}
       </div>
     </div>
@@ -4484,6 +4605,11 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
               const milestoneWorker = responsibilityLabel(
                 pccResponsibilityForItem(milestone) || "local_openclaw_agent",
               );
+              const showActionMenu =
+                !terminalProject ||
+                reorderMode ||
+                mode !== "simple" ||
+                !["complete", "complete_with_maintenance"].includes(milestone.status);
               return html`<li
                 class="pcc-journey-step pcc-journey-step--${journeyClass}"
                 data-pcc-journey-step
@@ -4615,7 +4741,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                           `}
                     </div>
                   </details>
-                  ${renderMilestoneActionMenu(milestone, props)}
+                  ${showActionMenu ? renderMilestoneActionMenu(milestone, props) : nothing}
                 </div>
               </li>`;
             })}
@@ -4639,7 +4765,13 @@ function renderProjectDetail(props: PccDashboardProps) {
   }
   const permissions = detail.permissions ?? [];
   return html`
-    <aside class="pcc-detail pcc-detail--${mode}" data-pcc-detail data-pcc-detail-mode=${mode}>
+    <aside
+      class="pcc-detail pcc-detail--${mode}"
+      data-pcc-detail
+      data-pcc-detail-mode=${mode}
+      data-pcc-detail-project-id=${detail.project.id}
+      data-pcc-detail-project-title=${detail.project.title}
+    >
       ${mode === "simple" ? nothing : renderProjectOrientation(detail)}
       ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
       ${renderWorkLoopCard(props)} ${renderProjectActivityTimeline(detail)}
@@ -4840,6 +4972,9 @@ function renderMilestoneActionMenu(milestone: PccMilestone, props: PccDashboardP
       class="pcc-action-menu__items"
       id=${menuId}
       role="menu"
+      aria-hidden="true"
+      inert
+      hidden
       @keydown=${handlePccActionMenuKeydown}
     >
       <button
@@ -4942,6 +5077,9 @@ function renderSubMilestoneActionMenu(subMilestone: PccSubMilestone, props: PccD
       class="pcc-action-menu__items"
       id=${menuId}
       role="menu"
+      aria-hidden="true"
+      inert
+      hidden
       @keydown=${handlePccActionMenuKeydown}
     >
       <button
@@ -5457,6 +5595,9 @@ function renderProjectEditor(props: PccDashboardProps) {
     <form
       class="pcc-editor pcc-editor--project"
       data-pcc-editor="project"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pcc-project-editor-title"
       @keydown=${(event: KeyboardEvent) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -5471,7 +5612,9 @@ function renderProjectEditor(props: PccDashboardProps) {
       <header class="pcc-editor__header">
         <div>
           <p class="pcc-kicker">Project</p>
-          <h3>${props.editorMode === "edit-project" ? "Edit project" : "Create project"}</h3>
+          <h3 id="pcc-project-editor-title">
+            ${props.editorMode === "edit-project" ? "Edit project" : "Create project"}
+          </h3>
           ${creating
             ? html`<p>
                 Describe the project. PCC will draft the milestones before anything starts.
@@ -5731,6 +5874,15 @@ function renderMilestoneEditor(props: PccDashboardProps) {
     <form
       class="pcc-editor"
       data-pcc-editor="milestone"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pcc-milestone-editor-title"
+      @keydown=${(event: KeyboardEvent) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          props.onCancelEditor();
+        }
+      }}
       @submit=${(event: Event) => {
         event.preventDefault();
         props.onSaveMilestone();
@@ -5738,7 +5890,9 @@ function renderMilestoneEditor(props: PccDashboardProps) {
     >
       <header>
         <p class="pcc-kicker">Milestone</p>
-        <h3>${props.editorMode === "edit-milestone" ? "Edit milestone" : "Create milestone"}</h3>
+        <h3 id="pcc-milestone-editor-title">
+          ${props.editorMode === "edit-milestone" ? "Edit milestone" : "Create milestone"}
+        </h3>
       </header>
       ${renderEditorActionError(props)}
       <label
@@ -5989,7 +6143,7 @@ function renderProjectListEmptyState(
 }
 
 export function renderPccDashboard(props: PccDashboardProps) {
-  const allProjects = props.projects;
+  const allProjects = focusScopedProjectsForToday(props, props.projects);
   const selectedFilter = effectiveProjectFilter(props, allProjects);
   const filteredByTab = allProjects.filter((project) =>
     projectMatchesFilter(project, selectedFilter),

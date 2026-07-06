@@ -2749,28 +2749,37 @@ export function renderApp(state: AppViewState) {
         ${state.updateAvailable &&
         state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
         !isUpdateBannerDismissed(state.updateAvailable)
-          ? html`<div class="update-banner callout danger" role="alert">
-              <strong>${t("chat.updateAvailable")}</strong> v${state.updateAvailable.latestVersion}
-              (${t("chat.runningVersion", { version: state.updateAvailable.currentVersion })}).
-              <button
-                class="btn btn--sm update-banner__btn"
-                ?disabled=${state.updateRunning || !state.connected}
-                @click=${() => runUpdate(state)}
-              >
-                ${state.updateRunning ? t("chat.updating") : t("chat.updateNow")}
-              </button>
-              <button
-                class="update-banner__close"
-                type="button"
-                title=${t("common.dismiss")}
-                aria-label=${t("chat.dismissUpdateBanner")}
-                @click=${() => {
-                  dismissUpdateBanner(state.updateAvailable);
-                  state.updateAvailable = null;
-                }}
-              >
-                ${icons.x}
-              </button>
+          ? html`<div class="update-banner callout danger" role="alert" data-update-banner>
+              <span class="update-banner__message">
+                <strong>${t("chat.updateAvailable")}</strong>
+                v${state.updateAvailable.latestVersion}
+                <span class="update-banner__running"
+                  >${t("chat.runningVersion", {
+                    version: state.updateAvailable.currentVersion,
+                  })}</span
+                >
+              </span>
+              <span class="update-banner__actions">
+                <button
+                  class="btn btn--sm update-banner__btn"
+                  ?disabled=${state.updateRunning || !state.connected}
+                  @click=${() => runUpdate(state)}
+                >
+                  ${state.updateRunning ? t("chat.updating") : t("chat.updateNow")}
+                </button>
+                <button
+                  class="update-banner__close"
+                  type="button"
+                  title=${t("common.dismiss")}
+                  aria-label=${t("chat.dismissUpdateBanner")}
+                  @click=${() => {
+                    dismissUpdateBanner(state.updateAvailable);
+                    state.updateAvailable = null;
+                  }}
+                >
+                  ${icons.x}
+                </button>
+              </span>
             </div>`
           : nothing}
         ${state.tab === "config" || isChat

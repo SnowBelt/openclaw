@@ -268,9 +268,11 @@ describe("renderPccDashboard", () => {
       "User understands next action in under 5 seconds.",
     );
     expect(text).toContain("Needs attention");
-    expect(container.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
-      "Blocked by: Run remote proof",
-    );
+    const projectCardBlocker =
+      container.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
+    expect(projectCardBlocker).toContain("Blocked");
+    expect(projectCardBlocker).toContain("Run remote proof");
+    expect(projectCardBlocker).not.toContain("Blocked by:");
     expect(
       container.querySelector("[data-pcc-project-card-skim-facts]")?.textContent,
     ).not.toContain("Due:");
@@ -413,9 +415,9 @@ describe("renderPccDashboard", () => {
     );
 
     const card = container.querySelector("[data-pcc-project-card]");
-    expect(card?.querySelector("[data-pcc-project-card-blocker]")?.textContent).toContain(
-      "Blocked by: Browser proof missing",
-    );
+    const cardBlocker = card?.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
+    expect(cardBlocker).toContain("Browser proof missing");
+    expect(cardBlocker).not.toContain("Blocked by:");
   });
 
   it("announces in-flight PCC saves instead of silently disabling controls", () => {
@@ -1333,7 +1335,8 @@ describe("renderPccDashboard", () => {
     expect(skimFacts).not.toContain("Outcomes:");
     expect(sequence).toContain("Current: CRUD UI");
     expect(sequence).toContain("Next:");
-    expect(blocker).toContain("Blocked by:");
+    expect(blocker).toContain("Blocked");
+    expect(blocker).not.toContain("Blocked by:");
     expect(container.querySelector("[data-pcc-project-card-activity]")).toBeNull();
   });
 
@@ -1407,6 +1410,159 @@ describe("renderPccDashboard", () => {
 
     expect(container.querySelector("[data-pcc-project-card]")?.textContent).not.toContain(longGoal);
     expect(container.querySelector("[data-pcc-project-brief]")?.textContent).toContain(longGoal);
+  });
+
+  it("separates PCC product focus from project-specific work", () => {
+    const snesProject = {
+      ...project,
+      id: "snes-game-creator",
+      title: "SNES Game Creator",
+      metadata: { ...project.metadata, excludedFromPccProductCompletion: true },
+    };
+    const snesSummary = {
+      ...summary,
+      id: "snes-game-creator",
+      title: "SNES Game Creator",
+      nextActions: ["Resolve SNES toolchain blocker"],
+    };
+    const pccSummary = {
+      ...summary,
+      id: "project-command-center",
+      title: "Project Command Center",
+      status: "complete_with_maintenance" as const,
+      percentComplete: 100,
+      milestoneCounts: { ...summary.milestoneCounts, total: 35, complete: 35, needsApproval: 0 },
+      nextActions: ["Review proof"],
+    };
+    const pccDetail = {
+      project: {
+        ...project,
+        id: "project-command-center",
+        status: "complete_with_maintenance" as const,
+      },
+      milestones: [
+        {
+          ...milestone,
+          projectId: "project-command-center",
+          status: "complete" as const,
+          percentComplete: 100,
+        },
+      ],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: pccSummary,
+    };
+    const snesDetail = {
+      project: snesProject,
+      milestones: [milestone],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: snesSummary,
+    };
+
+    const productMode = renderView(
+      createProps({
+        projects: [pccSummary, snesSummary],
+        projectDetail: pccDetail,
+        projectDetails: { "project-command-center": pccDetail, "snes-game-creator": snesDetail },
+        productFocusMode: "pcc_product",
+        projectFilter: "all",
+      }),
+    );
+    expect(
+      Array.from(productMode.querySelectorAll("[data-pcc-project-card]")).some((card) =>
+        card.textContent?.includes("SNES Game Creator"),
+      ),
+    ).toBe(false);
+    expect(productMode.textContent).toContain("PCC Product");
+
+    const projectMode = renderView(
+      createProps({
+        projects: [pccSummary, snesSummary],
+        projectDetail: snesDetail,
+        projectDetails: { "project-command-center": pccDetail, "snes-game-creator": snesDetail },
+        selectedProjectId: "snes-game-creator",
+        productFocusMode: "project_work",
+        projectFilter: "all",
+      }),
+    );
+    expect(projectMode.querySelector("[data-pcc-project-card]")?.textContent).toContain(
+      "SNES Game Creator",
+    );
+    expect(projectMode.textContent).toContain("Project Work");
+  });
+
+  it("keeps completed PCC projects out of setup and runner dead-end states", () => {
+    const onPrepareNextWorkItem = vi.fn();
+    const onSetViewMode = vi.fn();
+    const completeSummary = {
+      ...summary,
+      status: "complete_with_maintenance" as const,
+      percentComplete: 100,
+      milestoneCounts: { ...summary.milestoneCounts, total: 35, complete: 35, needsApproval: 0 },
+      nextActions: [],
+    };
+    const container = renderView(
+      createProps({
+        onPrepareNextWorkItem,
+        onSetViewMode,
+        viewMode: "simple",
+        projectDetail: {
+          project: { ...project, status: "complete_with_maintenance" as const, goal: "" },
+          milestones: [{ ...milestone, status: "complete" as const, percentComplete: 100 }],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: completeSummary,
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-complete-state]")?.textContent).toContain(
+      "Complete with maintenance",
+    );
+    expect(container.querySelector("[data-pcc-setup-repair]")).toBeNull();
+    expect(container.querySelector("[data-pcc-work-loop-complete]")).not.toBeNull();
+    expect(
+      container.querySelector("[data-pcc-detail]")?.getAttribute("data-pcc-detail-project-title"),
+    ).toBe("Project Command Center");
+    expect(
+      container.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.disabled,
+    ).toBe(true);
+    expect(container.querySelectorAll("[data-pcc-action-menu-trigger]")).toHaveLength(0);
+    const primaryButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("[data-pcc-primary-action] button"),
+    );
+    const maintenanceButton = primaryButtons.find((button) =>
+      button.textContent?.includes("Review Maintenance"),
+    );
+    expect(maintenanceButton).not.toBeUndefined();
+    expect(maintenanceButton?.disabled).toBe(false);
+    maintenanceButton?.click();
+    expect(onSetViewMode).toHaveBeenCalledWith("detailed");
+    expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("opens action menus with hidden DOM until the user asks for actions", () => {
+    const container = renderView(createProps({ viewMode: "agent" }));
+    const menu = container.querySelector<HTMLElement>("[data-pcc-action-menu]");
+    const trigger = menu?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]");
+    const items = menu?.querySelector<HTMLElement>(".pcc-action-menu__items");
+
+    expect(items?.hidden).toBe(true);
+    expect(items?.getAttribute("aria-hidden")).toBe("true");
+    expect(items?.hasAttribute("inert")).toBe(true);
+
+    trigger?.click();
+    expect(items?.hidden).toBe(false);
+    expect(items?.getAttribute("aria-hidden")).toBe("false");
+    expect(items?.hasAttribute("inert")).toBe(false);
+    expect(trigger?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("routes setup-missing primary action to AI autofill instead of dead-end prepare", () => {

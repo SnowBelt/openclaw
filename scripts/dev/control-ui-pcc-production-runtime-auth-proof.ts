@@ -6,7 +6,7 @@ type ProofOptions = {
   screenshotPath: string;
   projectTitle: string;
   requireProductionCurrent: boolean;
-  profile: "production-current" | "usability-reliability";
+  profile: "production-current" | "usability-reliability" | "functionality-closure";
 };
 
 function redactUrl(value: string): string {
@@ -97,6 +97,29 @@ async function runBrowserProof(options: ProofOptions) {
     await simpleMode.click({ force: true });
     await page.waitForTimeout(1_000);
   }
+  const assertSelectedProject = async (title: string, label: string) => {
+    const detail = page.locator("[data-pcc-detail]").first();
+    await detail.waitFor({ state: "visible", timeout: 45_000 });
+    await page
+      .waitForFunction(
+        (expectedTitle) => {
+          const detailNode = document.querySelector("[data-pcc-detail]");
+          const detailTitle = detailNode?.getAttribute("data-pcc-detail-project-title") ?? "";
+          const detailText = detailNode?.textContent ?? "";
+          return detailTitle === expectedTitle || detailText.includes(expectedTitle);
+        },
+        title,
+        { timeout: 15_000 },
+      )
+      .catch(async () => {
+        const actualTitle = (await detail.getAttribute("data-pcc-detail-project-title")) ?? "";
+        const bodyText = ((await detail.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ");
+        throw new Error(
+          `PCC proof selection failed for ${label}: expected selected project "${title}", got "${actualTitle}" (${bodyText.slice(0, 220)})`,
+        );
+      });
+  };
+
   const targetProject = page
     .locator(".pcc-project-card", { hasText: options.projectTitle })
     .first();
@@ -143,7 +166,39 @@ async function runBrowserProof(options: ProofOptions) {
     throw new Error("PCC proof could not find a visible project Open or Selected button");
   }
   await openButton.click({ force: true }).catch(() => undefined);
-  await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
+  await assertSelectedProject(options.projectTitle, "requested project card");
+
+  if (options.profile === "functionality-closure" || options.profile === "usability-reliability") {
+    const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
+    if (await projectWorkMode.isVisible().catch(() => false)) {
+      await projectWorkMode.click({ force: true });
+      await page.waitForTimeout(500);
+      const snesProject = page
+        .locator(".pcc-project-card", { hasText: "SNES Game Creator" })
+        .first();
+      if ((await snesProject.count()) > 0 && (await snesProject.isVisible().catch(() => false))) {
+        const snesOpen = snesProject.locator("button", { hasText: /Open|Selected/ }).first();
+        if (await snesOpen.isVisible().catch(() => false)) {
+          await snesOpen.click({ force: true });
+          await assertSelectedProject("SNES Game Creator", "Project Work card selection");
+        }
+      }
+      const productMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
+      if (await productMode.isVisible().catch(() => false)) {
+        await productMode.click({ force: true });
+        await page.waitForTimeout(500);
+      }
+      const pccProject = page
+        .locator(".pcc-project-card", { hasText: options.projectTitle })
+        .first();
+      const pccOpen = pccProject.locator("button", { hasText: /Open|Selected/ }).first();
+      if ((await pccOpen.count()) > 0 && (await pccOpen.isVisible().catch(() => false))) {
+        await pccOpen.click({ force: true });
+      }
+      await assertSelectedProject(options.projectTitle, "PCC Product card selection");
+    }
+  }
+
   const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').last();
   if (await agentMode.isVisible().catch(() => false)) {
     await agentMode.click({ force: true }).catch(() => undefined);
@@ -228,9 +283,11 @@ async function runBrowserProof(options: ProofOptions) {
       dashboardCurrency: has("Is this dashboard current?"),
       resourcePolicy:
         portfolioConsoleCount === 0 || has("Policy: as many as safe") || has("as many as safe"),
-      workThisProject: has("Work This Project"),
-      stopAfterCurrent: has("Stop after current task"),
-      stopBeforeDestructive: has("Stop before destructive actions"),
+      workThisProject: options.profile === "functionality-closure" || has("Work This Project"),
+      stopAfterCurrent:
+        options.profile === "functionality-closure" || has("Stop after current task"),
+      stopBeforeDestructive:
+        options.profile === "functionality-closure" || has("Stop before destructive actions"),
       productionCurrent: has("Current"),
       remoteProofPassed: has("Remote proof Passed") || has("Remote proof\nPassed"),
       runtimeProofPassed: has("Runtime proof Passed") || has("Runtime proof\nPassed"),
@@ -240,6 +297,7 @@ async function runBrowserProof(options: ProofOptions) {
       portfolioProgress: has("Portfolio Progress"),
       setupRepair:
         options.profile === "production-current" ||
+        options.profile === "functionality-closure" ||
         has("Setup needs a few answers") ||
         has("Fill missing setup with AI") ||
         has("Generate setup with AI"),
@@ -249,7 +307,12 @@ async function runBrowserProof(options: ProofOptions) {
         has("AI Autofill Preview"),
       actionMenu:
         options.profile === "production-current" ||
+        options.profile === "functionality-closure" ||
         (has("Remove from active plan") && has("Stop here")),
+      completeState:
+        options.profile !== "functionality-closure" ||
+        (has("Project complete") && has("Review Maintenance")),
+      reorderToggle: options.profile !== "functionality-closure" || has("Reorder milestones"),
     },
     sample: normalizedText.slice(0, 2_000),
   };
@@ -329,7 +392,9 @@ const options: ProofOptions = {
   profile:
     process.env.OPENCLAW_PCC_PROOF_PROFILE === "usability-reliability"
       ? "usability-reliability"
-      : "production-current",
+      : process.env.OPENCLAW_PCC_PROOF_PROFILE === "functionality-closure"
+        ? "functionality-closure"
+        : "production-current",
 };
 
 if (process.env.OPENCLAW_PCC_AUTH_PROOF_SELF_TEST === "1") {

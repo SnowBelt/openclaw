@@ -197,6 +197,7 @@ async function main(): Promise<void> {
         chatSyncProposals: [],
         chatSyncError: null,
         viewMode: "simple",
+        productFocusMode: "project_work",
         reorderMode: true,
         modelCatalog: [],
         modelsLoading: false,

@@ -1242,6 +1242,13 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     return;
   }
   state.pccActionError = null;
+  state.pccSelectedProjectId = projectId;
+  const cached = state.pccProjectDetails?.[projectId];
+  if (cached) {
+    state.pccProjectDetail = cached;
+  } else if (state.pccProjectDetail?.project.id !== projectId) {
+    state.pccProjectDetail = null;
+  }
   state.requestUpdate?.();
   try {
     const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {

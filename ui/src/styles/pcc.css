@@ -3366,7 +3366,6 @@
   }
 }
 
-
 /* PCC Interaction Audit Closure V1 */
 .pcc-hero--compact {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -3441,6 +3440,14 @@
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
 }
 
+.pcc-reorder-disabled-note {
+  max-width: 240px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  text-align: right;
+}
+
 .pcc-project-card__sequence {
   grid-template-columns: 1fr;
 }
@@ -3448,6 +3455,24 @@
 .pcc-project-card__signal {
   max-height: 4.2em;
   overflow: hidden;
+}
+
+.pcc-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pcc-chip--attention {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  color: var(--danger);
 }
 
 @media (max-width: 900px) {
