@@ -533,7 +533,7 @@ describe("renderPccDashboard", () => {
     expect(metrics?.textContent).toContain("9");
     expect(metrics?.textContent).toContain("7");
     expect(metrics?.textContent).toContain("58%");
-    expect(progress?.textContent).toContain("1 need attention");
+    expect(progress?.textContent?.replace(/\s+/g, " ")).toContain("1 need attention");
   });
 
   it("renders last-known-good verified state in project history details", () => {
