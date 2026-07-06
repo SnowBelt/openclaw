@@ -1,7 +1,7 @@
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 type Runner = (
@@ -11,7 +11,7 @@ type Runner = (
 ) => SpawnSyncReturns<Buffer>;
 
 export type SnesHeadlessEmulatorAdapter = {
-  id: "ares" | "bsnes" | "mesen" | "snes9x" | string;
+  id: string;
   executablePath: string;
   command: (input: { frames: number; romPath: string; screenshotPath: string }) => {
     args: string[];
@@ -84,6 +84,22 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+function workspaceContainerPath(hostPath: string): string | null {
+  const cwd = resolve(process.cwd());
+  const resolved = resolve(hostPath);
+  if (resolved !== cwd && !resolved.startsWith(`${cwd}${sep}`)) {
+    return null;
+  }
+  const relativePath = relative(cwd, resolved).split(sep).join("/");
+  return relativePath ? `/workspace/${relativePath}` : "/workspace";
+}
+
+function isAresEmulator(command: string): boolean {
+  const probe = spawnSync(command, ["--help"], { timeout: 5_000 });
+  const output = `${normalizeOutput(probe.stdout)}\n${normalizeOutput(probe.stderr)}`;
+  return output.includes("Available Systems:") && output.includes("Super Famicom");
+}
+
 export function detectHeadlessEmulatorAdapters(): SnesHeadlessEmulatorAdapter[] {
   const adapters: SnesHeadlessEmulatorAdapter[] = [];
   const snes9x =
@@ -103,8 +119,12 @@ export function detectHeadlessEmulatorAdapters(): SnesHeadlessEmulatorAdapter[] 
       }),
     });
   }
-  const ares = commandOnPath(["ares"]);
-  if (ares) {
+  const ares =
+    firstExisting([
+      "/Applications/ares.app/Contents/MacOS/ares",
+      `${process.env.HOME ?? ""}/Applications/ares.app/Contents/MacOS/ares`,
+    ]) || commandOnPath(["ares"]);
+  if (ares && isAresEmulator(ares)) {
     const scrot = commandOnPath(["scrot"]);
     const xvfb = commandOnPath(["Xvfb"]);
     if (scrot && xvfb) {
@@ -118,7 +138,7 @@ export function detectHeadlessEmulatorAdapters(): SnesHeadlessEmulatorAdapter[] 
             "set -euo pipefail",
             `${shellQuote(xvfb)} ${shellQuote(display)} -screen 0 1280x1024x24 -nolisten tcp -ac &`,
             "XVFB_PID=$!",
-            "cleanup() { kill \"$ARES_PID\" >/dev/null 2>&1 || true; kill \"$XVFB_PID\" >/dev/null 2>&1 || true; }",
+            'cleanup() { kill "$ARES_PID" >/dev/null 2>&1 || true; kill "$XVFB_PID" >/dev/null 2>&1 || true; }',
             "trap cleanup EXIT",
             "sleep 1",
             `DISPLAY=${shellQuote(display)} ${shellQuote(ares)} ${shellQuote(romPath)} &`,
@@ -170,6 +190,44 @@ export function detectHeadlessEmulatorAdapters(): SnesHeadlessEmulatorAdapter[] 
       }),
     });
   }
+  const docker = commandOnPath(["docker"]);
+  if (docker) {
+    adapters.push({
+      id: "docker-retroarch-bsnes",
+      executablePath: docker,
+      command: ({ frames, romPath, screenshotPath }) => {
+        const workspaceRom = workspaceContainerPath(romPath);
+        const workspaceScreenshot = workspaceContainerPath(screenshotPath);
+        const frameCount = Math.max(60, Math.min(600, frames));
+        const script = [
+          "set -euo pipefail",
+          "apt-get update >/dev/null",
+          "DEBIAN_FRONTEND=noninteractive apt-get install -y retroarch libretro-bsnes-mercury-balanced xvfb dbus-x11 >/dev/null",
+          "CORE=$(find /usr/lib -name '*bsnes*libretro*.so' | head -1)",
+          'test -n "$CORE"',
+          `dbus-run-session -- xvfb-run -a retroarch -L "$CORE" --max-frames ${frameCount} --max-frames-ss --max-frames-ss-path=${shellQuote(workspaceScreenshot ?? "")} ${shellQuote(workspaceRom ?? "")}`,
+          `test -s ${shellQuote(workspaceScreenshot ?? "")}`,
+        ].join("; ");
+        const missingWorkspacePathScript =
+          "echo 'ROM and screenshot paths must be inside the current workspace for Docker proof.' >&2; exit 2";
+        return {
+          args: [
+            "run",
+            "--rm",
+            "-v",
+            `${process.cwd()}:/workspace`,
+            "-w",
+            "/workspace",
+            "node:22-bookworm",
+            "bash",
+            "-lc",
+            workspaceRom && workspaceScreenshot ? script : missingWorkspacePathScript,
+          ],
+          command: docker,
+        };
+      },
+    });
+  }
   return adapters;
 }
 
@@ -212,7 +270,10 @@ function runAdapter(input: {
   });
   const result = input.runner(command.command, command.args, {
     cwd: input.artifactDir,
-    timeout: input.timeoutMs,
+    timeout:
+      input.adapter.id === "docker-retroarch-bsnes"
+        ? Math.max(input.timeoutMs, 180_000)
+        : input.timeoutMs,
   });
   const failureDetail =
     result.status === null

@@ -943,10 +943,21 @@ The first MVP surface is local CLI proof:
 ```bash
 pnpm snes:asset-studio -- preserve --project <project-id> --asset-id <asset-id> --kind sprite --source <image-path> --json
 pnpm snes:asset-studio -- intent --project <project-id> --asset-id <asset-id> --kind sprite --dimensions 32x32 --frames 4 --json
-pnpm snes:asset-studio -- convert --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- convert --project <project-id> --asset-id <asset-id> --fit contain --frame-layout horizontal --json
 pnpm snes:asset-studio -- contact-sheet --project <project-id> --asset-id <asset-id> --json
 pnpm snes:asset-studio -- pipeline --project <project-id> --asset-id <asset-id> --json
 pnpm snes:asset-studio -- insert --project <project-id> --asset-id <asset-id> --target player.sprite --json
+pnpm snes:asset-studio -- compile --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- runtime-demo --project <project-id> --asset-id <asset-id> --json
+pnpm snes:emulator:headless-proof -- --rom <runtime-demo.sfc> --artifact-dir <runtime-emulator-proof-dir> --expected-rom-sha256 <rom-sha256> --json
+pnpm snes:asset-studio -- runtime-proof --project <project-id> --asset-id <asset-id> --rom <runtime-demo.sfc> --screenshot <runtime.png> --expected-rom-sha256 <rom-sha256> --emulator-receipt <runtime-emulator-proof-dir>/receipt.json --json
 ```
 
-The dashboard can display asset-manifest cards after insertion, but static image conversion is not enough to claim the asset appears in-game. A production claim still needs ROM build proof, emulator runtime proof, and human approval for production-facing visuals.
+The dashboard can upload a local image through `snes.assetStudio.pipeline`, run
+the same local preservation/conversion/contact-sheet/insertion/compile steps,
+build a clean-room runtime demo ROM, run local headless emulator proof when the
+operator enables it, and show the resulting receipts. The upload remains local
+to the operator's machine and is written under local `.artifacts` paths. Static
+image conversion and static manifest insertion are not enough to claim the asset
+appears in-game. A production claim still needs ROM build proof, emulator
+runtime proof, and human approval for production-facing visuals.

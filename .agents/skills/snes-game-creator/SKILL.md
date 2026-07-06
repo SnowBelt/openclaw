@@ -137,7 +137,7 @@ Completion rules:
 
 ## Image Asset Delegation
 
-When a user provides or requests an image for a generic SNES/16-bit game, use SNES Asset Studio first: preserve the source image, create an asset intent, convert it into a deterministic 16-color SNES-safe asset, create a contact sheet, insert it into the asset manifest, and keep runtime ROM proof separate from static image proof. Optional redraw attempts must be local-only and must write a blocked receipt if no local image generator is available.
+When a user provides or requests an image for a generic SNES/16-bit game, use SNES Asset Studio first: preserve the source image, create an asset intent, convert it into a deterministic 16-color SNES-safe asset, create a contact sheet, insert it into the asset manifest, compile local source/header metadata for the target manifest slot, build a clean-room runtime demo ROM when runtime proof is requested, and keep emulator runtime proof separate from static image proof. Dashboard uploads use the `snes.assetStudio.pipeline` Gateway method and must label static insertion as not a ROM proof until the runtime demo ROM, headless emulator screenshot, and runtime-proof receipts pass. Optional redraw attempts must be local-only and must write a blocked receipt if no local image generator is available.
 
 For Metro Bomberman character repair work, also use the specialized character skills when they apply:
 

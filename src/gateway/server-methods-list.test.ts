@@ -59,6 +59,7 @@ describe("listGatewayMethods", () => {
         "snes.benchmark.latest",
         "snes.glm52.status",
         "snes.mastery.status",
+        "snes.assetStudio.pipeline",
         "snes.proof.run",
         "snes.project.createBlank",
         "snes.toolchain.status",

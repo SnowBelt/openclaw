@@ -506,7 +506,7 @@ function createStanskiProductionRunArgs(
       maxMilestones: boundedInteger(request.maxMilestones, 40, 1, 40),
       maxRuntimeMinutes: boundedInteger(request.maxRuntimeMinutes, 30, 1, 30),
       mode,
-      runSmoke: request.runSmoke === false ? false : true,
+      runSmoke: request.runSmoke !== false,
       until: typeof request.until === "string" ? request.until : "blocked",
     };
   }
@@ -514,7 +514,7 @@ function createStanskiProductionRunArgs(
   return {
     maxMilestones,
     mode,
-    runSmoke: request.runSmoke === false ? false : true,
+    runSmoke: request.runSmoke !== false,
   };
 }
 
@@ -1103,7 +1103,7 @@ async function runDefaultGenericProduction(
   if (mode === "pause" || mode === "resume" || mode === "cancel") {
     const control = {
       cancelRequested: mode === "cancel",
-      paused: mode === "pause" ? true : mode === "resume" ? false : true,
+      paused: mode !== "resume",
       updatedAt: new Date().toISOString(),
     };
     await writeJsonFile(paths.controlPath, control);
@@ -1250,6 +1250,248 @@ function parseProofActionId(params: unknown): SnesGenericProofActionId {
   return "mastery-refresh";
 }
 
+function sanitizeAssetStudioId(value: unknown, fallback: string) {
+  const raw = typeof value === "string" && value.trim() ? value.trim() : fallback;
+  const sanitized = raw
+    .replace(/[^a-zA-Z0-9._-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 80);
+  return sanitized || fallback;
+}
+
+function assetStudioSourceExtension(mimeType: unknown) {
+  if (mimeType === "image/jpeg") {
+    return "jpg";
+  }
+  if (mimeType === "image/webp") {
+    return "webp";
+  }
+  return "png";
+}
+
+async function writeAssetStudioUploadSource(
+  request: JsonRecord,
+  projectId: string,
+  assetId: string,
+) {
+  if (typeof request.sourcePath === "string" && request.sourcePath.trim()) {
+    return request.sourcePath.trim();
+  }
+  const sourceBase64 = typeof request.sourceBase64 === "string" ? request.sourceBase64 : "";
+  if (!sourceBase64) {
+    throw new Error("sourcePath or sourceBase64 is required");
+  }
+  const mimeType =
+    typeof request.sourceMimeType === "string" ? request.sourceMimeType : "image/png";
+  const extension = assetStudioSourceExtension(mimeType);
+  const uploadDir = path.join(
+    process.cwd(),
+    ".artifacts",
+    "snes-asset-studio",
+    projectId,
+    assetId,
+    "uploads",
+  );
+  await mkdir(uploadDir, { recursive: true });
+  const sourcePath = path.join(uploadDir, `dashboard-upload.${extension}`);
+  const commaIndex = sourceBase64.indexOf(",");
+  const encoded = commaIndex >= 0 ? sourceBase64.slice(commaIndex + 1) : sourceBase64;
+  await writeFile(sourcePath, Buffer.from(encoded, "base64"));
+  return repoPath(sourcePath);
+}
+
+async function runAssetStudioStep(args: string[]) {
+  return execFileJson(process.execPath, ["scripts/snes-asset-studio.mjs", ...args, "--json"]);
+}
+
+async function runSnesHeadlessEmulatorProofStep(args: string[]) {
+  return execFileJson(process.execPath, [
+    "--import",
+    "tsx",
+    "scripts/dev/snes-emulator-headless-proof.ts",
+    ...args,
+    "--json",
+  ]);
+}
+
+async function runDefaultSnesAssetStudioPipeline(params: unknown): Promise<JsonRecord> {
+  const request = asRecord(params);
+  const projectId = sanitizeProjectId(request.projectId ?? request.project);
+  const assetId = sanitizeAssetStudioId(request.assetId, "uploaded_sprite");
+  const kind = sanitizeAssetStudioId(request.kind, "sprite");
+  const dimensions =
+    typeof request.dimensions === "string" && request.dimensions.trim()
+      ? request.dimensions.trim()
+      : "32x32";
+  const frames =
+    typeof request.frames === "number" || typeof request.frames === "string"
+      ? String(request.frames)
+      : "4";
+  const target =
+    typeof request.target === "string" && request.target.trim() ? request.target.trim() : null;
+  const buildRuntimeDemo = request.buildRuntimeDemo === true;
+  const runHeadlessEmulatorProof = request.runHeadlessEmulatorProof === true;
+  const sourcePath = await writeAssetStudioUploadSource(request, projectId, assetId);
+  const stageReceipts: JsonRecord[] = [];
+  stageReceipts.push(
+    await runAssetStudioStep([
+      "preserve",
+      "--project",
+      projectId,
+      "--asset-id",
+      assetId,
+      "--kind",
+      kind,
+      "--source",
+      sourcePath,
+    ]),
+  );
+  stageReceipts.push(
+    await runAssetStudioStep([
+      "intent",
+      "--project",
+      projectId,
+      "--asset-id",
+      assetId,
+      "--kind",
+      kind,
+      "--dimensions",
+      dimensions,
+      "--frames",
+      frames,
+    ]),
+  );
+  const convertArgs = ["convert", "--project", projectId, "--asset-id", assetId];
+  for (const [key, flag] of [
+    ["fit", "--fit"],
+    ["crop", "--crop"],
+    ["frameLayout", "--frame-layout"],
+    ["frameColumns", "--frame-columns"],
+    ["frameRows", "--frame-rows"],
+  ] as const) {
+    if (typeof request[key] === "string" && request[key].trim()) {
+      convertArgs.push(flag, request[key].trim());
+    }
+  }
+  stageReceipts.push(await runAssetStudioStep(convertArgs));
+  stageReceipts.push(
+    await runAssetStudioStep(["contact-sheet", "--project", projectId, "--asset-id", assetId]),
+  );
+  stageReceipts.push(
+    await runAssetStudioStep(["pipeline", "--project", projectId, "--asset-id", assetId]),
+  );
+  if (target) {
+    stageReceipts.push(
+      await runAssetStudioStep([
+        "insert",
+        "--project",
+        projectId,
+        "--asset-id",
+        assetId,
+        "--target",
+        target,
+      ]),
+    );
+    stageReceipts.push(
+      await runAssetStudioStep(["compile", "--project", projectId, "--asset-id", assetId]),
+    );
+    if (buildRuntimeDemo) {
+      stageReceipts.push(
+        await runAssetStudioStep(["runtime-demo", "--project", projectId, "--asset-id", assetId]),
+      );
+    }
+    const runtimeDemoReceipt = stageReceipts.find(
+      (receipt) => receipt.format === "openclaw-snes-asset-runtime-demo-rom-v1",
+    );
+    if (
+      buildRuntimeDemo &&
+      runHeadlessEmulatorProof &&
+      runtimeDemoReceipt?.status === "pass" &&
+      typeof runtimeDemoReceipt.rom === "object" &&
+      runtimeDemoReceipt.rom !== null
+    ) {
+      const rom = runtimeDemoReceipt.rom as JsonRecord;
+      const romPath = typeof rom.path === "string" ? rom.path : "";
+      const romSha256 = typeof rom.sha256 === "string" ? rom.sha256 : "";
+      const artifactDir = path.join(
+        ".artifacts",
+        "snes-asset-studio",
+        projectId,
+        assetId,
+        "runtime-emulator-proof",
+      );
+      const emulatorProof = await runSnesHeadlessEmulatorProofStep([
+        "--rom",
+        romPath,
+        "--artifact-dir",
+        artifactDir,
+        "--expected-rom-sha256",
+        romSha256,
+      ]);
+      stageReceipts.push(emulatorProof);
+      if (
+        emulatorProof.status === "pass" &&
+        typeof emulatorProof.screenshot === "object" &&
+        emulatorProof.screenshot !== null
+      ) {
+        const screenshot = emulatorProof.screenshot as JsonRecord;
+        const screenshotPath = typeof screenshot.path === "string" ? screenshot.path : "";
+        stageReceipts.push(
+          await runAssetStudioStep([
+            "runtime-proof",
+            "--project",
+            projectId,
+            "--asset-id",
+            assetId,
+            "--rom",
+            romPath,
+            "--screenshot",
+            screenshotPath,
+            "--expected-rom-sha256",
+            romSha256,
+            "--emulator-receipt",
+            path.join(artifactDir, "receipt.json"),
+          ]),
+        );
+      }
+    }
+  }
+  const lastReceipt = stageReceipts.at(-1) ?? {};
+  const status = stageReceipts.every((receipt) => receipt.status === "pass") ? "pass" : "blocked";
+  const runtimeProofReceipt = stageReceipts.find(
+    (receipt) => receipt.format === "openclaw-snes-asset-runtime-proof-v1",
+  );
+  return {
+    format: "openclaw-snes-asset-studio-dashboard-pipeline-v1",
+    generatedAt: new Date().toISOString(),
+    status,
+    ok: status === "pass",
+    projectId,
+    assetId,
+    kind,
+    sourcePath,
+    target,
+    buildRuntimeDemo,
+    runHeadlessEmulatorProof,
+    stageReceipts,
+    latestReceipt: lastReceipt,
+    staticInsertionIsRuntimeProof: false,
+    runtimeProofSatisfied: runtimeProofReceipt?.runtimeProofSatisfied === true,
+    runtimeDemoReceipt:
+      stageReceipts.find(
+        (receipt) => receipt.format === "openclaw-snes-asset-runtime-demo-rom-v1",
+      ) ?? null,
+    emulatorProofReceipt:
+      stageReceipts.find(
+        (receipt) => receipt.format === "openclaw-snes-emulator-headless-proof-v1",
+      ) ?? null,
+    runtimeProofReceipt: runtimeProofReceipt ?? null,
+    hostedGlmUsed: false,
+    hostedImageGenerationUsed: false,
+    fxpakWritePerformed: false,
+  };
+}
+
 async function runDefaultGenericProofAction(
   params: unknown,
 ): Promise<SnesGenericProofActionReceipt> {
@@ -1363,6 +1605,7 @@ type SnesGenericProductionRunner = (
 
 type SnesToolchainProjectActionRunner = (params: unknown, mode: string) => Promise<JsonRecord>;
 type SnesGenericProofActionRunner = (params: unknown) => Promise<SnesGenericProofActionReceipt>;
+type SnesAssetStudioRunner = (params: unknown) => Promise<JsonRecord>;
 
 export function createSnesStudioBenchmarkHandlers(params?: {
   loadSnapshot?: () => Promise<SnesBenchmarkLatestSnapshot>;
@@ -1373,6 +1616,7 @@ export function createSnesStudioBenchmarkHandlers(params?: {
   runStanskiProduction?: StanskiProductionRunner;
   runToolchainProjectAction?: SnesToolchainProjectActionRunner;
   runGenericProofAction?: SnesGenericProofActionRunner;
+  runSnesAssetStudio?: SnesAssetStudioRunner;
   createBlankProject?: (params: unknown) => Promise<SnesBlankProjectReceipt>;
 }): GatewayRequestHandlers {
   const loadSnapshot = params?.loadSnapshot ?? loadSnesBenchmarkLatestSnapshot;
@@ -1385,6 +1629,7 @@ export function createSnesStudioBenchmarkHandlers(params?: {
   const runToolchainProjectAction =
     params?.runToolchainProjectAction ?? runDefaultToolchainProjectAction;
   const runGenericProofAction = params?.runGenericProofAction ?? runDefaultGenericProofAction;
+  const runSnesAssetStudio = params?.runSnesAssetStudio ?? runDefaultSnesAssetStudioPipeline;
   const createBlankProject = params?.createBlankProject ?? createBlankSnesProjectReceipt;
   return {
     "snes.benchmark.latest": async ({ respond }) => {
@@ -1424,6 +1669,20 @@ export function createSnesStudioBenchmarkHandlers(params?: {
           false,
           undefined,
           errorShape(ErrorCodes.UNAVAILABLE, `SNES Mastery status unavailable: ${message}`, {
+            retryable: true,
+          }),
+        );
+      }
+    },
+    "snes.assetStudio.pipeline": async ({ respond, params }) => {
+      try {
+        respond(true, await runSnesAssetStudio(params));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.UNAVAILABLE, `SNES Asset Studio pipeline failed: ${message}`, {
             retryable: true,
           }),
         );

@@ -456,6 +456,62 @@ describe("renderSnesStudio SNES Studio", () => {
     expect(normalized).toContain("routine GPT 5.5 off");
   });
 
+  it("runs the SNES Asset Studio upload pipeline through Gateway", async () => {
+    const request = vi.fn(async <T>(method: string): Promise<T> => {
+      if (method === "snes.assetStudio.pipeline") {
+        return {
+          format: "openclaw-snes-asset-studio-dashboard-pipeline-v1",
+          status: "pass",
+          ok: true,
+          assetId: "hero_sprite",
+          stageReceipts: [{ status: "pass" }],
+          runtimeProofSatisfied: true,
+          runtimeDemoReceipt: { status: "pass" },
+          emulatorProofReceipt: { status: "pass" },
+          staticInsertionIsRuntimeProof: false,
+          hostedGlmUsed: false,
+          hostedImageGenerationUsed: false,
+          fxpakWritePerformed: false,
+        } as T;
+      }
+      throw new Error(`Unexpected method ${method}`);
+    });
+    const host: TestHost = {
+      client: { request: request as NonNullable<TestHost["client"]>["request"] },
+      connected: true,
+      requestUpdate: vi.fn(),
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+
+    renderStudio(host, container);
+    createGame(container, host);
+    openExpertStudio(container, host);
+    clickButton(container, "assets");
+    renderStudio(host, container);
+    expect(container.textContent).toContain("SNES Asset Studio");
+    expect(container.textContent).toContain("Runtime proof");
+    expect(container.textContent).toContain("Build runtime demo ROM");
+    expect(container.textContent).toContain("Run emulator proof");
+    clickButton(container, "Run Asset Studio Sample");
+    await waitForText(container, host, "pass");
+
+    expect(request).toHaveBeenCalledWith(
+      "snes.assetStudio.pipeline",
+      expect.objectContaining({
+        projectId: "asset-studio-ui",
+        assetId: "hero_sprite",
+        buildRuntimeDemo: false,
+        runHeadlessEmulatorProof: false,
+        sourcePath: "fixtures/snes-asset-studio/source-fixture.png",
+        target: "player.sprite",
+      }),
+      { timeoutMs: 120_000 },
+    );
+    expect(container.textContent).toContain("Runtime proof passed");
+    expect(container.textContent).toContain("Static insertion is not runtime proof");
+  });
+
   it("loads the generic SNES Mastery dashboard card through Gateway", async () => {
     const request = vi
       .fn()

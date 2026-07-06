@@ -1031,6 +1031,17 @@ let assetImportPixels = Array.from({ length: 128 }, (_, index) =>
 ).join(" ");
 let assetImportQuantizePng = true;
 let assetImportWidth = 16;
+let assetStudioProjectId = "asset-studio-ui";
+let assetStudioAssetId = "hero_sprite";
+let assetStudioKind = "sprite";
+let assetStudioDimensions = "32x32";
+let assetStudioFrames = 4;
+let assetStudioTarget = "player.sprite";
+let assetStudioFit = "contain";
+let assetStudioFrameLayout = "single";
+let assetStudioBuildRuntimeDemo = false;
+let assetStudioRunEmulatorProof = false;
+let assetStudioResult: Record<string, unknown> | null = null;
 let customBrushName = "Spike Hazard";
 let customBrushSolid = true;
 let customBrushTile = 4;
@@ -1512,6 +1523,8 @@ export function resetSnesStudioStateForTests() {
   agentTeamAutoCheckStarted = false;
   agentTeamReadinessReport = null;
   lastEventSimulation = null;
+  assetStudioBuildRuntimeDemo = false;
+  assetStudioRunEmulatorProof = false;
   sramSimulationSummary = "";
   audioPreviewSummary = "";
   liveAgentProofState = createDefaultLiveAgentProofState();
@@ -3548,6 +3561,267 @@ function paintLevelFromPrompt(host: HostUpdate) {
   }
 }
 
+function assetStudioRequestPayload(source: Record<string, unknown>) {
+  return {
+    projectId: assetStudioProjectId.trim() || "asset-studio-ui",
+    assetId: assetStudioAssetId.trim() || "hero_sprite",
+    kind: assetStudioKind.trim() || "sprite",
+    dimensions: assetStudioDimensions.trim() || "32x32",
+    frames: assetStudioFrames,
+    target: assetStudioTarget.trim() || "player.sprite",
+    fit: assetStudioFit,
+    frameLayout: assetStudioFrameLayout,
+    buildRuntimeDemo: assetStudioBuildRuntimeDemo,
+    runHeadlessEmulatorProof: assetStudioRunEmulatorProof,
+    ...source,
+  };
+}
+
+function assetStudioText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "unknown";
+}
+
+async function runAssetStudioGatewayPipeline(host: HostUpdate, source: Record<string, unknown>) {
+  if (!isGatewayLiveReady(host)) {
+    assetStudioResult = {
+      status: "blocked",
+      blocker: "Dashboard Gateway must be connected for browser upload preservation.",
+      runtimeProofSatisfied: false,
+    };
+    pushConsole(host, "SNES Asset Studio blocked: Dashboard Gateway is not connected.");
+    host.requestUpdate?.();
+    return;
+  }
+  try {
+    assetStudioResult = await host.client.request(
+      "snes.assetStudio.pipeline",
+      assetStudioRequestPayload(source),
+      {
+        timeoutMs: 120_000,
+      },
+    );
+    pushConsole(
+      host,
+      `SNES Asset Studio ${assetStudioText(assetStudioResult?.status)} for ${assetStudioAssetId}; ${
+        assetStudioResult?.runtimeProofSatisfied === true
+          ? "runtime proof passed"
+          : "runtime proof still required"
+      }. Static insertion is not runtime proof.`,
+    );
+  } catch (error) {
+    assetStudioResult = {
+      status: "blocked",
+      blocker: error instanceof Error ? error.message : String(error),
+      runtimeProofSatisfied: false,
+    };
+    pushConsole(host, assetStudioText(assetStudioResult.blocker));
+  } finally {
+    host.requestUpdate?.();
+  }
+}
+
+async function runAssetStudioSample(host: HostUpdate) {
+  await runAssetStudioGatewayPipeline(host, {
+    sourcePath: "fixtures/snes-asset-studio/source-fixture.png",
+  });
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return globalThis.btoa(binary);
+}
+
+async function uploadAssetStudioImage(host: HostUpdate, event: Event) {
+  const input = event.currentTarget as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const sourceBase64 = arrayBufferToBase64(await file.arrayBuffer());
+    await runAssetStudioGatewayPipeline(host, {
+      sourceBase64,
+      sourceMimeType: file.type || "image/png",
+      sourceFileName: file.name,
+    });
+  } finally {
+    input.value = "";
+  }
+}
+
+function renderAssetStudioPanel(host: HostUpdate) {
+  const status = assetStudioText(assetStudioResult?.status ?? "not run");
+  const blocker = assetStudioText(assetStudioResult?.blocker ?? "none");
+  const runtimeProofSatisfied = assetStudioResult?.runtimeProofSatisfied === true;
+  const runtimeDemoStatus = assetStudioText(
+    (assetStudioResult?.runtimeDemoReceipt as Record<string, unknown> | undefined)?.status ??
+      "not run",
+  );
+  const emulatorProofStatus = assetStudioText(
+    (assetStudioResult?.emulatorProofReceipt as Record<string, unknown> | undefined)?.status ??
+      "not run",
+  );
+  return html`
+    <div class="snes-agent-proposal snes-asset-studio-panel">
+      <div class="snes-section-header">
+        <div>
+          <strong>SNES Asset Studio</strong>
+          <p>
+            Upload or preserve one local image, convert it to a 16-color SNES-safe asset, and keep
+            runtime proof separate.
+          </p>
+        </div>
+        <strong>${status}</strong>
+      </div>
+      <div class="snes-inspector__grid">
+        <span>Runtime proof</span
+        ><strong>${runtimeProofSatisfied ? "Runtime proof passed" : "still required"}</strong>
+        <span>Runtime demo ROM</span><strong>${runtimeDemoStatus}</strong>
+        <span>Emulator proof</span><strong>${emulatorProofStatus}</strong> <span>Static upload</span
+        ><strong>not a ROM proof</strong> <span>Blocker</span><strong>${blocker}</strong>
+      </div>
+      <label>
+        Project id
+        <input
+          .value=${assetStudioProjectId}
+          @input=${(event: Event) => {
+            assetStudioProjectId = inputValue(event);
+          }}
+        />
+      </label>
+      <label>
+        Asset id
+        <input
+          .value=${assetStudioAssetId}
+          @input=${(event: Event) => {
+            assetStudioAssetId = inputValue(event);
+          }}
+        />
+      </label>
+      <label>
+        Kind
+        <select
+          .value=${assetStudioKind}
+          @change=${(event: Event) => {
+            assetStudioKind = inputValue(event);
+            host.requestUpdate?.();
+          }}
+        >
+          <option value="sprite">sprite</option>
+          <option value="enemy">enemy</option>
+          <option value="item">item</option>
+          <option value="background">background</option>
+          <option value="tileset">tileset</option>
+          <option value="ui">ui</option>
+          <option value="portrait">portrait</option>
+        </select>
+      </label>
+      <label>
+        Dimensions
+        <input
+          .value=${assetStudioDimensions}
+          @input=${(event: Event) => {
+            assetStudioDimensions = inputValue(event);
+          }}
+        />
+      </label>
+      <label>
+        Frames
+        <input
+          type="number"
+          min="1"
+          max="32"
+          .value=${String(assetStudioFrames)}
+          @input=${(event: Event) => {
+            assetStudioFrames = inputNumber(event);
+          }}
+        />
+      </label>
+      <label>
+        Target
+        <input
+          .value=${assetStudioTarget}
+          @input=${(event: Event) => {
+            assetStudioTarget = inputValue(event);
+          }}
+        />
+      </label>
+      <label>
+        Fit
+        <select
+          .value=${assetStudioFit}
+          @change=${(event: Event) => {
+            assetStudioFit = inputValue(event);
+            host.requestUpdate?.();
+          }}
+        >
+          <option value="contain">contain</option>
+          <option value="cover">cover</option>
+          <option value="center-crop">center crop</option>
+        </select>
+      </label>
+      <label>
+        Frame layout
+        <select
+          .value=${assetStudioFrameLayout}
+          @change=${(event: Event) => {
+            assetStudioFrameLayout = inputValue(event);
+            host.requestUpdate?.();
+          }}
+        >
+          <option value="single">single</option>
+          <option value="horizontal">horizontal strip</option>
+          <option value="vertical">vertical strip</option>
+          <option value="grid">grid</option>
+        </select>
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          .checked=${assetStudioBuildRuntimeDemo}
+          @change=${(event: Event) => {
+            assetStudioBuildRuntimeDemo = (event.currentTarget as HTMLInputElement).checked;
+            host.requestUpdate?.();
+          }}
+        />
+        Build runtime demo ROM
+      </label>
+      <label>
+        <input
+          type="checkbox"
+          .checked=${assetStudioRunEmulatorProof}
+          @change=${(event: Event) => {
+            assetStudioRunEmulatorProof = (event.currentTarget as HTMLInputElement).checked;
+            host.requestUpdate?.();
+          }}
+        />
+        Run emulator proof
+      </label>
+      <div class="snes-toolbar">
+        <label>
+          Upload Image To Asset Studio
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            @change=${(event: Event) => void uploadAssetStudioImage(host, event)}
+          />
+        </label>
+        <button type="button" @click=${() => void runAssetStudioSample(host)}>
+          Run Asset Studio Sample
+        </button>
+      </div>
+      <p class="snes-muted">
+        Contact sheets and manifest insertion are structural proof only. Static insertion is not
+        runtime proof until the runtime demo ROM and emulator screenshot receipts pass.
+      </p>
+    </div>
+  `;
+}
+
 function importIndexedTileset(host: HostUpdate) {
   try {
     const importResult = importSnesIndexedTileAsset({
@@ -5206,10 +5480,19 @@ function renderProductionGameBuilderCockpit(host: HostUpdate) {
               <p>
                 Real toolchain receipts:
                 ${Object.entries(liveToolchain.receiptSummary ?? {})
-                  .map(
-                    ([key, value]) =>
-                      `${key}:${typeof value === "object" && value && "status" in value ? String((value as { status?: unknown }).status ?? "unknown") : "recorded"}`,
-                  )
+                  .map(([key, value]) => {
+                    if (!(typeof value === "object" && value && "status" in value)) {
+                      return `${key}:recorded`;
+                    }
+                    const status = (value as { status?: unknown }).status;
+                    const statusText =
+                      typeof status === "string" ||
+                      typeof status === "number" ||
+                      typeof status === "boolean"
+                        ? String(status)
+                        : "unknown";
+                    return `${key}:${statusText}`;
+                  })
                   .join(" · ") || "none yet"}
               </p>`
           : nothing}
@@ -7510,7 +7793,8 @@ async function requestGatewayAgentPatch(
   const waitStatus = typeof waitRecord?.status === "string" ? waitRecord.status : "";
   const shouldPollHistoryImport = waitStatus !== "timeout" && waitStatus !== "pending";
   const startedHistoryImportAt = Date.now();
-  do {
+  let keepPollingHistory = true;
+  while (keepPollingHistory) {
     const historyPayloads: GatewayHistoryRequestPayload[] = [
       {
         sessionKey: handoff.sessionKey,
@@ -7549,10 +7833,11 @@ async function requestGatewayAgentPatch(
       !shouldPollHistoryImport ||
       Date.now() - startedHistoryImportAt >= SNES_GATEWAY_HISTORY_IMPORT_TIMEOUT_MS
     ) {
-      break;
+      keepPollingHistory = false;
+    } else {
+      await delaySnesGatewayHistoryImport(SNES_GATEWAY_HISTORY_IMPORT_POLL_MS);
     }
-    await delaySnesGatewayHistoryImport(SNES_GATEWAY_HISTORY_IMPORT_POLL_MS);
-  } while (true);
+  }
   if (waitStatus === "error") {
     const detail =
       typeof waitRecord?.message === "string"
@@ -11761,6 +12046,7 @@ function renderInspector(host: HostUpdate) {
               ><strong>${formatBytes(audioManifest.soundEffectBytes)}</strong> <span>Samples</span
               ><strong>${formatBytes(audioManifest.sampleBytes)}</strong>
             </div>
+            ${renderAssetStudioPanel(host)}
             <div class="snes-agent-proposal">
               <div class="snes-section-header">
                 <div>
@@ -18469,7 +18755,7 @@ function renderSnesAgentWorkflowPanel(host: HostUpdate) {
     availableModelRefs: availableModels,
     glm52RuntimeReady: snesGlm52StatusState.snapshot?.runtimeReady === true,
     ollamaRuntimeReady:
-      availableModels.some((model) => String(model).startsWith("ollama/")) ||
+      availableModels.some((model) => model.startsWith("ollama/")) ||
       benchmarkSnapshot?.status === "ready",
     toolchain: snesToolchainStatusState.snapshot ?? undefined,
   });

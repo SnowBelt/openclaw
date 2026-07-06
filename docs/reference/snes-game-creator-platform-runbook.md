@@ -228,17 +228,36 @@ Use the script alias when available:
 ```bash
 pnpm snes:asset-studio -- preserve --project <project-id> --asset-id <asset-id> --kind sprite --source <image-path> --json
 pnpm snes:asset-studio -- intent --project <project-id> --asset-id <asset-id> --kind sprite --dimensions 32x32 --frames 4 --json
-pnpm snes:asset-studio -- convert --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- convert --project <project-id> --asset-id <asset-id> --fit contain --frame-layout horizontal --json
 pnpm snes:asset-studio -- contact-sheet --project <project-id> --asset-id <asset-id> --json
 pnpm snes:asset-studio -- pipeline --project <project-id> --asset-id <asset-id> --json
 pnpm snes:asset-studio -- insert --project <project-id> --asset-id <asset-id> --target player.sprite --json
 pnpm snes:asset-studio -- runtime-proof-plan --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- compile --project <project-id> --asset-id <asset-id> --json
+pnpm snes:asset-studio -- runtime-demo --project <project-id> --asset-id <asset-id> --json
+pnpm snes:emulator:headless-proof -- --rom <runtime-demo.sfc> --artifact-dir <runtime-emulator-proof-dir> --expected-rom-sha256 <rom-sha256> --json
+pnpm snes:asset-studio -- runtime-proof --project <project-id> --asset-id <asset-id> --rom <runtime-demo.sfc> --screenshot <runtime.png> --expected-rom-sha256 <rom-sha256> --emulator-receipt <runtime-emulator-proof-dir>/receipt.json --json
+pnpm snes:asset-studio -- approve-visual --project <project-id> --asset-id <asset-id> --approval-note "<human note>" --production false --json
 ```
 
 Completion rules:
 
 - Source preservation, conversion, contact sheet, and manifest insertion are not runtime proof.
+- `compile` creates source/header metadata for an inserted asset, but it is still not a ROM build.
+- `runtime-demo` builds a clean-room PVSnesLib ROM and runs SuperFamicheck, but it is still not emulator screenshot proof.
+- `runtime-proof` verifies an explicit ROM, expected ROM SHA, emulator proof receipt, and runtime screenshot artifact; it does not run an emulator by itself.
+- `approve-visual --production true` requires runtime proof first. Non-production approval can record a checkpoint but cannot satisfy production art.
 - Runtime proof still requires a ROM build plus emulator screenshot/OAM/tilemap signature.
 - Production art still requires human visual approval.
 - Local redraw attempts must stay local-only. If no local image generator is configured, write a blocked receipt instead of falling back to hosted providers.
 - Do not use commercial game names, copied commercial assets, source leaks, disassemblies, hosted image generation, hosted GLM, paid tools, FXPAK writes, Discord delivery, or named-game scope while running platform-only work.
+
+The SNES Studio dashboard exposes the same local pipeline through the
+`snes.assetStudio.pipeline` Gateway method. It can accept a local uploaded image
+or run the bundled clean-room fixture, then preserve, convert, contact-sheet,
+insert, and compile the asset. The dashboard must keep the result label explicit:
+runtime proof is still required and static insertion is not a ROM proof. When
+`buildRuntimeDemo` is true, the Gateway pipeline adds the clean-room runtime demo
+ROM stage. When `runHeadlessEmulatorProof` is true, it also runs the local
+headless emulator proof and only labels runtime proof as passed after the
+emulator screenshot and runtime-proof receipts pass.

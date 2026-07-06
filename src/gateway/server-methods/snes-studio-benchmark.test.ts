@@ -67,6 +67,98 @@ describe("SNES Studio benchmark Gateway method", () => {
     expect(snapshot.blocker).toContain("No real output benchmark report found");
   });
 
+  it("runs the SNES Asset Studio Gateway pipeline without hosted providers", async () => {
+    const handler = createSnesStudioBenchmarkHandlers({
+      runSnesAssetStudio: async (params) => ({
+        format: "openclaw-snes-asset-studio-dashboard-pipeline-v1",
+        status: "pass",
+        ok: true,
+        projectId: (params as { projectId?: string }).projectId,
+        assetId: (params as { assetId?: string }).assetId,
+        stageReceipts: [{ status: "pass" }],
+        runtimeProofSatisfied: false,
+        staticInsertionIsRuntimeProof: false,
+        hostedGlmUsed: false,
+        hostedImageGenerationUsed: false,
+        fxpakWritePerformed: false,
+      }),
+    });
+    const calls: Array<{ ok: boolean; payload?: unknown }> = [];
+
+    await handler["snes.assetStudio.pipeline"]?.({
+      client: null,
+      context: {} as never,
+      isWebchatConnect: () => false,
+      params: {
+        projectId: "asset-demo",
+        assetId: "hero_sprite",
+        sourcePath: "fixtures/snes-asset-studio/source-fixture.png",
+      },
+      req: { id: "1", method: "snes.assetStudio.pipeline", params: {}, type: "req" },
+      respond: (ok, payload) => calls.push({ ok, payload }),
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      ok: true,
+      payload: {
+        status: "pass",
+        runtimeProofSatisfied: false,
+        hostedGlmUsed: false,
+        hostedImageGenerationUsed: false,
+      },
+    });
+  });
+
+  it("passes SNES Asset Studio runtime proof flags through the Gateway method", async () => {
+    const received: unknown[] = [];
+    const handler = createSnesStudioBenchmarkHandlers({
+      runSnesAssetStudio: async (params) => {
+        received.push(params);
+        return {
+          format: "openclaw-snes-asset-studio-dashboard-pipeline-v1",
+          status: "pass",
+          ok: true,
+          runtimeProofSatisfied: true,
+          staticInsertionIsRuntimeProof: false,
+          runtimeDemoReceipt: { status: "pass" },
+          emulatorProofReceipt: { status: "pass" },
+          hostedGlmUsed: false,
+          hostedImageGenerationUsed: false,
+          fxpakWritePerformed: false,
+        };
+      },
+    });
+    const calls: Array<{ ok: boolean; payload?: unknown }> = [];
+
+    await handler["snes.assetStudio.pipeline"]?.({
+      client: null,
+      context: {} as never,
+      isWebchatConnect: () => false,
+      params: {
+        assetId: "hero_sprite",
+        buildRuntimeDemo: true,
+        projectId: "asset-demo",
+        runHeadlessEmulatorProof: true,
+        sourcePath: "fixtures/snes-asset-studio/source-fixture.png",
+      },
+      req: { id: "1", method: "snes.assetStudio.pipeline", params: {}, type: "req" },
+      respond: (ok, payload) => calls.push({ ok, payload }),
+    });
+
+    expect(received[0]).toMatchObject({
+      buildRuntimeDemo: true,
+      runHeadlessEmulatorProof: true,
+    });
+    expect(calls[0]).toMatchObject({
+      ok: true,
+      payload: {
+        runtimeProofSatisfied: true,
+        runtimeDemoReceipt: { status: "pass" },
+        emulatorProofReceipt: { status: "pass" },
+      },
+    });
+  });
   it("responds through the Gateway handler", async () => {
     const handler = createSnesStudioBenchmarkHandlers({
       loadSnapshot: async () => ({
