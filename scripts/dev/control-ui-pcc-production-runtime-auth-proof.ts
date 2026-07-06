@@ -207,7 +207,7 @@ async function runBrowserProof(options: ProofOptions) {
   }
   await assertSelectedProject(options.projectTitle, "requested project card");
 
-  if (options.profile === "functionality-closure" || options.profile === "usability-reliability") {
+  if (options.profile === "usability-reliability") {
     const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
     if (await projectWorkMode.isVisible().catch(() => false)) {
       await projectWorkMode.click({ force: true });
@@ -239,7 +239,10 @@ async function runBrowserProof(options: ProofOptions) {
   }
 
   const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').last();
-  if (await agentMode.isVisible().catch(() => false)) {
+  if (
+    options.profile !== "functionality-closure" &&
+    (await agentMode.isVisible().catch(() => false))
+  ) {
     await agentMode.click({ force: true }).catch(() => undefined);
     await page.waitForTimeout(1_000);
   }
@@ -440,7 +443,8 @@ if (process.env.OPENCLAW_PCC_AUTH_PROOF_SELF_TEST === "1") {
   runSelfTest();
 } else {
   void runBrowserProof(options).catch((err: unknown) => {
-    console.error(err instanceof Error ? err.message : String(err));
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    console.error(redactUrl(message));
     process.exit(1);
   });
 }
