@@ -148,4 +148,26 @@ describe("buildPccContextPackage", () => {
     expect(packet).toContain("Worker: codex");
     expect(packet).toContain("Stop before Codex");
   });
+
+  it("does not crash when imported legacy receipts are missing proofLevel", () => {
+    const legacyDetail: PccProjectDetail = {
+      ...detail,
+      receipts: [
+        {
+          id: "receipt-legacy",
+          projectId: "project-1",
+          milestoneId: "milestone-1",
+          summary: "Legacy receipt imported before proofLevel was required.",
+          proofEvidenceIds: ["evidence-2"],
+          completedBy: "Project Command Center",
+          completedAt: "2026-06-26T00:00:00Z",
+        } as PccProjectDetail["receipts"][number],
+      ],
+    };
+
+    const packet = buildPccContextPackage(legacyDetail, { mode: "compact" });
+
+    expect(packet).toContain("Legacy receipt imported before proofLevel was required.");
+    expect(packet).toContain("Proof=Not recorded.");
+  });
 });

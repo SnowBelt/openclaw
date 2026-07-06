@@ -218,13 +218,15 @@
   align-items: center;
   display: flex;
   gap: 8px;
-  justify-content: center;
-  margin: 0 0 8px;
-  min-height: 30px;
+  justify-content: flex-end;
+  justify-self: end;
+  margin: 0 0 4px auto;
+  max-width: min(720px, 100%);
+  min-height: 26px;
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 5px 10px;
+  padding: 3px 8px;
 }
 
 .update-banner__message,
@@ -263,8 +265,8 @@
   justify-content: center;
   margin-left: 8px;
   padding: 4px;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 20px;
+  min-height: 20px;
   background: none;
   border: none;
   cursor: pointer;
@@ -278,8 +280,8 @@
 }
 
 .update-banner__close svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;

@@ -190,6 +190,39 @@ describe("Project Command Center gateway methods", () => {
     expect(subPayload.subMilestone.acceptanceCriteria?.length).toBeGreaterThan(0);
   });
 
+  it("includes PCC focus scope metadata in project summaries", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: {
+          title: "Project-specific Work",
+          metadata: {
+            excludedFromPccProductCompletion: true,
+            pccCurrentScope: "active_project_work",
+            pccProductScope: "excluded_from_pcc_product_completion",
+            pccWorkflowTemplateId: "snes-studio",
+          },
+        },
+      }),
+    );
+
+    const listPayload = okPayload<{
+      projects: Array<{
+        id: string;
+        excludedFromPccProductCompletion?: boolean;
+        pccCurrentScope?: string;
+        pccProductScope?: string;
+        workflowTemplateId?: string;
+      }>;
+    }>(await invoke("pcc.projects.list", {}));
+
+    expect(listPayload.projects.find((item) => item.id === project.id)).toMatchObject({
+      excludedFromPccProductCompletion: true,
+      pccCurrentScope: "active_project_work",
+      pccProductScope: "excluded_from_pcc_product_completion",
+      workflowTemplateId: "snes-studio",
+    });
+  });
+
   it("repairs legacy active ledger work items without touching archived projects", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", {
@@ -205,6 +238,7 @@ describe("Project Command Center gateway methods", () => {
     const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
+      receipts: Array<Record<string, unknown>>;
     };
     ledger.milestones.push({
       id: "legacy-active-milestone",
@@ -234,26 +268,45 @@ describe("Project Command Center gateway methods", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
       metadata: { recommendedWorker: "Codex" },
     });
+    ledger.receipts.push({
+      id: "legacy-receipt-without-proof-level",
+      projectId: project.id,
+      milestoneId: "legacy-active-milestone",
+      summary: "Legacy receipt without proof level.",
+      proofEvidenceIds: [],
+      completedBy: "Project Command Center",
+      completedAt: "2026-01-01T00:00:00.000Z",
+    } as (typeof ledger.receipts)[number]);
     fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
 
     const repair = okPayload<{
       repairedMilestoneIds: string[];
       repairedSubMilestoneIds: string[];
+      repairedReceiptIds: string[];
     }>(await invoke("pcc.ledger.repairCanonicalMetadata", {}));
 
     expect(repair.repairedMilestoneIds).toEqual(["legacy-active-milestone"]);
     expect(repair.repairedSubMilestoneIds).toEqual(["legacy-active-sub"]);
+    expect(repair.repairedReceiptIds).toEqual(["legacy-receipt-without-proof-level"]);
 
     const repairedLedger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
-      milestones: Array<{ id: string; metadata?: Record<string, unknown> }>;
+      milestones: Array<{ id: string; order?: number; metadata?: Record<string, unknown> }>;
       subMilestones: Array<{ id: string; metadata?: Record<string, unknown> }>;
+      receipts: Array<{ id: string; proofLevel?: string }>;
     };
     expect(
       repairedLedger.milestones.find((item) => item.id === "legacy-active-milestone")?.metadata,
     ).toMatchObject({ pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" });
     expect(
+      repairedLedger.milestones.find((item) => item.id === "legacy-active-milestone")?.order,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
       repairedLedger.subMilestones.find((item) => item.id === "legacy-active-sub")?.metadata,
     ).toMatchObject({ pccResponsibility: "codex", pccProofLevel: "local" });
+    expect(
+      repairedLedger.receipts.find((item) => item.id === "legacy-receipt-without-proof-level")
+        ?.proofLevel,
+    ).toBe("local");
     expect(
       repairedLedger.milestones.find((item) => item.id === "legacy-archived-milestone")?.metadata,
     ).not.toHaveProperty("pccResponsibility");
@@ -261,9 +314,11 @@ describe("Project Command Center gateway methods", () => {
     const secondRepair = okPayload<{
       repairedMilestoneIds: string[];
       repairedSubMilestoneIds: string[];
+      repairedReceiptIds: string[];
     }>(await invoke("pcc.ledger.repairCanonicalMetadata", {}));
     expect(secondRepair.repairedMilestoneIds).toEqual([]);
     expect(secondRepair.repairedSubMilestoneIds).toEqual([]);
+    expect(secondRepair.repairedReceiptIds).toEqual([]);
   });
 
   it("surfaces imported ledger integrity gaps in project summaries", async () => {

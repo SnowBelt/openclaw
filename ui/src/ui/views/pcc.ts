@@ -537,6 +537,12 @@ function projectIsExcludedFromTodayFocus(
     project.recentActivity ?? "",
     ...(project.nextActions ?? []),
     ...(project.proofGaps ?? []),
+    metadataString((project as { pccCurrentScope?: unknown }).pccCurrentScope, ""),
+    metadataString((project as { pccProductScope?: unknown }).pccProductScope, ""),
+    (project as { excludedFromPccProductCompletion?: unknown }).excludedFromPccProductCompletion ===
+    true
+      ? "excluded from pcc product completion"
+      : "",
     metadataString(metadata.pccCurrentScope, ""),
     metadataString(metadata.pccProductScope, ""),
     metadata.excludedFromPccProductCompletion === true
@@ -2774,12 +2780,14 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
                 : formatStatus(project.status)}</span
             >`
           : html`<span
-                >${onHold
-                  ? "On hold"
-                  : `Current: ${compactSignalText(current?.title ?? "Not started", 90)}`}</span
+                >${current
+                  ? `Current: ${compactSignalText(current.title, 90)}`
+                  : onHold
+                    ? "On hold"
+                    : `Ready to start: ${compactSignalText(next?.title ?? project.nextActions[0] ?? "No milestone", 90)}`}</span
               >
               <span
-                >Next:
+                >Next action:
                 ${compactSignalText(next?.title ?? project.nextActions[0] ?? "None", 72)}</span
               >`}
       </div>
@@ -3453,7 +3461,13 @@ function renderTodayView(props: PccDashboardProps) {
     ? `${nextBest.title}: ${compactTodaySignal(projectActionLine(nextBest, props.projectDetails?.[nextBest.id]), 70)}`
     : "No ready action";
   const average = clampPercent(portfolio?.averagePercentComplete ?? 0);
-  const portfolioNeedsAttention = portfolio?.needsAttention ?? attentionProjects.length;
+  const activeCount = focusProjects.filter((project) =>
+    ["active", "in_progress", "reopened"].includes(project.status),
+  ).length;
+  const blockedCount = focusProjects.filter(
+    (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
+  ).length;
+  const portfolioNeedsAttention = attentionProjects.length;
 
   return html`<section class="pcc-today" data-pcc-today aria-label="Today">
     <div class="pcc-today__bar" data-pcc-today-compact-bar>
@@ -3479,7 +3493,7 @@ function renderTodayView(props: PccDashboardProps) {
       <details class="pcc-today__metrics-more" data-pcc-top-metrics-more>
         <summary>More</summary>
         <div>
-          ${renderCompactMetric("Active", portfolio?.active ?? 0)}
+          ${renderCompactMetric("Active", activeCount)}
           ${renderCompactMetric("Need attention", portfolioNeedsAttention)}
           ${renderCompactMetric("Running", runningProjects.length)}
           ${renderCompactMetric("All projects average", `${average}%`)}
@@ -3526,8 +3540,8 @@ function renderTodayView(props: PccDashboardProps) {
             <span>Portfolio Progress</span>
             <strong>${average}%</strong>
             <em>
-              ${portfolio?.active ?? 0} active · ${portfolio?.blocked ?? 0} blocked ·
-              ${portfolioNeedsAttention} need attention
+              ${activeCount} active · ${blockedCount} blocked · ${portfolioNeedsAttention} need
+              attention
             </em>
           </article>
         </div>
@@ -4763,91 +4777,114 @@ function renderProjectDetail(props: PccDashboardProps) {
       </aside>
     `;
   }
-  const permissions = detail.permissions ?? [];
-  return html`
-    <aside
-      class="pcc-detail pcc-detail--${mode}"
+  try {
+    const permissions = detail.permissions ?? [];
+    return html`
+      <aside
+        class="pcc-detail pcc-detail--${mode}"
+        data-pcc-detail
+        data-pcc-detail-mode=${mode}
+        data-pcc-detail-project-id=${detail.project.id}
+        data-pcc-detail-project-title=${detail.project.title}
+      >
+        ${mode === "simple" ? nothing : renderProjectOrientation(detail)}
+        ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
+        ${renderWorkLoopCard(props)} ${renderProjectActivityTimeline(detail)}
+        ${renderDecisionCapturePanel(detail, props)}
+        <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
+          <summary>Details</summary>
+          <div class="pcc-detail-tabs" data-pcc-detail-tabs>
+            <span>Plan</span>
+            <span>Proof</span>
+            <span>Decisions</span>
+            <span>Automation</span>
+            <span>Diagnostics</span>
+          </div>
+          <section data-pcc-detail-tab-panel="plan">
+            ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
+            ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
+          </section>
+          <section data-pcc-detail-tab-panel="proof">
+            ${renderProjectReceiptsAndArtifacts(detail, props)}
+          </section>
+          <section data-pcc-detail-tab-panel="decisions">
+            ${renderDecisionList(detail, props)}
+          </section>
+          <section data-pcc-detail-tab-panel="automation">
+            ${mode === "simple" ? nothing : renderContextPackageCard(detail)}
+          </section>
+          <section data-pcc-detail-tab-panel="diagnostics">
+            ${mode === "simple" ? nothing : renderImpactDetailCards(detail, props)}
+          </section>
+        </details>
+        ${mode === "simple"
+          ? html`<p class="pcc-simple-hint">
+              Simple view shows the workflow. Switch to Detailed or Agent for receipts, proof,
+              permissions, handoff packets, and diagnostics.
+            </p>`
+          : html`
+              ${mode === "agent"
+                ? html`<details class="pcc-detail-drawer" open>
+                    <summary>Full milestone cards</summary>
+                    <section class="pcc-milestones" aria-label="Project milestones">
+                      ${detail.milestones.length === 0
+                        ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
+                        : detail.milestones.map((milestone) =>
+                            renderMilestoneCard(milestone, props),
+                          )}
+                    </section>
+                  </details>`
+                : nothing}
+              <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+                <summary>Permissions</summary>
+                <section class="pcc-permissions" aria-label="Project permissions">
+                  <div class="pcc-section-heading">
+                    <h4>Permissions</h4>
+                    <span>${permissions.length} requested</span>
+                  </div>
+                  ${renderPermissionList(
+                    permissions.filter((permission) => !permission.milestoneId),
+                    props,
+                  )}
+                </section>
+              </details>
+              <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+                <summary>Chat sync</summary>
+                ${renderChatSyncCard(props)}
+              </details>
+              ${mode === "agent"
+                ? html`<section class="pcc-agent-panel" data-pcc-agent-mode>
+                    <p class="pcc-kicker">Agent view</p>
+                    <h4>Low-reasoning execution details</h4>
+                    <p>
+                      Implementation plans, acceptance criteria, blockers, permissions, receipts,
+                      and context packets are expanded for handoff.
+                    </p>
+                  </section>`
+                : nothing}
+            `}
+      </aside>
+    `;
+  } catch (error) {
+    return html`<aside
+      class="pcc-detail pcc-detail--error"
       data-pcc-detail
-      data-pcc-detail-mode=${mode}
+      data-pcc-detail-render-error
       data-pcc-detail-project-id=${detail.project.id}
       data-pcc-detail-project-title=${detail.project.title}
+      role="alert"
     >
-      ${mode === "simple" ? nothing : renderProjectOrientation(detail)}
-      ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
-      ${renderWorkLoopCard(props)} ${renderProjectActivityTimeline(detail)}
-      ${renderDecisionCapturePanel(detail, props)}
-      <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
-        <summary>Details</summary>
-        <div class="pcc-detail-tabs" data-pcc-detail-tabs>
-          <span>Plan</span>
-          <span>Proof</span>
-          <span>Decisions</span>
-          <span>Automation</span>
-          <span>Diagnostics</span>
-        </div>
-        <section data-pcc-detail-tab-panel="plan">
-          ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
-          ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
-        </section>
-        <section data-pcc-detail-tab-panel="proof">
-          ${renderProjectReceiptsAndArtifacts(detail, props)}
-        </section>
-        <section data-pcc-detail-tab-panel="decisions">
-          ${renderDecisionList(detail, props)}
-        </section>
-        <section data-pcc-detail-tab-panel="automation">
-          ${renderContextPackageCard(detail)}
-        </section>
-        <section data-pcc-detail-tab-panel="diagnostics">
-          ${mode === "simple" ? nothing : renderImpactDetailCards(detail, props)}
-        </section>
-      </details>
-      ${mode === "simple"
-        ? html`<p class="pcc-simple-hint">
-            Simple view shows the workflow. Switch to Detailed or Agent for receipts, proof,
-            permissions, handoff packets, and diagnostics.
-          </p>`
-        : html`
-            ${mode === "agent"
-              ? html`<details class="pcc-detail-drawer" open>
-                  <summary>Full milestone cards</summary>
-                  <section class="pcc-milestones" aria-label="Project milestones">
-                    ${detail.milestones.length === 0
-                      ? html`<div class="pcc-empty pcc-empty--small">No milestones yet</div>`
-                      : detail.milestones.map((milestone) => renderMilestoneCard(milestone, props))}
-                  </section>
-                </details>`
-              : nothing}
-            <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
-              <summary>Permissions</summary>
-              <section class="pcc-permissions" aria-label="Project permissions">
-                <div class="pcc-section-heading">
-                  <h4>Permissions</h4>
-                  <span>${permissions.length} requested</span>
-                </div>
-                ${renderPermissionList(
-                  permissions.filter((permission) => !permission.milestoneId),
-                  props,
-                )}
-              </section>
-            </details>
-            <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
-              <summary>Chat sync</summary>
-              ${renderChatSyncCard(props)}
-            </details>
-            ${mode === "agent"
-              ? html`<section class="pcc-agent-panel" data-pcc-agent-mode>
-                  <p class="pcc-kicker">Agent view</p>
-                  <h4>Low-reasoning execution details</h4>
-                  <p>
-                    Implementation plans, acceptance criteria, blockers, permissions, receipts, and
-                    context packets are expanded for handoff.
-                  </p>
-                </section>`
-              : nothing}
-          `}
-    </aside>
-  `;
+      <section class="pcc-complete-card pcc-complete-card--warning">
+        <span>Project needs repair</span>
+        <strong>${detail.project.title}</strong>
+        <p>
+          PCC could not render this project detail because legacy project data is missing a
+          canonical field. Run PCC ledger repair, then refresh.
+        </p>
+        <small>${error instanceof Error ? error.message : String(error)}</small>
+      </section>
+    </aside>`;
+  }
 }
 
 function renderContextPackageCard(detail: PccProjectDetail) {

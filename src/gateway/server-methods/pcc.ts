@@ -76,6 +76,15 @@ const ACTIVE_WORK_STATUSES = new Set<PccStatus>([
   "runtime_proof_complete",
   "persistence_proof_complete",
 ]);
+const PCC_PROOF_LEVELS = new Set([
+  "none",
+  "planned",
+  "local",
+  "remote",
+  "runtime",
+  "persistence",
+  "production",
+]);
 const DEFAULT_PCC_PHASES: PccProject["phases"] = [
   { id: "setup", title: "Setup", status: "not_started", weight: 10, order: 0 },
   { id: "tools-skills", title: "Tools/Skills", status: "not_started", weight: 15, order: 1 },
@@ -311,6 +320,18 @@ function summarizeWeightedProjectPercent(
 
 function metadataStringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function metadataObjectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function normalizedReceiptProofLevel(value: unknown): PccCompletionReceipt["proofLevel"] {
+  return typeof value === "string" && PCC_PROOF_LEVELS.has(value)
+    ? (value as PccCompletionReceipt["proofLevel"])
+    : "local";
 }
 
 function projectDueDate(project: PccProject): string | undefined {
@@ -622,6 +643,7 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
 function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSummary {
   const milestones = ledger.milestones.filter((milestone) => milestone.projectId === project.id);
   const percentComplete = summarizeWeightedProjectPercent(ledger, project, milestones);
+  const metadata = metadataObjectValue(project.metadata);
   const counts: ProjectStatusCounts = {
     total: milestones.length,
     complete: milestones.filter((milestone) => COMPLETE_STATUSES.has(milestone.status)).length,
@@ -665,6 +687,18 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     proofGaps,
     health: projectHealthLabel(project, counts, dueDate, proofGaps),
     ...(dueDate ? { dueDate } : {}),
+    ...(metadata.excludedFromPccProductCompletion === true
+      ? { excludedFromPccProductCompletion: true }
+      : {}),
+    ...(metadataStringValue(metadata.pccCurrentScope)
+      ? { pccCurrentScope: metadataStringValue(metadata.pccCurrentScope) }
+      : {}),
+    ...(metadataStringValue(metadata.pccProductScope)
+      ? { pccProductScope: metadataStringValue(metadata.pccProductScope) }
+      : {}),
+    ...(metadataStringValue(metadata.pccWorkflowTemplateId)
+      ? { workflowTemplateId: metadataStringValue(metadata.pccWorkflowTemplateId) }
+      : {}),
     recentActivity: latestProjectActivity(ledger, project),
     updatedAt: project.updatedAt,
   };
@@ -1471,6 +1505,7 @@ function repairCanonicalMetadataForLedger(
 ): {
   repairedMilestoneIds: string[];
   repairedSubMilestoneIds: string[];
+  repairedReceiptIds: string[];
   projectIds: string[];
 } {
   const projectId = typeof params.projectId === "string" ? params.projectId : undefined;
@@ -1478,10 +1513,16 @@ function repairCanonicalMetadataForLedger(
   const eligibleProjectIds = new Set(
     ledger.projects
       .filter((project) => !projectId || project.id === projectId)
-      .filter((project) => includeTerminal || !PROJECT_TERMINAL_STATUSES.has(project.status))
+      .filter(
+        (project) =>
+          includeTerminal || (project.status !== "archived" && project.status !== "skipped"),
+      )
       .map((project) => project.id),
   );
   const now = nowIso();
+  const repairedMilestoneOrderIds: string[] = [];
+  const repairedSubMilestoneOrderIds: string[] = [];
+  const repairedReceiptIds: string[] = [];
   const milestoneRepair = repairPccCanonicalWorkItems(
     ledger.milestones.filter((milestone) => eligibleProjectIds.has(milestone.projectId)),
     now,
@@ -1496,15 +1537,47 @@ function repairCanonicalMetadataForLedger(
   const repairedSubMilestones = new Map(
     subMilestoneRepair.items.map((subMilestone) => [subMilestone.id, subMilestone]),
   );
-  ledger.milestones = ledger.milestones.map(
-    (milestone) => repairedMilestones.get(milestone.id) ?? milestone,
-  );
-  ledger.subMilestones = ledger.subMilestones.map(
-    (subMilestone) => repairedSubMilestones.get(subMilestone.id) ?? subMilestone,
-  );
+  ledger.milestones = ledger.milestones.map((milestone, index) => {
+    const next = repairedMilestones.get(milestone.id) ?? milestone;
+    if (!eligibleProjectIds.has(next.projectId)) {
+      return next;
+    }
+    if (typeof next.order === "number" && Number.isFinite(next.order) && next.order >= 0) {
+      return next;
+    }
+    repairedMilestoneOrderIds.push(next.id);
+    return { ...next, order: (index + 1) * 10, updatedAt: now };
+  });
+  ledger.subMilestones = ledger.subMilestones.map((subMilestone, index) => {
+    const next = repairedSubMilestones.get(subMilestone.id) ?? subMilestone;
+    if (!eligibleProjectIds.has(next.projectId)) {
+      return next;
+    }
+    if (typeof next.order === "number" && Number.isFinite(next.order) && next.order >= 0) {
+      return next;
+    }
+    repairedSubMilestoneOrderIds.push(next.id);
+    return { ...next, order: (index + 1) * 10, updatedAt: now };
+  });
+  ledger.receipts = ledger.receipts.map((receipt) => {
+    if (!eligibleProjectIds.has(receipt.projectId)) {
+      return receipt;
+    }
+    const proofLevel = normalizedReceiptProofLevel(receipt.proofLevel);
+    if (receipt.proofLevel === proofLevel) {
+      return receipt;
+    }
+    repairedReceiptIds.push(receipt.id);
+    return { ...receipt, proofLevel };
+  });
   return {
-    repairedMilestoneIds: milestoneRepair.repairedIds,
-    repairedSubMilestoneIds: subMilestoneRepair.repairedIds,
+    repairedMilestoneIds: [
+      ...new Set([...milestoneRepair.repairedIds, ...repairedMilestoneOrderIds]),
+    ],
+    repairedSubMilestoneIds: [
+      ...new Set([...subMilestoneRepair.repairedIds, ...repairedSubMilestoneOrderIds]),
+    ],
+    repairedReceiptIds,
     projectIds: [...eligibleProjectIds],
   };
 }

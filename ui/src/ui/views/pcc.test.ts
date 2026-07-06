@@ -508,7 +508,7 @@ describe("renderPccDashboard", () => {
     expect(items[2]?.textContent).toContain("Older Project");
   });
 
-  it("uses authoritative portfolio attention counts in top metrics", () => {
+  it("uses authoritative expanded metrics and focused portfolio progress", () => {
     const container = renderView(
       createProps({
         portfolio: {
@@ -533,7 +533,7 @@ describe("renderPccDashboard", () => {
     expect(metrics?.textContent).toContain("9");
     expect(metrics?.textContent).toContain("7");
     expect(metrics?.textContent).toContain("58%");
-    expect(progress?.textContent).toContain("7 need attention");
+    expect(progress?.textContent).toContain("1 need attention");
   });
 
   it("renders last-known-good verified state in project history details", () => {
@@ -1334,7 +1334,7 @@ describe("renderPccDashboard", () => {
     expect(skimFacts).not.toContain("Activity:");
     expect(skimFacts).not.toContain("Outcomes:");
     expect(sequence).toContain("Current: CRUD UI");
-    expect(sequence).toContain("Next:");
+    expect(sequence).toContain("Next action:");
     expect(blocker).toContain("Blocked");
     expect(blocker).not.toContain("Blocked by:");
     expect(container.querySelector("[data-pcc-project-card-activity]")).toBeNull();

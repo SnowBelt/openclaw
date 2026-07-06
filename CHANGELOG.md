@@ -27,6 +27,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Control UI/PCC: prevent legacy PCC receipts and project-specific work from crashing project selection, repair canonical ledger fields, and keep PCC Product mode focused on PCC-only work.
 - Control UI/PCC: keep PCC product work separated from project-specific blockers, make completed projects read as maintenance instead of setup failures, harden project-card selection proof, and hide dormant action menus until opened.
 - Control UI/PCC: add a stable Projects route alias for Project Command Center so authenticated dashboard proof and direct navigation do not fall back to Chat when `/pcc` is also used as a mount path.
 - Agent/session recovery: drop stale approval follow-ups after session rebind, remove drained reply-queue items by identity, recover stale main and visible replies, preserve Codex context-engine compaction ownership, lower the default compaction timeout to 180 seconds while respecting explicit configuration, and keep provider-failure terminal lifecycle state correct. (#85679, #91450, #91566, #91840, #91590, #91361, #91895) Thanks @openperf, @yetval, @joshavant, @wangmiao0668000666, and @TurboTheTurtle.

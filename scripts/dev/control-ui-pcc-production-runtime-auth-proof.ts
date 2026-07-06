@@ -207,7 +207,7 @@ async function runBrowserProof(options: ProofOptions) {
   }
   await assertSelectedProject(options.projectTitle, "requested project card");
 
-  if (options.profile === "usability-reliability") {
+  if (options.profile === "usability-reliability" || options.profile === "functionality-closure") {
     const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
     if (await projectWorkMode.isVisible().catch(() => false)) {
       await projectWorkMode.click({ force: true });
@@ -219,7 +219,12 @@ async function runBrowserProof(options: ProofOptions) {
         const snesOpen = snesProject.locator("button", { hasText: /Open|Selected/ }).first();
         if (await snesOpen.isVisible().catch(() => false)) {
           await snesOpen.click({ force: true });
-          await assertSelectedProject("SNES Game Creator", "Project Work card selection");
+          await assertSelectedProject(
+            "SNES Game Creator",
+            options.profile === "functionality-closure"
+              ? "Project Work crash regression"
+              : "Project Work card selection",
+          );
         }
       }
       const productFocusMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();

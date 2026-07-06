@@ -28,6 +28,13 @@ function summary(id: string, title: string, status: "active" | "complete_with_ma
         : ["Review proof when needed."],
     proofGaps: [],
     health: status === "active" ? "At risk" : "Complete",
+    ...(title === "Project Command Center"
+      ? {}
+      : {
+          excludedFromPccProductCompletion: true,
+          pccCurrentScope: "active_project_work",
+          workflowTemplateId: "snes-studio",
+        }),
     updatedAt: now,
   };
 }
@@ -163,18 +170,6 @@ async function main() {
           receipts: [],
           summary: pccSummary,
         },
-        "snes-game-creator": {
-          project: snesProject,
-          milestones: [
-            milestone("snes-1", "snes-game-creator", "Intake", 1, "complete"),
-            milestone("snes-2", "snes-game-creator", "Toolchain preflight", 2),
-          ],
-          subMilestones: [],
-          permissions: [],
-          evidence: [],
-          receipts: [],
-          summary: snesSummary,
-        },
       },
       actionBusy: false,
       actionError: null,
@@ -286,7 +281,33 @@ async function main() {
         ...baseProps,
         productFocusMode: "project_work",
         selectedProjectId: "snes-game-creator",
-        projectDetail: baseProps.projectDetails["snes-game-creator"],
+        projectDetail: {
+          project: snesProject,
+          milestones: [
+            milestone("snes-1", "snes-game-creator", "Intake", 1, "complete"),
+            milestone("snes-2", "snes-game-creator", "Toolchain preflight", 2),
+          ],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary: snesSummary,
+        },
+        projectDetails: {
+          ...baseProps.projectDetails,
+          "snes-game-creator": {
+            project: snesProject,
+            milestones: [
+              milestone("snes-1", "snes-game-creator", "Intake", 1, "complete"),
+              milestone("snes-2", "snes-game-creator", "Toolchain preflight", 2),
+            ],
+            subMilestones: [],
+            permissions: [],
+            evidence: [],
+            receipts: [],
+            summary: snesSummary,
+          },
+        },
         reorderMode: true,
       }),
       root,

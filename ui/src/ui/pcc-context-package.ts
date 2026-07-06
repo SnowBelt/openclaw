@@ -16,8 +16,12 @@ export type PccContextPackageOptions = {
   mode?: PccContextPackageMode;
 };
 
-function formatStatus(value: string): string {
-  return value
+function formatStatus(value: unknown): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) {
+    return "Not recorded";
+  }
+  return normalized
     .split("_")
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

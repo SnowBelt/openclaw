@@ -2198,6 +2198,19 @@
   margin-top: 2px;
 }
 
+.pcc-top-proof-drawer {
+  justify-self: start;
+  width: fit-content;
+}
+
+.pcc-top-proof-drawer > summary {
+  padding: 6px 10px;
+}
+
+.pcc-top-proof-drawer[open] {
+  width: 100%;
+}
+
 .pcc-needs-attention {
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
@@ -3369,15 +3382,16 @@
 /* PCC Interaction Audit Closure V1 */
 .pcc-hero--compact {
   grid-template-columns: minmax(0, 1fr) auto;
-  padding: 18px 22px;
+  padding: 14px 18px;
 }
 
 .pcc-hero--compact h2 {
-  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  font-size: clamp(1.45rem, 2.5vw, 2.05rem);
 }
 
 .pcc-hero--compact .pcc-hero__subtitle {
   max-width: 58ch;
+  margin-top: 6px;
 }
 
 .pcc-focus-mode {
