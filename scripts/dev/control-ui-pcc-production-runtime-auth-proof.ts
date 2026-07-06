@@ -151,6 +151,23 @@ async function runBrowserProof(options: ProofOptions) {
     return bodyText.includes(title);
   };
 
+  const projectIdForTitle = (title: string): string | undefined => {
+    if (title === "Project Command Center") {
+      return "project-command-center";
+    }
+    if (title === "SNES Game Creator") {
+      return "snes-game-creator";
+    }
+    return undefined;
+  };
+  const projectCardForTitle = (title: string) => {
+    const projectId = projectIdForTitle(title);
+    if (projectId) {
+      return page.locator(`.pcc-project-card[data-pcc-project-id="${projectId}"]`).first();
+    }
+    return page.locator(".pcc-project-card", { hasText: title }).first();
+  };
+
   const productMode = page.locator('[data-pcc-focus-mode-option="pcc_product"]').last();
   if (options.projectTitle === "Project Command Center") {
     if (await productMode.isVisible().catch(() => false)) {
@@ -158,9 +175,7 @@ async function runBrowserProof(options: ProofOptions) {
       await page.waitForTimeout(500);
     }
   }
-  const targetProject = page
-    .locator(".pcc-project-card", { hasText: options.projectTitle })
-    .first();
+  const targetProject = projectCardForTitle(options.projectTitle);
   let projectCardCount = await targetProject.count();
   if (projectCardCount === 0 && !(await isSelectedProject(options.projectTitle))) {
     const allProjectsTab = page.locator(".pcc-project-tabs button", { hasText: /All/i }).last();
@@ -212,9 +227,7 @@ async function runBrowserProof(options: ProofOptions) {
     if (await projectWorkMode.isVisible().catch(() => false)) {
       await projectWorkMode.click({ force: true });
       await page.waitForTimeout(500);
-      const snesProject = page
-        .locator(".pcc-project-card", { hasText: "SNES Game Creator" })
-        .first();
+      const snesProject = projectCardForTitle("SNES Game Creator");
       if ((await snesProject.count()) > 0 && (await snesProject.isVisible().catch(() => false))) {
         const snesOpen = snesProject.locator("button", { hasText: /Open|Selected/ }).first();
         if (await snesOpen.isVisible().catch(() => false)) {
@@ -232,9 +245,7 @@ async function runBrowserProof(options: ProofOptions) {
         await productFocusMode.click({ force: true });
         await page.waitForTimeout(500);
       }
-      const pccProject = page
-        .locator(".pcc-project-card", { hasText: options.projectTitle })
-        .first();
+      const pccProject = projectCardForTitle(options.projectTitle);
       const pccOpen = pccProject.locator("button", { hasText: /Open|Selected/ }).first();
       if ((await pccOpen.count()) > 0 && (await pccOpen.isVisible().catch(() => false))) {
         await pccOpen.click({ force: true });
@@ -259,9 +270,7 @@ async function runBrowserProof(options: ProofOptions) {
   }
   let autofillPreviewOpened = false;
   if (options.profile === "usability-reliability") {
-    const repairProject = page
-      .locator(".pcc-project-card", { hasText: "SNES Game Creator" })
-      .first();
+    const repairProject = projectCardForTitle("SNES Game Creator");
     if ((await repairProject.count()) > 0) {
       const openRepairProject = repairProject
         .locator("button", { hasText: /Open|Selected/ })
