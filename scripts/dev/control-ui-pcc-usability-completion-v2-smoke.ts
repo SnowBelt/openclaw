@@ -319,7 +319,7 @@ async function main(): Promise<void> {
     requireText(text, "Needs You");
     requireText(text, "On Hold");
     requireText(text, "Archived");
-    requireText(text, "Proof:");
+    requireText(text, "Current proof:");
     requireText(text, "Stale Project");
     requireText(text, "No recorded update since");
     requireText(text, "Best available");

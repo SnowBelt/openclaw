@@ -403,7 +403,7 @@ async function runBrowserProof(options: ProofOptions) {
       topProofNotDominating:
         options.profile !== "focus-live-interaction" ||
         (await page.locator(".pcc-top-proof-drawer:visible").count()) === 0 ||
-        has("Proof:"),
+        has("Current proof:"),
     },
     sample: normalizedText.slice(0, 2_000),
   };
