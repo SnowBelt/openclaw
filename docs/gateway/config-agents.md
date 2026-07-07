@@ -1029,14 +1029,15 @@ finished, and end task reports with one explicit status line:
 `Status: complete`, `Status: blocked`, or `Status: needs_user_input`.
 
 Production deployments should keep the Control Director model policy scoped to
-the main agent:
+the main agent. The default primary is the local Gemma control alias; Qwen2.5
+remains the rollback fallback:
 
 ```json5
 {
   id: "main",
   name: "Control Director",
   model: {
-    primary: "openclaw-control-qwen36-27b",
+    primary: "openclaw-control-gemma4-31b-q8",
     fallbacks: ["ollama/openclaw-control-qwen25-32b:latest"],
   },
   thinkingDefault: "off",
@@ -1062,6 +1063,10 @@ Use `pnpm control-director:readiness` to check the live config, Ollama model
 inventory, rollback alias, context target, thinking policy, and required Ollama
 service environment. Use `pnpm control-director:eval` for the deterministic
 contract tests.
+
+The Control Director is not the Self-Improvement Governor. Control Director
+readiness can be recorded as a sanitized Governor audit signal, but the
+recommendation-only Governor remains a separate reviewer and routing subsystem.
 
 ---
 

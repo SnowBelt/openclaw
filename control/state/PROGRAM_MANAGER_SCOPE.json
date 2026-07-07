@@ -5,5 +5,9 @@
   "mission": "Turn approved goals into trackable milestones, owners, dependencies, blockers, status, acceptance criteria, and verification gates.",
   "scope": [],
   "nonScope": [],
-  "handoffBoundaries": []
+  "handoffBoundaries": [],
+  "lastVerifiedAt": "UNKNOWN",
+  "source": "UNKNOWN",
+  "verificationStatus": "UNKNOWN",
+  "stalenessPolicy": "UNKNOWN"
 }

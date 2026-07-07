@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-const PRIMARY_MODEL = "ollama/openclaw-control-qwen36-27b:latest";
-const PRIMARY_OLLAMA_NAME = "openclaw-control-qwen36-27b:latest";
-const UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
+const PRIMARY_ALIAS = "openclaw-control-gemma4-31b-q8";
+const PRIMARY_MODEL = "ollama/openclaw-control-gemma4-31b-q8:latest";
+const PRIMARY_OLLAMA_NAME = "openclaw-control-gemma4-31b-q8:latest";
+const UNDERLYING_OLLAMA_TAG = PRIMARY_OLLAMA_NAME;
 const FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 const EFFECTIVE_CONTEXT = 64_000;
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
@@ -31,9 +32,9 @@ const REQUIRED_OLLAMA_ENV = Object.freeze({
 
 function usage() {
   return [
-    "Usage: node scripts/control-director-readiness.mjs [--json] [--config <path>] [--skip-runtime] [--skip-chat-smoke]",
+    "Usage: node scripts/control-director-readiness.mjs [--json] [--config <path>] [--skip-runtime] [--skip-chat-smoke] [--record-self-improvement] [--state-dir <path>]",
     "",
-    "Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and Qwen3.6 model-load smoke.",
+    "Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and Gemma model-load smoke.",
   ].join("\n");
 }
 
@@ -45,6 +46,8 @@ function parseArgs(argv) {
     json: false,
     skipRuntime: false,
     skipChatSmoke: false,
+    recordSelfImprovement: false,
+    stateDir: undefined,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -56,6 +59,10 @@ function parseArgs(argv) {
       args.skipRuntime = true;
     } else if (arg === "--skip-chat-smoke") {
       args.skipChatSmoke = true;
+    } else if (arg === "--record-self-improvement") {
+      args.recordSelfImprovement = true;
+    } else if (arg === "--state-dir") {
+      args.stateDir = argv[++index];
     } else if (arg === "--config") {
       args.configPath = argv[++index];
     } else if (arg === "--help" || arg === "-h") {
@@ -69,6 +76,104 @@ function parseArgs(argv) {
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function resolveDefaultStateDir(configPath = "") {
+  if (process.env.OPENCLAW_STATE_DIR?.trim()) {
+    return process.env.OPENCLAW_STATE_DIR.trim();
+  }
+  if (path.basename(configPath) === "openclaw.director.json") {
+    return path.join(os.homedir(), ".openclaw-director-state");
+  }
+  return path.join(os.homedir(), ".openclaw");
+}
+
+function sanitizeSelfImprovementText(value, maxLength = 640) {
+  return String(value ?? "")
+    .replace(/\b(?:[A-Za-z]:)?(?:\/[A-Za-z0-9._ -]+){2,}/g, "[local-path]")
+    .replace(/(?<=api[_-]?key[=:]?)\s*[^\s,;]+/giu, "[redacted]")
+    .replace(/(?<=token[=:]?)\s*[^\s,;]+/giu, "[redacted]")
+    .replace(/(?<=secret[=:]?)\s*[^\s,;]+/giu, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function selfImprovementEventId(value) {
+  return `sie_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
+}
+
+function readSelfImprovementAuditStore(storePath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    return {
+      version: 1,
+      events: Array.isArray(parsed?.events) ? parsed.events : [],
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { version: 1, events: [] };
+    }
+    throw error;
+  }
+}
+
+export function buildControlDirectorReadinessAuditEvent(scorecard, checkedAtMs = Date.now()) {
+  const failedCritical = Array.isArray(scorecard.failedCritical) ? scorecard.failedCritical : [];
+  const failedFacts = Array.isArray(scorecard.facts)
+    ? scorecard.facts.filter((entry) => !entry?.passed).slice(0, 12)
+    : [];
+  const readiness = scorecard.productionReady
+    ? "ready"
+    : failedCritical.length > 0
+      ? "blocked"
+      : "degraded";
+  return {
+    id: selfImprovementEventId(
+      `${Math.floor(checkedAtMs / 60_000)}:control_director_readiness:${readiness}:${scorecard.nextBuildGap ?? ""}`,
+    ),
+    createdAt: checkedAtMs,
+    kind: "control_director_readiness",
+    actor: "cli",
+    targetId: "control-director",
+    summary: `Checked Control Director readiness: ${readiness}.`,
+    metadata: {
+      readiness,
+      ready: Boolean(scorecard.productionReady),
+      completionGrade: Number(scorecard.completionGrade ?? 0),
+      criticality: Number(scorecard.criticality ?? 10),
+      primaryAlias: sanitizeSelfImprovementText(scorecard.primaryAlias, 160),
+      primaryModel: sanitizeSelfImprovementText(scorecard.primaryModel, 160),
+      firstFallback: sanitizeSelfImprovementText(scorecard.firstFallback, 160),
+      nextBuildGap: sanitizeSelfImprovementText(scorecard.nextBuildGap, 320),
+      failedCritical,
+      failedFacts: failedFacts.map((entry) =>
+        sanitizeSelfImprovementText(
+          `${entry.critical ? "critical" : "info"}:${entry.label}${entry.detail ? `:${entry.detail}` : ""}`,
+          240,
+        ),
+      ),
+    },
+  };
+}
+
+export function appendControlDirectorReadinessAuditEvent(scorecard, options = {}) {
+  const stateDir = options.stateDir ?? resolveDefaultStateDir(options.configPath);
+  const storeDir = path.join(stateDir, "self-improvement");
+  const storePath = path.join(storeDir, "audit-events.json");
+  const event = buildControlDirectorReadinessAuditEvent(scorecard, Date.now());
+  const store = readSelfImprovementAuditStore(storePath);
+  const events = [...store.events.filter((entry) => entry?.id !== event.id), event]
+    .sort((left, right) => Number(left.createdAt ?? 0) - Number(right.createdAt ?? 0))
+    .slice(-2000);
+  fs.mkdirSync(storeDir, { recursive: true, mode: 0o700 });
+  const tmpPath = `${storePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, `${JSON.stringify({ version: 1, events }, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  fs.renameSync(tmpPath, storePath);
+  return event;
 }
 
 function normalizeModelRef(value) {
@@ -360,7 +465,7 @@ export function buildControlDirectorReadinessScorecard(params) {
   facts.push(
     fact(
       "primary",
-      "Primary alias is Qwen3.6 Control alias",
+      "Primary alias is Gemma Control alias",
       primary === PRIMARY_MODEL,
       true,
       `resolved=${primary || "missing"}`,
@@ -483,7 +588,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-primary",
-        "Ollama Qwen3.6 Control alias is installed",
+        "Ollama Gemma Control alias is installed",
         Boolean(primaryModel),
         true,
       ),
@@ -491,7 +596,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-underlying",
-        "Underlying qwen3.6:27b-q8_0 tag is installed",
+        "Underlying Gemma control tag is installed",
         Boolean(underlying),
         true,
       ),
@@ -499,7 +604,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-digest",
-        "Control alias digest matches qwen3.6 tag",
+        "Control alias digest matches Gemma tag",
         Boolean(
           primaryModel?.digest && underlying?.digest && primaryModel.digest === underlying.digest,
         ),
@@ -514,7 +619,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     facts.push(
       fact(
         "ollama-primary-chat-smoke",
-        "Qwen3.6 Control alias answers Ollama /api/chat smoke",
+        "Gemma Control alias answers Ollama /api/chat smoke",
         primaryChatSmoke?.ok === true,
         true,
         primaryChatSmoke?.detail ?? "not checked",
@@ -651,10 +756,31 @@ export async function main(argv = process.argv.slice(2)) {
     runtimeTruthGate: detectControlDirectorTruthGate(),
     runtimeTruthEvidenceIngestion: detectControlDirectorTruthEvidenceIngestion(),
   });
+  let selfImprovementEvent;
+  if (args.recordSelfImprovement) {
+    selfImprovementEvent = appendControlDirectorReadinessAuditEvent(scorecard, {
+      configPath: args.configPath,
+      stateDir: args.stateDir,
+    });
+  }
   if (args.json) {
-    console.log(JSON.stringify(scorecard, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ...scorecard,
+          ...(selfImprovementEvent ? { selfImprovementAuditEventId: selfImprovementEvent.id } : {}),
+        },
+        null,
+        2,
+      ),
+    );
   } else {
     printText(scorecard);
+    if (selfImprovementEvent) {
+      console.log(
+        `Self-Improvement audit event recorded: ${selfImprovementEvent.id} (${selfImprovementEvent.metadata.readiness})`,
+      );
+    }
   }
   return scorecard.productionReady ? 0 : 1;
 }

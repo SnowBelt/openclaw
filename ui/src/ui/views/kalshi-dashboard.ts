@@ -150,6 +150,8 @@ const METRIC_DEFINITIONS: Record<string, string> = {
     "The most common plain-language reason weather paper trades need repair, tightening, or more evidence.",
   "Strategy Discovery":
     "A paper-only shadow layer that scores hypothetical YES, NO, and no-trade choices for observed markets so OpenClaw can find patterns without adding accepted paper exposure.",
+  "Copy Shadow":
+    "A paper-only copy-leader evaluator. It watches exact opt-in fills or sharp-flow signals, simulates copied execution, and never grants live order authority.",
   "Inverse Standard Strategy Audit":
     "A paper-only audit comparing the preserved Standard Strategy baseline with the opposite-side Inverse Standard Strategy.",
   "Strategy Comparison":
@@ -2527,6 +2529,68 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
   const shadowActions = shadowDiscovery.by_action?.slice(0, 6) ?? [];
   const shadowSegments = shadowDiscovery.best_segments?.slice(0, 5) ?? [];
   const shadowReviewCandidates = shadowDiscovery.exploration_review_candidates ?? [];
+  const copyShadow = snapshot?.kalshi_copy_shadow ?? {};
+  const copyShadowSummary = copyShadow.summary ?? {};
+  const copyShadowLatency = copyShadow.latency ?? {};
+  const copyShadowExecution = copyShadow.execution_quality ?? {};
+  const copyShadowRisk = copyShadow.risk_controls ?? {};
+  const copyShadowLeader = copyShadow.target_leader ?? {};
+  const copyShadowDiscovery = copyShadow.source_discovery ?? {};
+  const copyShadowDiscoveryBlockers = copyShadowDiscovery.blockers?.slice(0, 4) ?? [];
+  const copyShadowDiscoveryMilestones = copyShadowDiscovery.milestones?.slice(0, 4) ?? [];
+  const copyShadowCandidateSources =
+    copyShadowDiscovery.candidate_sources_reviewed?.slice(0, 8) ?? [];
+  const copyShadowSignalQuality = copyShadow.signal_quality ?? {};
+  const copyShadowSourceHealth = copyShadow.source_health ?? {};
+  type CopyShadowSourceHealthReceipt = {
+    accepted_record_count?: number;
+    invalid_fields?: string[];
+    missing_fields?: string[];
+    next_action?: string;
+    record_count?: number;
+    rejected_record_count?: number;
+    rejection_reasons?: Record<string, number>;
+    risk_flags?: string[];
+    schema_passed?: boolean;
+    status?: string;
+    unsafe_true_flags?: string[];
+  };
+  const copyShadowSourceHealthRows: Array<{
+    label: string;
+    receipt?: CopyShadowSourceHealthReceipt;
+  }> = [
+    {
+      label: "Foster Relay",
+      receipt: copyShadowSourceHealth.foster_relay_verifier,
+    },
+    {
+      label: "Caleb Public Signal",
+      receipt: copyShadowSourceHealth.caleb_public_signal_verifier,
+    },
+    {
+      label: "Signal Log",
+      receipt: copyShadowSourceHealth.signal_log_validator,
+    },
+  ];
+  const copyShadowSkipReasons = Object.entries(copyShadowSignalQuality.skip_reasons ?? {})
+    .toSorted(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 5);
+  const copyShadowLeaderLanes = copyShadow.leader_lanes?.slice(0, 6) ?? [];
+  const copyShadowSources = copyShadow.sources?.slice(0, 5) ?? [];
+  const copyShadowGates = copyShadow.readiness_gates ?? [];
+  const copyShadowResolved = copyShadowSummary.resolved_signals ?? 0;
+  const copyShadowSignalsSeen = copyShadowSummary.signals_seen ?? 0;
+  const copyShadowPnl = copyShadowSummary.net_shadow_pnl_usd;
+  const copyShadowLatencyP95 = copyShadowLatency.p95_signal_latency_ms;
+  const copyShadowUnsafe =
+    copyShadow.live_order_allowed === true ||
+    copyShadow.live_trading_enabled === true ||
+    copyShadow.can_authorize_trade === true ||
+    copyShadow.can_authorize_paper === true ||
+    copyShadow.can_authorize_live === true ||
+    copyShadow.write_capable_kalshi_endpoint_called === true ||
+    copyShadow.sts_authority === true ||
+    Boolean(copyShadow.unsafe_true_flags?.length);
   const inverseAudit = snapshot?.inverse_strategy_audit ?? {};
   const inverseMetrics = inverseAudit.metrics ?? {};
   const inverseSegments = inverseMetrics.best_segments?.slice(0, 6) ?? [];
@@ -6822,6 +6886,442 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
               <p class="muted">
                 This section increases useful simulated practice volume only. It never enables live
                 orders, cancellations, quote acceptance, RFQs, or funds movement.
+              </p>
+            </section>
+
+            <section class="kalshi-panel">
+              <h3>Copy Shadow${metricHelp("Copy Shadow")}</h3>
+              <p class="kalshi-section-intro">
+                ${copyShadow.plain_english ??
+                "Copy-leader shadow mode is ready to evaluate opt-in fills or sharp-flow signals before any live authority is considered."}
+              </p>
+              <div class="kalshi-grid kalshi-grid--cards">
+                ${metricCard(
+                  "Leader",
+                  String(copyShadowLeader.leader_name ?? "Foster"),
+                  `Handle ${fmt(copyShadowLeader.leader_handle ?? "pending")} · source ${fmt(copyShadowLeader.source_status ?? "missing")}.`,
+                  copyShadowLeader.verification_status === "verified" ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Source Verification",
+                  String(copyShadowLeader.verification_status ?? "unverified"),
+                  String(
+                    copyShadowLeader.evidence_summary ??
+                      "Foster remains provisional until a real-time exact-fill source is verified.",
+                  ),
+                  copyShadowLeader.verification_status === "verified" ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Discovery Receipt",
+                  copyShadowDiscovery.copyable_exact_source_verified
+                    ? "copyable"
+                    : String(copyShadowDiscovery.status ?? "not run"),
+                  copyShadowDiscovery.public_identity_verified
+                    ? "Public identity verified; exact-fill source still controls copyability."
+                    : "Run source discovery before enabling any source.",
+                  copyShadowDiscovery.copyable_exact_source_verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Read-Only Auth",
+                  copyShadowDiscovery.authenticated_read_attempted
+                    ? copyShadowDiscovery.authenticated_read_ok
+                      ? "passed"
+                      : "blocked"
+                    : "not run",
+                  "Signed Kalshi read proof only; no account mutation or live authority.",
+                  copyShadowDiscovery.authenticated_read_ok ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Copy Shadow",
+                  copyShadowUnsafe ? "Stop" : String(copyShadow.status ?? "not configured"),
+                  copyShadowUnsafe
+                    ? "Unsafe live/write authority appeared in copy-shadow data."
+                    : String(
+                        copyShadow.next_action ??
+                          "Add an exact opt-in source and keep the lane shadow-only.",
+                      ),
+                  copyShadowUnsafe ? "danger" : copyShadowSignalsSeen ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Signals",
+                  fmt(copyShadowSignalsSeen),
+                  `${fmt(copyShadowSummary.eligible_shadow_signals)} eligible · ${fmt(copyShadowSummary.skipped_signals)} skipped.`,
+                  copyShadowSignalsSeen ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Resolved Copy Signals",
+                  fmt(copyShadowResolved),
+                  `${fmt(copyShadowSummary.wins)} wins · ${fmt(copyShadowSummary.losses)} losses · ${pct(copyShadowSummary.win_rate)} win rate.`,
+                  copyShadowResolved ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Shadow P&L",
+                  money(copyShadowPnl),
+                  "Simulated copied P&L after modeled costs. This is not real money.",
+                  (copyShadowPnl ?? 0) > 0 ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "p95 Signal Latency",
+                  copyShadowLatencyP95 == null ? "n/a" : `${fmt(copyShadowLatencyP95)} ms`,
+                  `Target ${fmt(copyShadowLatency.near_instant_target_ms ?? copyShadowLatency.max_signal_latency_ms ?? 1000)} ms or faster.`,
+                  copyShadowLatencyP95 != null &&
+                    copyShadowLatencyP95 <=
+                      (copyShadowLatency.near_instant_target_ms ??
+                        copyShadowLatency.max_signal_latency_ms ??
+                        1000)
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Execution Drift",
+                  copyShadowExecution.average_price_drift_cents == null
+                    ? "n/a"
+                    : `${fmt(copyShadowExecution.average_price_drift_cents)}¢`,
+                  `Spread ${copyShadowExecution.average_spread_cents == null ? "n/a" : `${fmt(copyShadowExecution.average_spread_cents)}¢`} · max drift ${fmt(copyShadowExecution.max_price_drift_cents ?? 2)}¢.`,
+                  copyShadowExecution.average_price_drift_cents != null &&
+                    copyShadowExecution.average_price_drift_cents <=
+                      (copyShadowExecution.max_price_drift_cents ?? 2)
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Duplicate Signals",
+                  fmt(
+                    copyShadowSignalQuality.duplicate_signal_count ??
+                      copyShadowSummary.duplicate_signal_count ??
+                      0,
+                  ),
+                  "Duplicate signal IDs are ignored so the same Foster fill cannot be counted twice.",
+                  (copyShadowSignalQuality.duplicate_signal_count ??
+                    copyShadowSummary.duplicate_signal_count ??
+                    0)
+                    ? "danger"
+                    : "ok",
+                )}
+              </div>
+              <div>
+                <h4>Copy-Leader Paper Lanes</h4>
+                <div class="kalshi-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Leader</th>
+                        <th>Lane</th>
+                        <th>Copy Mode</th>
+                        <th>Status</th>
+                        <th>Signals</th>
+                        <th>P&L</th>
+                        <th>Blockers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${copyShadowLeaderLanes.length
+                        ? copyShadowLeaderLanes.map(
+                            (lane) => html`<tr>
+                              <td>${fmt(lane.leader_name ?? lane.leader_alias ?? "leader")}</td>
+                              <td>${fmt(lane.lane_type ?? lane.lane_id ?? "paper_lane")}</td>
+                              <td>
+                                ${lane.exact_copy ? "exact copy" : "not exact-copy"} ·
+                                ${fmt(lane.copy_mode ?? "shadow")}
+                              </td>
+                              <td>
+                                ${fmt(
+                                  lane.copyable_now
+                                    ? "paper-ready"
+                                    : (lane.source_status ?? lane.verification_status ?? "blocked"),
+                                )}
+                              </td>
+                              <td>
+                                ${fmt(lane.eligible_shadow_signals ?? 0)} eligible /
+                                ${fmt(lane.signals_seen ?? 0)} seen
+                              </td>
+                              <td>${money(lane.net_shadow_pnl_usd ?? 0)}</td>
+                              <td>
+                                ${fmt(
+                                  lane.blockers?.length
+                                    ? lane.blockers.slice(0, 3).join(", ")
+                                    : (lane.next_action ?? "none"),
+                                )}
+                              </td>
+                            </tr>`,
+                          )
+                        : html`<tr>
+                            <td colspan="7">No copy-leader paper lanes have been configured.</td>
+                          </tr>`}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h4>Source Health</h4>
+                <div class="kalshi-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Verifier</th>
+                        <th>Status</th>
+                        <th>Schema</th>
+                        <th>Records</th>
+                        <th>Issues</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${copyShadowSourceHealthRows.map(({ label, receipt }) => {
+                        const issueText = receipt?.unsafe_true_flags?.length
+                          ? `unsafe: ${receipt.unsafe_true_flags.join(", ")}`
+                          : receipt?.risk_flags?.length
+                            ? `risk: ${receipt.risk_flags.join(", ")}`
+                            : receipt?.missing_fields?.length
+                              ? `missing: ${receipt.missing_fields.join(", ")}`
+                              : receipt?.invalid_fields?.length
+                                ? `invalid: ${receipt.invalid_fields.join(", ")}`
+                                : receipt?.rejected_record_count
+                                  ? fmt(receipt.rejection_reasons ?? "rejected")
+                                  : (receipt?.next_action ?? "none");
+                        return html`<tr>
+                          <td>${label}</td>
+                          <td>${fmt(receipt?.status ?? "not run")}</td>
+                          <td>${receipt?.schema_passed ? "passed" : "blocked"}</td>
+                          <td>
+                            ${receipt?.record_count == null
+                              ? "n/a"
+                              : `${fmt(receipt.accepted_record_count ?? 0)} accepted / ${fmt(receipt.record_count)} read`}
+                          </td>
+                          <td>${fmt(issueText)}</td>
+                        </tr>`;
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="kalshi-grid kalshi-grid--two">
+                <div>
+                  <h4>Sources</h4>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Source</th>
+                          <th>Type</th>
+                          <th>Verified</th>
+                          <th>Status</th>
+                          <th>Exact Fill</th>
+                          <th>Signals</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowSources.length
+                          ? copyShadowSources.map(
+                              (source) => html`<tr>
+                                <td>
+                                  ${fmt(
+                                    source.leader_handle ??
+                                      source.leader_name ??
+                                      source.source_id ??
+                                      "source",
+                                  )}
+                                </td>
+                                <td>${fmt(source.source_type ?? "unknown")}</td>
+                                <td>${fmt(source.verification_status ?? "unverified")}</td>
+                                <td>
+                                  ${fmt(
+                                    source.source_status ??
+                                      (source.enabled ? "enabled" : "disabled"),
+                                  )}
+                                </td>
+                                <td>${source.exact_fill ? "yes" : "no"}</td>
+                                <td>${fmt(source.signals_seen)}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td colspan="6">No opt-in leader source has been configured.</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h4>Promotion Gates</h4>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Gate</th>
+                          <th>Status</th>
+                          <th>Detail</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowGates.length
+                          ? copyShadowGates.map(
+                              (gate) => html`<tr>
+                                <td>${fmt(gate.label ?? gate.gate_id)}</td>
+                                <td>${fmt(gate.status ?? "unknown")}</td>
+                                <td>${fmt(gate.blocker ?? gate.detail ?? "none")}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td colspan="3">Copy-shadow gates have not generated yet.</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="kalshi-grid kalshi-grid--two">
+                <div>
+                  <h4>Skip Reasons</h4>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Reason</th>
+                          <th>Signals</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowSkipReasons.length
+                          ? copyShadowSkipReasons.map(
+                              ([reason, count]) => html`<tr>
+                                <td>${fmt(reason)}</td>
+                                <td>${fmt(count)}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td colspan="2">No skipped Foster signals have been observed.</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h4>Source Proof</h4>
+                  <p class="muted">
+                    ${fmt(
+                      copyShadowLeader.evidence_summary ??
+                        "Foster source proof has not been verified yet.",
+                    )}
+                  </p>
+                  <p class="muted">
+                    Required before copying: verified Foster handle, exact fill source, signed or
+                    trusted timestamps, latency measurements, and exportable append-only logs.
+                  </p>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Discovery</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Identity</td>
+                          <td>
+                            ${copyShadowDiscovery.public_identity_verified
+                              ? "verified"
+                              : "unverified"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>Exact source</td>
+                          <td>
+                            ${copyShadowDiscovery.copyable_exact_source_verified
+                              ? "verified"
+                              : "blocked"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>Authenticated read</td>
+                          <td>
+                            ${copyShadowDiscovery.authenticated_read_attempted
+                              ? copyShadowDiscovery.authenticated_read_ok
+                                ? "passed"
+                                : "blocked"
+                              : "not run"}
+                          </td>
+                        </tr>
+                        ${copyShadowDiscoveryBlockers.length
+                          ? copyShadowDiscoveryBlockers.map(
+                              (blocker) => html`<tr>
+                                <td>Blocker</td>
+                                <td>${fmt(blocker)}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td>Blocker</td>
+                              <td>none recorded</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              ${copyShadowCandidateSources.length
+                ? html`<div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Source Candidate</th>
+                          <th>Status</th>
+                          <th>Latency</th>
+                          <th>Exact</th>
+                          <th>Identity</th>
+                          <th>Approval</th>
+                          <th>Blocker</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowCandidateSources.map(
+                          (source) => html`<tr>
+                            <td>${fmt(source.candidate ?? source.source_id ?? "source")}</td>
+                            <td>${fmt(source.status ?? "unknown")}</td>
+                            <td>${fmt(source.latency_fit ?? "unknown")}</td>
+                            <td>${fmt(source.exact_fill)}</td>
+                            <td>${fmt(source.leader_identity_available)}</td>
+                            <td>
+                              ${source.requires_external_approval
+                                ? "required"
+                                : source.copyable_now
+                                  ? "ready"
+                                  : "not required"}
+                            </td>
+                            <td>${fmt(source.why_not_copyable ?? "none recorded")}</td>
+                          </tr>`,
+                        )}
+                      </tbody>
+                    </table>
+                  </div>`
+                : null}
+              ${copyShadowDiscoveryMilestones.length
+                ? html`<div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Milestone</th>
+                          <th>Complete</th>
+                          <th>Status</th>
+                          <th>Evidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowDiscoveryMilestones.map(
+                          (milestone) => html`<tr>
+                            <td>${fmt(milestone.name ?? milestone.milestone_id)}</td>
+                            <td>${fmt(milestone.completion_percentage)}%</td>
+                            <td>${fmt(milestone.status)}</td>
+                            <td>${fmt(milestone.evidence)}</td>
+                          </tr>`,
+                        )}
+                      </tbody>
+                    </table>
+                  </div>`
+                : null}
+              <p class="muted">
+                Initial live review, if ever approved, should start at
+                ${money(copyShadow.recommended_initial_live_order_usd ?? 1)} to
+                ${money(copyShadow.max_recommended_initial_live_order_usd ?? 5)} per order. Current
+                shadow cap: ${money(copyShadowRisk.max_shadow_order_usd ?? 5)} per copied signal.
               </p>
             </section>
 

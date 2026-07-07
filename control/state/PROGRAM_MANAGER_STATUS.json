@@ -5,5 +5,9 @@
   "status": "UNKNOWN",
   "milestones": [],
   "tasks": [],
-  "unknowns": []
+  "unknowns": [],
+  "lastVerifiedAt": "UNKNOWN",
+  "source": "UNKNOWN",
+  "verificationStatus": "UNKNOWN",
+  "stalenessPolicy": "UNKNOWN"
 }

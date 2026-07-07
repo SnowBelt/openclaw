@@ -33,6 +33,7 @@ function isAuditEventKind(value: unknown): value is SelfImprovementAuditEvent["k
     value === "analysis_run" ||
     value === "model_preflight" ||
     value === "reviewer_eval_run" ||
+    value === "control_director_readiness" ||
     value === "operational_health_snapshot" ||
     value === "production_check" ||
     value === "retention_maintenance" ||

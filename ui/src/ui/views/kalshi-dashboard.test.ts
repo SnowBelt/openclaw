@@ -2444,6 +2444,289 @@ describe("Kalshi dashboard view", () => {
     expect(noTradeHelp?.querySelector(".kalshi-help__popover")).not.toBeNull();
   });
 
+  it("renders copy-shadow status and promotion gates", () => {
+    const container = document.createElement("div");
+    const base = createProps();
+    const snapshot = {
+      ...base.snapshot!,
+      kalshi_copy_shadow: {
+        ok: true,
+        mode: "SHADOW_ONLY",
+        status: "shadow_collecting",
+        shadow_bankroll_usd: 100,
+        target_leader: {
+          leader_name: "Foster McCoy",
+          leader_handle: "foster_verified",
+          verification_status: "verified",
+          source_status: "enabled",
+          evidence_summary: "Verified exact-fill source is available for Foster.",
+          live_order_allowed: false,
+        },
+        recommended_initial_live_order_usd: 1,
+        max_recommended_initial_live_order_usd: 5,
+        readiness_score: 42.9,
+        summary: {
+          signals_seen: 12,
+          eligible_shadow_signals: 9,
+          skipped_signals: 3,
+          resolved_signals: 4,
+          wins: 3,
+          losses: 1,
+          win_rate: 0.75,
+          net_shadow_pnl_usd: 2.35,
+          unresolved_signals: 5,
+          observed_days: 2.5,
+          exact_opt_in_source_count: 1,
+          verified_exact_opt_in_source_count: 1,
+          source_count: 2,
+          leader_lane_count: 2,
+          active_leader_lane_count: 1,
+          duplicate_signal_count: 1,
+          live_order_allowed: false,
+        },
+        source_discovery: {
+          artifact_path: "work/scripts/kalshi/kalshi_copy_shadow_source_discovery_v1.json",
+          artifact_exists: true,
+          generated_at_utc: "2026-07-01T12:00:00Z",
+          status: "blocked",
+          public_identity_verified: true,
+          authenticated_read_ok: true,
+          authenticated_read_attempted: true,
+          copyable_exact_source_verified: false,
+          blockers: ["no_verified_exact_opt_in_foster_fill_source"],
+          next_action: "Get a consented exact-fill Foster McCoy source.",
+          overall_completion_percentage: 32,
+          milestones: [
+            {
+              milestone_id: "FCS-02",
+              name: "Source Receipt Artifact",
+              completion_percentage: 100,
+              status: "complete",
+              evidence: "Receipt exists.",
+            },
+          ],
+          candidate_sources_reviewed: [
+            {
+              source_id: "kalshi_wss_public_trades",
+              candidate: "Kalshi WebSocket Public Trades",
+              status: "not_copyable_market_level_public_feed",
+              latency_fit: "immediate_after_trade_execution",
+              exact_fill: true,
+              leader_identity_available: false,
+              copyable_now: false,
+              requires_external_approval: false,
+              why_not_copyable: "Public trades omit trader identity.",
+              live_order_allowed: false,
+            },
+            {
+              source_id: "kalshi_wss_user_fills_opt_in",
+              candidate: "Foster opt-in Kalshi WebSocket User Fills",
+              status: "blocked_requires_foster_opt_in_source",
+              latency_fit: "immediate_when_the_source_account_fills",
+              exact_fill: true,
+              leader_identity_available: true,
+              copyable_now: false,
+              requires_external_approval: true,
+              why_not_copyable: "Requires Foster consent.",
+              live_order_allowed: false,
+            },
+          ],
+          live_order_allowed: false,
+        },
+        latency: {
+          p95_signal_latency_ms: 720,
+          average_decision_latency_ms: 80,
+          near_instant_target_ms: 1000,
+          live_order_allowed: false,
+        },
+        execution_quality: {
+          average_price_drift_cents: 1.2,
+          average_spread_cents: 2.1,
+          max_price_drift_cents: 2,
+          max_spread_cents: 4,
+          live_order_allowed: false,
+        },
+        risk_controls: {
+          max_shadow_order_usd: 5,
+          max_shadow_open_exposure_usd: 25,
+          market_orders_allowed: false,
+          live_order_allowed: false,
+        },
+        signal_quality: {
+          skip_reasons: {
+            duplicate_signal_id: 1,
+          },
+          duplicate_signal_count: 1,
+          live_order_allowed: false,
+        },
+        source_health: {
+          foster_relay_verifier: {
+            validator_id: "foster_relay_fixture",
+            status: "fixture_schema_passed_real_source_blocked",
+            verified: false,
+            schema_passed: true,
+            missing_fields: [],
+            invalid_fields: [],
+            unsafe_true_flags: [],
+            latency_ms: 400,
+            next_action:
+              "Provide a real Foster relay URL/token before this can verify an exact source.",
+            live_order_allowed: false,
+          },
+          caleb_public_signal_verifier: {
+            validator_id: "caleb_public_signal_fixture",
+            status: "no_fixture_sample",
+            verified: false,
+            schema_passed: false,
+            missing_fields: [],
+            invalid_fields: [],
+            risk_flags: [],
+            unsafe_true_flags: [],
+            next_action:
+              "Provide source-backed Caleb public signal URLs before collecting real paper signals.",
+            live_order_allowed: false,
+          },
+          signal_log_validator: {
+            validator_id: "copy_shadow_signal_log",
+            status: "passed",
+            verified: false,
+            schema_passed: true,
+            path: "work/scripts/kalshi/logs/copy_shadow_signals.jsonl",
+            record_count: 12,
+            accepted_record_count: 9,
+            rejected_record_count: 0,
+            duplicate_signal_ids: [],
+            rejection_reasons: {},
+            unsafe_true_flags: [],
+            live_order_allowed: false,
+          },
+          live_order_allowed: false,
+        },
+        leader_lanes: [
+          {
+            lane_id: "foster_exact_fill_shadow",
+            leader_name: "Foster McCoy",
+            leader_alias: "Foster",
+            source_id: "leader-alpha",
+            lane_type: "exact_fill_shadow",
+            copy_mode: "exact_fill_when_verified",
+            source_status: "enabled",
+            verification_status: "verified",
+            enabled: true,
+            exact_copy: true,
+            requires_exact_opt_in_source: true,
+            copyable_now: true,
+            signals_seen: 12,
+            eligible_shadow_signals: 9,
+            resolved_signals: 4,
+            net_shadow_pnl_usd: 2.35,
+            blockers: [],
+            live_order_allowed: false,
+          },
+          {
+            lane_id: "caleb_public_strategy_shadow",
+            leader_name: "Caleb Davies",
+            leader_alias: "Caleb",
+            source_id: "caleb-public-strategy",
+            lane_type: "public_strategy_shadow",
+            copy_mode: "public_strategy_not_exact_copy",
+            source_status: "disabled_pending_public_signal_intake",
+            verification_status: "public_strategy_candidate_unverified",
+            enabled: false,
+            exact_copy: false,
+            requires_exact_opt_in_source: false,
+            requires_source_url: true,
+            manipulation_risk_filter_required: true,
+            copyable_now: false,
+            signals_seen: 0,
+            eligible_shadow_signals: 0,
+            resolved_signals: 0,
+            net_shadow_pnl_usd: 0,
+            blockers: [
+              "public_signal_intake_not_configured",
+              "manipulation_risk_filter_not_verified",
+            ],
+            live_order_allowed: false,
+          },
+        ],
+        sources: [
+          {
+            source_id: "leader-alpha",
+            lane_id: "foster_exact_fill_shadow",
+            leader_name: "Foster McCoy",
+            leader_handle: "leader_alpha",
+            source_type: "exact_opt_in_fill",
+            verification_status: "verified",
+            source_status: "enabled",
+            exact_fill: true,
+            enabled: true,
+            signals_seen: 12,
+            live_order_allowed: false,
+          },
+          {
+            source_id: "caleb-public-strategy",
+            lane_id: "caleb_public_strategy_shadow",
+            leader_name: "Caleb Davies",
+            source_type: "public_strategy_signal",
+            verification_status: "public_strategy_candidate_unverified",
+            source_status: "disabled_pending_public_signal_intake",
+            exact_fill: false,
+            enabled: false,
+            signals_seen: 0,
+            live_order_allowed: false,
+          },
+        ],
+        readiness_gates: [
+          {
+            gate_id: "exact_opt_in_source",
+            label: "Exact opt-in fill source",
+            status: "passed",
+            detail: "Configured.",
+            live_order_allowed: false,
+          },
+        ],
+        next_action: "Keep collecting shadow signals.",
+        plain_english: "Copy-leader shadow mode is active.",
+        live_order_allowed: false,
+      },
+    };
+
+    render(renderKalshiDashboard(createProps({ snapshot })), container);
+
+    expect(container.textContent).toContain("Copy Shadow");
+    expect(container.textContent).toContain("Copy-Leader Paper Lanes");
+    expect(container.textContent).toContain("Source Health");
+    expect(container.textContent).toContain("Foster Relay");
+    expect(container.textContent).toContain("Caleb Public Signal");
+    expect(container.textContent).toContain("Signal Log");
+    expect(container.textContent).toContain("fixture_schema_passed_real_source_blocked");
+    expect(container.textContent).toContain("9 accepted / 12 read");
+    expect(container.textContent).toContain("Foster McCoy");
+    expect(container.textContent).toContain("Caleb Davies");
+    expect(container.textContent).toContain("not exact-copy");
+    expect(container.textContent).toContain("public_strategy_not_exact_copy");
+    expect(container.textContent).toContain("manipulation_risk_filter_not_verified");
+    expect(container.textContent).toContain("disabled_pending_public_signal_intake");
+    expect(container.textContent).toContain("Source Verification");
+    expect(container.textContent).toContain("Discovery Receipt");
+    expect(container.textContent).toContain("Read-Only Auth");
+    expect(container.textContent).toContain("no_verified_exact_opt_in_foster_fill_source");
+    expect(container.textContent).toContain("Source Candidate");
+    expect(container.textContent).toContain("Kalshi WebSocket Public Trades");
+    expect(container.textContent).toContain("Public trades omit trader identity.");
+    expect(container.textContent).toContain("Foster opt-in Kalshi WebSocket User Fills");
+    expect(container.textContent).toContain("required");
+    expect(container.textContent).toContain("Source Receipt Artifact");
+    expect(container.textContent).toContain("verified");
+    expect(container.textContent).toContain("leader_alpha");
+    expect(container.textContent).toContain("exact_opt_in_fill");
+    expect(container.textContent).toContain("Resolved Copy Signals");
+    expect(container.textContent).toContain("$2.35");
+    expect(container.textContent).toContain("720 ms");
+    expect(container.textContent).toContain("Exact opt-in fill source");
+    expect(container.textContent).toContain("duplicate_signal_id");
+  });
+
   it("calls refresh when requested", () => {
     const onRefresh = vi.fn();
     const container = document.createElement("div");
