@@ -75,6 +75,12 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function summaryChecks(summary: Record<string, unknown>): Record<string, unknown> {
+  return summary.checks && typeof summary.checks === "object" && !Array.isArray(summary.checks)
+    ? (summary.checks as Record<string, unknown>)
+    : {};
+}
+
 async function upsertProject(
   id: string,
   title: string,
@@ -352,34 +358,15 @@ async function main() {
       noSnesMutation: true,
     };
     summary.ok = Object.values(summary.checks as Record<string, boolean>).every(Boolean);
-    const output = JSON.stringify(summary, null, 2);
-    assertNoTokenLeak(output);
-    console.log(output);
-    if (!summary.ok) {
-      process.exitCode = 1;
-    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     summary.ok = false;
     summary.phase = phase;
     summary.error = message;
-    const output = JSON.stringify(
-      {
-        ok: false,
-        phase,
-        error: message,
-        actionProjectCreated,
-        setupProjectCreated,
-      },
-      null,
-      2,
-    );
-    const redactedOutput = redactUrl(output);
-    assertNoTokenLeak(redactedOutput);
-    console.error(redactedOutput);
-    throw new Error(`PCC live disposable E2E failed during ${phase}: ${message}`, {
-      cause: error,
-    });
+    summary.checks = {
+      ...summaryChecks(summary),
+      failedBeforeCleanup: true,
+    };
   } finally {
     phase = "cleanup";
     summary.phase = phase;
@@ -405,11 +392,18 @@ async function main() {
     await cleanupProject(actionProjectId, actionProjectTitle, actionProjectCreated);
     await cleanupProject(setupProjectId, setupProjectTitle, setupProjectCreated);
     summary.cleanup = cleanupResults;
-    if (cleanupResults.some((result) => result.created && !result.archived)) {
-      const output = JSON.stringify({ phase, cleanup: cleanupResults }, null, 2);
-      const redactedOutput = redactUrl(output);
-      assertNoTokenLeak(redactedOutput);
-      console.error(redactedOutput);
+    const cleanupComplete = cleanupResults.every((result) => !result.created || result.archived);
+    summary.checks = {
+      ...summaryChecks(summary),
+      cleanupComplete,
+    };
+    summary.ok = summary.ok === true && cleanupComplete;
+    const output = JSON.stringify(summary, null, 2);
+    const redactedOutput = redactUrl(output);
+    assertNoTokenLeak(redactedOutput);
+    const writer = summary.ok ? console.log : console.error;
+    writer(redactedOutput);
+    if (!summary.ok) {
       process.exitCode = 1;
     }
   }

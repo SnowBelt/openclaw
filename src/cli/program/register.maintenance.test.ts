@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     exit: vi.fn(),
   },
   runDoctorLintCli: vi.fn(),
+  runGatewayConfigDoctor: vi.fn(),
 }));
 
 const {
@@ -23,6 +24,7 @@ const {
   uninstallCommand,
   runtime,
   runDoctorLintCli,
+  runGatewayConfigDoctor,
 } = mocks;
 
 vi.mock("../../commands/doctor.js", () => ({
@@ -45,8 +47,13 @@ vi.mock("../../commands/doctor-lint.js", () => ({
   runDoctorLintCli: mocks.runDoctorLintCli,
 }));
 
+vi.mock("../../commands/doctor-gateway-config.js", () => ({
+  runGatewayConfigDoctor: mocks.runGatewayConfigDoctor,
+}));
+
 vi.mock("../../runtime.js", () => ({
   defaultRuntime: mocks.runtime,
+  writeRuntimeJson: vi.fn((runtimeArg, value) => runtimeArg.log(JSON.stringify(value))),
 }));
 
 function commandCall(mock: ReturnType<typeof vi.fn>): [typeof runtime, Record<string, unknown>] {
@@ -101,6 +108,26 @@ describe("registerMaintenanceCommands doctor action", () => {
     const [runtimeArg, options] = commandCall(doctorCommand);
     expect(runtimeArg).toBe(runtime);
     expect(options.repair).toBe(true);
+  });
+
+  it("runs narrow gateway config check without invoking full doctor", async () => {
+    runGatewayConfigDoctor.mockResolvedValue({ ok: true, mode: "check" });
+
+    await runMaintenanceCli(["doctor", "--check", "gateway-config", "--json"]);
+
+    expect(runGatewayConfigDoctor).toHaveBeenCalledWith({ mode: "check" });
+    expect(doctorCommand).not.toHaveBeenCalled();
+    expect(runtime.exit).toHaveBeenCalledWith(0);
+  });
+
+  it("runs narrow gateway config fix without invoking full doctor", async () => {
+    runGatewayConfigDoctor.mockResolvedValue({ ok: true, mode: "fix", repaired: true });
+
+    await runMaintenanceCli(["doctor", "--fix", "gateway-config", "--json"]);
+
+    expect(runGatewayConfigDoctor).toHaveBeenCalledWith({ mode: "fix" });
+    expect(doctorCommand).not.toHaveBeenCalled();
+    expect(runtime.exit).toHaveBeenCalledWith(0);
   });
 
   it("runs doctor lint mode without invoking repair doctor", async () => {

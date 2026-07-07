@@ -18,7 +18,12 @@ export function registerMaintenanceCommands(program: Command) {
     .option("--no-workspace-suggestions", "Disable workspace memory system suggestions", false)
     .option("--yes", "Accept defaults without prompting", false)
     .option("--repair", "Apply recommended repairs without prompting", false)
-    .option("--fix", "Apply recommended repairs (alias for --repair)", false)
+    .option(
+      "--fix [area]",
+      "Apply recommended repairs, or fix one area such as gateway-config",
+      false,
+    )
+    .option("--check <area>", "Run a narrow read-only doctor check such as gateway-config")
     .option("--force", "Apply aggressive repairs (overwrites custom service config)", false)
     .option("--non-interactive", "Run without prompts (safe migrations only)", false)
     .option("--generate-gateway-token", "Generate and configure a gateway token", false)
@@ -73,6 +78,26 @@ export function registerMaintenanceCommands(program: Command) {
         );
         return;
       }
+      const narrowGatewayConfigMode = resolveNarrowGatewayConfigDoctorMode(opts);
+      if (narrowGatewayConfigMode) {
+        await runCommandWithRuntime(defaultRuntime, async () => {
+          const { runGatewayConfigDoctor } =
+            await import("../../commands/doctor-gateway-config.js");
+          const report = await runGatewayConfigDoctor({ mode: narrowGatewayConfigMode });
+          if (opts.json === true) {
+            const { writeRuntimeJson } = await import("../../runtime.js");
+            writeRuntimeJson(defaultRuntime, report);
+          } else {
+            defaultRuntime.log(
+              report.ok
+                ? `Gateway config ${narrowGatewayConfigMode === "fix" && report.repaired ? "repaired" : "valid"}.`
+                : `Gateway config invalid: ${report.issues.join("; ")}`,
+            );
+          }
+          defaultRuntime.exit(report.ok ? 0 : 1);
+        });
+        return;
+      }
       if (hasLintOnlyDoctorOptions(opts)) {
         defaultRuntime.error(
           "doctor lint options require --lint. Use `openclaw doctor --lint ...`.",
@@ -85,7 +110,7 @@ export function registerMaintenanceCommands(program: Command) {
         await doctorCommand(defaultRuntime, {
           workspaceSuggestions: opts.workspaceSuggestions,
           yes: Boolean(opts.yes),
-          repair: Boolean(opts.repair) || Boolean(opts.fix),
+          repair: Boolean(opts.repair) || opts.fix === true,
           force: Boolean(opts.force),
           nonInteractive: Boolean(opts.nonInteractive),
           generateGatewayToken: Boolean(opts.generateGatewayToken),
@@ -173,6 +198,19 @@ export function registerMaintenanceCommands(program: Command) {
         });
       });
     });
+}
+
+function resolveNarrowGatewayConfigDoctorMode(opts: {
+  readonly check?: unknown;
+  readonly fix?: unknown;
+}): "check" | "fix" | null {
+  if (opts.check === "gateway-config") {
+    return "check";
+  }
+  if (opts.fix === "gateway-config") {
+    return "fix";
+  }
+  return null;
 }
 
 function hasLintOnlyDoctorOptions(opts: {

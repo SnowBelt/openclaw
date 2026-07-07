@@ -1,11 +1,22 @@
 import fs from "node:fs";
 
+type RuntimeIdentity = {
+  runtimeRoot: string;
+  layout: "source-copy" | "package-snapshot" | "unknown";
+  markerSha: string | null;
+  snapshotSha: string | null;
+  runtimeSha: string | null;
+  entrypoint: string | null;
+  releaseId: string | null;
+};
+
 type ProofOptions = {
   authUrl?: string;
   allowLocalTokenResolution: boolean;
   screenshotPath: string;
   projectTitle: string;
   requireProductionCurrent: boolean;
+  expectedRuntimeSha?: string;
   profile:
     | "production-current"
     | "usability-reliability"
@@ -22,6 +33,65 @@ function redactUrl(value: string): string {
 function assertNoTokenLeak(value: string) {
   if (/token=[A-Za-z0-9._~+/=-]{8,}/i.test(value)) {
     throw new Error("proof output contains an unredacted token");
+  }
+}
+
+function readTextIfPresent(path: string): string | null {
+  try {
+    return fs.readFileSync(path, "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+function resolveRuntimeIdentity(runtimeRoot = process.cwd()): RuntimeIdentity {
+  const markerSha = readTextIfPresent(`${runtimeRoot}/.openclaw-production-sha`);
+  const snapshotRaw = readTextIfPresent(`${runtimeRoot}/snapshot.json`);
+  let snapshotSha: string | null = null;
+  let entrypoint: string | null = null;
+  let releaseId: string | null = null;
+  if (snapshotRaw) {
+    try {
+      const snapshot = JSON.parse(snapshotRaw) as {
+        releaseId?: unknown;
+        source?: { buildStamp?: { head?: unknown }; runtimePostbuildStamp?: { head?: unknown } };
+        paths?: { entrypoint?: unknown };
+      };
+      const buildHead =
+        snapshot.source?.runtimePostbuildStamp?.head ?? snapshot.source?.buildStamp?.head;
+      snapshotSha = typeof buildHead === "string" && buildHead.trim() ? buildHead.trim() : null;
+      entrypoint =
+        typeof snapshot.paths?.entrypoint === "string" ? snapshot.paths.entrypoint : null;
+      releaseId = typeof snapshot.releaseId === "string" ? snapshot.releaseId : null;
+    } catch {
+      snapshotSha = null;
+    }
+  }
+  return {
+    runtimeRoot,
+    layout: markerSha ? "source-copy" : snapshotSha ? "package-snapshot" : "unknown",
+    markerSha,
+    snapshotSha,
+    runtimeSha: markerSha ?? snapshotSha,
+    entrypoint,
+    releaseId,
+  };
+}
+
+function assertRuntimeIdentity(options: ProofOptions, identity: RuntimeIdentity): void {
+  if (!options.requireProductionCurrent) {
+    return;
+  }
+  if (!identity.runtimeSha) {
+    throw new Error(
+      `production-current proof requires runtime identity, but ${identity.runtimeRoot} has neither .openclaw-production-sha nor snapshot.json source stamp`,
+    );
+  }
+  const expected = options.expectedRuntimeSha?.trim();
+  if (expected && identity.runtimeSha !== expected) {
+    throw new Error(
+      `production-current proof runtime SHA mismatch: expected ${expected}, got ${identity.runtimeSha}`,
+    );
   }
 }
 
@@ -85,6 +155,8 @@ function resolveProofUrl(options: ProofOptions): { url: string; source: string }
 
 async function runBrowserProof(options: ProofOptions) {
   const { chromium } = await import("playwright");
+  const runtimeIdentity = resolveRuntimeIdentity();
+  assertRuntimeIdentity(options, runtimeIdentity);
   const resolved = resolveProofUrl(options);
   console.log(`DASH_URL_OK=${redactUrl(resolved.url)}`);
   const browser = await chromium.launch({
@@ -337,6 +409,7 @@ async function runBrowserProof(options: ProofOptions) {
       .isVisible()
       .catch(() => false),
     clickedOpen: true,
+    runtimeIdentity,
     selectors: {
       pccShell: await page.locator(".pcc-shell").count(),
       projectCards: await page.locator(".pcc-project-card").count(),
@@ -404,6 +477,11 @@ async function runBrowserProof(options: ProofOptions) {
         options.profile !== "focus-live-interaction" ||
         (await page.locator(".pcc-top-proof-drawer:visible").count()) === 0 ||
         has("Current proof:"),
+      runtimeIdentity:
+        !options.requireProductionCurrent ||
+        (Boolean(runtimeIdentity.runtimeSha) &&
+          (!options.expectedRuntimeSha ||
+            runtimeIdentity.runtimeSha === options.expectedRuntimeSha)),
     },
     sample: normalizedText.slice(0, 2_000),
   };
@@ -469,6 +547,10 @@ function runSelfTest() {
   if (!failed) {
     throw new Error("missing-auth self-test failed");
   }
+  const identity = resolveRuntimeIdentity(process.cwd());
+  if (identity.layout !== "unknown" && !identity.runtimeSha) {
+    throw new Error("runtime identity self-test failed");
+  }
   console.log("PCC production runtime auth proof self-test passed");
 }
 
@@ -480,6 +562,7 @@ const options: ProofOptions = {
     "/tmp/openclaw-dashboard-pcc-production-governor-auth-proof-final.png",
   projectTitle: process.env.OPENCLAW_PCC_PROOF_PROJECT_TITLE ?? "Project Command Center",
   requireProductionCurrent: process.env.OPENCLAW_PCC_REQUIRE_PRODUCTION_CURRENT === "1",
+  expectedRuntimeSha: process.env.OPENCLAW_PCC_EXPECTED_RUNTIME_SHA,
   profile:
     process.env.OPENCLAW_PCC_PROOF_PROFILE === "usability-reliability"
       ? "usability-reliability"
