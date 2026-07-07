@@ -27,6 +27,12 @@ const GATEWAY_WEBCHAT_RULE: LegacyConfigRule = {
   message: 'gateway.webchat is retired. Run "openclaw doctor --fix".',
 };
 
+const GATEWAY_TAILSCALE_REQUIRED_RULE: LegacyConfigRule = {
+  path: ["gateway", "tailscale", "required"],
+  message: 'gateway.tailscale.required is retired. Run "openclaw doctor --fix" to remove it.',
+  requireSourceLiteral: true,
+};
+
 function isLegacyGatewayBindHostAlias(value: unknown): boolean {
   return normalizeLegacyGatewayBindHostAlias(value) !== null;
 }
@@ -86,6 +92,31 @@ export const LEGACY_CONFIG_MIGRATIONS_RUNTIME_GATEWAY: LegacyConfigMigrationSpec
         delete raw.gateway;
       }
       changes.push("Removed retired gateway.webchat config.");
+    },
+  }),
+  defineLegacyConfigMigration({
+    id: "gateway.tailscale.required-remove",
+    describe: "Remove retired gateway.tailscale.required config",
+    legacyRules: [GATEWAY_TAILSCALE_REQUIRED_RULE],
+    apply: (raw, changes) => {
+      const gateway = getRecord(raw.gateway);
+      const tailscale = getRecord(gateway?.tailscale);
+      if (!gateway || !tailscale || !Object.hasOwn(tailscale, "required")) {
+        return;
+      }
+
+      delete tailscale.required;
+      if (Object.keys(tailscale).length > 0) {
+        gateway.tailscale = tailscale;
+      } else {
+        delete gateway.tailscale;
+      }
+      if (Object.keys(gateway).length > 0) {
+        raw.gateway = gateway;
+      } else {
+        delete raw.gateway;
+      }
+      changes.push("Removed retired gateway.tailscale.required config.");
     },
   }),
   defineLegacyConfigMigration({

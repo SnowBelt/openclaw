@@ -171,9 +171,32 @@ function hasOwnKey(value: unknown, key: string): boolean {
   );
 }
 
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function hasUnknownGatewayTailscaleKeys(parsed: unknown): boolean {
+  const root = recordValue(parsed);
+  const gateway = recordValue(root?.gateway);
+  const tailscale = recordValue(gateway?.tailscale);
+  if (!tailscale) {
+    return false;
+  }
+  const allowedKeys = new Set(["mode", "resetOnExit", "serviceName", "preserveFunnel"]);
+  return Object.keys(tailscale).some((key) => !allowedKeys.has(key));
+}
+
 function needsFullStatusConfigRead(raw: string, parsed: unknown): boolean {
-  // Fast reads skip config expansion; includes/env placeholders require full config IO.
-  return raw.includes("$include") || raw.includes("${") || hasOwnKey(parsed, "env");
+  // Fast reads skip config expansion and schema validation; dynamic or unknown
+  // Gateway shapes need full config IO so status and deep status agree.
+  return (
+    raw.includes("$include") ||
+    raw.includes("${") ||
+    hasOwnKey(parsed, "env") ||
+    hasUnknownGatewayTailscaleKeys(parsed)
+  );
 }
 
 async function readFastStatusConfig(configPath: string): Promise<StatusConfigRead | null> {

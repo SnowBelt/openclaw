@@ -101,6 +101,10 @@ const createConfigIOCalls = vi.fn((configPath: string, pluginValidation?: "full"
 }));
 const readConfigFileSnapshotCalls = vi.fn((configPath: string) => configPath);
 const loadConfigCalls = vi.fn((configPath: string) => configPath);
+let daemonConfigValid = true;
+let cliConfigValid = true;
+let daemonConfigIssues: Array<{ path: string; message: string }> = [];
+let cliConfigIssues: Array<{ path: string; message: string }> = [];
 let daemonConfigWarnings: Array<{ path: string; message: string }> = [];
 let cliConfigWarnings: Array<{ path: string; message: string }> = [];
 let daemonLoadedConfig: Record<string, unknown> = {
@@ -126,6 +130,8 @@ vi.mock("../../config/config.js", () => ({
   }) => {
     const isDaemon = configPath.includes("/openclaw-daemon/");
     const runtimeConfig = isDaemon ? daemonLoadedConfig : cliLoadedConfig;
+    const valid = isDaemon ? daemonConfigValid : cliConfigValid;
+    const issues = isDaemon ? daemonConfigIssues : cliConfigIssues;
     const warnings = isDaemon ? daemonConfigWarnings : cliConfigWarnings;
     createConfigIOCalls(configPath, pluginValidation);
     return {
@@ -134,10 +140,10 @@ vi.mock("../../config/config.js", () => ({
         return {
           path: configPath,
           exists: true,
-          valid: true,
-          issues: [],
+          valid,
+          issues,
           warnings: pluginValidation === "full" ? warnings : [],
-          runtimeConfig,
+          runtimeConfig: valid ? runtimeConfig : undefined,
           config: runtimeConfig,
         };
       },
@@ -271,6 +277,10 @@ describe("gatherDaemonStatus", () => {
     readGatewayRestartHandoffSync.mockClear();
     readConfigFileSnapshotCalls.mockClear();
     loadConfigCalls.mockClear();
+    daemonConfigValid = true;
+    cliConfigValid = true;
+    daemonConfigIssues = [];
+    cliConfigIssues = [];
     daemonConfigWarnings = [];
     cliConfigWarnings = [];
     daemonLoadedConfig = {
@@ -691,6 +701,50 @@ describe("gatherDaemonStatus", () => {
       expect(status.config?.daemon).toBe(status.config?.cli);
       expect(status.gateway?.bindMode).toBe("custom");
       expect(status.gateway?.customBindHost).toBe("10.0.0.5");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to full schema validation when fast status sees retired Tailscale keys", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-status-config-"));
+    const configPath = path.join(tmp, "openclaw.json");
+    await fs.writeFile(
+      configPath,
+      JSON.stringify({
+        gateway: {
+          tailscale: {
+            mode: "off",
+            required: false,
+          },
+        },
+      }),
+    );
+    setTestEnvValue("OPENCLAW_STATE_DIR", tmp);
+    setTestEnvValue("OPENCLAW_CONFIG_PATH", configPath);
+    serviceReadCommand.mockResolvedValueOnce({
+      programArguments: ["/bin/node", "cli", "gateway", "--port", "19001"],
+    });
+    cliConfigValid = false;
+    cliConfigIssues = [
+      {
+        path: "gateway.tailscale",
+        message: 'Unrecognized key: "required"',
+      },
+    ];
+
+    try {
+      const status = await gatherDaemonStatus({
+        rpc: {},
+        probe: false,
+        deep: false,
+      });
+
+      expect(createConfigIOCalls).toHaveBeenCalledWith(configPath, "skip");
+      expect(readConfigFileSnapshotCalls).toHaveBeenCalledWith(configPath);
+      expect(status.config?.cli.valid).toBe(false);
+      expect(status.config?.cli.issues).toEqual(cliConfigIssues);
+      expect(status.config?.daemon).toBe(status.config?.cli);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

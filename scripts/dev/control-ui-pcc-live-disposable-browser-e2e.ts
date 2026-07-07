@@ -19,6 +19,13 @@ type ProofConfig = {
   };
 };
 
+type CleanupResult = {
+  id: string;
+  created: boolean;
+  archived: boolean;
+  error?: string;
+};
+
 const TOKEN_PATTERN = /([#?&]token=)[^&/#]+/gi;
 const CONFIG_PATH =
   process.env.OPENCLAW_CONFIG_PATH ?? "/Users/openclaw/.openclaw/openclaw.director.json";
@@ -123,11 +130,6 @@ async function archiveProject(id: string, title: string): Promise<void> {
         pccArchivedByDisposableProofAt: nowIso(),
       },
     },
-  }).catch((error: unknown) => {
-    console.error(
-      `cleanup failed for ${id}:`,
-      error instanceof Error ? error.message : String(error),
-    );
   });
 }
 
@@ -146,14 +148,21 @@ async function main() {
     "/tmp/openclaw-dashboard-pcc-live-disposable-e2e.png";
 
   let browser: import("playwright").Browser | undefined;
+  let phase = "initializing";
+  let actionProjectCreated = false;
+  let setupProjectCreated = false;
   const summary: Record<string, unknown> = {
     actionProjectId,
     setupProjectId,
+    phase,
     screenshotPath,
     checks: {},
+    cleanup: [],
   };
 
   try {
+    phase = "creating disposable action project";
+    summary.phase = phase;
     await upsertProject(actionProjectId, actionProjectTitle, {
       pccSetupScore: { score: 100, runnable: true },
       pccQualityGate: { status: "passing" },
@@ -170,6 +179,9 @@ async function main() {
         },
       },
     });
+    actionProjectCreated = true;
+    phase = "creating disposable action milestones";
+    summary.phase = phase;
     await upsertMilestone(
       actionProjectId,
       `${actionProjectId}-step-1`,
@@ -182,10 +194,15 @@ async function main() {
       "Second live reorder step",
       20,
     );
+    phase = "creating disposable setup project";
+    summary.phase = phase;
     await upsertProject(setupProjectId, setupProjectTitle, {
       pccIntake: { approved: false, answers: {} },
     });
+    setupProjectCreated = true;
 
+    phase = "opening PCC browser";
+    summary.phase = phase;
     const { chromium } = await import("playwright");
     const url = resolveDashboardUrl();
     console.log(`LIVE_E2E_URL=${redactUrl(url)}`);
@@ -199,6 +216,8 @@ async function main() {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
 
+    phase = "selecting disposable action project";
+    summary.phase = phase;
     const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
     if (await projectWorkMode.isVisible().catch(() => false)) {
       await projectWorkMode.click({ force: true });
@@ -220,6 +239,8 @@ async function main() {
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
 
+    phase = "testing pointer drag reorder";
+    summary.phase = phase;
     const reorderToggle = page.locator("[data-pcc-reorder-mode-toggle]").first();
     await reorderToggle.click({ force: true });
     await page
@@ -243,6 +264,8 @@ async function main() {
       (a, b) => (a.order ?? 0) - (b.order ?? 0),
     );
 
+    phase = "testing keyboard reorder";
+    summary.phase = phase;
     await page
       .locator(
         `[data-pcc-milestone-id="${actionProjectId}-step-2"] [data-pcc-reorder="milestone-down"]`,
@@ -258,6 +281,8 @@ async function main() {
       (a, b) => (a.order ?? 0) - (b.order ?? 0),
     );
 
+    phase = "testing milestone action menu";
+    summary.phase = phase;
     const menuTrigger = page
       .locator(`[data-pcc-milestone-id="${actionProjectId}-step-1"] [data-pcc-action-menu-trigger]`)
       .first();
@@ -277,6 +302,8 @@ async function main() {
       await page.waitForTimeout(1_000);
     }
 
+    phase = "testing setup repair preview";
+    summary.phase = phase;
     const setupCard = page
       .locator(`[data-pcc-project-card][data-pcc-project-id="${setupProjectId}"]`)
       .first();
@@ -306,6 +333,8 @@ async function main() {
       .waitFor({ state: "visible", timeout: 45_000 });
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
+    phase = "summarizing live disposable proof";
+    summary.phase = phase;
     summary.checks = {
       pccShell: (await page.locator(".pcc-shell").count()) > 0,
       projectWorkModeVisible: await projectWorkMode.isVisible().catch(() => false),
@@ -329,10 +358,60 @@ async function main() {
     if (!summary.ok) {
       process.exitCode = 1;
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    summary.ok = false;
+    summary.phase = phase;
+    summary.error = message;
+    const output = JSON.stringify(
+      {
+        ok: false,
+        phase,
+        error: message,
+        actionProjectCreated,
+        setupProjectCreated,
+      },
+      null,
+      2,
+    );
+    const redactedOutput = redactUrl(output);
+    assertNoTokenLeak(redactedOutput);
+    console.error(redactedOutput);
+    throw new Error(`PCC live disposable E2E failed during ${phase}: ${message}`, {
+      cause: error,
+    });
   } finally {
+    phase = "cleanup";
+    summary.phase = phase;
     await browser?.close().catch(() => undefined);
-    await archiveProject(actionProjectId, actionProjectTitle);
-    await archiveProject(setupProjectId, setupProjectTitle);
+    const cleanupResults: CleanupResult[] = [];
+    const cleanupProject = async (id: string, title: string, created: boolean) => {
+      if (!created) {
+        cleanupResults.push({ id, created, archived: false });
+        return;
+      }
+      try {
+        await archiveProject(id, title);
+        cleanupResults.push({ id, created, archived: true });
+      } catch (error) {
+        cleanupResults.push({
+          id,
+          created,
+          archived: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+    await cleanupProject(actionProjectId, actionProjectTitle, actionProjectCreated);
+    await cleanupProject(setupProjectId, setupProjectTitle, setupProjectCreated);
+    summary.cleanup = cleanupResults;
+    if (cleanupResults.some((result) => result.created && !result.archived)) {
+      const output = JSON.stringify({ phase, cleanup: cleanupResults }, null, 2);
+      const redactedOutput = redactUrl(output);
+      assertNoTokenLeak(redactedOutput);
+      console.error(redactedOutput);
+      process.exitCode = 1;
+    }
   }
 }
 
@@ -350,7 +429,9 @@ if (process.env.OPENCLAW_PCC_LIVE_E2E_SELF_TEST === "1") {
 } else {
   void main().catch((error: unknown) => {
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-    console.error(redactUrl(message));
+    const output = redactUrl(message);
+    assertNoTokenLeak(output);
+    console.error(output);
     process.exit(1);
   });
 }
