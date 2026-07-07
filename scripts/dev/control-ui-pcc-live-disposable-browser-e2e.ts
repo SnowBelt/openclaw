@@ -143,12 +143,38 @@ async function getProject(projectId: string): Promise<ProjectGetResult> {
   return await gateway<ProjectGetResult>("pcc.projects.get", { projectId });
 }
 
+async function clickProjectButton(
+  page: import("playwright").Page | import("playwright").Locator,
+  selector: string,
+  accessibleName: string | RegExp,
+): Promise<void> {
+  const stable = page.locator(selector).first();
+  if (await stable.isVisible().catch(() => false)) {
+    await stable.click({ force: true });
+    return;
+  }
+  await page.getByRole("button", { name: accessibleName }).first().click({ force: true });
+}
+
+async function fillProjectTitle(
+  editor: import("playwright").Locator,
+  value: string,
+): Promise<void> {
+  const stable = editor.locator("[data-pcc-project-title]").first();
+  if (await stable.isVisible().catch(() => false)) {
+    await stable.fill(value);
+    return;
+  }
+  await editor.getByLabel("Title").first().fill(value);
+}
+
 async function main() {
   const suffix = randomUUID().slice(0, 8);
   const actionProjectId = `pcc-disposable-live-actions-${suffix}`;
   const setupProjectId = `pcc-disposable-live-setup-${suffix}`;
   const actionProjectTitle = `PCC Disposable Live Actions ${suffix}`;
   const setupProjectTitle = `PCC Disposable Live Setup ${suffix}`;
+  let currentActionProjectTitle = actionProjectTitle;
   const screenshotPath =
     process.env.OPENCLAW_PCC_LIVE_E2E_SCREENSHOT ??
     "/tmp/openclaw-dashboard-pcc-live-disposable-e2e.png";
@@ -222,6 +248,24 @@ async function main() {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
 
+    phase = "testing new project cancel";
+    summary.phase = phase;
+    await clickProjectButton(page, "[data-pcc-new-project]", /^New project$/i);
+    await page.locator('[data-pcc-editor="project"]').first().waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+    await page.locator("[data-pcc-project-cancel]").first().click({ force: true });
+    await page.locator('[data-pcc-editor="project"]').first().waitFor({
+      state: "hidden",
+      timeout: 15_000,
+    });
+    const newProjectCancelWorked =
+      (await page
+        .locator('[data-pcc-editor="project"]')
+        .count()
+        .catch(() => 0)) === 0;
+
     phase = "selecting disposable action project";
     summary.phase = phase;
     const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
@@ -244,6 +288,83 @@ async function main() {
       .locator(`[data-pcc-detail-project-id="${actionProjectId}"]`)
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
+
+    phase = "testing project edit save and cancel";
+    summary.phase = phase;
+    const editedTitle = `${actionProjectTitle} Edited`;
+    const cancelledTitle = `${actionProjectTitle} Cancelled`;
+    await clickProjectButton(page, "[data-pcc-edit-project]", /^Edit project$/i);
+    const projectEditor = page.locator('[data-pcc-editor="project"]').first();
+    await projectEditor.waitFor({ state: "visible", timeout: 15_000 });
+    await fillProjectTitle(projectEditor, editedTitle);
+    await projectEditor.locator('button[type="submit"]').click({ force: true });
+    await page.locator('[data-pcc-editor="project"]').first().waitFor({
+      state: "hidden",
+      timeout: 30_000,
+    });
+    currentActionProjectTitle = editedTitle;
+    const afterEditSave = await getProject(actionProjectId);
+    const editSavePersisted = afterEditSave.project.title === editedTitle;
+
+    await clickProjectButton(page, "[data-pcc-edit-project]", /^Edit project$/i);
+    await projectEditor.waitFor({ state: "visible", timeout: 15_000 });
+    await fillProjectTitle(projectEditor, cancelledTitle);
+    await clickProjectButton(page, "[data-pcc-project-cancel]", /^Cancel$/i);
+    await page.locator('[data-pcc-editor="project"]').first().waitFor({
+      state: "hidden",
+      timeout: 15_000,
+    });
+    const afterEditCancel = await getProject(actionProjectId);
+    const editCancelDiscarded = afterEditCancel.project.title === editedTitle;
+
+    phase = "testing autopilot controls";
+    summary.phase = phase;
+    const autopilotMode = page.locator("[data-pcc-autopilot-mode-picker]").first();
+    await autopilotMode.waitFor({ state: "visible", timeout: 15_000 });
+    await autopilotMode.selectOption("bug_hunt");
+    await page
+      .getByText("Autopilot mode set to Bug Hunt", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-generate-prompts]").first().click({ force: true });
+    await page
+      .getByText("Autopilot prompts generated", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-start]").first().click({ force: true });
+    await page
+      .getByText("Autopilot safe loop ran", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-pause]").first().click({ force: true });
+    await page
+      .getByText("Autopilot pause saved", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-resume]").first().click({ force: true });
+    await page
+      .getByText("Autopilot resume saved", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-stop]").first().click({ force: true });
+    await page
+      .getByText("Autopilot stop saved", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-block]").first().click({ force: true });
+    await page
+      .getByText("Autopilot block saved", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const afterAutopilot = await getProject(actionProjectId);
+    const autopilotMetadata = afterAutopilot.project.metadata as
+      | { pccAutopilot?: { status?: string; mode?: string; runHistory?: unknown[] } }
+      | undefined;
+    const autopilotControlsWorked =
+      autopilotMetadata?.pccAutopilot?.status === "blocked" &&
+      autopilotMetadata.pccAutopilot.mode === "bug_hunt" &&
+      Array.isArray(autopilotMetadata.pccAutopilot.runHistory) &&
+      autopilotMetadata.pccAutopilot.runHistory.length > 0;
 
     phase = "testing pointer drag reorder";
     summary.phase = phase;
@@ -350,6 +471,10 @@ async function main() {
         sortedAfterPointerDrag[0]?.id === `${actionProjectId}-step-2` &&
         sortedAfterMove[0]?.id === `${actionProjectId}-step-1`,
       actionMenuWorked: true,
+      newProjectCancelWorked,
+      editSavePersisted,
+      editCancelDiscarded,
+      autopilotControlsWorked,
       setupRepairPreviewVisible: await page
         .getByText("AI Autofill Preview", { exact: false })
         .first()
@@ -389,7 +514,7 @@ async function main() {
         });
       }
     };
-    await cleanupProject(actionProjectId, actionProjectTitle, actionProjectCreated);
+    await cleanupProject(actionProjectId, currentActionProjectTitle, actionProjectCreated);
     await cleanupProject(setupProjectId, setupProjectTitle, setupProjectCreated);
     summary.cleanup = cleanupResults;
     const cleanupComplete = cleanupResults.every((result) => !result.created || result.archived);

@@ -922,7 +922,7 @@ function renderViewModeSwitcher(props: PccDashboardProps) {
       ([value, label, title]) => html`<button
         class="pcc-view-mode__option ${mode === value ? "is-active" : ""}"
         type="button"
-        title=${title}
+        aria-label=${`${label}: ${title}`}
         aria-pressed=${mode === value}
         data-pcc-view-mode-option=${value}
         @click=${() => props.onSetViewMode?.(value)}
@@ -937,6 +937,12 @@ function renderViewModeSwitcher(props: PccDashboardProps) {
 function scrollPccDetailIntoView(): void {
   globalThis.document
     ?.querySelector("[data-pcc-detail], [data-pcc-project-card]")
+    ?.scrollIntoView?.({ block: "nearest" });
+}
+
+function scrollPccAutopilotIntoView(): void {
+  globalThis.document
+    ?.querySelector("[data-pcc-autopilot-project-loop]")
     ?.scrollIntoView?.({ block: "nearest" });
 }
 
@@ -3340,6 +3346,19 @@ function renderProjectSearch(
   const hasQuery = query.trim().length > 0;
   const label = projectFilterLabel(selectedFilter);
   return html`<section class="pcc-project-search" data-pcc-project-search>
+    <div class="pcc-project-search__scope" data-pcc-project-search-scope>
+      <span>Searching: ${label}</span>
+      ${selectedFilter !== "all"
+        ? html`<button
+            class="btn btn--subtle"
+            type="button"
+            data-pcc-search-all
+            @click=${() => props.onSetProjectFilter?.("all")}
+          >
+            Search all
+          </button>`
+        : nothing}
+    </div>
     <label>
       <span>Search ${label} projects</span>
       <input
@@ -3816,11 +3835,8 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
       activeWorkspaceLocks: [],
     },
   );
-  return html`<section
-    class="pcc-portfolio-console"
-    data-pcc-portfolio-console
-    aria-label="Multi-project work console"
-  >
+  const hasRunnableWork = schedule.ready.length > 0;
+  const body = html`
     <div class="pcc-section-heading">
       <div>
         <h4>Multi-project work console</h4>
@@ -3885,6 +3901,22 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
           : html`<p>No resource conflicts.</p>`}
       </article>
     </div>
+  `;
+  return html`<section
+    class="pcc-portfolio-console"
+    data-pcc-portfolio-console
+    data-pcc-portfolio-console-ready=${hasRunnableWork ? "true" : "false"}
+    aria-label="Multi-project work console"
+  >
+    ${hasRunnableWork
+      ? body
+      : html`<details>
+          <summary>
+            <span>Multi-project work console</span>
+            <strong>No ready portfolio work</strong>
+          </summary>
+          ${body}
+        </details>`}
   </section>`;
 }
 
@@ -4784,6 +4816,14 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const percent = clampPercent(detail.summary.percentComplete);
   const current = currentMilestoneForDetail(detail);
   const next = nextMilestoneForDetail(detail);
+  const autopilot = getPccAutopilotState({
+    project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions,
+    evidence: detail.evidence,
+    decisions: detail.decisions ?? [],
+  });
   const setupEvaluation = setupEvaluationForDetail(detail);
   const settings = getPccWorkLoopSettings(project);
   const worker = current ? itemWorkerLabel(current) : "None";
@@ -4876,6 +4916,16 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         milestones complete</span
       >
     </div>
+    <section class="pcc-autopilot-chip" data-pcc-autopilot-hero-chip>
+      <div>
+        <span>Autopilot</span>
+        <strong>${autopilotStatusLabel(autopilot.status)}</strong>
+        <em>${autopilot.modeTitle}</em>
+      </div>
+      <button class="btn btn--subtle" type="button" @click=${scrollPccAutopilotIntoView}>
+        Open Autopilot
+      </button>
+    </section>
     <dl class="pcc-project-snapshot__facts">
       ${renderTruthFact("Status", formatStatus(project.status))}
       ${renderTruthFact("Health", detail.summary.health ?? formatStatus(project.status))}
@@ -4914,6 +4964,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       <button
         class="btn btn--subtle"
         type="button"
+        data-pcc-edit-project
         @click=${() => props.onOpenProjectEditor(project)}
       >
         Edit project
@@ -6135,6 +6186,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           Title
           <input
             required
+            data-pcc-project-title
             .value=${form.title}
             @input=${(event: Event) =>
               props.onProjectFormChange({ title: (event.target as HTMLInputElement).value })}
@@ -6165,6 +6217,7 @@ function renderProjectEditor(props: PccDashboardProps) {
       <label>
         Goal
         <textarea
+          data-pcc-project-goal
           .value=${form.goal}
           @input=${(event: Event) =>
             props.onProjectFormChange({ goal: (event.target as HTMLTextAreaElement).value })}
@@ -6625,16 +6678,26 @@ function renderSelectedFilteredProjectNotice(
     <div>
       <span>Selected project</span>
       <strong>${summary.title}</strong>
-      <p>This project is open on the right, but it is hidden by the current project filter.</p>
+      <p>This project is open below, but hidden by the current project filter.</p>
     </div>
-    <button
-      class="btn btn--subtle"
-      type="button"
-      data-pcc-show-selected-in-all
-      @click=${() => props.onSetProjectFilter?.("all")}
-    >
-      Show in All
-    </button>
+    <div class="pcc-selected-filtered__actions">
+      <button
+        class="btn"
+        type="button"
+        data-pcc-show-selected-in-all
+        @click=${() => props.onSetProjectFilter?.("all")}
+      >
+        Show in All
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-open-selected-project
+        @click=${() => props.onSelectProject(detail.project.id)}
+      >
+        Keep open
+      </button>
+    </div>
   </article>`;
 }
 
@@ -6668,7 +6731,12 @@ export function renderPccDashboard(props: PccDashboardProps) {
         <div class="pcc-hero__actions">
           <span class="pcc-updated">${formatUpdatedAt(props.updatedAt)}</span>
           ${renderViewModeSwitcher(props)}
-          <button class="btn" type="button" @click=${() => props.onOpenProjectEditor()}>
+          <button
+            class="btn"
+            type="button"
+            data-pcc-new-project
+            @click=${() => props.onOpenProjectEditor()}
+          >
             New project
           </button>
           <button
@@ -6690,31 +6758,17 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)} ${renderTodayView(props)}
-      ${mode === "simple"
-        ? nothing
-        : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
-            <summary>Needs You list</summary>
-            ${renderNeedsAttentionNow(props)}
-          </details>`}
-      ${renderProjectFocusBar(
-        props,
-        allProjects,
-        projects.length,
-        filteredByTab.length,
-        selectedFilter,
-      )}
-      ${mode === "simple"
-        ? nothing
-        : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
-            <summary>Needs You details</summary>
-            ${renderImpactAttentionInbox(props)}
-          </details>`}
-      ${renderProductionTruthDrawer(props)}
-      ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
+      ${renderSelectedFilteredProjectNotice(props, projects, allProjects)}
 
       <div class="pcc-layout">
         <section class="pcc-projects" aria-label="Projects">
-          ${renderSelectedFilteredProjectNotice(props, projects, allProjects)}
+          ${renderProjectFocusBar(
+            props,
+            allProjects,
+            projects.length,
+            filteredByTab.length,
+            selectedFilter,
+          )}
           ${props.loading && projects.length === 0
             ? renderPccLoadingState()
             : !props.loading && projects.length === 0
@@ -6727,9 +6781,23 @@ export function renderPccDashboard(props: PccDashboardProps) {
                   ${projects.map((project) => renderProjectCard(project, props))}
                 </section>`}
         </section>
-        ${renderProjectDetail(props)}
+        <section class="pcc-workspace" data-pcc-selected-project-workspace>
+          ${renderProjectDetail(props)} ${renderPortfolioWorkConsole(props)}
+        </section>
       </div>
-      ${renderRecentActivityFeed(props)}
+      ${mode === "simple"
+        ? nothing
+        : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
+            <summary>Needs You list</summary>
+            ${renderNeedsAttentionNow(props)}
+          </details>`}
+      ${mode === "simple"
+        ? nothing
+        : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
+            <summary>Needs You details</summary>
+            ${renderImpactAttentionInbox(props)}
+          </details>`}
+      ${renderProductionTruthDrawer(props)} ${renderRecentActivityFeed(props)}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? renderProjectEditor(props)
         : nothing}
