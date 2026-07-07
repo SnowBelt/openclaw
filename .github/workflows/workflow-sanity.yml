@@ -2010,9 +2010,14 @@ jobs:
         run: pnpm check:workflows
 
       - name: Run scoped changed gate
+        timeout-minutes: 30
         env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
           OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed -- packages/gateway-protocol/src/schema/pcc.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-focus-live-interaction-closure-smoke.ts scripts/dev/control-ui-pcc-final-functionality-closure-smoke.ts scripts/dev/control-ui-pcc-live-disposable-browser-e2e.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts src/pcc/production-truth.ts src/pcc/production-truth.test.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
