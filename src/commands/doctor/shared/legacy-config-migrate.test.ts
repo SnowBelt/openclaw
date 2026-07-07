@@ -1300,6 +1300,22 @@ describe("legacy WebChat channel config migrate", () => {
     expect(res.changes).toStrictEqual(["Removed retired gateway.tailscale.required config."]);
   });
 
+  it("removes empty gateway Tailscale config even without retired keys", () => {
+    const raw = {
+      gateway: {
+        bind: "loopback",
+        tailscale: {},
+      },
+    };
+
+    expect(findLegacyConfigIssues(raw).map((issue) => issue.path)).toContain("gateway.tailscale");
+
+    const res = migrateLegacyConfigForTest(raw);
+
+    expect(res.config?.gateway).toEqual({ bind: "loopback" });
+    expect(res.changes).toStrictEqual(["Removed empty gateway.tailscale config."]);
+  });
+
   it("removes both retired WebChat config sections when present together", () => {
     const res = migrateLegacyConfigForTest({
       gateway: {

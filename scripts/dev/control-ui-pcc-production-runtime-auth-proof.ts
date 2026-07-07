@@ -1,4 +1,12 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  GATEWAY_LAUNCH_AGENT_LABEL,
+  resolveGatewayLaunchAgentLabel,
+} from "../../src/daemon/constants.js";
+import { readLaunchAgentProgramArgumentsFromFile } from "../../src/daemon/launchd-plist.js";
+import { VERSION } from "../../src/version.js";
 
 type RuntimeIdentity = {
   runtimeRoot: string;
@@ -8,6 +16,16 @@ type RuntimeIdentity = {
   runtimeSha: string | null;
   entrypoint: string | null;
   releaseId: string | null;
+  service?: {
+    platform: NodeJS.Platform;
+    plistPath: string | null;
+    installed: boolean;
+    programArguments: string[];
+    entrypoint: string | null;
+    serviceVersion: string | null;
+    matchesRuntimeRoot: boolean | null;
+    driftReason: string | null;
+  };
 };
 
 type ProofOptions = {
@@ -36,15 +54,40 @@ function assertNoTokenLeak(value: string) {
   }
 }
 
-function readTextIfPresent(path: string): string | null {
+function readTextIfPresent(filePath: string): string | null {
   try {
-    return fs.readFileSync(path, "utf8").trim();
+    return fs.readFileSync(filePath, "utf8").trim();
   } catch {
     return null;
   }
 }
 
-function resolveRuntimeIdentity(runtimeRoot = process.cwd()): RuntimeIdentity {
+function pathIsSameOrChild(candidate: string, parent: string): boolean {
+  const normalizedCandidate = path.resolve(candidate);
+  const normalizedParent = path.resolve(parent);
+  return (
+    normalizedCandidate === normalizedParent ||
+    normalizedCandidate.startsWith(`${normalizedParent}${path.sep}`)
+  );
+}
+
+function resolveGatewayLaunchAgentPlistPath(): string | null {
+  if (process.platform !== "darwin") {
+    return null;
+  }
+  const label =
+    process.env.OPENCLAW_LAUNCHD_LABEL?.trim() ||
+    resolveGatewayLaunchAgentLabel(process.env.OPENCLAW_PROFILE);
+  const safeLabel = label || GATEWAY_LAUNCH_AGENT_LABEL;
+  return path.join(os.homedir(), "Library", "LaunchAgents", `${safeLabel}.plist`);
+}
+
+function serviceEntrypointFromArgs(args: readonly string[]): string | null {
+  const candidate = args.find((arg) => /\/dist\/(?:index|entry)\.m?js$/u.test(arg));
+  return candidate ?? null;
+}
+
+async function resolveRuntimeIdentity(runtimeRoot = process.cwd()): Promise<RuntimeIdentity> {
   const markerSha = readTextIfPresent(`${runtimeRoot}/.openclaw-production-sha`);
   const snapshotRaw = readTextIfPresent(`${runtimeRoot}/snapshot.json`);
   let snapshotSha: string | null = null;
@@ -67,7 +110,7 @@ function resolveRuntimeIdentity(runtimeRoot = process.cwd()): RuntimeIdentity {
       snapshotSha = null;
     }
   }
-  return {
+  const identity: RuntimeIdentity = {
     runtimeRoot,
     layout: markerSha ? "source-copy" : snapshotSha ? "package-snapshot" : "unknown",
     markerSha,
@@ -76,6 +119,37 @@ function resolveRuntimeIdentity(runtimeRoot = process.cwd()): RuntimeIdentity {
     entrypoint,
     releaseId,
   };
+  const plistPath = resolveGatewayLaunchAgentPlistPath();
+  if (plistPath) {
+    const command = await readLaunchAgentProgramArgumentsFromFile(plistPath).catch(() => null);
+    const serviceEntrypoint = command ? serviceEntrypointFromArgs(command.programArguments) : null;
+    const serviceVersion = command?.environment?.OPENCLAW_SERVICE_VERSION?.trim() || null;
+    const matchesRuntimeRoot = serviceEntrypoint
+      ? pathIsSameOrChild(serviceEntrypoint, runtimeRoot)
+      : null;
+    const driftReasons = [
+      command && !serviceEntrypoint
+        ? `LaunchAgent ${plistPath} has no dist entrypoint in ProgramArguments`
+        : null,
+      serviceEntrypoint && !matchesRuntimeRoot
+        ? `LaunchAgent entrypoint ${serviceEntrypoint} is outside ${runtimeRoot}`
+        : null,
+      serviceVersion && serviceVersion !== VERSION
+        ? `LaunchAgent service version ${serviceVersion} does not match CLI ${VERSION}`
+        : null,
+    ].filter((item): item is string => Boolean(item));
+    identity.service = {
+      platform: process.platform,
+      plistPath,
+      installed: Boolean(command),
+      programArguments: command?.programArguments ?? [],
+      entrypoint: serviceEntrypoint,
+      serviceVersion,
+      matchesRuntimeRoot,
+      driftReason: driftReasons.length ? driftReasons.join("; ") : null,
+    };
+  }
+  return identity;
 }
 
 function assertRuntimeIdentity(options: ProofOptions, identity: RuntimeIdentity): void {
@@ -92,6 +166,17 @@ function assertRuntimeIdentity(options: ProofOptions, identity: RuntimeIdentity)
     throw new Error(
       `production-current proof runtime SHA mismatch: expected ${expected}, got ${identity.runtimeSha}`,
     );
+  }
+  const service = identity.service;
+  if (process.platform === "darwin" && service) {
+    if (!service.installed) {
+      throw new Error(
+        `production-current proof requires installed LaunchAgent ${service.plistPath}, but it was not readable`,
+      );
+    }
+    if (service.driftReason) {
+      throw new Error(`production-current proof runtime drift: ${service.driftReason}`);
+    }
   }
 }
 
@@ -155,7 +240,7 @@ function resolveProofUrl(options: ProofOptions): { url: string; source: string }
 
 async function runBrowserProof(options: ProofOptions) {
   const { chromium } = await import("playwright");
-  const runtimeIdentity = resolveRuntimeIdentity();
+  const runtimeIdentity = await resolveRuntimeIdentity();
   assertRuntimeIdentity(options, runtimeIdentity);
   const resolved = resolveProofUrl(options);
   console.log(`DASH_URL_OK=${redactUrl(resolved.url)}`);
@@ -480,6 +565,7 @@ async function runBrowserProof(options: ProofOptions) {
       runtimeIdentity:
         !options.requireProductionCurrent ||
         (Boolean(runtimeIdentity.runtimeSha) &&
+          (!runtimeIdentity.service || !runtimeIdentity.service.driftReason) &&
           (!options.expectedRuntimeSha ||
             runtimeIdentity.runtimeSha === options.expectedRuntimeSha)),
     },
@@ -526,7 +612,7 @@ async function runBrowserProof(options: ProofOptions) {
   }
 }
 
-function runSelfTest() {
+async function runSelfTest() {
   const redacted = redactUrl("http://127.0.0.1:18789/pcc#token=secret-token-123456");
   if (redacted.includes("secret-token")) {
     throw new Error("redaction self-test failed");
@@ -547,7 +633,7 @@ function runSelfTest() {
   if (!failed) {
     throw new Error("missing-auth self-test failed");
   }
-  const identity = resolveRuntimeIdentity(process.cwd());
+  const identity = await resolveRuntimeIdentity(process.cwd());
   if (identity.layout !== "unknown" && !identity.runtimeSha) {
     throw new Error("runtime identity self-test failed");
   }
@@ -574,7 +660,11 @@ const options: ProofOptions = {
 };
 
 if (process.env.OPENCLAW_PCC_AUTH_PROOF_SELF_TEST === "1") {
-  runSelfTest();
+  void runSelfTest().catch((err: unknown) => {
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    console.error(redactUrl(message));
+    process.exit(1);
+  });
 } else {
   void runBrowserProof(options).catch((err: unknown) => {
     const message = err instanceof Error ? (err.stack ?? err.message) : String(err);

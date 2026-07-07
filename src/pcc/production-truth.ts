@@ -29,6 +29,10 @@ export type PccProductionTruthInput = {
   remoteProofPassed?: boolean;
   runtimeProofPassed?: boolean;
   browserProofScreenshotPath?: string | null;
+  runtimeEntrypoint?: string | null;
+  expectedRuntimeRoot?: string | null;
+  gatewayConfigAuditOk?: boolean | null;
+  runtimeDriftReason?: string | null;
   blockedReason?: string | null;
 };
 
@@ -41,6 +45,10 @@ export type PccProductionTruthSummary = {
   remoteProofPassed: boolean;
   runtimeProofPassed: boolean;
   browserProofScreenshotPath: string | null;
+  runtimeEntrypoint: string | null;
+  expectedRuntimeRoot: string | null;
+  gatewayConfigAuditOk: boolean | null;
+  runtimeDriftReason: string | null;
   proofGaps: string[];
   completedMilestones: string[];
   missingReceiptMilestones: string[];
@@ -73,6 +81,15 @@ function metadataString(value: unknown): string | null {
 
 function metadataBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null;
+}
+
+function pathTextIsSameOrChild(candidate: string, parent: string): boolean {
+  const normalizedCandidate = candidate.replaceAll("\\", "/").replace(/\/+$/u, "");
+  const normalizedParent = parent.replaceAll("\\", "/").replace(/\/+$/u, "");
+  return (
+    normalizedCandidate === normalizedParent ||
+    normalizedCandidate.startsWith(`${normalizedParent}/`)
+  );
 }
 
 function projectTruthMetadata(project?: PccProject | null): Record<string, unknown> {
@@ -118,6 +135,17 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
   const runtimeSha = input.runtimeSha ?? metadataString(meta.runtimeSha);
   const browserProofScreenshotPath =
     input.browserProofScreenshotPath ?? metadataString(meta.browserProofScreenshotPath);
+  const runtimeEntrypoint = input.runtimeEntrypoint ?? metadataString(meta.runtimeEntrypoint);
+  const expectedRuntimeRoot =
+    input.expectedRuntimeRoot ??
+    metadataString(meta.expectedRuntimeRoot) ??
+    metadataString(meta.runtimeRoot);
+  const gatewayConfigAuditOk =
+    input.gatewayConfigAuditOk ?? metadataBoolean(meta.gatewayConfigAuditOk);
+  const runtimeDriftReason =
+    input.runtimeDriftReason ??
+    metadataString(meta.runtimeDriftReason) ??
+    metadataString(meta.gatewayRuntimeDriftReason);
   const blockedReason = input.blockedReason ?? metadataString(meta.blockedReason);
   const milestones = input.milestones ?? [];
   const receipts = input.receipts ?? [];
@@ -156,6 +184,12 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
   const historicalEvidenceGaps = missingEvidenceReferences.map(
     (reference) => `Historical evidence cleanup: ${reference}`,
   );
+  const entrypointDrift =
+    runtimeEntrypoint &&
+    expectedRuntimeRoot &&
+    !pathTextIsSameOrChild(runtimeEntrypoint, expectedRuntimeRoot)
+      ? `Gateway service entrypoint is outside the verified runtime: ${runtimeEntrypoint}`
+      : null;
   const doNotRedoNotes = receipts.flatMap((receipt) => receipt.doNotRedo ?? []).slice(0, 8);
   const proofGaps = [
     ...missingReceiptMilestones.map((title) => `Receipt missing: ${title}`),
@@ -168,22 +202,29 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
           `Runtime SHA ${runtimeSha.slice(0, 12)} does not match verified ${latestVerifiedSha.slice(0, 12)}`,
         ]
       : []),
+    ...(entrypointDrift ? [entrypointDrift] : []),
+    ...(runtimeDriftReason ? [`Gateway runtime drift: ${runtimeDriftReason}`] : []),
+    ...(gatewayConfigAuditOk === false ? ["Gateway config audit failed"] : []),
   ];
   const status: PccProductionTruthStatus = blockedReason
     ? "blocked"
-    : runtimeSha && runtimeSha !== latestVerifiedSha
-      ? "stale"
-      : proofGaps.length > 0
-        ? "proof_missing"
-        : "current";
+    : entrypointDrift || runtimeDriftReason || gatewayConfigAuditOk === false
+      ? "needs_repair"
+      : runtimeSha && runtimeSha !== latestVerifiedSha
+        ? "stale"
+        : proofGaps.length > 0
+          ? "proof_missing"
+          : "current";
   const label =
     status === "current"
       ? "Current"
       : status === "stale"
         ? "Stale"
-        : status === "blocked"
-          ? "Blocked"
-          : "Proof missing";
+        : status === "needs_repair"
+          ? "Needs repair"
+          : status === "blocked"
+            ? "Blocked"
+            : "Proof missing";
 
   return {
     status,
@@ -194,6 +235,10 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
     remoteProofPassed,
     runtimeProofPassed,
     browserProofScreenshotPath,
+    runtimeEntrypoint,
+    expectedRuntimeRoot,
+    gatewayConfigAuditOk,
+    runtimeDriftReason,
     proofGaps,
     completedMilestones,
     missingReceiptMilestones,

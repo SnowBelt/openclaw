@@ -129,4 +129,36 @@ describe("PCC production truth", () => {
       "Receipt receipt-1 references missing proof evidence: missing-browser-proof",
     );
   });
+
+  it("marks current proof as needs repair when live Gateway runtime drift is recorded", () => {
+    const truth = buildPccProductionTruth({
+      project: {
+        ...project,
+        metadata: {
+          pccProductionTruth: {
+            runtimeEntrypoint: "/Users/openclaw/OpenClaw/.artifacts/old/dist/index.js",
+            expectedRuntimeRoot: "/Users/openclaw/OpenClaw-dashboard-production-runtime",
+            gatewayConfigAuditOk: false,
+            runtimeDriftReason: "LaunchAgent points at an old runtime",
+          },
+        },
+      },
+      milestones: [milestone()],
+      evidence: [evidence("remote_ci"), evidence("browser_proof")],
+      receipts: [receipt],
+      runtimeSha: PCC_LATEST_VERIFIED_SHA,
+      remoteProofPassed: true,
+      runtimeProofPassed: true,
+    });
+
+    expect(truth.status).toBe("needs_repair");
+    expect(truth.label).toBe("Needs repair");
+    expect(truth.proofGaps).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Gateway service entrypoint is outside the verified runtime"),
+        "Gateway runtime drift: LaunchAgent points at an old runtime",
+        "Gateway config audit failed",
+      ]),
+    );
+  });
 });

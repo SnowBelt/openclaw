@@ -33,6 +33,17 @@ const GATEWAY_TAILSCALE_REQUIRED_RULE: LegacyConfigRule = {
   requireSourceLiteral: true,
 };
 
+const GATEWAY_TAILSCALE_EMPTY_RULE: LegacyConfigRule = {
+  path: ["gateway", "tailscale"],
+  message:
+    'gateway.tailscale is empty and can be removed. Run "openclaw doctor --fix" to remove it.',
+  match: (value) => {
+    const tailscale = getRecord(value);
+    return Boolean(tailscale && Object.keys(tailscale).length === 0);
+  },
+  requireSourceLiteral: true,
+};
+
 function isLegacyGatewayBindHostAlias(value: unknown): boolean {
   return normalizeLegacyGatewayBindHostAlias(value) !== null;
 }
@@ -117,6 +128,26 @@ export const LEGACY_CONFIG_MIGRATIONS_RUNTIME_GATEWAY: LegacyConfigMigrationSpec
         delete raw.gateway;
       }
       changes.push("Removed retired gateway.tailscale.required config.");
+    },
+  }),
+  defineLegacyConfigMigration({
+    id: "gateway.tailscale.empty-remove",
+    describe: "Remove empty gateway.tailscale config",
+    legacyRules: [GATEWAY_TAILSCALE_EMPTY_RULE],
+    apply: (raw, changes) => {
+      const gateway = getRecord(raw.gateway);
+      const tailscale = getRecord(gateway?.tailscale);
+      if (!gateway || !tailscale || Object.keys(tailscale).length > 0) {
+        return;
+      }
+
+      delete gateway.tailscale;
+      if (Object.keys(gateway).length > 0) {
+        raw.gateway = gateway;
+      } else {
+        delete raw.gateway;
+      }
+      changes.push("Removed empty gateway.tailscale config.");
     },
   }),
   defineLegacyConfigMigration({

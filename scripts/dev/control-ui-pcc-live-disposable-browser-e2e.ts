@@ -26,6 +26,12 @@ type CleanupResult = {
   error?: string;
 };
 
+type PreflightResult = {
+  projectsReadable: boolean;
+  summaryReadable: boolean;
+  projectCount: number;
+};
+
 const TOKEN_PATTERN = /([#?&]token=)[^&/#]+/gi;
 const CONFIG_PATH =
   process.env.OPENCLAW_CONFIG_PATH ?? "/Users/openclaw/.openclaw/openclaw.director.json";
@@ -79,6 +85,32 @@ function summaryChecks(summary: Record<string, unknown>): Record<string, unknown
   return summary.checks && typeof summary.checks === "object" && !Array.isArray(summary.checks)
     ? (summary.checks as Record<string, unknown>)
     : {};
+}
+
+function formatPreflightError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const scopeHint = /scope|operator\.admin|unauthori[sz]ed|forbidden|permission/iu.test(message)
+    ? " Gateway auth/scopes are insufficient for disposable PCC mutation proof."
+    : "";
+  return new Error(
+    `Gateway preflight failed before creating disposable PCC projects.${scopeHint} ${message}`,
+  );
+}
+
+async function preflightGatewayForDisposableProof(): Promise<PreflightResult> {
+  try {
+    const list = await gateway<{ projects?: PccProjectSummary[] }>("pcc.projects.list", {
+      includeArchived: false,
+    });
+    await gateway("pcc.summary.get", {});
+    return {
+      projectsReadable: Array.isArray(list.projects),
+      summaryReadable: true,
+      projectCount: Array.isArray(list.projects) ? list.projects.length : 0,
+    };
+  } catch (error) {
+    throw formatPreflightError(error);
+  }
 }
 
 async function upsertProject(
@@ -224,6 +256,10 @@ async function main() {
   };
 
   try {
+    phase = "preflighting gateway";
+    summary.phase = phase;
+    summary.preflight = await preflightGatewayForDisposableProof();
+
     phase = "creating disposable action project";
     summary.phase = phase;
     await upsertProject(actionProjectId, actionProjectTitle, {
