@@ -143,6 +143,31 @@ async function getProject(projectId: string): Promise<ProjectGetResult> {
   return await gateway<ProjectGetResult>("pcc.projects.get", { projectId });
 }
 
+async function clickSafely(locator: import("playwright").Locator): Promise<void> {
+  const target = locator.first();
+  await target.waitFor({ state: "attached", timeout: 15_000 });
+  await target.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
+  try {
+    await target.click({ force: true, timeout: 15_000 });
+    return;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !/outside of the viewport|not visible|element is not attached|intercepts pointer/i.test(
+        message,
+      )
+    ) {
+      throw error;
+    }
+  }
+  await target.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("target is not an HTMLElement");
+    }
+    element.click();
+  });
+}
+
 async function clickProjectButton(
   page: import("playwright").Page | import("playwright").Locator,
   selector: string,
@@ -150,10 +175,16 @@ async function clickProjectButton(
 ): Promise<void> {
   const stable = page.locator(selector).first();
   if (await stable.isVisible().catch(() => false)) {
-    await stable.click({ force: true });
+    await clickSafely(stable);
     return;
   }
-  await page.getByRole("button", { name: accessibleName }).first().click({ force: true });
+  await clickSafely(page.getByRole("button", { name: accessibleName }).first());
+}
+
+async function openProjectCard(page: import("playwright").Page, projectId: string): Promise<void> {
+  const card = page.locator(`[data-pcc-project-card][data-pcc-project-id="${projectId}"]`).first();
+  await card.waitFor({ state: "visible", timeout: 45_000 });
+  await clickSafely(card.locator("button", { hasText: /Open|Selected/i }).first());
 }
 
 async function fillProjectTitle(
@@ -280,10 +311,7 @@ async function main() {
       .locator(`[data-pcc-project-card][data-pcc-project-id="${actionProjectId}"]`)
       .first();
     await actionCard.waitFor({ state: "visible", timeout: 45_000 });
-    await actionCard
-      .locator("button", { hasText: /Open|Selected/i })
-      .first()
-      .click({ force: true });
+    await openProjectCard(page, actionProjectId);
     await page
       .locator(`[data-pcc-detail-project-id="${actionProjectId}"]`)
       .first()
@@ -435,17 +463,11 @@ async function main() {
       .locator(`[data-pcc-project-card][data-pcc-project-id="${setupProjectId}"]`)
       .first();
     if (await setupCard.isVisible().catch(() => false)) {
-      await setupCard
-        .locator("button", { hasText: /Open|Selected/i })
-        .first()
-        .click({ force: true });
+      await openProjectCard(page, setupProjectId);
     } else {
       await allTab.click({ force: true });
       await setupCard.waitFor({ state: "visible", timeout: 15_000 });
-      await setupCard
-        .locator("button", { hasText: /Open|Selected/i })
-        .first()
-        .click({ force: true });
+      await openProjectCard(page, setupProjectId);
     }
     await page
       .locator(`[data-pcc-detail-project-id="${setupProjectId}"]`)
