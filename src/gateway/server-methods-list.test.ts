@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { GATEWAY_EVENTS, listGatewayMethods } from "./server-methods-list.js";
+import { coreGatewayHandlers } from "./server-methods.js";
 
 describe("GATEWAY_EVENTS", () => {
   it("advertises Talk event streams in hello features", () => {
@@ -53,16 +54,22 @@ describe("listGatewayMethods", () => {
 
   it("advertises Project Command Center methods", () => {
     const methods = listGatewayMethods();
-    expect(methods).toContain("pcc.projects.list");
-    expect(methods).toContain("pcc.ledger.repairCanonicalMetadata");
-    expect(methods).toContain("pcc.projects.upsert");
-    expect(methods).toContain("pcc.milestones.upsert");
-    expect(methods).toContain("pcc.subMilestones.list");
-    expect(methods).toContain("pcc.subMilestones.upsert");
-    expect(methods).toContain("pcc.permissions.upsert");
-    expect(methods).toContain("pcc.receipts.add");
-    expect(methods).toContain("pcc.decisions.add");
-    expect(methods).toContain("pcc.lastKnownGood.upsert");
+    const pccMethods = [
+      "pcc.projects.list",
+      "pcc.ledger.repairCanonicalMetadata",
+      "pcc.projects.upsert",
+      "pcc.milestones.upsert",
+      "pcc.subMilestones.list",
+      "pcc.subMilestones.upsert",
+      "pcc.permissions.upsert",
+      "pcc.receipts.add",
+      "pcc.decisions.add",
+      "pcc.lastKnownGood.upsert",
+    ];
+    for (const method of pccMethods) {
+      expect(methods).toContain(method);
+      expect(coreGatewayHandlers[method]).toBeTypeOf("function");
+    }
   });
 
   it("advertises the versioned Talk session RPCs", () => {

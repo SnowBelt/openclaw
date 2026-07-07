@@ -444,6 +444,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
     methods: [
       "pcc.projects.list",
       "pcc.projects.get",
+      "pcc.ledger.repairCanonicalMetadata",
       "pcc.projects.upsert",
       "pcc.milestones.upsert",
       "pcc.subMilestones.list",
