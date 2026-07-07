@@ -363,6 +363,7 @@ async function runBrowserProof(options: ProofOptions) {
       setupRepair:
         options.profile === "production-current" ||
         options.profile === "functionality-closure" ||
+        options.profile === "focus-live-interaction" ||
         has("Setup needs a few answers") ||
         has("Fill missing setup with AI") ||
         has("Generate setup with AI"),
@@ -373,6 +374,7 @@ async function runBrowserProof(options: ProofOptions) {
       actionMenu:
         options.profile === "production-current" ||
         options.profile === "functionality-closure" ||
+        options.profile === "focus-live-interaction" ||
         (has("Remove from active plan") && has("Stop here")),
       completeState:
         options.profile !== "functionality-closure" ||
