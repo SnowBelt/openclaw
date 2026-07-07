@@ -2,5 +2,9 @@
   "schemaVersion": 1,
   "lastUpdated": "UNKNOWN",
   "owner": "Program Manager",
-  "priorities": []
+  "priorities": [],
+  "lastVerifiedAt": "UNKNOWN",
+  "source": "UNKNOWN",
+  "verificationStatus": "UNKNOWN",
+  "stalenessPolicy": "UNKNOWN"
 }

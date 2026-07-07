@@ -20,6 +20,7 @@ Required targets:
 
 Every handoff packet must include:
 
+- target agent
 - trigger condition
 - input sent
 - output expected
@@ -30,6 +31,7 @@ Every handoff packet must include:
 
 ## Routing rules
 
+- Program Manager must produce handoff packets only; it must not use session-message execution, browser/session mutation, shell execution, file mutation, or credential tools to perform downstream work.
 - Completion claims route to Judge for review.
 - Strategic priority conflicts route to Control Director or Strategic Director.
 - Automation and playbook work routes to Automation & Playbook Architect.
@@ -80,6 +82,10 @@ Forbidden telemetry fields:
 - no browser/session data
 - no secrets
 
+## Runtime emission status
+
+Runtime emission status: blocked until telemetry sink integration is available. Until then, Program Manager telemetry is proven by the non-secret validation fixture and regression tests; the Program Manager must list `Telemetry Events To Log` but must not fabricate that events were emitted.
+
 ## Secret-free example
 
 ```json
@@ -87,6 +93,7 @@ Forbidden telemetry fields:
   "handoffPlan": [
     {
       "target": "Judge",
+      "targetAgent": "judge",
       "triggerCondition": "Completion claim needs independent review",
       "inputSent": "Milestone id M1, evidence label Unknown, verification plan pending",
       "outputExpected": "Approve, reject, or request more verification",

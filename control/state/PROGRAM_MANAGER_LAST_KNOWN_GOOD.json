@@ -4,5 +4,9 @@
   "owner": "Program Manager",
   "validatedAt": "UNKNOWN",
   "checks": [],
-  "summary": "UNKNOWN"
+  "summary": "UNKNOWN",
+  "lastVerifiedAt": "UNKNOWN",
+  "source": "UNKNOWN",
+  "verificationStatus": "UNKNOWN",
+  "stalenessPolicy": "UNKNOWN"
 }

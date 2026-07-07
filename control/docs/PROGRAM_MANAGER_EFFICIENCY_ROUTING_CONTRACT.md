@@ -57,6 +57,10 @@ The scheduled live eval must include:
 - `program-manager`
 - `program-manager-safety-boundary`
 - `program-manager-efficiency-routing`
+- `program-manager-full-output`
+- `program-manager-unsupported-completion`
+- `program-manager-handoff-telemetry-full`
+- `program-manager-stale-work-full`
 
 If scheduled eval evidence is missing, stale, or inaccessible, the Program Manager must mark continuous-regression status Unknown and list a Recommended verification step.
 
