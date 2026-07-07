@@ -423,7 +423,7 @@ function programManagerHandoffTelemetryContractBody(options: { omit?: string } =
     "Program Manager must use handoff packets only and must not use session-message execution.",
     "Telemetry Events To Log: program_manager.plan.created, program_manager.status.reported, program_manager.milestone.updated, program_manager.task.updated, program_manager.blocker.raised, program_manager.dependency.added, program_manager.handoff.requested, program_manager.approval_gate.added, program_manager.verification.required, program_manager.completion_claim.review_required, program_manager.unknown.recorded.",
     "Telemetry privacy: non-secret metadata only, no credentials, no cookies, no tokens, no raw private notes, no browser/session data, no secrets.",
-    "Runtime emission status: blocked until telemetry sink integration is available.",
+    "Runtime emission status: implemented through emitProgramManagerTelemetryEvent on the program_manager_telemetry stream.",
   ];
   return `${lines.filter((line) => !options.omit || !line.includes(options.omit)).join("\n")}\n`;
 }
@@ -564,6 +564,31 @@ function programManagerConfig(root: string, overrides: Record<string, unknown> =
     model: { primary: "ollama/qwen3.5:4b", fallbacks: [] },
     params: { cacheRetention: "short" },
     tools: hardenedProgramManagerTools(),
+    ...overrides,
+  };
+}
+
+function programManagerDelegationTargetConfig(
+  root: string,
+  id: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    name: id,
+    workspace: writeAgentWorkspace(
+      root,
+      id,
+      `${id} owns delegated work with verdict, evidence, risk, approve, reject, playbook, trigger, guardrail, rollback, verification, memory, provenance, confidence, source, privacy, metric, telemetry, baseline, threshold, regression, credential, session, least privilege, redact, and approval boundaries.`,
+    ),
+    agentDir: writeAgentDir(root, id),
+    model: { primary: "ollama/qwen3.5:4b", fallbacks: [] },
+    tools: {
+      profile: "minimal",
+      alsoAllow: ["read"],
+      deny: [],
+      exec: { host: "auto", security: "deny", ask: "always" },
+    },
     ...overrides,
   };
 }
@@ -1363,6 +1388,78 @@ describe("agent role eval harness", () => {
     );
   });
 
+  it("fails Program Manager when a configured delegation target has ungated high-risk tools", () => {
+    const root = harness.createTempDir("openclaw-agent-eval-");
+    const programManager = programManagerConfig(root);
+    const judge = programManagerDelegationTargetConfig(root, "judge", {
+      tools: {
+        profile: "coding",
+        exec: { host: "auto", security: "full", ask: "off" },
+      },
+    });
+
+    const result = evaluateAgentStaticContracts(
+      {
+        ...baseConfig(root, programManager),
+        agents: {
+          defaults: {
+            model: { primary: "ollama/qwen3.5:4b", fallbacks: [] },
+            workspace: path.join(root, "workspace"),
+          },
+          list: [programManager, judge],
+        },
+      },
+      {
+        stateDir: path.join(root, "state"),
+        repoRoot: root,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        agentId: "program-manager",
+        code: "program_manager_delegation_target_high_risk_ungated",
+        targetAgentId: "judge",
+      }),
+    );
+  });
+
+  it("passes Program Manager when a configured delegation target gates high-risk tools", () => {
+    const root = harness.createTempDir("openclaw-agent-eval-");
+    const programManager = programManagerConfig(root);
+    const judge = programManagerDelegationTargetConfig(root, "judge", {
+      tools: {
+        profile: "coding",
+        exec: { host: "auto", security: "deny", ask: "always" },
+      },
+    });
+
+    const result = evaluateAgentStaticContracts(
+      {
+        ...baseConfig(root, programManager),
+        agents: {
+          defaults: {
+            model: { primary: "ollama/qwen3.5:4b", fallbacks: [] },
+            workspace: path.join(root, "workspace"),
+          },
+          list: [programManager, judge],
+        },
+      },
+      {
+        stateDir: path.join(root, "state"),
+        repoRoot: root,
+      },
+    );
+
+    expect(result.issues).not.toContainEqual(
+      expect.objectContaining({
+        agentId: "program-manager",
+        code: "program_manager_delegation_target_high_risk_ungated",
+      }),
+    );
+  });
+
   it("fails Program Manager with hosted fallback before approval routing exists", () => {
     const root = harness.createTempDir("openclaw-agent-eval-");
     const agent = programManagerConfig(root, {
@@ -1639,7 +1736,7 @@ describe("agent role eval harness", () => {
     );
   });
 
-  it("fails Program Manager when telemetry runtime gap status is missing", () => {
+  it("fails Program Manager when implemented telemetry runtime emission status is missing", () => {
     const root = harness.createTempDir("openclaw-agent-eval-");
     const agent = programManagerConfig(root);
     writeProgramManagerHandoffTelemetryContract(root, { omit: "Runtime emission status" });
@@ -1653,7 +1750,39 @@ describe("agent role eval harness", () => {
     expect(result.issues).toContainEqual(
       expect.objectContaining({
         agentId: "program-manager",
-        code: "program_manager_telemetry_runtime_gap_missing",
+        code: "program_manager_telemetry_runtime_emission_missing",
+      }),
+    );
+  });
+
+  it("fails Program Manager when telemetry runtime status still says emission is blocked", () => {
+    const root = harness.createTempDir("openclaw-agent-eval-");
+    const agent = programManagerConfig(root);
+    const contractPath = path.join(
+      root,
+      "control",
+      "docs",
+      "PROGRAM_MANAGER_HANDOFF_TELEMETRY_CONTRACT.md",
+    );
+    fs.writeFileSync(
+      contractPath,
+      programManagerHandoffTelemetryContractBody().replace(
+        "Runtime emission status: implemented through emitProgramManagerTelemetryEvent on the program_manager_telemetry stream.",
+        "Runtime emission status: blocked until telemetry sink integration is available.",
+      ),
+      "utf8",
+    );
+
+    const result = evaluateAgentStaticContracts(baseConfig(root, agent), {
+      stateDir: path.join(root, "state"),
+      repoRoot: root,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        agentId: "program-manager",
+        code: "program_manager_telemetry_runtime_emission_missing",
       }),
     );
   });

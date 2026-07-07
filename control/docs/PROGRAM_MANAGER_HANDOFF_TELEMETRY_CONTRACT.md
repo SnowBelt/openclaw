@@ -32,6 +32,7 @@ Every handoff packet must include:
 ## Routing rules
 
 - Program Manager must produce handoff packets only; it must not use session-message execution, browser/session mutation, shell execution, file mutation, or credential tools to perform downstream work.
+- Configured delegation targets must keep high-risk execution or mutation tools approval-gated; Program Manager static checks must fail when a target exposes high-risk tools without deny/always approval posture.
 - Completion claims route to Judge for review.
 - Strategic priority conflicts route to Control Director or Strategic Director.
 - Automation and playbook work routes to Automation & Playbook Architect.
@@ -84,7 +85,7 @@ Forbidden telemetry fields:
 
 ## Runtime emission status
 
-Runtime emission status: blocked until telemetry sink integration is available. Until then, Program Manager telemetry is proven by the non-secret validation fixture and regression tests; the Program Manager must list `Telemetry Events To Log` but must not fabricate that events were emitted.
+Runtime emission status: implemented through the agent event bus using `emitProgramManagerTelemetryEvent` on the `program_manager_telemetry` stream. Program Manager telemetry remains metadata-only and non-secret; validation fixtures and regression tests must continue proving that secret-like payload fields are rejected. The Program Manager may list `Telemetry Events To Log`, but it must not claim a specific event was emitted unless the runtime path emitted it or telemetry evidence is available.
 
 ## Secret-free example
 

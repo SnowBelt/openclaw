@@ -99,6 +99,32 @@ export type AgentPatchSummaryEventData = {
   summary: string;
 };
 
+export type ProgramManagerTelemetryEventName =
+  | "program_manager.plan.created"
+  | "program_manager.status.reported"
+  | "program_manager.milestone.updated"
+  | "program_manager.task.updated"
+  | "program_manager.blocker.raised"
+  | "program_manager.dependency.added"
+  | "program_manager.handoff.requested"
+  | "program_manager.approval_gate.added"
+  | "program_manager.verification.required"
+  | "program_manager.completion_claim.review_required"
+  | "program_manager.unknown.recorded";
+
+export type ProgramManagerTelemetryEventData = {
+  eventName: ProgramManagerTelemetryEventName;
+  timestamp?: string;
+  milestoneId?: string;
+  taskId?: string;
+  status?: string;
+  ownerRole?: string;
+  handoffTarget?: string;
+  riskLevel?: string;
+  approvalRequired?: boolean;
+  evidenceLabel?: string;
+};
+
 export type AgentEventPayload = {
   runId: string;
   seq: number;
@@ -134,6 +160,57 @@ function getAgentEventState(): AgentEventState {
     listeners: new Set<(evt: AgentEventPayload) => void>(),
     runContextById: new Map<string, AgentRunContext>(),
   }));
+}
+
+const PROGRAM_MANAGER_TELEMETRY_EVENT_NAMES = new Set<string>([
+  "program_manager.plan.created",
+  "program_manager.status.reported",
+  "program_manager.milestone.updated",
+  "program_manager.task.updated",
+  "program_manager.blocker.raised",
+  "program_manager.dependency.added",
+  "program_manager.handoff.requested",
+  "program_manager.approval_gate.added",
+  "program_manager.verification.required",
+  "program_manager.completion_claim.review_required",
+  "program_manager.unknown.recorded",
+]);
+
+const PROGRAM_MANAGER_TELEMETRY_FORBIDDEN_KEYS = new Set([
+  "password",
+  "token",
+  "cookie",
+  "secret",
+  "privatekey",
+  "apikey",
+  "credential",
+  "credentials",
+  "rawprivatenotes",
+  "privatenotes",
+  "browsersession",
+  "sessioncookie",
+]);
+
+function normalizedTelemetryKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function hasForbiddenProgramManagerTelemetryKey(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some((entry) => hasForbiddenProgramManagerTelemetryKey(entry));
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (PROGRAM_MANAGER_TELEMETRY_FORBIDDEN_KEYS.has(normalizedTelemetryKey(key))) {
+      return true;
+    }
+    if (hasForbiddenProgramManagerTelemetryKey(child)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function registerAgentRunContext(runId: string, context: AgentRunContext) {
@@ -295,6 +372,29 @@ export function emitAgentPatchSummaryEvent(params: {
     runId: params.runId,
     stream: "patch",
     data: params.data as unknown as Record<string, unknown>,
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+  });
+}
+
+export function emitProgramManagerTelemetryEvent(params: {
+  runId: string;
+  data: ProgramManagerTelemetryEventData;
+  sessionKey?: string;
+}) {
+  if (!PROGRAM_MANAGER_TELEMETRY_EVENT_NAMES.has(params.data.eventName)) {
+    throw new Error(`Unsupported Program Manager telemetry event: ${params.data.eventName}`);
+  }
+  if (hasForbiddenProgramManagerTelemetryKey(params.data)) {
+    throw new Error("Program Manager telemetry event contains forbidden secret-like key");
+  }
+  emitAgentEvent({
+    runId: params.runId,
+    stream: "program_manager_telemetry",
+    data: {
+      ...params.data,
+      agentId: "program-manager",
+      timestamp: params.data.timestamp ?? new Date().toISOString(),
+    },
     ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
   });
 }

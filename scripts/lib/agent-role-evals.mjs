@@ -477,6 +477,34 @@ const PROGRAM_MANAGER_FORBIDDEN_TOOLS = Object.freeze([
   "group:web",
 ]);
 
+const PROGRAM_MANAGER_DELEGATION_TARGET_AGENT_IDS = Object.freeze([
+  "control-director",
+  "strategic-director",
+  "judge",
+  "automation-playbook-architect",
+  "memory-knowledge-curator",
+  "browser-session-credential-steward",
+  "telemetry-evaluation-analyst",
+]);
+
+const PROGRAM_MANAGER_DELEGATION_TARGET_HIGH_RISK_TOOLS = Object.freeze([
+  "exec",
+  "process",
+  "code_execution",
+  "write",
+  "edit",
+  "apply_patch",
+  "cron",
+  "browser",
+  "credential",
+  "credentials",
+  "credential_get",
+  "credential_set",
+  "secrets",
+  "deploy",
+  "deployment",
+]);
+
 const STRATEGIC_DIRECTOR_ALLOWED_TOOLS = Object.freeze([
   ...PROGRAM_MANAGER_ALLOWED_TOOLS,
   "sessions_send",
@@ -1429,6 +1457,42 @@ export function validateProgramManagerTelemetryBatch(events) {
   return { ok: issues.length === 0, issues };
 }
 
+function checkProgramManagerDelegationTargetSafety({ issues, agents }) {
+  const byId = new Map(
+    agents.map((agent) => [String(agent?.id ?? "").trim(), agent]).filter(([id]) => Boolean(id)),
+  );
+  if (!byId.has("program-manager")) {
+    return;
+  }
+  for (const targetId of PROGRAM_MANAGER_DELEGATION_TARGET_AGENT_IDS) {
+    const target = byId.get(targetId);
+    if (!target) {
+      continue;
+    }
+    const targetPolicy = resolveToolPolicy(target);
+    const execPolicy = target?.tools?.exec ?? {};
+    if (
+      targetPolicy.callable.some(
+        (tool) => tool === "*" || PROGRAM_MANAGER_DELEGATION_TARGET_HIGH_RISK_TOOLS.includes(tool),
+      ) &&
+      (execPolicy.security !== "deny" || execPolicy.ask !== "always")
+    ) {
+      pushIssue(
+        issues,
+        "error",
+        "program-manager",
+        "program_manager_delegation_target_high_risk_ungated",
+        `Program Manager delegation target ${targetId} has high-risk tools without deny/always approval posture.`,
+        {
+          targetAgentId: targetId,
+          security: execPolicy.security ?? null,
+          ask: execPolicy.ask ?? null,
+        },
+      );
+    }
+  }
+}
+
 function checkProgramManagerStaticContract({
   issues,
   agent,
@@ -1708,14 +1772,17 @@ function checkProgramManagerStaticContract({
     }
     if (
       !normalizedHandoffTelemetryContract.includes(normalizeText("runtime emission status")) ||
-      !normalizedHandoffTelemetryContract.includes(normalizeText("blocked until telemetry sink"))
+      !normalizedHandoffTelemetryContract.includes(
+        normalizeText("emitProgramManagerTelemetryEvent"),
+      ) ||
+      !normalizedHandoffTelemetryContract.includes(normalizeText("program_manager_telemetry"))
     ) {
       pushIssue(
         issues,
         "error",
         id,
-        "program_manager_telemetry_runtime_gap_missing",
-        "Program Manager handoff/telemetry contract must document runtime emission status when only validation fixtures are implemented.",
+        "program_manager_telemetry_runtime_emission_missing",
+        "Program Manager handoff/telemetry contract must document implemented runtime telemetry emission.",
         { file: PROGRAM_MANAGER_HANDOFF_TELEMETRY_CONTRACT_FILE },
       );
     }
@@ -2474,6 +2541,7 @@ export function evaluateAgentStaticContracts(config, options = {}) {
       });
     }
   }
+  checkProgramManagerDelegationTargetSafety({ issues, agents });
 
   return {
     ok: issues.every((issue) => issue.severity !== "error"),
