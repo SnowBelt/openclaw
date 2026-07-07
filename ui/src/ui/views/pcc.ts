@@ -1,6 +1,14 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
 import {
+  autopilotStatusLabel,
+  getPccAutopilotState,
+  PCC_AUTOPILOT_MODES,
+  type PccAutopilotAction,
+  type PccAutopilotModeId,
+  type PccAutopilotPromptSlot,
+} from "../../../../src/pcc/autopilot.js";
+import {
   buildPccAttentionInbox,
   buildPccDependencyInsights,
   buildPccIntegrityFindings,
@@ -141,6 +149,10 @@ export type PccDashboardProps = {
   onApproveSetupAutofill?: () => void;
   onDismissSetupAutofill?: () => void;
   onSetAutofillApproval?: (approved: boolean) => void;
+  onConfigureAutopilotMode?: (mode: PccAutopilotModeId) => void;
+  onGenerateAutopilotPrompts?: () => void;
+  onUpdateAutopilotPrompt?: (slotId: string, patch: Partial<PccAutopilotPromptSlot>) => void;
+  onRunAutopilotAction?: (action: PccAutopilotAction) => void;
   onChatSyncTextChange: (text: string) => void;
   onPreviewChatSync: () => void;
   onApplyChatSyncProposal: (proposal: PccChatSyncProposal) => void;
@@ -3996,6 +4008,257 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
   </section>`;
 }
 
+function renderAutopilotPromptSlot(slot: PccAutopilotPromptSlot, props: PccDashboardProps) {
+  return html`<article
+    class="pcc-autopilot-prompt"
+    data-pcc-autopilot-prompt
+    data-pcc-autopilot-prompt-id=${slot.id}
+  >
+    <header>
+      <label>
+        <input
+          type="checkbox"
+          .checked=${slot.enabled}
+          ?disabled=${props.actionBusy}
+          @change=${(event: Event) =>
+            props.onUpdateAutopilotPrompt?.(slot.id, {
+              enabled: (event.target as HTMLInputElement).checked,
+            })}
+        />
+        Enabled
+      </label>
+      <span>${slot.title} · v${slot.version}</span>
+    </header>
+    <label>
+      <span>Prompt title</span>
+      <input
+        .value=${slot.title}
+        ?disabled=${props.actionBusy}
+        @change=${(event: Event) =>
+          props.onUpdateAutopilotPrompt?.(slot.id, {
+            title: (event.target as HTMLInputElement).value,
+          })}
+      />
+    </label>
+    <label>
+      <span>Prompt body</span>
+      <textarea
+        rows="5"
+        .value=${slot.promptBody}
+        ?disabled=${props.actionBusy}
+        @change=${(event: Event) =>
+          props.onUpdateAutopilotPrompt?.(slot.id, {
+            promptBody: (event.target as HTMLTextAreaElement).value,
+          })}
+      ></textarea>
+    </label>
+    <div class="pcc-autopilot-prompt__meta">
+      <span
+        >Executor:
+        ${slot.executor === "safe_stub" ? "Safe stub" : formatStatus(slot.executor)}</span
+      >
+      <span>Reasoning: ${slot.reasoningLevel ?? "standard"}</span>
+      <span>Approval: ${formatStatus(slot.approvalTier)}</span>
+      <span>Judge: ${formatStatus(slot.judge)}</span>
+    </div>
+    ${slot.lastRunResult
+      ? html`<p data-pcc-autopilot-last-run>${slot.lastRunResult}</p>`
+      : html`<p data-pcc-autopilot-last-run>Not run yet.</p>`}
+  </article>`;
+}
+
+function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboardProps) {
+  const autopilot = getPccAutopilotState({
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions,
+    evidence: detail.evidence,
+    decisions: detail.decisions ?? [],
+  });
+  const enabledPrompts = autopilot.promptSlots.filter((slot) => slot.enabled);
+  const latestRun = autopilot.runHistory.at(-1);
+  const latestJudge = autopilot.latestJudgeResult;
+  const blocker = autopilot.currentBlocker;
+  return html`<section
+    class="pcc-autopilot"
+    data-pcc-autopilot-project-loop
+    data-pcc-autopilot-status=${autopilot.status}
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Autopilot Project Loop</p>
+        <h4>Structured AI loop</h4>
+        <p>
+          Separate from milestones. Uses editable prompts, safe approvals, judge review, history,
+          and final reports.
+        </p>
+      </div>
+      <span class="pcc-status pcc-status--${autopilot.status}" data-pcc-autopilot-status-label>
+        ${autopilotStatusLabel(autopilot.status)}
+      </span>
+    </div>
+    <article class="pcc-autopilot__status-card" data-pcc-autopilot-status-card>
+      <dl>
+        ${renderTruthFact("Mode", autopilot.modeTitle)}
+        ${renderTruthFact(
+          "Active prompt",
+          autopilot.promptSlots.find((slot) => slot.id === autopilot.activePromptSlotId)?.title ??
+            enabledPrompts[0]?.title ??
+            "None",
+        )}
+        ${renderTruthFact("Current set", String(autopilot.currentSet))}
+        ${renderTruthFact("Completed sets", String(autopilot.completedSets))}
+        ${renderTruthFact("Prompt iterations", String(autopilot.totalPromptIterations))}
+        ${renderTruthFact(
+          "Executor",
+          autopilot.currentExecutor === "safe_stub"
+            ? "Safe stub"
+            : formatStatus(autopilot.currentExecutor),
+        )}
+        ${renderTruthFact(
+          "Last output",
+          autopilot.lastOutputSummary ?? latestRun?.outputSummary ?? "No output yet",
+        )}
+        ${renderTruthFact("Blocker", blocker?.whyBlocked ?? "None")}
+        ${renderTruthFact(
+          "Next action",
+          blocker?.recommendedNextAction ??
+            (autopilot.status === "off"
+              ? "Choose a mode and generate prompts"
+              : "Review prompts or start safe loop"),
+        )}
+        ${renderTruthFact("Judge", latestJudge?.summary ?? "Judge not run")}
+      </dl>
+      <p class="pcc-autopilot__safety" data-pcc-autopilot-safe-stub>
+        Safe mode is active: PCC will not spend Codex/high-reasoning tokens, deploy, delete files,
+        change credentials, reboot, or perform external writes without separate approval.
+      </p>
+    </article>
+    <div class="pcc-autopilot__controls" data-pcc-autopilot-controls>
+      <label>
+        <span>Loop mode</span>
+        <select
+          .value=${autopilot.mode}
+          ?disabled=${props.actionBusy}
+          data-pcc-autopilot-mode-picker
+          @change=${(event: Event) =>
+            props.onConfigureAutopilotMode?.(
+              (event.target as HTMLSelectElement).value as PccAutopilotModeId,
+            )}
+        >
+          ${PCC_AUTOPILOT_MODES.map(
+            (mode) => html`<option value=${mode.id}>${mode.title}</option>`,
+          )}
+        </select>
+      </label>
+      <button
+        class="btn"
+        type="button"
+        data-pcc-autopilot-generate-prompts
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onGenerateAutopilotPrompts?.()}
+      >
+        Generate Loop Prompts
+      </button>
+      <button
+        class="btn"
+        type="button"
+        data-pcc-autopilot-start
+        ?disabled=${props.actionBusy || enabledPrompts.length === 0}
+        @click=${() => props.onRunAutopilotAction?.("start")}
+      >
+        Start Safe Loop
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-autopilot-pause
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onRunAutopilotAction?.("pause")}
+      >
+        Pause
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-autopilot-resume
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onRunAutopilotAction?.("resume")}
+      >
+        Resume
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-autopilot-stop
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onRunAutopilotAction?.("stop")}
+      >
+        Stop now
+      </button>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        data-pcc-autopilot-block
+        ?disabled=${props.actionBusy}
+        @click=${() => props.onRunAutopilotAction?.("block")}
+      >
+        Mark blocked
+      </button>
+    </div>
+    <details class="pcc-autopilot__prompts" data-pcc-autopilot-prompts open>
+      <summary>Prompt slots (${enabledPrompts.length}/5 enabled)</summary>
+      <div class="pcc-autopilot__prompt-grid">
+        ${autopilot.promptSlots.map((slot) => renderAutopilotPromptSlot(slot, props))}
+      </div>
+    </details>
+    <details class="pcc-autopilot__history" data-pcc-autopilot-history>
+      <summary>Run history and judge review (${autopilot.runHistory.length})</summary>
+      ${autopilot.runHistory.length
+        ? html`<ol>
+            ${autopilot.runHistory
+              .slice(-10)
+              .toReversed()
+              .map(
+                (run) => html`<li data-pcc-autopilot-run>
+                  <strong>${run.promptTitle}</strong>
+                  <span>${run.executor} · ${formatUpdatedAt(Date.parse(run.timestamp))}</span>
+                  <p>${run.outputSummary}</p>
+                  ${run.judgeResult ? html`<em>Judge: ${run.judgeResult.summary}</em>` : nothing}
+                </li>`,
+              )}
+          </ol>`
+        : html`<p class="pcc-empty pcc-empty--small">No Autopilot runs yet.</p>`}
+    </details>
+    <details
+      class="pcc-autopilot__report"
+      data-pcc-autopilot-final-report
+      ?open=${Boolean(autopilot.finalReport)}
+    >
+      <summary>Final report</summary>
+      ${autopilot.finalReport
+        ? html`<dl>
+              ${renderTruthFact("Project", autopilot.finalReport.projectName)}
+              ${renderTruthFact("Sets", String(autopilot.finalReport.setsCompleted))}
+              ${renderTruthFact("Prompt runs", String(autopilot.finalReport.totalPromptRuns))}
+              ${renderTruthFact("Judge", autopilot.finalReport.judgeResult)}
+              ${renderTruthFact(
+                "Next loop",
+                formatStatus(autopilot.finalReport.recommendedNextLoop),
+              )}
+            </dl>
+            <strong>Remaining risks</strong>
+            <ul>
+              ${autopilot.finalReport.remainingRisks
+                .slice(0, 8)
+                .map((risk) => html`<li>${risk}</li>`)}
+            </ul>`
+        : html`<p class="pcc-empty pcc-empty--small">Run a loop to generate a final report.</p>`}
+    </details>
+  </section>`;
+}
+
 function renderWorkLoopCard(props: PccDashboardProps) {
   const detail = props.projectDetail;
   if (!detail) {
@@ -4954,9 +5217,9 @@ function renderProjectDetail(props: PccDashboardProps) {
         data-pcc-detail-project-title=${detail.project.title}
       >
         ${mode === "simple" ? nothing : renderProjectOrientation(detail)}
-        ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
-        ${renderWorkLoopCard(props)} ${renderProjectActivityTimeline(detail)}
-        ${renderDecisionCapturePanel(detail, props)}
+        ${renderProjectSnapshot(detail, props)} ${renderAutopilotProjectLoop(detail, props)}
+        ${renderMilestoneJourney(detail, props)} ${renderWorkLoopCard(props)}
+        ${renderProjectActivityTimeline(detail)} ${renderDecisionCapturePanel(detail, props)}
         <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
           <summary>Details</summary>
           <div class="pcc-detail-tabs" data-pcc-detail-tabs>

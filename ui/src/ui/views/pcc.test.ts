@@ -3288,4 +3288,29 @@ describe("renderPccDashboard", () => {
       ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(milestoneMenu?.classList.contains("is-open")).toBe(false);
   });
+  it("renders Autopilot Project Loop controls, prompts, history, and safety copy", () => {
+    const onGenerateAutopilotPrompts = vi.fn();
+    const onRunAutopilotAction = vi.fn();
+    const onConfigureAutopilotMode = vi.fn();
+    const container = renderView(
+      createProps({
+        onGenerateAutopilotPrompts,
+        onRunAutopilotAction,
+        onConfigureAutopilotMode,
+      }),
+    );
+
+    const autopilot = container.querySelector("[data-pcc-autopilot-project-loop]");
+    expect(autopilot).not.toBeNull();
+    expect(autopilot?.textContent).toContain("Autopilot Project Loop");
+    expect(autopilot?.textContent).toContain("Safe mode is active");
+    expect(autopilot?.textContent).toContain("Prompt slots");
+    expect(container.querySelector("[data-pcc-autopilot-mode-picker]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-autopilot-prompt]").length).toBeGreaterThan(0);
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-generate-prompts]")?.click();
+    expect(onGenerateAutopilotPrompts).toHaveBeenCalledTimes(1);
+    container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]")?.click();
+    expect(onRunAutopilotAction).toHaveBeenCalledWith("start");
+  });
 });

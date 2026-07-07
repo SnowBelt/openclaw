@@ -1,4 +1,15 @@
 import {
+  configurePccAutopilotMode,
+  generatePccAutopilotPromptSlots,
+  getPccAutopilotState,
+  runPccAutopilotSafeStubSet,
+  transitionPccAutopilotState,
+  updatePccAutopilotPromptSlot,
+  withPccAutopilotState,
+  type PccAutopilotModeId,
+  type PccAutopilotPromptSlot,
+} from "../../../../src/pcc/autopilot.js";
+import {
   evaluatePccProjectSetup,
   PCC_REQUIRED_INTAKE_QUESTIONS,
   pccIntakeAnswersFromMetadata,
@@ -83,6 +94,7 @@ export type PccPlannerMode =
   | "high_reasoning_codex";
 
 export type PccProjectFilter = "active" | "needs_you" | "on_hold" | "archived" | "all";
+export type PccAutopilotAction = "start" | "pause" | "resume" | "stop" | "block" | "judge";
 
 export type PccActionNotice = {
   kind: "success" | "info";
@@ -2696,6 +2708,138 @@ export async function applyPccChatSyncProposal(
 
 const PCC_TEMP_REORDER_ORDER_BASE = 1_000_000_000;
 const PCC_LEGACY_ORDER_REPAIR_BASE = 2_000_000_000;
+
+function autopilotInputForDetail(detail: PccProjectDetail) {
+  return {
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+    permissions: detail.permissions,
+    evidence: detail.evidence,
+    decisions: detail.decisions ?? [],
+  };
+}
+
+async function savePccAutopilotStateForDetail(
+  state: PccDashboardState,
+  detail: PccProjectDetail,
+  autopilot: ReturnType<typeof getPccAutopilotState>,
+): Promise<void> {
+  if (!state.client) {
+    return;
+  }
+  const project = withPccAutopilotState(
+    { ...detail.project, updatedAt: new Date().toISOString() },
+    autopilot,
+  );
+  await state.client.request("pcc.projects.upsert", {
+    project: projectUpsertPayload(project),
+  });
+  await loadPccDashboard(state);
+  await selectPccProject(state, detail.project.id);
+}
+
+export async function configurePccAutopilotLoopMode(
+  state: PccDashboardState,
+  mode: PccAutopilotModeId,
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before configuring Autopilot.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    const now = new Date().toISOString();
+    const input = autopilotInputForDetail(detail);
+    const current = getPccAutopilotState(input, now);
+    const next = configurePccAutopilotMode(input, current, mode, now);
+    await savePccAutopilotStateForDetail(state, detail, next);
+    setActionNotice(
+      state,
+      `Autopilot mode set to ${next.modeTitle}. Review prompts before starting.`,
+    );
+  });
+}
+
+export async function generatePccAutopilotLoopPrompts(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before generating Autopilot prompts.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    const now = new Date().toISOString();
+    const input = autopilotInputForDetail(detail);
+    const current = getPccAutopilotState(input, now);
+    const next = {
+      ...current,
+      status: "ready" as const,
+      promptSlots: generatePccAutopilotPromptSlots(input, current.mode),
+      auditLog: [
+        ...current.auditLog,
+        {
+          at: now,
+          event: "prompts_generated",
+          summary: "Generated editable Autopilot prompt slots from current PCC project state.",
+        },
+      ].slice(-200),
+      updatedAt: now,
+    };
+    await savePccAutopilotStateForDetail(state, detail, next);
+    setActionNotice(state, "Autopilot prompts generated. Edit them, then start the safe loop.");
+  });
+}
+
+export async function updatePccAutopilotLoopPrompt(
+  state: PccDashboardState,
+  slotId: string,
+  patch: Partial<PccAutopilotPromptSlot>,
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    return;
+  }
+  await withPccAction(state, async () => {
+    const now = new Date().toISOString();
+    const input = autopilotInputForDetail(detail);
+    const current = getPccAutopilotState(input, now);
+    const next = updatePccAutopilotPromptSlot(current, slotId, patch, now);
+    await savePccAutopilotStateForDetail(state, detail, next);
+    setActionNotice(state, "Autopilot prompt saved.");
+  });
+}
+
+export async function runPccAutopilotLoopAction(
+  state: PccDashboardState,
+  action: PccAutopilotAction,
+): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!detail) {
+    state.pccActionError = "Select a project before using Autopilot.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    const now = new Date().toISOString();
+    const input = autopilotInputForDetail(detail);
+    const current = getPccAutopilotState(input, now);
+    const next =
+      action === "start"
+        ? runPccAutopilotSafeStubSet(input, { ...current, status: "running", updatedAt: now }, now)
+        : action === "judge"
+          ? { ...current, finalReport: current.finalReport, updatedAt: now }
+          : transitionPccAutopilotState(current, action, now);
+    await savePccAutopilotStateForDetail(state, detail, next);
+    setActionNotice(
+      state,
+      action === "start"
+        ? "Autopilot safe loop ran and saved history. Live execution remains blocked until separately approved."
+        : `Autopilot ${action} saved.`,
+    );
+  });
+}
 
 type PccProjectUpsertInput = Partial<PccProject> & Pick<PccProject, "title">;
 

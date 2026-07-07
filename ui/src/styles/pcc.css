@@ -3641,3 +3641,81 @@
     grid-template-columns: 1fr;
   }
 }
+
+.pcc-autopilot {
+  border: 1px solid color-mix(in srgb, var(--border, #d8dee9) 82%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface, #ffffff) 96%, #f6f8ff);
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.pcc-autopilot__status-card {
+  border: 1px solid color-mix(in srgb, var(--border, #d8dee9) 75%, transparent);
+  border-radius: 20px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--surface-muted, #f7f8fb) 92%, #ffffff);
+}
+
+.pcc-autopilot__status-card dl,
+.pcc-autopilot__report dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.pcc-autopilot__safety {
+  margin: 14px 0 0;
+  padding: 12px;
+  border-radius: 16px;
+  background: color-mix(in srgb, #f5c542 14%, transparent);
+  color: var(--text-muted, #4b5563);
+}
+
+.pcc-autopilot__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.pcc-autopilot__controls label {
+  min-width: 220px;
+}
+
+.pcc-autopilot__prompt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.pcc-autopilot-prompt {
+  border: 1px solid color-mix(in srgb, var(--border, #d8dee9) 80%, transparent);
+  border-radius: 18px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--surface, #ffffff);
+}
+
+.pcc-autopilot-prompt header,
+.pcc-autopilot-prompt__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pcc-autopilot-prompt textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.pcc-autopilot__history ol {
+  display: grid;
+  gap: 10px;
+  padding-left: 1.25rem;
+}
