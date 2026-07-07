@@ -238,6 +238,28 @@ beforeEach(async () => {
 });
 
 describe("renderApp assistant avatar routing", () => {
+  it("renders update availability as a compact PCC chip", () => {
+    const container = document.createElement("div");
+
+    render(
+      renderApp(
+        createState({
+          tab: "pcc",
+          updateAvailable: {
+            currentVersion: "2026.6.8",
+            latestVersion: "2026.6.11",
+            channel: "latest",
+          },
+        }),
+      ),
+      container,
+    );
+
+    const banner = container.querySelector<HTMLElement>("[data-update-banner]");
+    expect(banner?.classList.contains("update-banner--pcc-chip")).toBe(true);
+    expect(banner?.textContent).toContain("2026.6.11");
+  });
+
   it("passes the browser-local assistant override to Quick Settings ahead of stale identity metadata", () => {
     const dataUrl = "data:image/png;base64,bG9jYWwtYXNzaXN0YW50";
     saveLocalAssistantIdentity({ avatar: dataUrl, agentId: "main" });

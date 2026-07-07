@@ -6838,3 +6838,43 @@ details[open] > .ov-expandable-toggle::after {
     gap: 4px;
   }
 }
+
+/* PCC keeps update availability visible without consuming the first viewport. */
+.callout.update-banner {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-end;
+  justify-self: end;
+  margin: 0 0 4px auto;
+  max-width: min(720px, 100%);
+  min-height: 26px;
+  padding: 3px 8px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.callout.update-banner--pcc-chip {
+  border-radius: 999px;
+  box-shadow: none;
+  max-width: fit-content;
+  padding: 2px 6px 2px 9px;
+}
+
+.callout.update-banner--pcc-chip .update-banner__running {
+  display: none;
+}
+
+.callout.update-banner--pcc-chip .update-banner__btn {
+  min-height: 22px;
+  padding: 1px 7px;
+}
+
+.callout.update-banner--pcc-chip .update-banner__close {
+  margin-left: 0;
+  min-height: 18px;
+  min-width: 18px;
+  padding: 2px;
+}

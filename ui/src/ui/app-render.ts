@@ -2749,7 +2749,11 @@ export function renderApp(state: AppViewState) {
         ${state.updateAvailable &&
         state.updateAvailable.latestVersion !== state.updateAvailable.currentVersion &&
         !isUpdateBannerDismissed(state.updateAvailable)
-          ? html`<div class="update-banner callout danger" role="alert" data-update-banner>
+          ? html`<div
+              class=${`update-banner callout danger ${state.tab === "pcc" ? "update-banner--pcc-chip" : ""}`}
+              role="alert"
+              data-update-banner
+            >
               <span class="update-banner__message">
                 <strong>${t("chat.updateAvailable")}</strong>
                 v${state.updateAvailable.latestVersion}

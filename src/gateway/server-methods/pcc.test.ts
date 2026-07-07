@@ -321,6 +321,100 @@ describe("Project Command Center gateway methods", () => {
     expect(secondRepair.repairedReceiptIds).toEqual([]);
   });
 
+  it("repairs duplicate milestone and sub-milestone order values idempotently", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Duplicate order repair project", status: "active" },
+      }),
+    );
+    const ledgerPath = pccTesting.ledgerPath();
+    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      milestones: Array<Record<string, unknown>>;
+      subMilestones: Array<Record<string, unknown>>;
+    };
+    ledger.milestones.push(
+      {
+        id: "duplicate-order-one",
+        projectId: project.id,
+        title: "Duplicate order one",
+        status: "not_started",
+        order: 10,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" },
+      },
+      {
+        id: "duplicate-order-two",
+        projectId: project.id,
+        title: "Duplicate order two",
+        status: "not_started",
+        order: 10,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" },
+      },
+    );
+    ledger.subMilestones.push(
+      {
+        id: "duplicate-sub-order-one",
+        projectId: project.id,
+        milestoneId: "duplicate-order-one",
+        title: "Duplicate sub order one",
+        status: "not_started",
+        order: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" },
+      },
+      {
+        id: "duplicate-sub-order-two",
+        projectId: project.id,
+        milestoneId: "duplicate-order-one",
+        title: "Duplicate sub order two",
+        status: "not_started",
+        order: 1,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" },
+      },
+    );
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
+    const beforeRepair = okPayload<{ projects: Array<{ id: string; proofGaps: string[] }> }>(
+      await invoke("pcc.projects.list", {}),
+    ).projects.find((item) => item.id === project.id);
+    expect(beforeRepair?.proofGaps).toEqual(
+      expect.arrayContaining([
+        "Integrity issue: duplicate milestone order: 10",
+        "Integrity issue: duplicate sub-milestone order under Duplicate order one: 1",
+      ]),
+    );
+
+    const repair = okPayload<{
+      repairedMilestoneIds: string[];
+      repairedSubMilestoneIds: string[];
+    }>(await invoke("pcc.ledger.repairCanonicalMetadata", { projectId: project.id }));
+    expect(repair.repairedMilestoneIds).toEqual(expect.arrayContaining(["duplicate-order-two"]));
+    expect(repair.repairedSubMilestoneIds).toEqual(
+      expect.arrayContaining(["duplicate-sub-order-two"]),
+    );
+
+    const afterRepair = okPayload<{ projects: Array<{ id: string; proofGaps: string[] }> }>(
+      await invoke("pcc.projects.list", {}),
+    ).projects.find((item) => item.id === project.id);
+    expect(afterRepair?.proofGaps).not.toContain("Integrity issue: duplicate milestone order: 10");
+    expect(afterRepair?.proofGaps).not.toContain(
+      "Integrity issue: duplicate sub-milestone order under Duplicate order one: 1",
+    );
+
+    const secondRepair = okPayload<{
+      repairedMilestoneIds: string[];
+      repairedSubMilestoneIds: string[];
+    }>(await invoke("pcc.ledger.repairCanonicalMetadata", { projectId: project.id }));
+    expect(secondRepair.repairedMilestoneIds).toEqual([]);
+    expect(secondRepair.repairedSubMilestoneIds).toEqual([]);
+  });
+
   it("surfaces imported ledger integrity gaps in project summaries", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Imported broken project" } }),

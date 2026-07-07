@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { callGateway } from "../../src/gateway/call.ts";
+import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
 import type { PccProject, PccProjectSummary, PccMilestone } from "../../ui/src/ui/types.ts";
 
 type ProjectGetResult = {
@@ -55,7 +56,12 @@ function resolveDashboardUrl(): string {
 }
 
 async function gateway<T>(method: string, params?: unknown): Promise<T> {
-  return await callGateway<T>({ method, params, timeoutMs: 30_000 });
+  return await callGateway<T>({
+    method,
+    params,
+    timeoutMs: 30_000,
+    scopes: [ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE],
+  });
 }
 
 function nowIso(): string {
@@ -220,9 +226,26 @@ async function main() {
       .locator("[data-pcc-reorder-instruction]")
       .first()
       .waitFor({ state: "visible", timeout: 15_000 });
+
+    const dragHandle = page
+      .locator(
+        `[data-pcc-milestone-id="${actionProjectId}-step-2"] [data-pcc-drag-handle="milestone"]`,
+      )
+      .first();
+    const dropTarget = page.locator(`[data-pcc-milestone-id="${actionProjectId}-step-1"]`).first();
+    await dragHandle.dragTo(dropTarget, { force: true, timeout: 15_000 });
+    await page
+      .getByText("Saved new milestone order", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const afterPointerDrag = await getProject(actionProjectId);
+    const sortedAfterPointerDrag = afterPointerDrag.milestones.toSorted(
+      (a, b) => (a.order ?? 0) - (b.order ?? 0),
+    );
+
     await page
       .locator(
-        `[data-pcc-milestone-id="${actionProjectId}-step-2"] [data-pcc-reorder="milestone-up"]`,
+        `[data-pcc-milestone-id="${actionProjectId}-step-2"] [data-pcc-reorder="milestone-down"]`,
       )
       .first()
       .click({ force: true });
@@ -286,7 +309,11 @@ async function main() {
     summary.checks = {
       pccShell: (await page.locator(".pcc-shell").count()) > 0,
       projectWorkModeVisible: await projectWorkMode.isVisible().catch(() => false),
-      reorderPersisted: sortedAfterMove[0]?.id === `${actionProjectId}-step-2`,
+      pointerDragPersisted: sortedAfterPointerDrag[0]?.id === `${actionProjectId}-step-2`,
+      keyboardReorderPersisted: sortedAfterMove[0]?.id === `${actionProjectId}-step-1`,
+      reorderPersisted:
+        sortedAfterPointerDrag[0]?.id === `${actionProjectId}-step-2` &&
+        sortedAfterMove[0]?.id === `${actionProjectId}-step-1`,
       actionMenuWorked: true,
       setupRepairPreviewVisible: await page
         .getByText("AI Autofill Preview", { exact: false })

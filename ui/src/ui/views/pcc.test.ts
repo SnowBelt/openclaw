@@ -761,7 +761,7 @@ describe("renderPccDashboard", () => {
     expect(needsYouTab?.textContent).toContain("1");
   });
 
-  it("defaults to Needs You when no active projects exist but a maintenance project needs proof repair", () => {
+  it("keeps maintenance proof cleanup out of urgent Needs You defaults", () => {
     const maintenanceSummary = {
       ...summary,
       id: "project-maintenance",
@@ -814,11 +814,10 @@ describe("renderPccDashboard", () => {
     const selectedTab = [
       ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-project-tabs] button"),
     ].find((button) => button.getAttribute("aria-pressed") === "true");
-    expect(selectedTab?.textContent).toContain("Needs You");
-    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
-    expect(container.querySelector("[data-pcc-project-card]")?.textContent).toContain(
-      "Project Command Center",
-    );
+    expect(selectedTab?.textContent).toContain("Active");
+    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(0);
+    expect(container.textContent).toContain("No projects in this view");
+    expect(container.textContent).toContain("No PCC Product work needs you right now");
   });
 
   it("keeps on-hold projects out of Needs You and Next Best Action", () => {
@@ -1096,12 +1095,10 @@ describe("renderPccDashboard", () => {
       container.querySelector('[data-pcc-empty][data-pcc-project-empty-state="active"]'),
     ).not.toBeNull();
     expect(container.textContent).toContain("No projects in this view");
-    expect(container.textContent).toContain("need your attention now");
+    expect(container.textContent).toContain("No PCC Product work needs you right now");
 
-    container.querySelector<HTMLButtonElement>("[data-pcc-empty-show-needs-you]")?.click();
     container.querySelector<HTMLButtonElement>("[data-pcc-empty-show-all]")?.click();
 
-    expect(onSetProjectFilter).toHaveBeenCalledWith("needs_you");
     expect(onSetProjectFilter).toHaveBeenCalledWith("all");
   });
 

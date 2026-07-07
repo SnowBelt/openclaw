@@ -812,6 +812,9 @@ function projectIsStale(project: PccProjectSummary): boolean {
 }
 
 function projectNeedsAttention(project: PccProjectSummary): boolean {
+  if (projectIsTerminalForWork(project)) {
+    return false;
+  }
   if (projectIsDeferredOutOfUrgent(project)) {
     return false;
   }
@@ -851,6 +854,9 @@ function workStateForProject(
   project: PccProjectSummary,
   detail?: PccProjectDetail,
 ): "Working" | "Paused" | "Blocked" | "Waiting for you" | "Off" {
+  if (projectIsTerminalForWork(project)) {
+    return "Off";
+  }
   if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
     return "Blocked";
   }
@@ -974,8 +980,8 @@ function renderProductionTruthCard(props: PccDashboardProps) {
         <h4>Is this dashboard current?</h4>
         <p>
           ${truth.status === "current"
-            ? "Remote proof, runtime proof, and receipts are recorded."
-            : "Open proof gaps before claiming production completion."}
+            ? "Current proof is recorded. Historical evidence cleanup is listed separately."
+            : "Open current proof gaps before claiming production completion."}
         </p>
       </div>
       <span>${truth.label}</span>
@@ -990,27 +996,39 @@ function renderProductionTruthCard(props: PccDashboardProps) {
         <dd>${truth.runtimeSha ? truth.runtimeSha.slice(0, 12) : "Not recorded"}</dd>
       </div>
       <div>
-        <dt>Remote proof</dt>
+        <dt>Current remote proof</dt>
         <dd>${truth.remoteProofPassed ? "Passed" : "Missing"}</dd>
       </div>
       <div>
-        <dt>Runtime proof</dt>
+        <dt>Current runtime proof</dt>
         <dd>${truth.runtimeProofPassed ? "Passed" : "Missing"}</dd>
       </div>
       <div>
-        <dt>Browser proof</dt>
+        <dt>Current browser proof</dt>
         <dd>${truth.browserProofScreenshotPath ?? "No screenshot recorded"}</dd>
+      </div>
+      <div>
+        <dt>Historical evidence</dt>
+        <dd>${truth.historicalEvidenceGaps.length ? "Cleanup needed" : "OK"}</dd>
       </div>
     </dl>
     <details class="pcc-production-truth__ledger">
       <summary>Proof ledger and do-not-redo notes</summary>
       <div>
-        <strong>Proof gaps</strong>
+        <strong>Current proof gaps</strong>
         ${truth.proofGaps.length
           ? html`<ul>
               ${truth.proofGaps.slice(0, 8).map((gap) => html`<li>${gap}</li>`)}
             </ul>`
           : html`<p>No proof gaps recorded.</p>`}
+      </div>
+      <div>
+        <strong>Historical evidence cleanup</strong>
+        ${truth.historicalEvidenceGaps.length
+          ? html`<ul>
+              ${truth.historicalEvidenceGaps.slice(0, 8).map((gap) => html`<li>${gap}</li>`)}
+            </ul>`
+          : html`<p>No historical evidence cleanup recorded.</p>`}
       </div>
       <div>
         <strong>Completed milestones</strong>
@@ -1041,7 +1059,8 @@ function renderProductionTruthDrawer(props: PccDashboardProps) {
     receipts: detail?.receipts ?? [],
   });
   const openByDefault = pccViewMode(props) !== "simple" && truth.status !== "current";
-  const badgeLabel = truth.status === "current" ? "Proof: Current" : `Proof: ${truth.label}`;
+  const badgeLabel =
+    truth.status === "current" ? "Current proof: OK" : `Current proof: ${truth.label}`;
   if (pccViewMode(props) === "simple" && truth.status === "current") {
     return nothing;
   }
@@ -1063,11 +1082,16 @@ function projectHeroProofBadge(detail: PccProjectDetail, props: PccDashboardProp
       evidence: productionDetail?.evidence ?? [],
       receipts: productionDetail?.receipts ?? [],
     });
-    return truth.status === "current" ? "Proof: Current" : `Proof: ${truth.label}`;
+    if (truth.status !== "current") {
+      return `Current proof: ${truth.label}`;
+    }
+    return truth.historicalEvidenceGaps.length
+      ? "Current proof: OK · History cleanup"
+      : "Current proof: OK";
   }
   return detail.summary.proofGaps.length > 0
-    ? `Proof: ${detail.summary.proofGaps.length} gap${detail.summary.proofGaps.length === 1 ? "" : "s"}`
-    : "Proof: Ready";
+    ? `Current proof: ${detail.summary.proofGaps.length} gap${detail.summary.proofGaps.length === 1 ? "" : "s"}`
+    : "Current proof: Ready";
 }
 
 function impactInputFromDetail(detail: PccProjectDetail): PccImpactDetailInput {
@@ -1820,12 +1844,23 @@ function renderAutofillPreview(props: PccDashboardProps) {
   }
   const generatedMilestones = preview.generatedMilestones ?? [];
   const generatedSubMilestones = preview.generatedSubMilestones ?? [];
+  const filledSetupCount =
+    Number(Boolean(preview.goal?.trim())) +
+    Object.values(preview.intakeAnswers).filter((value) => value.trim()).length +
+    Number(Boolean(preview.workflowTitle?.trim()));
   return html`<section class="pcc-autofill-preview" data-pcc-autofill-preview tabindex="-1">
     <div class="pcc-section-heading">
       <div>
         <p class="pcc-kicker">AI Autofill Preview</p>
         <h4>Review before applying</h4>
         <p>${preview.summary}</p>
+        <p class="pcc-autofill-preview__summary" data-pcc-autofill-preview-summary>
+          AI will fill ${filledSetupCount} setup field${filledSetupCount === 1 ? "" : "s"}, add
+          ${generatedMilestones.length} milestone${generatedMilestones.length === 1 ? "" : "s"}, add
+          ${generatedSubMilestones.length}
+          sub-step${generatedSubMilestones.length === 1 ? "" : "s"}, and require approval before
+          work starts.
+        </p>
       </div>
       <span
         >${preview.sectionTitle ? `Scoped: ${preview.sectionTitle}` : preview.workflowTitle}</span
@@ -3024,6 +3059,9 @@ function projectPriorityLabel(props: PccDashboardProps, project: PccProjectSumma
 }
 
 function projectBlockerLine(project: PccProjectSummary): string {
+  if (projectIsTerminalForWork(project)) {
+    return "None";
+  }
   if (projectIsOnHold(project)) {
     return "Project is on hold.";
   }
@@ -3435,12 +3473,12 @@ function portfolioPlainSummary(params: {
     if (params.needsYouCount === 0 && params.deferredCount > 0) {
       return `PCC is current. ${params.deferredCount} project-specific item${
         params.deferredCount === 1 ? "" : "s"
-      } are outside PCC Product.`;
+      } ${params.deferredCount === 1 ? "is" : "are"} outside PCC Product.`;
     }
     if (params.needsYouCount > 0) {
       return `${params.needsYouCount} PCC item${
         params.needsYouCount === 1 ? "" : "s"
-      } need you before PCC is quiet.`;
+      } ${params.needsYouCount === 1 ? "needs" : "need"} you before PCC is quiet.`;
     }
     return "PCC is current. No PCC Product work needs you right now.";
   }
@@ -4553,7 +4591,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         </div>`
       : nothing}
     <div class="pcc-primary-action" data-pcc-primary-action>
-      <span>Do this next</span>
+      <span>${terminal ? "Maintenance" : "Do this next"}</span>
       <button
         class="btn"
         type="button"

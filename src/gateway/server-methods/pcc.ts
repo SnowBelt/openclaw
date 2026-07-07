@@ -1499,6 +1499,103 @@ function upsertSubMilestone(
   return { subMilestone, milestone };
 }
 
+function repairProjectMilestoneOrders(
+  milestones: readonly PccMilestone[],
+  now: string,
+): { milestones: Map<string, PccMilestone>; repairedIds: string[] } {
+  const repaired = new Map<string, PccMilestone>();
+  const repairedIds: string[] = [];
+  const byProject = new Map<string, PccMilestone[]>();
+  for (const milestone of milestones) {
+    byProject.set(milestone.projectId, [...(byProject.get(milestone.projectId) ?? []), milestone]);
+  }
+  for (const projectMilestones of byProject.values()) {
+    const sorted = projectMilestones.toSorted(
+      (a, b) =>
+        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+        a.createdAt.localeCompare(b.createdAt) ||
+        a.title.localeCompare(b.title) ||
+        a.id.localeCompare(b.id),
+    );
+    const seen = new Set<number>();
+    let needsRewrite = false;
+    for (const milestone of sorted) {
+      const order = milestone.order;
+      if (
+        typeof order !== "number" ||
+        !Number.isFinite(order) ||
+        order < 0 ||
+        (participatesInSequence(milestone.status) && seen.has(order))
+      ) {
+        needsRewrite = true;
+      }
+      if (typeof order === "number" && Number.isFinite(order) && order >= 0) {
+        seen.add(order);
+      }
+    }
+    if (!needsRewrite) {
+      continue;
+    }
+    for (const [index, milestone] of sorted.entries()) {
+      const nextOrder = (index + 1) * 10;
+      if (milestone.order !== nextOrder) {
+        repairedIds.push(milestone.id);
+        repaired.set(milestone.id, { ...milestone, order: nextOrder, updatedAt: now });
+      }
+    }
+  }
+  return { milestones: repaired, repairedIds: [...new Set(repairedIds)] };
+}
+
+function repairProjectSubMilestoneOrders(
+  subMilestones: readonly PccSubMilestone[],
+  now: string,
+): { subMilestones: Map<string, PccSubMilestone>; repairedIds: string[] } {
+  const repaired = new Map<string, PccSubMilestone>();
+  const repairedIds: string[] = [];
+  const byParent = new Map<string, PccSubMilestone[]>();
+  for (const subMilestone of subMilestones) {
+    const key = `${subMilestone.projectId}:${subMilestone.milestoneId}`;
+    byParent.set(key, [...(byParent.get(key) ?? []), subMilestone]);
+  }
+  for (const children of byParent.values()) {
+    const sorted = children.toSorted(
+      (a, b) =>
+        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
+        a.createdAt.localeCompare(b.createdAt) ||
+        a.title.localeCompare(b.title) ||
+        a.id.localeCompare(b.id),
+    );
+    const seen = new Set<number>();
+    let needsRewrite = false;
+    for (const subMilestone of sorted) {
+      const order = subMilestone.order;
+      if (
+        typeof order !== "number" ||
+        !Number.isFinite(order) ||
+        order < 0 ||
+        (participatesInSequence(subMilestone.status) && seen.has(order))
+      ) {
+        needsRewrite = true;
+      }
+      if (typeof order === "number" && Number.isFinite(order) && order >= 0) {
+        seen.add(order);
+      }
+    }
+    if (!needsRewrite) {
+      continue;
+    }
+    for (const [index, subMilestone] of sorted.entries()) {
+      const nextOrder = (index + 1) * 10;
+      if (subMilestone.order !== nextOrder) {
+        repairedIds.push(subMilestone.id);
+        repaired.set(subMilestone.id, { ...subMilestone, order: nextOrder, updatedAt: now });
+      }
+    }
+  }
+  return { subMilestones: repaired, repairedIds: [...new Set(repairedIds)] };
+}
+
 function repairCanonicalMetadataForLedger(
   ledger: PccLedger,
   params: Record<string, unknown>,
@@ -1520,45 +1617,35 @@ function repairCanonicalMetadataForLedger(
       .map((project) => project.id),
   );
   const now = nowIso();
-  const repairedMilestoneOrderIds: string[] = [];
-  const repairedSubMilestoneOrderIds: string[] = [];
   const repairedReceiptIds: string[] = [];
-  const milestoneRepair = repairPccCanonicalWorkItems(
-    ledger.milestones.filter((milestone) => eligibleProjectIds.has(milestone.projectId)),
-    now,
+  const eligibleMilestones = ledger.milestones.filter((milestone) =>
+    eligibleProjectIds.has(milestone.projectId),
   );
-  const subMilestoneRepair = repairPccCanonicalWorkItems(
-    ledger.subMilestones.filter((subMilestone) => eligibleProjectIds.has(subMilestone.projectId)),
-    now,
+  const eligibleSubMilestones = ledger.subMilestones.filter((subMilestone) =>
+    eligibleProjectIds.has(subMilestone.projectId),
   );
+  const milestoneRepair = repairPccCanonicalWorkItems(eligibleMilestones, now);
+  const subMilestoneRepair = repairPccCanonicalWorkItems(eligibleSubMilestones, now);
+  const orderRepair = repairProjectMilestoneOrders(milestoneRepair.items, now);
+  const subOrderRepair = repairProjectSubMilestoneOrders(subMilestoneRepair.items, now);
   const repairedMilestones = new Map(
     milestoneRepair.items.map((milestone) => [milestone.id, milestone]),
   );
+  for (const [id, milestone] of orderRepair.milestones) {
+    repairedMilestones.set(id, milestone);
+  }
   const repairedSubMilestones = new Map(
     subMilestoneRepair.items.map((subMilestone) => [subMilestone.id, subMilestone]),
   );
-  ledger.milestones = ledger.milestones.map((milestone, index) => {
-    const next = repairedMilestones.get(milestone.id) ?? milestone;
-    if (!eligibleProjectIds.has(next.projectId)) {
-      return next;
-    }
-    if (typeof next.order === "number" && Number.isFinite(next.order) && next.order >= 0) {
-      return next;
-    }
-    repairedMilestoneOrderIds.push(next.id);
-    return { ...next, order: (index + 1) * 10, updatedAt: now };
-  });
-  ledger.subMilestones = ledger.subMilestones.map((subMilestone, index) => {
-    const next = repairedSubMilestones.get(subMilestone.id) ?? subMilestone;
-    if (!eligibleProjectIds.has(next.projectId)) {
-      return next;
-    }
-    if (typeof next.order === "number" && Number.isFinite(next.order) && next.order >= 0) {
-      return next;
-    }
-    repairedSubMilestoneOrderIds.push(next.id);
-    return { ...next, order: (index + 1) * 10, updatedAt: now };
-  });
+  for (const [id, subMilestone] of subOrderRepair.subMilestones) {
+    repairedSubMilestones.set(id, subMilestone);
+  }
+  ledger.milestones = ledger.milestones.map(
+    (milestone) => repairedMilestones.get(milestone.id) ?? milestone,
+  );
+  ledger.subMilestones = ledger.subMilestones.map(
+    (subMilestone) => repairedSubMilestones.get(subMilestone.id) ?? subMilestone,
+  );
   ledger.receipts = ledger.receipts.map((receipt) => {
     if (!eligibleProjectIds.has(receipt.projectId)) {
       return receipt;
@@ -1572,10 +1659,10 @@ function repairCanonicalMetadataForLedger(
   });
   return {
     repairedMilestoneIds: [
-      ...new Set([...milestoneRepair.repairedIds, ...repairedMilestoneOrderIds]),
+      ...new Set([...milestoneRepair.repairedIds, ...orderRepair.repairedIds]),
     ],
     repairedSubMilestoneIds: [
-      ...new Set([...subMilestoneRepair.repairedIds, ...repairedSubMilestoneOrderIds]),
+      ...new Set([...subMilestoneRepair.repairedIds, ...subOrderRepair.repairedIds]),
     ],
     repairedReceiptIds,
     projectIds: [...eligibleProjectIds],

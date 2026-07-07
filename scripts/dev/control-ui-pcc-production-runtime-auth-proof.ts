@@ -236,7 +236,11 @@ async function runBrowserProof(options: ProofOptions) {
       await projectWorkMode.click({ force: true });
       await page.waitForTimeout(500);
       const snesProject = projectCardForTitle("SNES Game Creator");
-      if ((await snesProject.count()) > 0 && (await snesProject.isVisible().catch(() => false))) {
+      if (
+        options.profile !== "focus-live-interaction" &&
+        (await snesProject.count()) > 0 &&
+        (await snesProject.isVisible().catch(() => false))
+      ) {
         const snesOpen = snesProject.locator("button", { hasText: /Open|Selected/ }).first();
         if (await snesOpen.isVisible().catch(() => false)) {
           await snesOpen.click({ force: true });

@@ -101,11 +101,11 @@ describe("PCC production truth", () => {
     expect(truth.runtimeProofRequired).toEqual(["Production proof"]);
   });
 
-  it("marks production truth as needs repair when receipts cite missing proof evidence", () => {
+  it("keeps current proof separate from historical missing evidence cleanup", () => {
     const truth = buildPccProductionTruth({
       project,
       milestones: [milestone()],
-      evidence: [evidence("remote_ci")],
+      evidence: [evidence("remote_ci"), evidence("browser_proof")],
       receipts: [
         {
           ...receipt,
@@ -118,11 +118,14 @@ describe("PCC production truth", () => {
       browserProofScreenshotPath: "/tmp/pcc-proof.png",
     });
 
-    expect(truth.status).toBe("needs_repair");
+    expect(truth.status).toBe("current");
     expect(truth.missingEvidenceReferences).toEqual([
       "Receipt receipt-1 references missing proof evidence: missing-browser-proof",
     ]);
-    expect(truth.proofGaps).toContain(
+    expect(truth.historicalEvidenceGaps).toEqual([
+      "Historical evidence cleanup: Receipt receipt-1 references missing proof evidence: missing-browser-proof",
+    ]);
+    expect(truth.proofGaps).not.toContain(
       "Receipt receipt-1 references missing proof evidence: missing-browser-proof",
     );
   });

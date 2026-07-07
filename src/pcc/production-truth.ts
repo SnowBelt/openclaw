@@ -47,6 +47,7 @@ export type PccProductionTruthSummary = {
   remoteProofRequired: string[];
   runtimeProofRequired: string[];
   missingEvidenceReferences: string[];
+  historicalEvidenceGaps: string[];
   doNotRedoNotes: string[];
   blockedReason: string | null;
 };
@@ -152,12 +153,14 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
         (evidenceId) => `Receipt ${receipt.id} references missing proof evidence: ${evidenceId}`,
       ),
   );
+  const historicalEvidenceGaps = missingEvidenceReferences.map(
+    (reference) => `Historical evidence cleanup: ${reference}`,
+  );
   const doNotRedoNotes = receipts.flatMap((receipt) => receipt.doNotRedo ?? []).slice(0, 8);
   const proofGaps = [
     ...missingReceiptMilestones.map((title) => `Receipt missing: ${title}`),
     ...remoteProofRequired.map((title) => `Remote proof missing: ${title}`),
     ...runtimeProofRequired.map((title) => `Runtime proof missing: ${title}`),
-    ...missingEvidenceReferences,
     ...(!remoteProofPassed ? ["PCC remote Workflow Sanity proof missing"] : []),
     ...(!runtimeProofPassed ? ["PCC live runtime/browser proof missing"] : []),
     ...(runtimeSha && runtimeSha !== latestVerifiedSha
@@ -168,23 +171,19 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
   ];
   const status: PccProductionTruthStatus = blockedReason
     ? "blocked"
-    : missingEvidenceReferences.length > 0
-      ? "needs_repair"
-      : runtimeSha && runtimeSha !== latestVerifiedSha
-        ? "stale"
-        : proofGaps.length > 0
-          ? "proof_missing"
-          : "current";
+    : runtimeSha && runtimeSha !== latestVerifiedSha
+      ? "stale"
+      : proofGaps.length > 0
+        ? "proof_missing"
+        : "current";
   const label =
     status === "current"
       ? "Current"
       : status === "stale"
         ? "Stale"
-        : status === "needs_repair"
-          ? "Needs repair"
-          : status === "blocked"
-            ? "Blocked"
-            : "Proof missing";
+        : status === "blocked"
+          ? "Blocked"
+          : "Proof missing";
 
   return {
     status,
@@ -201,6 +200,7 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
     remoteProofRequired,
     runtimeProofRequired,
     missingEvidenceReferences,
+    historicalEvidenceGaps,
     doNotRedoNotes,
     blockedReason,
   };
