@@ -234,7 +234,7 @@ async function main(): Promise<void> {
     const text = root.textContent ?? "";
     requireText(text, "Today");
     requireText(text, "Project Snapshot");
-    requireText(text, "What needs attention");
+    requireText(text, "What Needs You");
     requireText(text, "Milestone Journey");
     requireText(text, "Resume Project");
     requireSelector(root, "[data-pcc-top-metrics]");

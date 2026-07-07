@@ -198,6 +198,10 @@ const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["all", "All"],
 ];
 
+function projectFilterLabel(filter: PccProjectFilter): string {
+  return PROJECT_FILTER_OPTIONS.find(([value]) => value === filter)?.[1] ?? formatStatus(filter);
+}
+
 function formatPlannerModelLabel(entry: ModelCatalogEntry): string {
   const display = entry.name || entry.id;
   return entry.provider ? `${display} · ${entry.provider}` : display;
@@ -1038,10 +1042,32 @@ function renderProductionTruthDrawer(props: PccDashboardProps) {
   });
   const openByDefault = pccViewMode(props) !== "simple" && truth.status !== "current";
   const badgeLabel = truth.status === "current" ? "Proof: Current" : `Proof: ${truth.label}`;
+  if (pccViewMode(props) === "simple" && truth.status === "current") {
+    return nothing;
+  }
   return html`<details class="pcc-detail-drawer pcc-top-proof-drawer" ?open=${openByDefault}>
     <summary><span class="pcc-proof-badge" data-pcc-proof-badge>${badgeLabel}</span></summary>
     ${renderProductionTruthCard(props)}
   </details>`;
+}
+
+function projectHeroProofBadge(detail: PccProjectDetail, props: PccDashboardProps) {
+  if (
+    detail.project.id === "project-command-center" ||
+    detail.project.title === "Project Command Center"
+  ) {
+    const productionDetail = productionTruthDetail(props);
+    const truth = buildPccProductionTruth({
+      project: productionDetail?.project,
+      milestones: productionDetail?.milestones ?? [],
+      evidence: productionDetail?.evidence ?? [],
+      receipts: productionDetail?.receipts ?? [],
+    });
+    return truth.status === "current" ? "Proof: Current" : `Proof: ${truth.label}`;
+  }
+  return detail.summary.proofGaps.length > 0
+    ? `Proof: ${detail.summary.proofGaps.length} gap${detail.summary.proofGaps.length === 1 ? "" : "s"}`
+    : "Proof: Ready";
 }
 
 function impactInputFromDetail(detail: PccProjectDetail): PccImpactDetailInput {
@@ -2769,7 +2795,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
         <span>${project.milestoneCounts.complete}/${project.milestoneCounts.total} milestones</span>
         <span>Work: ${workState}</span>
         ${projectNeedsAttention(project)
-          ? html`<span>Needs attention</span>`
+          ? html`<span>Needs You</span>`
           : html`<span>${project.health ?? "On track"}</span>`}
       </div>
       <div class="pcc-project-card__sequence" data-pcc-project-card-sequence>
@@ -3031,10 +3057,10 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
     return html`<section
       class="pcc-needs-attention pcc-needs-attention--empty"
       data-pcc-needs-attention-now
-      aria-label="Needs attention now"
+      aria-label="Needs You now"
     >
       <div>
-        <p class="pcc-kicker">Needs Attention Now</p>
+        <p class="pcc-kicker">Needs You Now</p>
         <h3>Nothing needs you right now</h3>
         <p>No blocked, overdue, high-risk, or approval-needed projects are active.</p>
       </div>
@@ -3043,11 +3069,11 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
   return html`<section
     class="pcc-needs-attention"
     data-pcc-needs-attention-now
-    aria-label="Needs attention now"
+    aria-label="Needs You now"
   >
     <div class="pcc-section-heading">
       <div>
-        <p class="pcc-kicker">Needs Attention Now</p>
+        <p class="pcc-kicker">Needs You Now</p>
         <h3>
           ${attentionProjects.length} project${attentionProjects.length === 1 ? "" : "s"} need
           attention
@@ -3088,7 +3114,7 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
             data-pcc-project-open
             data-pcc-project-open-surface="attention"
             data-pcc-project-id=${project.id}
-            aria-label=${`Open ${project.title} from Needs Attention`}
+            aria-label=${`Open ${project.title} from Needs You`}
             @click=${() => props.onSelectProject(project.id)}
           >
             Open
@@ -3254,16 +3280,22 @@ function renderPccOfflineState(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderProjectSearch(props: PccDashboardProps, visibleCount: number, filterCount: number) {
+function renderProjectSearch(
+  props: PccDashboardProps,
+  visibleCount: number,
+  filterCount: number,
+  selectedFilter: PccProjectFilter,
+) {
   const query = props.projectSearchQuery ?? "";
   const hasQuery = query.trim().length > 0;
+  const label = projectFilterLabel(selectedFilter);
   return html`<section class="pcc-project-search" data-pcc-project-search>
     <label>
-      <span>Search projects</span>
+      <span>Search ${label} projects</span>
       <input
         type="search"
-        aria-label="Search projects"
-        placeholder=${`Search ${formatStatus(props.projectFilter ?? "active")} projects by title, status, next action, blocker, proof, or owner`}
+        aria-label=${`Search ${label} projects`}
+        placeholder=${`Search ${label} projects by title, status, next action, blocker, proof, or owner`}
         .value=${query}
         @input=${(event: Event) =>
           props.onSetProjectSearchQuery?.((event.target as HTMLInputElement).value)}
@@ -3281,6 +3313,22 @@ function renderProjectSearch(props: PccDashboardProps, visibleCount: number, fil
           Clear search
         </button>`
       : nothing}
+  </section>`;
+}
+
+function renderProjectFocusBar(
+  props: PccDashboardProps,
+  allProjects: readonly PccProjectSummary[],
+  visibleCount: number,
+  filterCount: number,
+  selectedFilter: PccProjectFilter,
+) {
+  return html`<section class="pcc-project-focus-bar" data-pcc-project-focus-bar>
+    <div class="pcc-project-focus-bar__top">
+      ${renderProjectFilterTabs(props, allProjects)}
+      <span data-pcc-project-focus-count>${visibleCount} shown</span>
+    </div>
+    ${renderProjectSearch(props, visibleCount, filterCount, selectedFilter)}
   </section>`;
 }
 
@@ -3357,7 +3405,7 @@ function renderTopPortfolioMetrics(
     aria-label="Portfolio metrics"
   >
     ${renderCompactMetric("Active", portfolio?.active ?? 0)}
-    ${renderCompactMetric("Need attention", needsAttentionCount)}
+    ${renderCompactMetric("Needs You", needsAttentionCount)}
     ${renderCompactMetric("Running", runningCount)}
     <details class="pcc-today__metrics-more" data-pcc-top-metrics-more>
       <summary>More</summary>
@@ -3373,6 +3421,40 @@ function renderTopPortfolioMetrics(
       </div>
     </details>
   </section>`;
+}
+
+function portfolioPlainSummary(params: {
+  focusMode: "pcc_product" | "project_work";
+  activeCount: number;
+  needsYouCount: number;
+  runningCount: number;
+  deferredCount: number;
+  selectedTitle?: string;
+}): string {
+  if (params.focusMode === "pcc_product") {
+    if (params.needsYouCount === 0 && params.deferredCount > 0) {
+      return `PCC is current. ${params.deferredCount} project-specific item${
+        params.deferredCount === 1 ? "" : "s"
+      } are outside PCC Product.`;
+    }
+    if (params.needsYouCount > 0) {
+      return `${params.needsYouCount} PCC item${
+        params.needsYouCount === 1 ? "" : "s"
+      } need you before PCC is quiet.`;
+    }
+    return "PCC is current. No PCC Product work needs you right now.";
+  }
+  if (params.needsYouCount > 0) {
+    return `${params.needsYouCount} project item${
+      params.needsYouCount === 1 ? "" : "s"
+    } need you now.`;
+  }
+  if (params.runningCount > 0) {
+    return `${params.runningCount} project${params.runningCount === 1 ? " is" : "s are"} running.`;
+  }
+  return params.activeCount > 0
+    ? `${params.activeCount} active project${params.activeCount === 1 ? "" : "s"} ready to review.`
+    : "No active project work needs you right now.";
 }
 
 function renderCompactMetric(label: string, value: string | number) {
@@ -3414,23 +3496,32 @@ function renderTodayProjectSignal(
 
 function renderPccFocusModeSwitch(props: PccDashboardProps) {
   const mode = props.productFocusMode ?? "pcc_product";
-  return html`<div class="pcc-focus-mode" data-pcc-focus-mode aria-label="PCC work context">
-    <button
-      class=${`pcc-focus-mode__option ${mode === "pcc_product" ? "is-selected" : ""}`}
-      type="button"
-      data-pcc-focus-mode-option="pcc_product"
-      @click=${() => props.onSetProductFocusMode?.("pcc_product")}
-    >
-      PCC Product
-    </button>
-    <button
-      class=${`pcc-focus-mode__option ${mode === "project_work" ? "is-selected" : ""}`}
-      type="button"
-      data-pcc-focus-mode-option="project_work"
-      @click=${() => props.onSetProductFocusMode?.("project_work")}
-    >
-      Project Work
-    </button>
+  return html`<div class="pcc-focus-mode-wrap">
+    <div class="pcc-focus-mode" data-pcc-focus-mode aria-label="PCC work context">
+      <button
+        class=${`pcc-focus-mode__option ${mode === "pcc_product" ? "is-selected" : ""}`}
+        type="button"
+        data-pcc-focus-mode-option="pcc_product"
+        title="Show only work that affects the PCC product itself"
+        @click=${() => props.onSetProductFocusMode?.("pcc_product")}
+      >
+        PCC Product
+      </button>
+      <button
+        class=${`pcc-focus-mode__option ${mode === "project_work" ? "is-selected" : ""}`}
+        type="button"
+        data-pcc-focus-mode-option="project_work"
+        title="Show user projects managed by PCC"
+        @click=${() => props.onSetProductFocusMode?.("project_work")}
+      >
+        My Projects
+      </button>
+    </div>
+    <small>
+      ${mode === "pcc_product"
+        ? "This view is only for finishing PCC itself."
+        : "This view shows projects PCC will manage."}
+    </small>
   </div>`;
 }
 
@@ -3468,6 +3559,15 @@ function renderTodayView(props: PccDashboardProps) {
     (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
   ).length;
   const portfolioNeedsAttention = attentionProjects.length;
+  const focusMode = props.productFocusMode ?? "pcc_product";
+  const plainSummary = portfolioPlainSummary({
+    focusMode,
+    activeCount,
+    needsYouCount: portfolioNeedsAttention,
+    runningCount: runningProjects.length,
+    deferredCount: deferredProjects.length,
+    selectedTitle: props.projectDetail?.project.title,
+  });
 
   return html`<section class="pcc-today" data-pcc-today aria-label="Today">
     <div class="pcc-today__bar" data-pcc-today-compact-bar>
@@ -3475,11 +3575,12 @@ function renderTodayView(props: PccDashboardProps) {
         <span>Today</span>
         ${renderPccFocusModeSwitch(props)}
         <strong>${runningProjects.length} running</strong>
-        <strong>${attentionProjects.length} need attention</strong>
+        <strong>${attentionProjects.length} Needs You</strong>
         ${deferredProjects.length
           ? html`<strong>${deferredProjects.length} deferred</strong>`
           : nothing}
       </div>
+      <p class="pcc-today__plain-summary" data-pcc-today-summary>${plainSummary}</p>
       <button
         class="pcc-today__next"
         type="button"
@@ -3494,7 +3595,7 @@ function renderTodayView(props: PccDashboardProps) {
         <summary>More</summary>
         <div>
           ${renderCompactMetric("Active", activeCount)}
-          ${renderCompactMetric("Need attention", portfolioNeedsAttention)}
+          ${renderCompactMetric("Needs You", portfolioNeedsAttention)}
           ${renderCompactMetric("Running", runningProjects.length)}
           ${renderCompactMetric("All projects average", `${average}%`)}
         </div>
@@ -3540,8 +3641,7 @@ function renderTodayView(props: PccDashboardProps) {
             <span>Portfolio Progress</span>
             <strong>${average}%</strong>
             <em>
-              ${activeCount} active · ${blockedCount} blocked · ${portfolioNeedsAttention} need
-              attention
+              ${activeCount} active · ${blockedCount} blocked · ${portfolioNeedsAttention} Needs You
             </em>
           </article>
         </div>
@@ -4322,7 +4422,7 @@ function renderBlockerClarityCenter(
   return html`<section class="pcc-blocker-center" data-pcc-blocker-center>
     <div class="pcc-section-heading">
       <div>
-        <p class="pcc-kicker">What needs attention</p>
+        <p class="pcc-kicker">What Needs You</p>
         <h4>
           ${visible.length === 1 ? "1 thing blocks progress" : `${visible.length} things to check`}
         </h4>
@@ -4388,6 +4488,8 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const worker = current ? itemWorkerLabel(current) : "None";
   const primaryAction = primaryActionForDetail(detail);
   const needsSetupRepair = !setupEvaluation.runnable;
+  const terminal = PROJECT_TERMINAL_STATUSES.has(project.status);
+  const proofBadge = projectHeroProofBadge(detail, props);
   const primaryActionDisabled =
     props.actionBusy ||
     (!PROJECT_TERMINAL_STATUSES.has(project.status) &&
@@ -4419,8 +4521,31 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         <p class="pcc-kicker">Project Snapshot</p>
         <h3>${project.title}</h3>
       </div>
-      <span class="pcc-status pcc-status--${project.status}">${formatStatus(project.status)}</span>
+      <div class="pcc-project-snapshot__badges">
+        <span class="pcc-proof-badge" data-pcc-proof-badge>${proofBadge}</span>
+        <span class="pcc-status pcc-status--${project.status}"
+          >${formatStatus(project.status)}</span
+        >
+      </div>
     </div>
+    ${terminal
+      ? html`<section class="pcc-maintenance-hero" data-pcc-maintenance-hero>
+          <div>
+            <span>Project complete</span>
+            <strong>${formatStatus(project.status)}</strong>
+            <p>
+              Review proof, receipts, and maintenance history when you need to audit or improve it.
+            </p>
+          </div>
+          <button
+            class="btn btn--subtle"
+            type="button"
+            @click=${() => props.onSetViewMode?.("detailed")}
+          >
+            View details
+          </button>
+        </section>`
+      : nothing}
     ${projectIsOnHold(project)
       ? html`<div class="pcc-deferred-banner" data-pcc-deferred-project-banner>
           <strong>Project-specific work is on hold</strong>
@@ -4483,9 +4608,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             <p>No outcome metrics recorded yet.</p>
           </section>`;
     })()}
-    ${PROJECT_TERMINAL_STATUSES.has(project.status)
-      ? nothing
-      : renderSetupRepairCard(setupEvaluation, props)}
+    ${terminal ? nothing : renderSetupRepairCard(setupEvaluation, props)}
     <div class="pcc-detail__actions">
       <button
         class="btn btn--subtle"
@@ -4597,6 +4720,11 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
           : nothing}
       </div>
     </div>
+    ${reorderMode && canReorder
+      ? html`<p class="pcc-reorder-instruction" data-pcc-reorder-instruction>
+          Drag by the handle, or use ↑ ↓. PCC saves automatically and shows Undo.
+        </p>`
+      : nothing}
     <div class="pcc-journey-phases" data-pcc-journey-phases>
       ${phaseGroups.map((group) => {
         const complete = group.milestones.filter((item) =>
@@ -6179,6 +6307,36 @@ function renderProjectListEmptyState(
   </div>`;
 }
 
+function renderSelectedFilteredProjectNotice(
+  props: PccDashboardProps,
+  visibleProjects: readonly PccProjectSummary[],
+  allProjects: readonly PccProjectSummary[],
+) {
+  const detail = props.projectDetail;
+  if (!detail || visibleProjects.some((project) => project.id === detail.project.id)) {
+    return nothing;
+  }
+  const summary = allProjects.find((project) => project.id === detail.project.id);
+  if (!summary) {
+    return nothing;
+  }
+  return html`<article class="pcc-selected-filtered" data-pcc-selected-filtered-project>
+    <div>
+      <span>Selected project</span>
+      <strong>${summary.title}</strong>
+      <p>This project is open on the right, but it is hidden by the current project filter.</p>
+    </div>
+    <button
+      class="btn btn--subtle"
+      type="button"
+      data-pcc-show-selected-in-all
+      @click=${() => props.onSetProjectFilter?.("all")}
+    >
+      Show in All
+    </button>
+  </article>`;
+}
+
 export function renderPccDashboard(props: PccDashboardProps) {
   const allProjects = focusScopedProjectsForToday(props, props.projects);
   const selectedFilter = effectiveProjectFilter(props, allProjects);
@@ -6234,11 +6392,16 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${mode === "simple"
         ? nothing
         : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
-            <summary>Needs attention list</summary>
+            <summary>Needs You list</summary>
             ${renderNeedsAttentionNow(props)}
           </details>`}
-      ${renderProjectFilterTabs(props, allProjects)}
-      ${renderProjectSearch(props, projects.length, filteredByTab.length)}
+      ${renderProjectFocusBar(
+        props,
+        allProjects,
+        projects.length,
+        filteredByTab.length,
+        selectedFilter,
+      )}
       ${mode === "simple"
         ? nothing
         : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
@@ -6250,6 +6413,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
 
       <div class="pcc-layout">
         <section class="pcc-projects" aria-label="Projects">
+          ${renderSelectedFilteredProjectNotice(props, projects, allProjects)}
           ${props.loading && projects.length === 0
             ? renderPccLoadingState()
             : !props.loading && projects.length === 0

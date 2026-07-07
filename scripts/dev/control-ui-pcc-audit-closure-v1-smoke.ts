@@ -304,7 +304,7 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-model-refresh-status]");
     requireSelector(root, "[data-pcc-planner-permission-saved]");
     requireText(text, "Active");
-    requireText(text, "Needs attention");
+    requireText(text, "Needs You");
     requireText(text, "Running");
     requireText(text, "Plan");
     requireText(text, "Proof");

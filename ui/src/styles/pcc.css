@@ -1,6 +1,6 @@
 .pcc-shell {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   padding: 0 0 32px;
 }
 
@@ -16,11 +16,11 @@
 
 .pcc-hero {
   align-items: flex-start;
-  border-radius: 28px;
+  border-radius: 22px;
   display: flex;
   justify-content: space-between;
-  gap: 18px;
-  padding: 18px 22px;
+  gap: 14px;
+  padding: 14px 18px;
 }
 
 .pcc-kicker {
@@ -41,9 +41,9 @@
 
 .pcc-hero__subtitle {
   color: var(--muted);
-  font-size: 0.92rem;
-  line-height: 1.6;
-  margin: 8px 0 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 6px 0 0;
   max-width: 720px;
 }
 
@@ -285,6 +285,32 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.pcc-selected-filtered {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 18px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.pcc-selected-filtered span {
+  color: var(--muted);
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pcc-selected-filtered p {
+  color: var(--muted);
+  margin: 4px 0 0;
 }
 
 .pcc-outcome-metrics {
@@ -1568,12 +1594,20 @@
   backdrop-filter: blur(18px);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(180px, auto) minmax(180px, 0.8fr) minmax(220px, 1fr) auto;
   min-height: 44px;
   padding: 6px 10px;
   position: sticky;
   top: 0;
   z-index: 11;
+}
+
+.pcc-today__plain-summary {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.25;
+  margin: 0;
+  min-width: 0;
 }
 
 .pcc-today__bar-title {
@@ -1632,6 +1666,31 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcc-project-focus-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 94%, white);
+  border: 1px solid var(--hairline);
+  border-radius: 20px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(240px, auto) minmax(280px, 1fr);
+  padding: 10px;
+}
+
+.pcc-project-focus-bar__top {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pcc-project-focus-bar__top > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
   white-space: nowrap;
 }
 
@@ -2493,6 +2552,55 @@
   justify-content: space-between;
 }
 
+.pcc-project-snapshot__badges {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.pcc-proof-badge {
+  background: color-mix(in srgb, var(--ok) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--ok) 28%, var(--border));
+  border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.pcc-maintenance-hero {
+  align-items: center;
+  background: color-mix(in srgb, var(--ok) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--ok) 28%, var(--border));
+  border-radius: 18px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.pcc-maintenance-hero span {
+  color: var(--muted);
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pcc-maintenance-hero strong {
+  display: block;
+  margin-top: 3px;
+}
+
+.pcc-maintenance-hero p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
 .pcc-project-snapshot__progress {
   display: grid;
   gap: 8px;
@@ -3067,7 +3175,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 14px 0 18px;
+  margin: 0;
 }
 
 .pcc-project-tabs button {
@@ -3089,14 +3197,14 @@
 
 .pcc-project-search {
   align-items: center;
-  background: color-mix(in srgb, var(--surface) 94%, white);
-  border: 1px solid var(--hairline);
-  border-radius: 20px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(220px, 1fr) auto auto;
-  margin: -4px 0 18px;
-  padding: 12px;
+  margin: 0;
+  padding: 0;
 }
 
 .pcc-project-search label {
@@ -3129,6 +3237,15 @@
 }
 
 @media (max-width: 780px) {
+  .pcc-project-focus-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .pcc-project-focus-bar__top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .pcc-project-search {
     grid-template-columns: 1fr;
   }
@@ -3244,6 +3361,17 @@
   font: inherit;
   padding: 0;
   user-select: none;
+}
+
+.pcc-reorder-instruction {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 14px;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+  margin: 0;
+  padding: 10px 12px;
 }
 
 .pcc-drag-handle:active,
@@ -3404,6 +3532,20 @@
   padding: 2px;
 }
 
+.pcc-focus-mode-wrap {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pcc-focus-mode-wrap small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  max-width: 220px;
+}
+
 .pcc-focus-mode__option {
   background: transparent;
   border: 0;
@@ -3452,6 +3594,11 @@
 
 .pcc-milestone-journey[data-pcc-reorder-mode="on"] {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+
+.pcc-milestone-journey[data-pcc-reorder-mode="on"] .pcc-journey-step {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 18%, transparent);
+  outline-offset: 3px;
 }
 
 .pcc-reorder-disabled-note {

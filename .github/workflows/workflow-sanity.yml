@@ -1953,9 +1953,10 @@ jobs:
           - node --import tsx scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts
+          - node --import tsx scripts/dev/control-ui-pcc-focus-live-interaction-closure-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - pnpm check:workflows
-          - pnpm check:changed -- packages/gateway-protocol/src/schema/pcc.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
+          - pnpm check:changed -- packages/gateway-protocol/src/schema/pcc.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-focus-live-interaction-closure-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
           - pnpm build
           EOF_COMMANDS
 
@@ -1995,6 +1996,9 @@ jobs:
       - name: Run PCC audit findings closure smoke
         run: node --import tsx scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts
 
+      - name: Run PCC focus live interaction closure smoke
+        run: node --import tsx scripts/dev/control-ui-pcc-focus-live-interaction-closure-smoke.ts
+
       - name: Run PCC browser proof harness self-test
         run: OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
 
@@ -2007,7 +2011,7 @@ jobs:
           PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed -- packages/gateway-protocol/src/schema/pcc.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
+        run: pnpm check:changed -- packages/gateway-protocol/src/schema/pcc.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-focus-live-interaction-closure-smoke.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
 
       - name: Run build proof
         run: pnpm build

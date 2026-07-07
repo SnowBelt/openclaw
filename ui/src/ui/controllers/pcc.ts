@@ -1302,6 +1302,7 @@ export function updatePccProductFocusMode(
   mode: "pcc_product" | "project_work",
 ): void {
   state.pccProductFocusMode = mode;
+  state.pccProjectFilter = undefined;
   state.requestUpdate?.();
 }
 

@@ -6,7 +6,11 @@ type ProofOptions = {
   screenshotPath: string;
   projectTitle: string;
   requireProductionCurrent: boolean;
-  profile: "production-current" | "usability-reliability" | "functionality-closure";
+  profile:
+    | "production-current"
+    | "usability-reliability"
+    | "functionality-closure"
+    | "focus-live-interaction";
 };
 
 function redactUrl(value: string): string {
@@ -222,7 +226,11 @@ async function runBrowserProof(options: ProofOptions) {
   }
   await assertSelectedProject(options.projectTitle, "requested project card");
 
-  if (options.profile === "usability-reliability" || options.profile === "functionality-closure") {
+  if (
+    options.profile === "usability-reliability" ||
+    options.profile === "functionality-closure" ||
+    options.profile === "focus-live-interaction"
+  ) {
     const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
     if (await projectWorkMode.isVisible().catch(() => false)) {
       await projectWorkMode.click({ force: true });
@@ -257,6 +265,7 @@ async function runBrowserProof(options: ProofOptions) {
   const agentMode = page.locator('[data-pcc-view-mode-option="agent"]').last();
   if (
     options.profile !== "functionality-closure" &&
+    options.profile !== "focus-live-interaction" &&
     (await agentMode.isVisible().catch(() => false))
   ) {
     await agentMode.click({ force: true }).catch(() => undefined);
@@ -367,8 +376,28 @@ async function runBrowserProof(options: ProofOptions) {
         (has("Remove from active plan") && has("Stop here")),
       completeState:
         options.profile !== "functionality-closure" ||
-        (has("Project complete") && has("Review Maintenance")),
+        (has("Project complete") && (has("Review Maintenance") || has("View details"))),
       reorderToggle: options.profile !== "functionality-closure" || has("Reorder milestones"),
+      focusBar:
+        options.profile !== "focus-live-interaction" ||
+        (await page.locator("[data-pcc-project-focus-bar]:visible").count()) > 0,
+      todaySummary:
+        options.profile !== "focus-live-interaction" ||
+        (await page.locator("[data-pcc-today-summary]:visible").count()) > 0,
+      projectHero:
+        options.profile !== "focus-live-interaction" ||
+        (await page.locator("[data-pcc-project-hero]:visible").count()) > 0,
+      proofBadge:
+        options.profile !== "focus-live-interaction" ||
+        (await page.locator("[data-pcc-project-hero] [data-pcc-proof-badge]:visible").count()) > 0,
+      maintenanceHero:
+        options.profile !== "focus-live-interaction" ||
+        (await page.locator("[data-pcc-maintenance-hero]:visible").count()) > 0 ||
+        has("Project complete"),
+      topProofNotDominating:
+        options.profile !== "focus-live-interaction" ||
+        (await page.locator(".pcc-top-proof-drawer:visible").count()) === 0 ||
+        has("Proof:"),
     },
     sample: normalizedText.slice(0, 2_000),
   };
@@ -450,7 +479,9 @@ const options: ProofOptions = {
       ? "usability-reliability"
       : process.env.OPENCLAW_PCC_PROOF_PROFILE === "functionality-closure"
         ? "functionality-closure"
-        : "production-current",
+        : process.env.OPENCLAW_PCC_PROOF_PROFILE === "focus-live-interaction"
+          ? "focus-live-interaction"
+          : "production-current",
 };
 
 if (process.env.OPENCLAW_PCC_AUTH_PROOF_SELF_TEST === "1") {

@@ -466,7 +466,7 @@ export class OpenClawApp extends LitElement {
   @state() pccActionBusy = false;
   @state() pccActionError: string | null = null;
   @state() pccActionNotice: PccActionNotice | null = null;
-  @state() pccProjectFilter: PccProjectFilter = "active";
+  @state() pccProjectFilter: PccProjectFilter | undefined = undefined;
   @state() pccProjectSearchQuery = "";
   @state() pccProjectEditMode: PccProjectEditMode = "simple";
   pccLastUndoAction: PccUndoAction | null = null;

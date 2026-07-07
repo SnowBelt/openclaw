@@ -267,7 +267,7 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-outcome-metrics]")?.textContent).toContain(
       "User understands next action in under 5 seconds.",
     );
-    expect(text).toContain("Needs attention");
+    expect(text).toContain("Needs You");
     const projectCardBlocker =
       container.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
     expect(projectCardBlocker).toContain("Blocked");
@@ -533,7 +533,7 @@ describe("renderPccDashboard", () => {
     expect(metrics?.textContent).toContain("9");
     expect(metrics?.textContent).toContain("7");
     expect(metrics?.textContent).toContain("58%");
-    expect(progress?.textContent?.replace(/\s+/g, " ")).toContain("1 need attention");
+    expect(progress?.textContent?.replace(/\s+/g, " ")).toContain("1 Needs You");
   });
 
   it("renders last-known-good verified state in project history details", () => {
@@ -751,10 +751,10 @@ describe("renderPccDashboard", () => {
     );
     const text = container.textContent ?? "";
 
-    expect(text).toContain("Needs attention");
+    expect(text).toContain("Needs You");
     expect(text).toContain("Overdue Launch");
     expect(text).toContain("Overdue since");
-    expect(text).toContain("1 need attention");
+    expect(text).toContain("1 Needs You");
     const needsYouTab = [
       ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-project-tabs] button"),
     ].find((button) => button.textContent?.includes("Needs You"));
@@ -821,7 +821,7 @@ describe("renderPccDashboard", () => {
     );
   });
 
-  it("keeps on-hold projects out of Needs Attention and Next Best Action", () => {
+  it("keeps on-hold projects out of Needs You and Next Best Action", () => {
     const onHoldSummary = {
       ...summary,
       id: "project-on-hold",
@@ -945,7 +945,7 @@ describe("renderPccDashboard", () => {
     expect(overview).not.toBeNull();
     expect(overview.open).toBe(false);
     expect(compact?.textContent).toContain("0 running");
-    expect(compact?.textContent).toContain("0 need attention");
+    expect(compact?.textContent).toContain("0 Needs You");
     expect(compact?.textContent).not.toContain("Project-specific SNES Game Creator work removed");
     expect(
       container.querySelector('[data-pcc-today-card="Working Now"]')?.textContent,
@@ -1156,7 +1156,7 @@ describe("renderPccDashboard", () => {
     expect(cardOpen?.getAttribute("aria-label")).toBe("Open Project Command Center");
     expect(todayOpen?.getAttribute("aria-label")).toContain("Open Project Command Center");
     expect(attentionOpen?.getAttribute("aria-label")).toBe(
-      "Open Project Command Center from Needs Attention",
+      "Open Project Command Center from Needs You",
     );
     expect(recentOpen?.getAttribute("aria-label")).toBe(
       "Open Project Command Center from Recent Activity",
@@ -1221,7 +1221,7 @@ describe("renderPccDashboard", () => {
 
     const attention = container.querySelector("[data-pcc-needs-attention-now]");
     expect(attention).not.toBeNull();
-    expect(attention?.textContent).toContain("Needs Attention Now");
+    expect(attention?.textContent).toContain("Needs You Now");
     expect(attention?.textContent).toContain("Blocked Launch");
     expect(attention?.textContent).toContain("Fix failed proof");
     expect(attention?.textContent).not.toContain("Healthy Project");
@@ -1326,7 +1326,7 @@ describe("renderPccDashboard", () => {
     const blocker = container.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
 
     expect(skimFacts).toContain("2/5 milestones");
-    expect(skimFacts).toContain("Needs attention");
+    expect(skimFacts).toContain("Needs You");
     expect(skimFacts).toContain("Work:");
     expect(skimFacts).not.toContain("Health:");
     expect(skimFacts).not.toContain("Priority:");
@@ -1493,7 +1493,7 @@ describe("renderPccDashboard", () => {
     expect(projectMode.querySelector("[data-pcc-project-card]")?.textContent).toContain(
       "SNES Game Creator",
     );
-    expect(projectMode.textContent).toContain("Project Work");
+    expect(projectMode.textContent).toContain("My Projects");
   });
 
   it("keeps completed PCC projects out of setup and runner dead-end states", () => {
