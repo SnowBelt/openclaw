@@ -58,7 +58,19 @@ async function main(): Promise<void> {
       ],
       metadata: {
         pccWorkflowTemplateId: "software-product",
-        pccIntake: { approved: true, answers: { goal: "Make PCC Apple-simple." } },
+        pccIntake: {
+          approved: true,
+          answers: {
+            goal: "Make PCC Apple-simple.",
+            firstDeliverable: "A clear workflow clarity proof view.",
+            doneProof:
+              "Local smoke, remote Workflow Sanity, runtime proof, and browser proof pass.",
+            constraints:
+              "No reboot, no project-specific SNES work, no unapproved external actions.",
+            owner: "local_openclaw_agent",
+            blockers: "None.",
+          },
+        },
         pccQualityGate: { status: "passing" },
         pccSetupScore: { score: 100, runnable: true },
         pccCompliance: { badge: "Passing", status: "passing" },
@@ -128,6 +140,10 @@ async function main(): Promise<void> {
         implementationPlan:
           "Render Working Now, Needs You, Next Best Action, and Portfolio Progress at the top.",
         acceptanceCriteria: ["All four summary cards are visible"],
+        metadata: {
+          pccResponsibility: "local_openclaw_agent",
+          pccProofLevel: "local",
+        },
         createdAt: now,
         updatedAt: now,
       },
@@ -143,6 +159,28 @@ async function main(): Promise<void> {
         implementationPlan:
           "Show the ordered milestone sequence with details collapsed by default.",
         acceptanceCriteria: ["Journey exists", "Sub-milestone count is visible"],
+        metadata: {
+          pccResponsibility: "local_openclaw_agent",
+          pccProofLevel: "local",
+        },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "sub-3",
+        projectId: project.id,
+        milestoneId: "milestone-2",
+        title: "Preview generated project plan",
+        status: "not_started" as const,
+        order: 1,
+        owner: "local_project_manager",
+        percentComplete: 0,
+        implementationPlan: "Render a generated plan preview before saving a text-first project.",
+        acceptanceCriteria: ["Plan preview remains visible until the user approves or cancels"],
+        metadata: {
+          pccResponsibility: "local_project_manager",
+          pccProofLevel: "local",
+        },
         createdAt: now,
         updatedAt: now,
       },
