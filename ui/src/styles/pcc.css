@@ -2712,6 +2712,94 @@
   font-size: 0.88rem;
 }
 
+.pcc-execution-readiness,
+.pcc-universal-preflight,
+.pcc-scope-lock,
+.pcc-recovery-center,
+.pcc-interaction-contracts {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.pcc-execution-readiness,
+.pcc-universal-preflight,
+.pcc-scope-lock {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.pcc-execution-readiness h4,
+.pcc-execution-readiness p,
+.pcc-universal-preflight h4,
+.pcc-universal-preflight p,
+.pcc-scope-lock h4,
+.pcc-scope-lock p,
+.pcc-recovery-center h4,
+.pcc-recovery-center p {
+  margin: 0;
+}
+
+.pcc-execution-readiness p,
+.pcc-universal-preflight p,
+.pcc-scope-lock p,
+.pcc-recovery-center p {
+  color: var(--muted);
+}
+
+.pcc-execution-readiness__checks,
+.pcc-execution-readiness__missing,
+.pcc-universal-preflight ul,
+.pcc-recovery-center ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.pcc-execution-readiness__checks {
+  list-style: none;
+  padding: 0;
+}
+
+.pcc-execution-readiness__checks li {
+  align-items: center;
+  display: flex;
+  font-size: 0.86rem;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.pcc-execution-readiness__checks .is-pass {
+  color: var(--ok);
+}
+
+.pcc-execution-readiness__checks .is-blocked {
+  color: var(--danger);
+}
+
+.pcc-table-lite {
+  display: grid;
+  gap: 6px;
+}
+
+.pcc-table-lite [role="row"] {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.6fr) repeat(3, minmax(90px, 0.8fr));
+  padding: 8px 10px;
+}
+
+.pcc-table-lite code {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .pcc-deferred-banner {
   background: color-mix(in srgb, #f59e0b 10%, var(--surface));
   border: 1px solid color-mix(in srgb, #f59e0b 32%, var(--border));
@@ -4004,6 +4092,16 @@
 
 @media (max-width: 900px) {
   .pcc-hero--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .pcc-execution-readiness,
+  .pcc-universal-preflight,
+  .pcc-scope-lock {
+    grid-template-columns: 1fr;
+  }
+
+  .pcc-table-lite [role="row"] {
     grid-template-columns: 1fr;
   }
 }

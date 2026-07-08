@@ -1973,6 +1973,7 @@ describe("renderPccDashboard", () => {
           receipts: [],
           summary,
         },
+        reorderMode: true,
         onMoveMilestoneBefore,
         onMoveSubMilestoneBefore,
       }),
@@ -3373,6 +3374,7 @@ describe("renderPccDashboard", () => {
           planPreviewAccepted: true,
         },
         projectEditMode: "ai",
+        reorderMode: true,
         onSetProjectEditMode,
         onPreviewSectionAutofill,
         onUndoAction,
@@ -3423,6 +3425,9 @@ describe("renderPccDashboard", () => {
     );
     expect(milestoneRow?.getAttribute("draggable")).toBeNull();
     expect(milestoneHandle?.getAttribute("draggable")).toBe("true");
+    expect(container.querySelector("[data-pcc-reorder-instruction]")?.textContent).toContain(
+      "Action menus are paused",
+    );
     expect(container.querySelector("[data-pcc-model-refresh-status]")?.textContent).toContain(
       "Last refresh:",
     );
@@ -3488,5 +3493,105 @@ describe("renderPccDashboard", () => {
     expect(onGenerateAutopilotPrompts).toHaveBeenCalledTimes(1);
     container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]")?.click();
     expect(onRunAutopilotAction).toHaveBeenCalledWith("start");
+  });
+
+  it("renders operational confidence readiness, preflight, scope lock, and recovery center", () => {
+    const container = renderView(
+      createProps({
+        viewMode: "simple",
+        actionError: "invalid pcc.milestones.upsert params: at /milestone/order: must be >= 0",
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-execution-readiness]")?.textContent).toContain(
+      "Readiness",
+    );
+    expect(container.querySelector("[data-pcc-universal-preflight]")?.textContent).toContain(
+      "Preflight",
+    );
+    expect(container.querySelector("[data-pcc-scope-lock]")?.textContent).toContain("Focus lock");
+    expect(container.querySelector("[data-pcc-recovery-center]")?.textContent).toContain(
+      "Refresh safely",
+    );
+    expect(container.querySelector("[data-pcc-action-error]")?.textContent).toContain(
+      "nothing was saved",
+    );
+  });
+
+  it("renders the PCC interaction contract matrix in detailed diagnostics", () => {
+    const container = renderView(createProps({ viewMode: "detailed" }));
+
+    const matrix = container.querySelector("[data-pcc-interaction-contract-matrix]");
+    expect(matrix?.textContent).toContain("Buttons and controls PCC must keep working");
+    expect(matrix?.textContent).toContain("Work This Project");
+    expect(matrix?.querySelectorAll("[data-pcc-interaction-contract]").length).toBeGreaterThan(5);
+  });
+
+  it("keeps reorder mode explicit and hides action menus while handles are active", () => {
+    const container = renderView(createProps({ viewMode: "simple", reorderMode: true }));
+
+    expect(container.querySelector("[data-pcc-reorder-instruction]")?.textContent).toContain(
+      "Reorder mode is on",
+    );
+    expect(container.querySelector("[data-pcc-drag-handle='milestone']")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-action-menu-trigger]")).toBeNull();
+  });
+
+  it("shows Autopilot trust details for run history", () => {
+    const autopilotProject = {
+      ...project,
+      metadata: {
+        ...project.metadata,
+        pccAutopilot: {
+          status: "ready",
+          mode: "bug_hunt",
+          currentExecutor: "safe_stub",
+          promptSlots: [],
+          runHistory: [
+            {
+              id: "run-1",
+              timestamp: "2026-07-08T12:00:00Z",
+              projectId: project.id,
+              loopMode: "bug_hunt",
+              promptSlotId: "slot-1",
+              promptTitle: "Find broken controls",
+              promptVersion: 1,
+              executor: "safe_stub",
+              inputContextSummary: "Project, milestones, blockers, and controls.",
+              outputSummary: "No unsafe action was executed.",
+              changedFiles: ["ui/src/ui/views/pcc.ts"],
+              artifacts: ["smoke"],
+              approvals: [],
+              checksRun: ["view test"],
+              judgeResult: { status: "passed", summary: "Traceable.", evidence: [] },
+              rawOutput: "Safe stub output.",
+            },
+          ],
+        },
+      },
+    };
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        projectDetail: {
+          project: autopilotProject,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    const historyText = (container.querySelector("[data-pcc-autopilot-history]")?.textContent ?? "")
+      .replace(/\s+/gu, " ")
+      .trim();
+    expect(historyText).toContain("Context: Project, milestones, blockers, and controls.");
+    expect(historyText).toContain("Changes: 1 file");
+    expect(historyText).toContain("Approvals: none used");
   });
 });

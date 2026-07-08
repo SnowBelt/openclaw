@@ -70,6 +70,13 @@ import type {
   PccStatus,
   ModelCatalogEntry,
 } from "../types.ts";
+import {
+  PCC_INTERACTION_CONTRACTS,
+  buildPccExecutionReadiness,
+  buildPccUniversalPreflight,
+  pccInteractionContractCoverage,
+  permissionSummary,
+} from "./pcc-operational-confidence.ts";
 
 export type PccDashboardProps = {
   loading: boolean;
@@ -4530,6 +4537,22 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
                     <strong>${run.promptTitle}</strong>
                     <span>${run.executor} · ${formatUpdatedAt(Date.parse(run.timestamp))}</span>
                     <p>${run.outputSummary}</p>
+                    <small data-pcc-autopilot-context-summary>
+                      Context: ${run.inputContextSummary || "No context summary recorded."}
+                    </small>
+                    <small data-pcc-autopilot-change-summary>
+                      Changes: ${run.changedFiles.length}
+                      file${run.changedFiles.length === 1 ? "" : "s"} · ${run.artifacts.length}
+                      artifact${run.artifacts.length === 1 ? "" : "s"} · ${run.checksRun.length}
+                      check${run.checksRun.length === 1 ? "" : "s"}
+                    </small>
+                    ${run.approvals.length
+                      ? html`<small data-pcc-autopilot-approval-summary
+                          >Approvals: ${run.approvals.join(", ")}</small
+                        >`
+                      : html`<small data-pcc-autopilot-approval-summary
+                          >Approvals: none used</small
+                        >`}
                     ${run.judgeResult ? html`<em>Judge: ${run.judgeResult.summary}</em>` : nothing}
                   </li>`,
                 )}
@@ -5108,6 +5131,132 @@ function renderBlockerClarityCenter(
   </section>`;
 }
 
+function renderExecutionReadinessCard(detail: PccProjectDetail) {
+  const readiness = buildPccExecutionReadiness(detail);
+  const visibleMissing = readiness.missing.slice(0, 3);
+  return html`<section
+    class="pcc-execution-readiness"
+    data-pcc-execution-readiness
+    data-pcc-readiness-score=${readiness.score}
+  >
+    <div>
+      <p class="pcc-kicker">Readiness</p>
+      <h4>${readiness.score}% · ${readiness.label}</h4>
+      <p>
+        PCC checks setup, blockers, permissions, milestone inputs, and proof before it starts work.
+      </p>
+    </div>
+    <ul class="pcc-execution-readiness__checks">
+      ${readiness.checks.map(
+        (check) => html`<li class=${check.passed ? "is-pass" : "is-blocked"}>
+          <span aria-hidden="true">${check.passed ? "✓" : "!"}</span>
+          ${check.label}
+        </li>`,
+      )}
+    </ul>
+    ${visibleMissing.length
+      ? html`<ol class="pcc-execution-readiness__missing">
+          ${visibleMissing.map((item) => html`<li>${item}</li>`)}
+        </ol>`
+      : html`<p class="pcc-empty pcc-empty--small">No readiness gaps found.</p>`}
+  </section>`;
+}
+
+function renderUniversalPreflightCard(detail: PccProjectDetail) {
+  const preflight = buildPccUniversalPreflight(detail);
+  return html`<section
+    class="pcc-universal-preflight pcc-universal-preflight--${preflight.status}"
+    data-pcc-universal-preflight
+    data-pcc-preflight-status=${preflight.status}
+  >
+    <div>
+      <p class="pcc-kicker">Preflight</p>
+      <h4>${preflight.status === "pass" ? "Safe to prepare work" : "Blocked before work"}</h4>
+      <p>${preflight.summary} ${permissionSummary(detail.permissions)}</p>
+    </div>
+    ${preflight.blockers.length
+      ? html`<ul>
+          ${preflight.blockers.slice(0, 4).map((blocker) => html`<li>${blocker}</li>`)}
+        </ul>`
+      : html`<span class="pcc-status pcc-status--complete">Passed</span>`}
+  </section>`;
+}
+
+function renderProjectScopeLock(detail: PccProjectDetail, props: PccDashboardProps) {
+  const productMode = (props.productFocusMode ?? "pcc_product") === "pcc_product";
+  const excluded = projectIsExcludedFromTodayFocus(detail.summary, detail);
+  return html`<section
+    class="pcc-scope-lock"
+    data-pcc-scope-lock
+    data-pcc-scope-mode=${productMode ? "pcc_product" : "project_work"}
+  >
+    <div>
+      <p class="pcc-kicker">Focus lock</p>
+      <h4>${productMode ? "PCC Product" : "Project Work"}</h4>
+      <p>
+        ${productMode
+          ? "Project-specific blockers stay out of PCC product focus unless you switch modes."
+          : "Project-specific work is visible. PCC product completion stays separate."}
+      </p>
+    </div>
+    <span class="pcc-status">${excluded ? "Project-specific" : "PCC"}</span>
+  </section>`;
+}
+
+function renderInteractionContractMatrix() {
+  const coverage = pccInteractionContractCoverage();
+  return html`<section class="pcc-interaction-contracts" data-pcc-interaction-contract-matrix>
+    <div class="pcc-section-heading">
+      <div>
+        <p class="pcc-kicker">Interaction contract</p>
+        <h4>Buttons and controls PCC must keep working</h4>
+        <p>
+          ${coverage.total} controls tracked · ${coverage.mutating} mutate state ·
+          ${coverage.preflighted} require preflight · ${coverage.reversible} offer undo.
+        </p>
+      </div>
+    </div>
+    <div class="pcc-table-lite" role="table" aria-label="PCC interaction contract matrix">
+      ${PCC_INTERACTION_CONTRACTS.map(
+        (contract) => html`<div role="row" data-pcc-interaction-contract=${contract.id}>
+          <span role="cell">${contract.label}</span>
+          <code role="cell">${contract.selector}</code>
+          <span role="cell">${formatStatus(contract.surface)}</span>
+          <span role="cell">${contract.mutates ? "Saves state" : "Read only"}</span>
+          <span role="cell">${contract.requiresPreflight ? "Preflight" : "No preflight"}</span>
+        </div>`,
+      )}
+    </div>
+  </section>`;
+}
+
+function renderPccRecoveryCenter(props: PccDashboardProps) {
+  if (!props.actionError) {
+    return nothing;
+  }
+  const likelyStale = /stale|refresh|latest|schema|invalid|unexpected|order/iu.test(
+    props.actionError,
+  );
+  return html`<section class="pcc-recovery-center" data-pcc-recovery-center>
+    <div>
+      <p class="pcc-kicker">Recovery Center</p>
+      <h4>${likelyStale ? "Reload clean state, then retry" : "Use the safest recovery path"}</h4>
+      <p>
+        PCC did not save the failed action. Refresh first, then retry from the visible primary
+        action or Reorder mode.
+      </p>
+    </div>
+    <ol>
+      <li>Refresh PCC to load the latest ledger state.</li>
+      <li>Use the visible primary action, not a hidden stale control.</li>
+      <li>If the same error returns, keep the exact message and stop before retrying.</li>
+    </ol>
+    <button class="btn" type="button" ?disabled=${props.loading} @click=${props.onRefresh}>
+      Refresh safely
+    </button>
+  </section>`;
+}
+
 function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProps) {
   const project = detail.project;
   const percent = clampPercent(detail.summary.percentComplete);
@@ -5189,6 +5338,8 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       <em>${resolvedAction.explanation}</em>
     </div>
     ${renderBlockerClarityCenter(detail, props, setupEvaluation)}
+    ${renderExecutionReadinessCard(detail)} ${renderUniversalPreflightCard(detail)}
+    ${renderProjectScopeLock(detail, props)}
     <div class="pcc-project-snapshot__progress">
       <strong>${percent}%</strong>
       <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
@@ -5308,7 +5459,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
   const mode = pccViewMode(props);
   const reorderMode = Boolean(props.reorderMode);
   const terminalProject = projectIsTerminalForWork(detail.project);
-  const collapseCompletedHistory = terminalProject && mode === "simple" && milestones.length > 8;
+  const collapseCompletedHistory = mode === "simple" && milestones.length > 8;
   const canReorder = !terminalProject;
   const reorderDisabledReason = terminalProject
     ? "Completed projects are read-only. Create an improvement or reopen the project before reordering."
@@ -5359,7 +5510,8 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
     </div>
     ${reorderMode && canReorder
       ? html`<p class="pcc-reorder-instruction" data-pcc-reorder-instruction>
-          Drag by the handle, or use ↑ ↓. PCC saves automatically and shows Undo.
+          Reorder mode is on. Drag by the handle, or use ↑ ↓. Action menus are paused until you
+          choose Done reordering. PCC saves automatically and shows Undo.
         </p>`
       : nothing}
     <div class="pcc-journey-phases" data-pcc-journey-phases>
@@ -5389,10 +5541,10 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                 pccResponsibilityForItem(milestone) || "local_openclaw_agent",
               );
               const showActionMenu =
-                !terminalProject ||
-                reorderMode ||
-                mode !== "simple" ||
-                !["complete", "complete_with_maintenance"].includes(milestone.status);
+                !reorderMode &&
+                (!terminalProject ||
+                  mode !== "simple" ||
+                  !["complete", "complete_with_maintenance"].includes(milestone.status));
               return html`<li
                 class="pcc-journey-step pcc-journey-step--${journeyClass}"
                 data-pcc-journey-step
@@ -5400,6 +5552,10 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                 @dragover=${(event: DragEvent) => event.preventDefault()}
                 @drop=${(event: DragEvent) => {
                   event.preventDefault();
+                  if (!reorderMode || !canReorder) {
+                    draggedPccMilestoneId = null;
+                    return;
+                  }
                   const sourceId = getPccDraggedId(event, "milestone", draggedPccMilestoneId);
                   const source = milestones.find((item) => item.id === sourceId);
                   draggedPccMilestoneId = null;
@@ -5418,7 +5574,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                   ${globalIndex}
                 </div>
                 <div class="pcc-journey-step__content">
-                  ${canReorder
+                  ${reorderMode && canReorder
                     ? html`<div class="pcc-journey-step__toolbar" data-pcc-reorder-toolbar>
                         <button
                           class="pcc-drag-handle"
@@ -5599,7 +5755,7 @@ function renderProjectDetail(props: PccDashboardProps) {
                   ${renderContextPackageCard(detail)}
                 </section>
                 <section data-pcc-detail-tab-panel="diagnostics">
-                  ${renderImpactDetailCards(detail, props)}
+                  ${renderInteractionContractMatrix()} ${renderImpactDetailCards(detail, props)}
                 </section>
               `}
         </details>
@@ -5971,6 +6127,7 @@ function renderSubMilestoneList(
   options: { compact?: boolean; showDrilldown?: boolean } = {},
 ) {
   const subMilestones = subMilestonesForMilestone(props.projectDetail, milestone);
+  const reorderMode = Boolean(props.reorderMode);
   if (subMilestones.length === 0) {
     return html`<div class="pcc-empty pcc-empty--small">No sub-milestones recorded</div>`;
   }
@@ -5989,6 +6146,10 @@ function renderSubMilestoneList(
         @dragover=${(event: DragEvent) => event.preventDefault()}
         @drop=${(event: DragEvent) => {
           event.preventDefault();
+          if (!reorderMode) {
+            draggedPccSubMilestoneId = null;
+            return;
+          }
           const sourceId = getPccDraggedId(event, "submilestone", draggedPccSubMilestoneId);
           const source = subMilestones.find((item) => item.id === sourceId);
           draggedPccSubMilestoneId = null;
@@ -6001,23 +6162,25 @@ function renderSubMilestoneList(
         }}
       >
         <div class="pcc-submilestone__main">
-          <button
-            class="pcc-drag-handle"
-            type="button"
-            data-pcc-drag-handle="submilestone"
-            draggable="true"
-            aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
-            @dragstart=${(event: DragEvent) => {
-              setPccDragData(event, "submilestone", subMilestone.id);
-              draggedPccSubMilestoneId = subMilestone.id;
-            }}
-            @dragend=${() => {
-              draggedPccSubMilestoneId = null;
-            }}
-          >
-            ☰
-          </button>
-          ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}
+          ${reorderMode
+            ? html`<button
+                  class="pcc-drag-handle"
+                  type="button"
+                  data-pcc-drag-handle="submilestone"
+                  draggable="true"
+                  aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
+                  @dragstart=${(event: DragEvent) => {
+                    setPccDragData(event, "submilestone", subMilestone.id);
+                    draggedPccSubMilestoneId = subMilestone.id;
+                  }}
+                  @dragend=${() => {
+                    draggedPccSubMilestoneId = null;
+                  }}
+                >
+                  ☰
+                </button>
+                ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}`
+            : nothing}
           <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
           <div>
             <strong>${subMilestone.title}</strong>
@@ -6030,7 +6193,7 @@ function renderSubMilestoneList(
           <span class="pcc-status pcc-status--${subMilestone.status}"
             >${formatStatus(subMilestone.status)}</span
           >
-          ${renderSubMilestoneActionMenu(subMilestone, props)}
+          ${reorderMode ? nothing : renderSubMilestoneActionMenu(subMilestone, props)}
         </div>
         <div class="pcc-project-card__meta">
           <span>${percent}%</span>
@@ -6835,21 +6998,22 @@ function renderMilestoneEditor(props: PccDashboardProps) {
 
 function renderPccActionFeedback(props: PccDashboardProps) {
   if (props.actionError) {
-    return html`<div class="pcc-callout pcc-callout--danger" role="alert" data-pcc-action-error>
-      <div>
-        <strong>Action failed — nothing was saved</strong>
-        <span>${props.actionError}</span>
-        <small>Refresh to reload the latest PCC state, then retry the action.</small>
-      </div>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        ?disabled=${props.loading}
-        @click=${props.onRefresh}
-      >
-        Retry refresh
-      </button>
-    </div>`;
+    return html`${renderPccRecoveryCenter(props)}
+      <div class="pcc-callout pcc-callout--danger" role="alert" data-pcc-action-error>
+        <div>
+          <strong>Action failed — nothing was saved</strong>
+          <span>${props.actionError}</span>
+          <small>Refresh to reload the latest PCC state, then retry the action.</small>
+        </div>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          ?disabled=${props.loading}
+          @click=${props.onRefresh}
+        >
+          Retry refresh
+        </button>
+      </div>`;
   }
   if (props.actionNotice) {
     return html`<div class="pcc-callout pcc-callout--success" data-pcc-action-notice role="status">
