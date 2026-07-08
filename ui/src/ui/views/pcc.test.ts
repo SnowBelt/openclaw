@@ -196,7 +196,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     projectDetail: {
       project,
       milestones: [milestone],
-      subMilestones: [],
+      subMilestones: [subMilestone],
       permissions: [permission],
       evidence: [],
       receipts: [],
@@ -271,7 +271,7 @@ describe("renderPccDashboard", () => {
     const projectCardBlocker =
       container.querySelector("[data-pcc-project-card-blocker]")?.textContent ?? "";
     expect(projectCardBlocker).toContain("Blocked");
-    expect(projectCardBlocker).toContain("Run remote proof");
+    expect(projectCardBlocker).toContain("Remote Proof");
     expect(projectCardBlocker).not.toContain("Blocked by:");
     expect(
       container.querySelector("[data-pcc-project-card-skim-facts]")?.textContent,
@@ -334,13 +334,17 @@ describe("renderPccDashboard", () => {
 
   it("renders mobile PCC section controls over existing project sections", () => {
     const container = renderView(createProps());
+    const rail = container.querySelector("[data-pcc-mobile-command-rail]");
+    expect(rail).not.toBeNull();
+    expect(rail?.textContent).toContain("Project Command Center");
+    expect(rail?.textContent).toContain("Review Permission");
     const tabs = container.querySelector("[data-pcc-mobile-section-tabs]");
     expect(tabs).not.toBeNull();
     expect(tabs?.textContent).toContain("Projects");
-    expect(tabs?.textContent).toContain("Current");
-    expect(tabs?.textContent).toContain("Milestones");
-    expect(tabs?.textContent).toContain("Autopilot");
-    expect(tabs?.textContent).toContain("More");
+    expect(tabs?.textContent).toContain("Status");
+    expect(tabs?.textContent).toContain("Steps");
+    expect(tabs?.textContent).toContain("AI Loop");
+    expect(tabs?.textContent).toContain("Details");
     expect(container.querySelector('[data-pcc-mobile-section="projects"]')).not.toBeNull();
     expect(container.querySelector('[data-pcc-mobile-section="current"]')).not.toBeNull();
     expect(container.querySelector('[data-pcc-mobile-section="milestones"]')).not.toBeNull();
@@ -349,6 +353,60 @@ describe("renderPccDashboard", () => {
     for (const button of container.querySelectorAll("[data-pcc-mobile-section-tab]")) {
       expect(button.getAttribute("aria-label")).toMatch(/^Open PCC /u);
     }
+  });
+
+  it("uses one resolved primary action across hero and mobile rail", () => {
+    const onSetViewMode = vi.fn();
+    const container = renderView(createProps({ onSetViewMode }));
+    const heroAction = container.querySelector("[data-pcc-primary-action] button");
+    const mobileAction = container.querySelector("[data-pcc-mobile-primary-action]");
+
+    expect(heroAction?.textContent).toContain("Review Permission");
+    expect(mobileAction?.textContent).toContain("Review Permission");
+    expect(heroAction?.getAttribute("data-pcc-primary-action-id")).toBe("review_permission");
+    (heroAction as HTMLButtonElement).click();
+    expect(onSetViewMode).toHaveBeenCalledWith("detailed");
+  });
+
+  it("shows complete projects as maintenance with no misleading work CTA", () => {
+    const completeProject = {
+      ...project,
+      status: "complete_with_maintenance" as const,
+    };
+    const completeSummary = {
+      ...summary,
+      status: "complete_with_maintenance" as const,
+      milestoneCounts: { ...summary.milestoneCounts, complete: 5, needsApproval: 0 },
+      percentComplete: 100,
+      nextActions: [],
+      proofGaps: [],
+    };
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: completeProject,
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary: completeSummary,
+        },
+        projects: [completeSummary],
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-primary-action]")?.textContent).toContain(
+      "No Action Required",
+    );
+    expect(container.querySelector("[data-pcc-primary-action]")?.textContent).not.toContain(
+      "Fix Setup with AI",
+    );
+    expect(container.querySelector("[data-pcc-work-loop]")?.textContent).toContain(
+      "No Action Required",
+    );
   });
 
   it("shows a selected-project activity timeline from milestones, proof, receipts, and decisions", () => {
@@ -438,6 +496,21 @@ describe("renderPccDashboard", () => {
             proofGaps: ["Browser proof missing"],
           },
         ],
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary: {
+            ...summary,
+            nextActions: ["Continue implementation"],
+            proofGaps: ["Browser proof missing"],
+          },
+        },
       }),
     );
 
@@ -1627,12 +1700,12 @@ describe("renderPccDashboard", () => {
       container.querySelectorAll<HTMLButtonElement>("[data-pcc-primary-action] button"),
     );
     const maintenanceButton = primaryButtons.find((button) =>
-      button.textContent?.includes("Review Maintenance"),
+      button.textContent?.includes("No Action Required"),
     );
     expect(maintenanceButton).not.toBeUndefined();
-    expect(maintenanceButton?.disabled).toBe(false);
+    expect(maintenanceButton?.disabled).toBe(true);
     maintenanceButton?.click();
-    expect(onSetViewMode).toHaveBeenCalledWith("detailed");
+    expect(onSetViewMode).not.toHaveBeenCalled();
     expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
   });
 
@@ -2654,7 +2727,9 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Setup score");
     expect(text).toContain("100/100");
     expect(text).toContain("Passing");
-    expect(text).toContain("Project is complete or archived; reopen it before starting new work.");
+    expect(text).toContain(
+      "This project is complete. Review history or start a new improvement only when maintenance is needed.",
+    );
   });
 
   it("renders project editor and saves form changes", () => {
@@ -3324,7 +3399,9 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-deferred-project-banner]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-detail-tabs]")?.textContent).toContain("Plan");
     expect(container.querySelector("[data-pcc-detail-tabs]")?.textContent).toContain("Proof");
-    expect(container.querySelector("[data-pcc-safety-settings]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-work-loop]")?.textContent).toContain(
+      "Resume Project",
+    );
     expect(container.querySelector("[data-pcc-action-undo]")).not.toBeNull();
     container.querySelector<HTMLButtonElement>("[data-pcc-action-undo]")?.click();
     expect(onUndoAction).toHaveBeenCalledTimes(1);

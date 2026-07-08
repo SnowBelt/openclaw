@@ -516,6 +516,26 @@ async function main() {
       .getByText("AI Autofill Preview", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
+
+    phase = "testing mobile command rail";
+    summary.phase = phase;
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileRail = page.locator("[data-pcc-mobile-command-rail]").first();
+    await mobileRail.waitFor({ state: "visible", timeout: 15_000 });
+    const mobilePrimaryActionVisible = await page
+      .locator("[data-pcc-mobile-primary-action]")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    for (const tab of ["projects", "current", "milestones", "autopilot", "more"]) {
+      await page.locator(`[data-pcc-mobile-section-tab="${tab}"]`).first().click({ force: true });
+      await page.waitForTimeout(150);
+    }
+    const mobileSectionNavigationWorked =
+      (await page
+        .locator('[data-pcc-mobile-section-tab="more"]')
+        .first()
+        .getAttribute("aria-current")) === "true";
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
     phase = "summarizing live disposable proof";
@@ -538,6 +558,9 @@ async function main() {
         .first()
         .isVisible()
         .catch(() => false),
+      mobileCommandRailVisible: await mobileRail.isVisible().catch(() => false),
+      mobilePrimaryActionVisible,
+      mobileSectionNavigationWorked,
       noSnesMutation: true,
     };
     summary.ok = Object.values(summary.checks as Record<string, boolean>).every(Boolean);

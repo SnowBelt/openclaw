@@ -3597,6 +3597,10 @@
   display: none;
 }
 
+.pcc-mobile-command-rail {
+  display: none;
+}
+
 .pcc-today {
   border-radius: 18px;
   box-shadow: 0 8px 22px color-mix(in srgb, var(--shadow) 5%, transparent);
@@ -3714,6 +3718,20 @@
   text-align: right;
 }
 
+.pcc-blocker-center__list small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+
+.pcc-completed-history-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 10px 0 0;
+}
+
 @media (max-width: 760px) {
   .pcc-shell {
     gap: 10px;
@@ -3749,9 +3767,7 @@
 
   .pcc-today {
     border-radius: 18px;
-    position: sticky;
-    top: 0;
-    z-index: 9;
+    position: static;
   }
 
   .pcc-today__bar {
@@ -3787,20 +3803,71 @@
     width: 100%;
   }
 
-  .pcc-mobile-section-tabs {
+  .pcc-mobile-command-rail {
     background: color-mix(in srgb, var(--panel) 94%, transparent);
     border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
-    border-radius: 999px;
+    border-radius: 22px;
     box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow) 7%, transparent);
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 12;
+  }
+
+  .pcc-mobile-command-rail__project,
+  .pcc-mobile-command-rail__actions {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .pcc-mobile-command-rail__project button {
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    cursor: pointer;
+    display: grid;
+    flex: 1 1 auto;
+    font: inherit;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+  }
+
+  .pcc-mobile-command-rail__project button span,
+  .pcc-mobile-command-rail__actions span {
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .pcc-mobile-command-rail__project button strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pcc-mobile-command-rail__actions {
+    flex-wrap: wrap;
+  }
+
+  .pcc-mobile-command-rail__actions .btn {
+    flex: 1 1 140px;
+    min-height: 38px;
+  }
+
+  .pcc-mobile-section-tabs {
     display: flex;
     gap: 4px;
-    margin: 0;
     overflow-x: auto;
-    padding: 4px;
-    position: sticky;
     scrollbar-width: none;
-    top: 64px;
-    z-index: 8;
   }
 
   .pcc-mobile-section-tabs::-webkit-scrollbar {
@@ -3822,7 +3889,8 @@
     white-space: nowrap;
   }
 
-  .pcc-mobile-section-tabs button:first-child,
+  .pcc-mobile-section-tabs button.is-active,
+  .pcc-mobile-section-tabs button[aria-current="true"],
   .pcc-mobile-section-tabs button:focus-visible {
     background: color-mix(in srgb, var(--accent) 12%, var(--surface));
     color: var(--text);
@@ -3892,7 +3960,7 @@
   .pcc-autopilot,
   .pcc-work-loop,
   .pcc-detail-drawer {
-    scroll-margin-top: 126px;
+    scroll-margin-top: 150px;
   }
 
   .pcc-project-snapshot__facts,

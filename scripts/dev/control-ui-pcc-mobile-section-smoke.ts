@@ -223,13 +223,15 @@ async function main(): Promise<void> {
 
     requireSelector(root, "[data-pcc-shell]");
     requireSelector(root, "[data-pcc-today-compact-bar]");
+    requireSelector(root, "[data-pcc-mobile-command-rail]");
+    requireSelector(root, "[data-pcc-mobile-primary-action]");
     requireSelector(root, "[data-pcc-mobile-section-tabs]");
     for (const id of ["projects", "current", "milestones", "autopilot", "more"]) {
       requireSelector(root, `[data-pcc-mobile-section-tab="${id}"]`);
       requireSelector(root, `[data-pcc-mobile-section="${id}"]`);
     }
-    assertOrder(root, "[data-pcc-today]", "[data-pcc-mobile-section-tabs]");
-    assertOrder(root, "[data-pcc-mobile-section-tabs]", "[data-pcc-mobile-section=projects]");
+    assertOrder(root, "[data-pcc-today]", "[data-pcc-mobile-command-rail]");
+    assertOrder(root, "[data-pcc-mobile-command-rail]", "[data-pcc-mobile-section=projects]");
     const visibleText = root.textContent ?? "";
     for (const expected of [
       "Project Command Center",
@@ -237,10 +239,10 @@ async function main(): Promise<void> {
       "My Projects",
       "Next",
       "Projects",
-      "Current",
-      "Milestones",
-      "Autopilot",
-      "More",
+      "Status",
+      "Steps",
+      "AI Loop",
+      "Details",
       "Mobile PCC section",
     ]) {
       if (!visibleText.includes(expected)) {
