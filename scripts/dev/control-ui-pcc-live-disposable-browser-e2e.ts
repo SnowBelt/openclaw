@@ -411,6 +411,24 @@ async function main() {
       .getByText("Autopilot prompts generated", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
+    await page
+      .locator("[data-pcc-autopilot-permission-request]")
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const startDisabledBeforePermission = await page
+      .locator("[data-pcc-autopilot-start]")
+      .first()
+      .isDisabled();
+    if (!startDisabledBeforePermission) {
+      throw new Error(
+        "Autopilot start should be disabled until medium-risk permission is approved",
+      );
+    }
+    await page.locator("[data-pcc-autopilot-allow-medium]").first().click({ force: true });
+    await page
+      .getByText("Autopilot permission saved", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
     await page.locator("[data-pcc-autopilot-start]").first().click({ force: true });
     await page
       .getByText("Autopilot safe loop ran", { exact: false })
