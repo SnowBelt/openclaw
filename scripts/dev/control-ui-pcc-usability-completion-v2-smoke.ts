@@ -313,8 +313,12 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-planner-model]");
     requireSelector(root, "[data-pcc-model-refresh-status]");
     requireSelector(root, "[data-pcc-setup-repair]");
+
+    render(renderPccDashboard({ ...props, reorderMode: true } as never), root);
     requireSelector(root, '[data-pcc-milestone-id="action-reliability"] .pcc-drag-handle');
     requireSelector(root, '[data-pcc-submilestone-id="sub-action-notice"] .pcc-drag-handle');
+    render(renderPccDashboard(props as never), root);
+
     requireText(text, "Active");
     requireText(text, "Needs You");
     requireText(text, "On Hold");
