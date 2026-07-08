@@ -276,12 +276,25 @@ async function main() {
         productText.includes("PCC Product"),
     };
 
-    render(
-      renderPccDashboard({
-        ...baseProps,
-        productFocusMode: "project_work",
-        selectedProjectId: "snes-game-creator",
-        projectDetail: {
+    const projectWorkProps = {
+      ...baseProps,
+      productFocusMode: "project_work",
+      selectedProjectId: "snes-game-creator",
+      projectDetail: {
+        project: snesProject,
+        milestones: [
+          milestone("snes-1", "snes-game-creator", "Intake", 1, "complete"),
+          milestone("snes-2", "snes-game-creator", "Toolchain preflight", 2),
+        ],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary: snesSummary,
+      },
+      projectDetails: {
+        ...baseProps.projectDetails,
+        "snes-game-creator": {
           project: snesProject,
           milestones: [
             milestone("snes-1", "snes-game-creator", "Intake", 1, "complete"),
@@ -293,25 +306,10 @@ async function main() {
           receipts: [],
           summary: snesSummary,
         },
-        projectDetails: {
-          ...baseProps.projectDetails,
-          "snes-game-creator": {
-            project: snesProject,
-            milestones: [
-              milestone("snes-1", "snes-game-creator", "Intake", 1, "complete"),
-              milestone("snes-2", "snes-game-creator", "Toolchain preflight", 2),
-            ],
-            subMilestones: [],
-            permissions: [],
-            evidence: [],
-            receipts: [],
-            summary: snesSummary,
-          },
-        },
-        reorderMode: true,
-      }),
-      root,
-    );
+      },
+    };
+
+    render(renderPccDashboard({ ...projectWorkProps, reorderMode: true }), root);
     await new Promise((resolve) => {
       setTimeout(resolve, 0);
     });
@@ -325,6 +323,11 @@ async function main() {
         '[data-pcc-milestone-id="snes-2"] [data-pcc-reorder="milestone-up"]',
       )
       ?.click();
+    const reorderEnabled =
+      root.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.disabled === false;
+    const keyboardMoveCallsReorder = calls.includes("move:snes-2->snes-1");
+
+    render(renderPccDashboard({ ...projectWorkProps, reorderMode: false }), root);
     const menuTrigger = root.querySelector<HTMLButtonElement>(
       '[data-pcc-milestone-id="snes-2"] [data-pcc-action-menu-trigger]',
     );
@@ -338,9 +341,8 @@ async function main() {
     const checksProjectWork = {
       snesCardVisibleInProjectWork: root.textContent?.includes("SNES Game Creator") === true,
       snesOpenCallback: calls.includes("select:snes-game-creator"),
-      reorderEnabled:
-        root.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.disabled === false,
-      keyboardMoveCallsReorder: calls.includes("move:snes-2->snes-1"),
+      reorderEnabled,
+      keyboardMoveCallsReorder,
       actionMenuOpensAccessibly: menuOpen,
       menuTriggerExpanded: menuTrigger?.getAttribute("aria-expanded") === "true",
     };

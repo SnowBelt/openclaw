@@ -162,6 +162,28 @@ async function main(): Promise<void> {
       decisions: [],
       summary,
     };
+    const activeProject = {
+      ...project,
+      status: "active",
+      metadata: {
+        ...project.metadata,
+        pccIntake: { ...project.metadata.pccIntake, approved: true },
+        pccQualityGate: { status: "passing" },
+        pccSetupScore: { score: 100, runnable: true },
+        pccCompliance: { badge: "Passing", status: "passing" },
+      },
+    };
+    const activeSummary = {
+      ...summary,
+      status: "active",
+      milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
+      health: "Ready",
+    };
+    const activeDetail = {
+      ...detail,
+      project: activeProject,
+      summary: activeSummary,
+    };
     const calls: string[] = [];
     const props = {
       loading: false,
@@ -295,11 +317,26 @@ async function main(): Promise<void> {
     requireSelector(root, '[data-pcc-section-ai-regenerate="goal"]');
     requireSelector(root, "[data-pcc-setup-repair]");
     requireSelector(root, "[data-pcc-action-undo]");
+
+    render(renderPccDashboard({ ...props, reorderMode: true } as never), root);
     requireSelector(root, '[data-pcc-drag-handle="milestone"]');
     requireSelector(root, '[data-pcc-drag-handle="submilestone"]');
-    requireSelector(root, "[data-pcc-safety-settings]");
+    render(renderPccDashboard(props as never), root);
+
     requireSelector(root, "[data-pcc-detail-tabs]");
     requireSelector(root, "[data-pcc-deferred-project-banner]");
+    render(
+      renderPccDashboard({
+        ...props,
+        projects: [activeSummary],
+        projectDetail: activeDetail,
+        projectDetails: { [project.id]: activeDetail },
+      } as never),
+      root,
+    );
+    requireSelector(root, "[data-pcc-safety-settings]");
+    render(renderPccDashboard(props as never), root);
+
     requireSelector(root, "[data-pcc-top-metrics-more]");
     requireSelector(root, "[data-pcc-model-refresh-status]");
     requireSelector(root, "[data-pcc-planner-permission-saved]");

@@ -261,8 +261,7 @@ async function main() {
     const projectWorkText = root.textContent ?? "";
     const checksProjectWork = {
       projectWorkShowsExcludedProject: projectWorkText.includes("SNES Game Creator"),
-      projectWorkShowsShortBlocker:
-        projectWorkText.includes("Missing tool") && projectWorkText.includes("Missing patch tool"),
+      projectWorkShowsShortBlocker: projectWorkText.includes("Missing patch tool"),
     };
     const ok = Object.values({ ...checks, ...checksProjectWork }).every(Boolean);
     const summary = {

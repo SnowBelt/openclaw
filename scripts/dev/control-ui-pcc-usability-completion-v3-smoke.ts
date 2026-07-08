@@ -369,6 +369,8 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-planner-permission-scope]");
     requireSelector(root, "[data-pcc-planner-permission-budget]");
     requireSelector(root, "[data-pcc-setup-repair]");
+
+    render(renderPccDashboard({ ...props, reorderMode: true } as never), root);
     requireSelector(
       root,
       '[data-pcc-milestone-id="action-reliability"] [data-pcc-drag-handle="milestone"]',
@@ -479,6 +481,7 @@ async function main(): Promise<void> {
       );
     }
 
+    render(renderPccDashboard(props as never), root);
     const menuButton = requireSelector(
       root,
       "[data-pcc-action-menu] .pcc-action-menu__trigger",
