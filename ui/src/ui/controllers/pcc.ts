@@ -19,6 +19,7 @@ import {
 } from "../../../../src/pcc/intake-quality.js";
 import {
   normalizePccResponsibility,
+  pccWorkScopeForProject,
   pccResponsibilityForItem,
 } from "../../../../src/pcc/metadata.js";
 import {
@@ -1258,6 +1259,7 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
   const cached = state.pccProjectDetails?.[projectId];
   if (cached) {
     state.pccProjectDetail = cached;
+    state.pccProductFocusMode = pccWorkScopeForProject(cached.project);
   } else if (state.pccProjectDetail?.project.id !== projectId) {
     state.pccProjectDetail = null;
   }
@@ -1268,6 +1270,7 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     });
     state.pccSelectedProjectId = detail.project.id;
     state.pccProjectDetail = normalizePccProjectDetail(detail);
+    state.pccProductFocusMode = pccWorkScopeForProject(state.pccProjectDetail.project);
     state.pccProjectDetails = {
       ...state.pccProjectDetails,
       [detail.project.id]: state.pccProjectDetail,
@@ -3090,6 +3093,7 @@ export async function resumePccProjectForWork(state: PccDashboardState): Promise
       updatedAt: now,
       metadata: {
         ...metadata,
+        pccWorkScope: "project_work",
         pccCurrentScope: "active_project_work",
         excludedFromPccProductCompletion: metadata.excludedFromPccProductCompletion ?? true,
         pccResumedAt: now,
@@ -3155,6 +3159,15 @@ export async function updatePccWorkLoopSettings(
     if (!state.client) {
       return;
     }
+    const projectScope = pccWorkScopeForProject(detail.project);
+    const focusScope = state.pccProductFocusMode ?? projectScope;
+    if (focusScope !== projectScope) {
+      state.pccActionError =
+        projectScope === "pcc_product"
+          ? "This is PCC Product work. Switch to PCC Product before preparing it."
+          : "This is Project Work. Switch to Project Work before preparing it.";
+      return;
+    }
     const setupEvaluation = evaluatePccProjectSetup({
       project: detail.project,
       milestones: detail.milestones,
@@ -3186,6 +3199,15 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
   }
   await withPccAction(state, async () => {
     if (!state.client) {
+      return;
+    }
+    const projectScope = pccWorkScopeForProject(detail.project);
+    const focusScope = state.pccProductFocusMode ?? projectScope;
+    if (focusScope !== projectScope) {
+      state.pccActionError =
+        projectScope === "pcc_product"
+          ? "This is PCC Product work. Switch to PCC Product before preparing it."
+          : "This is Project Work. Switch to Project Work before preparing it.";
       return;
     }
     const setupEvaluation = evaluatePccProjectSetup({

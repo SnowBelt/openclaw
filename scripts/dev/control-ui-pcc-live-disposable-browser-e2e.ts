@@ -140,6 +140,7 @@ async function upsertProject(
       status: "active",
       priority: 1,
       metadata: {
+        pccWorkScope: "project_work",
         pccCurrentScope: "active_project_work",
         excludedFromPccProductCompletion: true,
         pccDisposableBrowserProof: true,
@@ -176,6 +177,7 @@ async function archiveProject(id: string, title: string): Promise<void> {
       title,
       status: "archived",
       metadata: {
+        pccWorkScope: "project_work",
         pccCurrentScope: "active_project_work",
         excludedFromPccProductCompletion: true,
         pccDisposableBrowserProof: true,

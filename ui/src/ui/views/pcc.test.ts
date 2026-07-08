@@ -1087,6 +1087,7 @@ describe("renderPccDashboard", () => {
       createProps({
         projects: [summary, kitchenSummary],
         projectDetails: { "project-1": createProps().projectDetail!, "project-2": kitchenDetail },
+        productFocusMode: "project_work",
         projectSearchQuery: "permits",
         onSetProjectSearchQuery,
       }),
@@ -1584,12 +1585,14 @@ describe("renderPccDashboard", () => {
       ...summary,
       id: "snes-game-creator",
       title: "SNES Game Creator",
+      pccWorkScope: "project_work" as const,
       nextActions: ["Resolve SNES toolchain blocker"],
     };
     const pccSummary = {
       ...summary,
       id: "project-command-center",
       title: "Project Command Center",
+      pccWorkScope: "pcc_product" as const,
       status: "complete_with_maintenance" as const,
       percentComplete: 100,
       milestoneCounts: { ...summary.milestoneCounts, total: 35, complete: 35, needsApproval: 0 },
@@ -1640,6 +1643,9 @@ describe("renderPccDashboard", () => {
       ),
     ).toBe(false);
     expect(productMode.textContent).toContain("PCC Product");
+    expect(productMode.textContent).toContain(
+      "This is PCC Product work. It affects PCC completion.",
+    );
 
     const projectMode = renderView(
       createProps({
@@ -1654,7 +1660,10 @@ describe("renderPccDashboard", () => {
     expect(projectMode.querySelector("[data-pcc-project-card]")?.textContent).toContain(
       "SNES Game Creator",
     );
-    expect(projectMode.textContent).toContain("My Projects");
+    expect(projectMode.textContent).toContain("Project Work");
+    expect(projectMode.textContent).toContain(
+      "This is Project Work. It does not block PCC product completion.",
+    );
   });
 
   it("keeps completed PCC projects out of setup and runner dead-end states", () => {

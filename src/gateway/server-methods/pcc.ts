@@ -32,7 +32,9 @@ import {
   validatePccSummaryGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import {
+  canonicalizePccProjectForWrite,
   canonicalizePccWorkItemForWrite,
+  pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
@@ -690,6 +692,7 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     ...(metadata.excludedFromPccProductCompletion === true
       ? { excludedFromPccProductCompletion: true }
       : {}),
+    pccWorkScope: pccWorkScopeForProject({ ...project, metadata }),
     ...(metadataStringValue(metadata.pccCurrentScope)
       ? { pccCurrentScope: metadataStringValue(metadata.pccCurrentScope) }
       : {}),
@@ -812,40 +815,43 @@ function upsertProject(
   if (transitionError) {
     return { error: transitionError };
   }
-  const project: PccProject = {
-    id: existing?.id ?? input.id ?? makeId("project", input.title),
-    title: input.title,
-    status,
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp,
-    ...(input.goal !== undefined
-      ? { goal: input.goal }
-      : existing?.goal !== undefined
-        ? { goal: existing.goal }
-        : {}),
-    ...(input.owner !== undefined
-      ? { owner: input.owner }
-      : existing?.owner !== undefined
-        ? { owner: existing.owner }
-        : {}),
-    ...(input.priority !== undefined
-      ? { priority: input.priority }
-      : existing?.priority !== undefined
-        ? { priority: existing.priority }
-        : {}),
-    ...(input.phases !== undefined
-      ? { phases: input.phases }
-      : existing?.phases !== undefined
-        ? { phases: existing.phases }
-        : !existing
-          ? { phases: DEFAULT_PCC_PHASES }
+  const project: PccProject = canonicalizePccProjectForWrite(
+    {
+      id: existing?.id ?? input.id ?? makeId("project", input.title),
+      title: input.title,
+      status,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      ...(input.goal !== undefined
+        ? { goal: input.goal }
+        : existing?.goal !== undefined
+          ? { goal: existing.goal }
           : {}),
-    ...(input.metadata !== undefined
-      ? { metadata: input.metadata }
-      : existing?.metadata !== undefined
-        ? { metadata: existing.metadata }
-        : {}),
-  };
+      ...(input.owner !== undefined
+        ? { owner: input.owner }
+        : existing?.owner !== undefined
+          ? { owner: existing.owner }
+          : {}),
+      ...(input.priority !== undefined
+        ? { priority: input.priority }
+        : existing?.priority !== undefined
+          ? { priority: existing.priority }
+          : {}),
+      ...(input.phases !== undefined
+        ? { phases: input.phases }
+        : existing?.phases !== undefined
+          ? { phases: existing.phases }
+          : !existing
+            ? { phases: DEFAULT_PCC_PHASES }
+            : {}),
+      ...(input.metadata !== undefined
+        ? { metadata: input.metadata }
+        : existing?.metadata !== undefined
+          ? { metadata: existing.metadata }
+          : {}),
+    },
+    timestamp,
+  );
   return { project: setAt(ledger.projects, project) };
 }
 
@@ -1600,6 +1606,7 @@ function repairCanonicalMetadataForLedger(
   ledger: PccLedger,
   params: Record<string, unknown>,
 ): {
+  repairedProjectIds: string[];
   repairedMilestoneIds: string[];
   repairedSubMilestoneIds: string[];
   repairedReceiptIds: string[];
@@ -1617,7 +1624,18 @@ function repairCanonicalMetadataForLedger(
       .map((project) => project.id),
   );
   const now = nowIso();
+  const repairedProjectIds: string[] = [];
   const repairedReceiptIds: string[] = [];
+  ledger.projects = ledger.projects.map((project) => {
+    if (!eligibleProjectIds.has(project.id)) {
+      return project;
+    }
+    const repaired = canonicalizePccProjectForWrite(project, now);
+    if (JSON.stringify(repaired) !== JSON.stringify(project)) {
+      repairedProjectIds.push(project.id);
+    }
+    return repaired;
+  });
   const eligibleMilestones = ledger.milestones.filter((milestone) =>
     eligibleProjectIds.has(milestone.projectId),
   );
@@ -1658,6 +1676,7 @@ function repairCanonicalMetadataForLedger(
     return { ...receipt, proofLevel };
   });
   return {
+    repairedProjectIds,
     repairedMilestoneIds: [
       ...new Set([...milestoneRepair.repairedIds, ...orderRepair.repairedIds]),
     ],

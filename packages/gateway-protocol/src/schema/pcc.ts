@@ -298,6 +298,9 @@ export const PccProjectSummarySchema = Type.Object(
     health: Type.Optional(Type.String({ maxLength: 512 })),
     dueDate: Type.Optional(TimestampSchema),
     excludedFromPccProductCompletion: Type.Optional(Type.Boolean()),
+    pccWorkScope: Type.Optional(
+      Type.Union([Type.Literal("pcc_product"), Type.Literal("project_work")]),
+    ),
     pccCurrentScope: Type.Optional(Type.String({ maxLength: 512 })),
     pccProductScope: Type.Optional(Type.String({ maxLength: 512 })),
     workflowTemplateId: Type.Optional(Type.String({ maxLength: 512 })),

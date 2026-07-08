@@ -1,10 +1,13 @@
 import type {
   PccMilestone,
+  PccProject,
+  PccProjectSummary,
   PccStatus,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 
 type PccWorkItem = PccMilestone | PccSubMilestone;
+export type PccWorkScope = "pcc_product" | "project_work";
 
 const TERMINAL_WORK_STATUSES = new Set<PccStatus>([
   "complete",
@@ -21,6 +24,89 @@ export function pccMetadataObject(value: unknown): Record<string, unknown> {
 
 function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizedScopeString(value: unknown): string {
+  return trimmedString(value)
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+export function normalizePccWorkScope(value: unknown): PccWorkScope | "" {
+  const raw = normalizedScopeString(value);
+  if (!raw) {
+    return "";
+  }
+  if (raw === "pcc_product" || raw === "pcc" || raw.includes("pcc_product")) {
+    return "pcc_product";
+  }
+  if (
+    raw === "project_work" ||
+    raw === "active_project_work" ||
+    raw.includes("project_specific") ||
+    raw.includes("excluded_from_pcc_product") ||
+    raw.includes("active_project_work")
+  ) {
+    return "project_work";
+  }
+  return "";
+}
+
+export function pccWorkScopeForProject(
+  project: { id: string; metadata?: unknown; title?: string } & Partial<
+    Pick<
+      PccProjectSummary,
+      "excludedFromPccProductCompletion" | "pccCurrentScope" | "pccProductScope" | "pccWorkScope"
+    >
+  >,
+): PccWorkScope {
+  const metadata = pccMetadataObject(project.metadata);
+  if (
+    project.id === "project-command-center" ||
+    trimmedString(project.title) === "Project Command Center"
+  ) {
+    return "pcc_product";
+  }
+  const direct =
+    normalizePccWorkScope(project.pccWorkScope) || normalizePccWorkScope(metadata.pccWorkScope);
+  if (direct) {
+    return direct;
+  }
+  if (
+    project.excludedFromPccProductCompletion === true ||
+    metadata.excludedFromPccProductCompletion === true
+  ) {
+    return "project_work";
+  }
+  const legacyScope =
+    normalizePccWorkScope(project.pccCurrentScope) ||
+    normalizePccWorkScope(project.pccProductScope) ||
+    normalizePccWorkScope(metadata.pccCurrentScope) ||
+    normalizePccWorkScope(metadata.pccProductScope);
+  return legacyScope || "project_work";
+}
+
+export function pccWorkScopeLabel(scope: PccWorkScope): string {
+  return scope === "pcc_product" ? "PCC Product" : "Project Work";
+}
+
+export function canonicalizePccProjectForWrite<TProject extends PccProject>(
+  project: TProject,
+  now: string,
+): TProject {
+  const metadata = { ...pccMetadataObject(project.metadata) };
+  const scope = pccWorkScopeForProject(project);
+  if (metadata.pccWorkScope === scope) {
+    return project;
+  }
+  return {
+    ...project,
+    metadata: {
+      ...metadata,
+      pccWorkScope: scope,
+      pccScopeCanonicalizedAt: now,
+    },
+  };
 }
 
 function hasCriteria(value: unknown): value is string[] {

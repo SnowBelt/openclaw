@@ -236,7 +236,7 @@ async function main(): Promise<void> {
     for (const expected of [
       "Project Command Center",
       "PCC Product",
-      "My Projects",
+      "Project Work",
       "Next",
       "Projects",
       "Status",

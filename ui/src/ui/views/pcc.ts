@@ -25,7 +25,11 @@ import {
   pccMissingRequiredIntakeAnswers,
   recommendPccWorkflow,
 } from "../../../../src/pcc/intake-quality.js";
-import { pccResponsibilityForItem } from "../../../../src/pcc/metadata.js";
+import {
+  pccResponsibilityForItem,
+  pccWorkScopeForProject,
+  pccWorkScopeLabel,
+} from "../../../../src/pcc/metadata.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import {
@@ -555,30 +559,7 @@ function projectIsExcludedFromTodayFocus(
   project: PccProjectSummary,
   detail?: PccProjectDetail,
 ): boolean {
-  const metadata = metadataObject(detail?.project.metadata);
-  const text = [
-    project.recentActivity ?? "",
-    ...(project.nextActions ?? []),
-    ...(project.proofGaps ?? []),
-    metadataString((project as { pccCurrentScope?: unknown }).pccCurrentScope, ""),
-    metadataString((project as { pccProductScope?: unknown }).pccProductScope, ""),
-    (project as { excludedFromPccProductCompletion?: unknown }).excludedFromPccProductCompletion ===
-    true
-      ? "excluded from pcc product completion"
-      : "",
-    metadataString(metadata.pccCurrentScope, ""),
-    metadataString(metadata.pccProductScope, ""),
-    metadata.excludedFromPccProductCompletion === true
-      ? "excluded from pcc product completion"
-      : "",
-  ]
-    .join(" ")
-    .toLocaleLowerCase();
-  return (
-    /removed from current working scope|focus is pcc only|excluded from pcc product completion|project-specific .*current working scope/u.test(
-      text,
-    ) || projectIsDeferredOutOfUrgent(project)
-  );
+  return pccWorkScopeForProject(detail?.project ?? project) === "project_work";
 }
 
 function projectDetailForSummary(
@@ -588,6 +569,15 @@ function projectDetailForSummary(
   return (
     props.projectDetails?.[project.id] ??
     (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined)
+  );
+}
+
+function effectivePccFocusMode(
+  props: Pick<PccDashboardProps, "productFocusMode" | "projectDetail">,
+): "pcc_product" | "project_work" {
+  return (
+    props.productFocusMode ??
+    (props.projectDetail ? pccWorkScopeForProject(props.projectDetail.project) : "project_work")
   );
 }
 
@@ -603,22 +593,16 @@ function runningProjectsForToday(props: PccDashboardProps): PccProjectSummary[] 
 
 function focusedAttentionProjects(
   projects: readonly PccProjectSummary[],
-  props?: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
+  _props?: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
 ): PccProjectSummary[] {
-  return getAttentionProjects(projects).filter(
-    (project) =>
-      !projectIsExcludedFromTodayFocus(
-        project,
-        props ? projectDetailForSummary(props, project) : undefined,
-      ),
-  );
+  return getAttentionProjects(projects);
 }
 
 function focusScopedProjectsForToday(
   props: Pick<PccDashboardProps, "projectDetails" | "projectDetail" | "productFocusMode">,
   projects: readonly PccProjectSummary[],
 ): PccProjectSummary[] {
-  const productMode = (props.productFocusMode ?? "pcc_product") === "pcc_product";
+  const productMode = effectivePccFocusMode(props) === "pcc_product";
   return projects.filter((project) => {
     const excluded = projectIsExcludedFromTodayFocus(
       project,
@@ -3093,6 +3077,8 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
   const onHold = projectIsOnHold(project);
   const blocker = resolved?.topBlocker ?? projectBlockerLine(project);
   const cardStatus = resolved?.statusLabel ?? formatStatus(project.status);
+  const scope = pccWorkScopeForProject(detail?.project ?? project);
+  const scopeLabel = pccWorkScopeLabel(scope);
   return html`
     <article
       class="pcc-project-card ${selected ? "is-selected" : ""} ${onHold ? "is-on-hold" : ""}"
@@ -3102,6 +3088,7 @@ function renderProjectCard(project: PccProjectSummary, props: PccDashboardProps)
       <div class="pcc-project-card__topline">
         <div>
           <h3>${project.title}</h3>
+          <span class="pcc-chip" data-pcc-project-scope-badge>${scopeLabel}</span>
         </div>
         <span class="pcc-status pcc-status--${project.status}">${cardStatus}</span>
       </div>
@@ -3834,7 +3821,7 @@ function renderTodayProjectSignal(
 }
 
 function renderPccFocusModeSwitch(props: PccDashboardProps) {
-  const mode = props.productFocusMode ?? "pcc_product";
+  const mode = effectivePccFocusMode(props);
   return html`<div class="pcc-focus-mode-wrap">
     <div class="pcc-focus-mode" data-pcc-focus-mode aria-label="PCC work context">
       <button
@@ -3853,7 +3840,7 @@ function renderPccFocusModeSwitch(props: PccDashboardProps) {
         title="Show user projects managed by PCC"
         @click=${() => props.onSetProductFocusMode?.("project_work")}
       >
-        My Projects
+        Project Work
       </button>
     </div>
     <small>
@@ -3870,7 +3857,7 @@ function renderTodayView(props: PccDashboardProps) {
   const runningProjects = runningProjectsForToday(props);
   const attentionProjects = focusedAttentionProjects(focusProjects, props);
   const deferredProjects =
-    (props.productFocusMode ?? "pcc_product") === "pcc_product"
+    effectivePccFocusMode(props) === "pcc_product"
       ? deferredAttentionProjects(props.projects, props)
       : [];
   const blocked = focusProjects.find(
@@ -3898,7 +3885,7 @@ function renderTodayView(props: PccDashboardProps) {
     (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
   ).length;
   const portfolioNeedsAttention = attentionProjects.length;
-  const focusMode = props.productFocusMode ?? "pcc_product";
+  const focusMode = effectivePccFocusMode(props);
   const plainSummary = portfolioPlainSummary({
     focusMode,
     activeCount,
@@ -5183,8 +5170,8 @@ function renderUniversalPreflightCard(detail: PccProjectDetail) {
 }
 
 function renderProjectScopeLock(detail: PccProjectDetail, props: PccDashboardProps) {
-  const productMode = (props.productFocusMode ?? "pcc_product") === "pcc_product";
-  const excluded = projectIsExcludedFromTodayFocus(detail.summary, detail);
+  const productMode = effectivePccFocusMode(props) === "pcc_product";
+  const scope = pccWorkScopeForProject(detail.project);
   return html`<section
     class="pcc-scope-lock"
     data-pcc-scope-lock
@@ -5199,7 +5186,7 @@ function renderProjectScopeLock(detail: PccProjectDetail, props: PccDashboardPro
           : "Project-specific work is visible. PCC product completion stays separate."}
       </p>
     </div>
-    <span class="pcc-status">${excluded ? "Project-specific" : "PCC"}</span>
+    <span class="pcc-status" data-pcc-scope-lock-project-scope>${pccWorkScopeLabel(scope)}</span>
   </section>`;
 }
 
@@ -5278,6 +5265,12 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const needsSetupRepair = !setupEvaluation.runnable;
   const terminal = PROJECT_TERMINAL_STATUSES.has(project.status);
   const proofBadge = projectHeroProofBadge(detail, props);
+  const scope = pccWorkScopeForProject(project);
+  const scopeLabel = pccWorkScopeLabel(scope);
+  const scopeCopy =
+    scope === "pcc_product"
+      ? "This is PCC Product work. It affects PCC completion."
+      : "This is Project Work. It does not block PCC product completion.";
   const primaryActionDisabled =
     props.actionBusy ||
     resolvedAction.primaryActionId === "no_action_required" ||
@@ -5292,8 +5285,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       <div>
         <p class="pcc-kicker">Project Snapshot</p>
         <h3>${project.title}</h3>
+        <p data-pcc-selected-project-scope-copy>${scopeCopy}</p>
       </div>
       <div class="pcc-project-snapshot__badges">
+        <span class="pcc-status" data-pcc-project-scope-badge>${scopeLabel}</span>
         <span class="pcc-proof-badge" data-pcc-proof-badge>${proofBadge}</span>
         <span class="pcc-status pcc-status--${project.status}"
           >${formatStatus(project.status)}</span
@@ -7190,7 +7185,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
     <section
       class="pcc-shell"
       data-pcc-shell
-      data-pcc-product-focus=${props.productFocusMode ?? "pcc_product"}
+      data-pcc-product-focus=${effectivePccFocusMode(props)}
     >
       <header class="pcc-hero pcc-hero--compact">
         <div>

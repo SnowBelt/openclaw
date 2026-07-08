@@ -123,6 +123,7 @@ describe("Project Command Center gateway methods", () => {
         proofGaps: [],
         health: "On track",
         dueDate: "2099-01-15T00:00:00.000Z",
+        pccWorkScope: "pcc_product",
         recentActivity: expect.any(String),
         updatedAt: expect.any(String),
       },
@@ -211,6 +212,7 @@ describe("Project Command Center gateway methods", () => {
         excludedFromPccProductCompletion?: boolean;
         pccCurrentScope?: string;
         pccProductScope?: string;
+        pccWorkScope?: string;
         workflowTemplateId?: string;
       }>;
     }>(await invoke("pcc.projects.list", {}));
@@ -219,8 +221,23 @@ describe("Project Command Center gateway methods", () => {
       excludedFromPccProductCompletion: true,
       pccCurrentScope: "active_project_work",
       pccProductScope: "excluded_from_pcc_product_completion",
+      pccWorkScope: "project_work",
       workflowTemplateId: "snes-studio",
     });
+  });
+
+  it("marks the canonical PCC project as PCC Product in summaries", async () => {
+    const { summary } = okPayload<{ summary: { pccWorkScope?: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: {
+          id: "project-command-center",
+          title: "Project Command Center",
+          metadata: {},
+        },
+      }),
+    );
+
+    expect(summary.pccWorkScope).toBe("pcc_product");
   });
 
   it("repairs legacy active ledger work items without touching archived projects", async () => {
@@ -236,6 +253,7 @@ describe("Project Command Center gateway methods", () => {
     );
     const ledgerPath = pccTesting.ledgerPath();
     const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      projects: Array<{ id: string; metadata?: Record<string, unknown> }>;
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
       receipts: Array<Record<string, unknown>>;
@@ -279,21 +297,33 @@ describe("Project Command Center gateway methods", () => {
     } as (typeof ledger.receipts)[number]);
     fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
 
+    ledger.projects = ledger.projects.map((item) =>
+      item.id === project.id ? { ...item, metadata: {} } : item,
+    );
+    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+
     const repair = okPayload<{
+      repairedProjectIds: string[];
       repairedMilestoneIds: string[];
       repairedSubMilestoneIds: string[];
       repairedReceiptIds: string[];
     }>(await invoke("pcc.ledger.repairCanonicalMetadata", {}));
 
+    expect(repair.repairedProjectIds).toEqual([project.id]);
     expect(repair.repairedMilestoneIds).toEqual(["legacy-active-milestone"]);
     expect(repair.repairedSubMilestoneIds).toEqual(["legacy-active-sub"]);
     expect(repair.repairedReceiptIds).toEqual(["legacy-receipt-without-proof-level"]);
 
     const repairedLedger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+      projects: Array<{ id: string; metadata?: Record<string, unknown> }>;
       milestones: Array<{ id: string; order?: number; metadata?: Record<string, unknown> }>;
       subMilestones: Array<{ id: string; metadata?: Record<string, unknown> }>;
       receipts: Array<{ id: string; proofLevel?: string }>;
     };
+    expect(repairedLedger.projects.find((item) => item.id === project.id)?.metadata).toMatchObject({
+      pccWorkScope: "project_work",
+      pccScopeCanonicalizedAt: expect.any(String),
+    });
     expect(
       repairedLedger.milestones.find((item) => item.id === "legacy-active-milestone")?.metadata,
     ).toMatchObject({ pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" });
@@ -312,10 +342,12 @@ describe("Project Command Center gateway methods", () => {
     ).not.toHaveProperty("pccResponsibility");
 
     const secondRepair = okPayload<{
+      repairedProjectIds: string[];
       repairedMilestoneIds: string[];
       repairedSubMilestoneIds: string[];
       repairedReceiptIds: string[];
     }>(await invoke("pcc.ledger.repairCanonicalMetadata", {}));
+    expect(secondRepair.repairedProjectIds).toEqual([]);
     expect(secondRepair.repairedMilestoneIds).toEqual([]);
     expect(secondRepair.repairedSubMilestoneIds).toEqual([]);
     expect(secondRepair.repairedReceiptIds).toEqual([]);

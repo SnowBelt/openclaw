@@ -28,6 +28,7 @@ Docs: https://docs.openclaw.ai
 ### Fixes
 
 - Control UI/PCC: prevent legacy PCC receipts and project-specific work from crashing project selection, repair canonical ledger fields, and keep PCC Product mode focused on PCC-only work.
+- Control UI/PCC: separate PCC Product from Project Work across project summaries, cards, Today focus, selected-project context, and work-start guardrails so project-specific blockers do not make PCC itself look blocked.
 - Control UI/PCC: keep PCC product work separated from project-specific blockers, make completed projects read as maintenance instead of setup failures, harden project-card selection proof, and hide dormant action menus until opened.
 - Control UI/PCC: add a stable Projects route alias for Project Command Center so authenticated dashboard proof and direct navigation do not fall back to Chat when `/pcc` is also used as a mount path.
 - Gateway/PCC: let `openclaw doctor --fix` remove retired `gateway.tailscale.required`, make normal Gateway status agree with strict config validation, and make PCC disposable browser proof report the exact failed phase without noisy cleanup errors.

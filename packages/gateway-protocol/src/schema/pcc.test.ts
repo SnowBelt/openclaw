@@ -1,3 +1,4 @@
+import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import {
   ProtocolSchemas,
@@ -9,6 +10,7 @@ import {
   validatePccSubMilestonesListParams,
   validatePccSubMilestonesUpsertParams,
 } from "../index.js";
+import { PccProjectSummarySchema } from "./pcc.js";
 
 describe("Project Command Center protocol schemas", () => {
   it("registers canonical PCC schemas", () => {
@@ -46,6 +48,29 @@ describe("Project Command Center protocol schemas", () => {
     ).toBe(true);
 
     expect(validatePccMilestonesUpsertParams({ milestone: { projectId: "p" } })).toBe(false);
+  });
+
+  it("allows PCC summary scope labels", () => {
+    const summary = {
+      id: "project-command-center",
+      title: "Project Command Center",
+      status: "complete_with_maintenance",
+      percentComplete: 100,
+      milestoneCounts: {
+        total: 1,
+        complete: 1,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+      nextActions: [],
+      proofGaps: [],
+      pccWorkScope: "pcc_product",
+      updatedAt: "2026-07-08T00:00:00.000Z",
+    };
+
+    expect(Value.Check(PccProjectSummarySchema, summary)).toBe(true);
   });
 
   it("validates sub-milestone list and upsert params", () => {

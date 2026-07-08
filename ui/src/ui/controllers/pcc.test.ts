@@ -679,6 +679,36 @@ describe("loadPccDashboard", () => {
       subMilestone: expect.objectContaining({ id: "submilestone-1", status: "in_progress" }),
     });
   });
+
+  it("refuses to prepare project work while PCC Product focus is selected", async () => {
+    const request = vi.fn();
+    const projectWork = {
+      ...project,
+      id: "project-work-1",
+      title: "Kitchen Remodel",
+      metadata: { ...project.metadata, pccWorkScope: "project_work" },
+    };
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProductFocusMode: "pcc_product",
+      pccProjectDetail: {
+        project: projectWork,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toBe(
+      "This is Project Work. Switch to Project Work before preparing it.",
+    );
+  });
 });
 
 describe("PCC CRUD controller", () => {
@@ -700,6 +730,24 @@ describe("PCC CRUD controller", () => {
     expect(state.pccProjectDetail?.subMilestones).toEqual([]);
     expect(state.pccProjectDetail?.permissions[0]?.id).toBe("permission-1");
     expect(state.pccProjectDetail?.decisions?.[0]?.title).toBe("Use durable decision log");
+    expect(state.pccProductFocusMode).toBe("pcc_product");
+  });
+
+  it("selects PCC Product mode for the canonical Project Command Center project", async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      project: { ...project, id: "project-command-center", title: "Project Command Center" },
+      milestones: [milestone],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: { ...summary, id: "project-command-center", pccWorkScope: "pcc_product" },
+    });
+    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+
+    await selectPccProject(state, "project-command-center");
+
+    expect(state.pccProductFocusMode).toBe("pcc_product");
   });
 
   it("optimistically clears stale selected project detail while loading a different project", async () => {

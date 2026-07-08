@@ -334,6 +334,7 @@ export function buildPccWorkflowDraft(input: {
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
       phases,
       metadata: {
+        pccWorkScope: "project_work",
         pccWorkflowTemplateId: template.id,
         pccWorkflowTemplateTitle: template.title,
         pccPlanningMode: planningMode,
