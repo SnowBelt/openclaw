@@ -19,6 +19,12 @@ type ProofConfig = {
   };
 };
 
+type ProofGatewayConnection = {
+  dashboardUrl: string;
+  gatewayUrl: string;
+  token: string;
+};
+
 type CleanupResult = {
   id: string;
   created: boolean;
@@ -46,7 +52,7 @@ function assertNoTokenLeak(value: string): void {
   }
 }
 
-function resolveDashboardUrl(): string {
+function resolveProofGatewayConnection(): ProofGatewayConnection {
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) as ProofConfig;
   const port = config.gateway?.port ?? 18789;
   const tokenRef = config.gateway?.auth?.token;
@@ -65,13 +71,21 @@ function resolveDashboardUrl(): string {
   if (!token) {
     throw new Error("missing local dashboard auth token");
   }
-  return `http://127.0.0.1:${port}/projects#token=${encodeURIComponent(token)}`;
+  return {
+    dashboardUrl: `http://127.0.0.1:${port}/projects#token=${encodeURIComponent(token)}`,
+    gatewayUrl: `ws://127.0.0.1:${port}`,
+    token,
+  };
 }
 
 async function gateway<T>(method: string, params?: unknown): Promise<T> {
+  const connection = resolveProofGatewayConnection();
   return await callGateway<T>({
     method,
     params,
+    url: connection.gatewayUrl,
+    token: connection.token,
+    configPath: CONFIG_PATH,
     timeoutMs: 30_000,
     scopes: [ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE],
   });
@@ -303,7 +317,7 @@ async function main() {
     phase = "opening PCC browser";
     summary.phase = phase;
     const { chromium } = await import("playwright");
-    const url = resolveDashboardUrl();
+    const url = resolveProofGatewayConnection().dashboardUrl;
     console.log(`LIVE_E2E_URL=${redactUrl(url)}`);
     browser = await chromium.launch({
       headless: true,
@@ -471,6 +485,14 @@ async function main() {
     const sortedAfterMove = afterMove.milestones.toSorted(
       (a, b) => (a.order ?? 0) - (b.order ?? 0),
     );
+
+    phase = "leaving reorder mode before action menu";
+    summary.phase = phase;
+    const reorderToggleOff = page.locator("[data-pcc-reorder-mode-toggle]").first();
+    if (await reorderToggleOff.isVisible().catch(() => false)) {
+      await reorderToggleOff.click({ force: true });
+      await page.waitForTimeout(500);
+    }
 
     phase = "testing milestone action menu";
     summary.phase = phase;
