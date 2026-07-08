@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { PccMilestone, PccProject } from "../../packages/gateway-protocol/src/schema/types.js";
 import {
+  applyPccAutopilotPermissionAction,
   buildPccAutopilotContextPack,
+  buildPccAutopilotPermissionForecast,
   configurePccAutopilotMode,
   defaultPccAutopilotState,
   getPccAutopilotState,
@@ -78,17 +80,44 @@ describe("PCC Autopilot Project Loop", () => {
     expect(result.finalReport?.remainingRisks.join("\n")).toContain("Safe stub mode");
   });
 
-  it("blocks medium-risk full build review until approval is granted", () => {
+  it("forecasts medium-risk approval before full build review starts", () => {
     const configured = configurePccAutopilotMode(
       input(),
       defaultPccAutopilotState(input(), now),
       "full_build_review",
       now,
     );
+    const forecast = buildPccAutopilotPermissionForecast(configured);
+    expect(forecast.required).toBe(true);
+    expect(forecast.requiredTier).toBe("medium");
+    expect(forecast.promptTitles).toContain("Review build");
+
     const result = runPccAutopilotSafeStubSet(input(), configured, now);
     expect(result.status).toBe("needs_approval");
     expect(result.currentBlocker?.type).toBe("needs_approval");
+    expect(result.runHistory).toHaveLength(0);
     expect(result.latestJudgeResult?.status).toBe("failed");
+  });
+
+  it("runs after scoped Autopilot approval is granted", () => {
+    const configured = configurePccAutopilotMode(
+      input(),
+      defaultPccAutopilotState(input(), now),
+      "full_build_review",
+      now,
+    );
+    const approved = applyPccAutopilotPermissionAction(
+      configured,
+      "allow_medium_risk",
+      "2026-07-07T12:01:00.000Z",
+    );
+    const forecast = buildPccAutopilotPermissionForecast(approved);
+    expect(forecast.required).toBe(false);
+
+    const result = runPccAutopilotSafeStubSet(input(), approved, now);
+    expect(result.status).toBe("completed");
+    expect(result.runHistory.length).toBeGreaterThan(0);
+    expect(result.runHistory[0]?.approvals.join("\\n")).toContain("medium-risk");
   });
 
   it("persists edited prompt versions in project metadata", () => {

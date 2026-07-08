@@ -33,7 +33,17 @@ export type PccAutopilotExecutorKind = "codex" | "local_model" | "safe_stub";
 export type PccAutopilotReasoningLevel = "standard" | "high";
 export type PccAutopilotApprovalTier = "low" | "medium" | "high";
 export type PccAutopilotJudgeSetting = "off" | "optional" | "mandatory";
-export type PccAutopilotAction = "start" | "pause" | "resume" | "stop" | "block" | "judge";
+export type PccAutopilotAction =
+  | "start"
+  | "pause"
+  | "resume"
+  | "stop"
+  | "block"
+  | "judge"
+  | "allow_low_risk"
+  | "allow_medium_risk"
+  | "allow_high_risk"
+  | "deny_permission";
 
 export type PccAutopilotPromptSlot = {
   id: string;
@@ -74,6 +84,16 @@ export type PccAutopilotApprovalPolicy = {
   allowHighRisk: boolean;
   maxRiskTier: PccAutopilotApprovalTier;
   note: string;
+};
+
+export type PccAutopilotPermissionForecast = {
+  required: boolean;
+  requiredTier: PccAutopilotApprovalTier | null;
+  promptSlotIds: string[];
+  promptTitles: string[];
+  reason: string;
+  recommendedNextAction: string;
+  policySummary: string;
 };
 
 export type PccAutopilotContextPack = {
@@ -373,6 +393,152 @@ function executorFromUnknown(value: unknown): PccAutopilotExecutorKind {
 
 function approvalTierFromUnknown(value: unknown): PccAutopilotApprovalTier {
   return value === "medium" || value === "high" ? value : "low";
+}
+
+const PCC_AUTOPILOT_RISK_RANK: Record<PccAutopilotApprovalTier, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+};
+
+function approvalTierLabel(tier: PccAutopilotApprovalTier): string {
+  return `${tier}-risk`;
+}
+
+function approvalTierAtLeast(
+  current: PccAutopilotApprovalTier,
+  minimum: PccAutopilotApprovalTier,
+): boolean {
+  return PCC_AUTOPILOT_RISK_RANK[current] >= PCC_AUTOPILOT_RISK_RANK[minimum];
+}
+
+function highestApprovalTier(
+  tiers: readonly PccAutopilotApprovalTier[],
+): PccAutopilotApprovalTier | null {
+  return tiers.reduce<PccAutopilotApprovalTier | null>((highest, tier) => {
+    if (!highest || PCC_AUTOPILOT_RISK_RANK[tier] > PCC_AUTOPILOT_RISK_RANK[highest]) {
+      return tier;
+    }
+    return highest;
+  }, null);
+}
+
+function approvalPolicyAllowsTier(
+  policy: PccAutopilotApprovalPolicy,
+  tier: PccAutopilotApprovalTier,
+): boolean {
+  if (!approvalTierAtLeast(policy.maxRiskTier, tier)) {
+    return false;
+  }
+  if (tier === "high") {
+    return policy.allowHighRisk;
+  }
+  if (tier === "medium") {
+    return policy.allowMediumRisk;
+  }
+  return policy.allowLowRisk;
+}
+
+function policySummary(policy: PccAutopilotApprovalPolicy): string {
+  return [
+    `Low: ${policy.allowLowRisk ? "allowed" : "approval required"}`,
+    `Medium: ${policy.allowMediumRisk ? "allowed" : "approval required"}`,
+    `High: ${policy.allowHighRisk ? "allowed" : "separate approval required"}`,
+    `Maximum approved tier: ${approvalTierLabel(policy.maxRiskTier)}`,
+  ].join(" · ");
+}
+
+export function buildPccAutopilotPermissionForecast(
+  state: PccAutopilotState,
+): PccAutopilotPermissionForecast {
+  const blockedSlots = state.promptSlots
+    .filter((slot) => slot.enabled)
+    .filter((slot) => !approvalPolicyAllowsTier(state.approvalPolicy, slot.approvalTier));
+  const requiredTier = highestApprovalTier(blockedSlots.map((slot) => slot.approvalTier));
+  if (!requiredTier) {
+    return {
+      required: false,
+      requiredTier: null,
+      promptSlotIds: [],
+      promptTitles: [],
+      reason: "All enabled prompt slots are inside the current approval policy.",
+      recommendedNextAction: "Start the safe loop or edit prompts before running.",
+      policySummary: policySummary(state.approvalPolicy),
+    };
+  }
+  const promptTitles = blockedSlots.map((slot) => slot.title);
+  return {
+    required: true,
+    requiredTier,
+    promptSlotIds: blockedSlots.map((slot) => slot.id),
+    promptTitles,
+    reason: `${promptTitles.length} enabled prompt${promptTitles.length === 1 ? "" : "s"} require ${approvalTierLabel(requiredTier)} approval before the loop starts.`,
+    recommendedNextAction: `Review the prompt list, then approve ${approvalTierLabel(requiredTier)} Autopilot work for this project or lower the prompt risk tier.`,
+    policySummary: policySummary(state.approvalPolicy),
+  };
+}
+
+function approvalPolicyWithTier(
+  policy: PccAutopilotApprovalPolicy,
+  tier: PccAutopilotApprovalTier,
+): PccAutopilotApprovalPolicy {
+  return {
+    ...policy,
+    allowLowRisk: true,
+    allowMediumRisk: policy.allowMediumRisk || approvalTierAtLeast(tier, "medium"),
+    allowHighRisk: policy.allowHighRisk || tier === "high",
+    maxRiskTier: highestApprovalTier([policy.maxRiskTier, tier]) ?? tier,
+    note: `${approvalTierLabel(tier)} Autopilot permission approved for this project. Higher-risk, external, destructive, credential, deployment, reboot, and Codex/high-reasoning actions still require separate approval when outside this scope.`,
+  };
+}
+
+export function applyPccAutopilotPermissionAction(
+  state: PccAutopilotState,
+  action: Extract<
+    PccAutopilotAction,
+    "allow_low_risk" | "allow_medium_risk" | "allow_high_risk" | "deny_permission"
+  >,
+  now: string,
+): PccAutopilotState {
+  if (action === "deny_permission") {
+    return {
+      ...state,
+      status: "blocked",
+      currentBlocker: {
+        type: "needs_user_decision",
+        whyBlocked: "Autopilot permission request was denied or deferred.",
+        attempted: "Advance permission preflight before starting the loop.",
+        needed: "User approval or edited lower-risk prompt slots before continuing.",
+        recommendedNextAction:
+          "Edit prompts, lower the risk tier, or approve the requested scope later.",
+        owner: "User",
+      },
+      auditLog: [
+        ...state.auditLog,
+        audit(now, "permission_denied", "Autopilot permission request was denied or deferred."),
+      ].slice(-200),
+      updatedAt: now,
+    };
+  }
+  const tier =
+    action === "allow_high_risk" ? "high" : action === "allow_medium_risk" ? "medium" : "low";
+  const nextPolicy = approvalPolicyWithTier(state.approvalPolicy, tier);
+  return {
+    ...state,
+    status: "ready",
+    approvalPolicy: nextPolicy,
+    currentBlocker:
+      state.currentBlocker?.type === "needs_approval" ? undefined : state.currentBlocker,
+    auditLog: [
+      ...state.auditLog,
+      audit(
+        now,
+        "permission_approved",
+        `${approvalTierLabel(tier)} Autopilot permission approved for this project.`,
+      ),
+    ].slice(-200),
+    updatedAt: now,
+  };
 }
 
 function judgeFromUnknown(value: unknown): PccAutopilotJudgeSetting {
@@ -845,7 +1011,10 @@ export function buildPccAutopilotFinalReport(
   now: string,
 ): PccAutopilotFinalReport {
   const runs = state.runHistory;
-  const blockers = runs.flatMap((run) => (run.blocker ? [run.blocker.whyBlocked] : []));
+  const blockers = [
+    ...runs.flatMap((run) => (run.blocker ? [run.blocker.whyBlocked] : [])),
+    ...(state.currentBlocker ? [state.currentBlocker.whyBlocked] : []),
+  ];
   const issuesFound = [...projectBlockers(input), ...blockers];
   return {
     projectName: input.project.title,
@@ -903,23 +1072,41 @@ export function runPccAutopilotSafeStubSet(
       updatedAt: now,
     };
   }
+  const forecast = buildPccAutopilotPermissionForecast(state);
+  if (forecast.required && forecast.requiredTier) {
+    const blocker: PccAutopilotBlocker = {
+      type: "needs_approval",
+      whyBlocked: forecast.reason,
+      attempted: "Advance permission preflight before starting the loop.",
+      needed: `Approve ${approvalTierLabel(forecast.requiredTier)} Autopilot work for this project or lower the prompt risk tier.`,
+      recommendedNextAction: forecast.recommendedNextAction,
+      owner: "User",
+    };
+    const judgeResult: PccAutopilotJudgeResult = {
+      status: "failed",
+      summary: "Judge cannot pass completion while Autopilot is waiting for permission.",
+      evidence: [
+        "Permission preflight ran",
+        "No prompt execution occurred",
+        "No unsafe action was taken",
+      ],
+      repairRecommendation: forecast.recommendedNextAction,
+      reviewedAt: now,
+    };
+    const nextState: PccAutopilotState = {
+      ...state,
+      status: "needs_approval",
+      currentBlocker: blocker,
+      latestJudgeResult: judgeResult,
+      lastOutputSummary: forecast.reason,
+      auditLog: [...state.auditLog, audit(now, "permission_required", forecast.reason)].slice(-200),
+      updatedAt: now,
+    };
+    return { ...nextState, finalReport: buildPccAutopilotFinalReport(input, nextState, now) };
+  }
+
   const context = buildPccAutopilotContextPack(input, state);
   const runs = enabled.map((slot, index): PccAutopilotRunRecord => {
-    const highRiskBlocked = slot.approvalTier === "high" && !state.approvalPolicy.allowHighRisk;
-    const mediumRiskBlocked =
-      slot.approvalTier === "medium" && !state.approvalPolicy.allowMediumRisk;
-    const blocker =
-      highRiskBlocked || mediumRiskBlocked
-        ? {
-            type: "needs_approval" as const,
-            whyBlocked: `${slot.title} requires ${slot.approvalTier}-risk approval before live changes can run.`,
-            attempted: "Safe stub execution only; no live action was taken.",
-            needed: `Grant scoped ${slot.approvalTier}-risk approval or lower the prompt risk tier.`,
-            recommendedNextAction:
-              "Review approval tier and decide whether to allow live execution later.",
-            owner: "User",
-          }
-        : undefined;
     return {
       id: runId(`${now}-${index}`, slot.id),
       timestamp: now,
@@ -932,38 +1119,31 @@ export function runPccAutopilotSafeStubSet(
       model: slot.localModelId || "safe-stub",
       reasoningLevel: slot.reasoningLevel,
       inputContextSummary: contextSummary(context),
-      outputSummary: blocker
-        ? blocker.whyBlocked
-        : `Safe stub completed ${slot.title}. It produced review guidance only and changed no files.`,
+      outputSummary: `Safe stub completed ${slot.title}. It produced review guidance only and changed no files.`,
       changedFiles: [],
       artifacts: [],
-      approvals: blocker ? [] : ["low-risk analysis only"],
+      approvals: [`${approvalTierLabel(slot.approvalTier)} approval policy satisfied`],
       checksRun: ["Autopilot context pack generated", "Safe stub execution recorded"],
       judgeResult:
         slot.judge === "mandatory"
           ? {
-              status: blocker ? "failed" : "passed",
-              summary: blocker
-                ? "Judge cannot pass completion while approval is missing."
-                : "Judge accepted the safe stub run as a recorded planning/review pass, not as live implementation.",
+              status: "passed",
+              summary:
+                "Judge accepted the safe stub run as a recorded planning/review pass, not as live implementation.",
               evidence: [
                 "Context pack present",
                 "Run history recorded",
                 "No high-risk action performed",
               ],
-              repairRecommendation: blocker?.recommendedNextAction,
               reviewedAt: now,
             }
           : undefined,
-      blocker,
       rawOutput: [
         `Prompt: ${slot.title}`,
         slot.promptBody,
         "",
         "Safe stub result: no Codex/high-reasoning token spend, no file edits, no deployment, no external writes.",
-        blocker
-          ? `Blocked: ${blocker.whyBlocked}`
-          : "Result: review guidance recorded successfully.",
+        "Result: review guidance recorded successfully.",
       ].join("\n"),
     };
   });

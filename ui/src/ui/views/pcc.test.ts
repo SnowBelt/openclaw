@@ -3494,14 +3494,18 @@ describe("renderPccDashboard", () => {
     );
     expect(autopilot?.textContent).toContain("Autopilot Project Loop");
     expect(autopilot?.textContent).toContain("Safe mode is active");
+    expect(autopilot?.textContent).toContain("Permission needed before start");
     expect(autopilot?.textContent).toContain("Prompt slots");
     expect(container.querySelector("[data-pcc-autopilot-mode-picker]")).not.toBeNull();
     expect(container.querySelectorAll("[data-pcc-autopilot-prompt]").length).toBeGreaterThan(0);
 
     container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-generate-prompts]")?.click();
     expect(onGenerateAutopilotPrompts).toHaveBeenCalledTimes(1);
-    container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]")?.click();
-    expect(onRunAutopilotAction).toHaveBeenCalledWith("start");
+    expect(container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]")?.disabled).toBe(
+      true,
+    );
+    container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-allow-medium]")?.click();
+    expect(onRunAutopilotAction).toHaveBeenCalledWith("allow_medium_risk");
   });
 
   it("renders operational confidence readiness, preflight, scope lock, and recovery center", () => {

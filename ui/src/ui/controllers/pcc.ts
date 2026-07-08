@@ -1,4 +1,5 @@
 import {
+  applyPccAutopilotPermissionAction,
   configurePccAutopilotMode,
   generatePccAutopilotPromptSlots,
   getPccAutopilotState,
@@ -95,7 +96,17 @@ export type PccPlannerMode =
   | "high_reasoning_codex";
 
 export type PccProjectFilter = "active" | "needs_you" | "on_hold" | "archived" | "all";
-export type PccAutopilotAction = "start" | "pause" | "resume" | "stop" | "block" | "judge";
+export type PccAutopilotAction =
+  | "start"
+  | "pause"
+  | "resume"
+  | "stop"
+  | "block"
+  | "judge"
+  | "allow_low_risk"
+  | "allow_medium_risk"
+  | "allow_high_risk"
+  | "deny_permission";
 
 export type PccActionNotice = {
   kind: "success" | "info";
@@ -2828,18 +2839,40 @@ export async function runPccAutopilotLoopAction(
     const now = new Date().toISOString();
     const input = autopilotInputForDetail(detail);
     const current = getPccAutopilotState(input, now);
+    const permissionActions = [
+      "allow_low_risk",
+      "allow_medium_risk",
+      "allow_high_risk",
+      "deny_permission",
+    ] as const;
+    const isPermissionAction = (
+      candidate: PccAutopilotAction,
+    ): candidate is
+      | "allow_low_risk"
+      | "allow_medium_risk"
+      | "allow_high_risk"
+      | "deny_permission" =>
+      permissionActions.includes(candidate as (typeof permissionActions)[number]);
     const next =
       action === "start"
         ? runPccAutopilotSafeStubSet(input, { ...current, status: "running", updatedAt: now }, now)
         : action === "judge"
           ? { ...current, finalReport: current.finalReport, updatedAt: now }
-          : transitionPccAutopilotState(current, action, now);
+          : isPermissionAction(action)
+            ? applyPccAutopilotPermissionAction(current, action, now)
+            : transitionPccAutopilotState(current, action, now);
     await savePccAutopilotStateForDetail(state, detail, next);
     setActionNotice(
       state,
       action === "start"
-        ? "Autopilot safe loop ran and saved history. Live execution remains blocked until separately approved."
-        : `Autopilot ${action} saved.`,
+        ? next.status === "needs_approval"
+          ? "Autopilot is waiting for permission before it starts. Review the permission request."
+          : "Autopilot safe loop ran and saved history. Live execution remains blocked until separately approved."
+        : action.startsWith("allow_")
+          ? "Autopilot permission saved. You can start the loop inside that scope."
+          : action === "deny_permission"
+            ? "Autopilot permission request denied. The loop is blocked until you edit prompts or approve later."
+            : `Autopilot ${action} saved.`,
     );
   });
 }

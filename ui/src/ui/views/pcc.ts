@@ -2,6 +2,7 @@
 import { html, nothing } from "lit";
 import {
   autopilotStatusLabel,
+  buildPccAutopilotPermissionForecast,
   getPccAutopilotState,
   PCC_AUTOPILOT_MODES,
   type PccAutopilotAction,
@@ -4367,6 +4368,7 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
   });
   const mode = pccViewMode(props);
   const enabledPrompts = autopilot.promptSlots.filter((slot) => slot.enabled);
+  const permissionForecast = buildPccAutopilotPermissionForecast(autopilot);
   const latestRun = autopilot.runHistory.at(-1);
   const latestJudge = autopilot.latestJudgeResult;
   const blocker = autopilot.currentBlocker;
@@ -4426,6 +4428,65 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         change credentials, reboot, or perform external writes without separate approval.
       </p>
     </article>
+    ${permissionForecast.required
+      ? html`<article class="pcc-autopilot__permission" data-pcc-autopilot-permission-request>
+          <div>
+            <p class="pcc-kicker">Permission needed before start</p>
+            <h5>${permissionForecast.reason}</h5>
+            <p>${permissionForecast.policySummary}</p>
+            <p>${permissionForecast.recommendedNextAction}</p>
+            <ul>
+              ${permissionForecast.promptTitles.map((title) => html`<li>${title}</li>`)}
+            </ul>
+          </div>
+          <div class="pcc-autopilot__permission-actions">
+            ${permissionForecast.requiredTier === "low"
+              ? html`<button
+                  class="btn"
+                  type="button"
+                  data-pcc-autopilot-allow-low
+                  ?disabled=${props.actionBusy}
+                  @click=${() => props.onRunAutopilotAction?.("allow_low_risk")}
+                >
+                  Allow low-risk loop
+                </button>`
+              : nothing}
+            ${permissionForecast.requiredTier === "medium"
+              ? html`<button
+                  class="btn"
+                  type="button"
+                  data-pcc-autopilot-allow-medium
+                  ?disabled=${props.actionBusy}
+                  @click=${() => props.onRunAutopilotAction?.("allow_medium_risk")}
+                >
+                  Allow medium-risk loop
+                </button>`
+              : nothing}
+            ${permissionForecast.requiredTier === "high"
+              ? html`<button
+                  class="btn"
+                  type="button"
+                  data-pcc-autopilot-allow-high
+                  ?disabled=${props.actionBusy}
+                  @click=${() => props.onRunAutopilotAction?.("allow_high_risk")}
+                >
+                  Allow high-risk loop
+                </button>`
+              : nothing}
+            <button
+              class="btn btn--subtle"
+              type="button"
+              data-pcc-autopilot-deny-permission
+              ?disabled=${props.actionBusy}
+              @click=${() => props.onRunAutopilotAction?.("deny_permission")}
+            >
+              Not now
+            </button>
+          </div>
+        </article>`
+      : html`<p class="pcc-autopilot__permission-ready" data-pcc-autopilot-permission-ready>
+          Permission preflight: ${permissionForecast.policySummary}.
+        </p>`}
     <div class="pcc-autopilot__controls" data-pcc-autopilot-controls>
       <label>
         <span>Loop mode</span>
@@ -4456,7 +4517,7 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         class="btn"
         type="button"
         data-pcc-autopilot-start
-        ?disabled=${props.actionBusy || enabledPrompts.length === 0}
+        ?disabled=${props.actionBusy || enabledPrompts.length === 0 || permissionForecast.required}
         @click=${() => props.onRunAutopilotAction?.("start")}
       >
         Start Safe Loop
