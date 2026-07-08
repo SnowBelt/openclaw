@@ -9,6 +9,16 @@ import {
 } from "./navigation.ts";
 
 describe("TAB_GROUPS", () => {
+  it("shows PCC as its own first-class navigation group", () => {
+    const chat = TAB_GROUPS.find((group) => group.label === "chat");
+    const pcc = TAB_GROUPS.find((group) => group.label === "pcc");
+    expect(chat?.tabs).toEqual(["chat"]);
+    expect(pcc?.tabs).toEqual(["pcc"]);
+    expect(TAB_GROUPS.flatMap((group) => group.tabs).filter((tab) => tab === "pcc")).toHaveLength(
+      1,
+    );
+  });
+
   it("collapses detailed settings slices into one sidebar entry", () => {
     const settings = TAB_GROUPS.find((group) => group.label === "settings");
     expect(settings?.tabs).toEqual(["config"]);

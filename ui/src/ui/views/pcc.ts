@@ -946,6 +946,40 @@ function scrollPccAutopilotIntoView(): void {
     ?.scrollIntoView?.({ block: "nearest" });
 }
 
+function scrollPccMobileSectionIntoView(section: string): void {
+  globalThis.document
+    ?.querySelector(`[data-pcc-mobile-section="${section}"]`)
+    ?.scrollIntoView?.({ block: "start" });
+}
+
+function renderPccMobileSectionTabs(props: PccDashboardProps) {
+  const hasProject = Boolean(props.projectDetail);
+  const tabs = [
+    { id: "projects", label: "Projects", disabled: false },
+    { id: "current", label: "Current", disabled: !hasProject },
+    { id: "milestones", label: "Milestones", disabled: !hasProject },
+    { id: "autopilot", label: "Autopilot", disabled: !hasProject },
+    { id: "more", label: "More", disabled: !hasProject },
+  ];
+  return html`<nav
+    class="pcc-mobile-section-tabs"
+    data-pcc-mobile-section-tabs
+    aria-label="PCC mobile sections"
+  >
+    ${tabs.map(
+      (tab) => html`<button
+        type="button"
+        data-pcc-mobile-section-tab=${tab.id}
+        ?disabled=${tab.disabled}
+        aria-label=${`Open PCC ${tab.label} section`}
+        @click=${() => scrollPccMobileSectionIntoView(tab.id)}
+      >
+        ${tab.label}
+      </button>`,
+    )}
+  </nav>`;
+}
+
 function renderTruthFact(label: string, value: string) {
   return html`<div
     class="pcc-current-truth__button"
@@ -4115,6 +4149,7 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
   return html`<section
     class="pcc-autopilot"
     data-pcc-autopilot-project-loop
+    data-pcc-mobile-section="autopilot"
     data-pcc-autopilot-status=${autopilot.status}
   >
     <div class="pcc-section-heading">
@@ -4856,7 +4891,12 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     }
     props.onPrepareNextWorkItem();
   };
-  return html`<section class="pcc-project-snapshot" data-pcc-project-snapshot data-pcc-project-hero>
+  return html`<section
+    class="pcc-project-snapshot"
+    data-pcc-project-snapshot
+    data-pcc-project-hero
+    data-pcc-mobile-section="current"
+  >
     <div class="pcc-project-snapshot__header">
       <div>
         <p class="pcc-kicker">Project Snapshot</p>
@@ -5042,6 +5082,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
   return html`<section
     class="pcc-milestone-journey"
     data-pcc-milestone-journey
+    data-pcc-mobile-section="milestones"
     data-pcc-reorder-mode=${reorderMode ? "on" : "off"}
   >
     <div class="pcc-section-heading">
@@ -5271,7 +5312,11 @@ function renderProjectDetail(props: PccDashboardProps) {
         ${renderProjectSnapshot(detail, props)} ${renderAutopilotProjectLoop(detail, props)}
         ${renderMilestoneJourney(detail, props)} ${renderWorkLoopCard(props)}
         ${renderProjectActivityTimeline(detail)} ${renderDecisionCapturePanel(detail, props)}
-        <details class="pcc-detail-drawer" ?open=${mode !== "simple"}>
+        <details
+          class="pcc-detail-drawer"
+          data-pcc-mobile-section="more"
+          ?open=${mode !== "simple"}
+        >
           <summary>Details</summary>
           <div class="pcc-detail-tabs" data-pcc-detail-tabs>
             <span>Plan</span>
@@ -6757,11 +6802,11 @@ export function renderPccDashboard(props: PccDashboardProps) {
         : nothing}
       ${renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
-      ${renderPccOfflineState(props)} ${renderTodayView(props)}
+      ${renderPccOfflineState(props)} ${renderTodayView(props)} ${renderPccMobileSectionTabs(props)}
       ${renderSelectedFilteredProjectNotice(props, projects, allProjects)}
 
       <div class="pcc-layout">
-        <section class="pcc-projects" aria-label="Projects">
+        <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
           ${renderProjectFocusBar(
             props,
             allProjects,

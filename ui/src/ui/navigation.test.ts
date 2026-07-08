@@ -29,7 +29,7 @@ describe("iconForTab", () => {
   it("returns stable icons for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, iconForTab(tab)]))).toEqual({
       chat: "messageSquare",
-      pcc: "folder",
+      pcc: "layoutComfortable",
       overview: "barChart",
       activity: "activity",
       workboard: "folder",
@@ -255,6 +255,7 @@ describe("TAB_GROUPS", () => {
   it("contains all expected groups", () => {
     expect(TAB_GROUPS.map((g) => g.label)).toEqual([
       "chat",
+      "pcc",
       "control",
       "dashboards",
       "agent",

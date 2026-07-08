@@ -4,7 +4,8 @@ import type { IconName } from "./icons.js";
 import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
 export const TAB_GROUPS = [
-  { label: "chat", tabs: ["chat", "pcc"] },
+  { label: "chat", tabs: ["chat"] },
+  { label: "pcc", tabs: ["pcc"] },
   {
     label: "control",
     tabs: ["overview", "activity", "workboard", "instances", "sessions", "usage", "cron"],
@@ -205,7 +206,7 @@ export function iconForTab(tab: Tab): IconName {
     case "chat":
       return "messageSquare";
     case "pcc":
-      return "folder";
+      return "layoutComfortable";
     case "overview":
       return "barChart";
     case "activity":

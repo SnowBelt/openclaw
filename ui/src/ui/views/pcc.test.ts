@@ -332,6 +332,25 @@ describe("renderPccDashboard", () => {
     }
   });
 
+  it("renders mobile PCC section controls over existing project sections", () => {
+    const container = renderView(createProps());
+    const tabs = container.querySelector("[data-pcc-mobile-section-tabs]");
+    expect(tabs).not.toBeNull();
+    expect(tabs?.textContent).toContain("Projects");
+    expect(tabs?.textContent).toContain("Current");
+    expect(tabs?.textContent).toContain("Milestones");
+    expect(tabs?.textContent).toContain("Autopilot");
+    expect(tabs?.textContent).toContain("More");
+    expect(container.querySelector('[data-pcc-mobile-section="projects"]')).not.toBeNull();
+    expect(container.querySelector('[data-pcc-mobile-section="current"]')).not.toBeNull();
+    expect(container.querySelector('[data-pcc-mobile-section="milestones"]')).not.toBeNull();
+    expect(container.querySelector('[data-pcc-mobile-section="autopilot"]')).not.toBeNull();
+    expect(container.querySelector('[data-pcc-mobile-section="more"]')).not.toBeNull();
+    for (const button of container.querySelectorAll("[data-pcc-mobile-section-tab]")) {
+      expect(button.getAttribute("aria-label")).toMatch(/^Open PCC /u);
+    }
+  });
+
   it("shows a selected-project activity timeline from milestones, proof, receipts, and decisions", () => {
     const container = renderView(
       createProps({
