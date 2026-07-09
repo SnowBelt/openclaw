@@ -127,7 +127,7 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  void main().catch((error) => {
+  void main().catch((error: unknown) => {
     process.stderr.write(`PCC_RUNTIME_DEPLOY_FAILED ${String(error)}\n`);
     process.exitCode = 1;
   });
