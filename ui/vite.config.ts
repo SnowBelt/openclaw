@@ -232,7 +232,7 @@ function controlUiDashboardSurfaceManifestPlugin(buildId: string): Plugin {
     apply: "build",
     closeBundle() {
       const assetsDir = path.join(outDir, "assets");
-      const assets = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir).sort() : [];
+      const assets = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir).toSorted() : [];
       const surfaces = DASHBOARD_SURFACES.map((surface) => ({
         id: surface.id,
         path: surface.path,
