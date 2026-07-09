@@ -72,7 +72,7 @@ describe("titleForTab", () => {
   it("returns expected titles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, titleForTab(tab)]))).toEqual({
       chat: "Chat",
-      pcc: "Project Command Center",
+      pcc: "PCC",
       overview: "Overview",
       activity: "Activity",
       workboard: "Workboard",
@@ -109,7 +109,7 @@ describe("subtitleForTab", () => {
   it("returns expected subtitles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, subtitleForTab(tab)]))).toEqual({
       chat: "Gateway chat for quick interventions.",
-      pcc: "Project milestones, proof gaps, and completion state.",
+      pcc: "Project Command Center for projects, blockers, Autopilot, proof, and next actions.",
       overview: "Status, entry points, health.",
       activity: "Browser-local tool activity summaries.",
       workboard: "Agent work queue and session handoff.",

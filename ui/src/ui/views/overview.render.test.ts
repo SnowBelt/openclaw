@@ -64,6 +64,30 @@ function compactText(node: Element | null): string | undefined {
 }
 
 describe("overview view rendering", () => {
+  it("promotes PCC as a dashboard overview entry point", async () => {
+    const container = document.createElement("div");
+    const onNavigate = vi.fn();
+    const props = createOverviewProps({
+      onNavigate,
+      usageResult: {
+        ts: 0,
+        path: "",
+        totals: { totalCost: 0, totalTokens: 0 },
+        aggregates: { messages: { total: 0 } },
+      } as unknown as OverviewProps["usageResult"],
+    });
+
+    render(renderOverview(props), container);
+    await Promise.resolve();
+
+    const pccCard = container.querySelector<HTMLButtonElement>(".ov-card[data-kind='pcc']");
+    expect(pccCard).not.toBeNull();
+    expect(compactText(pccCard)).toContain("PCC Project Command Center");
+    expect(compactText(pccCard)).toContain("Projects, blockers, Autopilot, proof");
+
+    pccCard?.click();
+    expect(onNavigate).toHaveBeenCalledWith("pcc");
+  });
   it("keeps the persisted overview locale selected before i18n hydration finishes", async () => {
     const container = document.createElement("div");
     const props = createOverviewProps({

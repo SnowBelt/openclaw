@@ -257,6 +257,13 @@ export function renderOverviewCards(props: OverviewCardsProps) {
 
   const cards: StatCard[] = [
     {
+      kind: "pcc",
+      tab: "pcc",
+      label: t("overview.cards.pcc"),
+      value: t("overview.cards.pccValue"),
+      hint: t("overview.cards.pccHint"),
+    },
+    {
       kind: "cost",
       tab: "usage",
       label: t("overview.cards.cost"),

@@ -19,6 +19,13 @@ describe("TAB_GROUPS", () => {
     );
   });
 
+  it("has a plain-language PCC sidebar section label", async () => {
+    const { t } = await import("../i18n/index.ts");
+    expect(t("nav.pcc")).toBe("PCC");
+    expect(t("tabs.pcc")).toBe("PCC");
+    expect(t("subtitles.pcc")).toContain("Project Command Center");
+  });
+
   it("collapses detailed settings slices into one sidebar entry", () => {
     const settings = TAB_GROUPS.find((group) => group.label === "settings");
     expect(settings?.tabs).toEqual(["config"]);
