@@ -3495,6 +3495,8 @@ describe("renderPccDashboard", () => {
     expect(autopilot?.textContent).toContain("Autopilot Project Loop");
     expect(autopilot?.textContent).toContain("Safe mode is active");
     expect(autopilot?.textContent).toContain("Permission needed before start");
+    expect(container.querySelector("[data-pcc-autopilot-permission-queue]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-autopilot-grant-history]")).not.toBeNull();
     expect(autopilot?.textContent).toContain("Prompt slots");
     expect(container.querySelector("[data-pcc-autopilot-mode-picker]")).not.toBeNull();
     expect(container.querySelectorAll("[data-pcc-autopilot-prompt]").length).toBeGreaterThan(0);
@@ -3506,6 +3508,100 @@ describe("renderPccDashboard", () => {
     );
     container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-allow-medium]")?.click();
     expect(onRunAutopilotAction).toHaveBeenCalledWith("allow_medium_risk");
+  });
+
+  it("renders Autopilot durable permission queue, grants, and repair actions", () => {
+    const onRunAutopilotAction = vi.fn();
+    const autopilotProject = {
+      ...project,
+      metadata: {
+        ...project.metadata,
+        pccAutopilot: {
+          status: "blocked",
+          mode: "full_build_review",
+          modeTitle: "Full Build Review",
+          currentExecutor: "safe_stub",
+          promptSlots: [],
+          permissionGrants: [
+            {
+              id: "grant-1",
+              projectId: project.id,
+              scope: "autopilot_project_loop",
+              riskTier: "medium",
+              allowedActions: ["run_safe_stub_prompt"],
+              deniedActions: ["deploy"],
+              status: "active",
+              requester: "PCC Autopilot",
+              approvedBy: "User",
+              reason: "Medium-risk Autopilot work approved for this project.",
+              createdAt: "2026-07-08T12:00:00Z",
+              updatedAt: "2026-07-08T12:00:00Z",
+              auditLog: [],
+            },
+          ],
+          permissionQueue: [
+            {
+              id: "queue-1",
+              projectId: project.id,
+              status: "pending",
+              requestedAction: "start_autopilot_loop",
+              riskTier: "medium",
+              promptSlotIds: ["slot-1"],
+              promptTitles: ["Review build"],
+              executor: "safe_stub",
+              affectedSurfaces: ["Project"],
+              reason: "Review build requires medium-risk approval.",
+              approvalConsequence: "Safe loop can run inside scope.",
+              denialConsequence: "Loop remains blocked.",
+              createdAt: "2026-07-08T12:00:00Z",
+              updatedAt: "2026-07-08T12:00:00Z",
+              auditLog: [],
+            },
+          ],
+          permissionRepair: {
+            id: "repair-1",
+            status: "preview",
+            title: "Lower Autopilot prompts to safe read-only work",
+            summary: "Convert blocked prompts to low-risk review.",
+            targetPromptSlotIds: ["slot-1"],
+            recommendedAction: "lower_to_low_risk_read_only",
+            changes: ["Set blocked prompt slots to low-risk approval tier."],
+            createdAt: "2026-07-08T12:00:00Z",
+          },
+        },
+      },
+    };
+    const container = renderView(
+      createProps({
+        viewMode: "detailed",
+        onRunAutopilotAction,
+        projectDetail: {
+          project: autopilotProject,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-autopilot-permission-queue]")?.textContent).toContain(
+      "Review build requires medium-risk approval.",
+    );
+    expect(container.querySelector("[data-pcc-autopilot-grant-history]")?.textContent).toContain(
+      "Medium grant active",
+    );
+    expect(container.querySelector("[data-pcc-autopilot-repair-preview]")?.textContent).toContain(
+      "Convert blocked prompts to low-risk review.",
+    );
+    container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-revoke-grant]")?.click();
+    expect(onRunAutopilotAction).toHaveBeenCalledWith("revoke_permission_grant");
+    container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-apply-repair]")?.click();
+    expect(onRunAutopilotAction).toHaveBeenCalledWith("apply_permission_repair");
   });
 
   it("renders operational confidence readiness, preflight, scope lock, and recovery center", () => {

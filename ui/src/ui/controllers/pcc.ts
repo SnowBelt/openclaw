@@ -1,8 +1,12 @@
 import {
   applyPccAutopilotPermissionAction,
+  applyPccAutopilotPermissionRepair,
   configurePccAutopilotMode,
+  expirePccAutopilotPermissionGrant,
   generatePccAutopilotPromptSlots,
   getPccAutopilotState,
+  queuePccAutopilotPermissionRequest,
+  revokePccAutopilotPermissionGrant,
   runPccAutopilotSafeStubSet,
   transitionPccAutopilotState,
   updatePccAutopilotPromptSlot,
@@ -106,7 +110,10 @@ export type PccAutopilotAction =
   | "allow_low_risk"
   | "allow_medium_risk"
   | "allow_high_risk"
-  | "deny_permission";
+  | "deny_permission"
+  | "revoke_permission_grant"
+  | "expire_permission_grant"
+  | "apply_permission_repair";
 
 export type PccActionNotice = {
   kind: "success" | "info";
@@ -2767,7 +2774,11 @@ export async function configurePccAutopilotLoopMode(
     const now = new Date().toISOString();
     const input = autopilotInputForDetail(detail);
     const current = getPccAutopilotState(input, now);
-    const next = configurePccAutopilotMode(input, current, mode, now);
+    const next = queuePccAutopilotPermissionRequest(
+      input,
+      configurePccAutopilotMode(input, current, mode, now),
+      now,
+    );
     await savePccAutopilotStateForDetail(state, detail, next);
     setActionNotice(
       state,
@@ -2787,20 +2798,24 @@ export async function generatePccAutopilotLoopPrompts(state: PccDashboardState):
     const now = new Date().toISOString();
     const input = autopilotInputForDetail(detail);
     const current = getPccAutopilotState(input, now);
-    const next = {
-      ...current,
-      status: "ready" as const,
-      promptSlots: generatePccAutopilotPromptSlots(input, current.mode),
-      auditLog: [
-        ...current.auditLog,
-        {
-          at: now,
-          event: "prompts_generated",
-          summary: "Generated editable Autopilot prompt slots from current PCC project state.",
-        },
-      ].slice(-200),
-      updatedAt: now,
-    };
+    const next = queuePccAutopilotPermissionRequest(
+      input,
+      {
+        ...current,
+        status: "ready" as const,
+        promptSlots: generatePccAutopilotPromptSlots(input, current.mode),
+        auditLog: [
+          ...current.auditLog,
+          {
+            at: now,
+            event: "prompts_generated",
+            summary: "Generated editable Autopilot prompt slots from current PCC project state.",
+          },
+        ].slice(-200),
+        updatedAt: now,
+      },
+      now,
+    );
     await savePccAutopilotStateForDetail(state, detail, next);
     setActionNotice(state, "Autopilot prompts generated. Edit them, then start the safe loop.");
   });
@@ -2853,14 +2868,35 @@ export async function runPccAutopilotLoopAction(
       | "allow_high_risk"
       | "deny_permission" =>
       permissionActions.includes(candidate as (typeof permissionActions)[number]);
+    const latestActiveGrant = current.permissionGrants
+      .filter((grant) => grant.status === "active")
+      .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     const next =
       action === "start"
         ? runPccAutopilotSafeStubSet(input, { ...current, status: "running", updatedAt: now }, now)
         : action === "judge"
           ? { ...current, finalReport: current.finalReport, updatedAt: now }
-          : isPermissionAction(action)
-            ? applyPccAutopilotPermissionAction(current, action, now)
-            : transitionPccAutopilotState(current, action, now);
+          : action === "revoke_permission_grant" && latestActiveGrant
+            ? queuePccAutopilotPermissionRequest(
+                input,
+                revokePccAutopilotPermissionGrant(current, latestActiveGrant.id, now),
+                now,
+              )
+            : action === "revoke_permission_grant"
+              ? { ...current, updatedAt: now }
+              : action === "expire_permission_grant" && latestActiveGrant
+                ? queuePccAutopilotPermissionRequest(
+                    input,
+                    expirePccAutopilotPermissionGrant(current, latestActiveGrant.id, now),
+                    now,
+                  )
+                : action === "expire_permission_grant"
+                  ? { ...current, updatedAt: now }
+                  : action === "apply_permission_repair"
+                    ? applyPccAutopilotPermissionRepair(current, now)
+                    : isPermissionAction(action)
+                      ? applyPccAutopilotPermissionAction(current, action, now, detail.project.id)
+                      : transitionPccAutopilotState(current, action, now);
     await savePccAutopilotStateForDetail(state, detail, next);
     setActionNotice(
       state,
@@ -2872,7 +2908,17 @@ export async function runPccAutopilotLoopAction(
           ? "Autopilot permission saved. You can start the loop inside that scope."
           : action === "deny_permission"
             ? "Autopilot permission request denied. The loop is blocked until you edit prompts or approve later."
-            : `Autopilot ${action} saved.`,
+            : action === "revoke_permission_grant"
+              ? latestActiveGrant
+                ? "Autopilot permission grant revoked. Elevated loop work will request approval again."
+                : "No active Autopilot permission grant to revoke."
+              : action === "expire_permission_grant"
+                ? latestActiveGrant
+                  ? "Autopilot permission grant expired. Elevated loop work will request approval again."
+                  : "No active Autopilot permission grant to expire."
+                : action === "apply_permission_repair"
+                  ? "Autopilot repair applied. Prompts were lowered to safe read-only review."
+                  : `Autopilot ${action} saved.`,
     );
   });
 }

@@ -4372,6 +4372,11 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
   const latestRun = autopilot.runHistory.at(-1);
   const latestJudge = autopilot.latestJudgeResult;
   const blocker = autopilot.currentBlocker;
+  const activeGrants = autopilot.permissionGrants.filter((grant) => grant.status === "active");
+  const pendingQueue = autopilot.permissionQueue.filter((item) => item.status === "pending");
+  const recentQueue = autopilot.permissionQueue.slice(-5).toReversed();
+  const repairPreview =
+    autopilot.permissionRepair?.status === "preview" ? autopilot.permissionRepair : undefined;
   return html`<section
     class="pcc-autopilot"
     data-pcc-autopilot-project-loop
@@ -4487,6 +4492,77 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
       : html`<p class="pcc-autopilot__permission-ready" data-pcc-autopilot-permission-ready>
           Permission preflight: ${permissionForecast.policySummary}.
         </p>`}
+    <section class="pcc-autopilot__permission-ledger" data-pcc-autopilot-permission-ledger>
+      <article data-pcc-autopilot-permission-queue>
+        <p class="pcc-kicker">Permission queue</p>
+        ${pendingQueue.length
+          ? html`<ul>
+              ${pendingQueue.map(
+                (item) => html`<li>
+                  <strong>${formatStatus(item.riskTier)} approval waiting</strong>
+                  <p>${item.reason}</p>
+                  <small>Approve: ${item.approvalConsequence}</small>
+                  <small>Deny: ${item.denialConsequence}</small>
+                </li>`,
+              )}
+            </ul>`
+          : html`<p class="pcc-empty pcc-empty--small">No Autopilot permissions waiting.</p>`}
+        ${mode === "simple" || recentQueue.length === 0
+          ? nothing
+          : html`<details>
+              <summary>Recent queue history (${recentQueue.length})</summary>
+              <ul>
+                ${recentQueue.map(
+                  (item) => html`<li>
+                    ${formatStatus(item.riskTier)} · ${formatStatus(item.status)} · ${item.reason}
+                  </li>`,
+                )}
+              </ul>
+            </details>`}
+      </article>
+      <article data-pcc-autopilot-grant-history>
+        <p class="pcc-kicker">Autopilot grants</p>
+        ${activeGrants.length
+          ? html`<ul>
+                ${activeGrants.map(
+                  (grant) => html`<li>
+                    <strong>${formatStatus(grant.riskTier)} grant active</strong>
+                    <p>${grant.reason}</p>
+                    <small>${grant.allowedActions.join(", ")}</small>
+                  </li>`,
+                )}
+              </ul>
+              <button
+                class="btn btn--subtle"
+                type="button"
+                data-pcc-autopilot-revoke-grant
+                ?disabled=${props.actionBusy}
+                @click=${() => props.onRunAutopilotAction?.("revoke_permission_grant")}
+              >
+                Revoke latest grant
+              </button>`
+          : html`<p class="pcc-empty pcc-empty--small">No active Autopilot grants.</p>`}
+      </article>
+    </section>
+    ${repairPreview
+      ? html`<article class="pcc-autopilot__repair" data-pcc-autopilot-repair-preview>
+          <p class="pcc-kicker">Judge repair recommendation</p>
+          <h5>${repairPreview.title}</h5>
+          <p>${repairPreview.summary}</p>
+          <ul>
+            ${repairPreview.changes.map((change) => html`<li>${change}</li>`)}
+          </ul>
+          <button
+            class="btn"
+            type="button"
+            data-pcc-autopilot-apply-repair
+            ?disabled=${props.actionBusy}
+            @click=${() => props.onRunAutopilotAction?.("apply_permission_repair")}
+          >
+            Apply repair recommendation
+          </button>
+        </article>`
+      : nothing}
     <div class="pcc-autopilot__controls" data-pcc-autopilot-controls>
       <label>
         <span>Loop mode</span>

@@ -27,6 +27,7 @@ import {
   previewPccSetupAutofill,
   previewPccChatSync,
   resumePccProjectForWork,
+  runPccAutopilotLoopAction,
   runPccUndoAction,
   savePccDecision,
   savePccMilestone,
@@ -486,6 +487,86 @@ describe("loadPccDashboard", () => {
       }),
     });
     expect(state.pccProjectDetail?.permissions[0]?.status).toBe("granted");
+  });
+
+  it("queues Autopilot permission and writes durable grant through project upsert", async () => {
+    let savedProject = project;
+    const request = vi.fn(async (method: string, params: unknown) => {
+      assertValidPccWriteParams(method, params);
+      if (method === "pcc.projects.upsert") {
+        savedProject = (params as { project: typeof project }).project;
+        return { project: savedProject, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project: savedProject,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [receipt],
+          decisions: [decision],
+          lastKnownGood: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccSelectedProjectId: project.id,
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [evidence],
+        receipts: [receipt],
+        decisions: [decision],
+        lastKnownGood: [],
+        summary,
+      },
+    });
+
+    await runPccAutopilotLoopAction(state, "start");
+    const queuedAutopilot = (
+      savedProject.metadata as
+        | {
+            pccAutopilot?: {
+              status?: string;
+              permissionQueue?: Array<{ status?: string; riskTier?: string }>;
+            };
+          }
+        | undefined
+    )?.pccAutopilot;
+    expect(queuedAutopilot?.status).toBe("needs_approval");
+    expect(queuedAutopilot?.permissionQueue?.[0]).toMatchObject({
+      status: "pending",
+      riskTier: "medium",
+    });
+
+    await runPccAutopilotLoopAction(state, "allow_medium_risk");
+    const approvedAutopilot = (
+      savedProject.metadata as
+        | {
+            pccAutopilot?: {
+              permissionGrants?: Array<{ status?: string; riskTier?: string }>;
+              permissionQueue?: Array<{ status?: string }>;
+            };
+          }
+        | undefined
+    )?.pccAutopilot;
+    expect(approvedAutopilot?.permissionGrants?.[0]).toMatchObject({
+      status: "active",
+      riskTier: "medium",
+    });
+    expect(approvedAutopilot?.permissionQueue?.[0]?.status).toBe("approved");
   });
 
   it("updates guided work-loop settings without starting Codex", async () => {

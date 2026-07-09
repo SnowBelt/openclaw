@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { PccMilestone, PccProject } from "../../packages/gateway-protocol/src/schema/types.js";
 import {
+  applyPccAutopilotPermissionRepair,
   applyPccAutopilotPermissionAction,
   buildPccAutopilotContextPack,
   buildPccAutopilotPermissionForecast,
   configurePccAutopilotMode,
   defaultPccAutopilotState,
   getPccAutopilotState,
+  revokePccAutopilotPermissionGrant,
   runPccAutopilotSafeStubSet,
   updatePccAutopilotPromptSlot,
   withPccAutopilotState,
@@ -97,6 +99,8 @@ describe("PCC Autopilot Project Loop", () => {
     expect(result.currentBlocker?.type).toBe("needs_approval");
     expect(result.runHistory).toHaveLength(0);
     expect(result.latestJudgeResult?.status).toBe("failed");
+    expect(result.permissionQueue[0]?.status).toBe("pending");
+    expect(result.permissionQueue[0]?.riskTier).toBe("medium");
   });
 
   it("runs after scoped Autopilot approval is granted", () => {
@@ -110,14 +114,70 @@ describe("PCC Autopilot Project Loop", () => {
       configured,
       "allow_medium_risk",
       "2026-07-07T12:01:00.000Z",
+      project.id,
     );
     const forecast = buildPccAutopilotPermissionForecast(approved);
     expect(forecast.required).toBe(false);
+    expect(approved.permissionGrants[0]?.status).toBe("active");
+    expect(approved.permissionGrants[0]?.riskTier).toBe("medium");
 
     const result = runPccAutopilotSafeStubSet(input(), approved, now);
     expect(result.status).toBe("completed");
     expect(result.runHistory.length).toBeGreaterThan(0);
     expect(result.runHistory[0]?.approvals.join("\\n")).toContain("medium-risk");
+  });
+
+  it("durably revokes grants so elevated prompts require approval again", () => {
+    const configured = configurePccAutopilotMode(
+      input(),
+      defaultPccAutopilotState(input(), now),
+      "full_build_review",
+      now,
+    );
+    const approved = applyPccAutopilotPermissionAction(
+      configured,
+      "allow_medium_risk",
+      "2026-07-07T12:01:00.000Z",
+      project.id,
+    );
+    const grantId = approved.permissionGrants[0]?.id ?? "";
+    const revoked = revokePccAutopilotPermissionGrant(
+      approved,
+      grantId,
+      "2026-07-07T12:02:00.000Z",
+    );
+    expect(revoked.permissionGrants[0]?.status).toBe("revoked");
+    expect(buildPccAutopilotPermissionForecast(revoked).required).toBe(true);
+  });
+
+  it("denial creates a safe repair preview and applying it lowers prompts to low risk", () => {
+    const configured = configurePccAutopilotMode(
+      input(),
+      defaultPccAutopilotState(input(), now),
+      "full_build_review",
+      now,
+    );
+    const queued = runPccAutopilotSafeStubSet(input(), configured, now);
+    const denied = applyPccAutopilotPermissionAction(
+      queued,
+      "deny_permission",
+      "2026-07-07T12:03:00.000Z",
+      project.id,
+    );
+    expect(denied.status).toBe("blocked");
+    expect(denied.permissionQueue[0]?.status).toBe("denied");
+    expect(denied.permissionRepair?.status).toBe("preview");
+    expect(denied.latestJudgeResult?.status).toBe("failed");
+
+    const repaired = applyPccAutopilotPermissionRepair(denied, "2026-07-07T12:04:00.000Z");
+    expect(repaired.status).toBe("ready");
+    expect(repaired.permissionRepair?.status).toBe("applied");
+    expect(buildPccAutopilotPermissionForecast(repaired).required).toBe(false);
+    expect(
+      repaired.promptSlots
+        .filter((slot) => slot.enabled)
+        .every((slot) => slot.approvalTier === "low"),
+    ).toBe(true);
   });
 
   it("persists edited prompt versions in project metadata", () => {

@@ -415,6 +415,10 @@ async function main() {
       .locator("[data-pcc-autopilot-permission-request]")
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
+    await page
+      .locator("[data-pcc-autopilot-permission-queue]")
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
     const startDisabledBeforePermission = await page
       .locator("[data-pcc-autopilot-start]")
       .first()
@@ -427,6 +431,54 @@ async function main() {
     await page.locator("[data-pcc-autopilot-allow-medium]").first().click({ force: true });
     await page
       .getByText("Autopilot permission saved", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page
+      .locator("[data-pcc-autopilot-grant-history]", { hasText: "Medium grant active" })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const afterAutopilotApproval = await getProject(actionProjectId);
+    const approvedAutopilotMetadata = afterAutopilotApproval.project.metadata as
+      | {
+          pccAutopilot?: {
+            permissionGrants?: Array<{ status?: string; riskTier?: string }>;
+            permissionQueue?: Array<{ status?: string; riskTier?: string }>;
+          };
+        }
+      | undefined;
+    const autopilotGrantPersisted =
+      approvedAutopilotMetadata?.pccAutopilot?.permissionGrants?.some(
+        (grant) => grant.status === "active" && grant.riskTier === "medium",
+      ) === true;
+    const autopilotQueueApproved =
+      approvedAutopilotMetadata?.pccAutopilot?.permissionQueue?.some(
+        (item) => item.status === "approved" && item.riskTier === "medium",
+      ) === true;
+    await page.locator("[data-pcc-autopilot-revoke-grant]").first().click({ force: true });
+    await page
+      .getByText("Autopilot permission grant revoked", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page
+      .locator("[data-pcc-autopilot-permission-request]")
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const startDisabledAfterRevoke = await page
+      .locator("[data-pcc-autopilot-start]")
+      .first()
+      .isDisabled();
+    await page.locator("[data-pcc-autopilot-deny-permission]").first().click({ force: true });
+    await page
+      .getByText("Autopilot permission request denied", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page
+      .locator("[data-pcc-autopilot-repair-preview]")
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("[data-pcc-autopilot-apply-repair]").first().click({ force: true });
+    await page
+      .getByText("Autopilot repair applied", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
     await page.locator("[data-pcc-autopilot-start]").first().click({ force: true });
@@ -456,13 +508,32 @@ async function main() {
       .waitFor({ state: "visible", timeout: 30_000 });
     const afterAutopilot = await getProject(actionProjectId);
     const autopilotMetadata = afterAutopilot.project.metadata as
-      | { pccAutopilot?: { status?: string; mode?: string; runHistory?: unknown[] } }
+      | {
+          pccAutopilot?: {
+            status?: string;
+            mode?: string;
+            runHistory?: unknown[];
+            permissionGrants?: Array<{ status?: string; riskTier?: string }>;
+            permissionQueue?: Array<{ status?: string; riskTier?: string }>;
+            permissionRepair?: { status?: string };
+          };
+        }
       | undefined;
     const autopilotControlsWorked =
       autopilotMetadata?.pccAutopilot?.status === "blocked" &&
       autopilotMetadata.pccAutopilot.mode === "bug_hunt" &&
       Array.isArray(autopilotMetadata.pccAutopilot.runHistory) &&
       autopilotMetadata.pccAutopilot.runHistory.length > 0;
+    const autopilotGrantRevoked =
+      autopilotMetadata?.pccAutopilot?.permissionGrants?.some(
+        (grant) => grant.status === "revoked" && grant.riskTier === "medium",
+      ) === true;
+    const autopilotQueueDenied =
+      autopilotMetadata?.pccAutopilot?.permissionQueue?.some(
+        (item) => item.status === "denied" && item.riskTier === "medium",
+      ) === true;
+    const autopilotRepairApplied =
+      autopilotMetadata?.pccAutopilot?.permissionRepair?.status === "applied";
 
     phase = "testing pointer drag reorder";
     summary.phase = phase;
@@ -595,6 +666,12 @@ async function main() {
       editSavePersisted,
       editCancelDiscarded,
       autopilotControlsWorked,
+      autopilotGrantPersisted,
+      autopilotQueueApproved,
+      autopilotGrantRevoked,
+      autopilotQueueDenied,
+      autopilotRepairApplied,
+      startDisabledAfterRevoke,
       setupRepairPreviewVisible: await page
         .getByText("AI Autofill Preview", { exact: false })
         .first()

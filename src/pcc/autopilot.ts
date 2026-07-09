@@ -43,7 +43,10 @@ export type PccAutopilotAction =
   | "allow_low_risk"
   | "allow_medium_risk"
   | "allow_high_risk"
-  | "deny_permission";
+  | "deny_permission"
+  | "revoke_permission_grant"
+  | "expire_permission_grant"
+  | "apply_permission_repair";
 
 export type PccAutopilotPromptSlot = {
   id: string;
@@ -84,6 +87,59 @@ export type PccAutopilotApprovalPolicy = {
   allowHighRisk: boolean;
   maxRiskTier: PccAutopilotApprovalTier;
   note: string;
+};
+
+export type PccAutopilotPermissionGrant = {
+  id: string;
+  projectId: string;
+  scope: "autopilot_project_loop";
+  riskTier: PccAutopilotApprovalTier;
+  allowedActions: string[];
+  deniedActions: string[];
+  status: "active" | "revoked" | "expired";
+  requester: string;
+  approvedBy?: string;
+  reason: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string;
+  revokedAt?: string;
+  auditLog: Array<{ at: string; event: string; summary: string }>;
+};
+
+export type PccAutopilotPermissionQueueItem = {
+  id: string;
+  projectId: string;
+  status: "pending" | "approved" | "denied" | "cancelled" | "resolved";
+  requestedAction: "start_autopilot_loop";
+  riskTier: PccAutopilotApprovalTier;
+  promptSlotIds: string[];
+  promptTitles: string[];
+  executor: PccAutopilotExecutorKind;
+  affectedSurfaces: string[];
+  reason: string;
+  approvalConsequence: string;
+  denialConsequence: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+  auditLog: Array<{ at: string; event: string; summary: string }>;
+};
+
+export type PccAutopilotPermissionRepairRecommendation = {
+  id: string;
+  status: "preview" | "applied" | "dismissed";
+  title: string;
+  summary: string;
+  targetPromptSlotIds: string[];
+  recommendedAction:
+    | "lower_to_low_risk_read_only"
+    | "request_permission"
+    | "stop_loop"
+    | "switch_to_safe_stub";
+  changes: string[];
+  createdAt: string;
+  appliedAt?: string;
 };
 
 export type PccAutopilotPermissionForecast = {
@@ -209,6 +265,9 @@ export type PccAutopilotState = {
   currentBlocker?: PccAutopilotBlocker;
   latestJudgeResult?: PccAutopilotJudgeResult;
   runHistory: PccAutopilotRunRecord[];
+  permissionGrants: PccAutopilotPermissionGrant[];
+  permissionQueue: PccAutopilotPermissionQueueItem[];
+  permissionRepair?: PccAutopilotPermissionRepairRecommendation;
   auditLog: Array<{ at: string; event: string; summary: string }>;
   finalReport?: PccAutopilotFinalReport;
   updatedAt: string;
@@ -439,6 +498,37 @@ function approvalPolicyAllowsTier(
   return policy.allowLowRisk;
 }
 
+function permissionGrantAllowsTier(
+  grant: PccAutopilotPermissionGrant,
+  tier: PccAutopilotApprovalTier,
+): boolean {
+  return (
+    grant.status === "active" &&
+    grant.scope === "autopilot_project_loop" &&
+    approvalTierAtLeast(grant.riskTier, tier)
+  );
+}
+
+function stateHasDurableGrantHistory(state: PccAutopilotState): boolean {
+  return state.permissionGrants.length > 0;
+}
+
+function authorizationAllowsTier(
+  state: PccAutopilotState,
+  tier: PccAutopilotApprovalTier,
+): boolean {
+  if (tier === "low") {
+    return (
+      approvalPolicyAllowsTier(state.approvalPolicy, tier) ||
+      state.permissionGrants.some((grant) => permissionGrantAllowsTier(grant, tier))
+    );
+  }
+  if (stateHasDurableGrantHistory(state)) {
+    return state.permissionGrants.some((grant) => permissionGrantAllowsTier(grant, tier));
+  }
+  return approvalPolicyAllowsTier(state.approvalPolicy, tier);
+}
+
 function policySummary(policy: PccAutopilotApprovalPolicy): string {
   return [
     `Low: ${policy.allowLowRisk ? "allowed" : "approval required"}`,
@@ -453,7 +543,7 @@ export function buildPccAutopilotPermissionForecast(
 ): PccAutopilotPermissionForecast {
   const blockedSlots = state.promptSlots
     .filter((slot) => slot.enabled)
-    .filter((slot) => !approvalPolicyAllowsTier(state.approvalPolicy, slot.approvalTier));
+    .filter((slot) => !authorizationAllowsTier(state, slot.approvalTier));
   const requiredTier = highestApprovalTier(blockedSlots.map((slot) => slot.approvalTier));
   if (!requiredTier) {
     return {
@@ -492,6 +582,188 @@ function approvalPolicyWithTier(
   };
 }
 
+function permissionActionTier(
+  action: Extract<PccAutopilotAction, "allow_low_risk" | "allow_medium_risk" | "allow_high_risk">,
+): PccAutopilotApprovalTier {
+  return action === "allow_high_risk" ? "high" : action === "allow_medium_risk" ? "medium" : "low";
+}
+
+function durableGrantId(projectId: string, tier: PccAutopilotApprovalTier, now: string): string {
+  return `autopilot-grant-${safeId(projectId) || "project"}-${tier}-${safeId(now)}`;
+}
+
+function queueItemId(projectId: string, tier: PccAutopilotApprovalTier): string {
+  return `autopilot-permission-queue-${safeId(projectId) || "project"}-${tier}`;
+}
+
+function repairRecommendationId(projectId: string, now: string): string {
+  return `autopilot-permission-repair-${safeId(projectId) || "project"}-${safeId(now)}`;
+}
+
+function approvalActionsForTier(tier: PccAutopilotApprovalTier): string[] {
+  const actions = [
+    "read_project_context",
+    "generate_autopilot_prompts",
+    "record_autopilot_history",
+    "run_safe_stub_prompt",
+  ];
+  if (approvalTierAtLeast(tier, "medium")) {
+    actions.push(
+      "prepare_source_code_change_plan",
+      "run_local_tests",
+      "write_low_risk_local_artifacts",
+    );
+  }
+  if (tier === "high") {
+    actions.push("prepare_high_risk_request_only");
+  }
+  return actions;
+}
+
+function createDurablePermissionGrant(
+  projectId: string,
+  tier: PccAutopilotApprovalTier,
+  now: string,
+): PccAutopilotPermissionGrant {
+  return {
+    id: durableGrantId(projectId, tier, now),
+    projectId,
+    scope: "autopilot_project_loop",
+    riskTier: tier,
+    allowedActions: approvalActionsForTier(tier),
+    deniedActions: DEFAULT_FORBIDDEN_ACTIONS,
+    status: "active",
+    requester: "PCC Autopilot Project Loop",
+    approvedBy: "User",
+    reason: `${approvalTierLabel(tier)} Autopilot work approved for this project only.`,
+    createdAt: now,
+    updatedAt: now,
+    auditLog: [
+      audit(now, "created", `${approvalTierLabel(tier)} durable Autopilot grant created.`),
+    ],
+  };
+}
+
+function approvePendingQueueItems(
+  queue: readonly PccAutopilotPermissionQueueItem[],
+  tier: PccAutopilotApprovalTier,
+  now: string,
+): PccAutopilotPermissionQueueItem[] {
+  return queue.map((item) =>
+    item.status === "pending" && approvalTierAtLeast(tier, item.riskTier)
+      ? {
+          ...item,
+          status: "approved",
+          resolvedAt: now,
+          updatedAt: now,
+          auditLog: [
+            ...item.auditLog,
+            audit(now, "approved", "Permission queue item approved by durable grant."),
+          ].slice(-50),
+        }
+      : item,
+  );
+}
+
+function denyPendingQueueItems(
+  queue: readonly PccAutopilotPermissionQueueItem[],
+  now: string,
+): PccAutopilotPermissionQueueItem[] {
+  return queue.map((item) =>
+    item.status === "pending"
+      ? {
+          ...item,
+          status: "denied",
+          resolvedAt: now,
+          updatedAt: now,
+          auditLog: [
+            ...item.auditLog,
+            audit(now, "denied", "Permission queue item denied by user."),
+          ].slice(-50),
+        }
+      : item,
+  );
+}
+
+function withPendingPermissionQueueItem(
+  state: PccAutopilotState,
+  input: PccAutopilotProjectInput,
+  forecast: PccAutopilotPermissionForecast,
+  now: string,
+): PccAutopilotState {
+  if (!forecast.requiredTier) {
+    return state;
+  }
+  const id = queueItemId(input.project.id, forecast.requiredTier);
+  const existing = state.permissionQueue.find(
+    (item) => item.id === id && item.status === "pending",
+  );
+  const item: PccAutopilotPermissionQueueItem = {
+    id,
+    projectId: input.project.id,
+    status: "pending",
+    requestedAction: "start_autopilot_loop",
+    riskTier: forecast.requiredTier,
+    promptSlotIds: forecast.promptSlotIds,
+    promptTitles: forecast.promptTitles,
+    executor: state.currentExecutor,
+    affectedSurfaces: [input.project.title, ...forecast.promptTitles].slice(0, 8),
+    reason: forecast.reason,
+    approvalConsequence:
+      "PCC will allow this project's Autopilot loop to run only inside the approved risk tier. External writes, deployment, credential changes, reboot, destructive actions, and Codex/high-reasoning spend still remain blocked.",
+    denialConsequence:
+      "PCC will not run the queued Autopilot prompts. It will create a repair recommendation so the prompts can be lowered to read-only safe work or stopped.",
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    auditLog: [
+      ...(existing?.auditLog ?? []),
+      audit(now, existing ? "refreshed" : "created", forecast.reason),
+    ].slice(-50),
+  };
+  const queue = state.permissionQueue.filter((candidate) => candidate.id !== id);
+  return {
+    ...state,
+    permissionQueue: [...queue, item].slice(-50),
+  };
+}
+
+export function queuePccAutopilotPermissionRequest(
+  input: PccAutopilotProjectInput,
+  state: PccAutopilotState,
+  now: string,
+): PccAutopilotState {
+  const forecast = buildPccAutopilotPermissionForecast(state);
+  return forecast.required && forecast.requiredTier
+    ? withPendingPermissionQueueItem(state, input, forecast, now)
+    : state;
+}
+
+function buildPermissionRepairRecommendation(
+  state: PccAutopilotState,
+  projectId: string,
+  now: string,
+): PccAutopilotPermissionRepairRecommendation {
+  const targets = state.promptSlots
+    .filter((slot) => slot.enabled && !authorizationAllowsTier(state, slot.approvalTier))
+    .map((slot) => slot.id);
+  return {
+    id: repairRecommendationId(projectId, now),
+    status: "preview",
+    title: "Lower Autopilot prompts to safe read-only work",
+    summary:
+      "Permission was denied or missing. PCC can convert the blocked prompt slots to low-risk safe-stub review so the loop can produce guidance without live executor work.",
+    targetPromptSlotIds: targets,
+    recommendedAction: "lower_to_low_risk_read_only",
+    changes: [
+      "Set blocked prompt slots to low-risk approval tier.",
+      "Keep executor as safe stub.",
+      "Keep external writes, deployment, credential changes, reboot, destructive actions, and Codex/high-reasoning spend forbidden.",
+      "Require user review before any live implementation work.",
+    ],
+    createdAt: now,
+  };
+}
+
 export function applyPccAutopilotPermissionAction(
   state: PccAutopilotState,
   action: Extract<
@@ -499,11 +771,23 @@ export function applyPccAutopilotPermissionAction(
     "allow_low_risk" | "allow_medium_risk" | "allow_high_risk" | "deny_permission"
   >,
   now: string,
+  projectId = "project",
 ): PccAutopilotState {
   if (action === "deny_permission") {
+    const repair = buildPermissionRepairRecommendation(state, projectId, now);
+    const judgeResult: PccAutopilotJudgeResult = {
+      status: "failed",
+      summary: "Judge rejected completion because Autopilot permission was denied or deferred.",
+      evidence: ["Permission queue denied", "No prompt execution occurred", "Repair path created"],
+      repairRecommendation: repair.summary,
+      reviewedAt: now,
+    };
     return {
       ...state,
       status: "blocked",
+      permissionQueue: denyPendingQueueItems(state.permissionQueue, now),
+      permissionRepair: repair,
+      latestJudgeResult: judgeResult,
       currentBlocker: {
         type: "needs_user_decision",
         whyBlocked: "Autopilot permission request was denied or deferred.",
@@ -520,13 +804,19 @@ export function applyPccAutopilotPermissionAction(
       updatedAt: now,
     };
   }
-  const tier =
-    action === "allow_high_risk" ? "high" : action === "allow_medium_risk" ? "medium" : "low";
+  const tier = permissionActionTier(action);
   const nextPolicy = approvalPolicyWithTier(state.approvalPolicy, tier);
+  const grant = createDurablePermissionGrant(projectId, tier, now);
   return {
     ...state,
     status: "ready",
     approvalPolicy: nextPolicy,
+    permissionGrants: [...state.permissionGrants, grant].slice(-50),
+    permissionQueue: approvePendingQueueItems(state.permissionQueue, tier, now),
+    permissionRepair:
+      state.permissionRepair?.status === "preview"
+        ? { ...state.permissionRepair, status: "dismissed" }
+        : state.permissionRepair,
     currentBlocker:
       state.currentBlocker?.type === "needs_approval" ? undefined : state.currentBlocker,
     auditLog: [
@@ -534,9 +824,95 @@ export function applyPccAutopilotPermissionAction(
       audit(
         now,
         "permission_approved",
-        `${approvalTierLabel(tier)} Autopilot permission approved for this project.`,
+        `${approvalTierLabel(tier)} durable Autopilot permission grant approved for this project.`,
       ),
     ].slice(-200),
+    updatedAt: now,
+  };
+}
+
+export function revokePccAutopilotPermissionGrant(
+  state: PccAutopilotState,
+  grantId: string,
+  now: string,
+): PccAutopilotState {
+  return {
+    ...state,
+    permissionGrants: state.permissionGrants.map((grant) =>
+      grant.id === grantId && grant.status === "active"
+        ? {
+            ...grant,
+            status: "revoked",
+            revokedAt: now,
+            updatedAt: now,
+            auditLog: [...grant.auditLog, audit(now, "revoked", "Grant revoked by user.")].slice(
+              -50,
+            ),
+          }
+        : grant,
+    ),
+    auditLog: [
+      ...state.auditLog,
+      audit(now, "permission_revoked", `Revoked grant ${grantId}.`),
+    ].slice(-200),
+    updatedAt: now,
+  };
+}
+
+export function expirePccAutopilotPermissionGrant(
+  state: PccAutopilotState,
+  grantId: string,
+  now: string,
+): PccAutopilotState {
+  return {
+    ...state,
+    permissionGrants: state.permissionGrants.map((grant) =>
+      grant.id === grantId && grant.status === "active"
+        ? {
+            ...grant,
+            status: "expired",
+            updatedAt: now,
+            auditLog: [...grant.auditLog, audit(now, "expired", "Grant expired.")].slice(-50),
+          }
+        : grant,
+    ),
+    auditLog: [
+      ...state.auditLog,
+      audit(now, "permission_expired", `Expired grant ${grantId}.`),
+    ].slice(-200),
+    updatedAt: now,
+  };
+}
+
+export function applyPccAutopilotPermissionRepair(
+  state: PccAutopilotState,
+  now: string,
+): PccAutopilotState {
+  const repair = state.permissionRepair;
+  if (!repair || repair.status !== "preview") {
+    return state;
+  }
+  const targetIds = new Set(repair.targetPromptSlotIds);
+  return {
+    ...state,
+    status: "ready",
+    promptSlots: state.promptSlots.map((slot) =>
+      targetIds.has(slot.id)
+        ? {
+            ...slot,
+            executor: "safe_stub",
+            approvalTier: "low",
+            judge: slot.judge === "mandatory" ? "optional" : slot.judge,
+            version: slot.version + 1,
+            promptBody: `${slot.promptBody}\n\nPermission repair: run as low-risk safe-stub review only. Do not perform live executor work or external writes.`,
+          }
+        : slot,
+    ),
+    currentBlocker: undefined,
+    permissionRepair: { ...repair, status: "applied", appliedAt: now },
+    auditLog: [...state.auditLog, audit(now, "permission_repair_applied", repair.summary)].slice(
+      -200,
+    ),
     updatedAt: now,
   };
 }
@@ -686,6 +1062,8 @@ export function defaultPccAutopilotState(
       evidence: [],
     },
     runHistory: [],
+    permissionGrants: [],
+    permissionQueue: [],
     auditLog: [audit(now, "created", "Autopilot Project Loop initialized in safe mode.")],
     updatedAt: now,
   };
@@ -760,6 +1138,121 @@ function normalizeJudgeResult(value: unknown): PccAutopilotJudgeResult | undefin
     evidence: stringArray(raw.evidence),
     repairRecommendation: stringValue(raw.repairRecommendation) || undefined,
     reviewedAt: stringValue(raw.reviewedAt) || undefined,
+  };
+}
+
+function normalizeAuditLog(
+  value: unknown,
+  now: string,
+): Array<{ at: string; event: string; summary: string }> {
+  return Array.isArray(value)
+    ? value.slice(-200).map((entry) => {
+        const rawEntry = metadataObject(entry);
+        return {
+          at: stringValue(rawEntry.at) || now,
+          event: stringValue(rawEntry.event) || "event",
+          summary: stringValue(rawEntry.summary) || "Autopilot event recorded.",
+        };
+      })
+    : [];
+}
+
+function normalizePermissionGrant(value: unknown, now: string): PccAutopilotPermissionGrant | null {
+  const raw = metadataObject(value);
+  const id = stringValue(raw.id);
+  if (!id) {
+    return null;
+  }
+  const status =
+    raw.status === "revoked" || raw.status === "expired" || raw.status === "active"
+      ? raw.status
+      : "active";
+  return {
+    id,
+    projectId: stringValue(raw.projectId) || "project",
+    scope: "autopilot_project_loop",
+    riskTier: approvalTierFromUnknown(raw.riskTier),
+    allowedActions: stringArray(raw.allowedActions),
+    deniedActions: stringArray(raw.deniedActions),
+    status,
+    requester: stringValue(raw.requester) || "PCC Autopilot Project Loop",
+    approvedBy: stringValue(raw.approvedBy) || undefined,
+    reason: stringValue(raw.reason) || "Autopilot permission grant.",
+    createdAt: stringValue(raw.createdAt) || now,
+    updatedAt: stringValue(raw.updatedAt) || now,
+    expiresAt: stringValue(raw.expiresAt) || undefined,
+    revokedAt: stringValue(raw.revokedAt) || undefined,
+    auditLog: normalizeAuditLog(raw.auditLog, now).slice(-50),
+  };
+}
+
+function normalizePermissionQueueItem(
+  value: unknown,
+  now: string,
+): PccAutopilotPermissionQueueItem | null {
+  const raw = metadataObject(value);
+  const id = stringValue(raw.id);
+  if (!id) {
+    return null;
+  }
+  const status =
+    raw.status === "approved" ||
+    raw.status === "denied" ||
+    raw.status === "cancelled" ||
+    raw.status === "resolved" ||
+    raw.status === "pending"
+      ? raw.status
+      : "pending";
+  return {
+    id,
+    projectId: stringValue(raw.projectId) || "project",
+    status,
+    requestedAction: "start_autopilot_loop",
+    riskTier: approvalTierFromUnknown(raw.riskTier),
+    promptSlotIds: stringArray(raw.promptSlotIds),
+    promptTitles: stringArray(raw.promptTitles),
+    executor: executorFromUnknown(raw.executor),
+    affectedSurfaces: stringArray(raw.affectedSurfaces),
+    reason: stringValue(raw.reason) || "Autopilot permission is required.",
+    approvalConsequence:
+      stringValue(raw.approvalConsequence) || "Autopilot may run inside the approved scope.",
+    denialConsequence: stringValue(raw.denialConsequence) || "Autopilot will remain blocked.",
+    createdAt: stringValue(raw.createdAt) || now,
+    updatedAt: stringValue(raw.updatedAt) || now,
+    resolvedAt: stringValue(raw.resolvedAt) || undefined,
+    auditLog: normalizeAuditLog(raw.auditLog, now).slice(-50),
+  };
+}
+
+function normalizePermissionRepair(
+  value: unknown,
+): PccAutopilotPermissionRepairRecommendation | undefined {
+  const raw = metadataObject(value);
+  const id = stringValue(raw.id);
+  if (!id) {
+    return undefined;
+  }
+  const status =
+    raw.status === "applied" || raw.status === "dismissed" || raw.status === "preview"
+      ? raw.status
+      : "preview";
+  const recommendedAction =
+    raw.recommendedAction === "request_permission" ||
+    raw.recommendedAction === "stop_loop" ||
+    raw.recommendedAction === "switch_to_safe_stub" ||
+    raw.recommendedAction === "lower_to_low_risk_read_only"
+      ? raw.recommendedAction
+      : "lower_to_low_risk_read_only";
+  return {
+    id,
+    status,
+    title: stringValue(raw.title) || "Permission repair recommendation",
+    summary: stringValue(raw.summary) || "Review permission repair recommendation.",
+    targetPromptSlotIds: stringArray(raw.targetPromptSlotIds),
+    recommendedAction,
+    changes: stringArray(raw.changes),
+    createdAt: stringValue(raw.createdAt) || new Date().toISOString(),
+    appliedAt: stringValue(raw.appliedAt) || undefined,
   };
 }
 
@@ -880,16 +1373,20 @@ export function getPccAutopilotState(
           .map(normalizeRunRecord)
           .filter((record): record is PccAutopilotRunRecord => Boolean(record))
       : [],
-    auditLog: Array.isArray(autopilot.auditLog)
-      ? autopilot.auditLog.slice(-200).map((entry) => {
-          const rawEntry = metadataObject(entry);
-          return {
-            at: stringValue(rawEntry.at) || now,
-            event: stringValue(rawEntry.event) || "event",
-            summary: stringValue(rawEntry.summary) || "Autopilot event recorded.",
-          };
-        })
+    permissionGrants: Array.isArray(autopilot.permissionGrants)
+      ? autopilot.permissionGrants
+          .slice(-50)
+          .map((grant) => normalizePermissionGrant(grant, now))
+          .filter((grant): grant is PccAutopilotPermissionGrant => Boolean(grant))
       : [],
+    permissionQueue: Array.isArray(autopilot.permissionQueue)
+      ? autopilot.permissionQueue
+          .slice(-50)
+          .map((item) => normalizePermissionQueueItem(item, now))
+          .filter((item): item is PccAutopilotPermissionQueueItem => Boolean(item))
+      : [],
+    permissionRepair: normalizePermissionRepair(autopilot.permissionRepair),
+    auditLog: normalizeAuditLog(autopilot.auditLog, now),
     finalReport: normalizeFinalReport(autopilot.finalReport),
     updatedAt: stringValue(autopilot.updatedAt) || now,
   };
@@ -1014,8 +1511,16 @@ export function buildPccAutopilotFinalReport(
   const blockers = [
     ...runs.flatMap((run) => (run.blocker ? [run.blocker.whyBlocked] : [])),
     ...(state.currentBlocker ? [state.currentBlocker.whyBlocked] : []),
+    ...state.permissionQueue
+      .filter((item) => item.status === "pending" || item.status === "denied")
+      .map(
+        (item) => `${approvalTierLabel(item.riskTier)} permission ${item.status}: ${item.reason}`,
+      ),
   ];
   const issuesFound = [...projectBlockers(input), ...blockers];
+  const grantSummaries = state.permissionGrants.map(
+    (grant) => `${approvalTierLabel(grant.riskTier)} grant ${grant.status}`,
+  );
   return {
     projectName: input.project.title,
     selectedLoopMode: state.mode,
@@ -1031,7 +1536,7 @@ export function buildPccAutopilotFinalReport(
       ? [...new Set(blockers)]
       : ["Live implementation was not run in safe stub mode."],
     blockersEncountered: [...new Set(blockers)],
-    approvalsUsed: [...new Set(runs.flatMap((run) => run.approvals))],
+    approvalsUsed: [...new Set([...runs.flatMap((run) => run.approvals), ...grantSummaries])],
     filesChanged: [...new Set(runs.flatMap((run) => run.changedFiles))],
     artifactsCreated: [...new Set(runs.flatMap((run) => run.artifacts))],
     checksRun: [...new Set(runs.flatMap((run) => run.checksRun))],
@@ -1039,6 +1544,7 @@ export function buildPccAutopilotFinalReport(
     remainingRisks: [
       "Safe stub mode does not make live code changes.",
       ...blockers,
+      ...(state.permissionRepair?.status === "preview" ? [state.permissionRepair.summary] : []),
       ...DEFAULT_FORBIDDEN_ACTIONS,
     ],
     recommendedNextLoop: state.mode === "full_build_review" ? "bug_hunt" : "test_verify",
@@ -1074,6 +1580,7 @@ export function runPccAutopilotSafeStubSet(
   }
   const forecast = buildPccAutopilotPermissionForecast(state);
   if (forecast.required && forecast.requiredTier) {
+    const queuedState = queuePccAutopilotPermissionRequest(input, state, now);
     const blocker: PccAutopilotBlocker = {
       type: "needs_approval",
       whyBlocked: forecast.reason,
@@ -1094,12 +1601,14 @@ export function runPccAutopilotSafeStubSet(
       reviewedAt: now,
     };
     const nextState: PccAutopilotState = {
-      ...state,
+      ...queuedState,
       status: "needs_approval",
       currentBlocker: blocker,
       latestJudgeResult: judgeResult,
       lastOutputSummary: forecast.reason,
-      auditLog: [...state.auditLog, audit(now, "permission_required", forecast.reason)].slice(-200),
+      auditLog: [...queuedState.auditLog, audit(now, "permission_required", forecast.reason)].slice(
+        -200,
+      ),
       updatedAt: now,
     };
     return { ...nextState, finalReport: buildPccAutopilotFinalReport(input, nextState, now) };
