@@ -48,6 +48,12 @@ describe("handleControlUiHttpRequest", () => {
       localMediaPreviewRoots?: string[];
       chatMessageMaxWidth?: string;
       timeFormat?: "auto" | "12" | "24";
+      runtimeIdentity?: {
+        runtimeRoot: string | null;
+        runtimeEntrypoint: string | null;
+        dashboardBuildId: string | null;
+        dashboardSurfaces: string[];
+      };
     };
   }
 
