@@ -1,5 +1,6 @@
 // Control UI controller manages config gateway state.
 import { applyMergePatch } from "../../../../src/config/merge-patch.ts";
+import type { ControlUiBootstrapConfig } from "../../../../src/gateway/control-ui-contract.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ConfigSchemaResponse, ConfigSnapshot, ConfigUiHints } from "../types.ts";
 import type { JsonSchema } from "../views/config-form.shared.ts";
@@ -42,6 +43,7 @@ export type ConfigState = {
   updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null;
   lastError: string | null;
   chatError?: string | null;
+  runtimeIdentity?: ControlUiBootstrapConfig["runtimeIdentity"];
 };
 
 const autoAllowlistedPluginIdsByState = new WeakMap<ConfigState, Set<string>>();
@@ -275,6 +277,13 @@ export async function applyConfig(state: ConfigState): Promise<boolean> {
 
 export async function runUpdate(state: ConfigState) {
   if (!state.client || !state.connected) {
+    return;
+  }
+  if (state.runtimeIdentity?.dashboardSurfaces.includes("pcc")) {
+    state.updateStatusBanner = {
+      tone: "warn",
+      text: "This dashboard includes PCC custom surfaces. Use the verified PCC runtime deployment flow so an update cannot replace them.",
+    };
     return;
   }
   state.updateRunning = true;

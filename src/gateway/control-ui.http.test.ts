@@ -811,6 +811,14 @@ describe("handleControlUiHttpRequest", () => {
         expect(parsed.assistantAgentId).toBe("main");
         expect(parsed.chatMessageMaxWidth).toBe("min(1280px, 82%)");
         expect(parsed.timeFormat).toBe("24");
+        expect(parsed.runtimeIdentity).toMatchObject({
+          runtimeRoot: expect.any(String),
+          runtimeEntrypoint: expect.any(String),
+          dashboardBuildId: expect.any(String),
+        });
+        expect(parsed.runtimeIdentity?.dashboardSurfaces).toEqual(
+          expect.arrayContaining(["pcc", "app-studio", "music-studio"]),
+        );
         expect(Array.isArray(parsed.localMediaPreviewRoots)).toBe(true);
       },
     });

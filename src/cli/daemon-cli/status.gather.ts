@@ -18,6 +18,7 @@ import { resolveSecretInputRef } from "../../config/types.secrets.js";
 import { readLastGatewayErrorLine } from "../../daemon/diagnostics.js";
 import type { FindExtraGatewayServicesOptions } from "../../daemon/inspect.js";
 import type { StaleOpenClawUpdateLaunchdJob } from "../../daemon/launchd.js";
+import { resolveGatewayProgramArguments } from "../../daemon/program-args.js";
 import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { resolveGatewayService } from "../../daemon/service.js";
@@ -586,14 +587,6 @@ export async function gatherDaemonStatus(
       .catch((err: unknown) => ({ status: "unknown", detail: String(err) })),
   ]);
   const restartHandoff = opts.deep ? readGatewayRestartHandoffSync(serviceEnv) : null;
-  const configAudit = command
-    ? await loadServiceAuditModule().then(({ auditGatewayServiceConfig }) =>
-        auditGatewayServiceConfig({
-          env: process.env,
-          command,
-        }),
-      )
-    : { ok: true, issues: [] satisfies ServiceConfigAudit["issues"] };
   const {
     mergedDaemonEnv,
     cliCfg,
@@ -609,6 +602,23 @@ export async function gatherDaemonStatus(
     commandProgramArguments: command?.programArguments,
     rpcUrlOverride: opts.rpc.url,
   });
+  const expectedEntrypoint = await resolveGatewayProgramArguments({
+    port: daemonPort,
+    runtime: "node",
+  })
+    .then((plan) =>
+      plan.programArguments.find((argument) => /[/\\]dist[/\\].+\.(?:cjs|js|mjs)$/u.test(argument)),
+    )
+    .catch(() => undefined);
+  const configAudit = command
+    ? await loadServiceAuditModule().then(({ auditGatewayServiceConfig }) =>
+        auditGatewayServiceConfig({
+          env: process.env,
+          command,
+          expectedEntrypoint,
+        }),
+      )
+    : { ok: true, issues: [] satisfies ServiceConfigAudit["issues"] };
   const { portStatus, portCliStatus } = await inspectDaemonPortStatuses({
     daemonPort,
     cliPort,

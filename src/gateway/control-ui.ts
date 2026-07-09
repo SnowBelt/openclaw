@@ -893,6 +893,42 @@ function matchesControlUiBootstrapConfigPath(pathname: string, basePath: string)
   return basePath === "" && pathname === CONTROL_UI_DEFAULT_NAMESPACE_BOOTSTRAP_CONFIG_PATH;
 }
 
+function resolveControlUiRuntimeIdentity(): NonNullable<
+  ControlUiBootstrapConfig["runtimeIdentity"]
+> {
+  const root = resolveControlUiRootSync({
+    moduleUrl: import.meta.url,
+    argv1: process.argv[1],
+    cwd: process.cwd(),
+  });
+  const runtimeRoot = root ? path.resolve(root, "..", "..") : null;
+  let dashboardBuildId: string | null = null;
+  let dashboardSurfaces: string[] = [];
+  if (root) {
+    try {
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(root, "dashboard-surfaces.json"), "utf8"),
+      ) as {
+        buildId?: unknown;
+        surfaces?: Array<{ id?: unknown }>;
+      };
+      dashboardBuildId =
+        typeof manifest.buildId === "string" && manifest.buildId.trim() ? manifest.buildId : null;
+      dashboardSurfaces = (manifest.surfaces ?? [])
+        .map((surface) => (typeof surface.id === "string" ? surface.id : ""))
+        .filter(Boolean);
+    } catch {
+      // A missing manifest is an explicit empty identity; production proof treats it as drift.
+    }
+  }
+  return {
+    runtimeRoot,
+    runtimeEntrypoint: process.argv[1] ?? null,
+    dashboardBuildId,
+    dashboardSurfaces,
+  };
+}
+
 export async function handleControlUiHttpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -970,6 +1006,7 @@ export async function handleControlUiHttpRequest(
       assistantAvatarReason: avatarMeta.avatarReason,
       assistantAgentId: identity.agentId,
       serverVersion: resolveRuntimeServiceVersion(process.env),
+      runtimeIdentity: resolveControlUiRuntimeIdentity(),
       localMediaPreviewRoots: [...getAgentScopedMediaLocalRoots(config ?? {}, identity.agentId)],
       embedSandbox:
         config?.gateway?.controlUi?.embedSandbox === "trusted"

@@ -1,6 +1,7 @@
 // Control UI module implements app behavior.
 import { LitElement } from "lit";
 import { state } from "lit/decorators.js";
+import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import {
@@ -667,6 +668,7 @@ export class OpenClawApp extends LitElement {
   @state() pendingUpdateExpectedVersion: string | null = null;
   @state() pendingUpdateHandoff = false;
   @state() updateStatusBanner: { tone: "danger" | "warn" | "info"; text: string } | null = null;
+  @state() runtimeIdentity: ControlUiBootstrapConfig["runtimeIdentity"] | undefined;
   @state() communicationsFormMode: "form" | "raw" = "form";
   @state() communicationsSearchQuery = "";
   @state() communicationsActiveSection: string | null = null;

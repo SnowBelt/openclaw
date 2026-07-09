@@ -12,6 +12,7 @@ import {
 import { normalizeEnvVarKey } from "../infra/host-env-security.js";
 import { parseTcpPort } from "../infra/tcp-port.js";
 import { VERSION } from "../version.js";
+import { isGatewayDistEntrypointPath } from "./gateway-entrypoint.js";
 import { resolveLaunchAgentPlistPath } from "./launchd.js";
 import { isBunRuntime, isNodeRuntime } from "./runtime-binary.js";
 import {
@@ -256,6 +257,40 @@ function auditGatewayCommand(programArguments: string[] | undefined, issues: Ser
       level: "aggressive",
     });
   }
+}
+
+function normalizeEntrypointPath(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? path.resolve(trimmed) : undefined;
+}
+
+function findGatewayEntrypoint(programArguments: string[] | undefined): string | undefined {
+  if (!programArguments) {
+    return undefined;
+  }
+  return programArguments.find((argument) => isGatewayDistEntrypointPath(argument));
+}
+
+function auditGatewayEntrypoint(params: {
+  programArguments: string[] | undefined;
+  expectedEntrypoint?: string;
+  issues: ServiceConfigIssue[];
+}) {
+  const expected = normalizeEntrypointPath(params.expectedEntrypoint);
+  if (!expected) {
+    return;
+  }
+  const actualRaw = findGatewayEntrypoint(params.programArguments);
+  const actual = normalizeEntrypointPath(actualRaw);
+  if (actual === expected) {
+    return;
+  }
+  params.issues.push({
+    code: SERVICE_AUDIT_CODES.gatewayEntrypointMismatch,
+    message: "Gateway service entrypoint does not match the current install.",
+    detail: `${actualRaw ?? "missing"} -> ${params.expectedEntrypoint}`,
+    level: "recommended",
+  });
 }
 
 type GatewayServiceCommandPort =
@@ -629,12 +664,19 @@ export async function auditGatewayServiceConfig(params: {
   expectedGatewayToken?: string;
   expectedManagedServiceEnvKeys?: Iterable<string>;
   expectedServicePath?: string;
+  /** Expected built Gateway entrypoint for the invoking runtime. */
+  expectedEntrypoint?: string;
   expectedPort?: number;
 }): Promise<ServiceConfigAudit> {
   const issues: ServiceConfigIssue[] = [];
   const platform = params.platform ?? process.platform;
 
   auditGatewayCommand(params.command?.programArguments, issues);
+  auditGatewayEntrypoint({
+    programArguments: params.command?.programArguments,
+    expectedEntrypoint: params.expectedEntrypoint,
+    issues,
+  });
   auditGatewayServicePort({
     programArguments: params.command?.programArguments,
     issues,

@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin, UserConfig } from "vite";
 import { controlUiManualChunk } from "./config/control-ui-chunking.ts";
+import { DASHBOARD_SURFACES } from "./config/dashboard-surfaces.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
@@ -225,10 +226,41 @@ function controlUiServiceWorkerBuildIdPlugin(buildId: string): Plugin {
   };
 }
 
+function controlUiDashboardSurfaceManifestPlugin(buildId: string): Plugin {
+  return {
+    name: "control-ui-dashboard-surface-manifest",
+    apply: "build",
+    closeBundle() {
+      const assetsDir = path.join(outDir, "assets");
+      const assets = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir).sort() : [];
+      const surfaces = DASHBOARD_SURFACES.map((surface) => ({
+        id: surface.id,
+        path: surface.path,
+        label: surface.label,
+        aliases: "aliases" in surface ? surface.aliases : [],
+        assets: assets
+          .filter((asset) => asset.startsWith(surface.assetPrefix) && asset.endsWith(".js"))
+          .map((asset) => `assets/${asset}`),
+      }));
+      const missing = surfaces
+        .filter((surface) => surface.assets.length === 0)
+        .map((surface) => surface.id);
+      if (missing.length > 0) {
+        throw new Error(`Control UI dashboard bundles missing: ${missing.join(", ")}`);
+      }
+      fs.writeFileSync(
+        path.join(outDir, "dashboard-surfaces.json"),
+        `${JSON.stringify({ buildId, surfaces }, null, 2)}\n`,
+      );
+    },
+  };
+}
+
 export default function controlUiViteConfig(): UserConfig {
   const envBase = process.env.OPENCLAW_CONTROL_UI_BASE_PATH?.trim();
   const base = envBase ? normalizeBase(envBase) : "./";
-  const bootstrapConfigPath = base === "./" ? "/control-ui-config.json" : `${base}control-ui-config.json`;
+  const bootstrapConfigPath =
+    base === "./" ? "/control-ui-config.json" : `${base}control-ui-config.json`;
   const controlUiBuildId = resolveControlUiBuildId();
   return {
     base,
@@ -271,6 +303,7 @@ export default function controlUiViteConfig(): UserConfig {
     plugins: [
       controlUiBrowserOnlySharedModuleAliases(),
       controlUiServiceWorkerBuildIdPlugin(controlUiBuildId),
+      controlUiDashboardSurfaceManifestPlugin(controlUiBuildId),
       {
         name: "control-ui-dev-stubs",
         configureServer(server) {

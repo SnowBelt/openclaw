@@ -1094,6 +1094,27 @@ describe("saveConfig", () => {
 });
 
 describe("runUpdate", () => {
+  it("fails closed when the verified PCC runtime is active", async () => {
+    const request = vi.fn();
+    const state = createState();
+    state.connected = true;
+    state.client = { request } as unknown as ConfigState["client"];
+    state.runtimeIdentity = {
+      runtimeRoot: "/Users/openclaw/OpenClaw-dashboard-production-runtime",
+      runtimeEntrypoint: "/Users/openclaw/OpenClaw-dashboard-production-runtime/dist/index.js",
+      dashboardBuildId: "verified-build",
+      dashboardSurfaces: ["pcc"],
+    };
+
+    await runUpdate(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.updateStatusBanner).toEqual({
+      tone: "warn",
+      text: "This dashboard includes PCC custom surfaces. Use the verified PCC runtime deployment flow so an update cannot replace them.",
+    });
+  });
+
   it("sends update.run with session key", async () => {
     const request = vi.fn().mockResolvedValue({});
     const state = createState();

@@ -22,4 +22,11 @@ export type ControlUiBootstrapConfig = {
   chatMessageMaxWidth?: string;
   /** Resolved `agents.defaults.timeFormat`; "auto" keeps the browser locale default. */
   timeFormat?: "auto" | "12" | "24";
+  /** Authenticated runtime identity used to detect dashboard deployment drift. */
+  runtimeIdentity?: {
+    runtimeRoot: string | null;
+    runtimeEntrypoint: string | null;
+    dashboardBuildId: string | null;
+    dashboardSurfaces: string[];
+  };
 };

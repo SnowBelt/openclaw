@@ -1,3 +1,4 @@
+import { DASHBOARD_SURFACES, PCC_DASHBOARD_SURFACE } from "../../config/dashboard-surfaces.ts";
 // Control UI module implements navigation behavior.
 import { t } from "../i18n/index.ts";
 import type { IconName } from "./icons.js";
@@ -5,14 +6,16 @@ import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
 export const TAB_GROUPS = [
   { label: "chat", tabs: ["chat"] },
-  { label: "pcc", tabs: ["pcc"] },
+  { label: "pcc", tabs: [PCC_DASHBOARD_SURFACE.tab] },
   {
     label: "control",
     tabs: ["overview", "activity", "workboard", "instances", "sessions", "usage", "cron"],
   },
   {
     label: "dashboards",
-    tabs: ["appStudio", "musicStudio", "snesStudio", "bookWriter", "kalshi", "patternLab"],
+    tabs: DASHBOARD_SURFACES.filter((surface) => surface.id !== "pcc").map(
+      (surface) => surface.tab,
+    ),
   },
   { label: "agent", tabs: ["agents", "skills", "skillWorkshop", "nodes", "dreams"] },
   {
@@ -86,7 +89,7 @@ const TAB_PATHS: Record<Tab, string> = {
   skillWorkshop: "/skills/workshop",
   nodes: "/nodes",
   chat: "/chat",
-  pcc: "/pcc",
+  pcc: PCC_DASHBOARD_SURFACE.path,
   config: "/config",
   communications: "/communications",
   appearance: "/appearance",
@@ -101,7 +104,7 @@ const TAB_PATHS: Record<Tab, string> = {
 
 const PATH_ALIASES: Record<string, Tab> = {
   "/dreams": "dreams",
-  "/projects": "pcc",
+  [PCC_DASHBOARD_SURFACE.aliases?.[0] ?? "/projects"]: "pcc",
 };
 
 const PATH_TO_TAB = new Map<string, Tab>([

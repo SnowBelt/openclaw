@@ -42,6 +42,16 @@ type ProofOptions = {
     | "focus-live-interaction";
 };
 
+const REQUIRED_DASHBOARD_SURFACES = [
+  "pcc",
+  "app-studio",
+  "music-studio",
+  "snes-studio",
+  "book-writer",
+  "kalshi",
+  "pattern-lab",
+] as const;
+
 function redactUrl(value: string): string {
   return value
     .replace(/([#?&]token=)[^&/#]+/gi, "$1<redacted>")
@@ -253,6 +263,27 @@ async function runBrowserProof(options: ProofOptions) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1400 } });
   await page.goto(resolved.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.waitForTimeout(12_000);
+  const dashboardManifest = await page
+    .evaluate(async () => {
+      const response = await fetch("/dashboard-surfaces.json", { cache: "no-store" });
+      if (!response.ok) {
+        return { ok: false, status: response.status, buildId: null, ids: [] as string[] };
+      }
+      const payload = (await response.json()) as {
+        buildId?: unknown;
+        surfaces?: Array<{ id?: unknown; assets?: unknown }>;
+      };
+      return {
+        ok: true,
+        status: response.status,
+        buildId: typeof payload.buildId === "string" ? payload.buildId : null,
+        ids: (payload.surfaces ?? [])
+          .filter((surface) => Array.isArray(surface.assets) && surface.assets.length > 0)
+          .map((surface) => (typeof surface.id === "string" ? surface.id : ""))
+          .filter(Boolean),
+      };
+    })
+    .catch(() => ({ ok: false, status: 0, buildId: null, ids: [] as string[] }));
   const ensurePccRoute = async () => {
     const pccShell = page.locator(".pcc-shell").first();
     if (await pccShell.isVisible().catch(() => false)) {
@@ -495,6 +526,7 @@ async function runBrowserProof(options: ProofOptions) {
       .catch(() => false),
     clickedOpen: true,
     runtimeIdentity,
+    dashboardManifest,
     selectors: {
       pccShell: await page.locator(".pcc-shell").count(),
       projectCards: await page.locator(".pcc-project-card").count(),
@@ -568,6 +600,9 @@ async function runBrowserProof(options: ProofOptions) {
           (!runtimeIdentity.service || !runtimeIdentity.service.driftReason) &&
           (!options.expectedRuntimeSha ||
             runtimeIdentity.runtimeSha === options.expectedRuntimeSha)),
+      dashboardManifest:
+        dashboardManifest.ok &&
+        REQUIRED_DASHBOARD_SURFACES.every((surface) => dashboardManifest.ids.includes(surface)),
     },
     sample: normalizedText.slice(0, 2_000),
   };

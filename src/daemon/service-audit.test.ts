@@ -88,6 +88,34 @@ function expectTokenAudit(
 }
 
 describe("auditGatewayServiceConfig", () => {
+  it("flags a Gateway service rooted outside the expected runtime", async () => {
+    const audit = await auditGatewayServiceConfig({
+      env: { HOME: "/tmp" },
+      platform: "darwin",
+      expectedEntrypoint: "/runtime/dist/index.js",
+      command: {
+        programArguments: ["/usr/bin/node", "/global/dist/index.js", "gateway"],
+        environment: { PATH: "/usr/bin:/bin" },
+      },
+    });
+
+    expect(hasIssue(audit, SERVICE_AUDIT_CODES.gatewayEntrypointMismatch)).toBe(true);
+  });
+
+  it("accepts the expected Gateway runtime entrypoint", async () => {
+    const audit = await auditGatewayServiceConfig({
+      env: { HOME: "/tmp" },
+      platform: "darwin",
+      expectedEntrypoint: "/runtime/dist/index.js",
+      command: {
+        programArguments: ["/usr/bin/node", "/runtime/dist/index.js", "gateway"],
+        environment: { PATH: "/usr/bin:/bin" },
+      },
+    });
+
+    expect(hasIssue(audit, SERVICE_AUDIT_CODES.gatewayEntrypointMismatch)).toBe(false);
+  });
+
   it("flags bun runtime", async () => {
     const audit = await auditGatewayServiceConfig({
       env: { HOME: "/tmp" },
