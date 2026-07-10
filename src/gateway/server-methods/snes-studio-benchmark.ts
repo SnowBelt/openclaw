@@ -254,7 +254,7 @@ export async function loadSnesBenchmarkLatestSnapshot(opts?: {
   if (!isRecord(parsed)) {
     throw new Error("latest benchmark report is not a JSON object");
   }
-  let summaryMarkdown: string | null = null;
+  let summaryMarkdown: string | null;
   try {
     summaryMarkdown = await readFile(summaryPath, "utf8");
   } catch {
@@ -1607,7 +1607,7 @@ type SnesToolchainProjectActionRunner = (params: unknown, mode: string) => Promi
 type SnesGenericProofActionRunner = (params: unknown) => Promise<SnesGenericProofActionReceipt>;
 type SnesAssetStudioRunner = (params: unknown) => Promise<JsonRecord>;
 
-export function createSnesStudioBenchmarkHandlers(params?: {
+export function createSnesStudioBenchmarkHandlers(options?: {
   loadSnapshot?: () => Promise<SnesBenchmarkLatestSnapshot>;
   loadGlm52Status?: (config: JsonRecord) => Promise<SnesGlm52StatusSnapshot>;
   loadMasteryStatus?: () => Promise<SnesMasteryStatusSnapshot>;
@@ -1619,18 +1619,18 @@ export function createSnesStudioBenchmarkHandlers(params?: {
   runSnesAssetStudio?: SnesAssetStudioRunner;
   createBlankProject?: (params: unknown) => Promise<SnesBlankProjectReceipt>;
 }): GatewayRequestHandlers {
-  const loadSnapshot = params?.loadSnapshot ?? loadSnesBenchmarkLatestSnapshot;
+  const loadSnapshot = options?.loadSnapshot ?? loadSnesBenchmarkLatestSnapshot;
   const loadGlm52Status =
-    params?.loadGlm52Status ?? ((config: JsonRecord) => loadSnesGlm52StatusSnapshot({ config }));
-  const loadMasteryStatus = params?.loadMasteryStatus ?? loadSnesMasteryStatusSnapshot;
-  const loadToolchainStatus = params?.loadToolchainStatus ?? loadSnesToolchainStatusSnapshot;
-  const runGenericProduction = params?.runGenericProduction ?? runDefaultGenericProduction;
-  const runStanskiProduction = params?.runStanskiProduction ?? runDefaultStanskiProduction;
+    options?.loadGlm52Status ?? ((config: JsonRecord) => loadSnesGlm52StatusSnapshot({ config }));
+  const loadMasteryStatus = options?.loadMasteryStatus ?? loadSnesMasteryStatusSnapshot;
+  const loadToolchainStatus = options?.loadToolchainStatus ?? loadSnesToolchainStatusSnapshot;
+  const runGenericProduction = options?.runGenericProduction ?? runDefaultGenericProduction;
+  const runStanskiProduction = options?.runStanskiProduction ?? runDefaultStanskiProduction;
   const runToolchainProjectAction =
-    params?.runToolchainProjectAction ?? runDefaultToolchainProjectAction;
-  const runGenericProofAction = params?.runGenericProofAction ?? runDefaultGenericProofAction;
-  const runSnesAssetStudio = params?.runSnesAssetStudio ?? runDefaultSnesAssetStudioPipeline;
-  const createBlankProject = params?.createBlankProject ?? createBlankSnesProjectReceipt;
+    options?.runToolchainProjectAction ?? runDefaultToolchainProjectAction;
+  const runGenericProofAction = options?.runGenericProofAction ?? runDefaultGenericProofAction;
+  const runSnesAssetStudio = options?.runSnesAssetStudio ?? runDefaultSnesAssetStudioPipeline;
+  const createBlankProject = options?.createBlankProject ?? createBlankSnesProjectReceipt;
   return {
     "snes.benchmark.latest": async ({ respond }) => {
       try {

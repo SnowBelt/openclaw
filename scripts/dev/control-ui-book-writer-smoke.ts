@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-promise-executor-return eslint/no-shadow eslint/no-underscore-dangle eslint/no-unused-vars eslint/no-useless-assignment -- The compatibility smoke harness intentionally preserves browser diagnostic names and intermediate proof state. */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";

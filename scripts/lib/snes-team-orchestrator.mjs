@@ -2134,7 +2134,7 @@ function markMilestoneBlocked(loaded, milestone, blocker) {
 }
 
 export function runPccUntilBlocked({ project, root, maxMilestones = 10, maxMinutes = 480 }) {
-  const { loaded, blocked } = loadedOrBlocked({
+  const { blocked } = loadedOrBlocked({
     project,
     root,
     format: "openclaw-snes-pcc-run-v1",

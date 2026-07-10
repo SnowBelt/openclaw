@@ -62,10 +62,6 @@ function fileSha256(filePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
 }
 
-function sha256Buffer(buffer) {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
-}
-
 function receiptBase(extra = {}) {
   return {
     generatedAt: nowIso(),
@@ -586,7 +582,6 @@ function pipeline(args) {
     );
   }
   const source = readJson(sourceReceiptPath(root));
-  const intent = readJson(intentPath(root));
   const conversion = readJson(convertReceiptPath(root));
   const qa = readJson(qaReceiptPath(root));
   const receipt = receiptBase({
@@ -910,7 +905,7 @@ function makeAssetMap(tileCount) {
   return map;
 }
 
-function runtimeDemoCSource({ conversion, renderMode, symbol, tileData }) {
+function runtimeDemoCSource({ conversion: _conversion, renderMode, symbol, tileData }) {
   const tileCount = tileData.tileBytes.length / 32;
   const assetMap = makeAssetMap(tileCount);
   const oamSetterLines = [];

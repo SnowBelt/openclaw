@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-promise-executor-return eslint/no-useless-assignment -- The smoke harness intentionally retains callback and lifecycle state for failure diagnostics. */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";

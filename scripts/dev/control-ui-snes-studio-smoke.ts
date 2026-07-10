@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-promise-executor-return -- Gateway lifecycle promises resolve through timer callbacks. */
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";

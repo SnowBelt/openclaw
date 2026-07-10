@@ -4163,7 +4163,9 @@ export function renderApp(state: AppViewState) {
                 onSelfImprovementRecommendationUpdate: (input) => {
                   if (input.status === "dismissed" && !input.dismissalReason) {
                     const reason = promptForSelfImprovementText("Dismissal reason");
-                    if (!reason) return;
+                    if (!reason) {
+                      return;
+                    }
                     void updateSelfImprovementRecommendation(state, {
                       ...input,
                       dismissalReason: reason,
@@ -4175,7 +4177,9 @@ export function renderApp(state: AppViewState) {
                     !input.resolutionProof
                   ) {
                     const proof = promptForSelfImprovementText("Verification or approval proof");
-                    if (!proof) return;
+                    if (!proof) {
+                      return;
+                    }
                     void updateSelfImprovementRecommendation(state, {
                       ...input,
                       resolutionProof: proof,
@@ -4184,7 +4188,9 @@ export function renderApp(state: AppViewState) {
                   }
                   if (input.claimedBy === "") {
                     const claimedBy = promptForSelfImprovementText("Claimed by");
-                    if (!claimedBy) return;
+                    if (!claimedBy) {
+                      return;
+                    }
                     void updateSelfImprovementRecommendation(state, { ...input, claimedBy });
                     return;
                   }
@@ -4207,7 +4213,9 @@ export function renderApp(state: AppViewState) {
                   }
                   if (input.status === "dismissed" && !input.dismissalReason) {
                     const reason = promptForSelfImprovementText("Group dismissal reason");
-                    if (!reason) return;
+                    if (!reason) {
+                      return;
+                    }
                     void updateSelfImprovementGroup(state, { ...input, dismissalReason: reason });
                     return;
                   }
@@ -4218,39 +4226,48 @@ export function renderApp(state: AppViewState) {
                     const proof = promptForSelfImprovementText(
                       "Group verification or approval proof",
                     );
-                    if (!proof) return;
+                    if (!proof) {
+                      return;
+                    }
                     void updateSelfImprovementGroup(state, { ...input, resolutionProof: proof });
                     return;
                   }
                   void updateSelfImprovementGroup(state, input);
                 },
                 onSelfImprovementCuratorUpdate: (input) => {
+                  let curatorInput = input;
                   if (
-                    input.curatorStatus === "promoted" &&
+                    curatorInput.curatorStatus === "promoted" &&
                     !confirmSelfImprovementAction(
                       "Record promotion proof for this memory/skill proposal?",
                     )
                   ) {
                     return;
                   }
-                  if (input.proof === "") {
+                  if (curatorInput.proof === "") {
                     const proof = promptForSelfImprovementText("Curator review or promotion proof");
-                    if (!proof) return;
-                    input = { ...input, proof };
+                    if (!proof) {
+                      return;
+                    }
+                    curatorInput = { ...curatorInput, proof };
                   }
-                  if (input.reason === "") {
+                  if (curatorInput.reason === "") {
                     const reason = promptForSelfImprovementText("Curator reason");
-                    if (!reason) return;
-                    input = { ...input, reason };
+                    if (!reason) {
+                      return;
+                    }
+                    curatorInput = { ...curatorInput, reason };
                   }
-                  if (input.workshopProposalId === "") {
+                  if (curatorInput.workshopProposalId === "") {
                     const workshopProposalId = promptForSelfImprovementText(
                       "Skill Workshop proposal id",
                     );
-                    if (!workshopProposalId) return;
-                    input = { ...input, workshopProposalId };
+                    if (!workshopProposalId) {
+                      return;
+                    }
+                    curatorInput = { ...curatorInput, workshopProposalId };
                   }
-                  void updateSelfImprovementCuratorProposal(state, input);
+                  void updateSelfImprovementCuratorProposal(state, curatorInput);
                 },
                 onSkillsFilterChange: (next) => (state.skillsFilter = next),
                 onSkillsRefresh: () => {

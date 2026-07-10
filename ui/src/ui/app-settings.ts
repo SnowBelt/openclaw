@@ -433,7 +433,7 @@ async function refreshAgentsTab(host: SettingsHost, app: SettingsAppHost) {
       return;
     case "self-improvement":
       void loadSelfImprovementRecommendations(app);
-      return;
+      break;
     case "overview":
     case "tools":
     case undefined:

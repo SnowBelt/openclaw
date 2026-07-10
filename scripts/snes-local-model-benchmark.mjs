@@ -5,7 +5,6 @@ import {
   createSnesLocalModelBenchmarkReport,
   createSnesOutputBenchmarkReport,
   discoverAgentDefaultModel,
-  discoverLocalLlamaCppGlmModels,
   discoverOllamaModels,
   probeLocalLlamaCppGlmRuntime,
   writeBenchmarkArtifacts,

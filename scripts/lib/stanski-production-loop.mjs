@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-useless-assignment -- Repair receipts retain explicit null state when the optional retry path is not entered. */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";

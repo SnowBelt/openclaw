@@ -528,7 +528,7 @@ function findAppBundle(root) {
   const queue = [root];
   while (queue.length) {
     const current = queue.shift();
-    let entries = [];
+    let entries;
     try {
       entries = readdirSync(current, { withFileTypes: true });
     } catch {
@@ -729,7 +729,7 @@ function extractNestedArchive(outputDir) {
   if (findAppBundle(outputDir)) {
     return { ok: true, extracted: false };
   }
-  let entries = [];
+  let entries;
   try {
     entries = readdirSync(outputDir, { withFileTypes: true });
   } catch (error) {
@@ -769,7 +769,7 @@ function findDeep(root, names) {
   const queue = [root];
   while (queue.length) {
     const current = queue.shift();
-    let entries = [];
+    let entries;
     try {
       entries = readdirSync(current, { withFileTypes: true });
     } catch {
@@ -905,7 +905,7 @@ function buildFromSource(toolId) {
       return { ok: true, path: destination, source: def.source.repo };
     }
     failures.push(
-      `${String(command)} ${args.map((arg) => String(arg)).join(" ")}: build succeeded but no binary ${def.source.binaries.map((binary) => String(binary)).join("/")} was found`,
+      `${String(command)} ${args.map((arg) => String(arg)).join(" ")}: build succeeded but no binary ${def.source.binaries.map((binaryPath) => String(binaryPath)).join("/")} was found`,
     );
   }
   return { ok: false, blocker: failures.join("\n") };
@@ -2125,7 +2125,7 @@ function drawItemFrame(set, originX, originY, frameIndex) {
   }
 }
 
-function writeProductionCandidateSourcePng(outputPath, asset, artBible) {
+function writeProductionCandidateSourcePng(outputPath, asset, _artBible) {
   const palette = artSourcePaletteForType(asset.type);
   const dims = compiledDimensionsForType(asset.type);
   if (asset.type === "character-sprite") {
@@ -3270,33 +3270,6 @@ function runtimeAssetsHaveConvertedOutputs(runtimeAssetsUsed) {
   );
 }
 
-function firstRuntimeTileOutput(runtimeAssetsUsed, types) {
-  for (const asset of runtimeAssetsUsed) {
-    if (!types.includes(asset.type)) {
-      continue;
-    }
-    const output = (asset.convertedOutputs || []).find(
-      (item) => item.path.endsWith("tiles.4bpp") && existsSync(item.path),
-    );
-    if (output) {
-      return output;
-    }
-  }
-  return null;
-}
-
-function runtimeAssetByteList(runtimeAssetsUsed, types, maxBytes, fallbackValues) {
-  const output = firstRuntimeTileOutput(runtimeAssetsUsed, types);
-  if (!output) {
-    return fallbackValues;
-  }
-  const bytes = readFileSync(output.path).subarray(0, maxBytes);
-  if (bytes.length === 0) {
-    return fallbackValues;
-  }
-  return [...bytes].map((byte) => `0x${byte.toString(16).padStart(2, "0")}`);
-}
-
 function runtimeAssetOutput(runtimeAssetsUsed, types, fileName) {
   for (const asset of runtimeAssetsUsed) {
     if (!types.includes(asset.type)) {
@@ -3341,33 +3314,6 @@ function runtimeAssetU16Array(runtimeAssetsUsed, types, fileName, maxWords, fall
     words.push("0x0000");
   }
   return words;
-}
-
-function runtimeSpriteTilePack(runtimeAssetsUsed, fallbackValues) {
-  const spriteTypes = ["character-sprite", "enemy-sprite", "item-sprite"];
-  const packedBytes = [];
-  const offsets = {};
-  for (const type of spriteTypes) {
-    const output = runtimeAssetOutput(runtimeAssetsUsed, [type], "tiles.4bpp");
-    offsets[type] = Math.floor(packedBytes.length / 32);
-    if (output) {
-      packedBytes.push(...readFileSync(output.path).subarray(0, 2048));
-    }
-  }
-  if (packedBytes.length === 0) {
-    return {
-      offsets: {
-        "character-sprite": 0,
-        "enemy-sprite": 1,
-        "item-sprite": 2,
-      },
-      values: fallbackValues,
-    };
-  }
-  return {
-    offsets,
-    values: packedBytes.map((byte) => `0x${byte.toString(16).padStart(2, "0")}`),
-  };
 }
 
 function encodeSnes4bppTile(rows) {
@@ -4462,7 +4408,7 @@ function createStanskiWorldProjectPackage(options = {}) {
   const generatedAt = nowIso();
   const projectName = projectDisplayName(safeId);
   const worldOne = createStanskiWorldOneLevels();
-  const levelOneProduction = createStanskiLevelOneProductionState();
+  const levelOneState = createStanskiLevelOneProductionState();
   const activeLevel = worldOne[0];
   const references = createStanskiCanonReferences(options);
   const imageRecords = STANSKI_REFERENCE_ASSETS.map((asset) => {
@@ -4587,7 +4533,7 @@ function createStanskiWorldProjectPackage(options = {}) {
       name: "Level 1: Cleveland: Skyline Scramble",
       summary:
         "Active production target is Level 1 only. Full World 1 and full-game plans remain preserved in canon and backlog.",
-      chunks: levelOneProduction.sections.map((section) => section.name),
+      chunks: levelOneState.sections.map((section) => section.name),
       goal: "Finish Cleveland: Skyline Scramble at the porcelain toilet ending.",
     },
     name: projectName,
@@ -4608,7 +4554,7 @@ function createStanskiWorldProjectPackage(options = {}) {
         widthMetatiles: 128,
         heightMetatiles: 16,
         layers: 2,
-        entities: levelOneProduction.objects.map((object) => ({
+        entities: levelOneState.objects.map((object) => ({
           id: object.id,
           kind:
             object.kind === "player-start"
@@ -4625,7 +4571,7 @@ function createStanskiWorldProjectPackage(options = {}) {
         })),
       },
     ],
-    stanskiLevelOneProduction: levelOneProduction,
+    stanskiLevelOneProduction: levelOneState,
     stanskiCanon: {
       format: "openclaw-stanski-world-canon",
       version: 1,
@@ -4636,7 +4582,7 @@ function createStanskiWorldProjectPackage(options = {}) {
       visualTarget: { score: 100, approval: "human-required" },
       references,
       worldOneVerticalSlice: worldOne,
-      levelOneProduction,
+      levelOneProduction: levelOneState,
       requiredCanon: [
         "toilets",
         "death screen",
@@ -4730,7 +4676,7 @@ function createMinimalProjectPackage(projectId) {
     scenes: [{ id: "level-1", name: "Level 1" }],
     updatedAt: generatedAt,
   };
-  const packageWithoutHash = {
+  const packageBody = {
     createdAt: generatedAt,
     format: "openclaw-snes-project-package",
     manifest: {
@@ -4752,7 +4698,7 @@ function createMinimalProjectPackage(projectId) {
           ? "sample-stanski"
           : "generic",
   };
-  return { ...packageWithoutHash, packageHash: sha256Text(JSON.stringify(packageWithoutHash)) };
+  return { ...packageBody, packageHash: sha256Text(JSON.stringify(packageBody)) };
 }
 
 function writeStanskiCanonSummary(projectPackage, options = {}) {
@@ -5461,7 +5407,7 @@ function findPvsnesExample(pvsPath) {
     const queue = [root];
     while (queue.length) {
       const current = queue.shift();
-      let entries = [];
+      let entries;
       try {
         entries = readdirSync(current, { withFileTypes: true });
       } catch {
@@ -5551,7 +5497,7 @@ export function romSmoke(options = {}) {
     stdout: built.stdout.slice(0, 4000),
   };
   const rom = findDeep(workDir, ["*.sfc"]);
-  let romPath = null;
+  let romPath = rom;
   if (!rom) {
     const candidates = [];
     const queue = [workDir];
@@ -5568,8 +5514,6 @@ export function romSmoke(options = {}) {
       }
     }
     romPath = candidates[0] || null;
-  } else {
-    romPath = rom;
   }
   if (!built.ok || !romPath || !existsSync(romPath)) {
     report.blockers = ["PVSnesLib make did not produce a .sfc/.smc ROM."];
@@ -5928,7 +5872,7 @@ function findRomFile(root) {
   const candidates = [];
   while (queue.length) {
     const current = queue.shift();
-    let entries = [];
+    let entries;
     try {
       entries = readdirSync(current, { withFileTypes: true });
     } catch {

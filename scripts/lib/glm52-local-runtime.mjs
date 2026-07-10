@@ -109,14 +109,18 @@ function findRecord(value, predicate, depth = 0) {
   if (Array.isArray(parsed)) {
     for (const item of parsed) {
       const found = findRecord(item, predicate, depth + 1);
-      if (found) return found;
+      if (found) {
+        return found;
+      }
     }
     return null;
   }
   if (isRecord(parsed)) {
     for (const child of Object.values(parsed)) {
       const found = findRecord(child, predicate, depth + 1);
-      if (found) return found;
+      if (found) {
+        return found;
+      }
     }
   }
   return null;
@@ -439,7 +443,9 @@ export function parseGlm52RuntimeArgs(argv = process.argv.slice(2)) {
     }
     if (valueFlags.has(flag)) {
       const value = args[index + 1];
-      if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+      if (!value || value.startsWith("--")) {
+        throw new Error(`${flag} requires a value`);
+      }
       result[valueFlags.get(flag)] = value;
       index += 1;
       continue;
@@ -495,7 +501,9 @@ export function localGlm52ProviderModelRef(
 }
 
 export function determineGlm52BenchmarkPromotions(report, options = {}) {
-  if (!isRecord(report)) return { blocker: "benchmark report is missing", promotions: [] };
+  if (!isRecord(report)) {
+    return { blocker: "benchmark report is missing", promotions: [] };
+  }
   if (report.hostedGlmUsed === true) {
     return {
       blocker: "benchmark used hosted GLM and cannot authorize local promotion",
@@ -513,9 +521,13 @@ export function determineGlm52BenchmarkPromotions(report, options = {}) {
   const summaries = Array.isArray(report.modelSummaries) ? report.modelSummaries : [];
   const promotions = [];
   for (const role of roles) {
-    if (report.recommendedWinnersByRole?.[role] !== GLM_BENCHMARK_REF) continue;
+    if (report.recommendedWinnersByRole?.[role] !== GLM_BENCHMARK_REF) {
+      continue;
+    }
     const recommendation = report.promotionRecommendationsByRole?.[role];
-    if (recommendation && recommendation.readyToPromote === false) continue;
+    if (recommendation && recommendation.readyToPromote === false) {
+      continue;
+    }
     const summary = summaries.find(
       (entry) => entry?.role === role && entry?.modelRef === GLM_BENCHMARK_REF,
     );
@@ -550,9 +562,11 @@ export function buildPromotedAgentsList(agents, promotions) {
   const byId = new Map((promotions ?? []).map((entry) => [entry.agentId, entry]));
   const result = (Array.isArray(agents) ? agents : []).map((agent) => {
     const promotion = byId.get(agent?.id);
-    if (!promotion) return agent;
+    if (!promotion) {
+      return agent;
+    }
     byId.delete(agent.id);
-    return { ...agent, model: promotion.model };
+    return Object.assign({}, agent, { model: promotion.model });
   });
   for (const promotion of byId.values()) {
     result.push({ id: promotion.agentId, model: promotion.model });
@@ -592,7 +606,9 @@ export function scoreGlm52AgentProof(raw) {
     };
   }
   const blockers = [];
-  if (proof.role !== "snes-hardware-qa") blockers.push("agent proof used the wrong SNES role");
+  if (proof.role !== "snes-hardware-qa") {
+    blockers.push("agent proof used the wrong SNES role");
+  }
   const content = asText(proof.content).toLowerCase();
   const requiredSignals = [
     "rom",
@@ -611,11 +627,15 @@ export function scoreGlm52AgentProof(raw) {
   if (!Array.isArray(proof.constraintsRespected) || proof.constraintsRespected.length < 2) {
     blockers.push("agent proof is missing respected constraints");
   }
-  if (!asText(proof.playtestHypothesis).trim())
+  if (!asText(proof.playtestHypothesis).trim()) {
     blockers.push("agent proof is missing a playtest hypothesis");
-  if (!isSafeProofPatch(proof.patch)) blockers.push("missing or unsafe SNES Studio patch");
-  if (!Array.isArray(proof.receipt) || proof.receipt.length < 2)
+  }
+  if (!isSafeProofPatch(proof.patch)) {
+    blockers.push("missing or unsafe SNES Studio patch");
+  }
+  if (!Array.isArray(proof.receipt) || proof.receipt.length < 2) {
     blockers.push("agent proof is missing receipt evidence");
+  }
   return {
     blockers,
     ok: blockers.length === 0,
@@ -726,7 +746,9 @@ function promoteBenchmarkWinners(options) {
     providerId: options.providerId,
     roles: [options.agent ?? DEFAULT_AGENT],
   });
-  if (plan.blocker) return { ...plan, ok: false, status: "blocked" };
+  if (plan.blocker) {
+    return { ...plan, ok: false, status: "blocked" };
+  }
   const { config, raw } = readConfig(options.configPath ?? defaultConfigPath());
   const agents = isRecord(config.agents) ? { ...config.agents } : {};
   agents.list = buildPromotedAgentsList(agents.list, plan.promotions);
@@ -745,8 +767,8 @@ function runtimeStatus(options, spawnSyncFn) {
   const proof = readJsonIfPresent(
     path.resolve(options.proofArtifactDir ?? ".artifacts/glm52-agent-proof", "latest.json"),
   );
-  let providerConfigured = false;
-  let hardwareQaPromoted = false;
+  let providerConfigured;
+  let hardwareQaPromoted;
   try {
     const { config } = readConfig(options.configPath ?? defaultConfigPath());
     providerConfigured = Boolean(
@@ -760,6 +782,7 @@ function runtimeStatus(options, spawnSyncFn) {
       primary === localGlm52ProviderModelRef(options.modelId, options.providerId);
   } catch {
     providerConfigured = false;
+    hardwareQaPromoted = false;
   }
   const benchmarkPlan = determineGlm52BenchmarkPromotions(benchmark, {
     modelId: options.modelId,
@@ -792,7 +815,12 @@ function runtimeStatus(options, spawnSyncFn) {
 export async function runGlm52Runtime(options, dependencies = {}) {
   const spawnFn = dependencies.spawnFn ?? spawn;
   const spawnSyncFn = dependencies.spawnSyncFn ?? spawnSync;
-  const sleep = dependencies.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const sleep =
+    dependencies.sleep ??
+    ((ms) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      }));
   const generatedAt = nowIso();
   let report;
   if (options.command === "stop") {
@@ -867,7 +895,9 @@ export async function runGlm52Runtime(options, dependencies = {}) {
     const durationMs = options.verifyDurationSeconds * 1000;
     do {
       probes.push({ checkedAt: nowIso(), diagnostic: probeRuntime(options, spawnSyncFn) });
-      if (Date.now() - startedAt >= durationMs) break;
+      if (Date.now() - startedAt >= durationMs) {
+        break;
+      }
       await sleep(options.verifyIntervalSeconds * 1000);
     } while (Date.now() - startedAt <= durationMs);
     const ok = probes.length > 0 && probes.every((entry) => entry.diagnostic.decodeReady);

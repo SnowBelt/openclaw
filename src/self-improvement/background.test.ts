@@ -194,7 +194,7 @@ describe("self-improvement background task", () => {
       recordOperationalHealth: false,
       log: { error: (message) => errors.push(message) },
       runScan: async () => {
-        await new Promise(() => undefined);
+        await new Promise<void>(() => {});
         return scanResult();
       },
       runAnalysis: async () => analysisResult(),
