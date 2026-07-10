@@ -3,22 +3,22 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.openclaw.pattern-lab.dashboard</string>
+  <string>com.openclaw.patternlab-v2.dashboard</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_dashboard_server.py</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/scripts/patternlab_dashboard_server.py</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/pattern-lab-dashboard.out.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/pattern-lab-dashboard.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/pattern-lab-dashboard.err.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/pattern-lab-dashboard.err.log</string>
   <key>WorkingDirectory</key>
-  <string>/Users/openclaw/OpenClaw</string>
+  <string>/Users/openclaw/PatternLabRuntime</string>
   <key>Nice</key>
   <integer>10</integer>
   <key>LowPriorityIO</key>

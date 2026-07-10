@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.openclaw.pattern-lab.full-auto-production</string>
+  <string>com.openclaw.patternlab-v2.full-auto-production</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_full_auto_production.py</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/scripts/patternlab_full_auto_production.py</string>
     <string>--next-scheduled</string>
     <string>--live-voice</string>
     <string>never</string>
@@ -22,8 +22,8 @@
     <integer>5</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>/tmp/pattern-lab-full-auto-production.out.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/full-auto-production.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/pattern-lab-full-auto-production.err.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/full-auto-production.err.log</string>
 </dict>
 </plist>

@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.openclaw.pattern-lab.daily-review</string>
+  <string>com.openclaw.patternlab-v2.daily-review</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_daily_loop.py</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/scripts/patternlab_daily_loop.py</string>
     <string>--target</string>
     <string>channel:1503779032817209465</string>
   </array>
@@ -19,11 +19,11 @@
     <integer>25</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/daily-review-launchd.out.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/daily-review-launchd.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/daily-review-launchd.err.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/daily-review-launchd.err.log</string>
   <key>WorkingDirectory</key>
-  <string>/Users/openclaw/OpenClaw</string>
+  <string>/Users/openclaw/PatternLabRuntime</string>
   <key>Nice</key>
   <integer>10</integer>
   <key>LowPriorityIO</key>

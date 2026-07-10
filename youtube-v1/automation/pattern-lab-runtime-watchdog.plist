@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.openclaw.pattern-lab.runtime-watchdog</string>
+  <string>com.openclaw.patternlab-v2.runtime-watchdog</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_runtime_watchdog.py</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/scripts/patternlab_runtime_watchdog.py</string>
     <string>--check</string>
     <string>--recover</string>
     <string>--alert</string>
@@ -20,11 +20,11 @@
     <integer>40</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/runtime-watchdog.out.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/runtime-watchdog.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/runtime-watchdog.err.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/runtime-watchdog.err.log</string>
   <key>WorkingDirectory</key>
-  <string>/Users/openclaw/OpenClaw</string>
+  <string>/Users/openclaw/PatternLabRuntime</string>
   <key>Nice</key>
   <integer>10</integer>
   <key>LowPriorityIO</key>

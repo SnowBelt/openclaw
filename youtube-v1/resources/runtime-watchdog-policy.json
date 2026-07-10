@@ -11,15 +11,14 @@
     "alert_cooldown_minutes": 360
   },
   "launch_agents": [
-    "com.openclaw.pattern-lab.daily-review",
-    "com.openclaw.pattern-lab.full-auto-production",
-    "com.openclaw.pattern-lab.dashboard",
-    "com.openclaw.pattern-lab.wake-scheduler",
-    "com.openclaw.pattern-lab.runtime-watchdog"
+    "com.openclaw.patternlab-v2.daily-review",
+    "com.openclaw.patternlab-v2.full-auto-production",
+    "com.openclaw.patternlab-v2.dashboard",
+    "com.openclaw.patternlab-v2.runtime-watchdog"
   ],
   "non_negotiable_boundaries": [
     "The watchdog never uploads, publishes, comments, pins, sets Related Video, changes titles, or changes thumbnails.",
-    "Discord alerts and launch-agent recovery are disabled until a separate activation approval is recorded.",
+    "Discord alerts and launch-agent recovery require a separately recorded activation approval and remain bounded by the configured cooldowns.",
     "A failed health check creates a report; it does not silently repair production media."
   ]
 }
