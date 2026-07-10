@@ -26,7 +26,7 @@ Detroit Historical Society records describe more than 300 Black-owned businesses
 
 Now listen to the names that belong on screen. The Flame Show Bar. The Horseshoe Bar. Club Harlem. The Paradise Theater. These were not generic nightlife decorations. They were part of a network that brought Black performers, local audiences, and sometimes mixed-race audiences into the same cultural geography. Paradise Theater hosted names that belong to American music history: Duke Ellington, Billie Holiday, Louis Armstrong, Dizzy Gillespie.
 
-This is the part where a generic Detroit skyline would fail. If the narration says Paradise Valley, the screen needs Paradise Valley evidence: a map, a photograph, a club menu, an old listing, a theater image, a street view, a newspaper clip, or a document that points to the district. A skyline can set atmosphere. It cannot prove what was lost.
+Paradise Valley survives in the record through maps, photographs, business listings, theater materials, newspaper clips, and other documents that point back to the district. Those records do more than set a mood. They show what was there before the clearance lines arrived.
 
 The hidden system is not simply demolition. It is the chain that made demolition appear reasonable. First, segregation limited housing choice. Then overcrowding and aging housing became visible. Then official language classified the area through decline and clearance. Then federal law and highway money gave the city tools to act. Then the map changed.
 
@@ -38,7 +38,7 @@ Think about what a cleared block really means. It means a family gets notice to 
 
 The relocation story is one of the hardest parts. Detroit Historical Society notes that assistance was minimal, and many former residents were given thirty days to vacate. Some relocated to public housing projects like Brewster-Douglass and Jeffries Homes. That is not just a policy detail. That is the human cost of turning a neighborhood into a project area.
 
-The visual payoff should be direct. Show an old map of the district. Then show Hastings Street, St. Antoine, Paradise Valley, or the businesses and clubs that made the area legible. Then show the later freeway and redevelopment footprint. The viewer should be able to see the crossing: lived map, official map, replacement map.
+The story becomes clearest when the maps are placed beside each other: the lived district around Hastings Street and St. Antoine, the official clearance map, and the later freeway and redevelopment footprint. Together, they show the crossing from lived map to replacement map.
 
 That comparison does not mean the old neighborhood had no problems. It had overcrowding. It had poverty. It had aging houses. Some homes lacked modern amenities. But a serious history channel has to hold two truths at once: the neighborhood faced real material conditions, and the solution chosen by institutions destroyed a Black cultural and business district whose value could not be measured only by property condition.
 

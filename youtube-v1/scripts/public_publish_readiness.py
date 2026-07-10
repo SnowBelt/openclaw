@@ -61,7 +61,6 @@ def main():
     blockers = []
     latest_private_upload = latest_upload_time(upload_report, short_reports)
     public_approval_time = parse_time((public_approval or {}).get("created_at") or (public_approval or {}).get("generated_at"))
-    public_report_time = parse_time((public_report or {}).get("generated_at"))
 
     if not upload_report or upload_report.get("status") != "uploaded":
         blockers.append("Private/unlisted YouTube upload report is missing.")
@@ -111,14 +110,6 @@ def main():
         blockers.append("Public publish approval was not recorded after verified live YouTube API evidence.")
     elif not public_approval.get("synthetic_disclosure_owner_attested"):
         blockers.append("Owner synthetic disclosure attestation is missing.")
-    elif not public_report:
-        blockers.append("Public publish report is missing.")
-    elif latest_private_upload and (not public_report_time or public_report_time < latest_private_upload):
-        blockers.append("Public publish report predates the latest replacement private upload.")
-    elif public_report.get("status") != "published":
-        blockers.append("Public publish report is not published.")
-    elif len([item for item in public_report.get("published_videos", []) if item.get("privacy_after") == "public"]) < 4:
-        blockers.append("Not all uploaded videos are public.")
     if not shorts_plan.exists():
         blockers.append("Shorts upload plan is missing.")
     else:
@@ -133,6 +124,8 @@ def main():
         if not short.get("related_video_checklist"):
             blockers.append(f"Short {short.get('id', 'unknown')} is missing a related-video checklist.")
 
+    # This is a pre-publication gate.  Post-publication evidence is checked by
+    # publish_public_youtube.py and must not be required before the action.
     status = "public-publish-ready" if not blockers else "blocked-before-public-publish"
     related_video_plan_ready = shorts_plan.exists() and "Related-video checklist:" in shorts_plan.read_text(encoding="utf-8")
     related_video_ready = related_video_report.get("status") == "pass"
@@ -217,10 +210,10 @@ def main():
         f"- Owner public publish approval: {'present' if public_approval else 'missing'}",
         f"- Latest private upload: {latest_private_upload.isoformat() if latest_private_upload else ''}",
         f"- Public publish approval time: {public_approval_time.isoformat() if public_approval_time else ''}",
-        f"- Public publish report: {'present' if public_report else 'missing'}",
-        f"- Public videos verified by publish script: {public_video_count}/4",
-        f"- Launch checklist / long-form public: {public_video_count >= 1}",
-        f"- Launch checklist / Shorts public: {public_video_count >= 4}",
+        f"- Post-publication report: {'present' if public_report else 'not required before publish'}",
+        f"- Public videos verified after publish: {public_video_count}/4",
+        "- Launch checklist / long-form public: verified only after publish",
+        "- Launch checklist / Shorts public: verified only after publish",
         f"- Launch checklist / Related Video plan present: {related_video_plan_ready}",
         f"- Launch checklist / Related Video set for each Short: {related_video_ready}",
         f"- Launch checklist / bridge comments drafted: {bridge_comments_ready}",

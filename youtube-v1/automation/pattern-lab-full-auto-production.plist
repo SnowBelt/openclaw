@@ -10,7 +10,7 @@
     <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_full_auto_production.py</string>
     <string>--next-scheduled</string>
     <string>--live-voice</string>
-    <string>when-configured</string>
+    <string>never</string>
     <string>--shorts-target</string>
     <string>5</string>
   </array>

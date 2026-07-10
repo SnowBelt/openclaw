@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -186,6 +187,55 @@ def package_locked(video_id):
     return False, "not uploaded"
 
 
+def review_fingerprint(root: Path, video_id: str) -> str:
+    """Hash the exact review media and packet, not timestamps, for idempotent delivery."""
+    candidates = [
+        root / "video" / f"pattern-lab-video-{video_id}-draft.mp4",
+        root / "review" / "owner-review-packet.md",
+        *sorted((root / "shorts").glob(f"pattern-lab-video-{video_id}-short-*.mp4")),
+        *sorted((root / "images").glob("thumbnail_candidate_*.png")),
+    ]
+    digest = hashlib.sha256()
+    for path in candidates:
+        if not path.exists():
+            continue
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def delivery_is_current(root: Path, video_id: str) -> tuple[bool, str]:
+    state_path = root / "approval" / "discord-review-delivery-state.json"
+    fingerprint = review_fingerprint(root, video_id)
+    if not state_path.exists():
+        return False, fingerprint
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False, fingerprint
+    return payload.get("fingerprint") == fingerprint and payload.get("delivery") == "sent", fingerprint
+
+
+def record_delivery(root: Path, video_id: str, target: str, fingerprint: str) -> None:
+    approval = ensure_dir(root / "approval")
+    (approval / "discord-review-delivery-state.json").write_text(
+        json.dumps(
+            {
+                "generated_at": utc_now(),
+                "video_id": video_id,
+                "target": target,
+                "fingerprint": fingerprint,
+                "delivery": "sent",
+                "youtube_mutation": "not_performed",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def should_prepare_new_package(selected_video, force):
     if force:
         return True
@@ -247,7 +297,12 @@ def main():
         if readiness_payload.get("status") != "private-upload-ready":
             print("Review delivery withheld because current package readiness is not passing.")
             return
+        current, fingerprint = delivery_is_current(root, selected_video)
+        if current:
+            print("Review delivery withheld because this exact package was already delivered.")
+            return
         run([sys.executable, "youtube-v1/scripts/send_daily_review_to_discord.py", "--video-id", selected_video, "--target", args.target])
+        record_delivery(root, selected_video, args.target, fingerprint)
         return
 
     root = output_root(selected_video)

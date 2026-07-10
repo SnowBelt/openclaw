@@ -3,10 +3,37 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 from patternlab_common import display_path, ensure_dir, output_root, utc_now
+
+
+def resolve_receipt_media_path(root: Path, value: str) -> Path:
+    """Resolve receipt paths relative to the Pattern Lab base or package root.
+
+    Upload receipts intentionally store repo-relative display paths.  Treating
+    those as cwd-relative made valid receipts look missing when this command
+    was run from another working directory.
+    """
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(path).startswith("local-output/"):
+        return repo_root / "youtube-v1" / path
+    if str(path).startswith("youtube-v1/"):
+        return repo_root / path
+    return root / path
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_report(video_id: str) -> tuple[dict, Path, Path]:
@@ -23,11 +50,15 @@ def build_report(video_id: str) -> tuple[dict, Path, Path]:
             continue
         youtube_id = receipt.get("youtube_video_id")
         local_sha = receipt.get("video_file_sha256")
-        file_path = Path(receipt.get("video_file", ""))
+        file_path = resolve_receipt_media_path(root, receipt.get("video_file", ""))
         if not youtube_id:
             blockers.append(f"{receipt_path.name}:missing_youtube_video_id")
         if not local_sha:
             blockers.append(f"{receipt_path.name}:missing_video_file_sha256")
+        elif file_path.exists() and sha256(file_path) != local_sha:
+            blockers.append(f"{receipt_path.name}:local_sha256_mismatch")
+        elif not file_path.exists():
+            blockers.append(f"{receipt_path.name}:local_file_missing")
         assets.append({
             "receipt": display_path(receipt_path),
             "surface": receipt.get("surface"), "short_index": receipt.get("short_index"),

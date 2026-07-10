@@ -412,6 +412,12 @@ No source, no story."""
 {payoff}
 """
 
+
+def production_script_available(topic):
+    """Only source-specific documentary templates can enter the production lane."""
+    title = topic["working_title"].lower()
+    return any(term in title for term in ("black bottom", "paradise valley", "rewired", "decline"))
+
 def image_prompts(topic):
     artifact = topic["artifact_type"]
     angle = topic["public_angle"]
@@ -755,6 +761,13 @@ def write_package(strategy, topic):
         "guru_growth_system": metadata["guru_growth_system"],
     }
     (launch / "package.json").write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+    if not production_script_available(topic):
+        (launch / "research-brief.md").write_text(
+            "# Research Brief Only\n\n"
+            "This topic is not allowed to enter media production until a source dossier, proof object, and documentary transcript pass the transcript and source gates.\n",
+            encoding="utf-8",
+        )
+        raise SystemExit("source_specific_script_missing: wrote research brief only; no final-script.md was created")
     (launch / "final-script.md").write_text(script_text(topic), encoding="utf-8")
     (launch / "image-prompts.md").write_text(image_prompts(topic), encoding="utf-8")
     (launch / "shorts-package.md").write_text(shorts_package(topic), encoding="utf-8")

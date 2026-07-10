@@ -157,14 +157,33 @@ def ensure_dir(path):
 
 def load_dotenv(path=None):
     env_path = Path(path) if path else BASE / ".env"
-    if not env_path.exists():
-        return
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    if env_path.exists():
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    # API keys may be migrated out of .env into the macOS login keychain.
+    # The keychain is a fallback only, so existing local setups remain usable
+    # until their active runtime has been verified against the new storage.
+    for env_name, account in {
+        "OPENAI_API_KEY": "openai.api-key",
+        "ELEVENLABS_API_KEY": "elevenlabs.api-key",
+    }.items():
+        if os.environ.get(env_name, "").strip():
             continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        try:
+            result = subprocess.run(
+                ["security", "find-generic-password", "-w", "-s", "ai.openclaw.patternlab", "-a", account],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            os.environ[env_name] = result.stdout.strip()
 
 
 def require_env(name):

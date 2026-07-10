@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from patternlab_common import BASE, display_path, load_dotenv, output_root, utc_now
+from patternlab_youtube_credentials import CLIENT_ACCOUNT, TOKEN_ACCOUNT, read_json_secret, write_token
 
 
 ALLOWED_PRIVACY = {"private", "unlisted"}
@@ -53,6 +54,16 @@ def readiness_status(root):
     return "unknown"
 
 
+def final_package_hash(root):
+    report = root / "approval" / "package-hash-report.json"
+    if not report.exists():
+        raise SystemExit("Final package hash report is missing.")
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    if payload.get("status") != "pass" or not payload.get("final_package_hash"):
+        raise SystemExit("Final package hash report is not passing.")
+    return payload["final_package_hash"]
+
+
 def selected_video(root, video_id, surface, short_index):
     if surface == "long-form":
         return root / "video" / f"pattern-lab-video-{video_id}-draft.mp4"
@@ -98,15 +109,17 @@ def build_youtube_client(token_file, client_secrets):
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
 
-    token = load_json(token_file)
+    token, token_source = read_json_secret(token_file, TOKEN_ACCOUNT)
+    if not token:
+        raise SystemExit("YouTube OAuth token is missing.")
     credentials = Credentials.from_authorized_user_info(token)
     if credentials.expired and credentials.refresh_token:
         credentials.refresh(Request())
-        token_file.write_text(credentials.to_json(), encoding="utf-8")
-        os.chmod(token_file, 0o600)
+        write_token(token_file, json.loads(credentials.to_json()))
     if not credentials.valid:
         raise SystemExit("YouTube OAuth token is invalid. Regenerate it before live upload.")
-    if not client_secrets.exists():
+    client, _client_source = read_json_secret(client_secrets, CLIENT_ACCOUNT)
+    if not client:
         raise SystemExit(f"Missing YouTube OAuth client secrets: {display_path(client_secrets)}")
     return build("youtube", "v3", credentials=credentials)
 
@@ -190,6 +203,7 @@ def main():
         "made_for_kids": metadata["madeForKids"],
         "tags": metadata["tags"],
         "status": "dry_run",
+        "final_package_hash": final_package_hash(root),
         **file_receipt(video_path),
     }
     if not args.live:

@@ -568,6 +568,20 @@ def text_tokens(text):
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
+# City names, source labels, and generic history words are never enough to
+# prove that an image supports a spoken historical claim.
+GENERIC_PROOF_TOKENS = {
+    "a", "an", "and", "archive", "archival", "before", "building", "buildings", "city", "cities", "community",
+    "context", "detroit", "document", "evidence", "for", "from", "history", "historical", "image", "map", "maps",
+    "michigan", "modern", "neighborhood", "neighborhoods", "photo", "photograph", "place", "proof", "source", "street",
+    "streets", "system", "the", "then", "today", "urban", "with",
+}
+
+
+def specific_proof_tokens(text):
+    return {token for token in text_tokens(text) if len(token) >= 4 and token not in GENERIC_PROOF_TOKENS}
+
+
 def asset_text(path):
     stem = path.stem.lower()
     stem = re.sub(r"^(loc|commons|pexels)[-_]?\d*[-_]?", "", stem)
@@ -663,6 +677,7 @@ def strength_from_score(score):
 def visual_match_metadata(root, paragraph, path, source_role, recent_names, used_counts, fallback_used, ledger_lookup=None):
     paragraph_tokens = text_tokens(paragraph)
     asset_tokens = text_tokens(asset_match_text(root, path, ledger_lookup))
+    proof_overlap = sorted(specific_proof_tokens(paragraph) & specific_proof_tokens(asset_match_text(root, path, ledger_lookup)))
     dimensions = []
     score = 0
     dimension_weights = {
@@ -697,12 +712,19 @@ def visual_match_metadata(root, paragraph, path, source_role, recent_names, used
     score -= used_counts.get(path.name, 0) * 10
     dimensions = sorted(set(dimensions), key=dimensions.index)
     category = classify_visual_category(root, path, paragraph, source_role, ledger_lookup)
+    # A historical or overlay asset without a shared place/system/entity may
+    # still be context, but it must never receive a proof-strength rating.
+    proof_eligible = source_role not in {"historical_evidence", "source_grounded_overlay"} or bool(proof_overlap)
+    if not proof_eligible:
+        score = min(score, 6)
     return {
         "match_score": score,
         "match_strength": strength_from_score(score),
         "match_dimensions": dimensions,
         "source_role": source_role,
         "fallback_used": bool(fallback_used),
+        "specific_proof_overlap": proof_overlap,
+        "proof_match_eligible": proof_eligible,
         **category,
     }
 

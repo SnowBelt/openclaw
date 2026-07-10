@@ -26,6 +26,21 @@ def file_info(path: Path) -> dict[str, Any]:
     return {"path": display_path(path), "exists": True, "sha256": sha256(path), "mtime": stat.st_mtime, "size": stat.st_size}
 
 
+def canonical_package_hash(video_id: str, dependencies: dict[str, dict[str, Any]], outputs: dict[str, list[dict[str, Any]]]) -> tuple[str, dict[str, Any]]:
+    """Hash the immutable package, excluding report timestamps and approvals."""
+    entries = []
+    for role, info in sorted(dependencies.items()):
+        if info.get("exists"):
+            entries.append({"role": role, "path": info["path"], "sha256": info["sha256"], "size": info["size"]})
+    for role, rows in sorted(outputs.items()):
+        for index, info in enumerate(rows, start=1):
+            if info.get("exists"):
+                entries.append({"role": f"{role}:{index}", "path": info["path"], "sha256": info["sha256"], "size": info["size"]})
+    manifest = {"schema_version": 1, "video_id": video_id, "entries": entries}
+    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), manifest
+
+
 def newest(paths: list[Path]) -> float:
     return max((p.stat().st_mtime for p in paths if p.exists()), default=0.0)
 
@@ -53,6 +68,7 @@ def build_report(video_id: str) -> tuple[dict[str, Any], Path, Path]:
     }
     dependencies = {name: file_info(path) for name, path in dependency_paths.items()}
     outputs = {name: [file_info(path) for path in paths] for name, paths in output_groups.items()}
+    final_package_hash, final_package_manifest = canonical_package_hash(video_id, dependencies, outputs)
     script_mtime = dependency_paths['final_script'].stat().st_mtime if dependency_paths['final_script'].exists() else 0
     brand_mtime = dependency_paths['brand_kit'].stat().st_mtime if dependency_paths['brand_kit'].exists() else 0
     visual_mtime = dependency_paths['visual_beat_plan'].stat().st_mtime if dependency_paths['visual_beat_plan'].exists() else 0
@@ -79,6 +95,8 @@ def build_report(video_id: str) -> tuple[dict[str, Any], Path, Path]:
         'status': 'blocked' if blockers else 'pass',
         'dependencies': dependencies,
         'outputs': outputs,
+        'final_package_hash': final_package_hash,
+        'final_package_manifest': final_package_manifest,
         'stale_outputs': stale_outputs,
         'blockers': blockers,
         'youtube_mutation': 'not_performed',
@@ -86,7 +104,7 @@ def build_report(video_id: str) -> tuple[dict[str, Any], Path, Path]:
     json_path = approval / 'package-hash-report.json'
     md_path = approval / 'package-hash-report.md'
     json_path.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')
-    lines = [f'# Pattern Lab Package Hashes: Video {video_id}', '', f"Generated: {payload['generated_at']}", f"Status: {payload['status']}", '', '## Stale Outputs', '']
+    lines = [f'# Pattern Lab Package Hashes: Video {video_id}', '', f"Generated: {payload['generated_at']}", f"Status: {payload['status']}", f"Final package hash: `{final_package_hash}`", '', '## Stale Outputs', '']
     lines.extend([f"- {item['asset_group']}: {item['reason']}" for item in stale_outputs] or ['- none'])
     lines.extend(['', '## Blockers', ''])
     lines.extend([f'- {b}' for b in blockers] or ['- none'])

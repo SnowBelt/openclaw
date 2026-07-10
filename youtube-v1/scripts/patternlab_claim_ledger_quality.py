@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 
@@ -15,12 +16,21 @@ REQUIRED = {
 }
 
 
+def ledger_asset_ids(root: Path) -> set[str]:
+    path = root / "rights-ledger.csv"
+    if not path.exists():
+        return set()
+    with path.open(encoding="utf-8", newline="") as handle:
+        return {row.get("asset_id", "").strip() for row in csv.DictReader(handle) if row.get("asset_id", "").strip()}
+
+
 def build_report(video_id: str) -> tuple[dict, Path, Path]:
     root = output_root(video_id)
     approval = ensure_dir(root / "approval")
     ledger = approval / "claim-ledger.json"
     blockers: list[str] = []
     rows: list[dict] = []
+    known_asset_ids = ledger_asset_ids(root)
     if not ledger.exists():
         blockers.append("claim_ledger_missing: provide claim-ledger.json; no claims or sources were invented")
     else:
@@ -44,6 +54,14 @@ def build_report(video_id: str) -> tuple[dict, Path, Path]:
                 blockers.append(f"claim_{index}:invalid_fact_checker_status")
             if not isinstance(row.get("visual_asset_ids"), list):
                 blockers.append(f"claim_{index}:visual_asset_ids_must_be_list")
+            elif row.get("fact_checker_status") == "verified" and not row.get("visual_asset_ids"):
+                blockers.append(f"claim_{index}:verified_claim_requires_visual_asset_id")
+            else:
+                for asset_id in row.get("visual_asset_ids", []):
+                    if not isinstance(asset_id, str) or not asset_id.strip():
+                        blockers.append(f"claim_{index}:invalid_visual_asset_id")
+                    elif asset_id not in known_asset_ids:
+                        blockers.append(f"claim_{index}:unknown_visual_asset_id:{asset_id}")
     payload = {
         "generated_at": utc_now(), "video_id": video_id,
         "status": "pass" if not blockers else "blocked",

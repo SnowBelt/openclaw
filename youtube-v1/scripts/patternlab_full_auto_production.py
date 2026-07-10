@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -48,9 +49,61 @@ def run_step(name: str, command: list[str], *, dry_run: bool, check: bool = Fals
     }
 
 
+def run_steps_fail_fast(
+    definitions: list[tuple[str, list[str], bool]], *, dry_run: bool, runner=run_step
+) -> list[dict[str, Any]]:
+    """Run local production gates in order and skip downstream work after a required failure."""
+    steps: list[dict[str, Any]] = []
+    blocker: dict[str, Any] | None = None
+    for name, command, required in definitions:
+        if blocker is not None and not dry_run:
+            steps.append(
+                {
+                    "name": name,
+                    "command": " ".join(command),
+                    "exit_code": None,
+                    "ok": False,
+                    "status": "skipped",
+                    "dry_run": False,
+                    "required": required,
+                    "blocked_by": blocker["name"],
+                }
+            )
+            continue
+        step = runner(name, command, dry_run=dry_run, required=required)
+        steps.append(step)
+        if required and not step.get("ok"):
+            blocker = step
+    return steps
+
+
 def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
+
+
+def script_sha256(video_id: str) -> str:
+    path = BASE / "launch" / f"video-{video_id}" / "final-script.md"
+    if not path.exists():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def paid_voice_approval(video_id: str) -> tuple[bool, str]:
+    root = output_root(video_id)
+    receipt = read_json(root / "approval" / "paid-service-approval.json")
+    expected = script_sha256(video_id)
+    if not receipt:
+        return False, "paid_voice_approval_missing"
+    if receipt.get("provider") != "elevenlabs":
+        return False, "paid_voice_approval_provider_mismatch"
+    if receipt.get("video_id") != video_id:
+        return False, "paid_voice_approval_video_mismatch"
+    if not expected or receipt.get("script_sha256") != expected:
+        return False, "paid_voice_approval_script_hash_mismatch"
+    if receipt.get("operation") != "video_04_upload_ready_narration":
+        return False, "paid_voice_approval_operation_mismatch"
+    return True, "approved"
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
@@ -88,7 +141,7 @@ def build_full_auto_report(video_id: str, steps: list[dict[str, Any]], dry_run: 
     state = media_state(video_id)
     blockers: list[str] = []
     informational: list[str] = []
-    failed_steps = [step for step in steps if not step.get("ok")]
+    failed_steps = [step for step in steps if not step.get("ok") and step.get("status") != "skipped"]
     failed_required_steps = [step for step in failed_steps if step.get("required", True)]
     package_current = state["long_form_exists"] and state["shorts_count"] >= 3 and state["owner_packet_exists"]
     if dry_run:
@@ -152,7 +205,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run complete local Pattern Lab production up to owner review.")
     parser.add_argument("--next-scheduled", action="store_true")
     parser.add_argument("--video-id")
-    parser.add_argument("--live-voice", choices=["when-configured", "always", "never"], default="when-configured")
+    parser.add_argument("--live-voice", choices=["when-approved", "never"], default="never")
     parser.add_argument("--shorts-target", type=int, choices=[3, 4, 5], default=5)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-complete", action="store_true")
@@ -160,21 +213,25 @@ def main() -> None:
     load_dotenv()
     video_id = (args.video_id or next_incomplete_video()).zfill(2) if not str(args.video_id or "").startswith("video-") else str(args.video_id)
     py = sys.executable
-    live_voice = args.live_voice == "always" or (args.live_voice == "when-configured" and bool(os.environ.get("ELEVENLABS_API_KEY")))
-    steps: list[dict[str, Any]] = []
-    steps.append(run_step("package", [py, "youtube-v1/scripts/patternlab_daily_factory.py", "--video-id", video_id], dry_run=args.dry_run))
-    steps.append(run_step("renderer_decision", [py, "youtube-v1/scripts/patternlab_renderer_decision_gate.py", "--video-id", video_id], dry_run=args.dry_run))
+    voice_approved, voice_reason = paid_voice_approval(video_id)
+    live_voice = args.live_voice == "when-approved" and voice_approved
+    definitions: list[tuple[str, list[str], bool]] = []
+    if args.live_voice == "when-approved" and not voice_approved:
+        definitions.append(("paid_voice_approval", ["blocked", voice_reason], True))
+    definitions.append(("package", [py, "youtube-v1/scripts/patternlab_daily_factory.py", "--video-id", video_id], True))
+    definitions.append(("renderer_decision", [py, "youtube-v1/scripts/patternlab_renderer_decision_gate.py", "--video-id", video_id], True))
     media_cmd = [py, "youtube-v1/scripts/patternlab_media_pipeline.py", "--video-id", video_id]
     if live_voice:
         media_cmd.append("--live-voice")
-    steps.append(run_step("media_pipeline", media_cmd, dry_run=args.dry_run))
-    steps.append(run_step("shorts_tournament_plan", [py, "youtube-v1/scripts/generate_shorts_ffmpeg.py", "--video-id", video_id, "--shorts-target", str(args.shorts_target), "--dry-run"], dry_run=False))
-    steps.append(run_step("episode_standard", [py, "youtube-v1/scripts/patternlab_episode_standard.py", "--video-id", video_id], dry_run=args.dry_run))
-    steps.append(run_step("voice_visual_match", [py, "youtube-v1/scripts/patternlab_voice_visual_match.py", "--video-id", video_id], dry_run=args.dry_run))
-    steps.append(run_step("finished_watchdown", [py, "youtube-v1/scripts/patternlab_finished_video_watchdown.py", "--video-id", video_id], dry_run=args.dry_run))
-    steps.append(run_step("shorts_followup", [py, "youtube-v1/scripts/patternlab_shorts_followup_packet.py", "--video-id", video_id], dry_run=args.dry_run))
-    steps.append(run_step("owner_packet", [py, "youtube-v1/scripts/generate_owner_review_packet.py", "--video-id", video_id], dry_run=args.dry_run))
-    steps.append(run_step("dashboard_check", [py, "youtube-v1/scripts/patternlab_dashboard_server.py", "--check", "--video-id", video_id], dry_run=args.dry_run))
+    definitions.append(("media_pipeline", media_cmd, True))
+    definitions.append(("shorts_tournament_plan", [py, "youtube-v1/scripts/generate_shorts_ffmpeg.py", "--video-id", video_id, "--shorts-target", str(args.shorts_target), "--dry-run"], True))
+    definitions.append(("episode_standard", [py, "youtube-v1/scripts/patternlab_episode_standard.py", "--video-id", video_id], True))
+    definitions.append(("voice_visual_match", [py, "youtube-v1/scripts/patternlab_voice_visual_match.py", "--video-id", video_id], True))
+    definitions.append(("finished_watchdown", [py, "youtube-v1/scripts/patternlab_finished_video_watchdown.py", "--video-id", video_id], True))
+    definitions.append(("shorts_followup", [py, "youtube-v1/scripts/patternlab_shorts_followup_packet.py", "--video-id", video_id], True))
+    definitions.append(("owner_packet", [py, "youtube-v1/scripts/generate_owner_review_packet.py", "--video-id", video_id], True))
+    definitions.append(("dashboard_check", [py, "youtube-v1/scripts/patternlab_dashboard_server.py", "--check", "--video-id", video_id], True))
+    steps = run_steps_fail_fast(definitions, dry_run=args.dry_run)
     payload, _json_path, md_path = build_full_auto_report(video_id, steps, args.dry_run, args.shorts_target)
     print(f"Status: {payload['status']}")
     print(f"Full auto report: {display_path(md_path)}")

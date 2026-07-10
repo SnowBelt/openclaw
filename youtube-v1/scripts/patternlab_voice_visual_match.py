@@ -70,6 +70,8 @@ def build_voice_visual_match_report(video_id: str) -> tuple[dict[str, Any], Path
         blockers.append("frame_level_visual_review_receipt_missing_render_sha")
     elif not frame_receipt.get("beats"):
         blockers.append("frame_level_visual_review_receipt_has_no_beats")
+    elif frame_receipt.get("status") != "pass":
+        blockers.append("frame_level_visual_review_not_passed")
     payload: dict[str, Any] = {
         "generated_at": utc_now(),
         "video_id": video_id,

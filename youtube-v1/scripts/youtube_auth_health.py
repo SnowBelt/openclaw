@@ -6,6 +6,7 @@ from pathlib import Path
 
 from patternlab_common import BASE, display_path, ensure_dir, load_dotenv, output_root, utc_now
 from upload_private_youtube import resolve_base_path
+from patternlab_youtube_credentials import CLIENT_ACCOUNT, TOKEN_ACCOUNT, read_json_secret, write_token
 
 
 SCOPE_PROFILES = {
@@ -62,7 +63,7 @@ def configured_path(value, label):
 
 
 def inspect_token(token_file, required_scopes):
-    token = read_json(token_file)
+    token, _source = read_json_secret(token_file, TOKEN_ACCOUNT)
     if not token:
         return {
             "present": False,
@@ -84,7 +85,7 @@ def inspect_token(token_file, required_scopes):
 
 
 def inspect_client(client_secrets):
-    data = read_json(client_secrets)
+    data, _source = read_json_secret(client_secrets, CLIENT_ACCOUNT)
     if not data:
         return {"present": False, "client_id": ""}
     client = data.get("installed") or data.get("web") or {}
@@ -98,17 +99,17 @@ def live_probe(token_file, client_secrets):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
 
-    token = read_json(token_file)
+    token, _source = read_json_secret(token_file, TOKEN_ACCOUNT)
     if not token:
         return "blocked", "Token file is missing or unreadable."
     credentials = Credentials.from_authorized_user_info(token)
     if credentials.expired and credentials.refresh_token:
         credentials.refresh(Request())
-        token_file.write_text(credentials.to_json(), encoding="utf-8")
-        os.chmod(token_file, 0o600)
+        write_token(token_file, json.loads(credentials.to_json()))
     if not credentials.valid:
         return "blocked", "Token is invalid after refresh attempt."
-    if not client_secrets.exists():
+    client, _client_source = read_json_secret(client_secrets, CLIENT_ACCOUNT)
+    if not client:
         return "blocked", f"Missing YouTube OAuth client secrets: {display_path(client_secrets)}."
     return "verified", "OAuth token is valid or refreshed successfully."
 
@@ -136,7 +137,7 @@ def build_payload(video_id, live, scope_profile):
         "scopes": [],
         "missing_scopes": required_scopes,
     }
-    client = inspect_client(client_secrets) if client_secrets and client_secrets.exists() else {
+    client = inspect_client(client_secrets) if client_secrets else {
         "present": False,
         "client_id": "",
     }
@@ -146,7 +147,7 @@ def build_payload(video_id, live, scope_profile):
         blockers.append("YouTube OAuth token is missing a refresh token.")
     if token["missing_scopes"]:
         blockers.append(f"YouTube OAuth token is missing required scopes for profile: {scope_profile}.")
-    if client_secrets and not client_secrets.exists():
+    if client_secrets and not client["present"]:
         blockers.append("YouTube OAuth client secrets file is missing.")
     if token["present"] and client["present"] and token["client_id"] != client["client_id"]:
         blockers.append("YouTube OAuth token client_id does not match configured client secrets client_id.")

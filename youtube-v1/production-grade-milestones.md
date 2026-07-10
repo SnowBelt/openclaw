@@ -99,7 +99,7 @@ Status: complete.
 
 ## Milestone 29B — 24h YouTube Analytics First Read
 
-Status: incomplete, timing-blocked until `2026-06-21T18:51:41Z`.
+Status: incomplete; public analytics is pending until the approved package is publicly published and reaches its first 24-hour checkpoint.
 
 - Use the verified durable YouTube OAuth token with `yt-analytics.readonly` scope.
 - Import the first available 24h metrics for Video 03 and its three Shorts from the YouTube Analytics API.
@@ -965,7 +965,7 @@ Status: complete.
 
 ## Milestone 29B-R1 — YouTube Analytics Read-Only Attempt After Approval
 
-Status: blocked_oauth_refresh_failed.
+Status: historical failure superseded locally by a verified full-automation OAuth health probe on 2026-07-10; public analytics remains pending until public publish and the applicable reporting window exist.
 
 - Owner approved read-only YouTube Analytics access for Pattern Lab Video 03 and Shorts.
 - The importer attempted the OAuth-backed read-only Analytics flow and performed no upload, publish, thumbnail replacement, deletion, or YouTube mutation.
@@ -2332,7 +2332,7 @@ Status: complete locally.
 
 ## Milestone 323 — Analytics Learning Loop Readiness
 
-Status: complete local scaffold; live analytics remains blocked until read-only OAuth is reauthorized.
+Status: complete local scaffold; OAuth is currently verified, while live analytics remains pending until public video URLs and reporting windows exist.
 
 - Existing performance learning scaffold remains the local path for 24h, 72h, 7d, and 30d checks.
 - Live YouTube Analytics remains blocked by OAuth until owner reauthorization.
@@ -2358,7 +2358,9 @@ Status: complete locally.
 - Milestones 310–326 have been added with local-vs-blocked completion states.
 - External/public capabilities remain carried forward separately.
 
-## Milestone 320 — Episode Standard Gate
+## Milestone 320-R1 — Episode Standard Gate
+
+Status: complete locally.
 
 - Added `patternlab_episode_standard.py` to enforce the core Pattern Lab promise before owner review: one city, one hidden-history question, one proof trail, and one visual payoff.
 - The gate blocks narration that reads like a production memo, including phrases such as `this package`, `production decision`, `the strongest videos will`, `Pattern Lab would`, `the version that survives`, and `channel promise`.
@@ -2538,3 +2540,30 @@ Status: complete locally for Video 04; owner human review of voiceover remains p
 - Verified episode standard remains passing after narration regeneration.
 - No upload, publish, comment, pin, Related Video setup, title change, thumbnail mutation, or YouTube API mutation was performed.
 - Verified with `python3 youtube-v1/scripts/generate_voiceover.py --video-id 04 --dry-run`, `python3 youtube-v1/scripts/generate_voiceover.py --video-id 04 --live`, `python3 youtube-v1/scripts/patternlab_episode_standard.py --video-id 04`, `python3 youtube-v1/scripts/generate_owner_review_packet.py --video-id 04`, and `python3 youtube-v1/scripts/private_upload_readiness.py --video-id 04`.
+
+### Discord feedback implementation status: Milestones 63–70
+
+Status: complete locally; live owner events remain pending.
+
+- Fixed reason codes and repair scopes are validated before a Discord callback can enter the repair queue.
+- Unknown required reason codes block; optional freeform notes remain preserved as notes.
+
+- Long-form, each Short, and each thumbnail candidate receive targeted approval and repair controls.
+- Controls contain asset identity, reason, and narrow repair scope; they do not mutate YouTube.
+
+- Discord callbacks append structured owner feedback without storing credentials or unrelated private messages.
+
+- Asset-level reasons route to the narrowest safe repair scope and unresolved repairs block readiness.
+
+- Notes such as `Short 2 — 0:11 — random box` are parsed into asset/timestamp feedback when possible.
+
+- Positive preferences and current-asset blockers are separated in the learning report.
+
+- A dry-run packet must contain all required per-asset controls and no unapproved public-publish action.
+
+- The dry-run harness proves approval, targeted rejection, note parsing, learning, and readiness blocking without YouTube mutation.
+
+## Operational correction — OAuth and rendered-media status
+
+- OAuth live health is verified with the full-automation scope profile. Public Analytics remains pending only until public videos and reporting windows exist.
+- Video 04 rendered media, thumbnails, and owner review remain blocked whenever their package hash is stale or frame-level visual review is not passing.

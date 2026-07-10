@@ -85,12 +85,17 @@ def row_matches(row, asset_type, asset_id=None, filename=None):
 
 def write_gate_approval(root, action, reason):
     approval = ensure_dir(root / "approval")
+    package = read_json(approval / "package-hash-report.json") or {}
+    package_hash = package.get("final_package_hash", "")
+    if not package_hash or package.get("status") != "pass":
+        raise ValueError("Cannot record an upload or publish approval until the final package hash report is passing.")
     if action == "approve_private_upload":
         target = approval / "private-upload-approval.json"
         payload = {
             "approved_at": utc_now(),
             "approval": "private_or_unlisted_upload_only",
             "public_publish": "blocked_until_explicit_owner_approval",
+            "final_package_hash": package_hash,
             "reason": reason,
         }
     elif action == "approve_public_publish":
@@ -106,6 +111,8 @@ def write_gate_approval(root, action, reason):
             "youtube_studio_checks_owner_attested": True,
             "synthetic_disclosure_owner_attested": True,
             "public_publish_automation": "owner_approved_youtube_api_visibility_update_only",
+            "final_package_hash": package_hash,
+            "youtube_video_ids": upload_video_ids(root),
             "reason": reason,
         }
     else:
@@ -132,7 +139,24 @@ def public_publish_preapproval_blockers(root):
     live_status = (verification.get("live_api_verification") or {}).get("status")
     if live_status != "verified":
         blockers.append("live YouTube API verification is not verified")
+    package = read_json(approval / "package-hash-report.json") or {}
+    package_hash = package.get("final_package_hash")
+    if package.get("status") != "pass" or not package_hash:
+        blockers.append("final package hash report is missing or not passing")
+    for report in [upload_report, *[read_json(approval / f"youtube-upload-report-short-{index:02d}.json") for index in [1, 2, 3]]]:
+        if report and package_hash and report.get("final_package_hash") != package_hash:
+            blockers.append("upload receipt does not match the current final package hash")
     return blockers
+
+
+def upload_video_ids(root):
+    approval = root / "approval"
+    reports = [read_json(approval / "youtube-upload-report.json")]
+    reports.extend(read_json(approval / f"youtube-upload-report-short-{index:02d}.json") for index in [1, 2, 3])
+    ids = [report.get("youtube_video_id") for report in reports if report]
+    if len(ids) != 4 or any(not item for item in ids):
+        raise ValueError("Cannot record public approval until the long-form and three Shorts have exact YouTube IDs.")
+    return ids
 
 
 def write_avatar_approval(root, filename):

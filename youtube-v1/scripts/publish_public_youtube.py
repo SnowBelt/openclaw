@@ -111,6 +111,15 @@ def require_public_publish_approval(root):
         blockers.append("Owner YouTube Studio checks attestation is missing.")
     if not public_approval.get("synthetic_disclosure_owner_attested"):
         blockers.append("Owner synthetic disclosure attestation is missing.")
+    package = read_json(approval / "package-hash-report.json") or {}
+    package_hash = package.get("final_package_hash")
+    if package.get("status") != "pass" or not package_hash:
+        blockers.append("Final package hash report is missing or not passing.")
+    elif public_approval.get("final_package_hash") != package_hash:
+        blockers.append("Public publish approval does not match the current final package hash.")
+    expected_ids = [item.get("report", {}).get("youtube_video_id") for item in collect_upload_reports(root)[0]]
+    if public_approval.get("youtube_video_ids") != expected_ids:
+        blockers.append("Public publish approval does not match the exact uploaded YouTube IDs.")
     return blockers
 
 
