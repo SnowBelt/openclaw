@@ -8,6 +8,7 @@ label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
+port=${OPENCLAW_GATEWAY_PORT:-18789}
 uid=$(id -u)
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
 lock="$runtime_home/locks/guard.lock"
@@ -57,9 +58,38 @@ PY
 now=$(date +%s)
 last=$(cat "$runtime_home/last-restart.epoch" 2>/dev/null || printf 0)
 if [ $((now - last)) -lt 600 ]; then receipt repair_rate_limited; exit 75; fi
+previous_plist="$runtime_home/backups/guard-gateway-$stamp.plist"
+mkdir -p "$runtime_home/backups"
+cp -p "$plist" "$previous_plist"
+rollback() {
+  cp -p "$previous_plist" "$plist"
+  launchctl bootout "gui/$uid/$label" 2>/dev/null || true
+  for _ in $(seq 1 15); do
+    launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  launchctl bootstrap "gui/$uid" "$plist" 2>/dev/null || true
+}
 cp -p "$runtime_home/last-known-good.json" "$runtime_home/active-runtime.json"
 cp -p "$desired_plist" "$plist"
 printf '%s\n' "$now" > "$runtime_home/last-restart.epoch"
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
-launchctl bootstrap "gui/$uid" "$plist"
-receipt repaired
+for _ in $(seq 1 15); do
+  launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
+  sleep 1
+done
+if ! launchctl bootstrap "gui/$uid" "$plist"; then
+  rollback
+  receipt repair_rolled_back_bootstrap
+  exit 1
+fi
+for _ in $(seq 1 45); do
+  if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+    receipt repaired
+    exit 0
+  fi
+  sleep 2
+done
+rollback
+receipt repair_rolled_back_health
+exit 1
