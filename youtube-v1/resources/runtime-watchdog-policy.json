@@ -5,8 +5,10 @@
     "minimum_free_disk_gb": 20,
     "max_report_age_minutes": 180,
     "recovery_cooldown_minutes": 30,
-    "allow_discord_alerts": false,
-    "allow_launchd_recovery": false
+    "allow_discord_alerts": true,
+    "allow_launchd_recovery": true,
+    "alert_target": "channel:1503779032817209465",
+    "alert_cooldown_minutes": 360
   },
   "launch_agents": [
     "com.openclaw.pattern-lab.daily-review",

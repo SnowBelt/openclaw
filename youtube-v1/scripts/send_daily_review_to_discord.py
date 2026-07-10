@@ -16,6 +16,7 @@ from patternlab_discord_feedback import callback_value
 DEFAULT_TARGET = "channel:1503779032817209465"
 DISCORD_STAGE_ROOT = Path("/tmp/openclaw/pattern-lab-review")
 MAX_DISCORD_MEDIA_BYTES = 8 * 1024 * 1024
+OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "/Users/openclaw/.npm-global/bin/openclaw")
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v"}
 LONG_FORM_MIN_SECONDS = 8 * 60
 LONG_FORM_MAX_SECONDS = 14 * 60
@@ -182,8 +183,7 @@ def controls(buttons, title=None, context=None, tone="info"):
 
 def send_message(target, message, presentation=None):
     command = [
-        "/opt/homebrew/bin/pnpm",
-        "openclaw",
+        OPENCLAW_BIN,
         "message",
         "send",
         "--channel",
@@ -202,8 +202,7 @@ def send_media(target, message, media_path, presentation=None):
     if is_video(media_path) and presentation:
         raise SystemExit("Video files must be sent as plain attachments with separate controls.")
     command = [
-        "/opt/homebrew/bin/pnpm",
-        "openclaw",
+        OPENCLAW_BIN,
         "message",
         "send",
         "--channel",

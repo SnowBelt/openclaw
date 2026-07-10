@@ -18,7 +18,7 @@ REPO = BASE.parent
 DEFAULT_TARGET = "channel:1503779032817209465"
 PRODUCTION_WEEKDAYS = {0, 2, 4}
 DISCORD_STAGE_ROOT = Path("/tmp/openclaw/pattern-lab-review")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "/Users/openclaw/.local/bin/openclaw")
+OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "/Users/openclaw/.npm-global/bin/openclaw")
 
 
 def env_with_paths():

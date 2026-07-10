@@ -9,6 +9,8 @@
     <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
     <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_runtime_watchdog.py</string>
     <string>--check</string>
+    <string>--recover</string>
+    <string>--alert</string>
   </array>
   <key>StartCalendarInterval</key>
   <dict>

@@ -14,6 +14,7 @@ sys.path.insert(0, str(YOUTUBE / "scripts"))
 DEFAULT_TARGET = "channel:1503779032817209465"
 DISCORD_STAGE_ROOT = Path("/tmp/openclaw/pattern-lab-review")
 MAX_DISCORD_MEDIA_BYTES = 8 * 1024 * 1024
+OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "/Users/openclaw/.npm-global/bin/openclaw")
 
 
 def run(command):
@@ -95,8 +96,7 @@ def controls(video_id, label, filename):
 
 def send_message(target, message, presentation=None):
     command = [
-        "/opt/homebrew/bin/pnpm",
-        "openclaw",
+        OPENCLAW_BIN,
         "message",
         "send",
         "--channel",
@@ -113,8 +113,7 @@ def send_message(target, message, presentation=None):
 
 def send_media(target, message, media_path, presentation=None):
     command = [
-        "/opt/homebrew/bin/pnpm",
-        "openclaw",
+        OPENCLAW_BIN,
         "message",
         "send",
         "--channel",
