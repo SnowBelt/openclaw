@@ -445,13 +445,12 @@ async function fileInfo(params: {
   relativeToOutput: string;
 }): Promise<PatternLabFileInfo> {
   const absolutePath = path.join(params.outputRoot, params.relativeToOutput);
-  const stat: fs.Stats | null = (() => {
-    try {
-      return fs.statSync(absolutePath);
-    } catch {
-      return null;
-    }
-  })();
+  let stat: fs.Stats | null;
+  try {
+    stat = fs.statSync(absolutePath);
+  } catch {
+    stat = null;
+  }
   const exists = Boolean(stat);
   const mediaPath = toYoutubeRelativePath(params.youtubeRoot, absolutePath);
   const durationSeconds =
@@ -864,9 +863,6 @@ export function resolvePatternLabMediaFile(mediaPath: string): string | null {
 }
 
 export const patternLabDashboardDataTesting = {
-  resetPatternLabYoutubeRootForTest() {
-    cachedPatternLabYoutubeRoot = null;
-  },
   parseCsv,
   parseCsvLine,
   approvalSummary,

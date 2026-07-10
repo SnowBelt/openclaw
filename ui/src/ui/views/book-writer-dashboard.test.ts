@@ -1,7 +1,6 @@
 import { render } from "lit";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
-  BookWriterAiAction,
   BookWriterDashboardSnapshot,
   BookWriterPlan,
 } from "../controllers/book-writer-dashboard.ts";
@@ -9,16 +8,6 @@ import {
   renderBookWriterDashboard,
   type BookWriterDashboardProps,
 } from "./book-writer-dashboard.ts";
-
-function createRequestAiActionMock() {
-  return vi.fn((_action: BookWriterAiAction) => {});
-}
-
-let onRequestAiAction: ReturnType<typeof createRequestAiActionMock>;
-
-beforeEach(() => {
-  onRequestAiAction = createRequestAiActionMock();
-});
 
 function plan(): BookWriterPlan {
   return {
@@ -478,6 +467,7 @@ function props(overrides: Partial<BookWriterDashboardProps> = {}): BookWriterDas
 
 describe("renderBookWriterDashboard", () => {
   it("shows storyline overview, sync status, affected chapters, and propagation action", () => {
+    const onConfirmAiAction = vi.fn();
     const current = plan();
     const syncPlan: BookWriterPlan = {
       ...current,
@@ -512,7 +502,7 @@ describe("renderBookWriterDashboard", () => {
         props({
           snapshot: { ...snapshot(), plan: syncPlan },
           mode: "advanced",
-          onRequestAiAction,
+          onConfirmAiAction,
         }),
       ),
       container,
@@ -531,7 +521,95 @@ describe("renderBookWriterDashboard", () => {
     const propagate = container.querySelector<HTMLButtonElement>("[data-book-writer-propagate]");
     expect(propagate?.textContent).toContain("Propagate Change Through Book");
     propagate?.click();
-    expect(onRequestAiAction).toHaveBeenCalledWith("propagate");
+    expect(onConfirmAiAction).toHaveBeenCalledWith("propagate");
+  });
+
+  it("shows a cohesion receipt after story propagation updates the book", () => {
+    const current = plan();
+    const syncedPlan: BookWriterPlan = {
+      ...current,
+      qualityScore: 9,
+      revisionHistory: [
+        ...current.revisionHistory,
+        {
+          version: 4,
+          at: "2026-05-18T00:05:00Z",
+          action: "story-impact-propagation",
+          summary: "Propagated story change through affected chapters.",
+        },
+      ],
+      bookSync: {
+        state: "fully-updated",
+        pendingImpactId: "impact-1",
+        lastAnalyzedVersion: 4,
+        lastSyncedVersion: 4,
+        affectedChapterIds: ["chapter-1"],
+        affectedParagraphIds: ["paragraph-1"],
+        lockedConflictCount: 0,
+        cohesionScore: 9,
+        summary: "Propagated a new clue across the affected chapter.",
+      },
+    };
+    const container = document.createElement("div");
+    render(
+      renderBookWriterDashboard(
+        props({
+          snapshot: { ...snapshot(), plan: syncedPlan },
+          mode: "advanced",
+        }),
+      ),
+      container,
+    );
+
+    const receipt = container.querySelector("[data-book-writer-cohesion-receipt]");
+    expect(receipt?.textContent).toContain("Cohesion receipt");
+    expect(receipt?.textContent).toContain("Cohesion checked");
+    expect(receipt?.textContent).toContain("1 paragraph(s) were checked or updated");
+    expect(receipt?.textContent).toContain("Locked text remains protected");
+    expect(receipt?.textContent).toContain("Cohesion score: 9/10");
+    expect(receipt?.textContent).toContain("Next: review the affected text");
+  });
+
+  it("normalizes fractional cohesion receipt scores to a clear out-of-10 display", () => {
+    const current = plan();
+    const syncedPlan: BookWriterPlan = {
+      ...current,
+      qualityScore: 0.9,
+      revisionHistory: [
+        ...current.revisionHistory,
+        {
+          version: 4,
+          at: "2026-05-18T00:05:00Z",
+          action: "story-impact-propagation",
+          summary: "Propagated story change through affected chapters.",
+        },
+      ],
+      bookSync: {
+        state: "fully-updated",
+        pendingImpactId: "impact-1",
+        lastAnalyzedVersion: 4,
+        lastSyncedVersion: 4,
+        affectedChapterIds: ["chapter-1"],
+        affectedParagraphIds: ["paragraph-1"],
+        lockedConflictCount: 0,
+        cohesionScore: 0.9,
+        summary: "Propagated a new clue across the affected chapter.",
+      },
+    };
+    const container = document.createElement("div");
+    render(
+      renderBookWriterDashboard(
+        props({
+          snapshot: { ...snapshot(), plan: syncedPlan },
+          mode: "advanced",
+        }),
+      ),
+      container,
+    );
+
+    const receipt = container.querySelector("[data-book-writer-cohesion-receipt]");
+    expect(receipt?.textContent).toContain("Cohesion score: 9/10");
+    expect(receipt?.textContent).not.toContain("Cohesion score: 0.9/10");
   });
 
   it("shows visible step navigation, profanity labels, and a distinct Home button", () => {
@@ -710,6 +788,7 @@ describe("renderBookWriterDashboard", () => {
   });
 
   it("opens a single new-book setup workspace from an existing book", () => {
+    const onRequestAiAction = vi.fn();
     const onRequestSetupAiHelp = vi.fn();
     const onCloseNewBookSetup = vi.fn();
     const container = document.createElement("div");
@@ -831,7 +910,7 @@ describe("renderBookWriterDashboard", () => {
     const current = snapshot();
     const oldInstructionText =
       "Advance one argument, clue, scene beat, or practical insight. Chapter focus: Open the book with the central problem. The book is about a practical field guide. The paragraph should make one clear move.";
-    const instructionPlan = structuredClone(current.plan!);
+    const instructionPlan = structuredClone(current.plan);
     instructionPlan.chapters[0].paragraphs[0].text = oldInstructionText;
     instructionPlan.chapters[0].paragraphs[0].status = "drafted";
     const container = document.createElement("div");
@@ -1040,6 +1119,7 @@ describe("renderBookWriterDashboard", () => {
   });
 
   it("offers one obvious start action before a plan exists", () => {
+    const onRequestAiAction = vi.fn();
     const container = document.createElement("div");
 
     render(
@@ -1747,6 +1827,7 @@ describe("renderBookWriterDashboard", () => {
 
   it("offers and applies structure rebalance when a long draft is shortened to flash length", () => {
     const onSavePlan = vi.fn();
+    const onRequestAiAction = vi.fn();
     const longPlan = planWithParagraphCount(6);
     longPlan.targetWords = 12000;
     longPlan.chapters = Array.from({ length: 6 }, (_item, chapterIndex) => ({
@@ -1834,6 +1915,61 @@ describe("renderBookWriterDashboard", () => {
     expect(savedPlan.brief.tone).toBe("Noir, clipped, but readable.");
   });
 
+  it("saves continuity controls for character facts, timeline events, tone rules, and plot direction", () => {
+    const onSavePlan = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderBookWriterDashboard(
+        props({
+          activeView: "brief",
+          onSavePlan,
+        }),
+      ),
+      container,
+    );
+
+    const characterFacts = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Book character facts"]',
+    );
+    const timelineEvents = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Book timeline events"]',
+    );
+    const toneRules = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Book tone rules"]',
+    );
+    const plotDirection = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Book plot direction"]',
+    );
+
+    characterFacts!.value = "Audrey never accuses without evidence.";
+    characterFacts!.dispatchEvent(new Event("change"));
+    timelineEvents!.value = "The bridge inspection happens before the council vote.";
+    timelineEvents!.dispatchEvent(new Event("change"));
+    toneRules!.value = "Keep suspense dry and precise.";
+    toneRules!.dispatchEvent(new Event("change"));
+    plotDirection!.value = "The forged signature must pay off in the public reveal.";
+    plotDirection!.dispatchEvent(new Event("change"));
+
+    const characterPlan = onSavePlan.mock.calls[0][0] as BookWriterPlan;
+    const timelinePlan = onSavePlan.mock.calls[1][0] as BookWriterPlan;
+    const tonePlan = onSavePlan.mock.calls[2][0] as BookWriterPlan;
+    const plotPlan = onSavePlan.mock.calls[3][0] as BookWriterPlan;
+
+    expect(characterPlan.continuityControl?.characterFacts).toEqual([
+      "Audrey never accuses without evidence.",
+    ]);
+    expect(timelinePlan.continuityControl?.timelineEvents).toEqual([
+      "The bridge inspection happens before the council vote.",
+    ]);
+    expect(tonePlan.continuityControl?.toneRules).toEqual(["Keep suspense dry and precise."]);
+    expect(plotPlan.continuityControl?.plotDirections).toEqual([
+      "The forged signature must pay off in the public reveal.",
+    ]);
+    expect(plotPlan.bookSync?.state).toBe("needs-propagation");
+    expect(plotPlan.chapters[0].paragraphs[0].text).toBe("Audrey found the invoice at sunrise.");
+  });
+
   it("saves paragraph text edits through the provided callback", () => {
     const onSavePlan = vi.fn();
     const container = document.createElement("div");
@@ -1899,6 +2035,33 @@ describe("renderBookWriterDashboard", () => {
     expect(onDraftPlan).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a visible guided Write action for all missing Book Text", () => {
+    const onRequestAiAction = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderBookWriterDashboard(
+        props({
+          activeView: "draft",
+          snapshot: {
+            ...snapshot(),
+            plan: planWithParagraphCount(3),
+          },
+          onRequestAiAction,
+        }),
+      ),
+      container,
+    );
+
+    const writeMissing = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Write missing pages",
+    );
+    writeMissing?.click();
+
+    expect(writeMissing).toBeTruthy();
+    expect(onRequestAiAction).toHaveBeenCalledWith("draft");
+  });
+
   it("makes chapter plans visibly AI instructions, not printed book text", () => {
     const onFocusedParagraphChange = vi.fn();
     const onActiveViewChange = vi.fn();
@@ -1958,6 +2121,7 @@ describe("renderBookWriterDashboard", () => {
 
     expect(container.textContent).toContain("Active model:");
     expect(container.textContent).toContain("qwen2.5:32b");
+    expect(container.textContent).toContain("Rewrite around my edits");
     const aiWriteThis = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("AI rewrite this Book Text"),
     );
@@ -1968,6 +2132,7 @@ describe("renderBookWriterDashboard", () => {
     manualWrite?.click();
 
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("Replace this paragraph"));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("surrounding paragraphs"));
     expect(onDraftParagraph).toHaveBeenCalledWith("paragraph-1", true);
     expect(onFocusedParagraphChange).toHaveBeenCalledWith("paragraph-1");
     expect(onModeChange).toHaveBeenCalledWith("guided");
@@ -1976,9 +2141,10 @@ describe("renderBookWriterDashboard", () => {
   });
 
   it("shows beginner AI confirmation and routes the guided primary action", () => {
+    const onRequestAiAction = vi.fn();
     const onConfirmAiAction = vi.fn();
     const current = snapshot();
-    const emptyPlan = structuredClone(current.plan!);
+    const emptyPlan = structuredClone(current.plan);
     for (const chapter of emptyPlan.chapters) {
       for (const paragraph of chapter.paragraphs) {
         paragraph.text = "";
@@ -2080,6 +2246,7 @@ describe("renderBookWriterDashboard", () => {
   });
 
   it("routes guided review buttons to screens and AI-writing buttons to AI", () => {
+    const onRequestAiAction = vi.fn();
     const onActiveViewChange = vi.fn();
     const chaptersContainer = document.createElement("div");
 
@@ -2709,6 +2876,9 @@ describe("renderBookWriterDashboard", () => {
     render(
       renderBookWriterDashboard(
         props({
+          snapshot: { ...snapshot(), selectedRunId: null, plan: null },
+          selectedRunId: null,
+          activeView: "brief",
           celebration: {
             id: "book-run",
             title: "Bridge Ledger",
@@ -2728,6 +2898,221 @@ describe("renderBookWriterDashboard", () => {
 
     container.querySelector<HTMLButtonElement>(".book-writer-celebration__dismiss")?.click();
     expect(onDismissCelebration).toHaveBeenCalledOnce();
+  });
+
+  it("keeps celebration banners off active build pages so the next work button stays first", () => {
+    const container = document.createElement("div");
+
+    render(
+      renderBookWriterDashboard(
+        props({
+          activeView: "draft",
+          celebration: {
+            id: "book-run",
+            title: "Bridge Ledger",
+            kind: "created",
+            at: Date.now(),
+          },
+        }),
+      ),
+      container,
+    );
+
+    expect(container.textContent).not.toContain("New book added!");
+    expect(container.querySelector(".book-writer-celebration")).toBeNull();
+  });
+
+  it("shows a local propagation action next to the paragraph after a story-changing edit", () => {
+    const onConfirmAiAction = vi.fn();
+    const current = plan();
+    const container = document.createElement("div");
+
+    render(
+      renderBookWriterDashboard(
+        props({
+          snapshot: {
+            ...snapshot(),
+            plan: {
+              ...current,
+              bookSync: {
+                state: "needs-propagation",
+                pendingImpactId: "impact-1",
+                lastAnalyzedVersion: 4,
+                lastSyncedVersion: 3,
+                affectedChapterIds: ["chapter-1"],
+                affectedParagraphIds: ["paragraph-1"],
+                lockedConflictCount: 0,
+                summary: "This edit affects later paragraphs.",
+              },
+            },
+          },
+          activeView: "draft",
+          focusedParagraphId: "paragraph-1",
+          onConfirmAiAction,
+        }),
+      ),
+      container,
+    );
+
+    const localPropagate = container.querySelector<HTMLButtonElement>(
+      "[data-book-writer-propagate-local]",
+    );
+    expect(localPropagate?.textContent).toContain("Propagate change through book");
+    const releasedPointer = new Event("pointerup", { bubbles: true, cancelable: true });
+    Object.defineProperty(releasedPointer, "button", { value: -1 });
+    localPropagate?.dispatchEvent(releasedPointer);
+    localPropagate?.click();
+    expect(onConfirmAiAction).toHaveBeenCalledWith("propagate");
+    expect(onConfirmAiAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes real pointer activation for propagation through the live app host", () => {
+    const host = document.createElement("openclaw-app") as HTMLElement & {
+      bookWriterDashboard?: unknown;
+      bookWriterSavingAction?: string | null;
+      propagateBookWriterStoryChange?: () => void;
+    };
+    host.bookWriterDashboard = {
+      plan: { bookSync: { state: "needs-propagation" } },
+    };
+    host.bookWriterSavingAction = null;
+    host.propagateBookWriterStoryChange = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(host, container);
+    try {
+      render(
+        renderBookWriterDashboard(
+          props({
+            snapshot: {
+              ...snapshot(),
+              plan: {
+                ...plan(),
+                bookSync: {
+                  state: "needs-propagation",
+                  pendingImpactId: "impact-1",
+                  lastAnalyzedVersion: 4,
+                  lastSyncedVersion: 3,
+                  affectedChapterIds: ["chapter-1"],
+                  affectedParagraphIds: ["paragraph-1"],
+                  lockedConflictCount: 0,
+                  summary: "This edit affects later paragraphs.",
+                },
+              },
+            },
+            activeView: "draft",
+            focusedParagraphId: "paragraph-1",
+          }),
+        ),
+        container,
+      );
+
+      const localPropagate = container.querySelector<HTMLButtonElement>(
+        "[data-book-writer-propagate-local]",
+      );
+      const releasedPointer = new Event("pointerup", { bubbles: true, cancelable: true });
+      Object.defineProperty(releasedPointer, "button", { value: -1 });
+      localPropagate?.dispatchEvent(releasedPointer);
+
+      expect(host.propagateBookWriterStoryChange).toHaveBeenCalledOnce();
+    } finally {
+      host.remove();
+      container.remove();
+    }
+  });
+
+  it("retries propagation when a background save temporarily disables the button", async () => {
+    const host = document.createElement("openclaw-app") as HTMLElement & {
+      bookWriterDashboard?: unknown;
+      bookWriterSavingAction?: string | null;
+      propagateBookWriterStoryChange?: () => void;
+    };
+    host.bookWriterDashboard = {
+      plan: { bookSync: { state: "needs-propagation" } },
+    };
+    host.bookWriterSavingAction = "save";
+    host.propagateBookWriterStoryChange = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(host, container);
+    try {
+      render(
+        renderBookWriterDashboard(
+          props({
+            snapshot: {
+              ...snapshot(),
+              plan: {
+                ...plan(),
+                bookSync: {
+                  state: "needs-propagation",
+                  pendingImpactId: "impact-1",
+                  lastAnalyzedVersion: 4,
+                  lastSyncedVersion: 3,
+                  affectedChapterIds: ["chapter-1"],
+                  affectedParagraphIds: ["paragraph-1"],
+                  lockedConflictCount: 0,
+                  summary: "This edit affects later paragraphs.",
+                },
+              },
+            },
+            activeView: "draft",
+            focusedParagraphId: "paragraph-1",
+            savingAction: "save",
+          }),
+        ),
+        container,
+      );
+
+      const localPropagate = container.querySelector<HTMLButtonElement>(
+        "[data-book-writer-propagate-local]",
+      );
+      const releasedPointer = new Event("pointerup", { bubbles: true, cancelable: true });
+      Object.defineProperty(releasedPointer, "button", { value: 0 });
+      localPropagate?.dispatchEvent(releasedPointer);
+      expect(host.propagateBookWriterStoryChange).not.toHaveBeenCalled();
+
+      host.bookWriterSavingAction = null;
+      await new Promise((resolve) => {
+        setTimeout(resolve, 300);
+      });
+
+      expect(host.propagateBookWriterStoryChange).toHaveBeenCalledOnce();
+    } finally {
+      host.remove();
+      container.remove();
+    }
+  });
+
+  it("routes guided Read build and quality actions through confirmation", () => {
+    const onRequestAiAction = vi.fn();
+    const onStitchPlan = vi.fn();
+    const onPackagePlan = vi.fn();
+    const container = document.createElement("div");
+
+    render(
+      renderBookWriterDashboard(
+        props({
+          activeView: "package",
+          mode: "guided",
+          onRequestAiAction,
+          onStitchPlan,
+          onPackagePlan,
+        }),
+      ),
+      container,
+    );
+
+    const build = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Build readable book"),
+    );
+    const quality = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Check book quality"),
+    );
+    build?.click();
+    quality?.click();
+
+    expect(onRequestAiAction).toHaveBeenCalledWith("stitch");
+    expect(onRequestAiAction).toHaveBeenCalledWith("package");
+    expect(onStitchPlan).not.toHaveBeenCalled();
+    expect(onPackagePlan).not.toHaveBeenCalled();
   });
 
   it("explains publish blockers with direct repair actions", () => {
@@ -2775,6 +3160,7 @@ describe("renderBookWriterDashboard", () => {
   });
 
   it("puts Fix this with AI first in the beginner publish path", () => {
+    const onRequestAiAction = vi.fn();
     const container = document.createElement("div");
 
     render(
@@ -2851,6 +3237,8 @@ describe("renderBookWriterDashboard", () => {
     expect(container.textContent).toContain(
       "No quality package yet. Run Check book quality first.",
     );
+    expect(container.textContent).toContain("Completion audit");
+    expect(container.textContent).toContain("Audit not ready");
 
     const checkFirst = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.includes("Check book quality first"),
@@ -2884,6 +3272,11 @@ describe("renderBookWriterDashboard", () => {
     expect(container.textContent).toContain("/books/book-run/ebook.epub");
     expect(container.textContent).toContain("/books/book-run/cover.tiff");
     expect(container.textContent).toContain("Final KDP submit is intentionally blocked.");
+    expect(container.textContent).toContain("Completion audit");
+    expect(container.textContent).toContain("Verified through publish-prep");
+    expect(container.textContent).toContain(
+      "Only remaining blocker: your explicit final KDP submit approval.",
+    );
     expect(container.textContent).toContain("Open KDP and follow the checklist");
     expect(container.textContent).toContain("Mark published · Move to Trophy Room");
     expect(container.textContent).toContain("Cover brief");

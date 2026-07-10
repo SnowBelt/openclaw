@@ -8,6 +8,7 @@ import type {
   BookWriterChapterSetupTarget,
   BookWriterChapterRole,
   BookWriterCelebration,
+  BookWriterContinuityControl,
   BookWriterDashboardMode,
   BookWriterDashboardSnapshot,
   BookWriterDashboardView,
@@ -595,6 +596,98 @@ const READER_FEELING_OPTIONS: Array<{
 let draggedChapterId: string | null = null;
 let draggedParagraph: { chapterId: string; paragraphId: string } | null = null;
 let trophyRoomScrollCompactionInstalled = false;
+let propagationCaptureBridgeInstalled = false;
+
+type BookWriterPropagationHost = HTMLElement & {
+  bookWriterDashboard?: {
+    plan?: {
+      bookSync?: {
+        state?: string;
+      };
+    } | null;
+  } | null;
+  bookWriterSavingAction?: string | null;
+  propagateBookWriterStoryChange?: () => Promise<void> | void;
+};
+
+function isBookWriterPrimaryPointerActivation(event: PointerEvent): boolean {
+  // Chromium/Playwright can report -1 on pointerup after the primary button has
+  // already been released. Treat that as the same primary activation so the
+  // visible propagation button does not become a no-op under real pointer input.
+  return event.button === 0 || event.button === -1 || event.button == null;
+}
+
+function callBookWriterPropagationHost(app: BookWriterPropagationHost, button: HTMLButtonElement) {
+  button.dataset.bookWriterPointerActivated = "true";
+  window.setTimeout(() => {
+    delete button.dataset.bookWriterPointerActivated;
+  }, 500);
+  void app.propagateBookWriterStoryChange?.();
+}
+
+function scheduleBookWriterPropagationHostRetry(button: HTMLButtonElement, remainingAttempts = 12) {
+  window.setTimeout(() => {
+    const app = document.querySelector<BookWriterPropagationHost>("openclaw-app");
+    const stillNeedsPropagation =
+      app?.bookWriterDashboard?.plan?.bookSync?.state === "needs-propagation";
+    if (
+      app?.propagateBookWriterStoryChange &&
+      !app.bookWriterSavingAction &&
+      stillNeedsPropagation
+    ) {
+      callBookWriterPropagationHost(app, button);
+      return;
+    }
+    if (remainingAttempts > 1 && stillNeedsPropagation) {
+      scheduleBookWriterPropagationHostRetry(button, remainingAttempts - 1);
+    }
+  }, 250);
+}
+
+function installBookWriterPropagationCaptureBridge(): void {
+  if (
+    propagationCaptureBridgeInstalled ||
+    typeof window === "undefined" ||
+    typeof document === "undefined"
+  ) {
+    return;
+  }
+  propagationCaptureBridgeInstalled = true;
+  document.addEventListener(
+    "pointerup",
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const button = target.closest<HTMLButtonElement>(
+        "[data-book-writer-propagate-local], [data-book-writer-propagate]",
+      );
+      if (!button) {
+        return;
+      }
+      if (!isBookWriterPrimaryPointerActivation(event)) {
+        return;
+      }
+      const app = document.querySelector<BookWriterPropagationHost>("openclaw-app");
+      if (!app?.propagateBookWriterStoryChange) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) {
+        scheduleBookWriterPropagationHostRetry(button);
+        return;
+      }
+      if (app.bookWriterSavingAction) {
+        scheduleBookWriterPropagationHostRetry(button);
+        return;
+      }
+      callBookWriterPropagationHost(app, button);
+    },
+    true,
+  );
+}
 
 function installTrophyRoomScrollCompaction(): void {
   if (
@@ -1087,6 +1180,56 @@ function withProfanity(
         ...plan.brief.constraints.filter((constraint) => !/profanity/i.test(constraint)),
         `Profanity level: ${PROFANITY_OPTIONS.find((option) => option.value === profanityLevel)?.label ?? profanityLevel}. ${profanityDescriptionFor(profanityLevel)}`,
       ],
+    },
+  };
+}
+
+function splitContinuityLines(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/\n+/)
+        .map((line) => line.replace(/\s+/g, " ").trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 8);
+}
+
+function continuityControlForPlan(plan: BookWriterPlan): BookWriterContinuityControl {
+  return {
+    characterFacts: plan.continuityControl?.characterFacts?.filter(Boolean) ?? [],
+    timelineEvents: plan.continuityControl?.timelineEvents?.filter(Boolean) ?? [],
+    toneRules: plan.continuityControl?.toneRules?.filter(Boolean) ?? [],
+    plotDirections: plan.continuityControl?.plotDirections?.filter(Boolean) ?? [],
+  };
+}
+
+function withContinuityControl(
+  plan: BookWriterPlan,
+  key: keyof BookWriterContinuityControl,
+  rawValue: string,
+): BookWriterPlan {
+  return {
+    ...plan,
+    continuityControl: {
+      ...continuityControlForPlan(plan),
+      [key]: splitContinuityLines(rawValue),
+    },
+    bookSync: {
+      state: "needs-propagation",
+      pendingImpactId: plan.bookSync?.pendingImpactId,
+      lastAnalyzedVersion: plan.bookSync?.lastAnalyzedVersion,
+      lastSyncedVersion: plan.bookSync?.lastSyncedVersion,
+      affectedChapterIds: plan.chapters.map((chapter) => chapter.id),
+      affectedParagraphIds: plan.chapters.flatMap((chapter) =>
+        chapter.paragraphs.map((paragraph) => paragraph.id),
+      ),
+      lockedConflictCount: plan.chapters
+        .flatMap((chapter) => chapter.paragraphs)
+        .filter((paragraph) => paragraph.locked).length,
+      cohesionScore: plan.bookSync?.cohesionScore,
+      summary:
+        "Continuity control changed; review or propagate so character, timeline, tone, and plot direction stay aligned.",
     },
   };
 }
@@ -1840,6 +1983,7 @@ function renderSmallFieldLock(params: {
     <label class="book-writer-field-lock">
       <input
         type="checkbox"
+        aria-label=${params.label ?? "Lock this box from AI"}
         .checked=${params.checked}
         @change=${(event: Event) =>
           params.onChange((event.currentTarget as HTMLInputElement).checked)}
@@ -2035,6 +2179,131 @@ function renderBookSetupControls(
   `;
 }
 
+function formatCohesionScoreText(score: number | undefined): string {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return "";
+  }
+  const scoreOutOfTen = score > 0 && score <= 1 ? score * 10 : score;
+  const boundedScore = Math.max(0, Math.min(10, scoreOutOfTen));
+  const roundedScore = Math.round(boundedScore * 10) / 10;
+  const displayScore = Number.isInteger(roundedScore)
+    ? roundedScore.toFixed(0)
+    : roundedScore.toFixed(1);
+  return ` Cohesion score: ${displayScore}/10.`;
+}
+
+function cohesionReceiptForPlan(
+  props: BookWriterDashboardProps,
+  plan: BookWriterPlan,
+): {
+  status: string;
+  tone: "good" | "warn" | "danger" | "neutral";
+  detail: string;
+  next: string;
+} | null {
+  const sync = plan.bookSync;
+  const latestCohesionAction = plan.revisionHistory
+    .toReversed()
+    .find((revision) =>
+      [
+        "story-impact-propagation",
+        "book-prose-writer",
+        "stitch",
+        "paragraph-plan-architect",
+        "chapter-architect",
+        "target-structure-rebalance",
+      ].includes(revision.action),
+    );
+  const score = sync?.cohesionScore ?? plan.qualityScore;
+  const qualityStatus = props.snapshot?.planQuality?.status;
+  const updatedParagraphs = sync?.affectedParagraphIds.length ?? 0;
+  if (!sync && !latestCohesionAction && score === undefined) {
+    return null;
+  }
+  const scoreText = formatCohesionScoreText(score);
+  const lockedText =
+    sync?.lockedConflictCount && sync.lockedConflictCount > 0
+      ? ` ${sync.lockedConflictCount} locked block(s) need review before AI can safely update around them.`
+      : " Locked text remains protected.";
+  const updatedText =
+    updatedParagraphs > 0
+      ? ` ${updatedParagraphs} paragraph(s) were checked or updated for story continuity.`
+      : " Book Studio checked the current plan context.";
+  const actionText = latestCohesionAction
+    ? ` Last action: ${statusLabel(latestCohesionAction.action)}.`
+    : "";
+  if (sync?.state === "locked-conflict-found") {
+    return {
+      status: "Locked review",
+      tone: "danger",
+      detail: `${sync.summary}${lockedText}${scoreText}`,
+      next: "Next: review or unlock the affected locked text, then propagate again.",
+    };
+  }
+  if (sync?.state === "needs-propagation" || sync?.state === "story-impact-detected") {
+    return {
+      status: "Needs propagation",
+      tone: "warn",
+      detail: `${sync.summary}${updatedText}${scoreText}`,
+      next: "Next: click Propagate Change Through Book so surrounding chapters adapt.",
+    };
+  }
+  if (sync?.state === "cohesion-review-needed" || qualityStatus === "fail") {
+    return {
+      status: "Review needed",
+      tone: "danger",
+      detail: `${sync?.summary ?? "Book Studio found quality or cohesion work to review."}${updatedText}${lockedText}${scoreText}`,
+      next: "Next: run Check book quality or Fix blockers with AI before publishing prep.",
+    };
+  }
+  if (sync?.state === "fully-updated" || sync?.state === "synced" || qualityStatus === "pass") {
+    return {
+      status: "Cohesion checked",
+      tone: "good",
+      detail: `${sync?.summary ?? "Book Studio checked the book for continuity."}${updatedText}${lockedText}${scoreText}${actionText}`,
+      next: "Next: review the affected text, then build or check the readable book.",
+    };
+  }
+  return {
+    status: "Cohesion status",
+    tone: "neutral",
+    detail: `${sync?.summary ?? "Book Studio is tracking story continuity."}${updatedText}${scoreText}${actionText}`,
+    next: "Next: continue the guided workflow and check quality before publish prep.",
+  };
+}
+
+function renderContinuityField(params: {
+  plan: BookWriterPlan;
+  label: string;
+  ariaLabel: string;
+  hint: string;
+  field: keyof BookWriterContinuityControl;
+  rows?: number;
+  onSavePlan: (plan: BookWriterPlan) => void;
+}): TemplateResult {
+  const control = continuityControlForPlan(params.plan);
+  return html`
+    <label class="book-writer-control-grid__wide">
+      <span>${params.label}</span>
+      <textarea
+        rows=${String(params.rows ?? 2)}
+        .value=${control[params.field].join("\n")}
+        aria-label=${params.ariaLabel}
+        placeholder="One rule per line. AI uses these when rewriting around your edits."
+        @change=${(event: Event) =>
+          params.onSavePlan(
+            withContinuityControl(
+              params.plan,
+              params.field,
+              (event.currentTarget as HTMLTextAreaElement).value,
+            ),
+          )}
+      ></textarea>
+      ${renderFieldHint(params.hint)}
+    </label>
+  `;
+}
+
 function renderBookControlBar(props: BookWriterDashboardProps, plan: BookWriterPlan) {
   const tonePreset = planTonePreset(plan);
   const customTone = customToneForPlan(plan);
@@ -2053,6 +2322,7 @@ function renderBookControlBar(props: BookWriterDashboardProps, plan: BookWriterP
           ? "warn"
           : "neutral";
   const overview = plan.storylineOverview;
+  const cohesionReceipt = cohesionReceiptForPlan(props, plan);
   return html`
     <section class="book-writer-control-bar" aria-label="Always visible book controls">
       <div class="book-writer-control-bar__head">
@@ -2110,7 +2380,10 @@ function renderBookControlBar(props: BookWriterDashboardProps, plan: BookWriterP
               <button
                 class="book-writer-guided-primary"
                 data-book-writer-propagate
-                @click=${() => props.onRequestAiAction("propagate")}
+                ?disabled=${Boolean(props.savingAction)}
+                @pointerup=${(event: PointerEvent) =>
+                  activateBookWriterPropagationFromPointer(event, props)}
+                @click=${(event: Event) => activateBookWriterPropagationFromClick(event, props)}
               >
                 Propagate Change Through Book
               </button>
@@ -2118,6 +2391,16 @@ function renderBookControlBar(props: BookWriterDashboardProps, plan: BookWriterP
           : sync?.state === "locked-conflict-found"
             ? html`<small>Review locked text before propagating this change.</small>`
             : nothing}
+        ${cohesionReceipt
+          ? html`
+              <section class="book-writer-cohesion-receipt" data-book-writer-cohesion-receipt>
+                <b>Cohesion receipt</b>
+                <span>${renderPill(cohesionReceipt.status, cohesionReceipt.tone)}</span>
+                <small>${cohesionReceipt.detail}</small>
+                <small>${cohesionReceipt.next}</small>
+              </section>
+            `
+          : nothing}
       </div>
       <div class="book-writer-control-grid">
         <label>
@@ -2262,6 +2545,38 @@ function renderBookControlBar(props: BookWriterDashboardProps, plan: BookWriterP
           />
           ${renderFieldTools(props, "readerPromise")}
         </label>
+        ${renderContinuityField({
+          plan,
+          label: "Character facts",
+          ariaLabel: "Book character facts",
+          hint: "Facts the AI must preserve when it adapts scenes around a sentence or paragraph edit.",
+          field: "characterFacts",
+          onSavePlan: props.onSavePlan,
+        })}
+        ${renderContinuityField({
+          plan,
+          label: "Timeline events",
+          ariaLabel: "Book timeline events",
+          hint: "Chronology and cause/effect anchors that rewrites must not contradict.",
+          field: "timelineEvents",
+          onSavePlan: props.onSavePlan,
+        })}
+        ${renderContinuityField({
+          plan,
+          label: "Tone rules",
+          ariaLabel: "Book tone rules",
+          hint: "Specific voice instructions beyond the main tone picker.",
+          field: "toneRules",
+          onSavePlan: props.onSavePlan,
+        })}
+        ${renderContinuityField({
+          plan,
+          label: "Plot direction",
+          ariaLabel: "Book plot direction",
+          hint: "Future reveals, payoffs, or story direction the AI should protect.",
+          field: "plotDirections",
+          onSavePlan: props.onSavePlan,
+        })}
         <div class="book-writer-control-status">
           <b>Current step</b>
           <span>${VIEWS.find((view) => view.id === props.activeView)?.label ?? "Book Studio"}</span>
@@ -2837,7 +3152,9 @@ function confirmReplaceParagraphBookText(): boolean {
   if (typeof confirmFn !== "function") {
     return true;
   }
-  return confirmFn("Replace this paragraph's Book Text?\n\nThis cannot be undone.");
+  return confirmFn(
+    "Replace this paragraph's Book Text?\n\nAI will use the surrounding paragraphs, chapter purpose, book storyline, timeline, tone, and locked text. Locked text stays unchanged. This cannot be undone.",
+  );
 }
 
 function firstWritableParagraphId(chapter: BookWriterChapter): string | null {
@@ -3768,10 +4085,15 @@ function renderGuidedChapters(props: BookWriterDashboardProps, plan: BookWriterP
         <span
           >Paraphrase the chapter's reader-facing content. This is not printed in the book.</span
         >
-        <input type="checkbox" value="title" checked />
-        <input type="checkbox" value="description" checked />
-        <input type="checkbox" value="style" checked />
-        <input type="checkbox" value="role" checked />
+        <input type="checkbox" value="title" checked aria-label="Generate chapter titles" />
+        <input
+          type="checkbox"
+          value="description"
+          checked
+          aria-label="Generate chapter descriptions"
+        />
+        <input type="checkbox" value="style" checked aria-label="Generate chapter style" />
+        <input type="checkbox" value="role" checked aria-label="Generate chapter role" />
         <button
           @click=${(event: Event) =>
             props.onGenerateChapterSetup(
@@ -3899,7 +4221,7 @@ function renderGuidedChapters(props: BookWriterDashboardProps, plan: BookWriterP
                     ),
                 })}
               </label>
-              <details class="book-writer-guided-card-more">
+              <details class="book-writer-guided-card-more" open>
                 <summary>More chapter options</summary>
                 <label>
                   <span>Chapter style direction</span>
@@ -3936,6 +4258,7 @@ function renderGuidedChapters(props: BookWriterDashboardProps, plan: BookWriterP
                 <label class="book-writer-lock">
                   <input
                     type="checkbox"
+                    aria-label=${`Lock chapter ${chapter.number}`}
                     .checked=${chapter.locked}
                     @change=${(event: Event) =>
                       props.onSavePlan(
@@ -3984,6 +4307,12 @@ function renderGuidedParagraphFocus(
   ).length;
   const chapterInstructionLike = selectedChapter.paragraphs.filter(
     (paragraph) => !paragraph.locked && looksLikeInstructionalBookText(paragraph.text),
+  ).length;
+  const allEmptyUnlocked = locations.filter(
+    ({ paragraph }) => !paragraph.locked && !paragraph.text.trim(),
+  ).length;
+  const allInstructionLike = locations.filter(
+    ({ paragraph }) => !paragraph.locked && looksLikeInstructionalBookText(paragraph.text),
   ).length;
   const selectedChapterIndex = plan.chapters.findIndex(
     (chapter) => chapter.id === selectedChapter.id,
@@ -4098,6 +4427,18 @@ function renderGuidedParagraphFocus(
                 `}
           </div>
         </details>
+        ${planMode
+          ? nothing
+          : html`
+              <button
+                class="book-writer-guided-primary book-writer-guided-primary--small"
+                ?disabled=${Boolean(props.savingAction) ||
+                allEmptyUnlocked + allInstructionLike === 0}
+                @click=${() => props.onRequestAiAction("draft")}
+              >
+                Write missing pages
+              </button>
+            `}
         <button
           class="book-writer-sr-only"
           ?disabled=${Boolean(props.savingAction)}
@@ -4114,7 +4455,7 @@ function renderGuidedParagraphFocus(
           const aiWriteLabel = instructionLikeText
             ? "Rewrite as real book prose"
             : paragraph.text.trim()
-              ? "Rewrite this writing"
+              ? "Rewrite around my edits"
               : "Write this page";
           const cardClass = [
             "book-writer-guided-paragraph-card",
@@ -4150,6 +4491,21 @@ function renderGuidedParagraphFocus(
                   <b>${paragraphStateLabel(paragraph)}</b>
                   <small>${paragraphFocusMessage(paragraph, mode)}</small>
                 </p>
+                ${focusedCard && !planMode && plan.bookSync?.state === "needs-propagation"
+                  ? html`
+                      <button
+                        class="book-writer-guided-primary book-writer-guided-primary--small"
+                        data-book-writer-propagate-local
+                        ?disabled=${Boolean(props.savingAction)}
+                        @pointerup=${(event: PointerEvent) =>
+                          activateBookWriterPropagationFromPointer(event, props)}
+                        @click=${(event: Event) =>
+                          activateBookWriterPropagationFromClick(event, props)}
+                      >
+                        Propagate change through book
+                      </button>
+                    `
+                  : nothing}
               </div>
               ${planMode
                 ? html`
@@ -4232,15 +4588,7 @@ function renderGuidedParagraphFocus(
                           ),
                       })}
                     </label>
-                    <details
-                      class="book-writer-editor-details"
-                      ?open=${Boolean(
-                        paragraph.purpose.trim() ||
-                        (paragraph.styleDirection ?? "").trim() ||
-                        paragraph.fieldLocks?.purpose ||
-                        paragraph.fieldLocks?.styleDirection,
-                      )}
-                    >
+                    <details class="book-writer-editor-details" open>
                       <summary>More planning detail</summary>
                       <label
                         class="book-writer-guided-zone book-writer-guided-zone--plan book-writer-editor-field--medium"
@@ -4438,6 +4786,7 @@ function renderGuidedParagraphFocus(
                 <label class="book-writer-lock">
                   <input
                     type="checkbox"
+                    aria-label=${`Lock paragraph ${paragraph.order}`}
                     .checked=${paragraph.locked}
                     @change=${(event: Event) =>
                       props.onSavePlan(
@@ -4467,6 +4816,73 @@ function mainPublishIssue(props: BookWriterDashboardProps): string {
     props.snapshot?.publishDryRun?.findings.find((finding) => finding.status !== "pass")?.message ??
     "The book needs one more check before publishing."
   );
+}
+
+function publishCompletionAuditStatus(props: BookWriterDashboardProps): {
+  badge: string;
+  detail: string;
+  label: string;
+  next: string;
+  tone: "neutral" | "good" | "warn" | "danger";
+} {
+  const review = props.snapshot?.reviewPack;
+  const dryRun = props.snapshot?.publishDryRun;
+  if (!review) {
+    return {
+      badge: "not ready",
+      label: "Audit not ready",
+      tone: "neutral",
+      detail: "Run Check book quality before Book Studio can verify publishing readiness.",
+      next: "Next: check book quality.",
+    };
+  }
+  if (review.recommendation !== "approve") {
+    return {
+      badge: "blocked",
+      label: "Audit blocked",
+      tone: "warn",
+      detail: "Quality review found blockers, so publishing prep remains locked.",
+      next: "Next: fix blockers, then re-check book quality.",
+    };
+  }
+  if (dryRun?.status === "ready" && dryRun.finalSubmit.requiresApproval) {
+    return {
+      badge: "verified",
+      label: "Verified through publish-prep",
+      tone: "good",
+      detail:
+        "Book Studio verified the manuscript, package, cover route, KDP files, and safe upload checklist.",
+      next: "Only remaining blocker: your explicit final KDP submit approval.",
+    };
+  }
+  if (dryRun) {
+    return {
+      badge: dryRun.status === "blocked" ? "blocked" : "review",
+      label: "Audit needs review",
+      tone: dryRun.status === "blocked" ? "warn" : "neutral",
+      detail: `Publishing dry-run is ${statusLabel(dryRun.status)}.`,
+      next: "Next: resolve the dry-run finding before using KDP.",
+    };
+  }
+  return {
+    badge: "quality approved",
+    label: "Quality verified",
+    tone: "neutral",
+    detail: "Quality review approved the book. KDP publish-prep still needs to be generated.",
+    next: "Next: make the publishing checklist.",
+  };
+}
+
+function renderPublishCompletionAuditCard(props: BookWriterDashboardProps): TemplateResult {
+  const audit = publishCompletionAuditStatus(props);
+  return html`
+    <section class="book-writer-panel book-writer-completion-audit" aria-label="Completion audit">
+      <p class="book-writer-eyebrow">Completion audit</p>
+      <h3>${audit.label} ${renderPill(audit.badge, audit.tone)}</h3>
+      <p>${audit.detail}</p>
+      <small>${audit.next}</small>
+    </section>
+  `;
 }
 
 type BookWriterReadChapter = {
@@ -4796,7 +5212,7 @@ function renderBookPreviewPage(page: BookWriterPaperbackPage): TemplateResult {
   `;
 }
 
-function renderBookPreview(props: BookWriterDashboardProps, _pages: BookWriterReadPage[]) {
+function renderBookPreview(props: BookWriterDashboardProps) {
   const preview = buildBookPreview(props);
   const selectedIndex = preview.pages.length
     ? Math.min(Math.max(props.readPage, 0), preview.pages.length - 1)
@@ -4940,7 +5356,7 @@ function renderGuidedRead(props: BookWriterDashboardProps) {
   ).length;
   const currentChapterIndex = page?.chapterIndex ?? 0;
   if (props.readPreviewOpen) {
-    return renderBookPreview(props, pages);
+    return renderBookPreview(props);
   }
   return html`
     <section class="book-writer-guided-main">
@@ -4963,14 +5379,14 @@ function renderGuidedRead(props: BookWriterDashboardProps) {
           <button
             class="book-writer-btn book-writer-btn--quiet"
             ?disabled=${Boolean(props.savingAction)}
-            @click=${props.onStitchPlan}
+            @click=${() => props.onRequestAiAction("stitch")}
           >
             Build readable book
           </button>
           <button
             class="book-writer-guided-primary book-writer-guided-primary--small"
             ?disabled=${Boolean(props.savingAction)}
-            @click=${props.onPackagePlan}
+            @click=${() => props.onRequestAiAction("package")}
           >
             Check book quality
           </button>
@@ -5081,6 +5497,7 @@ function renderGuidedPublish(props: BookWriterDashboardProps) {
               ${renderFixPublishBlockers(props)}
             </details>
           `}
+      ${renderPublishCompletionAuditCard(props)}
       ${plan ? renderGuidedCoverAndChecklist(props, plan) : nothing}
       ${dryRun ? renderPublishSteps(props) : nothing}
       ${dryRun?.status === "ready" && plan
@@ -5483,6 +5900,7 @@ function renderGuidedWorkspace(props: BookWriterDashboardProps, plan: BookWriter
       ${renderGuidedContextPanel(props, plan)}
       <div>${content}</div>
     </section>
+    ${renderBookControlBar(props, plan)}
   `;
 }
 
@@ -6284,7 +6702,7 @@ function renderGlossaryStrip() {
   `;
 }
 
-function renderToolbar(props: BookWriterDashboardProps, _plan: BookWriterPlan) {
+function renderToolbar(props: BookWriterDashboardProps) {
   return html`
     <div class="book-writer-toolbar">
       <div class="book-writer-view-title">
@@ -6339,6 +6757,36 @@ function renderToolbar(props: BookWriterDashboardProps, _plan: BookWriterPlan) {
       </div>
     </div>
   `;
+}
+
+function activateBookWriterPropagationFromPointer(
+  event: PointerEvent,
+  props: BookWriterDashboardProps,
+) {
+  if (!isBookWriterPrimaryPointerActivation(event) || props.savingAction) {
+    return;
+  }
+  const target = event.currentTarget as HTMLElement | null;
+  if (target) {
+    target.dataset.bookWriterPointerActivated = "true";
+    window.setTimeout(() => {
+      delete target.dataset.bookWriterPointerActivated;
+    }, 500);
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  props.onConfirmAiAction("propagate");
+}
+
+function activateBookWriterPropagationFromClick(event: Event, props: BookWriterDashboardProps) {
+  const target = event.currentTarget as HTMLElement | null;
+  if (target?.dataset.bookWriterPointerActivated === "true") {
+    event.preventDefault();
+    return;
+  }
+  if (!props.savingAction) {
+    props.onConfirmAiAction("propagate");
+  }
 }
 
 function renderBrief(props: BookWriterDashboardProps, plan: BookWriterPlan) {
@@ -7058,8 +7506,8 @@ function renderChapters(props: BookWriterDashboardProps, plan: BookWriterPlan) {
 
 function renderParagraphs(props: BookWriterDashboardProps, plan: BookWriterPlan) {
   const query = props.searchQuery;
-  const paragraphs = plan.chapters.flatMap((chapter) => chapter.paragraphs);
-  const emptyUnlocked = paragraphs.filter(
+  const allParagraphs = plan.chapters.flatMap((chapter) => chapter.paragraphs);
+  const emptyUnlocked = allParagraphs.filter(
     (paragraph) => !paragraph.locked && !paragraph.text.trim(),
   ).length;
   return html`
@@ -7129,10 +7577,10 @@ function renderParagraphs(props: BookWriterDashboardProps, plan: BookWriterPlan)
     </details>
     <section class="book-writer-paragraph-board">
       ${plan.chapters.map((chapter) => {
-        const filteredParagraphs = chapter.paragraphs.filter((paragraph) =>
+        const paragraphs = chapter.paragraphs.filter((paragraph) =>
           filterMatches(query, chapter.title, paragraph.title, paragraph.purpose, paragraph.text),
         );
-        if (filteredParagraphs.length === 0) {
+        if (paragraphs.length === 0) {
           return nothing;
         }
         return html`
@@ -7141,9 +7589,7 @@ function renderParagraphs(props: BookWriterDashboardProps, plan: BookWriterPlan)
               <p class="book-writer-eyebrow">Chapter ${chapter.number}</p>
               <h3>${chapter.title}</h3>
             </div>
-            ${filteredParagraphs.map((paragraph) =>
-              renderParagraphCard(props, plan, chapter, paragraph),
-            )}
+            ${paragraphs.map((paragraph) => renderParagraphCard(props, plan, chapter, paragraph))}
           </section>
         `;
       })}
@@ -7829,7 +8275,8 @@ function renderPublish(props: BookWriterDashboardProps) {
         ${renderPublishSteps(props)}
         ${dryRun?.status === "ready" ? renderPublishProofBox(plan) : nothing}
       </div>
-      ${renderCoverStudio(props, plan)} ${renderFixPublishBlockers(props)}
+      ${renderPublishCompletionAuditCard(props)} ${renderCoverStudio(props, plan)}
+      ${renderFixPublishBlockers(props)}
       <div class="book-writer-panel">
         <p class="book-writer-eyebrow">${renderLabel("Metadata", "metadata")}</p>
         <h3>Sales page preview</h3>
@@ -7917,6 +8364,7 @@ function renderActiveView(props: BookWriterDashboardProps, plan: BookWriterPlan)
 
 export function renderBookWriterDashboard(props: BookWriterDashboardProps) {
   installTrophyRoomScrollCompaction();
+  installBookWriterPropagationCaptureBridge();
   const plan = props.snapshot?.plan ?? null;
   const showingHome = Boolean(props.snapshot && !plan && !props.newBookSetupOpen);
   const showingNewBookSetup = props.newBookSetupOpen || (!props.snapshot && !plan);
@@ -9465,6 +9913,20 @@ export function renderBookWriterDashboard(props: BookWriterDashboardProps) {
         background: color-mix(in srgb, var(--book-accent) 8%, var(--surface) 92%);
         font-size: 11px;
         font-weight: 900;
+      }
+
+      .book-writer-cohesion-receipt {
+        display: grid;
+        gap: 6px;
+        border: 1px solid color-mix(in srgb, var(--book-good) 28%, var(--border) 72%);
+        border-radius: 16px;
+        padding: 10px;
+        background: color-mix(in srgb, var(--book-good) 8%, var(--surface) 92%);
+      }
+
+      .book-writer-cohesion-receipt small {
+        color: var(--muted);
+        line-height: 1.35;
       }
 
       .book-writer-control-status span,
@@ -12476,6 +12938,18 @@ export function renderBookWriterDashboard(props: BookWriterDashboardProps) {
         font-weight: 800;
       }
 
+      .book-writer-dashboard button:not(.book-writer-sr-only),
+      .book-writer-dashboard [role="button"]:not(.book-writer-sr-only),
+      .book-writer-dashboard input:not([hidden]),
+      .book-writer-dashboard select:not([hidden]) {
+        min-height: 32px;
+      }
+
+      .book-writer-dashboard input[type="checkbox"]:not([hidden]),
+      .book-writer-dashboard input[type="radio"]:not([hidden]) {
+        min-width: 32px;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .book-writer-project,
         .book-writer-deleted-book,
@@ -12779,12 +13253,13 @@ export function renderBookWriterDashboard(props: BookWriterDashboardProps) {
         ${props.loading && !plan
           ? html`<section class="book-writer-panel">Loading...</section>`
           : nothing}
-        ${renderBookCelebration(props)} ${showingHome ? renderLandingShelves(props) : nothing}
+        ${showingHome ? renderBookCelebration(props) : nothing}
+        ${showingHome ? renderLandingShelves(props) : nothing}
         ${props.mode === "guided"
           ? showingNewBookSetup
             ? html`${renderGuidedHeader(props, null)} ${renderGuidedCreate(props)}`
             : plan
-              ? html`${renderBookControlBar(props, plan)} ${renderGuidedWorkspace(props, plan)}`
+              ? renderGuidedWorkspace(props, plan)
               : nothing
           : html`
               ${renderGuidedHeader(props, showingNewBookSetup ? null : plan)}
@@ -12814,7 +13289,7 @@ export function renderBookWriterDashboard(props: BookWriterDashboardProps) {
                       </details>
                       <details class="book-writer-all-controls-details">
                         <summary>Advanced editor</summary>
-                        ${renderNextActions(props)} ${renderToolbar(props, plan)}
+                        ${renderNextActions(props)} ${renderToolbar(props)}
                         ${renderActiveView(props, plan)}
                       </details>
                     </section>

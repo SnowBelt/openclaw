@@ -2,7 +2,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import JSON5 from "json5";
-import { writeConfigFile } from "../config/io.js";
+import { replaceConfigFile } from "../config/mutate.js";
 import { resolveConfigPathCandidate } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { validateConfigObjectRawWithPlugins } from "../config/validation.js";
@@ -173,14 +173,21 @@ export async function runGatewayConfigDoctor(params: {
   const backupPath = createBackupPath(configPath);
   await fs.mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
   await fs.copyFile(configPath, backupPath);
-  await writeConfigFile(repaired.config, {
-    envSnapshotForRestore: env,
-    expectedConfigPath: configPath,
-    ownedConfigPathForWrite: configPath,
-    skipPluginValidation: true,
-    skipRuntimeSnapshotRefresh: true,
-    skipOutputLogs: true,
-    allowConfigSizeDrop: true,
+  await replaceConfigFile({
+    nextConfig: repaired.config,
+    afterWrite: {
+      mode: "none",
+      reason: "gateway config doctor reports the repair before runtime reload",
+    },
+    writeOptions: {
+      envSnapshotForRestore: env,
+      expectedConfigPath: configPath,
+      ownedConfigPathForWrite: configPath,
+      skipPluginValidation: true,
+      skipRuntimeSnapshotRefresh: true,
+      skipOutputLogs: true,
+      allowConfigSizeDrop: true,
+    },
   });
 
   return {

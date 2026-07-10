@@ -7,6 +7,7 @@ import {
   requestBookWriterAiHelp,
   requestBookWriterSetupAiHelp,
   loadBookWriterDashboard,
+  propagateBookWriterStoryChange,
   stitchBookWriterPlan,
   type BookWriterDashboardSnapshot,
   type BookWriterDashboardState,
@@ -363,6 +364,46 @@ describe("book writer dashboard controller", () => {
 
     expect(dashboardState.bookWriterSelectedRunId).toBeNull();
     expect(dashboardState.bookWriterDashboard?.plan).toBeNull();
+  });
+
+  it("propagates through the available client even when the connection flag is stale", async () => {
+    const currentPlan = plan({
+      bookSync: {
+        state: "needs-propagation",
+        summary: "Sentence edit affects later paragraphs.",
+        affectedChapterIds: ["chapter-1"],
+        affectedParagraphIds: ["paragraph-1"],
+        lockedConflictCount: 0,
+      },
+    });
+    const propagatedPlan = plan({
+      ...currentPlan,
+      version: 2,
+      bookSync: {
+        state: "fully-updated",
+        summary: "Story change propagated.",
+        affectedChapterIds: ["chapter-1"],
+        affectedParagraphIds: ["paragraph-1"],
+        lockedConflictCount: 0,
+      },
+    });
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      expect(method).toBe("bookWriter.plan.propagateStoryChange");
+      expect(params).toEqual({ runId: currentPlan.runId, baseVersion: currentPlan.version });
+      return snapshot(propagatedPlan);
+    });
+    const { dashboardState } = state(
+      { request } as Pick<GatewayBrowserClient, "request">,
+      snapshot(currentPlan),
+    );
+    dashboardState.connected = false;
+
+    await propagateBookWriterStoryChange(dashboardState);
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(dashboardState.bookWriterDashboard?.plan?.bookSync?.state).toBe("fully-updated");
+    expect(dashboardState.bookWriterError).toBeNull();
+    expect(dashboardState.bookWriterSavingAction).toBeNull();
   });
 
   it("uses AI to update the initial setup textbox without creating a book", async () => {

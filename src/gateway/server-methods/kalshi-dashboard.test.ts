@@ -2,10 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  createKalshiDashboardHandlers,
-  kalshiDashboardTesting as __testing,
-} from "./kalshi-dashboard.js";
+import { kalshiDashboardTesting, createKalshiDashboardHandlers } from "./kalshi-dashboard.js";
 
 type DashboardFixture = {
   dataPath: string;
@@ -49,12 +46,12 @@ async function withDashboardFixture(
   fn: (fixture: DashboardFixture) => Promise<void> | void,
 ) {
   const fixture = createDashboardFixture(opts);
-  __testing.resetKalshiDashboardTestingState();
-  __testing.setKalshiDashboardScriptForTest(fixture.scriptPath);
+  kalshiDashboardTesting.resetKalshiDashboardTestingState();
+  kalshiDashboardTesting.setKalshiDashboardScriptForTest(fixture.scriptPath);
   try {
     await fn(fixture);
   } finally {
-    __testing.resetKalshiDashboardTestingState();
+    kalshiDashboardTesting.resetKalshiDashboardTestingState();
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 }
@@ -62,11 +59,11 @@ async function withDashboardFixture(
 describe("kalshi dashboard gateway method", () => {
   beforeEach(() => {
     vi.useRealTimers();
-    __testing.resetKalshiDashboardTestingState();
+    kalshiDashboardTesting.resetKalshiDashboardTestingState();
   });
 
   it("parses read-only dashboard data", () => {
-    const data = __testing.parseDashboardEnvelope(
+    const data = kalshiDashboardTesting.parseDashboardEnvelope(
       JSON.stringify({ ok: true, data: { live_order_allowed: false, paper: {} } }),
     );
 
@@ -75,7 +72,7 @@ describe("kalshi dashboard gateway method", () => {
 
   it("rejects data that could allow live orders", () => {
     expect(() =>
-      __testing.parseDashboardEnvelope(
+      kalshiDashboardTesting.parseDashboardEnvelope(
         JSON.stringify({ ok: true, data: { live_order_allowed: true } }),
       ),
     ).toThrow(/live_order_allowed/);
@@ -83,7 +80,7 @@ describe("kalshi dashboard gateway method", () => {
 
   it("validates cached dashboard data before serving it", () => {
     expect(
-      __testing.parseDashboardDataObject({
+      kalshiDashboardTesting.parseDashboardDataObject({
         generated_at_utc: "2026-05-08T00:00:00Z",
         live_order_allowed: false,
       }),
@@ -93,7 +90,7 @@ describe("kalshi dashboard gateway method", () => {
     });
 
     expect(() =>
-      __testing.parseDashboardDataObject({
+      kalshiDashboardTesting.parseDashboardDataObject({
         generated_at_utc: "2026-05-08T00:00:00Z",
         live_order_allowed: true,
       }),
@@ -106,8 +103,8 @@ describe("kalshi dashboard gateway method", () => {
     try {
       fs.writeFileSync(dataPath, JSON.stringify({ live_order_allowed: false, version: 1 }));
 
-      const first = __testing.readDashboardDataSnapshot(dataPath);
-      const second = __testing.readDashboardDataSnapshot(dataPath);
+      const first = kalshiDashboardTesting.readDashboardDataSnapshot(dataPath);
+      const second = kalshiDashboardTesting.readDashboardDataSnapshot(dataPath);
 
       expect(second).toBe(first);
 
@@ -115,7 +112,7 @@ describe("kalshi dashboard gateway method", () => {
       const nextMtime = new Date(Date.now() + 10_000);
       fs.utimesSync(dataPath, nextMtime, nextMtime);
 
-      const third = __testing.readDashboardDataSnapshot(dataPath);
+      const third = kalshiDashboardTesting.readDashboardDataSnapshot(dataPath);
 
       expect(third).not.toBe(first);
       expect(third).toMatchObject({ live_order_allowed: false, version: "changed" });
@@ -126,7 +123,9 @@ describe("kalshi dashboard gateway method", () => {
 
   it("resolves the dashboard refresh suspension sentinel next to the dashboard script", async () => {
     await withDashboardFixture({}, ({ guardPath, scriptPath }) => {
-      expect(__testing.resolveKalshiDashboardRefreshGuardPath(scriptPath)).toBe(guardPath);
+      expect(kalshiDashboardTesting.resolveKalshiDashboardRefreshGuardPath(scriptPath)).toBe(
+        guardPath,
+      );
     });
   });
 
@@ -135,10 +134,13 @@ describe("kalshi dashboard gateway method", () => {
       { cache: { live_order_allowed: false, version: "cached" }, guardActive: true },
       async ({ dataPath }) => {
         const runner = vi.fn(async () => ({ live_order_allowed: false, version: "refreshed" }));
-        __testing.setDashboardRefreshRunnerForTest(runner);
+        kalshiDashboardTesting.setDashboardRefreshRunnerForTest(runner);
         const before = fs.statSync(dataPath);
 
-        const snapshot = (await __testing.loadKalshiDashboardSnapshot()) as Record<string, unknown>;
+        const snapshot = (await kalshiDashboardTesting.loadKalshiDashboardSnapshot()) as Record<
+          string,
+          unknown
+        >;
 
         expect(runner).not.toHaveBeenCalled();
         expect(fs.statSync(dataPath).mtimeMs).toBe(before.mtimeMs);
@@ -162,10 +164,10 @@ describe("kalshi dashboard gateway method", () => {
       { cache: { live_order_allowed: false, version: "cached" }, guardActive: true },
       async ({ dataPath }) => {
         const runner = vi.fn(async () => ({ live_order_allowed: false, version: "forced" }));
-        __testing.setDashboardRefreshRunnerForTest(runner);
+        kalshiDashboardTesting.setDashboardRefreshRunnerForTest(runner);
         const before = fs.statSync(dataPath);
 
-        const snapshot = (await __testing.loadKalshiDashboardSnapshot({
+        const snapshot = (await kalshiDashboardTesting.loadKalshiDashboardSnapshot({
           forceRefresh: true,
         })) as Record<string, unknown>;
 
@@ -184,9 +186,9 @@ describe("kalshi dashboard gateway method", () => {
   it("fails closed without writing dashboard cache when the guard is active and cache is missing", async () => {
     await withDashboardFixture({ guardActive: true }, async ({ dataPath }) => {
       const runner = vi.fn(async () => ({ live_order_allowed: false, version: "refreshed" }));
-      __testing.setDashboardRefreshRunnerForTest(runner);
+      kalshiDashboardTesting.setDashboardRefreshRunnerForTest(runner);
 
-      await expect(__testing.loadKalshiDashboardSnapshot()).rejects.toThrow(
+      await expect(kalshiDashboardTesting.loadKalshiDashboardSnapshot()).rejects.toThrow(
         /refresh suspended and no valid cached dashboard data is available/,
       );
 
@@ -200,9 +202,11 @@ describe("kalshi dashboard gateway method", () => {
       { cache: { live_order_allowed: true }, guardActive: true },
       async () => {
         const runner = vi.fn(async () => ({ live_order_allowed: false, version: "refreshed" }));
-        __testing.setDashboardRefreshRunnerForTest(runner);
+        kalshiDashboardTesting.setDashboardRefreshRunnerForTest(runner);
 
-        await expect(__testing.loadKalshiDashboardSnapshot()).rejects.toThrow(/live_order_allowed/);
+        await expect(kalshiDashboardTesting.loadKalshiDashboardSnapshot()).rejects.toThrow(
+          /live_order_allowed/,
+        );
 
         expect(runner).not.toHaveBeenCalled();
       },
@@ -282,7 +286,10 @@ describe("kalshi dashboard gateway method", () => {
           },
         });
 
-        const snapshot = (await __testing.loadKalshiDashboardSnapshot()) as Record<string, unknown>;
+        const snapshot = (await kalshiDashboardTesting.loadKalshiDashboardSnapshot()) as Record<
+          string,
+          unknown
+        >;
 
         expect(snapshot.live_readiness_gate).toMatchObject({
           overall_state: "LIVE_BLOCKED",
@@ -340,9 +347,9 @@ describe("kalshi dashboard gateway method", () => {
   it("preserves force refresh behavior when the guard is inactive", async () => {
     await withDashboardFixture({}, async () => {
       const runner = vi.fn(async () => ({ live_order_allowed: false, version: "refreshed" }));
-      __testing.setDashboardRefreshRunnerForTest(runner);
+      kalshiDashboardTesting.setDashboardRefreshRunnerForTest(runner);
 
-      const snapshot = (await __testing.loadKalshiDashboardSnapshot({
+      const snapshot = (await kalshiDashboardTesting.loadKalshiDashboardSnapshot({
         forceRefresh: true,
       })) as Record<string, unknown>;
 
@@ -366,9 +373,12 @@ describe("kalshi dashboard gateway method", () => {
       { cache: { live_order_allowed: false, version: "cached" } },
       async () => {
         const runner = vi.fn(async () => ({ live_order_allowed: false, version: "refreshed" }));
-        __testing.setDashboardRefreshRunnerForTest(runner);
+        kalshiDashboardTesting.setDashboardRefreshRunnerForTest(runner);
 
-        const snapshot = (await __testing.loadKalshiDashboardSnapshot()) as Record<string, unknown>;
+        const snapshot = (await kalshiDashboardTesting.loadKalshiDashboardSnapshot()) as Record<
+          string,
+          unknown
+        >;
         const refresh = snapshot.dashboard_refresh as Record<string, unknown>;
 
         expect(runner).not.toHaveBeenCalled();
@@ -387,7 +397,7 @@ describe("kalshi dashboard gateway method", () => {
 
   it("adds refresh status without mutating dashboard metrics", () => {
     expect(
-      __testing.attachRefreshStatus(
+      kalshiDashboardTesting.attachRefreshStatus(
         { live_order_allowed: false, paper: { total_decisions: 10 } },
         { inProgress: true, stale: true, ageMs: 61_000, lastError: null },
       ),
@@ -404,7 +414,7 @@ describe("kalshi dashboard gateway method", () => {
   });
 
   it("compacts workspace snapshots to the fields the live workspace needs", () => {
-    const compact = __testing.compactKalshiWorkspaceSnapshot({
+    const compact = kalshiDashboardTesting.compactKalshiWorkspaceSnapshot({
       generated_at_utc: "2026-05-13T21:08:38Z",
       live_order_allowed: false,
       accelerator: {
@@ -967,7 +977,7 @@ describe("kalshi dashboard gateway method", () => {
   });
 
   it("keeps crypto regime coverage and inverse repair diagnostics in compact workspace snapshots", () => {
-    const compact = __testing.compactKalshiWorkspaceSnapshot({
+    const compact = kalshiDashboardTesting.compactKalshiWorkspaceSnapshot({
       generated_at_utc: "2026-05-30T23:45:00Z",
       live_order_allowed: false,
       sts_crypto_regime_selector_outcomes: {
@@ -1028,7 +1038,7 @@ describe("kalshi dashboard gateway method", () => {
   });
 
   it("keeps current weather trading blockers in compact workspace snapshots", () => {
-    const compact = __testing.compactKalshiWorkspaceSnapshot({
+    const compact = kalshiDashboardTesting.compactKalshiWorkspaceSnapshot({
       generated_at_utc: "2026-05-26T20:20:00Z",
       live_order_allowed: false,
       accelerator: {
@@ -1096,7 +1106,7 @@ describe("kalshi dashboard gateway method", () => {
   });
 
   it("server-slices full audit tables before sending them to the browser", () => {
-    const snapshot = __testing.applyAuditTableSlices(
+    const snapshot = kalshiDashboardTesting.applyAuditTableSlices(
       {
         live_order_allowed: false,
         pending_paper_trades: {
@@ -1229,7 +1239,7 @@ describe("kalshi dashboard gateway method", () => {
   });
 
   it("resolves the first executable Python candidate through symlinks", () => {
-    const resolved = __testing.resolveExecutable([
+    const resolved = kalshiDashboardTesting.resolveExecutable([
       "/Users/openclaw/.venvs/kalshi-api/bin/python",
       "/usr/bin/python3",
     ]);
@@ -1237,9 +1247,9 @@ describe("kalshi dashboard gateway method", () => {
     expect(resolved).toMatch(/python3(?:\.\d+)?$/);
   });
 
-  it("resolves the configured Kalshi dashboard script path", async () => {
-    await withDashboardFixture(undefined, (fixture) => {
-      expect(__testing.resolveKalshiDashboardScript()).toBe(fixture.scriptPath);
-    });
+  it("resolves the Kalshi dashboard script from the repo", () => {
+    expect(kalshiDashboardTesting.resolveKalshiDashboardScript()).toMatch(
+      /work\/scripts\/kalshi\/kalshi_dashboard\.py$/,
+    );
   });
 });

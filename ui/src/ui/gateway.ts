@@ -76,6 +76,20 @@ export class GatewayRequestError extends Error {
   }
 }
 
+export class GatewayRequestTimeoutError extends Error {
+  readonly method: string;
+  readonly timeoutMs: number;
+
+  constructor(method: string, timeoutMs: number) {
+    super(`gateway request timed out after ${timeoutMs}ms: ${method}`);
+    this.name = "GatewayRequestTimeoutError";
+    this.method = method;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export type GatewayRequestOptions = { timeoutMs?: number; signal?: AbortSignal };
+
 function enrichProtocolMismatchDetails(message: string | undefined, details: unknown): unknown {
   if (readConnectErrorDetailCode(details) === ConnectErrorDetailCodes.PROTOCOL_MISMATCH) {
     return details;
@@ -192,6 +206,7 @@ type Pending = {
   reject: (err: unknown) => void;
   method: string;
   startedAtMs: number;
+  cleanup?: () => void;
 };
 
 type SelectedConnectAuth = {
@@ -599,6 +614,7 @@ export class GatewayBrowserClient {
   private flushPending(err: Error) {
     for (const [id, p] of this.pending) {
       this.emitRequestTiming(id, p, false, "CLIENT_CLOSED");
+      p.cleanup?.();
       p.reject(err);
     }
     this.pending.clear();
@@ -942,6 +958,7 @@ export class GatewayBrowserClient {
         return;
       }
       this.pending.delete(res.id);
+      pending.cleanup?.();
       if (res.ok) {
         this.emitRequestTiming(res.id, pending, true);
         pending.resolve(res.payload);
@@ -1026,17 +1043,22 @@ export class GatewayBrowserClient {
     };
   }
 
-  request<T = unknown>(method: string, params?: unknown): Promise<T> {
+  request<T = unknown>(
+    method: string,
+    params?: unknown,
+    options?: GatewayRequestOptions,
+  ): Promise<T> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("gateway not connected"));
     }
-    return this.requestOnSocket(this.ws, method, params);
+    return this.requestOnSocket(this.ws, method, params, options);
   }
 
   private requestOnSocket<T = unknown>(
     ws: WebSocket,
     method: string,
     params?: unknown,
+    options?: GatewayRequestOptions,
   ): Promise<T> {
     if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("gateway not connected"));
@@ -1044,10 +1066,72 @@ export class GatewayBrowserClient {
     const id = generateUUID();
     const frame = { type: "req", id, method, params };
     const startedAtMs = this.nowMs();
+    const timeoutMs =
+      typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+        ? Math.max(1, Math.floor(options.timeoutMs))
+        : undefined;
+    if (options?.signal?.aborted) {
+      const error = new Error(`gateway request aborted: ${method}`);
+      error.name = "AbortError";
+      return Promise.reject(error);
+    }
     const p = new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: (v) => resolve(v as T), reject, method, startedAtMs });
+      let timeoutId: number | null = null;
+      let abortHandler: (() => void) | null = null;
+      const cleanup = () => {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        if (abortHandler && options?.signal) {
+          options.signal.removeEventListener("abort", abortHandler);
+          abortHandler = null;
+        }
+      };
+      const rejectPending = (error: Error, errorCode: string) => {
+        const pending = this.pending.get(id);
+        if (!pending) {
+          return;
+        }
+        this.pending.delete(id);
+        pending.cleanup?.();
+        this.emitRequestTiming(id, pending, false, errorCode);
+        pending.reject(error);
+      };
+      this.pending.set(id, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        method,
+        startedAtMs,
+        cleanup,
+      });
+      if (timeoutMs !== undefined) {
+        timeoutId = window.setTimeout(() => {
+          rejectPending(new GatewayRequestTimeoutError(method, timeoutMs), "CLIENT_TIMEOUT");
+        }, timeoutMs);
+      }
+      if (options?.signal) {
+        abortHandler = () => {
+          const error = new Error(`gateway request aborted: ${method}`);
+          error.name = "AbortError";
+          rejectPending(error, "CLIENT_ABORTED");
+        };
+        options.signal.addEventListener("abort", abortHandler, { once: true });
+      }
     });
-    ws.send(JSON.stringify(frame));
+    if (this.pending.has(id)) {
+      try {
+        ws.send(JSON.stringify(frame));
+      } catch (error) {
+        const pending = this.pending.get(id);
+        if (pending) {
+          this.pending.delete(id);
+          pending.cleanup?.();
+          this.emitRequestTiming(id, pending, false, "CLIENT_SEND_FAILED");
+          pending.reject(error);
+        }
+      }
+    }
     return p;
   }
 

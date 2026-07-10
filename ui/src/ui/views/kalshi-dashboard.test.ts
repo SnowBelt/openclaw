@@ -1277,8 +1277,8 @@ function createProps(overrides: Partial<KalshiDashboardProps> = {}): KalshiDashb
               bucket_count: 10,
               current_bucket: 4,
               row_counts: [0, 0, 0, 5, 29, 12, 0, 0, 0, 0],
-              matrix: Array.from({ length: 10 }, (_unusedRow, row) =>
-                Array.from({ length: 10 }, (_unusedColumn, column) =>
+              matrix: Array.from({ length: 10 }, (_rowValue, row) =>
+                Array.from({ length: 10 }, (_columnValue, column) =>
                   row === column ? 0.7 : column === row + 1 ? 0.3 : 0,
                 ),
               ),
@@ -2442,6 +2442,2365 @@ describe("Kalshi dashboard view", () => {
     expect(observedHelp?.hasAttribute("open")).toBe(true);
     expect(observedHelp?.textContent).toContain("snapshots collected for analysis");
     expect(noTradeHelp?.querySelector(".kalshi-help__popover")).not.toBeNull();
+  });
+
+  it("renders copy-shadow status and promotion gates", () => {
+    const container = document.createElement("div");
+    const base = createProps();
+    const snapshot = {
+      ...base.snapshot!,
+      kalshi_copy_shadow: {
+        ok: true,
+        mode: "SHADOW_ONLY",
+        status: "shadow_collecting",
+        shadow_bankroll_usd: 100,
+        target_leader: {
+          leader_name: "Foster McCoy",
+          leader_handle: "foster_verified",
+          verification_status: "verified",
+          source_status: "enabled",
+          evidence_summary: "Verified exact-fill source is available for Foster.",
+          live_order_allowed: false,
+        },
+        recommended_initial_live_order_usd: 1,
+        max_recommended_initial_live_order_usd: 5,
+        readiness_score: 42.9,
+        summary: {
+          signals_seen: 12,
+          eligible_shadow_signals: 9,
+          skipped_signals: 3,
+          resolved_signals: 4,
+          wins: 3,
+          losses: 1,
+          win_rate: 0.75,
+          net_shadow_pnl_usd: 2.35,
+          unresolved_signals: 5,
+          observed_days: 2.5,
+          exact_opt_in_source_count: 1,
+          verified_exact_opt_in_source_count: 1,
+          source_count: 3,
+          leader_lane_count: 3,
+          active_leader_lane_count: 1,
+          duplicate_signal_count: 1,
+          whale_flow_raw_trades_seen: 108,
+          whale_flow_raw_trades_usable: 106,
+          whale_flow_raw_trades_rejected: 2,
+          whale_flow_raw_trades_quarantined: 2,
+          whale_flow_signals_seen: 106,
+          whale_flow_derived_signal_count: 106,
+          whale_flow_persisted_signal_count: 106,
+          whale_flow_signal_ledger_exists: true,
+          whale_flow_signal_ledger_missing: false,
+          whale_flow_eligible_shadow_signals: 3,
+          whale_flow_skipped_signals: 103,
+          whale_flow_p95_signal_latency_ms: 14000,
+          whale_flow_average_spread_cents: 6.7,
+          whale_flow_average_price_drift_cents: 0,
+          whale_flow_generated_at_utc: "2026-07-01T12:05:00Z",
+          whale_flow_materialized_paper_decisions: 3,
+          whale_flow_materialized_shadow_copies: 3,
+          whale_flow_unresolved_paper_decisions: 3,
+          whale_flow_paper_decision_candidate_signal_count: 106,
+          whale_flow_paper_decision_non_existing_candidate_signal_count: 103,
+          whale_flow_paper_decision_appendable_signal_count: 0,
+          whale_flow_paper_decision_skip_reason_counts: {
+            already_materialized: 3,
+            max_open_exposure_reached: 103,
+          },
+          whale_flow_paper_decision_capacity_blocked_signal_count: 103,
+          whale_flow_paper_decision_capacity_blocked_forward_signal_count: 103,
+          whale_flow_paper_decision_capacity_blocked_forward_signal_sample: [
+            {
+              signal_id: "whale-flow:cap-new",
+              market_ticker: "KXTEST-26",
+              side: "yes",
+              price_cents: 50,
+              quantity: 260,
+              whale_score: 80,
+              trade_id: "trade-new",
+              observed_at_utc: "2026-07-01T12:00:00Z",
+              materialized_at_utc: "2026-07-01T12:00:01Z",
+              materialization_lag_seconds: 1,
+              signal_latency_ms: 300,
+              spread_cents: 2,
+              price_drift_cents: 1,
+              skip_reason: "max_open_exposure_reached",
+              counts_for_trade_ready_unlock: false,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+              auto_live_promotion_allowed: false,
+            },
+          ],
+          whale_flow_paper_decision_capacity_blocked_forward_signals_count_for_trade_ready_unlock: false,
+          whale_flow_paper_decision_segment_firewall_applied: true,
+          whale_flow_paper_decision_segment_firewall_status: "blocked_segment_firewall",
+          whale_flow_paper_decision_segment_firewall_blocked_signal_count: 4,
+          whale_flow_paper_decision_segment_firewall_blocked_signal_ids: [
+            "whale-flow:firewall-blocked",
+          ],
+          whale_flow_paper_decision_segment_firewall_blocked_signal_sample: [
+            {
+              signal_id: "whale-flow:firewall-blocked",
+              market_ticker: "KXTEST-26",
+              side: "yes",
+              price_cents: 50,
+              quantity: 260,
+              whale_score: 80,
+              trade_id: "firewall-blocked",
+              observed_at_utc: "2026-07-01T12:00:00Z",
+              materialized_at_utc: "2026-07-01T12:00:01Z",
+              materialization_lag_seconds: 1,
+              skip_reason: "segment_firewall_shadow_only",
+              segment_id:
+                "KXTEST|price:40-59|spread:0-2|liquidity:unknown|size:small|time_to_close:unknown",
+              segment_firewall_action: "SHADOW_ONLY",
+              segment_firewall_match_type: "prefix",
+              matched_segment_id:
+                "KXTEST|price:40-59|spread:0-2|liquidity:deep|size:small|time_to_close:unknown",
+              counts_for_trade_ready_unlock: false,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+              auto_live_promotion_allowed: false,
+            },
+          ],
+          whale_flow_paper_decision_segment_firewall_blocks_count_for_trade_ready_unlock: false,
+          whale_flow_paper_decision_skipped_stale_materialization_count: 7,
+          whale_flow_paper_decision_current_open_exposure_usd: 25,
+          whale_flow_paper_decision_open_exposure_after_planned_appends_usd: 25,
+          whale_flow_paper_decision_remaining_open_exposure_usd: 0,
+          whale_flow_paper_decision_max_open_exposure_usd: 25,
+          whale_flow_paper_decision_open_exposure_pending_decision_count: 3,
+          whale_flow_paper_decision_open_exposure_pending_decision_sample: [
+            {
+              decision_id: "paper:whale-flow:pending-old",
+              signal_id: "whale-flow:pending-old",
+              market_ticker: "KXPENDING-26",
+              side: "no",
+              price_cents: 47,
+              paper_contracts: 10,
+              paper_notional_usd: 4.7,
+              observed_at_utc: "2026-07-01T11:00:00Z",
+              decision_recorded_at_utc: "2026-07-01T11:00:01Z",
+              pending_age_seconds: 3899,
+              resolution_status: "pending_source_backed_outcome",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+              auto_live_promotion_allowed: false,
+            },
+          ],
+          whale_flow_paper_decision_open_exposure_largest_pending_decision_usd: 4.7,
+          whale_flow_paper_decision_open_exposure_oldest_pending_decision_age_seconds: 3899,
+          whale_flow_paper_decision_open_exposure_resolution_blocker:
+            "pending_source_backed_outcomes_consuming_paper_capacity",
+          whale_flow_paper_decision_max_materialization_lag_seconds: 300,
+          whale_flow_paper_decision_blocked_by_open_exposure: true,
+          whale_flow_paper_decision_next_action:
+            "Resolve pending paper outcomes or explicitly adjust paper-only exposure caps; keep Whale Flow blocked from live trading.",
+          whale_flow_capacity_blocked_observation_status: "capacity_blocked_observations_ready",
+          whale_flow_capacity_blocked_observation_count: 7,
+          whale_flow_capacity_blocked_observation_accepted_count: 7,
+          whale_flow_capacity_blocked_observation_rejected_count: 0,
+          whale_flow_capacity_blocked_observation_appended_count: 2,
+          whale_flow_capacity_blocked_observations_count_for_trade_ready_unlock: false,
+          whale_flow_capacity_blocked_observations_count_for_profitability_gate: false,
+          whale_flow_capacity_blocked_observations_count_as_paper_decisions: false,
+          whale_flow_capacity_blocked_observation_outcome_status:
+            "capacity_blocked_observation_outcomes_ready",
+          whale_flow_capacity_blocked_observation_outcome_count: 2,
+          whale_flow_capacity_blocked_observation_outcome_resolved_count: 2,
+          whale_flow_capacity_blocked_observation_outcome_pending_count: 5,
+          whale_flow_capacity_blocked_observation_outcome_appended_count: 1,
+          whale_flow_capacity_blocked_observation_hypothesis_only_win_count: 1,
+          whale_flow_capacity_blocked_observation_hypothesis_only_loss_count: 1,
+          whale_flow_capacity_blocked_observation_hypothesis_only_pnl_usd: -0.5,
+          whale_flow_capacity_abstention_value_status: "capacity_abstention_value_ready",
+          whale_flow_capacity_abstention_value_governor_action: "SHADOW_ONLY",
+          whale_flow_capacity_abstention_value_action_reason:
+            "Capacity blocking avoided negative hypothesis-only Whale Flow exposure; keep forward-tail expansion paused until live-relevant evidence improves.",
+          whale_flow_capacity_abstention_value_evidence_tier:
+            "underpowered_source_backed_capacity_abstention",
+          whale_flow_capacity_abstention_value_interpretation:
+            "abstention_avoided_hypothetical_loss",
+          whale_flow_capacity_abstention_value_resolved_count: 2,
+          whale_flow_capacity_abstention_value_pending_count: 5,
+          whale_flow_capacity_abstention_value_hypothesis_only_pnl_if_traded_usd: -0.5,
+          whale_flow_capacity_abstention_value_avoided_loss_usd: 0.5,
+          whale_flow_capacity_abstention_value_missed_gain_usd: 0,
+          whale_flow_capacity_abstention_value_hypothesis_only_loss_rate: 0.5,
+          whale_flow_capacity_abstention_value_sample_powered: false,
+          whale_flow_capacity_abstention_value_counts_for_trade_ready_unlock: false,
+          whale_flow_capacity_abstention_value_counts_for_profitability_gate: false,
+          whale_flow_capacity_abstention_value_affects_live_routing: false,
+          whale_flow_capacity_abstention_value_blockers: [
+            "capacity_observation_outcomes_pending",
+            "capacity_abstention_value_underpowered",
+          ],
+          whale_flow_capacity_abstention_value_next_action:
+            "Treat avoided loss as abstention evidence only; keep collecting resolved capacity observations without counting them as executed paper.",
+          whale_flow_capacity_sizing_hypothesis_status: "blocked_capacity_sizing_hypothesis",
+          whale_flow_capacity_sizing_hypothesis_governor_action: "SHADOW_ONLY",
+          whale_flow_capacity_sizing_hypothesis_action_reason:
+            "Capacity sizing remains shadow-only until source-backed capacity-abstention evidence is positive and sample-powered.",
+          whale_flow_capacity_sizing_hypothesis_evidence_tier:
+            "underpowered_or_negative_capacity_sizing_hypothesis",
+          whale_flow_capacity_sizing_hypothesis_resolved_count: 2,
+          whale_flow_capacity_sizing_hypothesis_pending_count: 5,
+          whale_flow_capacity_sizing_hypothesis_missed_gain_usd: 0,
+          whale_flow_capacity_sizing_hypothesis_sample_powered: false,
+          whale_flow_capacity_sizing_hypothesis_recommended_experiment: null,
+          whale_flow_capacity_sizing_hypothesis_recommended_experiment_lane: null,
+          whale_flow_capacity_sizing_hypothesis_recommended_cap_multipliers: [],
+          whale_flow_capacity_sizing_hypothesis_paper_cap_change_allowed: false,
+          whale_flow_capacity_sizing_hypothesis_live_cap_change_allowed: false,
+          whale_flow_capacity_sizing_hypothesis_counts_for_trade_ready_unlock: false,
+          whale_flow_capacity_sizing_hypothesis_affects_live_routing: false,
+          whale_flow_capacity_sizing_hypothesis_blockers: [
+            "capacity_sizing_hypothesis_underpowered",
+            "no_positive_capacity_sizing_hypothesis_pnl",
+          ],
+          whale_flow_capacity_sizing_hypothesis_cautions: ["capacity_observation_outcomes_pending"],
+          whale_flow_capacity_sizing_hypothesis_next_action:
+            "Keep resolving capacity-blocked observations and rerun this receipt; do not change paper or live caps.",
+          whale_flow_capacity_blocked_observation_outcomes_count_for_trade_ready_unlock: false,
+          whale_flow_capacity_blocked_observation_outcomes_count_for_profitability_gate: false,
+          whale_flow_capacity_blocked_observation_outcomes_count_for_training_label: false,
+          whale_flow_capacity_blocked_observation_outcomes_count_as_paper_decisions: false,
+          whale_flow_resolved_signals: 0,
+          whale_flow_net_shadow_pnl_usd: 0,
+          whale_flow_collector_status: "blocked_placeholder_collector_bounds",
+          whale_flow_collector_health_status: "stale_collector_source",
+          whale_flow_evidence_refresh_status: "completed_bounded_evidence_refresh",
+          whale_flow_evidence_refresh_run_count: 2,
+          whale_flow_evidence_refresh_failed_run_count: 0,
+          whale_flow_evidence_refresh_signal_appended_count: 12,
+          whale_flow_evidence_refresh_paper_decision_appended_count: 2,
+          whale_flow_evidence_refresh_feature_store_appended_count: 2,
+          whale_flow_evidence_refresh_outcome_appended_count: 0,
+          whale_flow_evidence_refresh_max_runtime_seconds: 300,
+          whale_flow_evidence_refresh_max_runtime_exceeded_count: 0,
+          whale_flow_evidence_refresh_raw_trade_to_signal_backlog_estimate: 42,
+          whale_flow_evidence_refresh_signal_to_paper_decision_backlog_estimate: 10,
+          whale_flow_evidence_refresh_paper_decision_to_outcome_backlog_estimate: 2,
+          whale_flow_evidence_refresh_raw_trade_to_source_depth_backlog_estimate: 4,
+          whale_flow_evidence_refresh_post_outcome_materialization_run_count: 1,
+          whale_flow_evidence_refresh_probe_outcomes: false,
+          whale_flow_evidence_refresh_diagnostic_status: "refreshed_current_evidence",
+          whale_flow_evidence_refresh_next_action:
+            "Continue bounded foreground evidence refresh while the collector is active.",
+          whale_flow_evidence_refresh_active_status: "running_bounded_evidence_refresh",
+          whale_flow_evidence_refresh_active_verified: true,
+          whale_flow_evidence_refresh_process_alive: true,
+          whale_flow_evidence_refresh_pid: 79034,
+          whale_flow_evidence_refresh_latest_run_index: 3,
+          whale_flow_evidence_refresh_latest_run_age_seconds: 41,
+          whale_flow_evidence_refresh_latest_elapsed_seconds: 17.5,
+          whale_flow_evidence_refresh_latest_max_runtime_exceeded: false,
+          whale_flow_evidence_refresh_latest_signal_appended_count: 7,
+          whale_flow_evidence_refresh_latest_paper_decision_appended_count: 1,
+          whale_flow_evidence_refresh_latest_capacity_blocked_observation_appended_count: 1,
+          whale_flow_evidence_refresh_latest_outcome_appended_count: 0,
+          whale_flow_backlog_reducer_status: "bounded_backlog_reducer_completed",
+          whale_flow_backlog_reducer_append_limit: 500,
+          whale_flow_backlog_reducer_signal_appended_count: 7,
+          whale_flow_backlog_reducer_paper_decision_appended_count: 1,
+          whale_flow_backlog_reducer_capacity_blocked_observation_appended_count: 1,
+          whale_flow_backlog_reducer_inverse_decision_appended_count: 1,
+          whale_flow_backlog_reducer_feature_store_appended_count: 1,
+          whale_flow_source_depth_priority_status:
+            "read_only_priority_source_depth_repair_completed",
+          whale_flow_source_depth_priority_trade_id_count: 6,
+          whale_flow_source_depth_priority_appended_count: 2,
+          whale_flow_source_depth_priority_skipped_existing_count: 4,
+          whale_flow_source_depth_priority_skipped_fetch_failed_count: 0,
+          whale_flow_outcome_cadence_status: "read_only_outcome_cadence_completed",
+          whale_flow_outcome_cadence_outcome_appended_count: 1,
+          whale_flow_outcome_cadence_capacity_blocked_observation_outcome_appended_count: 0,
+          whale_flow_trade_ready_packet_status: "blocked_trade_ready_packet",
+          whale_flow_trade_ready_packet_verified: false,
+          whale_flow_trade_ready_packet_blockers: ["profitability_gate_not_passed"],
+          whale_flow_autopilot_status: "bounded_autopilot_once_completed",
+          whale_flow_autopilot_verified: true,
+          whale_flow_autopilot_run_count: 1,
+          whale_flow_autopilot_signal_appended_count: 7,
+          whale_flow_autopilot_paper_decision_appended_count: 1,
+          whale_flow_autopilot_source_depth_appended_count: 2,
+          whale_flow_autopilot_outcome_appended_count: 1,
+          whale_flow_autopilot_capacity_blocked_observation_outcome_appended_count: 0,
+          whale_flow_autopilot_elapsed_seconds: 18.25,
+          whale_flow_autopilot_active_evidence_refresh_status: "running_bounded_evidence_refresh",
+          whale_flow_autopilot_trade_ready_packet_status: "blocked_trade_ready_packet",
+          whale_flow_autopilot_failed_steps: [],
+          whale_flow_autopilot_next_action:
+            "Refresh the Kalshi dashboard and run the no-live validator after every autopilot pass.",
+          whale_flow_autopilot_active_status: "running_bounded_autopilot",
+          whale_flow_autopilot_active_verified: true,
+          whale_flow_autopilot_active_pid: 63627,
+          whale_flow_autopilot_active_process_alive: true,
+          whale_flow_autopilot_active_latest_run_index: 4,
+          whale_flow_autopilot_active_latest_run_age_seconds: 42,
+          whale_flow_autopilot_active_latest_elapsed_seconds: 18.5,
+          whale_flow_autopilot_active_latest_max_runtime_exceeded: false,
+          whale_flow_autopilot_active_latest_signal_appended_count: 7,
+          whale_flow_autopilot_active_latest_paper_decision_appended_count: 1,
+          whale_flow_autopilot_active_latest_source_depth_appended_count: 2,
+          whale_flow_autopilot_active_latest_outcome_appended_count: 1,
+          whale_flow_autopilot_active_backlog_counts: {
+            raw_trade_to_signal_backlog_estimate: 12,
+          },
+          whale_flow_autopilot_active_failed_steps: [],
+          whale_flow_autopilot_active_next_expected_run_at_utc: "2026-07-01T12:10:00Z",
+          whale_flow_collector_source_proof_age_seconds: 901,
+          whale_flow_collector_last_raw_trade_age_seconds: 1200,
+          whale_flow_collector_run_count: 754,
+          whale_flow_collector_completed_run_count: 747,
+          whale_flow_collector_failed_run_count: 7,
+          whale_flow_collector_expected_approved_run_count: 10080,
+          whale_flow_collector_remaining_approved_run_count: 9333,
+          whale_flow_collector_completion_ratio: 0.0741,
+          whale_flow_collector_coverage_status: "stopped_before_approved_duration",
+          whale_flow_collector_counts_for_trade_ready_unlock: false,
+          whale_flow_fill_realism_status: "blocked_fill_realism_unverified",
+          whale_flow_fill_realism_version: "v5",
+          whale_flow_fill_realism_source_depth_join_strategy:
+            "trade_id_with_near_signal_orderbook_timing",
+          whale_flow_fill_realism_decision_count: 3,
+          whale_flow_fill_realism_forward_paper_decision_count: 1,
+          whale_flow_fill_realism_forward_missed_or_unverified_count: 1,
+          whale_flow_fill_realism_late_backfill_realistic_fill_count: 0,
+          whale_flow_fill_realism_max_source_depth_signal_lag_seconds: 5,
+          whale_flow_fill_realism_live_relevant_realistic_fill_rate: 0,
+          whale_flow_fill_realism_source_depth_coverage_rate: 0.667,
+          whale_flow_fill_realism_source_depth_timing_verified_rate: 0.333,
+          whale_flow_fill_realism_source_depth_joined_decision_count: 2,
+          whale_flow_fill_realism_source_depth_missing_decision_count: 1,
+          whale_flow_fill_realism_source_depth_timing_verified_count: 1,
+          whale_flow_fill_realism_source_depth_timing_unverified_count: 1,
+          whale_flow_fill_realism_p95_source_depth_signal_lag_seconds: 60,
+          whale_flow_fill_realism_aggressive_limit_executable_count: 1,
+          whale_flow_fill_realism_passive_queue_verified_count: 0,
+          whale_flow_fill_realism_missed_fill_reasons: {
+            orderbook_depth_unverified: 2,
+            best_ask_above_limit_price: 1,
+          },
+          whale_flow_fill_realism_forward_missed_fill_reasons: {
+            orderbook_depth_unverified: 1,
+          },
+          whale_flow_fill_realism_forward_verified_missed_fill_count: 0,
+          whale_flow_fill_realism_forward_unverified_gap_count: 1,
+          whale_flow_fill_realism_late_backfill_missed_fill_reasons: {
+            orderbook_depth_unverified: 1,
+            best_ask_above_limit_price: 1,
+          },
+          whale_flow_fill_evidence_gap_status: "blocked_forward_fill_evidence_gaps",
+          whale_flow_fill_evidence_gap_forward_decision_count: 1,
+          whale_flow_fill_evidence_gap_forward_realistic_fill_count: 0,
+          whale_flow_fill_evidence_gap_forward_gap_count: 1,
+          whale_flow_fill_evidence_gap_forward_unverified_gap_count: 1,
+          whale_flow_fill_evidence_gap_forward_verified_missed_fill_count: 0,
+          whale_flow_fill_evidence_gap_missing_source_depth_count: 1,
+          whale_flow_fill_evidence_gap_best_ask_above_limit_count: 0,
+          whale_flow_fill_evidence_gap_market_impact_risk_count: 0,
+          whale_flow_fill_evidence_gap_pending_realistic_outcome_count: 0,
+          whale_flow_fill_evidence_gap_resolved_realistic_count: 0,
+          whale_flow_fill_evidence_gap_reason_counts: {
+            orderbook_depth_unverified: 1,
+          },
+          whale_flow_fill_evidence_gap_verified_missed_fill_reason_counts: {},
+          whale_flow_fill_evidence_gap_top_gap_decisions: [
+            {
+              market_ticker: "KXDEPTH-26",
+              side: "yes",
+              missed_fill_reason: "orderbook_depth_unverified",
+            },
+          ],
+          whale_flow_fill_evidence_gap_next_action:
+            "Prioritize source-backed near-signal depth capture for forward decisions missing executable-depth proof.",
+          whale_flow_fill_gap_governor_status: "fill_gap_governor_quarantined_unverified_depth",
+          whale_flow_fill_gap_governor_action: "REJECT_DATA_QUALITY",
+          whale_flow_fill_gap_governor_action_reason:
+            "Some forward paper decisions lack source-backed signal-time depth, so they are quarantined as evidence gaps.",
+          whale_flow_fill_gap_governor_evidence_tier: "source_depth_gap_quarantine",
+          whale_flow_fill_gap_governor_segment_scope: "forward_fill_evidence",
+          whale_flow_fill_gap_governor_forward_decision_count: 1,
+          whale_flow_fill_gap_governor_realistic_fill_count: 0,
+          whale_flow_fill_gap_governor_verified_missed_fill_count: 0,
+          whale_flow_fill_gap_governor_unverified_gap_count: 1,
+          whale_flow_fill_gap_governor_quarantined_unverified_gap_count: 1,
+          whale_flow_fill_gap_governor_quarantined_decision_count: 1,
+          whale_flow_fill_gap_governor_live_relevant_fill_evidence_verified: false,
+          whale_flow_fill_gap_governor_counts_for_trade_ready_unlock: false,
+          whale_flow_fill_gap_governor_counts_for_profitability_gate: false,
+          whale_flow_fill_gap_governor_counts_for_training_label: false,
+          whale_flow_fill_gap_governor_affects_live_routing: false,
+          whale_flow_fill_gap_governor_gap_reason_counts: {
+            orderbook_depth_unverified: 1,
+          },
+          whale_flow_fill_gap_governor_verified_missed_fill_reason_counts: {},
+          whale_flow_fill_gap_governor_next_action:
+            "Continue source-depth collection and require future paper decisions to have signal-time depth proof before they count live-relevant.",
+          whale_flow_realistic_fill_count: 0,
+          whale_flow_live_relevant_realistic_fill_count: 0,
+          whale_flow_late_backfill_decision_count: 2,
+          whale_flow_max_decision_materialization_lag_seconds: 300,
+          whale_flow_missed_fill_count: 3,
+          whale_flow_realistic_after_cost_pnl_usd: 0,
+          whale_flow_unverified_or_missed_after_cost_pnl_usd: -0.13,
+          whale_flow_live_relevant_after_cost_pnl_usd: 0,
+          whale_flow_orderbook_stream_status: "blocked_orderbook_stream_not_collected",
+          whale_flow_orderbook_stream_record_count: 0,
+          whale_flow_orderbook_stream_market_count: 0,
+          whale_flow_orderbook_stream_source_backed_count: 0,
+          whale_flow_source_depth_status: "source_depth_available",
+          whale_flow_source_depth_record_count: 3,
+          whale_flow_source_backed_depth_count: 3,
+          whale_flow_source_depth_queue_verified_count: 0,
+          whale_flow_source_depth_aggressive_limit_candidate_count: 1,
+          whale_flow_source_depth_usable_for_realistic_fill_count: 1,
+          whale_flow_market_metadata_status: "market_metadata_source_backed_timing_available",
+          whale_flow_market_metadata_record_count: 2,
+          whale_flow_market_metadata_ticker_count: 2,
+          whale_flow_market_metadata_source_backed_count: 2,
+          whale_flow_market_metadata_source_backed_timing_count: 1,
+          whale_flow_market_metadata_missing_timing_count: 1,
+          whale_flow_quick_settling_status: "blocked_quick_settling_source_timing",
+          whale_flow_quick_settling_pending_candidate_count: 2,
+          whale_flow_quick_settling_candidate_count: 0,
+          whale_flow_quick_settling_source_backed_timing_count: 0,
+          whale_flow_quick_settling_unknown_timing_count: 2,
+          whale_flow_pnl_truth_ladder_status: "pnl_truth_ladder_ready",
+          whale_flow_pnl_truth_primary_live_readiness_metric: "live_relevant_after_cost",
+          whale_flow_pnl_truth_headline_shadow_pnl_live_tradable: false,
+          whale_flow_pnl_truth_live_relevant_pnl_positive: false,
+          whale_flow_pnl_truth_profitability_gate_forward_pnl_positive: false,
+          whale_flow_pnl_truth_all_shadow_pnl_usd: 2.35,
+          whale_flow_pnl_truth_realistic_after_cost_pnl_usd: -0.13,
+          whale_flow_pnl_truth_live_relevant_after_cost_pnl_usd: 0,
+          whale_flow_pnl_truth_profitability_gate_forward_pnl_usd: 0,
+          whale_flow_pnl_truth_inverse_fade_diagnostic_pnl_usd: 0.25,
+          whale_flow_outcome_fetch_repair_status: "retryable_read_only_outcome_fetch_failures",
+          whale_flow_outcome_fetch_repair_pending_realistic_outcome_count: 1,
+          whale_flow_outcome_fetch_repair_retryable_fetch_failed_count: 1,
+          whale_flow_outcome_fetch_repair_classification_counts: {
+            market_unsettled: 0,
+            market_fetch_failed: 1,
+            missing_result_field: 0,
+            malformed_market_response: 0,
+            already_resolved: 0,
+          },
+          whale_flow_quick_settling_queue_status: "blocked_quick_settling_source_timing",
+          whale_flow_quick_settling_queue_count: 0,
+          whale_flow_backlog_accelerator_status: "backlog_accelerator_ready",
+          whale_flow_backlog_accelerator_open_gap_count: 4,
+          whale_flow_backlog_accelerator_counts: {
+            raw_trade_to_signal_backlog_estimate: 12,
+            signal_to_paper_decision_backlog_estimate: 10,
+            raw_trade_to_source_depth_backlog_estimate: 4,
+            paper_decision_to_outcome_backlog_estimate: 2,
+          },
+          whale_flow_segment_tail_fade_firewall_status: "segment_tail_fade_firewall_ready",
+          whale_flow_segment_tail_fade_firewall_action_counts: {
+            SHADOW_ONLY: 1,
+          },
+          whale_flow_segment_tail_fade_firewall_global_flip_allowed: false,
+          whale_flow_delayed_entry_forward_test_status: "delayed_entry_forward_test_watch",
+          whale_flow_delayed_entry_forward_test_powered_candidate_count: 0,
+          whale_flow_delayed_entry_forward_test_underpowered_candidate_count: 1,
+          whale_flow_delayed_entry_forward_test_counts_for_trade_ready_unlock: false,
+          whale_flow_time_to_close_evidence_status: "blocked_time_to_close_source_timing",
+          whale_flow_time_to_close_evidence_decision_count: 2,
+          whale_flow_time_to_close_evidence_source_backed_count: 0,
+          whale_flow_time_to_close_evidence_unknown_count: 2,
+          whale_flow_time_to_close_evidence_reason_counts: {
+            missing_resolution_target_time: 2,
+            missing_source_backed_market_timing: 2,
+          },
+          whale_flow_market_context_status: "blocked_market_context_taxonomy",
+          whale_flow_market_context_unknown_ticker_count: 2,
+          whale_flow_segment_diagnostics_status: "insufficient_sample",
+          whale_flow_segment_count: 2,
+          whale_flow_segment_live_relevant_resolved_count: 0,
+          whale_flow_segment_late_backfill_decision_count: 2,
+          whale_flow_segment_action_counts: { SHADOW_ONLY: 2 },
+          whale_flow_segment_confidence_status_counts: { underpowered: 2 },
+          whale_flow_segment_abstention_reason_counts: {
+            insufficient_fill_realistic_segment_sample: 2,
+          },
+          whale_flow_segment_market_family_counts: { sports_or_live_game: 2 },
+          whale_flow_segment_ticker_prefix_counts: { KXMLBGAME: 2 },
+          whale_flow_segment_side_counts: { "side:yes": 2 },
+          whale_flow_segment_price_band_counts: { "00-19": 1, "20-39": 1 },
+          whale_flow_segment_spread_band_counts: { "0-2": 2 },
+          whale_flow_segment_size_band_counts: { "size:small": 2 },
+          whale_flow_segment_liquidity_band_counts: { "liquidity:unknown": 1, "liquidity:deep": 1 },
+          whale_flow_segment_time_to_close_band_counts: { "time_to_close:unknown": 2 },
+          whale_flow_segment_blocked_count: 2,
+          whale_flow_segment_promotion_candidate_count: 0,
+          whale_flow_segment_top_blocked_segments: [
+            {
+              segment_id:
+                "KXMLBGAME|price:00-19|spread:0-2|liquidity:unknown|size:small|time_to_close:unknown",
+              action_recommendation: "SHADOW_ONLY",
+              confidence_status: "underpowered",
+              abstention_reason: "insufficient_fill_realistic_segment_sample",
+              market_family: "sports_or_live_game",
+              ticker_prefix: "KXMLBGAME",
+              side: "side:yes",
+              price_band: "00-19",
+              spread_band: "0-2",
+              size_band: "size:small",
+              liquidity_band: "liquidity:unknown",
+              time_to_close_band: "time_to_close:unknown",
+              decision_count: 2,
+              forward_paper_decision_count: 1,
+              live_relevant_resolved_count: 0,
+              realistic_after_cost_pnl_usd: 0,
+              beats_no_trade_baseline: false,
+              beats_inverse_baseline: false,
+              beats_random_baseline: false,
+              beats_market_implied_baseline: false,
+              live_order_allowed: false,
+            },
+          ],
+          whale_flow_segment_no_trade_pnl_usd: 0,
+          whale_flow_segment_abstention_required_count: 2,
+          whale_flow_segment_beats_no_trade_count: 0,
+          whale_flow_segment_random_baseline_expected_pnl_usd: 0,
+          whale_flow_segment_random_baseline_sample_count: 0,
+          whale_flow_segment_beats_random_count: 0,
+          whale_flow_segment_market_implied_baseline_pnl_usd: 0,
+          whale_flow_segment_market_implied_baseline_sample_count: 0,
+          whale_flow_segment_beats_market_implied_count: 0,
+          whale_flow_segment_market_implied_baseline_proxy_only: true,
+          whale_flow_segment_firewall_status: "blocked_segment_firewall",
+          whale_flow_segment_firewall_action_counts: {
+            SHADOW_ONLY: 1,
+            INVERSE_FORWARD_TEST: 1,
+            REJECT_DATA_QUALITY: 1,
+          },
+          whale_flow_segment_firewall_inverse_forward_test_count: 1,
+          whale_flow_segment_firewall_adverse_watchlist_segment_count: 2,
+          whale_flow_segment_firewall_uncovered_adverse_watchlist_segment_count: 1,
+          whale_flow_adverse_abstention_status: "adverse_abstention_actions_ready",
+          whale_flow_adverse_abstention_action_count: 2,
+          whale_flow_adverse_abstention_powered_pause_segment_count: 1,
+          whale_flow_adverse_abstention_shadow_only_watch_segment_count: 1,
+          whale_flow_adverse_abstention_inverse_forward_test_segment_count: 1,
+          whale_flow_adverse_abstention_no_trade_baseline_pnl_usd: 0,
+          whale_flow_adverse_abstention_counts_for_trade_ready_unlock: false,
+          whale_flow_adverse_abstention_counts_for_profitability_gate: false,
+          whale_flow_adverse_abstention_affects_live_routing: false,
+          whale_flow_tail_fade_tournament_status: "blocked_tail_fade_tournament",
+          whale_flow_tail_fade_global_flip_allowed: false,
+          whale_flow_tail_fade_live_relevant_after_cost_pnl_usd: 0,
+          whale_flow_tail_fade_pnl_source: "live_relevant_forward_paper",
+          whale_flow_tail_fade_late_backfill_decision_count: 2,
+          whale_flow_tail_fade_random_baseline_expected_pnl_usd: 0,
+          whale_flow_tail_fade_random_baseline_sample_count: 0,
+          whale_flow_tail_fade_tail_beats_random_baseline: false,
+          whale_flow_tail_fade_market_implied_baseline_pnl_usd: 0,
+          whale_flow_tail_fade_market_implied_baseline_sample_count: 0,
+          whale_flow_tail_fade_market_implied_baseline_proxy_only: true,
+          whale_flow_tail_fade_tail_beats_market_implied_baseline: false,
+          whale_flow_inverse_exploration_governor_status: "inverse_exploration_underpowered_watch",
+          whale_flow_inverse_exploration_governor_action: "SHADOW_ONLY",
+          whale_flow_inverse_exploration_governor_action_reason:
+            "Forward tailing is failing baselines or inverse candidates exist, but evidence is underpowered.",
+          whale_flow_inverse_exploration_governor_evidence_tier:
+            "source_backed_underpowered_inverse_hypothesis",
+          whale_flow_inverse_exploration_governor_segment_scope: "segment_scoped_only",
+          whale_flow_inverse_exploration_candidate_segment_count: 1,
+          whale_flow_inverse_exploration_powered_candidate_segment_count: 0,
+          whale_flow_inverse_exploration_underpowered_candidate_segment_count: 1,
+          whale_flow_inverse_exploration_tail_loses_baselines: true,
+          whale_flow_inverse_exploration_global_flip_allowed: false,
+          whale_flow_inverse_exploration_inverse_forward_testing_allowed: true,
+          whale_flow_inverse_exploration_counts_for_trade_ready_unlock: false,
+          whale_flow_inverse_exploration_counts_for_profitability_gate: false,
+          whale_flow_inverse_exploration_counts_for_training_label: false,
+          whale_flow_inverse_exploration_affects_live_routing: false,
+          whale_flow_inverse_exploration_top_candidate_segments: [
+            {
+              segment_id:
+                "KXWCTEAMTOTAL|price:60-79|spread:0-2|liquidity:deep|size:small|time_to_close:<1h",
+              governor_action: "INVERSE_FORWARD_TEST",
+              live_order_allowed: false,
+            },
+          ],
+          whale_flow_inverse_exploration_next_action:
+            "Forward-test only powered segment-scoped inverse hypotheses in paper; otherwise keep abstaining and collecting evidence.",
+          whale_flow_inverse_decision_count: 3,
+          whale_flow_inverse_resolved_count: 0,
+          whale_flow_inverse_net_pnl_usd: 0,
+          whale_flow_outcome_velocity_status: "pending_realistic_fill_outcomes",
+          whale_flow_outcome_velocity_pending_count: 3,
+          whale_flow_outcome_velocity_realistic_pending_count: 1,
+          whale_flow_outcome_velocity_unfillable_pending_count: 1,
+          whale_flow_outcome_velocity_unknown_fill_pending_count: 1,
+          whale_flow_outcome_velocity_resolved_realistic_count: 0,
+          whale_flow_outcome_velocity_resolved_unfillable_count: 1,
+          whale_flow_outcome_velocity_label_unlock_pending_count: 1,
+          whale_flow_outcome_probe_status: "read_only_outcome_probe_completed",
+          whale_flow_outcome_probe_checked_count: 3,
+          whale_flow_outcome_probe_market_fetch_failed_count: 2,
+          whale_flow_outcome_probe_source_error_type_counts: {
+            KalshiReadError: 2,
+          },
+          whale_flow_outcome_probe_realistic_label_unlock_checked_count: 1,
+          whale_flow_outcome_probe_realistic_label_unlock_fetch_failed_count: 1,
+          whale_flow_outcome_probe_realistic_label_unlock_unresolved_count: 1,
+          whale_flow_outcome_probe_realistic_label_unlock_resolved_appended_count: 0,
+          whale_flow_outcome_probe_realistic_label_unlock_blocker_counts: {
+            market_fetch_failed: 1,
+          },
+          whale_flow_outcome_probe_next_action:
+            "Fix read-only Kalshi market fetch/auth/network before waiting on settlement.",
+          whale_flow_realistic_outcome_unlock_status: "blocked_read_only_outcome_fetch",
+          whale_flow_realistic_outcome_unlock_pending_count: 1,
+          whale_flow_realistic_outcome_unlock_resolved_count: 0,
+          whale_flow_realistic_outcome_unlock_fetch_failed_count: 1,
+          whale_flow_realistic_outcome_unlock_retryable_fetch_failed_count: 1,
+          whale_flow_realistic_outcome_unlock_source_error_type_counts: {
+            KalshiReadError: 1,
+          },
+          whale_flow_realistic_outcome_unlock_blocker_counts: {
+            market_fetch_failed: 1,
+          },
+          whale_flow_realistic_outcome_unlock_top_pending_decisions: [
+            {
+              decision_id: "paper:whale-flow:pending-realistic-1",
+              market_ticker: "KXGAME-26",
+              expected_resolution_priority: "high_quick_resolution_candidate",
+              realistic_fill: true,
+              source_depth_available: true,
+              live_order_allowed: false,
+            },
+          ],
+          whale_flow_realistic_outcome_unlock_top_failed_fetches: [
+            {
+              decision_id: "paper:whale-flow:pending-realistic-1",
+              market_ticker: "KXGAME-26",
+              status: "market_fetch_failed",
+              source_error_type: "KalshiReadError",
+              source_error_summary: "dns_resolution_failed:api.elections.kalshi.com",
+              source_error_retryable: true,
+              live_order_allowed: false,
+            },
+          ],
+          whale_flow_realistic_outcome_unlock_next_action:
+            "Restore read-only Kalshi market fetch/auth/network and rerun outcome probe for realistic-fill markets.",
+          whale_flow_trade_ready_status: "blocked_trade_ready_gate",
+          whale_flow_live_canary_preflight_status: "blocked_exact_canary_eligibility",
+          whale_flow_live_canary_approval_recorded: true,
+          whale_flow_live_canary_max_order_usd: 1,
+          whale_flow_live_canary_daily_loss_cap_usd: 5,
+          whale_flow_live_canary_blockers: [
+            "trade_ready_gate_not_passed",
+            "exact_order_parameters_missing",
+          ],
+          whale_flow_live_canary_dry_run_only: true,
+          whale_flow_live_canary_order_intent_available: false,
+          whale_flow_evidence_dataset_status: "blocked_insufficient_training_rows",
+          whale_flow_evidence_dataset_total_rows: 3,
+          whale_flow_evidence_dataset_labeled_rows: 0,
+          whale_flow_evidence_dataset_training_label_rows: 0,
+          whale_flow_evidence_dataset_forward_paper_label_rows: 0,
+          whale_flow_evidence_dataset_late_backfill_label_rows: 2,
+          whale_flow_evidence_dataset_source_backed_unusable_label_rows: 1,
+          whale_flow_evidence_dataset_pending_realistic_label_rows: 1,
+          whale_flow_evidence_dataset_resolved_unfillable_label_rows: 1,
+          whale_flow_evidence_dataset_label_blocker_counts: {
+            pending_realistic_fill_outcome: 1,
+            source_backed_but_unrealistic_fill: 1,
+          },
+          whale_flow_evidence_dataset_rejected_rows: 1,
+          whale_flow_feature_store_status: "blocked_feature_store_underpowered",
+          whale_flow_feature_store_record_count: 3,
+          whale_flow_feature_store_source_backed_label_count: 0,
+          whale_flow_feature_store_usable_training_label_count: 0,
+          whale_flow_feature_store_source_backed_unrealistic_label_count: 1,
+          whale_flow_feature_store_pending_realistic_label_count: 1,
+          whale_flow_sts_adapter_status: "paper_only_sts_adapter_ready",
+          whale_flow_sts_adapter_accepted_record_count: 3,
+          whale_flow_sts_adapter_rejected_record_count: 0,
+          whale_flow_sts_adapter_feature_log_record_count: 3,
+          whale_flow_sts_adapter_segment_count: 2,
+          whale_flow_sts_adapter_action_counts: {
+            SHADOW_ONLY: 2,
+            ACCEPT_EXPLORATION: 1,
+          },
+          whale_flow_sts_adapter_live_routing_allowed: false,
+          whale_flow_sts_adapter_weight_change_allowed: false,
+          whale_flow_ml_governor_status: "blocked_insufficient_training_rows",
+          whale_flow_ml_governor_training_label_rows: 0,
+          whale_flow_ml_governor_paper_routing_allowed: false,
+          whale_flow_mlx_diagnostic_status: "blocked_mlx_runtime_not_enabled",
+          whale_flow_profitability_firewall_status: "blocked_profitability_firewall",
+          whale_flow_profitability_firewall_tail_live_relevant_after_cost_pnl_usd: 0,
+          whale_flow_profitability_firewall_tail_beats_random_baseline: false,
+          whale_flow_profitability_firewall_tail_beats_market_implied_baseline: false,
+          whale_flow_profitability_firewall_market_implied_baseline_proxy_only: true,
+          whale_flow_paper_decision_paper_governor_applied: true,
+          whale_flow_paper_decision_paper_governor_status: "paper_governor_forward_tail_paused",
+          whale_flow_paper_decision_paper_governor_action: "SHADOW_ONLY",
+          whale_flow_paper_decision_paper_governor_forward_tail_materialization_allowed: false,
+          whale_flow_paper_decision_paper_governor_blocked_signal_count: 1,
+          whale_flow_paper_decision_paper_governor_blocked_signal_ids: [
+            "whale-flow:governor-blocked",
+          ],
+          whale_flow_paper_decision_paper_governor_blocked_signal_sample: [
+            {
+              signal_id: "whale-flow:governor-blocked",
+              market_ticker: "KXTEST-26",
+              side: "yes",
+              price_cents: 50,
+              quantity: 250,
+              whale_score: 82,
+              trade_id: "trade-governor-blocked",
+              observed_at_utc: "2026-07-01T12:05:00Z",
+              materialized_at_utc: "2026-07-01T12:05:01Z",
+              materialization_lag_seconds: 1,
+              skip_reason: "paper_governor_forward_tail_paused",
+              segment_id: "test_segment",
+              paper_governor_action: "SHADOW_ONLY",
+              paper_governor_status: "paper_governor_forward_tail_paused",
+              counts_for_trade_ready_unlock: false,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+              auto_live_promotion_allowed: false,
+            },
+          ],
+          whale_flow_paper_decision_paper_governor_blocks_count_for_trade_ready_unlock: false,
+          whale_flow_paper_governor_status: "paper_governor_forward_tail_paused",
+          whale_flow_paper_governor_action: "SHADOW_ONLY",
+          whale_flow_paper_governor_action_reason:
+            "forward_tail_paused_until_tail_beats_no_trade_inverse_random_and_market_baselines_after_costs",
+          whale_flow_paper_governor_evidence_tier:
+            "source_backed_negative_after_cost_or_baseline_failure",
+          whale_flow_paper_governor_forward_tail_materialization_allowed: false,
+          whale_flow_paper_governor_shadow_logging_allowed: true,
+          whale_flow_paper_governor_inverse_forward_testing_allowed: true,
+          whale_flow_paper_governor_outcome_grading_allowed: true,
+          whale_flow_paper_governor_reason_codes: [
+            "negative_or_zero_live_relevant_after_cost_pnl",
+            "tail_does_not_beat_no_trade_baseline",
+          ],
+          whale_flow_paper_governor_counts_for_trade_ready_unlock: false,
+          whale_flow_paper_governor_counts_for_profitability_gate: false,
+          whale_flow_paper_governor_affects_live_routing: false,
+          whale_flow_paper_governor_next_action:
+            "Keep collecting public flow and outcomes, but do not add new forward-tail paper decisions until the paper governor clears.",
+          whale_flow_tail_loss_diagnosis_status: "tail_loss_diagnosis_ready",
+          whale_flow_tail_loss_diagnosis_governor_action: "SHADOW_ONLY",
+          whale_flow_tail_loss_diagnosis_action_reason:
+            "forward_tail_loss_or_baseline_failure_requires_segment_scoped_abstention",
+          whale_flow_tail_loss_diagnosis_evidence_tier:
+            "source_backed_underpowered_tail_loss_diagnosis",
+          whale_flow_tail_loss_diagnosis_live_relevant_sample_count: 2,
+          whale_flow_tail_loss_diagnosis_tail_after_cost_pnl_usd: -0.75,
+          whale_flow_tail_loss_diagnosis_inverse_after_cost_pnl_usd: 0.25,
+          whale_flow_tail_loss_diagnosis_tail_beats_no_trade: false,
+          whale_flow_tail_loss_diagnosis_tail_beats_inverse: false,
+          whale_flow_tail_loss_diagnosis_cohort_count: 1,
+          whale_flow_tail_loss_diagnosis_underpowered_loss_cohort_count: 1,
+          whale_flow_tail_loss_diagnosis_underpowered_inverse_candidate_count: 1,
+          whale_flow_tail_loss_diagnosis_powered_pause_segment_count: 0,
+          whale_flow_tail_loss_diagnosis_action_counts: { SHADOW_ONLY: 1 },
+          whale_flow_tail_loss_diagnosis_root_cause_counts: {
+            tail_after_cost_pnl_negative: 1,
+            inverse_baseline_beats_tail: 1,
+          },
+          whale_flow_tail_loss_diagnosis_top_loss_cohorts: [
+            {
+              segment_id: "test_segment",
+              sample_count: 2,
+              tail_after_cost_pnl_usd: -0.75,
+              inverse_after_cost_pnl_usd: 0.25,
+              governor_action: "SHADOW_ONLY",
+            },
+          ],
+          whale_flow_tail_loss_diagnosis_counts_for_trade_ready_unlock: false,
+          whale_flow_tail_loss_diagnosis_counts_for_profitability_gate: false,
+          whale_flow_tail_loss_diagnosis_affects_live_routing: false,
+          whale_flow_tail_loss_diagnosis_next_action:
+            "Keep Whale Flow shadow-only and investigate losing cohorts before allowing forward-tail paper expansion.",
+          whale_flow_adverse_selection_status: "blocked_adverse_selection_underpowered",
+          whale_flow_adverse_selection_decision_count: 3,
+          whale_flow_adverse_selection_raw_trade_count: 106,
+          whale_flow_adverse_selection_segment_summary_count: 2,
+          whale_flow_adverse_selection_powered_adverse_segment_count: 0,
+          whale_flow_adverse_selection_underpowered_adverse_segment_count: 2,
+          whale_flow_adverse_selection_horizons_seconds: [60, 300, 900, 3600],
+          whale_flow_adverse_selection_source_backed_horizons_seconds: [60, 300, 900, 3600],
+          whale_flow_adverse_selection_missing_horizons_seconds: [],
+          whale_flow_adverse_selection_underpowered_horizons_seconds: [60, 300, 900, 3600],
+          whale_flow_adverse_selection_source_backed_horizon_count: 4,
+          whale_flow_adverse_selection_missing_horizon_count: 0,
+          whale_flow_adverse_selection_underpowered_horizon_count: 4,
+          whale_flow_adverse_selection_adverse_horizons_seconds: [60],
+          whale_flow_entry_timing_status: "entry_timing_delay_hypothesis_available",
+          whale_flow_entry_timing_instant_entry_status: "instant_entry_adverse_selection_risk",
+          whale_flow_entry_timing_instant_entry_risk: true,
+          whale_flow_entry_timing_source_backed_horizon_count: 4,
+          whale_flow_entry_timing_powered_horizon_count: 4,
+          whale_flow_entry_timing_immediate_horizon_seconds: 60,
+          whale_flow_entry_timing_immediate_adverse_rate: 0.5094,
+          whale_flow_entry_timing_best_delay_horizon_seconds: 300,
+          whale_flow_entry_timing_best_delay_favorable_rate: 0.5224,
+          whale_flow_entry_timing_best_delay_adverse_rate: 0.3134,
+          whale_flow_entry_timing_best_delay_average_selected_side_delta_cents: 4.58,
+          whale_flow_entry_timing_best_delay_favorable_edge_count: 14,
+          whale_flow_entry_timing_delayed_entry_hypothesis_available: true,
+          whale_flow_entry_timing_paper_only_forward_test_recommended: true,
+          whale_flow_entry_timing_counts_for_trade_ready_unlock: false,
+          whale_flow_entry_timing_counts_for_profitability_gate: false,
+          whale_flow_entry_timing_affects_live_routing: false,
+          whale_flow_entry_timing_observation_status: "entry_timing_observations_ready",
+          whale_flow_entry_timing_observation_count: 4,
+          whale_flow_entry_timing_observation_accepted_count: 4,
+          whale_flow_entry_timing_observation_rejected_count: 0,
+          whale_flow_entry_timing_observation_source_backed_count: 4,
+          whale_flow_entry_timing_observation_improved_entry_count: 3,
+          whale_flow_entry_timing_observation_worse_entry_count: 1,
+          whale_flow_entry_timing_observation_flat_entry_count: 0,
+          whale_flow_entry_timing_observation_average_entry_price_improvement_cents: 2.25,
+          whale_flow_entry_timing_observation_average_selected_side_delta_cents: -2.25,
+          whale_flow_entry_timing_observation_best_delay_horizon_seconds: 300,
+          whale_flow_entry_timing_observations_count_for_trade_ready_unlock: false,
+          whale_flow_entry_timing_observations_count_for_profitability_gate: false,
+          whale_flow_entry_timing_observations_count_for_training_label: false,
+          whale_flow_entry_timing_observations_count_as_paper_decision: false,
+          whale_flow_entry_timing_observations_affect_live_routing: false,
+          whale_flow_entry_timing_segment_status: "entry_timing_segments_ready",
+          whale_flow_entry_timing_segment_count: 2,
+          whale_flow_entry_timing_segment_powered_count: 1,
+          whale_flow_entry_timing_segment_underpowered_count: 1,
+          whale_flow_entry_timing_segment_delay_improved_count: 1,
+          whale_flow_entry_timing_segment_delay_worse_count: 1,
+          whale_flow_entry_timing_segment_average_entry_price_improvement_cents: -0.5,
+          whale_flow_entry_timing_segment_global_action: "no_global_delay_rule",
+          whale_flow_entry_timing_segment_global_delay_rule_allowed: false,
+          whale_flow_entry_timing_segments_count_for_trade_ready_unlock: false,
+          whale_flow_entry_timing_segments_count_for_profitability_gate: false,
+          whale_flow_entry_timing_segments_count_as_paper_decision: false,
+          whale_flow_entry_timing_segments_affect_live_routing: false,
+          whale_flow_entry_timing_governor_status:
+            "entry_timing_governor_underpowered_hypothesis_watch",
+          whale_flow_entry_timing_governor_action: "SHADOW_ONLY",
+          whale_flow_entry_timing_governor_action_reason:
+            "Delayed entry improved some segments, but only with underpowered evidence; no paper routing change is allowed yet.",
+          whale_flow_entry_timing_governor_evidence_tier:
+            "source_backed_underpowered_timing_hypothesis",
+          whale_flow_entry_timing_governor_segment_scope: "segment_scoped_only",
+          whale_flow_entry_timing_governor_powered_delayed_entry_candidate_count: 0,
+          whale_flow_entry_timing_governor_underpowered_delayed_entry_candidate_count: 1,
+          whale_flow_entry_timing_governor_rejected_delay_segment_count: 1,
+          whale_flow_entry_timing_governor_global_delay_rule_allowed: false,
+          whale_flow_entry_timing_governor_source_global_delay_rule_allowed: false,
+          whale_flow_entry_timing_governor_delayed_entry_forward_test_allowed: false,
+          whale_flow_entry_timing_governor_instant_entry_policy: "PAUSE_FORWARD_TAIL_PAPER",
+          whale_flow_entry_timing_governor_counts_for_trade_ready_unlock: false,
+          whale_flow_entry_timing_governor_counts_for_profitability_gate: false,
+          whale_flow_entry_timing_governor_counts_as_paper_decision: false,
+          whale_flow_entry_timing_governor_affects_live_routing: false,
+          whale_flow_entry_timing_governor_next_action:
+            "Keep collecting source-backed timing observations until a segment has enough powered delayed-entry evidence.",
+          whale_flow_profit_review_status: "blocked_insufficient_resolved_history",
+          whale_flow_outcome_record_count: 0,
+          live_order_allowed: false,
+        },
+        source_discovery: {
+          artifact_path: "work/scripts/kalshi/kalshi_copy_shadow_source_discovery_v1.json",
+          artifact_exists: true,
+          generated_at_utc: "2026-07-01T12:00:00Z",
+          status: "blocked",
+          public_identity_verified: true,
+          authenticated_read_ok: true,
+          authenticated_read_attempted: true,
+          copyable_exact_source_verified: false,
+          blockers: ["no_verified_exact_opt_in_foster_fill_source"],
+          next_action: "Get a consented exact-fill Foster McCoy source.",
+          overall_completion_percentage: 32,
+          milestones: [
+            {
+              milestone_id: "FCS-02",
+              name: "Source Receipt Artifact",
+              completion_percentage: 100,
+              status: "complete",
+              evidence: "Receipt exists.",
+            },
+          ],
+          candidate_sources_reviewed: [
+            {
+              source_id: "kalshi_wss_public_trades",
+              candidate: "Kalshi WebSocket Public Trades",
+              status: "not_copyable_market_level_public_feed",
+              latency_fit: "immediate_after_trade_execution",
+              exact_fill: true,
+              leader_identity_available: false,
+              copyable_now: false,
+              requires_external_approval: false,
+              why_not_copyable: "Public trades omit trader identity.",
+              live_order_allowed: false,
+            },
+            {
+              source_id: "kalshi_wss_user_fills_opt_in",
+              candidate: "Foster opt-in Kalshi WebSocket User Fills",
+              status: "blocked_requires_foster_opt_in_source",
+              latency_fit: "immediate_when_the_source_account_fills",
+              exact_fill: true,
+              leader_identity_available: true,
+              copyable_now: false,
+              requires_external_approval: true,
+              why_not_copyable: "Requires Foster consent.",
+              live_order_allowed: false,
+            },
+          ],
+          live_order_allowed: false,
+        },
+        latency: {
+          p95_signal_latency_ms: 720,
+          average_decision_latency_ms: 80,
+          near_instant_target_ms: 1000,
+          live_order_allowed: false,
+        },
+        execution_quality: {
+          average_price_drift_cents: 1.2,
+          average_spread_cents: 2.1,
+          max_price_drift_cents: 2,
+          max_spread_cents: 4,
+          live_order_allowed: false,
+        },
+        risk_controls: {
+          max_shadow_order_usd: 5,
+          max_shadow_open_exposure_usd: 25,
+          market_orders_allowed: false,
+          live_order_allowed: false,
+        },
+        signal_quality: {
+          skip_reasons: {
+            duplicate_signal_id: 1,
+          },
+          duplicate_signal_count: 1,
+          live_order_allowed: false,
+        },
+        source_health: {
+          foster_relay_verifier: {
+            validator_id: "foster_relay_fixture",
+            status: "fixture_schema_passed_real_source_blocked",
+            verified: false,
+            schema_passed: true,
+            missing_fields: [],
+            invalid_fields: [],
+            unsafe_true_flags: [],
+            latency_ms: 400,
+            next_action:
+              "Provide a real Foster relay URL/token before this can verify an exact source.",
+            live_order_allowed: false,
+          },
+          caleb_public_signal_verifier: {
+            validator_id: "caleb_public_signal_fixture",
+            status: "no_fixture_sample",
+            verified: false,
+            schema_passed: false,
+            missing_fields: [],
+            invalid_fields: [],
+            risk_flags: [],
+            unsafe_true_flags: [],
+            next_action:
+              "Provide source-backed Caleb public signal URLs before collecting real paper signals.",
+            live_order_allowed: false,
+          },
+          signal_log_validator: {
+            validator_id: "copy_shadow_signal_log",
+            status: "passed",
+            verified: false,
+            schema_passed: true,
+            path: "work/scripts/kalshi/logs/copy_shadow_signals.jsonl",
+            record_count: 12,
+            accepted_record_count: 9,
+            rejected_record_count: 0,
+            duplicate_signal_ids: [],
+            rejection_reasons: {},
+            unsafe_true_flags: [],
+            live_order_allowed: false,
+          },
+          whale_flow_verifier: {
+            validator_id: "whale_flow_public_trade_verifier",
+            status: "shadow_scaffold_ready",
+            verified: false,
+            collection_seen: true,
+            schema_passed: true,
+            execution_quality_verified: true,
+            signal_ledger_exists: true,
+            signal_ledger_missing: false,
+            derived_signal_count: 106,
+            persisted_signal_count: 106,
+            record_count: 106,
+            accepted_record_count: 3,
+            rejected_record_count: 103,
+            materialized_paper_decision_count: 3,
+            materialized_shadow_copy_count: 3,
+            unresolved_paper_decision_count: 3,
+            raw_trade_quarantine_count: 2,
+            artifact_hygiene: {
+              work_scripts_kalshi_ignored_by_local_git_exclude: true,
+            },
+            collector_control_validator: {
+              status: "blocked_placeholder_collector_bounds",
+              approved_for_real_collection_run: false,
+              blockers: ["placeholder_collector_bounds_rejected"],
+              next_action:
+                "Provide concrete duration, frequency, and max-trade bounds before starting a foreground-only recurring public-trades collector.",
+              live_order_allowed: false,
+            },
+            collector_health: {
+              status: "stale_collector_source",
+              verified: false,
+              source_proof_age_seconds: 901,
+              last_raw_trade_age_seconds: 1200,
+              collector_run_count: 754,
+              collector_completed_run_count: 747,
+              collector_failed_run_count: 7,
+              collector_expected_approved_run_count: 10080,
+              collector_remaining_approved_run_count: 9333,
+              collector_completion_ratio: 0.0741,
+              collector_coverage_status: "stopped_before_approved_duration",
+              counts_for_trade_ready_unlock: false,
+              reconnect_failure_count: 1,
+              next_action:
+                "Run the approved bounded foreground collector; do not emit trade-ready signals from stale public flow.",
+              live_order_allowed: false,
+            },
+            evidence_refresh: {
+              status: "completed_bounded_evidence_refresh",
+              verified: true,
+              run_count: 2,
+              failed_run_count: 0,
+              signal_appended_count: 12,
+              paper_decision_appended_count: 2,
+              feature_store_appended_count: 2,
+              outcome_appended_count: 0,
+              max_runtime_seconds: 300,
+              max_refresh_runtime_exceeded_count: 0,
+              backlog_counts: {
+                raw_trade_to_signal_backlog_estimate: 42,
+                signal_to_paper_decision_backlog_estimate: 10,
+                paper_decision_to_outcome_backlog_estimate: 2,
+                raw_trade_to_source_depth_backlog_estimate: 4,
+              },
+              post_outcome_materialization_run_count: 1,
+              diagnostic_status: "refreshed_current_evidence",
+              next_action:
+                "Continue bounded foreground evidence refresh while the collector is active.",
+              live_order_allowed: false,
+            },
+            outcome_resolution_validator: {
+              status: "blocked_unresolved_markets",
+              resolved_count: 0,
+              pending_resolution_count: 3,
+              next_action:
+                "Wait for the materialized Whale Flow markets to settle before appending source-backed outcomes.",
+              live_order_allowed: false,
+            },
+            profitability_gate_validator: {
+              status: "blocked_insufficient_resolved_history",
+              baseline_review_allowed: false,
+              resolved_count: 0,
+              pending_resolution_count: 3,
+              observed_days: 0,
+              required_resolved_signals: 200,
+              required_observed_days: 30,
+              blockers: ["needs_200_resolved_real_whale_flow_signals", "needs_30_observed_days"],
+              next_action:
+                "Collect and resolve more source-backed Whale Flow paper decisions before profitability review.",
+              live_order_allowed: false,
+            },
+            fill_realism: {
+              status: "blocked_fill_realism_unverified",
+              verified: false,
+              fill_realism_version: "v5",
+              source_depth_join_strategy: "trade_id_with_near_signal_orderbook_timing",
+              decision_count: 3,
+              forward_paper_decision_count: 1,
+              forward_missed_or_unverified_count: 1,
+              late_backfill_realistic_fill_count: 0,
+              max_source_depth_signal_lag_seconds: 5,
+              live_relevant_realistic_fill_rate: 0,
+              source_depth_coverage_rate: 0.667,
+              source_depth_timing_verified_rate: 0.333,
+              source_depth_joined_decision_count: 2,
+              source_depth_missing_decision_count: 1,
+              source_depth_timing_verified_count: 1,
+              source_depth_timing_unverified_count: 1,
+              p95_source_depth_signal_lag_seconds: 60,
+              aggressive_limit_executable_count: 1,
+              passive_queue_verified_count: 0,
+              missed_fill_reasons: {
+                orderbook_depth_unverified: 2,
+                best_ask_above_limit_price: 1,
+              },
+              forward_missed_fill_reasons: {
+                orderbook_depth_unverified: 1,
+              },
+              forward_verified_missed_fill_count: 0,
+              forward_unverified_gap_count: 1,
+              late_backfill_missed_fill_reasons: {
+                orderbook_depth_unverified: 1,
+                best_ask_above_limit_price: 1,
+              },
+              realistic_fill_count: 0,
+              missed_fill_count: 3,
+              realistic_after_cost_pnl_usd: -0.13,
+              live_relevant_after_cost_pnl_usd: 0,
+              next_action:
+                "Collect queue/depth evidence at signal time before treating paper P&L as live-executable.",
+              live_order_allowed: false,
+            },
+            fill_evidence_gap: {
+              status: "blocked_forward_fill_evidence_gaps",
+              verified: false,
+              forward_decision_count: 1,
+              forward_realistic_fill_count: 0,
+              forward_gap_count: 1,
+              forward_unverified_gap_count: 1,
+              forward_verified_missed_fill_count: 0,
+              missing_source_depth_count: 1,
+              best_ask_above_limit_count: 0,
+              market_impact_risk_count: 0,
+              pending_realistic_outcome_count: 0,
+              resolved_realistic_count: 0,
+              gap_reason_counts: {
+                orderbook_depth_unverified: 1,
+              },
+              verified_missed_fill_reason_counts: {},
+              top_gap_decisions: [
+                {
+                  market_ticker: "KXDEPTH-26",
+                  side: "yes",
+                  missed_fill_reason: "orderbook_depth_unverified",
+                },
+              ],
+              next_action:
+                "Prioritize source-backed near-signal depth capture for forward decisions missing executable-depth proof.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+              auto_live_promotion_allowed: false,
+            },
+            fill_gap_governor: {
+              status: "fill_gap_governor_quarantined_unverified_depth",
+              verified: false,
+              schema_passed: true,
+              governor_action: "REJECT_DATA_QUALITY",
+              action_reason:
+                "Some forward paper decisions lack source-backed signal-time depth, so they are quarantined as evidence gaps.",
+              evidence_tier: "source_depth_gap_quarantine",
+              segment_scope: "forward_fill_evidence",
+              forward_decision_count: 1,
+              realistic_fill_count: 0,
+              verified_missed_fill_count: 0,
+              unverified_gap_count: 1,
+              quarantined_unverified_gap_count: 1,
+              quarantined_decision_count: 1,
+              gap_reason_counts: {
+                orderbook_depth_unverified: 1,
+              },
+              verified_missed_fill_reason_counts: {},
+              live_relevant_fill_evidence_verified: false,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_for_training_label: false,
+              counts_as_paper_decision: false,
+              affects_live_routing: false,
+              paper_only: true,
+              next_action:
+                "Continue source-depth collection and require future paper decisions to have signal-time depth proof before they count live-relevant.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+              auto_live_promotion_allowed: false,
+            },
+            orderbook_stream: {
+              status: "blocked_orderbook_stream_not_collected",
+              verified: false,
+              record_count: 0,
+              market_count: 0,
+              source_backed_record_count: 0,
+              next_action:
+                "Collect bounded read-only orderbook stream records for markets seen in public Whale Flow before fill realism can be live-relevant.",
+              live_order_allowed: false,
+            },
+            source_depth: {
+              status: "source_depth_available",
+              verified: true,
+              record_count: 3,
+              source_backed_depth_count: 3,
+              queue_verified_count: 0,
+              aggressive_limit_candidate_count: 1,
+              usable_for_realistic_fill_count: 1,
+              next_action:
+                "Source-backed depth is available; queue position remains conservative unless separately verified.",
+              live_order_allowed: false,
+            },
+            market_metadata: {
+              status: "market_metadata_source_backed_timing_available",
+              verified: true,
+              record_count: 2,
+              ticker_count: 2,
+              source_backed_count: 2,
+              source_backed_timing_count: 1,
+              missing_timing_count: 1,
+              next_action:
+                "Use source-backed market timing for quick-settling, time-to-close, and segment diagnostics.",
+              live_order_allowed: false,
+            },
+            quick_settling: {
+              status: "blocked_quick_settling_source_timing",
+              verified: false,
+              candidate_count: 2,
+              quick_settling_candidate_count: 0,
+              source_backed_timing_count: 0,
+              unknown_timing_count: 2,
+              next_action:
+                "Add source-backed market timing and prioritize markets expected to settle in 24-72 hours to speed forward evidence.",
+              live_order_allowed: false,
+            },
+            time_to_close_evidence: {
+              status: "blocked_time_to_close_source_timing",
+              verified: false,
+              decision_count: 2,
+              source_backed_timing_count: 0,
+              unknown_timing_count: 2,
+              gap_reason_counts: {
+                missing_resolution_target_time: 2,
+                missing_source_backed_market_timing: 2,
+              },
+              counts_for_trade_ready_unlock: false,
+              affects_live_routing: false,
+              live_order_allowed: false,
+            },
+            market_context: {
+              status: "blocked_market_context_taxonomy",
+              verified: false,
+              unknown_ticker_count: 2,
+              family_counts: { unknown_taxonomy: 2 },
+              next_action:
+                "Map unknown market tickers into a source-backed taxonomy before using their segment results for promotion.",
+              live_order_allowed: false,
+            },
+            segment_diagnostics: {
+              status: "insufficient_sample",
+              verified: false,
+              segment_count: 2,
+              resolved_count: 0,
+              live_relevant_resolved_count: 0,
+              late_backfill_decision_count: 2,
+              segment_action_counts: { SHADOW_ONLY: 2 },
+              segment_confidence_status_counts: { underpowered: 2 },
+              segment_abstention_reason_counts: {
+                insufficient_fill_realistic_segment_sample: 2,
+              },
+              segment_market_family_counts: { sports_or_live_game: 2 },
+              segment_ticker_prefix_counts: { KXMLBGAME: 2 },
+              segment_side_counts: { "side:yes": 2 },
+              segment_price_band_counts: { "00-19": 1, "20-39": 1 },
+              segment_spread_band_counts: { "0-2": 2 },
+              segment_size_band_counts: { "size:small": 2 },
+              segment_liquidity_band_counts: { "liquidity:unknown": 1, "liquidity:deep": 1 },
+              segment_time_to_close_band_counts: { "time_to_close:unknown": 2 },
+              blocked_segment_count: 2,
+              promotion_candidate_segment_count: 0,
+              top_blocked_segments: [
+                {
+                  segment_id:
+                    "KXMLBGAME|price:00-19|spread:0-2|liquidity:unknown|size:small|time_to_close:unknown",
+                  action_recommendation: "SHADOW_ONLY",
+                  confidence_status: "underpowered",
+                  abstention_reason: "insufficient_fill_realistic_segment_sample",
+                  market_family: "sports_or_live_game",
+                  ticker_prefix: "KXMLBGAME",
+                  side: "side:yes",
+                  price_band: "00-19",
+                  spread_band: "0-2",
+                  size_band: "size:small",
+                  liquidity_band: "liquidity:unknown",
+                  time_to_close_band: "time_to_close:unknown",
+                  decision_count: 2,
+                  forward_paper_decision_count: 1,
+                  live_relevant_resolved_count: 0,
+                  realistic_after_cost_pnl_usd: 0,
+                  beats_no_trade_baseline: false,
+                  beats_inverse_baseline: false,
+                  beats_random_baseline: false,
+                  beats_market_implied_baseline: false,
+                  live_order_allowed: false,
+                },
+              ],
+              no_trade_baseline: {
+                pnl_usd: 0,
+                abstention_required_segment_count: 2,
+                beats_no_trade_segment_count: 0,
+              },
+              random_baseline: {
+                sample_count: 0,
+                expected_pnl_usd: 0,
+                beats_random_segment_count: 0,
+              },
+              market_implied_baseline: {
+                sample_count: 0,
+                pnl_usd: 0,
+                beats_market_implied_segment_count: 0,
+                source: "entry_price_proxy",
+                proxy_only: true,
+                counts_for_trade_ready_unlock: false,
+              },
+              next_action:
+                "Collect more resolved, source-backed outcomes before trusting best/worst Whale Flow segments.",
+              live_order_allowed: false,
+            },
+            segment_firewall: {
+              status: "blocked_segment_firewall",
+              verified: false,
+              action_counts: { SHADOW_ONLY: 1, INVERSE_FORWARD_TEST: 1, REJECT_DATA_QUALITY: 1 },
+              adverse_watchlist_segment_count: 2,
+              uncovered_adverse_watchlist_segment_count: 1,
+              next_action:
+                "Keep all Whale Flow segments shadow-only until the firewall has powered, fill-realistic, taxonomy-clean evidence.",
+              live_order_allowed: false,
+            },
+            adverse_abstention: {
+              status: "adverse_abstention_actions_ready",
+              verified: false,
+              schema_passed: true,
+              abstention_action_count: 2,
+              inverse_forward_test_segment_count: 1,
+              powered_pause_segment_count: 1,
+              shadow_only_watch_segment_count: 1,
+              no_trade_baseline_pnl_usd: 0,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_as_paper_decision: false,
+              affects_live_routing: false,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            tail_fade_tournament: {
+              status: "blocked_tail_fade_tournament",
+              verified: false,
+              global_flip_allowed: false,
+              segment_competition_count: 2,
+              tail_live_relevant_after_cost_pnl_usd: 0,
+              tail_pnl_source: "live_relevant_forward_paper",
+              late_backfill_decision_count: 2,
+              random_baseline_expected_pnl_usd: 0,
+              random_baseline_sample_count: 0,
+              tail_beats_random_baseline: false,
+              market_implied_baseline_pnl_usd: 0,
+              market_implied_baseline_sample_count: 0,
+              market_implied_baseline_source: "entry_price_proxy",
+              market_implied_baseline_proxy_only: true,
+              tail_beats_market_implied_baseline: false,
+              baseline_checks: {
+                tail_live_relevant_after_cost_pnl_usd: 0,
+                tail_beats_random_baseline: false,
+                tail_beats_market_implied_baseline: false,
+                market_implied_baseline_proxy_only: true,
+              },
+              next_action:
+                "Run only segment-scoped forward paper tail-vs-fade tests; never apply a global flip.",
+              live_order_allowed: false,
+            },
+            inverse_exploration_governor: {
+              status: "inverse_exploration_underpowered_watch",
+              verified: false,
+              schema_passed: true,
+              governor_action: "SHADOW_ONLY",
+              action_reason:
+                "Forward tailing is failing baselines or inverse candidates exist, but evidence is underpowered.",
+              evidence_tier: "source_backed_underpowered_inverse_hypothesis",
+              segment_scope: "segment_scoped_only",
+              candidate_segment_count: 1,
+              powered_candidate_segment_count: 0,
+              underpowered_candidate_segment_count: 1,
+              tail_loses_baselines: true,
+              global_flip_allowed: false,
+              inverse_forward_testing_allowed: true,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_for_training_label: false,
+              affects_live_routing: false,
+              candidate_segments: [
+                {
+                  segment_id:
+                    "KXWCTEAMTOTAL|price:60-79|spread:0-2|liquidity:deep|size:small|time_to_close:<1h",
+                  governor_action: "INVERSE_FORWARD_TEST",
+                  live_order_allowed: false,
+                },
+              ],
+              next_action:
+                "Forward-test only powered segment-scoped inverse hypotheses in paper; otherwise keep abstaining and collecting evidence.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            inverse_diagnostics: {
+              status: "insufficient_sample",
+              verified: false,
+              inverse_decision_count: 3,
+              resolved_count: 0,
+              inverse_net_pnl_usd: 0,
+              next_action:
+                "Use inverse/fade only as a paper baseline until enough source-backed outcomes resolve.",
+              live_order_allowed: false,
+            },
+            outcome_velocity: {
+              status: "pending_realistic_fill_outcomes",
+              verified: false,
+              pending_count: 3,
+              resolved_count: 1,
+              realistic_pending_count: 1,
+              unfillable_pending_count: 1,
+              unknown_fill_pending_count: 1,
+              resolved_realistic_count: 0,
+              resolved_unfillable_count: 1,
+              label_unlock_pending_count: 1,
+              next_action:
+                "Prioritize read-only outcome probes for realistic-fill pending decisions.",
+              live_order_allowed: false,
+            },
+            realistic_outcome_unlock: {
+              status: "blocked_read_only_outcome_fetch",
+              verified: false,
+              pending_realistic_label_count: 1,
+              resolved_realistic_count: 0,
+              checked_count: 1,
+              fetch_failed_count: 1,
+              retryable_fetch_failed_count: 1,
+              source_error_type_counts: {
+                KalshiReadError: 1,
+              },
+              blocker_counts: {
+                market_fetch_failed: 1,
+              },
+              top_pending_realistic_decisions: [
+                {
+                  decision_id: "paper:whale-flow:pending-realistic-1",
+                  market_ticker: "KXGAME-26",
+                  expected_resolution_priority: "high_quick_resolution_candidate",
+                  realistic_fill: true,
+                  source_depth_available: true,
+                  live_order_allowed: false,
+                },
+              ],
+              top_failed_realistic_fetches: [
+                {
+                  decision_id: "paper:whale-flow:pending-realistic-1",
+                  market_ticker: "KXGAME-26",
+                  status: "market_fetch_failed",
+                  source_error_type: "KalshiReadError",
+                  source_error_retryable: true,
+                  live_order_allowed: false,
+                },
+              ],
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              affects_live_routing: false,
+              next_action:
+                "Restore read-only Kalshi market fetch/auth/network and rerun outcome probe for realistic-fill markets.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            trade_ready_gate: {
+              status: "blocked_trade_ready_gate",
+              verified: false,
+              blockers: ["profitability_gate_not_passed", "fill_realism_not_verified"],
+              next_action:
+                "Keep Whale Flow shadow-only until every blocker clears and a separate explicit live-order approval is given.",
+              live_order_allowed: false,
+            },
+            live_canary_preflight: {
+              status: "blocked_exact_canary_eligibility",
+              verified: false,
+              dry_run_only: true,
+              conditional_live_canary_approval_recorded: true,
+              approval_terms: {
+                max_order_usd: 1,
+                daily_loss_cap_usd: 5,
+                limit_orders_only: true,
+                market_orders_allowed: false,
+                rfq_allowed: false,
+                funds_movement_allowed: false,
+                api_key_mutation_allowed: false,
+                scaling_allowed: false,
+              },
+              dry_run_order_intent: {
+                intent_available: false,
+                order_type: "limit",
+                max_order_usd: 1,
+                daily_loss_cap_usd: 5,
+                submit_allowed: false,
+                submit_blocker: "dry_run_only_no_order_endpoint_called",
+              },
+              blockers: ["trade_ready_gate_not_passed", "exact_order_parameters_missing"],
+              next_action:
+                "Do not place live orders. Resolve exact canary blockers; current state is review-only and dry-run-only.",
+              live_order_allowed: false,
+            },
+            evidence_dataset: {
+              status: "blocked_insufficient_training_rows",
+              verified: true,
+              total_rows: 3,
+              labeled_rows: 0,
+              training_label_rows: 0,
+              source_backed_unusable_label_rows: 1,
+              pending_realistic_label_rows: 1,
+              resolved_unfillable_label_rows: 1,
+              label_blocker_counts: {
+                pending_realistic_fill_outcome: 1,
+                source_backed_but_unrealistic_fill: 1,
+              },
+              rejected_rows: 1,
+              live_order_allowed: false,
+            },
+            feature_store: {
+              status: "blocked_feature_store_underpowered",
+              verified: false,
+              record_count: 3,
+              source_backed_label_count: 0,
+              usable_training_label_count: 0,
+              source_backed_unrealistic_label_count: 1,
+              pending_realistic_label_count: 1,
+              minimum_training_rows: 50,
+              live_order_allowed: false,
+            },
+            sts_adapter: {
+              status: "paper_only_sts_adapter_ready",
+              verified: true,
+              accepted_record_count: 3,
+              rejected_record_count: 0,
+              feature_log_record_count: 3,
+              segment_count: 2,
+              action_counts: {
+                SHADOW_ONLY: 2,
+                ACCEPT_EXPLORATION: 1,
+              },
+              live_routing_allowed: false,
+              sts_weight_change_allowed: false,
+              next_action:
+                "Expose Whale Flow as an STS paper-only input lane; do not change STS weights or live authority.",
+              live_order_allowed: false,
+              auto_live_promotion_allowed: false,
+            },
+            capacity_abstention_value: {
+              status: "capacity_abstention_value_ready",
+              governor_action: "SHADOW_ONLY",
+              interpretation: "abstention_avoided_hypothetical_loss",
+              resolved_count: 2,
+              pending_count: 5,
+              hypothesis_only_pnl_if_traded_usd: -0.5,
+              avoided_loss_usd: 0.5,
+              missed_gain_usd: 0,
+              hypothesis_only_loss_rate: 0.5,
+              sample_powered: false,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              affects_live_routing: false,
+              blockers: [
+                "capacity_observation_outcomes_pending",
+                "capacity_abstention_value_underpowered",
+              ],
+              next_action:
+                "Treat avoided loss as abstention evidence only; keep collecting resolved capacity observations without counting them as executed paper.",
+            },
+            capacity_sizing_hypothesis: {
+              status: "blocked_capacity_sizing_hypothesis",
+              governor_action: "SHADOW_ONLY",
+              action_reason:
+                "Capacity sizing remains shadow-only until source-backed capacity-abstention evidence is positive and sample-powered.",
+              evidence_tier: "underpowered_or_negative_capacity_sizing_hypothesis",
+              resolved_count: 2,
+              pending_count: 5,
+              missed_gain_usd: 0,
+              sample_powered: false,
+              recommended_experiment: null,
+              recommended_experiment_lane: null,
+              recommended_cap_multipliers: [],
+              paper_cap_change_allowed: false,
+              live_cap_change_allowed: false,
+              counts_for_trade_ready_unlock: false,
+              affects_live_routing: false,
+              blockers: [
+                "capacity_sizing_hypothesis_underpowered",
+                "no_positive_capacity_sizing_hypothesis_pnl",
+              ],
+              cautions: ["capacity_observation_outcomes_pending"],
+              next_action:
+                "Keep resolving capacity-blocked observations and rerun this receipt; do not change paper or live caps.",
+            },
+            ml_governor: {
+              status: "blocked_insufficient_training_rows",
+              verified: false,
+              training_label_rows: 0,
+              paper_routing_allowed: false,
+              live_order_allowed: false,
+            },
+            mlx_diagnostic: {
+              status: "blocked_mlx_runtime_not_enabled",
+              verified: false,
+              research_only: true,
+              next_action: "Research-only; not allowed to route paper or live trades.",
+              live_order_allowed: false,
+            },
+            profitability_firewall: {
+              status: "blocked_profitability_firewall",
+              verified: false,
+              blockers: ["profitability_gate_not_passed"],
+              baseline_checks: {
+                tail_live_relevant_after_cost_pnl_usd: 0,
+                tail_pnl_source: "live_relevant_forward_paper",
+                live_relevant_realistic_fill_count: 0,
+                late_backfill_decision_count: 2,
+                tail_beats_random_baseline: false,
+                tail_beats_market_implied_baseline: false,
+                market_implied_baseline_proxy_only: true,
+              },
+              next_action:
+                "Requires realistic fills, after-cost edge, baseline wins, and model proof.",
+              live_order_allowed: false,
+            },
+            paper_governor: {
+              schema_version: "whale_flow_paper_governor_v1",
+              validator_id: "whale_flow_paper_governor",
+              status: "paper_governor_forward_tail_paused",
+              schema_passed: true,
+              verified: false,
+              governor_action: "SHADOW_ONLY",
+              action_reason:
+                "forward_tail_paused_until_tail_beats_no_trade_inverse_random_and_market_baselines_after_costs",
+              evidence_tier: "source_backed_negative_after_cost_or_baseline_failure",
+              forward_tail_materialization_allowed: false,
+              shadow_logging_allowed: true,
+              inverse_forward_testing_allowed: true,
+              outcome_grading_allowed: true,
+              reason_codes: [
+                "negative_or_zero_live_relevant_after_cost_pnl",
+                "tail_does_not_beat_no_trade_baseline",
+              ],
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              affects_live_routing: false,
+              next_action:
+                "Keep collecting public flow and outcomes, but do not add new forward-tail paper decisions until the paper governor clears.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            tail_loss_diagnosis: {
+              schema_version: "whale_flow_tail_loss_diagnosis_v1",
+              validator_id: "whale_flow_tail_loss_diagnosis",
+              status: "tail_loss_diagnosis_ready",
+              schema_passed: true,
+              verified: true,
+              governor_action: "SHADOW_ONLY",
+              action_reason:
+                "forward_tail_loss_or_baseline_failure_requires_segment_scoped_abstention",
+              evidence_tier: "source_backed_underpowered_tail_loss_diagnosis",
+              baseline_checks: {
+                sample_count: 2,
+                tail_after_cost_pnl_usd: -0.75,
+                inverse_after_cost_pnl_usd: 0.25,
+                no_trade_pnl_usd: 0,
+                tail_beats_no_trade_baseline: false,
+                tail_beats_inverse_baseline: false,
+                tail_beats_random_baseline: false,
+                tail_beats_market_implied_baseline: false,
+                market_implied_baseline_proxy_only: true,
+              },
+              cohort_count: 1,
+              underpowered_loss_cohort_count: 1,
+              underpowered_inverse_candidate_count: 1,
+              powered_pause_segment_count: 0,
+              action_counts: { SHADOW_ONLY: 1 },
+              root_cause_counts: {
+                tail_after_cost_pnl_negative: 1,
+                inverse_baseline_beats_tail: 1,
+              },
+              top_loss_cohorts: [
+                {
+                  segment_id: "test_segment",
+                  sample_count: 2,
+                  tail_after_cost_pnl_usd: -0.75,
+                  inverse_after_cost_pnl_usd: 0.25,
+                  governor_action: "SHADOW_ONLY",
+                },
+              ],
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_for_training_label: false,
+              affects_live_routing: false,
+              paper_only: true,
+              next_action:
+                "Keep Whale Flow shadow-only and investigate losing cohorts before allowing forward-tail paper expansion.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            adverse_selection: {
+              status: "blocked_adverse_selection_underpowered",
+              verified: false,
+              decision_count: 3,
+              raw_trade_count: 106,
+              segment_summary_count: 2,
+              powered_adverse_segment_count: 0,
+              underpowered_adverse_segment_count: 2,
+              horizons_seconds: [60, 300, 900, 3600],
+              source_backed_horizons_seconds: [60, 300, 900, 3600],
+              missing_horizons_seconds: [],
+              underpowered_horizons_seconds: [60, 300, 900, 3600],
+              source_backed_horizon_count: 4,
+              missing_horizon_count: 0,
+              underpowered_horizon_count: 4,
+              adverse_horizons_seconds: [60],
+              horizon_summaries: [
+                {
+                  horizon_seconds: 60,
+                  sample_count: 2,
+                  adverse_count: 1,
+                  favorable_count: 1,
+                  average_selected_side_delta_cents: -0.5,
+                  adverse_rate: 0.5,
+                },
+              ],
+              live_order_allowed: false,
+            },
+            entry_timing: {
+              status: "entry_timing_delay_hypothesis_available",
+              verified: true,
+              schema_passed: true,
+              source_adverse_selection_status: "blocked_adverse_selection_underpowered",
+              source_backed_horizon_count: 4,
+              powered_horizon_count: 4,
+              immediate_horizon_seconds: 60,
+              immediate_adverse_rate: 0.5094,
+              instant_entry_status: "instant_entry_adverse_selection_risk",
+              instant_entry_risk: true,
+              best_delay_horizon_seconds: 300,
+              best_delay_favorable_rate: 0.5224,
+              best_delay_adverse_rate: 0.3134,
+              best_delay_average_selected_side_delta_cents: 4.58,
+              best_delay_favorable_edge_count: 14,
+              delayed_entry_hypothesis_available: true,
+              paper_only_forward_test_recommended: true,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              affects_live_routing: false,
+              paper_only: true,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            entry_timing_observations: {
+              status: "entry_timing_observations_ready",
+              verified: true,
+              schema_passed: true,
+              record_count: 4,
+              accepted_record_count: 4,
+              rejected_record_count: 0,
+              source_backed_observation_count: 4,
+              improved_entry_count: 3,
+              worse_entry_count: 1,
+              flat_entry_count: 0,
+              average_delayed_entry_price_improvement_cents: 2.25,
+              average_delayed_selected_side_delta_cents: -2.25,
+              best_delay_horizon_seconds: 300,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_for_training_label: false,
+              counts_as_paper_decision: false,
+              affects_live_routing: false,
+              paper_only: true,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            entry_timing_segments: {
+              status: "entry_timing_segments_ready",
+              verified: true,
+              schema_passed: true,
+              segment_count: 2,
+              powered_segment_count: 1,
+              underpowered_segment_count: 1,
+              delay_improved_segment_count: 1,
+              delay_worse_segment_count: 1,
+              average_delayed_entry_price_improvement_cents: -0.5,
+              global_action: "no_global_delay_rule",
+              global_delay_rule_allowed: false,
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_as_paper_decision: false,
+              affects_live_routing: false,
+              paper_only: true,
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            entry_timing_governor: {
+              status: "entry_timing_governor_underpowered_hypothesis_watch",
+              verified: true,
+              schema_passed: true,
+              governor_action: "SHADOW_ONLY",
+              action_reason:
+                "Delayed entry improved some segments, but only with underpowered evidence; no paper routing change is allowed yet.",
+              evidence_tier: "source_backed_underpowered_timing_hypothesis",
+              segment_scope: "segment_scoped_only",
+              powered_delayed_entry_candidate_count: 0,
+              underpowered_delayed_entry_candidate_count: 1,
+              rejected_delay_segment_count: 1,
+              global_delay_rule_allowed: false,
+              source_global_delay_rule_allowed: false,
+              delayed_entry_forward_test_allowed: false,
+              instant_entry_policy: "PAUSE_FORWARD_TAIL_PAPER",
+              counts_for_trade_ready_unlock: false,
+              counts_for_profitability_gate: false,
+              counts_for_training_label: false,
+              counts_as_paper_decision: false,
+              affects_live_routing: false,
+              paper_only: true,
+              next_action:
+                "Keep collecting source-backed timing observations until a segment has enough powered delayed-entry evidence.",
+              live_order_allowed: false,
+              live_trading_enabled: false,
+              write_capable_kalshi_endpoint_called: false,
+            },
+            rejection_reasons: {},
+            unsafe_true_flags: [],
+            next_action:
+              "Run an approved public-trades WebSocket/REST canary, enrich with orderbook spread/drift, and keep all output paper-only.",
+            live_order_allowed: false,
+          },
+          live_order_allowed: false,
+        },
+        leader_lanes: [
+          {
+            lane_id: "foster_exact_fill_shadow",
+            leader_name: "Foster McCoy",
+            leader_alias: "Foster",
+            source_id: "leader-alpha",
+            lane_type: "exact_fill_shadow",
+            copy_mode: "exact_fill_when_verified",
+            source_status: "enabled",
+            verification_status: "verified",
+            enabled: true,
+            exact_copy: true,
+            requires_exact_opt_in_source: true,
+            copyable_now: true,
+            signals_seen: 12,
+            eligible_shadow_signals: 9,
+            resolved_signals: 4,
+            net_shadow_pnl_usd: 2.35,
+            blockers: [],
+            live_order_allowed: false,
+          },
+          {
+            lane_id: "caleb_public_strategy_shadow",
+            leader_name: "Caleb Davies",
+            leader_alias: "Caleb",
+            source_id: "caleb-public-strategy",
+            lane_type: "public_strategy_shadow",
+            copy_mode: "public_strategy_not_exact_copy",
+            source_status: "disabled_pending_public_signal_intake",
+            verification_status: "public_strategy_candidate_unverified",
+            enabled: false,
+            exact_copy: false,
+            requires_exact_opt_in_source: false,
+            requires_source_url: true,
+            manipulation_risk_filter_required: true,
+            copyable_now: false,
+            signals_seen: 0,
+            eligible_shadow_signals: 0,
+            resolved_signals: 0,
+            net_shadow_pnl_usd: 0,
+            blockers: [
+              "public_signal_intake_not_configured",
+              "manipulation_risk_filter_not_verified",
+            ],
+            live_order_allowed: false,
+          },
+          {
+            lane_id: "whale_flow_shadow",
+            leader_name: "Public Kalshi Whale Flow",
+            leader_alias: "Whale Flow",
+            source_id: "kalshi_public_trades",
+            lane_type: "public_market_flow_shadow",
+            copy_mode: "public_market_flow_not_named_trader",
+            source_status: "shadow_scaffold_ready",
+            verification_status: "public_market_flow_not_named_trader",
+            enabled: false,
+            exact_copy: false,
+            requires_exact_opt_in_source: false,
+            requires_source_url: false,
+            manipulation_risk_filter_required: true,
+            copyable_now: false,
+            signals_seen: 0,
+            eligible_shadow_signals: 0,
+            resolved_signals: 0,
+            net_shadow_pnl_usd: 0,
+            blockers: ["real_public_trade_collection_not_started"],
+            live_order_allowed: false,
+          },
+        ],
+        sources: [
+          {
+            source_id: "leader-alpha",
+            lane_id: "foster_exact_fill_shadow",
+            leader_name: "Foster McCoy",
+            leader_handle: "leader_alpha",
+            source_type: "exact_opt_in_fill",
+            verification_status: "verified",
+            source_status: "enabled",
+            exact_fill: true,
+            enabled: true,
+            signals_seen: 12,
+            live_order_allowed: false,
+          },
+          {
+            source_id: "caleb-public-strategy",
+            lane_id: "caleb_public_strategy_shadow",
+            leader_name: "Caleb Davies",
+            source_type: "public_strategy_signal",
+            verification_status: "public_strategy_candidate_unverified",
+            source_status: "disabled_pending_public_signal_intake",
+            exact_fill: false,
+            enabled: false,
+            signals_seen: 0,
+            live_order_allowed: false,
+          },
+        ],
+        readiness_gates: [
+          {
+            gate_id: "exact_opt_in_source",
+            label: "Exact opt-in fill source",
+            status: "passed",
+            detail: "Configured.",
+            live_order_allowed: false,
+          },
+        ],
+        next_action: "Keep collecting shadow signals.",
+        plain_english: "Copy-leader shadow mode is active.",
+        live_order_allowed: false,
+      },
+    };
+
+    render(renderKalshiDashboard(createProps({ snapshot })), container);
+
+    expect(container.textContent).toContain("Copy Shadow");
+    expect(container.textContent).toContain("Copy-Leader Paper Lanes");
+    expect(container.textContent).toContain("Source Health");
+    expect(container.textContent).toContain("Foster Relay");
+    expect(container.textContent).toContain("Caleb Public Signal");
+    expect(container.textContent).toContain("Signal Log");
+    expect(container.textContent).toContain("Whale Flow");
+    expect(container.textContent).toContain("Whale Signals");
+    expect(container.textContent).toContain("106");
+    expect(container.textContent).toContain("3 eligible · 103 skipped");
+    expect(container.textContent).toContain("Whale Signal Ledger");
+    expect(container.textContent).toContain("present");
+    expect(container.textContent).toContain("106 persisted · 106 derived");
+    expect(container.textContent).toContain("14000 ms");
+    expect(container.textContent).toContain("Spread 6.700¢");
+    expect(container.textContent).toContain("Whale Collector");
+    expect(container.textContent).toContain("blocked_placeholder_collector_bounds");
+    expect(container.textContent).toContain("Collector Freshness");
+    expect(container.textContent).toContain("stale_collector_source");
+    expect(container.textContent).toContain("Source age 901s");
+    expect(container.textContent).toContain("Collector Coverage");
+    expect(container.textContent).toContain("stopped_before_approved_duration");
+    expect(container.textContent).toContain("747 / 10080 approved runs");
+    expect(container.textContent).toContain("7.4% complete");
+    expect(container.textContent).toContain("9333 remaining");
+    expect(container.textContent).toContain("trade-ready proof no");
+    expect(container.textContent).toContain("Evidence Refresh");
+    expect(container.textContent).toContain("completed_bounded_evidence_refresh");
+    expect(container.textContent).toContain("Runtime cap 300s");
+    expect(container.textContent).toContain("raw-signal backlog 42");
+    expect(container.textContent).toContain("signal-paper backlog 10");
+    expect(container.textContent).toContain("paper-outcome backlog 2");
+    expect(container.textContent).toContain(
+      "2 runs · 12 signals · 2 paper · 2 features · 1 post-outcome runs",
+    );
+    expect(container.textContent).toContain("Active running_bounded_evidence_refresh");
+    expect(container.textContent).toContain("process alive yes");
+    expect(container.textContent).toContain("PID 79034");
+    expect(container.textContent).toContain("latest run 3 age 41s");
+    expect(container.textContent).toContain("Backlog reducer bounded_backlog_reducer_completed");
+    expect(container.textContent).toContain(
+      "Priority depth read_only_priority_source_depth_repair_completed",
+    );
+    expect(container.textContent).toContain("2 appended / 6 priority");
+    expect(container.textContent).toContain("Outcome cadence read_only_outcome_cadence_completed");
+    expect(container.textContent).toContain("Trade packet blocked_trade_ready_packet");
+    expect(container.textContent).toContain("Continue bounded foreground evidence refresh");
+    expect(container.textContent).toContain("Whale Autopilot");
+    expect(container.textContent).toContain("bounded_autopilot_once_completed");
+    expect(container.textContent).toContain("1 run(s) · 7 signals · 1 paper · 2 depth");
+    expect(container.textContent).toContain("Active refresh running_bounded_evidence_refresh");
+    expect(container.textContent).toContain("Active running_bounded_autopilot");
+    expect(container.textContent).toContain("PID 63627");
+    expect(container.textContent).toContain("alive yes");
+    expect(container.textContent).toContain("run 4 age 42s");
+    expect(container.textContent).toContain("elapsed 18.50s");
+    expect(container.textContent).toContain("next 2026-07-01T12:10:00Z");
+    expect(container.textContent).toContain("active failed 0");
+    expect(container.textContent).toContain("failed 0");
+    expect(container.textContent).toContain("Whale Outcomes");
+    expect(container.textContent).toContain("0 resolved");
+    expect(container.textContent).toContain("3 pending");
+    expect(container.textContent).toContain("Paper Capacity");
+    expect(container.textContent).toContain("$25.00 / $25.00");
+    expect(container.textContent).toContain(
+      "103 fresh forward-eligible signals blocked by paper exposure",
+    );
+    expect(container.textContent).toContain("trade-ready proof no");
+    expect(container.textContent).toContain("Sample KXTEST-26 yes @ 50¢");
+    expect(container.textContent).toContain("4 blocked by segment firewall");
+    expect(container.textContent).toContain("status blocked segment firewall");
+    expect(container.textContent).toContain("Sample KXTEST-26 SHADOW ONLY prefix");
+    expect(container.textContent).toContain("3 unresolved paper decisions consume capacity");
+    expect(container.textContent).toContain("largest $4.70");
+    expect(container.textContent).toContain("oldest 3899s");
+    expect(container.textContent).toContain(
+      "pending_source_backed_outcomes_consuming_paper_capacity",
+    );
+    expect(container.textContent).toContain("Pending sample KXPENDING-26 no $4.70");
+    expect(container.textContent).toContain("7 zero-notional capacity observations");
+    expect(container.textContent).toContain("appended 2");
+    expect(container.textContent).toContain("trade-ready no");
+    expect(container.textContent).toContain("profitability no");
+    expect(container.textContent).toContain("2 settled capacity observations");
+    expect(container.textContent).toContain("5 pending");
+    expect(container.textContent).toContain("hypothesis P&L -$0.50");
+    expect(container.textContent).toContain("Capacity abstention capacity_abstention_value_ready");
+    expect(container.textContent).toContain("avoided loss $0.50");
+    expect(container.textContent).toContain("if-traded hypothesis -$0.50");
+    expect(container.textContent).toContain("2 resolved");
+    expect(container.textContent).toContain("powered no");
+    expect(container.textContent).toContain("live routing no");
+    expect(container.textContent).toContain("Capacity sizing blocked_capacity_sizing_hypothesis");
+    expect(container.textContent).toContain("experiment none");
+    expect(container.textContent).toContain("paper cap change no");
+    expect(container.textContent).toContain("live cap change no");
+    expect(container.textContent).toContain("training no");
+    expect(container.textContent).toContain("paper decisions no");
+    expect(container.textContent).toContain("7 stale skipped by 300s forward gate");
+    expect(container.textContent).toContain("max_open_exposure_reached 103");
+    expect(container.textContent).toContain("Whale Profit Review");
+    expect(container.textContent).toContain("blocked_insufficient_resolved_history");
+    expect(container.textContent).toContain("Fill Realism");
+    expect(container.textContent).toContain("blocked_fill_realism_unverified");
+    expect(container.textContent).toContain(
+      "v5 · 0 realistic · 0 forward-realistic · 2 late-backfill · 3 missed · 1 aggressive-limit · 2 depth-matched",
+    );
+    expect(container.textContent).toContain("Fill Quality");
+    expect(container.textContent).toContain("0.0% forward fill rate");
+    expect(container.textContent).toContain(
+      "1 forward of 3 decisions · 1 forward missed/unverified · 0 late-backfill realistic excluded · depth coverage 66.7% · near-signal depth 33.3% (1 verified / 1 stale or missing timing, p95 lag 60s, max allowed 5s)",
+    );
+    expect(container.textContent).toContain("forward reasons orderbook_depth_unverified 1");
+    expect(container.textContent).toContain(
+      "all reasons orderbook_depth_unverified 2, best_ask_above_limit_price 1",
+    );
+    expect(container.textContent).toContain("Fill Evidence Gaps");
+    expect(container.textContent).toContain("blocked_forward_fill_evidence_gaps");
+    expect(container.textContent).toContain(
+      "1 forward gap(s), 0 source-backed missed fill(s), of 1",
+    );
+    expect(container.textContent).toContain("1 need source-backed depth");
+    expect(container.textContent).toContain("reasons orderbook_depth_unverified 1");
+    expect(container.textContent).toContain("sample KXDEPTH-26 yes orderbook_depth_unverified");
+    expect(container.textContent).toContain(
+      "Prioritize source-backed near-signal depth capture for forward decisions missing executable-depth proof.",
+    );
+    expect(container.textContent).toContain("Fill Gap Governor");
+    expect(container.textContent).toContain("REJECT_DATA_QUALITY");
+    expect(container.textContent).toContain("fill_gap_governor_quarantined_unverified_depth");
+    expect(container.textContent).toContain("evidence source_depth_gap_quarantine");
+    expect(container.textContent).toContain("scope forward_fill_evidence");
+    expect(container.textContent).toContain("unverified gaps 1");
+    expect(container.textContent).toContain("quarantined 1");
+    expect(container.textContent).toContain("live-relevant evidence no");
+    expect(container.textContent).toContain("training no");
+    expect(container.textContent).toContain("live routing no");
+    expect(container.textContent).toContain(
+      "Some forward paper decisions lack source-backed signal-time depth, so they are quarantined as evidence gaps.",
+    );
+    expect(container.textContent).toContain(
+      "Continue source-depth collection and require future paper decisions to have signal-time depth proof before they count live-relevant.",
+    );
+    expect(container.textContent).toContain("Live-Relevant P&L");
+    expect(container.textContent).toContain("Only forward, near-signal realistic fills count here");
+    expect(container.textContent).toContain("Quarantined after-cost P&L -$0.13");
+    expect(container.textContent).toContain("Orderbook Stream");
+    expect(container.textContent).toContain("blocked_orderbook_stream_not_collected");
+    expect(container.textContent).toContain("0 records · 0 markets · 0 source-backed");
+    expect(container.textContent).toContain("Source Depth");
+    expect(container.textContent).toContain("source_depth_available");
+    expect(container.textContent).toContain(
+      "3 records · 3 source-backed · 1 aggressive-limit · 1 usable · 0 queue-verified",
+    );
+    expect(container.textContent).toContain("Market Metadata");
+    expect(container.textContent).toContain("market_metadata_source_backed_timing_available");
+    expect(container.textContent).toContain(
+      "2 records · 2 tickers · 2 source-backed · 1 source-backed timings · 1 missing timing",
+    );
+    expect(container.textContent).toContain("Quick Settling");
+    expect(container.textContent).toContain("blocked_quick_settling_source_timing");
+    expect(container.textContent).toContain(
+      "2 pending candidates · 0 quick candidates · 0 source-backed timings · 2 unknown timing",
+    );
+    expect(container.textContent).toContain("Time-To-Close Evidence");
+    expect(container.textContent).toContain("blocked_time_to_close_source_timing");
+    expect(container.textContent).toContain("0 source-backed · 2 unknown");
+    expect(container.textContent).toContain("missing_resolution_target_time 2");
+    expect(container.textContent).toContain("Market Context");
+    expect(container.textContent).toContain("blocked_market_context_taxonomy");
+    expect(container.textContent).toContain("2 unknown taxonomy ticker(s)");
+    expect(container.textContent).toContain("Segment / Fade");
+    expect(container.textContent).toContain(
+      "2 segments · 0 forward resolved · 2 late-backfill · fade cohort $0.00 (0) · global inverse $0.00",
+    );
+    expect(container.textContent).toContain("No-Trade Baseline");
+    expect(container.textContent).toContain(
+      "2 abstain segment(s) · 0 beat no-trade · 0 beat random · 0 beat market-proxy",
+    );
+    expect(container.textContent).toContain("Segment Actions");
+    expect(container.textContent).toContain("2 blocked");
+    expect(container.textContent).toContain("0 promotion candidates");
+    expect(container.textContent).toContain("actions SHADOW_ONLY 2");
+    expect(container.textContent).toContain("confidence underpowered 2");
+    expect(container.textContent).toContain(
+      "abstention insufficient_fill_realistic_segment_sample 2",
+    );
+    expect(container.textContent).toContain("family sports_or_live_game 2");
+    expect(container.textContent).toContain("side side:yes 2");
+    expect(container.textContent).toContain("price 00-19 1");
+    expect(container.textContent).toContain("spread 0-2 2");
+    expect(container.textContent).toContain("size size:small 2");
+    expect(container.textContent).toContain("liquidity:unknown 1");
+    expect(container.textContent).toContain("time time_to_close:unknown 2");
+    expect(container.textContent).toContain("prefix KXMLBGAME 2");
+    expect(container.textContent).toContain("top KXMLBGAME|price:00-19");
+    expect(container.textContent).toContain("Segment Firewall");
+    expect(container.textContent).toContain("blocked_segment_firewall");
+    expect(container.textContent).toContain(
+      "2 adverse watch segment(s) · 1 not yet in resolved segment P&L",
+    );
+    expect(container.textContent).toContain(
+      "abstention 2 (1 pause, 1 shadow-only, 1 inverse adverse, 1 inverse tests, 1 quality rejects, adverse_abstention_actions_ready)",
+    );
+    expect(container.textContent).toContain("no-trade baseline $0.00");
+    expect(container.textContent).toContain("abstention trade-ready no");
+    expect(container.textContent).toContain("abstention profitability no");
+    expect(container.textContent).toContain("abstention live routing no");
+    expect(container.textContent).toContain("Tail vs Fade");
+    expect(container.textContent).toContain("blocked_tail_fade_tournament");
+    expect(container.textContent).toContain(
+      "No global flip · 2 segment competitions · $0.00 forward P&L · 2 late-backfill excluded · random blocked · market-proxy blocked",
+    );
+    expect(container.textContent).toContain("Inverse Exploration");
+    expect(container.textContent).toContain("inverse_exploration_underpowered_watch");
+    expect(container.textContent).toContain(
+      "1 candidate segment(s) · 0 powered · 1 underpowered · tail loses baselines yes · global flip no · inverse tests on · trade-ready no · profitability no · training no · live routing no",
+    );
+    expect(container.textContent).toContain(
+      "KXWCTEAMTOTAL|price:60-79|spread:0-2|liquidity:deep|size:small|time_to_close:<1h INVERSE FORWARD TEST",
+    );
+    expect(container.textContent).toContain(
+      "Forward-test only powered segment-scoped inverse hypotheses in paper; otherwise keep abstaining and collecting evidence.",
+    );
+    expect(container.textContent).toContain("Adverse Selection");
+    expect(container.textContent).toContain("blocked_adverse_selection_underpowered");
+    expect(container.textContent).toContain(
+      "3 decisions · 106 raw trades · checked windows 4 · source-backed 4 · underpowered 4 · missing 0 · adverse windows 1 · 2 segments · 0 powered adverse · 2 underpowered watch",
+    );
+    expect(container.textContent).toContain("Entry Timing");
+    expect(container.textContent).toContain("entry_timing_delay_hypothesis_available");
+    expect(container.textContent).toContain("instant instant_entry_adverse_selection_risk");
+    expect(container.textContent).toContain("immediate 60s adverse 50.9%");
+    expect(container.textContent).toContain("best delay 300s");
+    expect(container.textContent).toContain("paper-only forward test yes");
+    expect(container.textContent).toContain(
+      "observations 4 (4 source-backed, entry_timing_observations_ready)",
+    );
+    expect(container.textContent).toContain("observed delay 300s");
+    expect(container.textContent).toContain("entry improvement 2.250c");
+    expect(container.textContent).toContain("improved 3 / worse 1");
+    expect(container.textContent).toContain("observation trade-ready no");
+    expect(container.textContent).toContain("observation profitability no");
+    expect(container.textContent).toContain("observation live routing no");
+    expect(container.textContent).toContain(
+      "segment timing 2 (1 powered, 1 underpowered, entry_timing_segments_ready)",
+    );
+    expect(container.textContent).toContain("segment improvement -0.5000c");
+    expect(container.textContent).toContain("segment improved 1 / worse 1");
+    expect(container.textContent).toContain("global action no_global_delay_rule");
+    expect(container.textContent).toContain("global delay rule no");
+    expect(container.textContent).toContain("segment trade-ready no");
+    expect(container.textContent).toContain("segment profitability no");
+    expect(container.textContent).toContain("segment live routing no");
+    expect(container.textContent).toContain("trade-ready no");
+    expect(container.textContent).toContain("profitability no");
+    expect(container.textContent).toContain("live routing no");
+    expect(container.textContent).toContain("Entry Timing Governor");
+    expect(container.textContent).toContain("SHADOW_ONLY");
+    expect(container.textContent).toContain("entry_timing_governor_underpowered_hypothesis_watch");
+    expect(container.textContent).toContain("policy PAUSE_FORWARD_TAIL_PAPER");
+    expect(container.textContent).toContain("powered delayed candidates 0");
+    expect(container.textContent).toContain("underpowered watch 1");
+    expect(container.textContent).toContain("rejected delay segments 1");
+    expect(container.textContent).toContain("global delay no");
+    expect(container.textContent).toContain("source global delay no");
+    expect(container.textContent).toContain("delayed forward test no");
+    expect(container.textContent).toContain("live routing no");
+    expect(container.textContent).toContain("Evidence Dataset");
+    expect(container.textContent).toContain(
+      "3 rows · 0 training labels · 0 forward labels · 2 backfill labels · 1 pending realistic · 1 resolved unfillable",
+    );
+    expect(container.textContent).toContain("Outcome Label Queue");
+    expect(container.textContent).toContain("pending_realistic_fill_outcomes");
+    expect(container.textContent).toContain(
+      "1 realistic-fill pending · 1 resolved unfillable quarantined · 1 pending without fill proof",
+    );
+    expect(container.textContent).toContain("Outcome Probe");
+    expect(container.textContent).toContain("read_only_outcome_probe_completed");
+    expect(container.textContent).toContain(
+      "3 checked · 2 fetch failed · 1 realistic-label fetch failed",
+    );
+    expect(container.textContent).toContain("market_fetch_failed 1");
+    expect(container.textContent).toContain("Realistic Outcome Unlock");
+    expect(container.textContent).toContain("blocked_read_only_outcome_fetch");
+    expect(container.textContent).toContain(
+      "1 pending labels · 0 resolved realistic · 1 fetch failed",
+    );
+    expect(container.textContent).toContain("KXGAME-26 high_quick_resolution_candidate");
+    expect(container.textContent).toContain(
+      "KXGAME-26 KalshiReadError dns_resolution_failed:api.elections.kalshi.com retryable",
+    );
+    expect(container.textContent).toContain(
+      "Restore read-only Kalshi market fetch/auth/network and rerun outcome probe for realistic-fill markets.",
+    );
+    expect(container.textContent).toContain("Feature Store");
+    expect(container.textContent).toContain("blocked_feature_store_underpowered");
+    expect(container.textContent).toContain("3 rows · 0 source-backed · 0 usable training labels");
+    expect(container.textContent).toContain("STS Input Lane");
+    expect(container.textContent).toContain("paper_only_sts_adapter_ready");
+    expect(container.textContent).toContain("3 accepted · 0 rejected · 2 segments");
+    expect(container.textContent).toContain("ACCEPT_EXPLORATION 1");
+    expect(container.textContent).toContain("SHADOW_ONLY 2");
+    expect(container.textContent).toContain("Live routing blocked; STS weight changes blocked");
+    expect(container.textContent).toContain("ML Governor");
+    expect(container.textContent).toContain("shadow-only");
+    expect(container.textContent).toContain("MLX Diagnostic");
+    expect(container.textContent).toContain("blocked_mlx_runtime_not_enabled");
+    expect(container.textContent).toContain("Profit Firewall");
+    expect(container.textContent).toContain("blocked_profitability_firewall");
+    expect(container.textContent).toContain(
+      "$0.00 forward P&L · 2 late-backfill excluded · random blocked · market proxy-only",
+    );
+    expect(container.textContent).toContain("P&L Truth Ladder");
+    expect(container.textContent).toContain("pnl_truth_ladder_ready");
+    expect(container.textContent).toContain(
+      "all-shadow $2.35 · realistic -$0.13 · live-relevant $0.00 · forward gate $0.00 · inverse/fade $0.25 · headline live-tradable no",
+    );
+    expect(container.textContent).toContain("Evidence Acceleration");
+    expect(container.textContent).toContain("retryable_read_only_outcome_fetch_failures");
+    expect(container.textContent).toContain("repair retryable 1 (market_fetch_failed 1)");
+    expect(container.textContent).toContain("quick queue 0");
+    expect(container.textContent).toContain(
+      "backlog gaps 4 (raw_trade_to_signal_backlog_estimate 12, signal_to_paper_decision_backlog_estimate 10, raw_trade_to_source_depth_backlog_estimate 4)",
+    );
+    expect(container.textContent).toContain("segment actions SHADOW_ONLY 1");
+    expect(container.textContent).toContain("global flip no");
+    expect(container.textContent).toContain("delayed entry delayed_entry_forward_test_watch");
+    expect(container.textContent).toContain("powered 0 underpowered 1");
+    expect(container.textContent).toContain("trade-ready credit no");
+    expect(container.textContent).toContain("Paper Governor");
+    expect(container.textContent).toContain("SHADOW_ONLY");
+    expect(container.textContent).toContain("paper_governor_forward_tail_paused");
+    expect(container.textContent).toContain("forward-tail materialization paused");
+    expect(container.textContent).toContain("shadow logging on");
+    expect(container.textContent).toContain("inverse tests on");
+    expect(container.textContent).toContain("live routing no");
+    expect(container.textContent).toContain(
+      "1 fresh forward-tail signal(s) paused by paper governor",
+    );
+    expect(container.textContent).toContain("Sample KXTEST-26 SHADOW ONLY");
+    expect(container.textContent).toContain(
+      "Keep collecting public flow and outcomes, but do not add new forward-tail paper decisions until the paper governor clears.",
+    );
+    expect(container.textContent).toContain("Tail Loss Diagnosis");
+    expect(container.textContent).toContain("tail_loss_diagnosis_ready");
+    expect(container.textContent).toContain("2 live-relevant sample(s)");
+    expect(container.textContent).toContain("tail -$0.75");
+    expect(container.textContent).toContain("inverse $0.25");
+    expect(container.textContent).toContain("actions SHADOW_ONLY 1");
+    expect(container.textContent).toContain("causes inverse_baseline_beats_tail 1");
+    expect(container.textContent).toContain(
+      "Top loss cohort test segment tail -$0.75 vs inverse $0.25",
+    );
+    expect(container.textContent).toContain(
+      "Keep Whale Flow shadow-only and investigate losing cohorts before allowing forward-tail paper expansion.",
+    );
+    expect(container.textContent).toContain("Trade Ready Gate");
+    expect(container.textContent).toContain("blocked_trade_ready_gate");
+    expect(container.textContent).toContain(
+      "Blocked by profitability gate not passed, fill realism not verified.",
+    );
+    expect(container.textContent).toContain("Live Canary Preflight");
+    expect(container.textContent).toContain("blocked_exact_canary_eligibility");
+    expect(container.textContent).toContain("Approval recorded");
+    expect(container.textContent).toContain("max order $1.00");
+    expect(container.textContent).toContain("daily cap $5.00");
+    expect(container.textContent).toContain("dry-run only");
+    expect(container.textContent).toContain("intent blocked");
+    expect(container.textContent).toContain(
+      "Blocked by trade ready gate not passed, exact order parameters missing.",
+    );
+    expect(container.textContent).toContain("fixture_schema_passed_real_source_blocked");
+    expect(container.textContent).toContain("9 accepted / 12 read");
+    expect(container.textContent).toContain("3 accepted / 106 read · 3 paper · 2 quarantined");
+    expect(container.textContent).toContain("Foster McCoy");
+    expect(container.textContent).toContain("Caleb Davies");
+    expect(container.textContent).toContain("Public Kalshi Whale Flow");
+    expect(container.textContent).toContain("not exact-copy");
+    expect(container.textContent).toContain("public_strategy_not_exact_copy");
+    expect(container.textContent).toContain("public_market_flow_not_named_trader");
+    expect(container.textContent).toContain("real_public_trade_collection_not_started");
+    expect(container.textContent).toContain("manipulation_risk_filter_not_verified");
+    expect(container.textContent).toContain("disabled_pending_public_signal_intake");
+    expect(container.textContent).toContain("Source Verification");
+    expect(container.textContent).toContain("Discovery Receipt");
+    expect(container.textContent).toContain("Read-Only Auth");
+    expect(container.textContent).toContain("no_verified_exact_opt_in_foster_fill_source");
+    expect(container.textContent).toContain("Source Candidate");
+    expect(container.textContent).toContain("Kalshi WebSocket Public Trades");
+    expect(container.textContent).toContain("Public trades omit trader identity.");
+    expect(container.textContent).toContain("Foster opt-in Kalshi WebSocket User Fills");
+    expect(container.textContent).toContain("required");
+    expect(container.textContent).toContain("Source Receipt Artifact");
+    expect(container.textContent).toContain("verified");
+    expect(container.textContent).toContain("leader_alpha");
+    expect(container.textContent).toContain("exact_opt_in_fill");
+    expect(container.textContent).toContain("Resolved Copy Signals");
+    expect(container.textContent).toContain("$2.35");
+    expect(container.textContent).toContain("14000 ms");
+    expect(container.textContent).toContain("Exact opt-in fill source");
+    expect(container.textContent).toContain("duplicate_signal_id");
   });
 
   it("calls refresh when requested", () => {

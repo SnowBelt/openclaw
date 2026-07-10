@@ -1,53 +1,24 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  patternLabDashboardDataTesting as __testing,
+  patternLabDashboardDataTesting,
   resolvePatternLabYoutubeRoot,
 } from "./pattern-lab-dashboard-data.js";
 
 describe("Pattern Lab dashboard data helpers", () => {
-  const previousRoot = process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT;
-  let tempDir: string | null = null;
-  let youtubeRoot: string | null = null;
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-dashboard-"));
-    youtubeRoot = path.join(tempDir, "youtube-v1");
-    fs.mkdirSync(youtubeRoot, { recursive: true });
-    process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT = youtubeRoot;
-    __testing.resetPatternLabYoutubeRootForTest();
+  it("resolves the repo-local youtube-v1 command center", () => {
+    expect(resolvePatternLabYoutubeRoot()).toMatch(/openclaw\/youtube-v1$/);
   });
 
-  afterEach(() => {
-    if (previousRoot === undefined) {
-      delete process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT;
-    } else {
-      process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT = previousRoot;
-    }
-    __testing.resetPatternLabYoutubeRootForTest();
-    if (tempDir) {
-      fs.rmSync(tempDir, { force: true, recursive: true });
-    }
-    tempDir = null;
-    youtubeRoot = null;
-  });
-
-  it("resolves the configured youtube-v1 command center", () => {
-    expect(resolvePatternLabYoutubeRoot()).toBe(fs.realpathSync(youtubeRoot!));
-  });
-
-  it("checks configured roots so promoted gateway snapshots can find Pattern Lab files", () => {
+  it("checks ancestor layouts so promoted gateway snapshots can find repo-local Pattern Lab files", () => {
     expect(
-      __testing
+      patternLabDashboardDataTesting
         .collectPatternLabYoutubeRootCandidates()
-        .some((candidate) => candidate === youtubeRoot),
+        .some((candidate) => candidate.endsWith("openclaw/youtube-v1")),
     ).toBe(true);
   });
 
   it("keeps missing-root errors actionable without leaking checked absolute paths", () => {
-    const message = __testing.patternLabYoutubeRootMissingMessage();
+    const message = patternLabDashboardDataTesting.patternLabYoutubeRootMissingMessage();
 
     expect(message).toContain("OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT");
     expect(message).toContain("OpenClaw repo root");
@@ -56,7 +27,7 @@ describe("Pattern Lab dashboard data helpers", () => {
 
   it("parses quoted CSV rows for rights-ledger values", () => {
     expect(
-      __testing.parseCsv(
+      patternLabDashboardDataTesting.parseCsv(
         [
           "asset_id,asset_type,notes,human_review_status",
           'image_001,image,"specific, artifact-backed visual",approved',
@@ -76,7 +47,7 @@ describe("Pattern Lab dashboard data helpers", () => {
   });
 
   it("summarizes approval state by asset group", () => {
-    const summary = __testing.approvalSummary([
+    const summary = patternLabDashboardDataTesting.approvalSummary([
       { asset_type: "thumbnail", human_review_status: "approved" },
       { asset_type: "thumbnail", human_review_status: "pending" },
       { asset_type: "short", human_review_status: "approved" },
@@ -105,21 +76,21 @@ describe("Pattern Lab dashboard data helpers", () => {
     };
 
     expect(
-      __testing.rowMatchesAssetDecision(row, {
+      patternLabDashboardDataTesting.rowMatchesAssetDecision(row, {
         action: "approve",
         assetType: "short",
         assetId: "video-01-short-01",
       }),
     ).toBe(true);
     expect(
-      __testing.rowMatchesAssetDecision(row, {
+      patternLabDashboardDataTesting.rowMatchesAssetDecision(row, {
         action: "approve",
         assetType: "short",
         filename: "shorts/pattern-lab-video-01-short-01.mp4",
       }),
     ).toBe(true);
     expect(
-      __testing.rowMatchesAssetDecision(row, {
+      patternLabDashboardDataTesting.rowMatchesAssetDecision(row, {
         action: "approve",
         assetType: "short",
         assetId: "video-01-short-02",
@@ -128,22 +99,36 @@ describe("Pattern Lab dashboard data helpers", () => {
   });
 
   it("maps review actions to durable ledger statuses", () => {
-    expect(__testing.reviewStatusForAction("approve")).toBe("approved");
-    expect(__testing.reviewStatusForAction("reject")).toBe("rejected");
-    expect(__testing.reviewStatusForAction("regenerate")).toBe("regeneration_requested");
-    expect(__testing.reviewStatusForAction("repair")).toBe("repair_requested");
+    expect(patternLabDashboardDataTesting.reviewStatusForAction("approve")).toBe("approved");
+    expect(patternLabDashboardDataTesting.reviewStatusForAction("reject")).toBe("rejected");
+    expect(patternLabDashboardDataTesting.reviewStatusForAction("regenerate")).toBe(
+      "regeneration_requested",
+    );
+    expect(patternLabDashboardDataTesting.reviewStatusForAction("repair")).toBe("repair_requested");
   });
 
   it("normalizes only local Pattern Lab media paths", () => {
     expect(
-      __testing.normalizeMediaPath("local-output/video-01/images/thumbnail_candidate_a.png"),
+      patternLabDashboardDataTesting.normalizeMediaPath(
+        "local-output/video-01/images/thumbnail_candidate_a.png",
+      ),
     ).toBe("local-output/video-01/images/thumbnail_candidate_a.png");
     expect(
-      __testing.normalizeMediaPath("local-output/video-01/video/pattern-lab-video-01-draft.mp4"),
+      patternLabDashboardDataTesting.normalizeMediaPath(
+        "local-output/video-01/video/pattern-lab-video-01-draft.mp4",
+      ),
     ).toBe("local-output/video-01/video/pattern-lab-video-01-draft.mp4");
 
-    expect(__testing.normalizeMediaPath("../youtube-v1/local-output/video-01/x.png")).toBeNull();
-    expect(__testing.normalizeMediaPath("/local-output/video-01/x.png")).toBeNull();
-    expect(__testing.normalizeMediaPath("launch/video-01/final-script.md")).toBeNull();
+    expect(
+      patternLabDashboardDataTesting.normalizeMediaPath(
+        "../youtube-v1/local-output/video-01/x.png",
+      ),
+    ).toBeNull();
+    expect(
+      patternLabDashboardDataTesting.normalizeMediaPath("/local-output/video-01/x.png"),
+    ).toBeNull();
+    expect(
+      patternLabDashboardDataTesting.normalizeMediaPath("launch/video-01/final-script.md"),
+    ).toBeNull();
   });
 });

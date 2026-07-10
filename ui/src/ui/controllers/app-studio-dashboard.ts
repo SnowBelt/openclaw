@@ -421,6 +421,7 @@ async function requestSnapshot(
   const snapshot = await state.client.request<AppStudioDashboardSnapshot>(
     "apps.dashboard.snapshot",
     appDir ? { appDir } : {},
+    { timeoutMs: 60_000 },
   );
   applySnapshot(state, snapshot);
   state.requestUpdate?.();
@@ -432,7 +433,7 @@ async function runAction(
   action: string,
   method: string,
   params: Record<string, unknown>,
-  opts?: { pollAppDir?: string | null },
+  opts?: { timeoutMs?: number; pollAppDir?: string | null },
 ) {
   if (!state.client || !state.connected || state.appStudioSavingAction) {
     return;
@@ -445,7 +446,9 @@ async function runAction(
   const pollAppDir = opts?.pollAppDir ?? (typeof params.appDir === "string" ? params.appDir : null);
   scheduleSnapshotPoll(state, pollAppDir);
   try {
-    const result = await state.client.request<AppStudioActionResult>(method, params);
+    const result = await state.client.request<AppStudioActionResult>(method, params, {
+      timeoutMs: opts?.timeoutMs ?? 180_000,
+    });
     applySnapshot(state, result.snapshot);
     state.appStudioActionReceipt = result.receipt;
   } catch (error) {
@@ -532,7 +535,7 @@ export async function runAppStudioGate(state: AppStudioDashboardState, gate: App
     `gate:${gate}`,
     "apps.project.runGate",
     { appDir, gate },
-    { pollAppDir: appDir },
+    { timeoutMs: 900_000, pollAppDir: appDir },
   );
 }
 

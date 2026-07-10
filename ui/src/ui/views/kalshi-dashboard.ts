@@ -150,6 +150,8 @@ const METRIC_DEFINITIONS: Record<string, string> = {
     "The most common plain-language reason weather paper trades need repair, tightening, or more evidence.",
   "Strategy Discovery":
     "A paper-only shadow layer that scores hypothetical YES, NO, and no-trade choices for observed markets so OpenClaw can find patterns without adding accepted paper exposure.",
+  "Copy Shadow":
+    "A paper-only copy-leader evaluator. It watches exact opt-in fills or sharp-flow signals, simulates copied execution, and never grants live order authority.",
   "Inverse Standard Strategy Audit":
     "A paper-only audit comparing the preserved Standard Strategy baseline with the opposite-side Inverse Standard Strategy.",
   "Strategy Comparison":
@@ -385,6 +387,37 @@ function pct(value: unknown): string {
     return "n/a";
   }
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function countReasons(value: unknown, limit = 3): string {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return "none";
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([reason, count]) => [reason, typeof count === "number" ? count : Number(count)] as const)
+    .filter(([, count]) => Number.isFinite(count) && count > 0)
+    .toSorted((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit);
+  if (!entries.length) {
+    return "none";
+  }
+  return entries
+    .map(([reason, count]) => `${standardizeStrategyTerminology(reason)} ${fmt(count)}`)
+    .join(", ");
+}
+
+function topSegmentSummary(value: unknown): string {
+  if (!Array.isArray(value) || !value.length) {
+    return "no segment sample";
+  }
+  const row = value.find((item) => item && typeof item === "object") as
+    | Record<string, unknown>
+    | undefined;
+  if (!row) {
+    return "no segment sample";
+  }
+  const segment = String(row.segment_id ?? "unknown segment");
+  return `${standardizeStrategyTerminology(segment)} · ${fmt(row.live_relevant_resolved_count ?? 0)} forward resolved · ${fmt(row.forward_paper_decision_count ?? 0)} forward · ${standardizeStrategyTerminology(String(row.abstention_reason ?? "no reason"))}`;
 }
 
 function pctPoint(value: unknown): string {
@@ -1649,7 +1682,7 @@ function learningLaneCard(params: {
   `;
 }
 
-function bar(label: string, value: number, total: number, tone: "ok" | "warn" | "danger") {
+function renderBar(label: string, value: number, total: number, tone: "ok" | "warn" | "danger") {
   const width = total <= 0 ? 0 : Math.min(100, Math.max(0, Math.round((value / total) * 100)));
   const definition = TERM_DEFINITIONS[label];
   return html`
@@ -2221,15 +2254,15 @@ function trendChart(
           <title>Projection zone: values to the right are paper-only estimates.</title>
         </rect>
         ${bars.map(
-          (volumeBar) => svg`<rect
-            x=${volumeBar.x}
-            y=${volumeBar.y}
-            width=${volumeBar.width}
-            height=${volumeBar.height}
+          (bar) => svg`<rect
+            x=${bar.x}
+            y=${bar.y}
+            width=${bar.width}
+            height=${bar.height}
             rx="2"
             class="kalshi-chart-volume-bar"
           >
-            <title>${volumeBar.count} scored paper trades in this time slice</title>
+            <title>${bar.count} scored paper trades in this time slice</title>
           </rect>`,
         )}
         <polyline
@@ -2446,6 +2479,1130 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
   const shadowActions = shadowDiscovery.by_action?.slice(0, 6) ?? [];
   const shadowSegments = shadowDiscovery.best_segments?.slice(0, 5) ?? [];
   const shadowReviewCandidates = shadowDiscovery.exploration_review_candidates ?? [];
+  const copyShadow = snapshot?.kalshi_copy_shadow ?? {};
+  const copyShadowSummary = copyShadow.summary ?? {};
+  const copyShadowLatency = copyShadow.latency ?? {};
+  const copyShadowExecution = copyShadow.execution_quality ?? {};
+  const copyShadowRisk = copyShadow.risk_controls ?? {};
+  const copyShadowLeader = copyShadow.target_leader ?? {};
+  const copyShadowDiscovery = copyShadow.source_discovery ?? {};
+  const copyShadowDiscoveryBlockers = copyShadowDiscovery.blockers?.slice(0, 4) ?? [];
+  const copyShadowDiscoveryMilestones = copyShadowDiscovery.milestones?.slice(0, 4) ?? [];
+  const copyShadowCandidateSources =
+    copyShadowDiscovery.candidate_sources_reviewed?.slice(0, 8) ?? [];
+  const copyShadowSignalQuality = copyShadow.signal_quality ?? {};
+  const copyShadowSourceHealth = copyShadow.source_health ?? {};
+  type CopyShadowSourceHealthReceipt = {
+    accepted_record_count?: number;
+    collector_control_validator?: {
+      approved_for_real_collection_run?: boolean;
+      blockers?: string[];
+      next_action?: string;
+      status?: string;
+    };
+    evidence_refresh?: {
+      diagnostic_status?: string;
+      failed_run_count?: number;
+      feature_store_appended_count?: number;
+      next_action?: string;
+      outcome_appended_count?: number;
+      paper_decision_appended_count?: number;
+      max_runtime_seconds?: number;
+      max_refresh_runtime_exceeded_count?: number;
+      backlog_counts?: {
+        raw_trade_to_signal_backlog_estimate?: number;
+        signal_to_paper_decision_backlog_estimate?: number;
+        paper_decision_to_outcome_backlog_estimate?: number;
+        raw_trade_to_source_depth_backlog_estimate?: number;
+      };
+      post_outcome_materialization_run_count?: number;
+      probe_outcomes?: boolean;
+      run_count?: number;
+      signal_appended_count?: number;
+      status?: string;
+    };
+    invalid_fields?: string[];
+    materialized_paper_decision_count?: number;
+    materialized_shadow_copy_count?: number;
+    missing_fields?: string[];
+    next_action?: string;
+    sts_adapter?: {
+      action_counts?: Record<string, number>;
+      accepted_record_count?: number;
+      feature_log_record_count?: number;
+      live_routing_allowed?: boolean;
+      next_action?: string;
+      rejected_record_count?: number;
+      segment_count?: number;
+      status?: string;
+      sts_weight_change_allowed?: boolean;
+      verified?: boolean;
+    };
+    outcome_resolution_validator?: {
+      pending_resolution_count?: number;
+      resolved_count?: number;
+      status?: string;
+      next_action?: string;
+    };
+    profitability_gate_validator?: {
+      baseline_review_allowed?: boolean;
+      blockers?: string[];
+      next_action?: string;
+      observed_days?: number;
+      pending_resolution_count?: number;
+      required_observed_days?: number;
+      required_resolved_signals?: number;
+      resolved_count?: number;
+      status?: string;
+    };
+    record_count?: number;
+    raw_trade_quarantine_count?: number;
+    rejected_record_count?: number;
+    rejection_reasons?: Record<string, number>;
+    risk_flags?: string[];
+    schema_passed?: boolean;
+    collection_seen?: boolean;
+    execution_quality_verified?: boolean;
+    signal_ledger_exists?: boolean;
+    signal_ledger_missing?: boolean;
+    derived_signal_count?: number;
+    persisted_signal_count?: number;
+    status?: string;
+    unsafe_true_flags?: string[];
+  };
+  const copyShadowSourceHealthRows: Array<{
+    label: string;
+    receipt?: CopyShadowSourceHealthReceipt;
+  }> = [
+    {
+      label: "Foster Relay",
+      receipt: copyShadowSourceHealth.foster_relay_verifier,
+    },
+    {
+      label: "Caleb Public Signal",
+      receipt: copyShadowSourceHealth.caleb_public_signal_verifier,
+    },
+    {
+      label: "Signal Log",
+      receipt: copyShadowSourceHealth.signal_log_validator,
+    },
+    {
+      label: "Whale Flow",
+      receipt: copyShadowSourceHealth.whale_flow_verifier,
+    },
+  ];
+  const copyShadowSkipReasons = Object.entries(copyShadowSignalQuality.skip_reasons ?? {})
+    .toSorted(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 5);
+  const copyShadowLeaderLanes = copyShadow.leader_lanes?.slice(0, 6) ?? [];
+  const copyShadowSources = copyShadow.sources?.slice(0, 5) ?? [];
+  const copyShadowGates = copyShadow.readiness_gates ?? [];
+  const whaleFlowReceipt = copyShadowSourceHealth.whale_flow_verifier;
+  const whaleFlowCollector = whaleFlowReceipt?.collector_control_validator;
+  const whaleFlowEvidenceRefresh = whaleFlowReceipt?.evidence_refresh;
+  const whaleFlowEvidenceRefreshActive = whaleFlowReceipt?.evidence_refresh_active;
+  const whaleFlowBacklogReducer = whaleFlowReceipt?.backlog_reducer;
+  const whaleFlowSourceDepthPriority = whaleFlowReceipt?.source_depth_priority;
+  const whaleFlowOutcomeCadence = whaleFlowReceipt?.outcome_cadence;
+  const whaleFlowTradeReadyPacket = whaleFlowReceipt?.trade_ready_packet;
+  const whaleFlowAutopilot = whaleFlowReceipt?.autopilot;
+  const whaleFlowAutopilotActive = whaleFlowReceipt?.autopilot_active;
+  const whaleFlowCollectorHealth = whaleFlowReceipt?.collector_health;
+  const whaleFlowOutcome = whaleFlowReceipt?.outcome_resolution_validator;
+  const whaleFlowProfit = whaleFlowReceipt?.profitability_gate_validator;
+  const whaleFlowFillRealism = whaleFlowReceipt?.fill_realism;
+  const whaleFlowFillEvidenceGap = whaleFlowReceipt?.fill_evidence_gap;
+  const whaleFlowFillGapGovernor = whaleFlowReceipt?.fill_gap_governor;
+  const whaleFlowOrderbookStream = whaleFlowReceipt?.orderbook_stream;
+  const whaleFlowSourceDepth = whaleFlowReceipt?.source_depth;
+  const whaleFlowMarketMetadata = whaleFlowReceipt?.market_metadata;
+  const whaleFlowQuickSettling = whaleFlowReceipt?.quick_settling;
+  const whaleFlowTimeToCloseEvidence = whaleFlowReceipt?.time_to_close_evidence;
+  const whaleFlowMarketContext = whaleFlowReceipt?.market_context;
+  const whaleFlowSegmentDiagnostics = whaleFlowReceipt?.segment_diagnostics;
+  const whaleFlowSegmentFirewall = whaleFlowReceipt?.segment_firewall;
+  const whaleFlowAdverseAbstention = whaleFlowReceipt?.adverse_abstention;
+  const whaleFlowTailFadeTournament = whaleFlowReceipt?.tail_fade_tournament;
+  const whaleFlowInverseExploration = whaleFlowReceipt?.inverse_exploration_governor;
+  const whaleFlowInverseDiagnostics = whaleFlowReceipt?.inverse_diagnostics;
+  const whaleFlowOutcomeVelocity = whaleFlowReceipt?.outcome_velocity;
+  const whaleFlowRealisticOutcomeUnlock = whaleFlowReceipt?.realistic_outcome_unlock;
+  const whaleFlowTradeReadyGate = whaleFlowReceipt?.trade_ready_gate;
+  const whaleFlowLiveCanaryPreflight = whaleFlowReceipt?.live_canary_preflight;
+  const whaleFlowEvidenceDataset = whaleFlowReceipt?.evidence_dataset;
+  const whaleFlowFeatureStore = whaleFlowReceipt?.feature_store;
+  const whaleFlowStsAdapter = whaleFlowReceipt?.sts_adapter;
+  const whaleFlowLabelBottleneck = whaleFlowReceipt?.label_bottleneck;
+  const whaleFlowMlGovernor = whaleFlowReceipt?.ml_governor;
+  const whaleFlowMlxDiagnostic = whaleFlowReceipt?.mlx_diagnostic;
+  const whaleFlowProfitabilityFirewall = whaleFlowReceipt?.profitability_firewall;
+  const whaleFlowPaperGovernor = whaleFlowReceipt?.paper_governor;
+  const whaleFlowTailLossDiagnosis = whaleFlowReceipt?.tail_loss_diagnosis;
+  const whaleFlowAdverseSelection = whaleFlowReceipt?.adverse_selection;
+  const whaleFlowEntryTiming = whaleFlowReceipt?.entry_timing;
+  const whaleFlowEntryTimingObservations = whaleFlowReceipt?.entry_timing_observations;
+  const whaleFlowEntryTimingSegments = whaleFlowReceipt?.entry_timing_segments;
+  const whaleFlowEntryTimingGovernor = whaleFlowReceipt?.entry_timing_governor;
+  const whaleFlowPnlTruthLadder = whaleFlowReceipt?.pnl_truth_ladder;
+  const whaleFlowOutcomeFetchRepair = whaleFlowReceipt?.outcome_fetch_repair;
+  const whaleFlowQuickSettlingQueue = whaleFlowReceipt?.quick_settling_queue;
+  const whaleFlowBacklogAccelerator = whaleFlowReceipt?.backlog_accelerator;
+  const whaleFlowSegmentTailFadeFirewall = whaleFlowReceipt?.segment_tail_fade_firewall;
+  const whaleFlowDelayedEntryForwardTest = whaleFlowReceipt?.delayed_entry_forward_test;
+  const whaleFlowTradeReadyBlockers = (
+    whaleFlowTradeReadyGate?.blockers ??
+    copyShadowSummary.whale_flow_trade_ready_blockers ??
+    []
+  ).slice(0, 4);
+  const whaleFlowAdverseConfiguredWindowCount = (
+    copyShadowSummary.whale_flow_adverse_selection_horizons_seconds ??
+    whaleFlowAdverseSelection?.horizons_seconds ??
+    []
+  ).length;
+  const whaleFlowAdverseSourceBackedWindowCount =
+    copyShadowSummary.whale_flow_adverse_selection_source_backed_horizon_count ??
+    whaleFlowAdverseSelection?.source_backed_horizon_count ??
+    (
+      copyShadowSummary.whale_flow_adverse_selection_source_backed_horizons_seconds ??
+      whaleFlowAdverseSelection?.source_backed_horizons_seconds ??
+      []
+    ).length;
+  const whaleFlowAdverseUnderpoweredWindowCount =
+    copyShadowSummary.whale_flow_adverse_selection_underpowered_horizon_count ??
+    whaleFlowAdverseSelection?.underpowered_horizon_count ??
+    (
+      copyShadowSummary.whale_flow_adverse_selection_underpowered_horizons_seconds ??
+      whaleFlowAdverseSelection?.underpowered_horizons_seconds ??
+      []
+    ).length;
+  const whaleFlowAdverseMissingWindowCount =
+    copyShadowSummary.whale_flow_adverse_selection_missing_horizon_count ??
+    whaleFlowAdverseSelection?.missing_horizon_count ??
+    (
+      copyShadowSummary.whale_flow_adverse_selection_missing_horizons_seconds ??
+      whaleFlowAdverseSelection?.missing_horizons_seconds ??
+      []
+    ).length;
+  const whaleFlowAdverseWindowCount = (
+    copyShadowSummary.whale_flow_adverse_selection_adverse_horizons_seconds ??
+    whaleFlowAdverseSelection?.adverse_horizons_seconds ??
+    []
+  ).length;
+  const whaleFlowEntryTimingStatus =
+    copyShadowSummary.whale_flow_entry_timing_status ?? whaleFlowEntryTiming?.status ?? "not run";
+  const whaleFlowEntryTimingInstantStatus =
+    copyShadowSummary.whale_flow_entry_timing_instant_entry_status ??
+    whaleFlowEntryTiming?.instant_entry_status ??
+    "not run";
+  const whaleFlowEntryTimingSourceBackedCount =
+    copyShadowSummary.whale_flow_entry_timing_source_backed_horizon_count ??
+    whaleFlowEntryTiming?.source_backed_horizon_count ??
+    0;
+  const whaleFlowEntryTimingPoweredCount =
+    copyShadowSummary.whale_flow_entry_timing_powered_horizon_count ??
+    whaleFlowEntryTiming?.powered_horizon_count ??
+    0;
+  const whaleFlowEntryTimingImmediateHorizon =
+    copyShadowSummary.whale_flow_entry_timing_immediate_horizon_seconds ??
+    whaleFlowEntryTiming?.immediate_horizon_seconds ??
+    0;
+  const whaleFlowEntryTimingImmediateAdverseRate =
+    copyShadowSummary.whale_flow_entry_timing_immediate_adverse_rate ??
+    whaleFlowEntryTiming?.immediate_adverse_rate ??
+    null;
+  const whaleFlowEntryTimingBestDelay =
+    copyShadowSummary.whale_flow_entry_timing_best_delay_horizon_seconds ??
+    whaleFlowEntryTiming?.best_delay_horizon_seconds ??
+    0;
+  const whaleFlowEntryTimingBestDelayFavorableRate =
+    copyShadowSummary.whale_flow_entry_timing_best_delay_favorable_rate ??
+    whaleFlowEntryTiming?.best_delay_favorable_rate ??
+    null;
+  const whaleFlowEntryTimingBestDelayAdverseRate =
+    copyShadowSummary.whale_flow_entry_timing_best_delay_adverse_rate ??
+    whaleFlowEntryTiming?.best_delay_adverse_rate ??
+    null;
+  const whaleFlowEntryTimingBestDelayDelta =
+    copyShadowSummary.whale_flow_entry_timing_best_delay_average_selected_side_delta_cents ??
+    whaleFlowEntryTiming?.best_delay_average_selected_side_delta_cents ??
+    null;
+  const whaleFlowEntryTimingBestDelayEdge =
+    copyShadowSummary.whale_flow_entry_timing_best_delay_favorable_edge_count ??
+    whaleFlowEntryTiming?.best_delay_favorable_edge_count ??
+    0;
+  const whaleFlowEntryTimingForwardTest =
+    copyShadowSummary.whale_flow_entry_timing_paper_only_forward_test_recommended ??
+    whaleFlowEntryTiming?.paper_only_forward_test_recommended ??
+    false;
+  const whaleFlowEntryTimingCountsForTradeReady =
+    copyShadowSummary.whale_flow_entry_timing_counts_for_trade_ready_unlock ??
+    whaleFlowEntryTiming?.counts_for_trade_ready_unlock ??
+    false;
+  const whaleFlowEntryTimingCountsForProfit =
+    copyShadowSummary.whale_flow_entry_timing_counts_for_profitability_gate ??
+    whaleFlowEntryTiming?.counts_for_profitability_gate ??
+    false;
+  const whaleFlowEntryTimingAffectsLiveRouting =
+    copyShadowSummary.whale_flow_entry_timing_affects_live_routing ??
+    whaleFlowEntryTiming?.affects_live_routing ??
+    false;
+  const whaleFlowEntryTimingObservationStatus =
+    copyShadowSummary.whale_flow_entry_timing_observation_status ??
+    whaleFlowEntryTimingObservations?.status ??
+    "not run";
+  const whaleFlowEntryTimingObservationCount =
+    copyShadowSummary.whale_flow_entry_timing_observation_count ??
+    whaleFlowEntryTimingObservations?.record_count ??
+    0;
+  const whaleFlowEntryTimingObservationSourceBackedCount =
+    copyShadowSummary.whale_flow_entry_timing_observation_source_backed_count ??
+    whaleFlowEntryTimingObservations?.source_backed_observation_count ??
+    0;
+  const whaleFlowEntryTimingObservationImprovedCount =
+    copyShadowSummary.whale_flow_entry_timing_observation_improved_entry_count ??
+    whaleFlowEntryTimingObservations?.improved_entry_count ??
+    0;
+  const whaleFlowEntryTimingObservationWorseCount =
+    copyShadowSummary.whale_flow_entry_timing_observation_worse_entry_count ??
+    whaleFlowEntryTimingObservations?.worse_entry_count ??
+    0;
+  const whaleFlowEntryTimingObservationAverageImprovement =
+    copyShadowSummary.whale_flow_entry_timing_observation_average_entry_price_improvement_cents ??
+    whaleFlowEntryTimingObservations?.average_delayed_entry_price_improvement_cents ??
+    null;
+  const whaleFlowEntryTimingObservationBestDelay =
+    copyShadowSummary.whale_flow_entry_timing_observation_best_delay_horizon_seconds ??
+    whaleFlowEntryTimingObservations?.best_delay_horizon_seconds ??
+    0;
+  const whaleFlowEntryTimingObservationsCountForTradeReady =
+    copyShadowSummary.whale_flow_entry_timing_observations_count_for_trade_ready_unlock ??
+    whaleFlowEntryTimingObservations?.counts_for_trade_ready_unlock ??
+    false;
+  const whaleFlowEntryTimingObservationsCountForProfit =
+    copyShadowSummary.whale_flow_entry_timing_observations_count_for_profitability_gate ??
+    whaleFlowEntryTimingObservations?.counts_for_profitability_gate ??
+    false;
+  const whaleFlowEntryTimingObservationsAffectLiveRouting =
+    copyShadowSummary.whale_flow_entry_timing_observations_affect_live_routing ??
+    whaleFlowEntryTimingObservations?.affects_live_routing ??
+    false;
+  const whaleFlowEntryTimingSegmentStatus =
+    copyShadowSummary.whale_flow_entry_timing_segment_status ??
+    whaleFlowEntryTimingSegments?.status ??
+    "not run";
+  const whaleFlowEntryTimingSegmentCount =
+    copyShadowSummary.whale_flow_entry_timing_segment_count ??
+    whaleFlowEntryTimingSegments?.segment_count ??
+    0;
+  const whaleFlowEntryTimingSegmentPoweredCount =
+    copyShadowSummary.whale_flow_entry_timing_segment_powered_count ??
+    whaleFlowEntryTimingSegments?.powered_segment_count ??
+    0;
+  const whaleFlowEntryTimingSegmentUnderpoweredCount =
+    copyShadowSummary.whale_flow_entry_timing_segment_underpowered_count ??
+    whaleFlowEntryTimingSegments?.underpowered_segment_count ??
+    0;
+  const whaleFlowEntryTimingSegmentDelayImprovedCount =
+    copyShadowSummary.whale_flow_entry_timing_segment_delay_improved_count ??
+    whaleFlowEntryTimingSegments?.delay_improved_segment_count ??
+    0;
+  const whaleFlowEntryTimingSegmentDelayWorseCount =
+    copyShadowSummary.whale_flow_entry_timing_segment_delay_worse_count ??
+    whaleFlowEntryTimingSegments?.delay_worse_segment_count ??
+    0;
+  const whaleFlowEntryTimingSegmentAverageImprovement =
+    copyShadowSummary.whale_flow_entry_timing_segment_average_entry_price_improvement_cents ??
+    whaleFlowEntryTimingSegments?.average_delayed_entry_price_improvement_cents ??
+    null;
+  const whaleFlowEntryTimingSegmentGlobalAction =
+    copyShadowSummary.whale_flow_entry_timing_segment_global_action ??
+    whaleFlowEntryTimingSegments?.global_action ??
+    "not run";
+  const whaleFlowEntryTimingSegmentGlobalDelayRuleAllowed =
+    copyShadowSummary.whale_flow_entry_timing_segment_global_delay_rule_allowed ??
+    whaleFlowEntryTimingSegments?.global_delay_rule_allowed ??
+    false;
+  const whaleFlowEntryTimingSegmentsCountForTradeReady =
+    copyShadowSummary.whale_flow_entry_timing_segments_count_for_trade_ready_unlock ??
+    whaleFlowEntryTimingSegments?.counts_for_trade_ready_unlock ??
+    false;
+  const whaleFlowEntryTimingSegmentsCountForProfit =
+    copyShadowSummary.whale_flow_entry_timing_segments_count_for_profitability_gate ??
+    whaleFlowEntryTimingSegments?.counts_for_profitability_gate ??
+    false;
+  const whaleFlowEntryTimingSegmentsAffectLiveRouting =
+    copyShadowSummary.whale_flow_entry_timing_segments_affect_live_routing ??
+    whaleFlowEntryTimingSegments?.affects_live_routing ??
+    false;
+  const whaleFlowEntryTimingGovernorStatus =
+    copyShadowSummary.whale_flow_entry_timing_governor_status ??
+    whaleFlowEntryTimingGovernor?.status ??
+    "not run";
+  const whaleFlowEntryTimingGovernorAction =
+    copyShadowSummary.whale_flow_entry_timing_governor_action ??
+    whaleFlowEntryTimingGovernor?.governor_action ??
+    "not run";
+  const whaleFlowEntryTimingGovernorReason =
+    copyShadowSummary.whale_flow_entry_timing_governor_action_reason ??
+    whaleFlowEntryTimingGovernor?.action_reason ??
+    whaleFlowEntryTimingGovernor?.reason ??
+    "";
+  const whaleFlowEntryTimingGovernorEvidenceTier =
+    copyShadowSummary.whale_flow_entry_timing_governor_evidence_tier ??
+    whaleFlowEntryTimingGovernor?.evidence_tier ??
+    "not run";
+  const whaleFlowEntryTimingGovernorSegmentScope =
+    copyShadowSummary.whale_flow_entry_timing_governor_segment_scope ??
+    whaleFlowEntryTimingGovernor?.segment_scope ??
+    "not run";
+  const whaleFlowEntryTimingGovernorPoweredCandidates =
+    copyShadowSummary.whale_flow_entry_timing_governor_powered_delayed_entry_candidate_count ??
+    whaleFlowEntryTimingGovernor?.powered_delayed_entry_candidate_count ??
+    0;
+  const whaleFlowEntryTimingGovernorUnderpoweredCandidates =
+    copyShadowSummary.whale_flow_entry_timing_governor_underpowered_delayed_entry_candidate_count ??
+    whaleFlowEntryTimingGovernor?.underpowered_delayed_entry_candidate_count ??
+    0;
+  const whaleFlowEntryTimingGovernorRejectedSegments =
+    copyShadowSummary.whale_flow_entry_timing_governor_rejected_delay_segment_count ??
+    whaleFlowEntryTimingGovernor?.rejected_delay_segment_count ??
+    0;
+  const whaleFlowEntryTimingGovernorGlobalDelayAllowed =
+    copyShadowSummary.whale_flow_entry_timing_governor_global_delay_rule_allowed ??
+    whaleFlowEntryTimingGovernor?.global_delay_rule_allowed ??
+    false;
+  const whaleFlowEntryTimingGovernorSourceGlobalDelayAllowed =
+    copyShadowSummary.whale_flow_entry_timing_governor_source_global_delay_rule_allowed ??
+    whaleFlowEntryTimingGovernor?.source_global_delay_rule_allowed ??
+    false;
+  const whaleFlowEntryTimingGovernorDelayedForwardTestAllowed =
+    copyShadowSummary.whale_flow_entry_timing_governor_delayed_entry_forward_test_allowed ??
+    whaleFlowEntryTimingGovernor?.delayed_entry_forward_test_allowed ??
+    false;
+  const whaleFlowEntryTimingGovernorInstantPolicy =
+    copyShadowSummary.whale_flow_entry_timing_governor_instant_entry_policy ??
+    whaleFlowEntryTimingGovernor?.instant_entry_policy ??
+    "not run";
+  const whaleFlowEntryTimingGovernorCountsForTradeReady =
+    copyShadowSummary.whale_flow_entry_timing_governor_counts_for_trade_ready_unlock ??
+    whaleFlowEntryTimingGovernor?.counts_for_trade_ready_unlock ??
+    false;
+  const whaleFlowEntryTimingGovernorCountsForProfit =
+    copyShadowSummary.whale_flow_entry_timing_governor_counts_for_profitability_gate ??
+    whaleFlowEntryTimingGovernor?.counts_for_profitability_gate ??
+    false;
+  const whaleFlowEntryTimingGovernorAffectsLiveRouting =
+    copyShadowSummary.whale_flow_entry_timing_governor_affects_live_routing ??
+    whaleFlowEntryTimingGovernor?.affects_live_routing ??
+    false;
+  const whaleFlowEntryTimingGovernorNextAction =
+    copyShadowSummary.whale_flow_entry_timing_governor_next_action ??
+    whaleFlowEntryTimingGovernor?.next_action ??
+    "";
+  const whaleFlowAdverseAbstentionStatus =
+    copyShadowSummary.whale_flow_adverse_abstention_status ??
+    whaleFlowAdverseAbstention?.status ??
+    "not run";
+  const whaleFlowAdverseAbstentionActionCount =
+    copyShadowSummary.whale_flow_adverse_abstention_action_count ??
+    whaleFlowAdverseAbstention?.abstention_action_count ??
+    0;
+  const whaleFlowAdverseAbstentionPoweredPauseCount =
+    copyShadowSummary.whale_flow_adverse_abstention_powered_pause_segment_count ??
+    whaleFlowAdverseAbstention?.powered_pause_segment_count ??
+    0;
+  const whaleFlowAdverseAbstentionShadowOnlyCount =
+    copyShadowSummary.whale_flow_adverse_abstention_shadow_only_watch_segment_count ??
+    whaleFlowAdverseAbstention?.shadow_only_watch_segment_count ??
+    0;
+  const whaleFlowAdverseAbstentionInverseForwardTestCount =
+    copyShadowSummary.whale_flow_adverse_abstention_inverse_forward_test_segment_count ??
+    whaleFlowAdverseAbstention?.inverse_forward_test_segment_count ??
+    0;
+  const whaleFlowAdverseAbstentionNoTradePnl =
+    copyShadowSummary.whale_flow_adverse_abstention_no_trade_baseline_pnl_usd ??
+    whaleFlowAdverseAbstention?.no_trade_baseline_pnl_usd ??
+    0;
+  const whaleFlowAdverseAbstentionCountsForTradeReady =
+    copyShadowSummary.whale_flow_adverse_abstention_counts_for_trade_ready_unlock ??
+    whaleFlowAdverseAbstention?.counts_for_trade_ready_unlock ??
+    false;
+  const whaleFlowAdverseAbstentionCountsForProfit =
+    copyShadowSummary.whale_flow_adverse_abstention_counts_for_profitability_gate ??
+    whaleFlowAdverseAbstention?.counts_for_profitability_gate ??
+    false;
+  const whaleFlowAdverseAbstentionAffectsLiveRouting =
+    copyShadowSummary.whale_flow_adverse_abstention_affects_live_routing ??
+    whaleFlowAdverseAbstention?.affects_live_routing ??
+    false;
+  const whaleFlowSegmentFirewallActionCounts =
+    copyShadowSummary.whale_flow_segment_firewall_action_counts ??
+    whaleFlowSegmentFirewall?.action_counts ??
+    {};
+  const whaleFlowSegmentFirewallInverseForwardTestCount =
+    copyShadowSummary.whale_flow_segment_firewall_inverse_forward_test_count ??
+    whaleFlowSegmentFirewallActionCounts.INVERSE_FORWARD_TEST ??
+    0;
+  const whaleFlowSegmentFirewallRejectDataQualityCount =
+    whaleFlowSegmentFirewallActionCounts.REJECT_DATA_QUALITY ?? 0;
+  const whaleFlowInverseExplorationCandidates = (
+    copyShadowSummary.whale_flow_inverse_exploration_top_candidate_segments ??
+    whaleFlowInverseExploration?.candidate_segments ??
+    []
+  ).slice(0, 3);
+  const whaleFlowInverseExplorationCandidateSummary =
+    whaleFlowInverseExplorationCandidates
+      .map((segment) => {
+        const segmentId = String(segment.segment_id ?? "segment");
+        const action = plainStrategyToken(
+          String(segment.governor_action ?? "inverse_forward_test"),
+        );
+        return `${segmentId} ${action}`;
+      })
+      .join("; ") || "no candidate segment sample";
+  const whaleFlowSegmentActionCounts =
+    copyShadowSummary.whale_flow_segment_action_counts ??
+    whaleFlowSegmentDiagnostics?.segment_action_counts ??
+    {};
+  const whaleFlowSegmentConfidenceCounts =
+    copyShadowSummary.whale_flow_segment_confidence_status_counts ??
+    whaleFlowSegmentDiagnostics?.segment_confidence_status_counts ??
+    {};
+  const whaleFlowSegmentAbstentionReasonCounts =
+    copyShadowSummary.whale_flow_segment_abstention_reason_counts ??
+    whaleFlowSegmentDiagnostics?.segment_abstention_reason_counts ??
+    {};
+  const whaleFlowSegmentMarketFamilyCounts =
+    copyShadowSummary.whale_flow_segment_market_family_counts ??
+    whaleFlowSegmentDiagnostics?.segment_market_family_counts ??
+    {};
+  const whaleFlowSegmentTickerPrefixCounts =
+    copyShadowSummary.whale_flow_segment_ticker_prefix_counts ??
+    whaleFlowSegmentDiagnostics?.segment_ticker_prefix_counts ??
+    {};
+  const whaleFlowSegmentSideCounts =
+    copyShadowSummary.whale_flow_segment_side_counts ??
+    whaleFlowSegmentDiagnostics?.segment_side_counts ??
+    {};
+  const whaleFlowSegmentPriceBandCounts =
+    copyShadowSummary.whale_flow_segment_price_band_counts ??
+    whaleFlowSegmentDiagnostics?.segment_price_band_counts ??
+    {};
+  const whaleFlowSegmentSpreadBandCounts =
+    copyShadowSummary.whale_flow_segment_spread_band_counts ??
+    whaleFlowSegmentDiagnostics?.segment_spread_band_counts ??
+    {};
+  const whaleFlowSegmentSizeBandCounts =
+    copyShadowSummary.whale_flow_segment_size_band_counts ??
+    whaleFlowSegmentDiagnostics?.segment_size_band_counts ??
+    {};
+  const whaleFlowSegmentLiquidityBandCounts =
+    copyShadowSummary.whale_flow_segment_liquidity_band_counts ??
+    whaleFlowSegmentDiagnostics?.segment_liquidity_band_counts ??
+    {};
+  const whaleFlowSegmentTimeToCloseBandCounts =
+    copyShadowSummary.whale_flow_segment_time_to_close_band_counts ??
+    whaleFlowSegmentDiagnostics?.segment_time_to_close_band_counts ??
+    {};
+  const whaleFlowSegmentBlockedCount =
+    copyShadowSummary.whale_flow_segment_blocked_count ??
+    whaleFlowSegmentDiagnostics?.blocked_segment_count ??
+    0;
+  const whaleFlowSegmentPromotionCandidateCount =
+    copyShadowSummary.whale_flow_segment_promotion_candidate_count ??
+    whaleFlowSegmentDiagnostics?.promotion_candidate_segment_count ??
+    0;
+  const whaleFlowTopBlockedSegments =
+    copyShadowSummary.whale_flow_segment_top_blocked_segments ??
+    whaleFlowSegmentDiagnostics?.top_blocked_segments ??
+    [];
+  const whaleFlowFillDecisionCount =
+    copyShadowSummary.whale_flow_fill_realism_decision_count ??
+    whaleFlowFillRealism?.decision_count ??
+    0;
+  const whaleFlowForwardFillDecisionCount =
+    copyShadowSummary.whale_flow_fill_realism_forward_paper_decision_count ??
+    whaleFlowFillRealism?.forward_paper_decision_count ??
+    0;
+  const whaleFlowForwardMissedOrUnverifiedCount =
+    copyShadowSummary.whale_flow_fill_realism_forward_missed_or_unverified_count ??
+    whaleFlowFillRealism?.forward_missed_or_unverified_count ??
+    0;
+  const whaleFlowLateBackfillRealisticFillCount =
+    copyShadowSummary.whale_flow_fill_realism_late_backfill_realistic_fill_count ??
+    whaleFlowFillRealism?.late_backfill_realistic_fill_count ??
+    0;
+  const whaleFlowLiveRelevantFillRate =
+    copyShadowSummary.whale_flow_fill_realism_live_relevant_realistic_fill_rate ??
+    whaleFlowFillRealism?.live_relevant_realistic_fill_rate ??
+    null;
+  const whaleFlowSourceDepthCoverageRate =
+    copyShadowSummary.whale_flow_fill_realism_source_depth_coverage_rate ??
+    whaleFlowFillRealism?.source_depth_coverage_rate ??
+    null;
+  const whaleFlowSourceDepthTimingVerifiedRate =
+    copyShadowSummary.whale_flow_fill_realism_source_depth_timing_verified_rate ??
+    whaleFlowFillRealism?.source_depth_timing_verified_rate ??
+    null;
+  const whaleFlowSourceDepthTimingVerifiedCount =
+    copyShadowSummary.whale_flow_fill_realism_source_depth_timing_verified_count ??
+    whaleFlowFillRealism?.source_depth_timing_verified_count ??
+    0;
+  const whaleFlowSourceDepthTimingUnverifiedCount =
+    copyShadowSummary.whale_flow_fill_realism_source_depth_timing_unverified_count ??
+    whaleFlowFillRealism?.source_depth_timing_unverified_count ??
+    0;
+  const whaleFlowP95SourceDepthSignalLagSeconds =
+    copyShadowSummary.whale_flow_fill_realism_p95_source_depth_signal_lag_seconds ??
+    whaleFlowFillRealism?.p95_source_depth_signal_lag_seconds ??
+    null;
+  const whaleFlowMaxSourceDepthSignalLagSeconds =
+    copyShadowSummary.whale_flow_fill_realism_max_source_depth_signal_lag_seconds ??
+    whaleFlowFillRealism?.max_source_depth_signal_lag_seconds ??
+    null;
+  const whaleFlowMissedFillReasons =
+    copyShadowSummary.whale_flow_fill_realism_missed_fill_reasons ??
+    whaleFlowFillRealism?.missed_fill_reasons ??
+    {};
+  const whaleFlowForwardMissedFillReasons =
+    copyShadowSummary.whale_flow_fill_realism_forward_missed_fill_reasons ??
+    whaleFlowFillRealism?.forward_missed_fill_reasons ??
+    {};
+  const whaleFlowLateBackfillMissedFillReasons =
+    copyShadowSummary.whale_flow_fill_realism_late_backfill_missed_fill_reasons ??
+    whaleFlowFillRealism?.late_backfill_missed_fill_reasons ??
+    {};
+  const whaleFlowFillEvidenceGapReasonCounts =
+    copyShadowSummary.whale_flow_fill_evidence_gap_reason_counts ??
+    whaleFlowFillEvidenceGap?.gap_reason_counts ??
+    {};
+  const whaleFlowFillEvidenceExcludedGapReasonCounts =
+    copyShadowSummary.whale_flow_fill_evidence_gap_excluded_gap_reason_counts ??
+    whaleFlowFillEvidenceGap?.excluded_gap_reason_counts ??
+    {};
+  const whaleFlowFillEvidenceTopGapDecisions = (
+    copyShadowSummary.whale_flow_fill_evidence_gap_top_gap_decisions ??
+    whaleFlowFillEvidenceGap?.top_gap_decisions ??
+    []
+  ).slice(0, 3);
+  const whaleFlowFillEvidenceTopGapSummary = whaleFlowFillEvidenceTopGapDecisions.length
+    ? whaleFlowFillEvidenceTopGapDecisions
+        .map((gap) => {
+          const ticker = String(gap.market_ticker ?? "unknown");
+          const side = String(gap.side ?? "side");
+          const reason = String(gap.missed_fill_reason ?? "fill_gap");
+          return `${ticker} ${side} ${reason}`;
+        })
+        .join("; ")
+    : "no current gap sample";
+  const whaleFlowFillGapGovernorStatus =
+    copyShadowSummary.whale_flow_fill_gap_governor_status ??
+    whaleFlowFillGapGovernor?.status ??
+    "not run";
+  const whaleFlowFillGapGovernorAction =
+    copyShadowSummary.whale_flow_fill_gap_governor_action ??
+    whaleFlowFillGapGovernor?.governor_action ??
+    "not run";
+  const whaleFlowFillGapGovernorReason =
+    copyShadowSummary.whale_flow_fill_gap_governor_action_reason ??
+    whaleFlowFillGapGovernor?.action_reason ??
+    whaleFlowFillGapGovernor?.reason ??
+    "";
+  const whaleFlowFillGapGovernorEvidenceTier =
+    copyShadowSummary.whale_flow_fill_gap_governor_evidence_tier ??
+    whaleFlowFillGapGovernor?.evidence_tier ??
+    "not run";
+  const whaleFlowFillGapGovernorSegmentScope =
+    copyShadowSummary.whale_flow_fill_gap_governor_segment_scope ??
+    whaleFlowFillGapGovernor?.segment_scope ??
+    "not run";
+  const whaleFlowFillGapGovernorForwardDecisionCount =
+    copyShadowSummary.whale_flow_fill_gap_governor_forward_decision_count ??
+    whaleFlowFillGapGovernor?.forward_decision_count ??
+    0;
+  const whaleFlowFillGapGovernorRealisticFillCount =
+    copyShadowSummary.whale_flow_fill_gap_governor_realistic_fill_count ??
+    whaleFlowFillGapGovernor?.realistic_fill_count ??
+    0;
+  const whaleFlowFillGapGovernorVerifiedMissedFillCount =
+    copyShadowSummary.whale_flow_fill_gap_governor_verified_missed_fill_count ??
+    whaleFlowFillGapGovernor?.verified_missed_fill_count ??
+    0;
+  const whaleFlowFillGapGovernorUnverifiedGapCount =
+    copyShadowSummary.whale_flow_fill_gap_governor_unverified_gap_count ??
+    whaleFlowFillGapGovernor?.unverified_gap_count ??
+    0;
+  const whaleFlowFillGapGovernorExcludedGapCount =
+    copyShadowSummary.whale_flow_fill_gap_governor_excluded_gap_count ??
+    whaleFlowFillGapGovernor?.excluded_gap_count ??
+    0;
+  const whaleFlowFillGapGovernorQuarantinedCount =
+    copyShadowSummary.whale_flow_fill_gap_governor_quarantined_unverified_gap_count ??
+    whaleFlowFillGapGovernor?.quarantined_unverified_gap_count ??
+    0;
+  const whaleFlowFillGapGovernorLiveRelevantVerified =
+    copyShadowSummary.whale_flow_fill_gap_governor_live_relevant_fill_evidence_verified ??
+    whaleFlowFillGapGovernor?.live_relevant_fill_evidence_verified ??
+    false;
+  const whaleFlowFillGapGovernorCountsForTradeReady =
+    copyShadowSummary.whale_flow_fill_gap_governor_counts_for_trade_ready_unlock ??
+    whaleFlowFillGapGovernor?.counts_for_trade_ready_unlock ??
+    false;
+  const whaleFlowFillGapGovernorCountsForProfit =
+    copyShadowSummary.whale_flow_fill_gap_governor_counts_for_profitability_gate ??
+    whaleFlowFillGapGovernor?.counts_for_profitability_gate ??
+    false;
+  const whaleFlowFillGapGovernorCountsForTraining =
+    copyShadowSummary.whale_flow_fill_gap_governor_counts_for_training_label ??
+    whaleFlowFillGapGovernor?.counts_for_training_label ??
+    false;
+  const whaleFlowFillGapGovernorAffectsLiveRouting =
+    copyShadowSummary.whale_flow_fill_gap_governor_affects_live_routing ??
+    whaleFlowFillGapGovernor?.affects_live_routing ??
+    false;
+  const whaleFlowFillGapGovernorGapReasons =
+    copyShadowSummary.whale_flow_fill_gap_governor_gap_reason_counts ??
+    whaleFlowFillGapGovernor?.gap_reason_counts ??
+    {};
+  const whaleFlowFillGapGovernorVerifiedMissReasons =
+    copyShadowSummary.whale_flow_fill_gap_governor_verified_missed_fill_reason_counts ??
+    whaleFlowFillGapGovernor?.verified_missed_fill_reason_counts ??
+    {};
+  const whaleFlowFillGapGovernorNextAction =
+    copyShadowSummary.whale_flow_fill_gap_governor_next_action ??
+    whaleFlowFillGapGovernor?.next_action ??
+    "";
+  const copyShadowResolved = copyShadowSummary.resolved_signals ?? 0;
+  const copyShadowSignalsSeen = copyShadowSummary.signals_seen ?? 0;
+  const whaleFlowSignalsSeen =
+    copyShadowSummary.whale_flow_signals_seen ?? whaleFlowReceipt?.record_count ?? 0;
+  const whaleFlowEligibleSignals =
+    copyShadowSummary.whale_flow_eligible_shadow_signals ??
+    whaleFlowReceipt?.accepted_record_count ??
+    0;
+  const whaleFlowSkippedSignals =
+    copyShadowSummary.whale_flow_skipped_signals ?? whaleFlowReceipt?.rejected_record_count ?? 0;
+  const whaleFlowPersistedSignals =
+    copyShadowSummary.whale_flow_persisted_signal_count ??
+    whaleFlowReceipt?.persisted_signal_count ??
+    0;
+  const whaleFlowDerivedSignals =
+    copyShadowSummary.whale_flow_derived_signal_count ??
+    whaleFlowReceipt?.derived_signal_count ??
+    0;
+  const whaleFlowPaperDecisionSkipReasons = Object.entries(
+    copyShadowSummary.whale_flow_paper_decision_skip_reason_counts ?? {},
+  )
+    .toSorted(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 3);
+  const whaleFlowPaperDecisionSkipReasonText = whaleFlowPaperDecisionSkipReasons.length
+    ? whaleFlowPaperDecisionSkipReasons
+        .map(([reason, count]) => `${fmt(reason)} ${fmt(count)}`)
+        .join(" · ")
+    : "No paper-decision skips recorded.";
+  const whaleFlowEvidenceRefreshOpsText = ` Active ${fmt(
+    whaleFlowEvidenceRefreshActive?.status ??
+      copyShadowSummary.whale_flow_evidence_refresh_active_status ??
+      "not observed",
+  )} · process alive ${
+    (whaleFlowEvidenceRefreshActive?.process_alive ??
+    copyShadowSummary.whale_flow_evidence_refresh_process_alive)
+      ? "yes"
+      : "no"
+  } · PID ${fmt(
+    whaleFlowEvidenceRefreshActive?.pid ?? copyShadowSummary.whale_flow_evidence_refresh_pid ?? 0,
+  )} · latest run ${fmt(
+    whaleFlowEvidenceRefreshActive?.latest_run_index ??
+      copyShadowSummary.whale_flow_evidence_refresh_latest_run_index ??
+      0,
+  )} age ${fmt(
+    whaleFlowEvidenceRefreshActive?.latest_run_age_seconds ??
+      copyShadowSummary.whale_flow_evidence_refresh_latest_run_age_seconds ??
+      0,
+  )}s, elapsed ${fmt(
+    whaleFlowEvidenceRefreshActive?.latest_elapsed_seconds ??
+      copyShadowSummary.whale_flow_evidence_refresh_latest_elapsed_seconds ??
+      0,
+  )}s, signals ${fmt(
+    whaleFlowEvidenceRefreshActive?.latest_signal_appended_count ??
+      copyShadowSummary.whale_flow_evidence_refresh_latest_signal_appended_count ??
+      0,
+  )}, paper ${fmt(
+    whaleFlowEvidenceRefreshActive?.latest_paper_decision_appended_count ??
+      copyShadowSummary.whale_flow_evidence_refresh_latest_paper_decision_appended_count ??
+      0,
+  )}, outcomes ${fmt(
+    whaleFlowEvidenceRefreshActive?.latest_outcome_appended_count ??
+      copyShadowSummary.whale_flow_evidence_refresh_latest_outcome_appended_count ??
+      0,
+  )}. Backlog reducer ${fmt(
+    whaleFlowBacklogReducer?.status ??
+      copyShadowSummary.whale_flow_backlog_reducer_status ??
+      "not run",
+  )}: ${fmt(
+    whaleFlowBacklogReducer?.signal_appended_count ??
+      copyShadowSummary.whale_flow_backlog_reducer_signal_appended_count ??
+      0,
+  )} signals, ${fmt(
+    whaleFlowBacklogReducer?.paper_decision_appended_count ??
+      copyShadowSummary.whale_flow_backlog_reducer_paper_decision_appended_count ??
+      0,
+  )} paper. Priority depth ${fmt(
+    whaleFlowSourceDepthPriority?.status ??
+      copyShadowSummary.whale_flow_source_depth_priority_status ??
+      "not run",
+  )}: ${fmt(
+    whaleFlowSourceDepthPriority?.appended_count ??
+      copyShadowSummary.whale_flow_source_depth_priority_appended_count ??
+      0,
+  )} appended / ${fmt(
+    whaleFlowSourceDepthPriority?.priority_trade_id_count ??
+      copyShadowSummary.whale_flow_source_depth_priority_trade_id_count ??
+      0,
+  )} priority. Outcome cadence ${fmt(
+    whaleFlowOutcomeCadence?.status ??
+      copyShadowSummary.whale_flow_outcome_cadence_status ??
+      "not run",
+  )}: ${fmt(
+    whaleFlowOutcomeCadence?.outcome_appended_count ??
+      copyShadowSummary.whale_flow_outcome_cadence_outcome_appended_count ??
+      0,
+  )} outcomes. Trade packet ${fmt(
+    whaleFlowTradeReadyPacket?.status ??
+      copyShadowSummary.whale_flow_trade_ready_packet_status ??
+      "not run",
+  )} · verified ${
+    (whaleFlowTradeReadyPacket?.verified ??
+    copyShadowSummary.whale_flow_trade_ready_packet_verified)
+      ? "yes"
+      : "no"
+  }.`;
+  const whaleFlowCapacityBlockedForwardSample =
+    copyShadowSummary.whale_flow_paper_decision_capacity_blocked_forward_signal_sample?.[0];
+  const whaleFlowCapacityBlockedForwardSampleText =
+    whaleFlowCapacityBlockedForwardSample?.market_ticker &&
+    whaleFlowCapacityBlockedForwardSample?.side
+      ? ` Sample ${whaleFlowCapacityBlockedForwardSample.market_ticker} ${whaleFlowCapacityBlockedForwardSample.side} @ ${fmt(
+          whaleFlowCapacityBlockedForwardSample.price_cents ?? 0,
+        )}¢.`
+      : "";
+  const whaleFlowSegmentFirewallBlockedSample =
+    copyShadowSummary.whale_flow_paper_decision_segment_firewall_blocked_signal_sample?.[0];
+  const whaleFlowSegmentFirewallText =
+    (copyShadowSummary.whale_flow_paper_decision_segment_firewall_blocked_signal_count ?? 0) > 0
+      ? `${fmt(
+          copyShadowSummary.whale_flow_paper_decision_segment_firewall_blocked_signal_count ?? 0,
+        )} blocked by segment firewall · status ${fmt(
+          plainStrategyToken(
+            copyShadowSummary.whale_flow_paper_decision_segment_firewall_status ?? "unknown",
+          ),
+        )} · trade-ready proof ${
+          copyShadowSummary.whale_flow_paper_decision_segment_firewall_blocks_count_for_trade_ready_unlock
+            ? "yes"
+            : "no"
+        }.${
+          whaleFlowSegmentFirewallBlockedSample?.market_ticker
+            ? ` Sample ${whaleFlowSegmentFirewallBlockedSample.market_ticker} ${fmt(
+                plainStrategyToken(
+                  whaleFlowSegmentFirewallBlockedSample.segment_firewall_action ?? "blocked",
+                ),
+              )} ${plainStrategyToken(whaleFlowSegmentFirewallBlockedSample.segment_firewall_match_type ?? "match")}.`
+            : ""
+        }`
+      : "";
+  const whaleFlowPaperGovernorReasons = (
+    copyShadowSummary.whale_flow_paper_governor_reason_codes ??
+    whaleFlowPaperGovernor?.reason_codes ??
+    []
+  ).slice(0, 4);
+  const whaleFlowPaperGovernorBlockedSample =
+    copyShadowSummary.whale_flow_paper_decision_paper_governor_blocked_signal_sample?.[0];
+  const whaleFlowPaperGovernorBlockedText =
+    (copyShadowSummary.whale_flow_paper_decision_paper_governor_blocked_signal_count ?? 0) > 0
+      ? `${fmt(
+          copyShadowSummary.whale_flow_paper_decision_paper_governor_blocked_signal_count ?? 0,
+        )} fresh forward-tail signal(s) paused by paper governor.${
+          whaleFlowPaperGovernorBlockedSample?.market_ticker
+            ? ` Sample ${whaleFlowPaperGovernorBlockedSample.market_ticker} ${fmt(
+                plainStrategyToken(
+                  whaleFlowPaperGovernorBlockedSample.paper_governor_action ?? "shadow_only",
+                ),
+              )}.`
+            : ""
+        }`
+      : "No fresh signals paused by the paper governor in the latest preview.";
+  const whaleFlowTailLossRootCauses =
+    copyShadowSummary.whale_flow_tail_loss_diagnosis_root_cause_counts ??
+    whaleFlowTailLossDiagnosis?.root_cause_counts ??
+    {};
+  const whaleFlowTailLossActionCounts =
+    copyShadowSummary.whale_flow_tail_loss_diagnosis_action_counts ??
+    whaleFlowTailLossDiagnosis?.action_counts ??
+    {};
+  const whaleFlowTailLossTopCohort =
+    (copyShadowSummary.whale_flow_tail_loss_diagnosis_top_loss_cohorts ??
+      whaleFlowTailLossDiagnosis?.top_loss_cohorts ??
+      [])[0];
+  const whaleFlowTailLossTopCohortSegment =
+    typeof whaleFlowTailLossTopCohort?.segment_id === "string"
+      ? whaleFlowTailLossTopCohort.segment_id
+      : "";
+  const whaleFlowTailLossTopCohortText = whaleFlowTailLossTopCohortSegment
+    ? ` Top loss cohort ${plainStrategyToken(whaleFlowTailLossTopCohortSegment)} tail ${money(
+        whaleFlowTailLossTopCohort?.tail_after_cost_pnl_usd,
+      )} vs inverse ${money(whaleFlowTailLossTopCohort?.inverse_after_cost_pnl_usd)}.`
+    : "";
+  const whaleFlowOutcomeRepairCounts =
+    copyShadowSummary.whale_flow_outcome_fetch_repair_classification_counts ??
+    whaleFlowOutcomeFetchRepair?.classification_counts ??
+    {};
+  const whaleFlowBacklogAcceleratorCounts =
+    copyShadowSummary.whale_flow_backlog_accelerator_counts ??
+    whaleFlowBacklogAccelerator?.backlog_counts ??
+    {};
+  const whaleFlowSegmentTailFadeActionCounts =
+    copyShadowSummary.whale_flow_segment_tail_fade_firewall_action_counts ??
+    whaleFlowSegmentTailFadeFirewall?.action_counts ??
+    {};
+  const whaleFlowPnlTruthLiveRelevant =
+    copyShadowSummary.whale_flow_pnl_truth_live_relevant_after_cost_pnl_usd;
+  const whaleFlowPnlTruthForwardGate =
+    copyShadowSummary.whale_flow_pnl_truth_profitability_gate_forward_pnl_usd;
+  const whaleFlowPnlTruthLiveReady =
+    copyShadowSummary.whale_flow_pnl_truth_live_relevant_pnl_positive === true &&
+    copyShadowSummary.whale_flow_pnl_truth_profitability_gate_forward_pnl_positive === true;
+  const whaleFlowPnlTruthHeadlineText =
+    copyShadowSummary.whale_flow_pnl_truth_headline_shadow_pnl_live_tradable === true
+      ? "headline live-tradable yes"
+      : "headline live-tradable no";
+  const whaleFlowPendingExposureSample =
+    copyShadowSummary.whale_flow_paper_decision_open_exposure_pending_decision_sample?.[0];
+  const whaleFlowPendingExposureSampleText =
+    whaleFlowPendingExposureSample?.market_ticker && whaleFlowPendingExposureSample?.side
+      ? ` Pending sample ${whaleFlowPendingExposureSample.market_ticker} ${whaleFlowPendingExposureSample.side} ${money(
+          whaleFlowPendingExposureSample.paper_notional_usd ?? 0,
+        )}.`
+      : "";
+  const whaleFlowPendingExposureText =
+    (copyShadowSummary.whale_flow_paper_decision_open_exposure_pending_decision_count ?? 0) > 0
+      ? `${fmt(
+          copyShadowSummary.whale_flow_paper_decision_open_exposure_pending_decision_count ?? 0,
+        )} unresolved paper decisions consume capacity · largest ${money(
+          copyShadowSummary.whale_flow_paper_decision_open_exposure_largest_pending_decision_usd ??
+            0,
+        )} · oldest ${fmt(
+          copyShadowSummary.whale_flow_paper_decision_open_exposure_oldest_pending_decision_age_seconds ??
+            0,
+        )}s · ${fmt(
+          copyShadowSummary.whale_flow_paper_decision_open_exposure_resolution_blocker ??
+            "pending_source_backed_outcomes",
+        )}.${whaleFlowPendingExposureSampleText}`
+      : "No unresolved paper exposure is consuming capacity.";
+  const whaleFlowCapacityObservationText =
+    (copyShadowSummary.whale_flow_capacity_blocked_observation_count ?? 0) > 0
+      ? `${fmt(
+          copyShadowSummary.whale_flow_capacity_blocked_observation_count ?? 0,
+        )} zero-notional capacity observations · appended ${fmt(
+          copyShadowSummary.whale_flow_capacity_blocked_observation_appended_count ?? 0,
+        )} · trade-ready ${
+          copyShadowSummary.whale_flow_capacity_blocked_observations_count_for_trade_ready_unlock
+            ? "yes"
+            : "no"
+        } · profitability ${
+          copyShadowSummary.whale_flow_capacity_blocked_observations_count_for_profitability_gate
+            ? "yes"
+            : "no"
+        } · paper decisions ${
+          copyShadowSummary.whale_flow_capacity_blocked_observations_count_as_paper_decisions
+            ? "yes"
+            : "no"
+        }.`
+      : "No zero-notional capacity observations recorded yet.";
+  const whaleFlowCapacityObservationOutcomeText =
+    (copyShadowSummary.whale_flow_capacity_blocked_observation_outcome_count ?? 0) > 0
+      ? `${fmt(
+          copyShadowSummary.whale_flow_capacity_blocked_observation_outcome_resolved_count ?? 0,
+        )} settled capacity observations · ${fmt(
+          copyShadowSummary.whale_flow_capacity_blocked_observation_outcome_pending_count ?? 0,
+        )} pending · hypothesis P&L ${money(
+          copyShadowSummary.whale_flow_capacity_blocked_observation_hypothesis_only_pnl_usd ?? 0,
+        )} · trade-ready ${
+          copyShadowSummary.whale_flow_capacity_blocked_observation_outcomes_count_for_trade_ready_unlock
+            ? "yes"
+            : "no"
+        } · profitability ${
+          copyShadowSummary.whale_flow_capacity_blocked_observation_outcomes_count_for_profitability_gate
+            ? "yes"
+            : "no"
+        } · training ${
+          copyShadowSummary.whale_flow_capacity_blocked_observation_outcomes_count_for_training_label
+            ? "yes"
+            : "no"
+        } · paper decisions ${
+          copyShadowSummary.whale_flow_capacity_blocked_observation_outcomes_count_as_paper_decisions
+            ? "yes"
+            : "no"
+        }.`
+      : "No settled capacity-observation outcomes recorded yet.";
+  const whaleFlowCapacityAbstentionValueText =
+    (copyShadowSummary.whale_flow_capacity_abstention_value_resolved_count ?? 0) > 0
+      ? `Capacity abstention ${fmt(
+          copyShadowSummary.whale_flow_capacity_abstention_value_status ??
+            "capacity_abstention_value_ready",
+        )}: ${fmt(
+          copyShadowSummary.whale_flow_capacity_abstention_value_governor_action ?? "SHADOW_ONLY",
+        )} · avoided loss ${money(
+          copyShadowSummary.whale_flow_capacity_abstention_value_avoided_loss_usd ?? 0,
+        )} · missed gain ${money(
+          copyShadowSummary.whale_flow_capacity_abstention_value_missed_gain_usd ?? 0,
+        )} · if-traded hypothesis ${money(
+          copyShadowSummary.whale_flow_capacity_abstention_value_hypothesis_only_pnl_if_traded_usd ??
+            0,
+        )} over ${fmt(
+          copyShadowSummary.whale_flow_capacity_abstention_value_resolved_count ?? 0,
+        )} resolved · powered ${
+          copyShadowSummary.whale_flow_capacity_abstention_value_sample_powered ? "yes" : "no"
+        } · trade-ready ${
+          copyShadowSummary.whale_flow_capacity_abstention_value_counts_for_trade_ready_unlock
+            ? "yes"
+            : "no"
+        } · live routing ${
+          copyShadowSummary.whale_flow_capacity_abstention_value_affects_live_routing ? "yes" : "no"
+        }.`
+      : "Capacity abstention value is waiting on settled capacity-observation outcomes.";
+  const whaleFlowCapacitySizingHypothesisText =
+    copyShadowSummary.whale_flow_capacity_sizing_hypothesis_status
+      ? `Capacity sizing ${fmt(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_status,
+        )}: ${fmt(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_governor_action ?? "SHADOW_ONLY",
+        )} · missed gain ${money(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_missed_gain_usd ?? 0,
+        )} over ${fmt(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_resolved_count ?? 0,
+        )} resolved · powered ${
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_sample_powered ? "yes" : "no"
+        } · experiment ${fmt(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_recommended_experiment ?? "none",
+        )} · lane ${fmt(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_recommended_experiment_lane ??
+            "none",
+        )} · cap multipliers ${fmt(
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_recommended_cap_multipliers?.join(
+            ", ",
+          ) ?? "none",
+        )} · paper cap change ${
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_paper_cap_change_allowed
+            ? "yes"
+            : "no"
+        } · live cap change ${
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_live_cap_change_allowed
+            ? "yes"
+            : "no"
+        } · trade-ready ${
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_counts_for_trade_ready_unlock
+            ? "yes"
+            : "no"
+        } · live routing ${
+          copyShadowSummary.whale_flow_capacity_sizing_hypothesis_affects_live_routing
+            ? "yes"
+            : "no"
+        }.`
+      : "Capacity sizing hypothesis is waiting on capacity-abstention evidence.";
+  const whaleFlowOutcomeProbeBlockers = Object.entries(
+    copyShadowSummary.whale_flow_outcome_probe_realistic_label_unlock_blocker_counts ?? {},
+  )
+    .toSorted(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 3);
+  const whaleFlowOutcomeProbeBlockerText = whaleFlowOutcomeProbeBlockers.length
+    ? whaleFlowOutcomeProbeBlockers
+        .map(([reason, count]) => `${fmt(reason)} ${fmt(count)}`)
+        .join(" · ")
+    : "No realistic-label probe blockers recorded.";
+  const whaleFlowRealisticOutcomeUnlockBlockers = Object.entries(
+    copyShadowSummary.whale_flow_realistic_outcome_unlock_blocker_counts ??
+      whaleFlowRealisticOutcomeUnlock?.blocker_counts ??
+      {},
+  )
+    .toSorted(([, left], [, right]) => Number(right) - Number(left))
+    .slice(0, 3);
+  const whaleFlowRealisticOutcomeUnlockBlockerText = whaleFlowRealisticOutcomeUnlockBlockers.length
+    ? whaleFlowRealisticOutcomeUnlockBlockers
+        .map(([reason, count]) => `${fmt(reason)} ${fmt(count)}`)
+        .join(" · ")
+    : "No label-unlock blockers recorded.";
+  const whaleFlowRealisticOutcomeUnlockPending = (
+    copyShadowSummary.whale_flow_realistic_outcome_unlock_top_pending_decisions ??
+    whaleFlowRealisticOutcomeUnlock?.top_pending_realistic_decisions ??
+    []
+  ).slice(0, 2);
+  const whaleFlowRealisticOutcomeUnlockPendingText =
+    whaleFlowRealisticOutcomeUnlockPending.length > 0
+      ? whaleFlowRealisticOutcomeUnlockPending
+          .map((row) => {
+            const ticker = String(row.market_ticker ?? "unknown");
+            const priority = String(row.expected_resolution_priority ?? "unknown_priority");
+            return `${ticker} ${priority}`;
+          })
+          .join("; ")
+      : "no pending realistic-fill sample";
+  const whaleFlowRealisticOutcomeUnlockFailed = (
+    copyShadowSummary.whale_flow_realistic_outcome_unlock_top_failed_fetches ??
+    whaleFlowRealisticOutcomeUnlock?.top_failed_realistic_fetches ??
+    []
+  ).slice(0, 2);
+  const whaleFlowRealisticOutcomeUnlockFailedText =
+    whaleFlowRealisticOutcomeUnlockFailed.length > 0
+      ? whaleFlowRealisticOutcomeUnlockFailed
+          .map((row) => {
+            const ticker = String(row.market_ticker ?? "unknown");
+            const errorType = String(row.source_error_type ?? "unknown_error");
+            const errorSummary = String(row.source_error_summary ?? row.source_error_message ?? "");
+            const retryable = row.source_error_retryable === true ? "retryable" : "not retryable";
+            return `${ticker} ${errorType}${errorSummary ? ` ${errorSummary}` : ""} ${retryable}`;
+          })
+          .join("; ")
+      : "no failed realistic-fill fetch sample";
+  const whaleFlowLabelBottleneckBlockers = (
+    copyShadowSummary.whale_flow_label_bottleneck_top_label_blockers ??
+    whaleFlowLabelBottleneck?.top_label_blockers ??
+    []
+  ).slice(0, 3);
+  const whaleFlowLabelBottleneckBlockerText =
+    whaleFlowLabelBottleneckBlockers.length > 0
+      ? whaleFlowLabelBottleneckBlockers
+          .map((row) => `${fmt(String(row.reason ?? "unknown"))} ${fmt(Number(row.count ?? 0))}`)
+          .join(" · ")
+      : "No label blockers recorded.";
+  const whaleFlowLedgerExists =
+    copyShadowSummary.whale_flow_signal_ledger_exists ?? whaleFlowReceipt?.signal_ledger_exists;
+  const whaleFlowGeneratedAt = copyShadowSummary.whale_flow_generated_at_utc;
+  const whaleFlowRealisticAfterCostPnl =
+    copyShadowSummary.whale_flow_realistic_after_cost_pnl_usd ??
+    whaleFlowFillRealism?.realistic_after_cost_pnl_usd;
+  const whaleFlowLiveRelevantAfterCostPnl =
+    copyShadowSummary.whale_flow_live_relevant_after_cost_pnl_usd ??
+    whaleFlowFillRealism?.live_relevant_after_cost_pnl_usd;
+  const whaleFlowUnverifiedOrMissedAfterCostPnl =
+    copyShadowSummary.whale_flow_unverified_or_missed_after_cost_pnl_usd ??
+    whaleFlowFillRealism?.unverified_or_missed_after_cost_pnl_usd;
+  const copyShadowPnl = copyShadowSummary.net_shadow_pnl_usd;
+  const copyShadowLatencyP95 =
+    copyShadowSummary.whale_flow_p95_signal_latency_ms ?? copyShadowLatency.p95_signal_latency_ms;
+  const copyShadowAverageSpread =
+    copyShadowSummary.whale_flow_average_spread_cents ?? copyShadowExecution.average_spread_cents;
+  const copyShadowAverageDrift =
+    copyShadowSummary.whale_flow_average_price_drift_cents ??
+    copyShadowExecution.average_price_drift_cents;
+  const copyShadowUnsafe =
+    copyShadow.live_order_allowed === true ||
+    copyShadow.live_trading_enabled === true ||
+    copyShadow.can_authorize_trade === true ||
+    copyShadow.can_authorize_paper === true ||
+    copyShadow.can_authorize_live === true ||
+    copyShadow.write_capable_kalshi_endpoint_called === true ||
+    copyShadow.sts_authority === true ||
+    Boolean(copyShadow.unsafe_true_flags?.length);
   const inverseAudit = snapshot?.inverse_strategy_audit ?? {};
   const inverseMetrics = inverseAudit.metrics ?? {};
   const inverseSegments = inverseMetrics.best_segments?.slice(0, 6) ?? [];
@@ -6744,6 +7901,1933 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
             </section>
 
             <section class="kalshi-panel">
+              <h3>Copy Shadow${metricHelp("Copy Shadow")}</h3>
+              <p class="kalshi-section-intro">
+                ${copyShadow.plain_english ??
+                "Copy-leader shadow mode is ready to evaluate opt-in fills or sharp-flow signals before any live authority is considered."}
+              </p>
+              <div class="kalshi-grid kalshi-grid--cards">
+                ${metricCard(
+                  "Leader",
+                  String(copyShadowLeader.leader_name ?? "Foster"),
+                  `Handle ${fmt(copyShadowLeader.leader_handle ?? "pending")} · source ${fmt(copyShadowLeader.source_status ?? "missing")}.`,
+                  copyShadowLeader.verification_status === "verified" ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Source Verification",
+                  String(copyShadowLeader.verification_status ?? "unverified"),
+                  String(
+                    copyShadowLeader.evidence_summary ??
+                      "Foster remains provisional until a real-time exact-fill source is verified.",
+                  ),
+                  copyShadowLeader.verification_status === "verified" ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Discovery Receipt",
+                  copyShadowDiscovery.copyable_exact_source_verified
+                    ? "copyable"
+                    : String(copyShadowDiscovery.status ?? "not run"),
+                  copyShadowDiscovery.public_identity_verified
+                    ? "Public identity verified; exact-fill source still controls copyability."
+                    : "Run source discovery before enabling any source.",
+                  copyShadowDiscovery.copyable_exact_source_verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Read-Only Auth",
+                  copyShadowDiscovery.authenticated_read_attempted
+                    ? copyShadowDiscovery.authenticated_read_ok
+                      ? "passed"
+                      : "blocked"
+                    : "not run",
+                  "Signed Kalshi read proof only; no account mutation or live authority.",
+                  copyShadowDiscovery.authenticated_read_ok ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Copy Shadow",
+                  copyShadowUnsafe ? "Stop" : String(copyShadow.status ?? "not configured"),
+                  copyShadowUnsafe
+                    ? "Unsafe live/write authority appeared in copy-shadow data."
+                    : String(
+                        copyShadow.next_action ??
+                          "Add an exact opt-in source and keep the lane shadow-only.",
+                      ),
+                  copyShadowUnsafe ? "danger" : copyShadowSignalsSeen ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Signals",
+                  fmt(copyShadowSignalsSeen),
+                  `${fmt(copyShadowSummary.eligible_shadow_signals)} eligible · ${fmt(copyShadowSummary.skipped_signals)} skipped.`,
+                  copyShadowSignalsSeen ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Whale Signals",
+                  fmt(whaleFlowSignalsSeen),
+                  `${fmt(whaleFlowEligibleSignals)} eligible · ${fmt(whaleFlowSkippedSignals)} skipped.`,
+                  whaleFlowSignalsSeen ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Whale Signal Ledger",
+                  whaleFlowLedgerExists ? "present" : "missing",
+                  `${fmt(whaleFlowPersistedSignals)} persisted · ${fmt(whaleFlowDerivedSignals)} derived${whaleFlowGeneratedAt ? ` · ${whaleFlowGeneratedAt}` : ""}.`,
+                  whaleFlowLedgerExists ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Resolved Copy Signals",
+                  fmt(copyShadowResolved),
+                  `${fmt(copyShadowSummary.wins)} wins · ${fmt(copyShadowSummary.losses)} losses · ${pct(copyShadowSummary.win_rate)} win rate.`,
+                  copyShadowResolved ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Shadow P&L",
+                  money(copyShadowPnl),
+                  "Simulated copied P&L after modeled costs. This is not real money.",
+                  (copyShadowPnl ?? 0) > 0 ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Whale Collector",
+                  String(
+                    whaleFlowCollector?.status ??
+                      copyShadowSummary.whale_flow_collector_status ??
+                      "not run",
+                  ),
+                  whaleFlowCollector?.next_action ??
+                    "Provide concrete bounded collector values before recurring collection.",
+                  whaleFlowCollector?.approved_for_real_collection_run ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Collector Freshness",
+                  String(
+                    whaleFlowCollectorHealth?.status ??
+                      copyShadowSummary.whale_flow_collector_health_status ??
+                      "not run",
+                  ),
+                  `Source age ${
+                    copyShadowSummary.whale_flow_collector_source_proof_age_seconds == null
+                      ? "n/a"
+                      : `${fmt(copyShadowSummary.whale_flow_collector_source_proof_age_seconds)}s`
+                  } · raw age ${
+                    copyShadowSummary.whale_flow_collector_last_raw_trade_age_seconds == null
+                      ? "n/a"
+                      : `${fmt(copyShadowSummary.whale_flow_collector_last_raw_trade_age_seconds)}s`
+                  }.`,
+                  whaleFlowCollectorHealth?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Collector Coverage",
+                  String(
+                    whaleFlowCollectorHealth?.collector_coverage_status ??
+                      copyShadowSummary.whale_flow_collector_coverage_status ??
+                      "not measured",
+                  ),
+                  `${fmt(
+                    whaleFlowCollectorHealth?.collector_completed_run_count ??
+                      copyShadowSummary.whale_flow_collector_completed_run_count ??
+                      0,
+                  )} / ${fmt(
+                    whaleFlowCollectorHealth?.collector_expected_approved_run_count ??
+                      copyShadowSummary.whale_flow_collector_expected_approved_run_count ??
+                      0,
+                  )} approved runs · ${pct(
+                    whaleFlowCollectorHealth?.collector_completion_ratio ??
+                      copyShadowSummary.whale_flow_collector_completion_ratio,
+                  )} complete · ${fmt(
+                    whaleFlowCollectorHealth?.collector_remaining_approved_run_count ??
+                      copyShadowSummary.whale_flow_collector_remaining_approved_run_count ??
+                      0,
+                  )} remaining · trade-ready proof ${
+                    (whaleFlowCollectorHealth?.counts_for_trade_ready_unlock ??
+                    copyShadowSummary.whale_flow_collector_counts_for_trade_ready_unlock)
+                      ? "yes"
+                      : "no"
+                  }.`,
+                  (whaleFlowCollectorHealth?.collector_coverage_status ??
+                    copyShadowSummary.whale_flow_collector_coverage_status) ===
+                    "approved_collection_window_complete"
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Evidence Refresh",
+                  String(
+                    whaleFlowEvidenceRefresh?.status ??
+                      copyShadowSummary.whale_flow_evidence_refresh_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    whaleFlowEvidenceRefresh?.run_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_run_count ??
+                      0,
+                  )} runs · ${fmt(
+                    whaleFlowEvidenceRefresh?.signal_appended_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_signal_appended_count ??
+                      0,
+                  )} signals · ${fmt(
+                    whaleFlowEvidenceRefresh?.paper_decision_appended_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_paper_decision_appended_count ??
+                      0,
+                  )} paper · ${fmt(
+                    whaleFlowEvidenceRefresh?.feature_store_appended_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_feature_store_appended_count ??
+                      0,
+                  )} features · ${fmt(
+                    whaleFlowEvidenceRefresh?.post_outcome_materialization_run_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_post_outcome_materialization_run_count ??
+                      0,
+                  )} post-outcome runs. ${
+                    whaleFlowEvidenceRefresh?.next_action ??
+                    copyShadowSummary.whale_flow_evidence_refresh_next_action ??
+                    "Run a bounded foreground refresh while the collector is active."
+                  } Runtime cap ${fmt(
+                    whaleFlowEvidenceRefresh?.max_runtime_seconds ??
+                      copyShadowSummary.whale_flow_evidence_refresh_max_runtime_seconds ??
+                      0,
+                  )}s · runtime breaches ${fmt(
+                    whaleFlowEvidenceRefresh?.max_refresh_runtime_exceeded_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_max_runtime_exceeded_count ??
+                      0,
+                  )} · raw-signal backlog ${fmt(
+                    whaleFlowEvidenceRefresh?.backlog_counts
+                      ?.raw_trade_to_signal_backlog_estimate ??
+                      copyShadowSummary.whale_flow_evidence_refresh_raw_trade_to_signal_backlog_estimate ??
+                      0,
+                  )} · signal-paper backlog ${fmt(
+                    whaleFlowEvidenceRefresh?.backlog_counts
+                      ?.signal_to_paper_decision_backlog_estimate ??
+                      copyShadowSummary.whale_flow_evidence_refresh_signal_to_paper_decision_backlog_estimate ??
+                      0,
+                  )} · paper-outcome backlog ${fmt(
+                    whaleFlowEvidenceRefresh?.backlog_counts
+                      ?.paper_decision_to_outcome_backlog_estimate ??
+                      copyShadowSummary.whale_flow_evidence_refresh_paper_decision_to_outcome_backlog_estimate ??
+                      0,
+                  )}. ${whaleFlowEvidenceRefreshOpsText}`,
+                  ((whaleFlowEvidenceRefresh?.status ??
+                    copyShadowSummary.whale_flow_evidence_refresh_status) ===
+                    "completed_bounded_evidence_refresh" &&
+                    (whaleFlowEvidenceRefresh?.failed_run_count ??
+                      copyShadowSummary.whale_flow_evidence_refresh_failed_run_count ??
+                      0) === 0) ||
+                    (whaleFlowEvidenceRefreshActive?.status ??
+                      copyShadowSummary.whale_flow_evidence_refresh_active_status) ===
+                      "running_bounded_evidence_refresh"
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Whale Autopilot",
+                  String(
+                    whaleFlowAutopilot?.status ??
+                      copyShadowSummary.whale_flow_autopilot_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    whaleFlowAutopilot?.run_count ??
+                      copyShadowSummary.whale_flow_autopilot_run_count ??
+                      0,
+                  )} run(s) · ${fmt(
+                    whaleFlowAutopilot?.signal_appended_count ??
+                      copyShadowSummary.whale_flow_autopilot_signal_appended_count ??
+                      0,
+                  )} signals · ${fmt(
+                    whaleFlowAutopilot?.paper_decision_appended_count ??
+                      copyShadowSummary.whale_flow_autopilot_paper_decision_appended_count ??
+                      0,
+                  )} paper · ${fmt(
+                    whaleFlowAutopilot?.source_depth_appended_count ??
+                      copyShadowSummary.whale_flow_autopilot_source_depth_appended_count ??
+                      0,
+                  )} depth · ${fmt(
+                    whaleFlowAutopilot?.outcome_appended_count ??
+                      copyShadowSummary.whale_flow_autopilot_outcome_appended_count ??
+                      0,
+                  )} outcomes · ${fmt(
+                    whaleFlowAutopilot?.capacity_blocked_observation_outcome_appended_count ??
+                      copyShadowSummary.whale_flow_autopilot_capacity_blocked_observation_outcome_appended_count ??
+                      0,
+                  )} observation outcomes. Active refresh ${fmt(
+                    whaleFlowAutopilot?.active_evidence_refresh_status ??
+                      copyShadowSummary.whale_flow_autopilot_active_evidence_refresh_status ??
+                      "unknown",
+                  )} · trade packet ${fmt(
+                    whaleFlowAutopilot?.trade_ready_packet_status ??
+                      copyShadowSummary.whale_flow_autopilot_trade_ready_packet_status ??
+                      "unknown",
+                  )} · elapsed ${fmt(
+                    whaleFlowAutopilot?.elapsed_seconds ??
+                      copyShadowSummary.whale_flow_autopilot_elapsed_seconds ??
+                      0,
+                  )}s · failed ${
+                    (
+                      whaleFlowAutopilot?.failed_steps ??
+                      copyShadowSummary.whale_flow_autopilot_failed_steps ??
+                      []
+                    ).length
+                  }. Active ${fmt(
+                    whaleFlowAutopilotActive?.status ??
+                      copyShadowSummary.whale_flow_autopilot_active_status ??
+                      "unknown",
+                  )} · PID ${fmt(
+                    whaleFlowAutopilotActive?.pid ??
+                      copyShadowSummary.whale_flow_autopilot_active_pid ??
+                      0,
+                  )} · alive ${
+                    (whaleFlowAutopilotActive?.process_alive ??
+                    copyShadowSummary.whale_flow_autopilot_active_process_alive)
+                      ? "yes"
+                      : "no"
+                  } · run ${fmt(
+                    whaleFlowAutopilotActive?.latest_run_index ??
+                      copyShadowSummary.whale_flow_autopilot_active_latest_run_index ??
+                      0,
+                  )} age ${fmt(
+                    whaleFlowAutopilotActive?.latest_run_age_seconds ??
+                      copyShadowSummary.whale_flow_autopilot_active_latest_run_age_seconds ??
+                      0,
+                  )}s · elapsed ${fmt(
+                    whaleFlowAutopilotActive?.latest_elapsed_seconds ??
+                      copyShadowSummary.whale_flow_autopilot_active_latest_elapsed_seconds ??
+                      0,
+                  )}s · next ${fmt(
+                    whaleFlowAutopilotActive?.next_expected_run_at_utc ??
+                      copyShadowSummary.whale_flow_autopilot_active_next_expected_run_at_utc ??
+                      "unknown",
+                  )} · active failed ${
+                    (
+                      whaleFlowAutopilotActive?.failed_steps ??
+                      copyShadowSummary.whale_flow_autopilot_active_failed_steps ??
+                      []
+                    ).length
+                  }. ${String(
+                    whaleFlowAutopilot?.next_action ??
+                      copyShadowSummary.whale_flow_autopilot_next_action ??
+                      "Run bounded autopilot only with explicit approval.",
+                  )}`,
+                  (whaleFlowAutopilot?.verified ??
+                    copyShadowSummary.whale_flow_autopilot_verified) ||
+                    (whaleFlowAutopilotActive?.verified ??
+                      copyShadowSummary.whale_flow_autopilot_active_verified)
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Whale Outcomes",
+                  `${fmt(
+                    whaleFlowOutcome?.resolved_count ??
+                      copyShadowSummary.whale_flow_resolved_signals ??
+                      0,
+                  )} resolved`,
+                  `${fmt(
+                    whaleFlowOutcome?.pending_resolution_count ??
+                      copyShadowSummary.whale_flow_unresolved_paper_decisions ??
+                      0,
+                  )} pending · P&L ${money(copyShadowSummary.whale_flow_net_shadow_pnl_usd ?? 0)}.`,
+                  (whaleFlowOutcome?.resolved_count ??
+                    copyShadowSummary.whale_flow_resolved_signals ??
+                    0)
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Paper Capacity",
+                  `${money(
+                    copyShadowSummary.whale_flow_paper_decision_current_open_exposure_usd ?? 0,
+                  )} / ${money(
+                    copyShadowSummary.whale_flow_paper_decision_max_open_exposure_usd ?? 0,
+                  )}`,
+                  `${fmt(
+                    copyShadowSummary.whale_flow_paper_decision_capacity_blocked_forward_signal_count ??
+                      copyShadowSummary.whale_flow_paper_decision_capacity_blocked_signal_count ??
+                      0,
+                  )} fresh forward-eligible signals blocked by paper exposure · trade-ready proof ${
+                    copyShadowSummary.whale_flow_paper_decision_capacity_blocked_forward_signals_count_for_trade_ready_unlock
+                      ? "yes"
+                      : "no"
+                  } · ${fmt(
+                    copyShadowSummary.whale_flow_paper_decision_skipped_stale_materialization_count ??
+                      0,
+                  )} stale skipped by ${fmt(
+                    copyShadowSummary.whale_flow_paper_decision_max_materialization_lag_seconds ??
+                      0,
+                  )}s forward gate · ${fmt(
+                    copyShadowSummary.whale_flow_paper_decision_appendable_signal_count ?? 0,
+                  )} appendable now. ${whaleFlowPaperDecisionSkipReasonText}.${whaleFlowCapacityBlockedForwardSampleText} ${whaleFlowSegmentFirewallText} ${whaleFlowPendingExposureText} ${whaleFlowCapacityObservationText} ${whaleFlowCapacityObservationOutcomeText} ${whaleFlowCapacityAbstentionValueText} ${whaleFlowCapacitySizingHypothesisText}`,
+                  copyShadowSummary.whale_flow_paper_decision_blocked_by_open_exposure
+                    ? "warn"
+                    : "ok",
+                )}
+                ${metricCard(
+                  "Whale Profit Review",
+                  String(
+                    whaleFlowProfit?.status ??
+                      copyShadowSummary.whale_flow_profit_review_status ??
+                      "blocked",
+                  ),
+                  whaleFlowProfit?.next_action ??
+                    "Needs 200 resolved signals or 30 observed days before review.",
+                  whaleFlowProfit?.baseline_review_allowed ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Fill Realism",
+                  String(
+                    whaleFlowFillRealism?.status ??
+                      copyShadowSummary.whale_flow_fill_realism_status ??
+                      "not run",
+                  ),
+                  `${String(
+                    copyShadowSummary.whale_flow_fill_realism_version ??
+                      whaleFlowFillRealism?.fill_realism_version ??
+                      "v?",
+                  )} · ${fmt(
+                    copyShadowSummary.whale_flow_realistic_fill_count ??
+                      whaleFlowFillRealism?.realistic_fill_count ??
+                      0,
+                  )} realistic · ${fmt(
+                    copyShadowSummary.whale_flow_live_relevant_realistic_fill_count ??
+                      whaleFlowFillRealism?.live_relevant_realistic_fill_count ??
+                      0,
+                  )} forward-realistic · ${fmt(
+                    copyShadowSummary.whale_flow_late_backfill_decision_count ??
+                      whaleFlowFillRealism?.late_backfill_decision_count ??
+                      0,
+                  )} late-backfill · ${fmt(
+                    copyShadowSummary.whale_flow_missed_fill_count ??
+                      whaleFlowFillRealism?.missed_fill_count ??
+                      0,
+                  )} missed · ${fmt(
+                    copyShadowSummary.whale_flow_fill_realism_aggressive_limit_executable_count ??
+                      whaleFlowFillRealism?.aggressive_limit_executable_count ??
+                      0,
+                  )} aggressive-limit · ${fmt(
+                    copyShadowSummary.whale_flow_fill_realism_source_depth_joined_decision_count ??
+                      whaleFlowFillRealism?.source_depth_joined_decision_count ??
+                      0,
+                  )} depth-matched · after-cost ${money(whaleFlowRealisticAfterCostPnl ?? 0)}.`,
+                  whaleFlowFillRealism?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Fill Quality",
+                  `${pct(whaleFlowLiveRelevantFillRate)} forward fill rate`,
+                  `${fmt(whaleFlowForwardFillDecisionCount)} forward of ${fmt(
+                    whaleFlowFillDecisionCount,
+                  )} decisions · ${fmt(
+                    whaleFlowForwardMissedOrUnverifiedCount,
+                  )} forward missed/unverified · ${fmt(
+                    whaleFlowLateBackfillRealisticFillCount,
+                  )} late-backfill realistic excluded · depth coverage ${pct(
+                    whaleFlowSourceDepthCoverageRate,
+                  )} · near-signal depth ${pct(whaleFlowSourceDepthTimingVerifiedRate)} (${fmt(
+                    whaleFlowSourceDepthTimingVerifiedCount,
+                  )} verified / ${fmt(whaleFlowSourceDepthTimingUnverifiedCount)} stale or missing timing, p95 lag ${fmt(
+                    whaleFlowP95SourceDepthSignalLagSeconds,
+                  )}s, max allowed ${fmt(whaleFlowMaxSourceDepthSignalLagSeconds)}s) · forward reasons ${countReasons(
+                    whaleFlowForwardMissedFillReasons,
+                  )} · all reasons ${countReasons(
+                    whaleFlowMissedFillReasons,
+                  )} · late-backfill reasons ${countReasons(whaleFlowLateBackfillMissedFillReasons)}.`,
+                  whaleFlowFillRealism?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Fill Evidence Gaps",
+                  String(
+                    whaleFlowFillEvidenceGap?.status ??
+                      copyShadowSummary.whale_flow_fill_evidence_gap_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_forward_gap_count ??
+                      whaleFlowFillEvidenceGap?.forward_gap_count ??
+                      0,
+                  )} forward gap(s), ${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_forward_verified_missed_fill_count ??
+                      whaleFlowFillEvidenceGap?.forward_verified_missed_fill_count ??
+                      0,
+                  )} source-backed missed fill(s), of ${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_forward_decision_count ??
+                      whaleFlowFillEvidenceGap?.forward_decision_count ??
+                      0,
+                  )} · ${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_missing_source_depth_count ??
+                      whaleFlowFillEvidenceGap?.missing_source_depth_count ??
+                      0,
+                  )} need source-backed depth · ${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_best_ask_above_limit_count ??
+                      whaleFlowFillEvidenceGap?.best_ask_above_limit_count ??
+                      0,
+                  )} above limit · ${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_market_impact_risk_count ??
+                      whaleFlowFillEvidenceGap?.market_impact_risk_count ??
+                      0,
+                  )} impact-risk · ${fmt(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_pending_realistic_outcome_count ??
+                      whaleFlowFillEvidenceGap?.pending_realistic_outcome_count ??
+                      0,
+                  )} pending realistic outcomes · reasons ${countReasons(
+                    whaleFlowFillEvidenceGapReasonCounts,
+                  )} · source-backed missed ${countReasons(
+                    copyShadowSummary.whale_flow_fill_evidence_gap_verified_missed_fill_reason_counts ??
+                      whaleFlowFillEvidenceGap?.verified_missed_fill_reason_counts,
+                  )} · sample ${whaleFlowFillEvidenceTopGapSummary} · ${
+                    copyShadowSummary.whale_flow_fill_evidence_gap_next_action ??
+                    whaleFlowFillEvidenceGap?.next_action ??
+                    "Keep forward decisions shadow-only until the fill gap has source-backed proof."
+                  }`,
+                  whaleFlowFillEvidenceGap?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Fill Gap Governor",
+                  String(whaleFlowFillGapGovernorAction),
+                  `${fmt(whaleFlowFillGapGovernorStatus)} · evidence ${fmt(
+                    whaleFlowFillGapGovernorEvidenceTier,
+                  )} · scope ${fmt(whaleFlowFillGapGovernorSegmentScope)} · forward decisions ${fmt(
+                    whaleFlowFillGapGovernorForwardDecisionCount,
+                  )} · realistic fills ${fmt(
+                    whaleFlowFillGapGovernorRealisticFillCount,
+                  )} · source-backed misses ${fmt(
+                    whaleFlowFillGapGovernorVerifiedMissedFillCount,
+                  )} · unverified gaps ${fmt(
+                    whaleFlowFillGapGovernorUnverifiedGapCount,
+                  )} · legacy excluded ${fmt(
+                    whaleFlowFillGapGovernorExcludedGapCount,
+                  )} · quarantined ${fmt(
+                    whaleFlowFillGapGovernorQuarantinedCount,
+                  )} · gap reasons ${countReasons(
+                    whaleFlowFillGapGovernorGapReasons,
+                  )} · excluded reasons ${countReasons(
+                    whaleFlowFillEvidenceExcludedGapReasonCounts,
+                  )} · missed reasons ${countReasons(
+                    whaleFlowFillGapGovernorVerifiedMissReasons,
+                  )} · live-relevant evidence ${
+                    whaleFlowFillGapGovernorLiveRelevantVerified ? "yes" : "no"
+                  } · trade-ready ${
+                    whaleFlowFillGapGovernorCountsForTradeReady ? "yes" : "no"
+                  } · profitability ${
+                    whaleFlowFillGapGovernorCountsForProfit ? "yes" : "no"
+                  } · training ${
+                    whaleFlowFillGapGovernorCountsForTraining ? "yes" : "no"
+                  } · live routing ${
+                    whaleFlowFillGapGovernorAffectsLiveRouting ? "yes" : "no"
+                  }. ${whaleFlowFillGapGovernorReason} ${whaleFlowFillGapGovernorNextAction}`,
+                  whaleFlowFillGapGovernor?.verified &&
+                    whaleFlowFillGapGovernorLiveRelevantVerified &&
+                    !whaleFlowFillGapGovernorAffectsLiveRouting
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Live-Relevant P&L",
+                  money(whaleFlowLiveRelevantAfterCostPnl ?? 0),
+                  `Only forward, near-signal realistic fills count here; late backfill, missed, stale, queue-unverified, or thin-depth paper fills do not. Quarantined after-cost P&L ${money(
+                    whaleFlowUnverifiedOrMissedAfterCostPnl ?? 0,
+                  )}.`,
+                  (whaleFlowLiveRelevantAfterCostPnl ?? 0) > 0 ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Orderbook Stream",
+                  String(
+                    whaleFlowOrderbookStream?.status ??
+                      copyShadowSummary.whale_flow_orderbook_stream_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_orderbook_stream_record_count ??
+                      whaleFlowOrderbookStream?.record_count ??
+                      0,
+                  )} records · ${fmt(
+                    copyShadowSummary.whale_flow_orderbook_stream_market_count ??
+                      whaleFlowOrderbookStream?.market_count ??
+                      0,
+                  )} markets · ${fmt(
+                    copyShadowSummary.whale_flow_orderbook_stream_source_backed_count ??
+                      whaleFlowOrderbookStream?.source_backed_record_count ??
+                      0,
+                  )} source-backed.`,
+                  whaleFlowOrderbookStream?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Source Depth",
+                  String(
+                    whaleFlowSourceDepth?.status ??
+                      copyShadowSummary.whale_flow_source_depth_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_source_depth_record_count ??
+                      whaleFlowSourceDepth?.record_count ??
+                      0,
+                  )} records · ${fmt(
+                    copyShadowSummary.whale_flow_source_backed_depth_count ??
+                      whaleFlowSourceDepth?.source_backed_depth_count ??
+                      0,
+                  )} source-backed · ${fmt(
+                    copyShadowSummary.whale_flow_source_depth_aggressive_limit_candidate_count ??
+                      whaleFlowSourceDepth?.aggressive_limit_candidate_count ??
+                      0,
+                  )} aggressive-limit · ${fmt(
+                    copyShadowSummary.whale_flow_source_depth_usable_for_realistic_fill_count ??
+                      whaleFlowSourceDepth?.usable_for_realistic_fill_count ??
+                      0,
+                  )} usable · ${fmt(
+                    copyShadowSummary.whale_flow_source_depth_queue_verified_count ??
+                      whaleFlowSourceDepth?.queue_verified_count ??
+                      0,
+                  )} queue-verified.`,
+                  whaleFlowSourceDepth?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Market Metadata",
+                  String(
+                    whaleFlowMarketMetadata?.status ??
+                      copyShadowSummary.whale_flow_market_metadata_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_market_metadata_record_count ??
+                      whaleFlowMarketMetadata?.record_count ??
+                      0,
+                  )} records · ${fmt(
+                    copyShadowSummary.whale_flow_market_metadata_ticker_count ??
+                      whaleFlowMarketMetadata?.ticker_count ??
+                      0,
+                  )} tickers · ${fmt(
+                    copyShadowSummary.whale_flow_market_metadata_source_backed_count ??
+                      whaleFlowMarketMetadata?.source_backed_count ??
+                      0,
+                  )} source-backed · ${fmt(
+                    copyShadowSummary.whale_flow_market_metadata_source_backed_timing_count ??
+                      whaleFlowMarketMetadata?.source_backed_timing_count ??
+                      0,
+                  )} source-backed timings · ${fmt(
+                    copyShadowSummary.whale_flow_market_metadata_missing_timing_count ??
+                      whaleFlowMarketMetadata?.missing_timing_count ??
+                      0,
+                  )} missing timing.`,
+                  whaleFlowMarketMetadata?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Quick Settling",
+                  String(
+                    whaleFlowQuickSettling?.status ??
+                      copyShadowSummary.whale_flow_quick_settling_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_quick_settling_pending_candidate_count ??
+                      whaleFlowQuickSettling?.candidate_count ??
+                      0,
+                  )} pending candidates · ${fmt(
+                    copyShadowSummary.whale_flow_quick_settling_candidate_count ??
+                      whaleFlowQuickSettling?.quick_settling_candidate_count ??
+                      0,
+                  )} quick candidates · ${fmt(
+                    copyShadowSummary.whale_flow_quick_settling_source_backed_timing_count ??
+                      whaleFlowQuickSettling?.source_backed_timing_count ??
+                      0,
+                  )} source-backed timings · ${fmt(
+                    copyShadowSummary.whale_flow_quick_settling_unknown_timing_count ??
+                      whaleFlowQuickSettling?.unknown_timing_count ??
+                      0,
+                  )} unknown timing.`,
+                  whaleFlowQuickSettling?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Time-To-Close Evidence",
+                  String(
+                    whaleFlowTimeToCloseEvidence?.status ??
+                      copyShadowSummary.whale_flow_time_to_close_evidence_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_time_to_close_evidence_source_backed_count ??
+                      whaleFlowTimeToCloseEvidence?.source_backed_timing_count ??
+                      0,
+                  )} source-backed · ${fmt(
+                    copyShadowSummary.whale_flow_time_to_close_evidence_unknown_count ??
+                      whaleFlowTimeToCloseEvidence?.unknown_timing_count ??
+                      0,
+                  )} unknown · ${
+                    countReasons(
+                      copyShadowSummary.whale_flow_time_to_close_evidence_reason_counts ??
+                        whaleFlowTimeToCloseEvidence?.gap_reason_counts ??
+                        {},
+                      2,
+                    ) || "no blocker counts"
+                  }.`,
+                  whaleFlowTimeToCloseEvidence?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Market Context",
+                  String(
+                    whaleFlowMarketContext?.status ??
+                      copyShadowSummary.whale_flow_market_context_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_market_context_unknown_ticker_count ??
+                      whaleFlowMarketContext?.unknown_ticker_count ??
+                      0,
+                  )} unknown taxonomy ticker(s).`,
+                  whaleFlowMarketContext?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Segment / Fade",
+                  String(
+                    whaleFlowSegmentDiagnostics?.status ??
+                      copyShadowSummary.whale_flow_segment_diagnostics_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_segment_count ??
+                      whaleFlowSegmentDiagnostics?.segment_count ??
+                      0,
+                  )} segments · ${fmt(
+                    copyShadowSummary.whale_flow_segment_live_relevant_resolved_count ??
+                      whaleFlowSegmentDiagnostics?.live_relevant_resolved_count ??
+                      0,
+                  )} forward resolved · ${fmt(
+                    copyShadowSummary.whale_flow_segment_late_backfill_decision_count ??
+                      whaleFlowSegmentDiagnostics?.late_backfill_decision_count ??
+                      0,
+                  )} late-backfill · fade cohort ${money(
+                    copyShadowSummary.whale_flow_tail_fade_inverse_baseline_pnl_usd ??
+                      whaleFlowTailFadeTournament?.inverse_net_pnl_usd ??
+                      0,
+                  )} (${fmt(
+                    copyShadowSummary.whale_flow_tail_fade_inverse_baseline_sample_count ??
+                      whaleFlowTailFadeTournament?.inverse_baseline_sample_count ??
+                      0,
+                  )}) · global inverse ${money(
+                    copyShadowSummary.whale_flow_tail_fade_global_inverse_net_pnl_usd ??
+                      copyShadowSummary.whale_flow_inverse_net_pnl_usd ??
+                      whaleFlowInverseDiagnostics?.inverse_net_pnl_usd ??
+                      0,
+                  )}.`,
+                  whaleFlowSegmentDiagnostics?.verified && whaleFlowInverseDiagnostics?.verified
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "No-Trade Baseline",
+                  money(
+                    copyShadowSummary.whale_flow_segment_no_trade_pnl_usd ??
+                      whaleFlowSegmentDiagnostics?.no_trade_baseline?.pnl_usd ??
+                      0,
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_segment_abstention_required_count ??
+                      whaleFlowSegmentDiagnostics?.no_trade_baseline
+                        ?.abstention_required_segment_count ??
+                      0,
+                  )} abstain segment(s) · ${fmt(
+                    copyShadowSummary.whale_flow_segment_beats_no_trade_count ??
+                      whaleFlowSegmentDiagnostics?.no_trade_baseline
+                        ?.beats_no_trade_segment_count ??
+                      0,
+                  )} beat no-trade · ${fmt(
+                    copyShadowSummary.whale_flow_segment_beats_random_count ??
+                      whaleFlowSegmentDiagnostics?.random_baseline?.beats_random_segment_count ??
+                      0,
+                  )} beat random · ${fmt(
+                    copyShadowSummary.whale_flow_segment_beats_market_implied_count ??
+                      whaleFlowSegmentDiagnostics?.market_implied_baseline
+                        ?.beats_market_implied_segment_count ??
+                      0,
+                  )} beat market-proxy.`,
+                  (copyShadowSummary.whale_flow_segment_abstention_required_count ??
+                    whaleFlowSegmentDiagnostics?.no_trade_baseline
+                      ?.abstention_required_segment_count ??
+                    0) === 0
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Segment Actions",
+                  `${fmt(whaleFlowSegmentBlockedCount)} blocked`,
+                  `${fmt(whaleFlowSegmentPromotionCandidateCount)} promotion candidates · actions ${countReasons(
+                    whaleFlowSegmentActionCounts,
+                  )} · confidence ${countReasons(
+                    whaleFlowSegmentConfidenceCounts,
+                  )} · abstention ${countReasons(
+                    whaleFlowSegmentAbstentionReasonCounts,
+                  )} · family ${countReasons(
+                    whaleFlowSegmentMarketFamilyCounts,
+                  )} · side ${countReasons(whaleFlowSegmentSideCounts)} · price ${countReasons(
+                    whaleFlowSegmentPriceBandCounts,
+                  )} · spread ${countReasons(
+                    whaleFlowSegmentSpreadBandCounts,
+                  )} · size ${countReasons(
+                    whaleFlowSegmentSizeBandCounts,
+                  )} · liquidity ${countReasons(
+                    whaleFlowSegmentLiquidityBandCounts,
+                  )} · time ${countReasons(
+                    whaleFlowSegmentTimeToCloseBandCounts,
+                  )} · prefix ${countReasons(
+                    whaleFlowSegmentTickerPrefixCounts,
+                  )} · top ${topSegmentSummary(whaleFlowTopBlockedSegments)}.`,
+                  whaleFlowSegmentPromotionCandidateCount > 0 &&
+                    whaleFlowSegmentBlockedCount === 0 &&
+                    whaleFlowSegmentDiagnostics?.verified
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Segment Firewall",
+                  String(
+                    whaleFlowSegmentFirewall?.status ??
+                      copyShadowSummary.whale_flow_segment_firewall_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_segment_firewall_adverse_watchlist_segment_count ??
+                      whaleFlowSegmentFirewall?.adverse_watchlist_segment_count ??
+                      0,
+                  )} adverse watch segment(s) · ${fmt(
+                    copyShadowSummary.whale_flow_segment_firewall_uncovered_adverse_watchlist_segment_count ??
+                      whaleFlowSegmentFirewall?.uncovered_adverse_watchlist_segment_count ??
+                      0,
+                  )} not yet in resolved segment P&L · abstention ${fmt(
+                    whaleFlowAdverseAbstentionActionCount,
+                  )} (${fmt(whaleFlowAdverseAbstentionPoweredPauseCount)} pause, ${fmt(
+                    whaleFlowAdverseAbstentionShadowOnlyCount,
+                  )} shadow-only, ${fmt(
+                    whaleFlowAdverseAbstentionInverseForwardTestCount,
+                  )} inverse adverse, ${fmt(
+                    whaleFlowSegmentFirewallInverseForwardTestCount,
+                  )} inverse tests, ${fmt(
+                    whaleFlowSegmentFirewallRejectDataQualityCount,
+                  )} quality rejects, ${String(
+                    whaleFlowAdverseAbstentionStatus,
+                  )}) · no-trade baseline ${money(
+                    whaleFlowAdverseAbstentionNoTradePnl,
+                  )} · abstention trade-ready ${
+                    whaleFlowAdverseAbstentionCountsForTradeReady ? "yes" : "no"
+                  } · abstention profitability ${
+                    whaleFlowAdverseAbstentionCountsForProfit ? "yes" : "no"
+                  } · abstention live routing ${
+                    whaleFlowAdverseAbstentionAffectsLiveRouting ? "yes" : "no"
+                  }.`,
+                  whaleFlowSegmentFirewall?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Tail vs Fade",
+                  String(
+                    whaleFlowTailFadeTournament?.status ??
+                      copyShadowSummary.whale_flow_tail_fade_tournament_status ??
+                      "not run",
+                  ),
+                  `${
+                    copyShadowSummary.whale_flow_tail_fade_global_flip_allowed ||
+                    whaleFlowTailFadeTournament?.global_flip_allowed
+                      ? "Global flip allowed"
+                      : "No global flip"
+                  } · ${fmt(
+                    whaleFlowTailFadeTournament?.segment_competition_count ?? 0,
+                  )} segment competitions · ${money(
+                    copyShadowSummary.whale_flow_tail_fade_live_relevant_after_cost_pnl_usd ??
+                      whaleFlowTailFadeTournament?.tail_live_relevant_after_cost_pnl_usd,
+                  )} forward P&L · ${fmt(
+                    copyShadowSummary.whale_flow_tail_fade_late_backfill_decision_count ??
+                      whaleFlowTailFadeTournament?.late_backfill_decision_count ??
+                      0,
+                  )} late-backfill excluded · random ${
+                    copyShadowSummary.whale_flow_tail_fade_tail_beats_random_baseline ||
+                    whaleFlowTailFadeTournament?.tail_beats_random_baseline
+                      ? "beaten"
+                      : "blocked"
+                  } · market-proxy ${
+                    copyShadowSummary.whale_flow_tail_fade_tail_beats_market_implied_baseline ||
+                    whaleFlowTailFadeTournament?.tail_beats_market_implied_baseline
+                      ? "beaten"
+                      : "blocked"
+                  }.`,
+                  whaleFlowTailFadeTournament?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Inverse Exploration",
+                  String(
+                    whaleFlowInverseExploration?.governor_action ??
+                      copyShadowSummary.whale_flow_inverse_exploration_governor_action ??
+                      "SHADOW_ONLY",
+                  ),
+                  `${String(
+                    whaleFlowInverseExploration?.status ??
+                      copyShadowSummary.whale_flow_inverse_exploration_governor_status ??
+                      "not run",
+                  )} · ${fmt(
+                    copyShadowSummary.whale_flow_inverse_exploration_candidate_segment_count ??
+                      whaleFlowInverseExploration?.candidate_segment_count ??
+                      0,
+                  )} candidate segment(s) · ${fmt(
+                    copyShadowSummary.whale_flow_inverse_exploration_powered_candidate_segment_count ??
+                      whaleFlowInverseExploration?.powered_candidate_segment_count ??
+                      0,
+                  )} powered · ${fmt(
+                    copyShadowSummary.whale_flow_inverse_exploration_underpowered_candidate_segment_count ??
+                      whaleFlowInverseExploration?.underpowered_candidate_segment_count ??
+                      0,
+                  )} underpowered · tail loses baselines ${
+                    copyShadowSummary.whale_flow_inverse_exploration_tail_loses_baselines ||
+                    whaleFlowInverseExploration?.tail_loses_baselines
+                      ? "yes"
+                      : "no"
+                  } · global flip ${
+                    copyShadowSummary.whale_flow_inverse_exploration_global_flip_allowed ||
+                    whaleFlowInverseExploration?.global_flip_allowed
+                      ? "yes"
+                      : "no"
+                  } · inverse tests ${
+                    copyShadowSummary.whale_flow_inverse_exploration_inverse_forward_testing_allowed ||
+                    whaleFlowInverseExploration?.inverse_forward_testing_allowed
+                      ? "on"
+                      : "off"
+                  } · trade-ready ${
+                    copyShadowSummary.whale_flow_inverse_exploration_counts_for_trade_ready_unlock ||
+                    whaleFlowInverseExploration?.counts_for_trade_ready_unlock
+                      ? "yes"
+                      : "no"
+                  } · profitability ${
+                    copyShadowSummary.whale_flow_inverse_exploration_counts_for_profitability_gate ||
+                    whaleFlowInverseExploration?.counts_for_profitability_gate
+                      ? "yes"
+                      : "no"
+                  } · training ${
+                    copyShadowSummary.whale_flow_inverse_exploration_counts_for_training_label ||
+                    whaleFlowInverseExploration?.counts_for_training_label
+                      ? "yes"
+                      : "no"
+                  } · live routing ${
+                    copyShadowSummary.whale_flow_inverse_exploration_affects_live_routing ||
+                    whaleFlowInverseExploration?.affects_live_routing
+                      ? "yes"
+                      : "no"
+                  } · ${whaleFlowInverseExplorationCandidateSummary}. ${String(
+                    whaleFlowInverseExploration?.next_action ??
+                      copyShadowSummary.whale_flow_inverse_exploration_next_action ??
+                      "",
+                  )}`,
+                  whaleFlowInverseExploration?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Adverse Selection",
+                  String(
+                    whaleFlowAdverseSelection?.status ??
+                      copyShadowSummary.whale_flow_adverse_selection_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_adverse_selection_decision_count ??
+                      whaleFlowAdverseSelection?.decision_count ??
+                      0,
+                  )} decisions · ${fmt(
+                    copyShadowSummary.whale_flow_adverse_selection_raw_trade_count ??
+                      whaleFlowAdverseSelection?.raw_trade_count ??
+                      0,
+                  )} raw trades · checked windows ${fmt(
+                    whaleFlowAdverseConfiguredWindowCount,
+                  )} · source-backed ${fmt(
+                    whaleFlowAdverseSourceBackedWindowCount,
+                  )} · underpowered ${fmt(whaleFlowAdverseUnderpoweredWindowCount)} · missing ${fmt(
+                    whaleFlowAdverseMissingWindowCount,
+                  )} · adverse windows ${fmt(whaleFlowAdverseWindowCount)} · ${fmt(
+                    copyShadowSummary.whale_flow_adverse_selection_segment_summary_count ??
+                      whaleFlowAdverseSelection?.segment_summary_count ??
+                      0,
+                  )} segments · ${fmt(
+                    copyShadowSummary.whale_flow_adverse_selection_powered_adverse_segment_count ??
+                      whaleFlowAdverseSelection?.powered_adverse_segment_count ??
+                      0,
+                  )} powered adverse · ${fmt(
+                    copyShadowSummary.whale_flow_adverse_selection_underpowered_adverse_segment_count ??
+                      whaleFlowAdverseSelection?.underpowered_adverse_segment_count ??
+                      0,
+                  )} underpowered watch.`,
+                  whaleFlowAdverseSelection?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Entry Timing",
+                  String(whaleFlowEntryTimingStatus),
+                  `instant ${fmt(whaleFlowEntryTimingInstantStatus)} · immediate ${fmt(
+                    whaleFlowEntryTimingImmediateHorizon,
+                  )}s adverse ${pct(whaleFlowEntryTimingImmediateAdverseRate)} · best delay ${fmt(
+                    whaleFlowEntryTimingBestDelay,
+                  )}s · favorable ${pct(
+                    whaleFlowEntryTimingBestDelayFavorableRate,
+                  )} · adverse ${pct(whaleFlowEntryTimingBestDelayAdverseRate)} · delta ${fmt(
+                    whaleFlowEntryTimingBestDelayDelta,
+                  )}c · edge ${fmt(whaleFlowEntryTimingBestDelayEdge)} · source-backed ${fmt(
+                    whaleFlowEntryTimingSourceBackedCount,
+                  )} · powered ${fmt(whaleFlowEntryTimingPoweredCount)} · paper-only forward test ${
+                    whaleFlowEntryTimingForwardTest ? "yes" : "no"
+                  } · observations ${fmt(whaleFlowEntryTimingObservationCount)} (${fmt(
+                    whaleFlowEntryTimingObservationSourceBackedCount,
+                  )} source-backed, ${String(
+                    whaleFlowEntryTimingObservationStatus,
+                  )}) · observed delay ${fmt(
+                    whaleFlowEntryTimingObservationBestDelay,
+                  )}s · entry improvement ${fmt(
+                    whaleFlowEntryTimingObservationAverageImprovement,
+                  )}c · improved ${fmt(
+                    whaleFlowEntryTimingObservationImprovedCount,
+                  )} / worse ${fmt(whaleFlowEntryTimingObservationWorseCount)} · observation trade-ready ${
+                    whaleFlowEntryTimingObservationsCountForTradeReady ? "yes" : "no"
+                  } · observation profitability ${
+                    whaleFlowEntryTimingObservationsCountForProfit ? "yes" : "no"
+                  } · observation live routing ${
+                    whaleFlowEntryTimingObservationsAffectLiveRouting ? "yes" : "no"
+                  } · segment timing ${fmt(whaleFlowEntryTimingSegmentCount)} (${fmt(
+                    whaleFlowEntryTimingSegmentPoweredCount,
+                  )} powered, ${fmt(
+                    whaleFlowEntryTimingSegmentUnderpoweredCount,
+                  )} underpowered, ${String(
+                    whaleFlowEntryTimingSegmentStatus,
+                  )}) · segment improvement ${fmt(
+                    whaleFlowEntryTimingSegmentAverageImprovement,
+                  )}c · segment improved ${fmt(
+                    whaleFlowEntryTimingSegmentDelayImprovedCount,
+                  )} / worse ${fmt(
+                    whaleFlowEntryTimingSegmentDelayWorseCount,
+                  )} · global action ${fmt(
+                    whaleFlowEntryTimingSegmentGlobalAction,
+                  )} · global delay rule ${
+                    whaleFlowEntryTimingSegmentGlobalDelayRuleAllowed ? "yes" : "no"
+                  } · segment trade-ready ${
+                    whaleFlowEntryTimingSegmentsCountForTradeReady ? "yes" : "no"
+                  } · segment profitability ${
+                    whaleFlowEntryTimingSegmentsCountForProfit ? "yes" : "no"
+                  } · segment live routing ${
+                    whaleFlowEntryTimingSegmentsAffectLiveRouting ? "yes" : "no"
+                  } · trade-ready ${whaleFlowEntryTimingCountsForTradeReady ? "yes" : "no"} · profitability ${
+                    whaleFlowEntryTimingCountsForProfit ? "yes" : "no"
+                  } · live routing ${whaleFlowEntryTimingAffectsLiveRouting ? "yes" : "no"}.`,
+                  whaleFlowEntryTiming?.schema_passed &&
+                    whaleFlowEntryTimingObservations?.schema_passed &&
+                    whaleFlowEntryTimingSegments?.schema_passed
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Entry Timing Governor",
+                  String(whaleFlowEntryTimingGovernorAction),
+                  `${fmt(whaleFlowEntryTimingGovernorStatus)} · policy ${fmt(
+                    whaleFlowEntryTimingGovernorInstantPolicy,
+                  )} · evidence ${fmt(whaleFlowEntryTimingGovernorEvidenceTier)} · scope ${fmt(
+                    whaleFlowEntryTimingGovernorSegmentScope,
+                  )} · powered delayed candidates ${fmt(
+                    whaleFlowEntryTimingGovernorPoweredCandidates,
+                  )} · underpowered watch ${fmt(
+                    whaleFlowEntryTimingGovernorUnderpoweredCandidates,
+                  )} · rejected delay segments ${fmt(
+                    whaleFlowEntryTimingGovernorRejectedSegments,
+                  )} · global delay ${
+                    whaleFlowEntryTimingGovernorGlobalDelayAllowed ? "yes" : "no"
+                  } · source global delay ${
+                    whaleFlowEntryTimingGovernorSourceGlobalDelayAllowed ? "yes" : "no"
+                  } · delayed forward test ${
+                    whaleFlowEntryTimingGovernorDelayedForwardTestAllowed ? "yes" : "no"
+                  } · trade-ready ${
+                    whaleFlowEntryTimingGovernorCountsForTradeReady ? "yes" : "no"
+                  } · profitability ${
+                    whaleFlowEntryTimingGovernorCountsForProfit ? "yes" : "no"
+                  } · live routing ${
+                    whaleFlowEntryTimingGovernorAffectsLiveRouting ? "yes" : "no"
+                  }. ${whaleFlowEntryTimingGovernorReason} ${whaleFlowEntryTimingGovernorNextAction}`,
+                  whaleFlowEntryTimingGovernor?.schema_passed &&
+                    !whaleFlowEntryTimingGovernorAffectsLiveRouting &&
+                    !whaleFlowEntryTimingGovernorGlobalDelayAllowed
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Evidence Dataset",
+                  String(
+                    whaleFlowEvidenceDataset?.status ??
+                      copyShadowSummary.whale_flow_evidence_dataset_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_evidence_dataset_total_rows ??
+                      whaleFlowEvidenceDataset?.total_rows ??
+                      0,
+                  )} rows · ${fmt(
+                    copyShadowSummary.whale_flow_evidence_dataset_training_label_rows ??
+                      whaleFlowEvidenceDataset?.training_label_rows ??
+                      0,
+                  )} training labels · ${fmt(
+                    copyShadowSummary.whale_flow_evidence_dataset_forward_paper_label_rows ??
+                      whaleFlowEvidenceDataset?.forward_paper_label_rows ??
+                      0,
+                  )} forward labels · ${fmt(
+                    copyShadowSummary.whale_flow_evidence_dataset_late_backfill_label_rows ??
+                      whaleFlowEvidenceDataset?.late_backfill_label_rows ??
+                      0,
+                  )} backfill labels · ${fmt(
+                    copyShadowSummary.whale_flow_evidence_dataset_pending_realistic_label_rows ??
+                      whaleFlowEvidenceDataset?.pending_realistic_label_rows ??
+                      0,
+                  )} pending realistic · ${fmt(
+                    copyShadowSummary.whale_flow_evidence_dataset_resolved_unfillable_label_rows ??
+                      whaleFlowEvidenceDataset?.resolved_unfillable_label_rows ??
+                      0,
+                  )} resolved unfillable.`,
+                  whaleFlowEvidenceDataset?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Outcome Label Queue",
+                  String(
+                    whaleFlowOutcomeVelocity?.status ??
+                      copyShadowSummary.whale_flow_outcome_velocity_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_outcome_velocity_label_unlock_pending_count ??
+                      whaleFlowOutcomeVelocity?.label_unlock_pending_count ??
+                      0,
+                  )} realistic-fill pending · ${fmt(
+                    copyShadowSummary.whale_flow_outcome_velocity_resolved_unfillable_count ??
+                      whaleFlowOutcomeVelocity?.resolved_unfillable_count ??
+                      0,
+                  )} resolved unfillable quarantined · ${fmt(
+                    copyShadowSummary.whale_flow_outcome_velocity_unknown_fill_pending_count ??
+                      whaleFlowOutcomeVelocity?.unknown_fill_pending_count ??
+                      0,
+                  )} pending without fill proof.`,
+                  whaleFlowOutcomeVelocity?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Realistic Outcome Unlock",
+                  String(
+                    whaleFlowRealisticOutcomeUnlock?.status ??
+                      copyShadowSummary.whale_flow_realistic_outcome_unlock_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_realistic_outcome_unlock_pending_count ??
+                      whaleFlowRealisticOutcomeUnlock?.pending_realistic_label_count ??
+                      0,
+                  )} pending labels · ${fmt(
+                    copyShadowSummary.whale_flow_realistic_outcome_unlock_resolved_count ??
+                      whaleFlowRealisticOutcomeUnlock?.resolved_realistic_count ??
+                      0,
+                  )} resolved realistic · ${fmt(
+                    copyShadowSummary.whale_flow_realistic_outcome_unlock_fetch_failed_count ??
+                      whaleFlowRealisticOutcomeUnlock?.fetch_failed_count ??
+                      0,
+                  )} fetch failed (${fmt(
+                    copyShadowSummary.whale_flow_realistic_outcome_unlock_retryable_fetch_failed_count ??
+                      whaleFlowRealisticOutcomeUnlock?.retryable_fetch_failed_count ??
+                      0,
+                  )} retryable). ${whaleFlowRealisticOutcomeUnlockBlockerText}. Pending ${whaleFlowRealisticOutcomeUnlockPendingText}. Failed ${whaleFlowRealisticOutcomeUnlockFailedText}. ${String(
+                    copyShadowSummary.whale_flow_realistic_outcome_unlock_next_action ??
+                      whaleFlowRealisticOutcomeUnlock?.next_action ??
+                      "Keep outcome unlock shadow-only.",
+                  )}`,
+                  whaleFlowRealisticOutcomeUnlock?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Outcome Probe",
+                  String(copyShadowSummary.whale_flow_outcome_probe_status ?? "not run"),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_outcome_probe_checked_count ?? 0,
+                  )} checked · ${fmt(
+                    copyShadowSummary.whale_flow_outcome_probe_market_fetch_failed_count ?? 0,
+                  )} fetch failed · ${fmt(
+                    copyShadowSummary.whale_flow_outcome_probe_realistic_label_unlock_fetch_failed_count ??
+                      0,
+                  )} realistic-label fetch failed. ${whaleFlowOutcomeProbeBlockerText}`,
+                  (copyShadowSummary.whale_flow_outcome_probe_realistic_label_unlock_fetch_failed_count ??
+                    0) > 0
+                    ? "warn"
+                    : "ok",
+                )}
+                ${metricCard(
+                  "Feature Store",
+                  String(
+                    whaleFlowFeatureStore?.status ??
+                      copyShadowSummary.whale_flow_feature_store_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_feature_store_record_count ??
+                      whaleFlowFeatureStore?.record_count ??
+                      0,
+                  )} rows · ${fmt(
+                    copyShadowSummary.whale_flow_feature_store_source_backed_label_count ??
+                      whaleFlowFeatureStore?.source_backed_label_count ??
+                      0,
+                  )} source-backed · ${fmt(
+                    copyShadowSummary.whale_flow_feature_store_usable_training_label_count ??
+                      whaleFlowFeatureStore?.usable_training_label_count ??
+                      0,
+                  )} usable training labels.`,
+                  whaleFlowFeatureStore?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "STS Input Lane",
+                  String(
+                    whaleFlowStsAdapter?.status ??
+                      copyShadowSummary.whale_flow_sts_adapter_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_sts_adapter_accepted_record_count ??
+                      whaleFlowStsAdapter?.accepted_record_count ??
+                      0,
+                  )} accepted · ${fmt(
+                    copyShadowSummary.whale_flow_sts_adapter_rejected_record_count ??
+                      whaleFlowStsAdapter?.rejected_record_count ??
+                      0,
+                  )} rejected · ${fmt(
+                    copyShadowSummary.whale_flow_sts_adapter_segment_count ??
+                      whaleFlowStsAdapter?.segment_count ??
+                      0,
+                  )} segments · actions ${countReasons(
+                    copyShadowSummary.whale_flow_sts_adapter_action_counts ??
+                      whaleFlowStsAdapter?.action_counts ??
+                      {},
+                  )}. Live routing ${
+                    copyShadowSummary.whale_flow_sts_adapter_live_routing_allowed ||
+                    whaleFlowStsAdapter?.live_routing_allowed
+                      ? "allowed"
+                      : "blocked"
+                  }; STS weight changes ${
+                    copyShadowSummary.whale_flow_sts_adapter_weight_change_allowed ||
+                    whaleFlowStsAdapter?.sts_weight_change_allowed
+                      ? "allowed"
+                      : "blocked"
+                  }. ${String(
+                    whaleFlowStsAdapter?.next_action ??
+                      "Whale Flow is available to STS as a paper-only evidence lane.",
+                  )}`,
+                  whaleFlowStsAdapter?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Label Bottleneck",
+                  String(
+                    whaleFlowLabelBottleneck?.status ??
+                      copyShadowSummary.whale_flow_label_bottleneck_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_label_bottleneck_training_label_rows ??
+                      whaleFlowLabelBottleneck?.training_label_rows ??
+                      0,
+                  )}/${fmt(
+                    copyShadowSummary.whale_flow_label_bottleneck_minimum_training_rows ??
+                      whaleFlowLabelBottleneck?.minimum_training_rows ??
+                      0,
+                  )} labels · deficit ${fmt(
+                    copyShadowSummary.whale_flow_label_bottleneck_training_label_deficit ??
+                      whaleFlowLabelBottleneck?.training_label_deficit ??
+                      0,
+                  )} · pending realistic ${fmt(
+                    copyShadowSummary.whale_flow_label_bottleneck_pending_realistic_label_rows ??
+                      whaleFlowLabelBottleneck?.pending_realistic_label_rows ??
+                      0,
+                  )} · unusable ${fmt(
+                    copyShadowSummary.whale_flow_label_bottleneck_source_backed_unusable_label_rows ??
+                      whaleFlowLabelBottleneck?.source_backed_unusable_label_rows ??
+                      0,
+                  )} · backfill ${fmt(
+                    copyShadowSummary.whale_flow_label_bottleneck_late_backfill_label_rows ??
+                      whaleFlowLabelBottleneck?.late_backfill_label_rows ??
+                      0,
+                  )}. ${whaleFlowLabelBottleneckBlockerText}. Trade-ready ${
+                    copyShadowSummary.whale_flow_label_bottleneck_counts_for_trade_ready_unlock ||
+                    whaleFlowLabelBottleneck?.counts_for_trade_ready_unlock
+                      ? "yes"
+                      : "no"
+                  } · live routing ${
+                    copyShadowSummary.whale_flow_label_bottleneck_affects_live_routing ||
+                    whaleFlowLabelBottleneck?.affects_live_routing
+                      ? "yes"
+                      : "no"
+                  }. ${String(
+                    copyShadowSummary.whale_flow_label_bottleneck_next_action ??
+                      whaleFlowLabelBottleneck?.next_action ??
+                      "Keep collecting source-backed paper labels.",
+                  )}`,
+                  whaleFlowLabelBottleneck?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "ML Governor",
+                  String(
+                    whaleFlowMlGovernor?.status ??
+                      copyShadowSummary.whale_flow_ml_governor_status ??
+                      "not run",
+                  ),
+                  `${fmt(
+                    copyShadowSummary.whale_flow_ml_governor_training_label_rows ??
+                      whaleFlowMlGovernor?.training_label_rows ??
+                      0,
+                  )} labels · ${
+                    copyShadowSummary.whale_flow_ml_governor_paper_routing_allowed ||
+                    whaleFlowMlGovernor?.paper_routing_allowed
+                      ? "paper routing allowed"
+                      : "shadow-only"
+                  }.`,
+                  whaleFlowMlGovernor?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "MLX Diagnostic",
+                  String(
+                    whaleFlowMlxDiagnostic?.status ??
+                      copyShadowSummary.whale_flow_mlx_diagnostic_status ??
+                      "not run",
+                  ),
+                  whaleFlowMlxDiagnostic?.next_action ??
+                    "Research-only; not allowed to route paper or live trades.",
+                  whaleFlowMlxDiagnostic?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Profit Firewall",
+                  String(
+                    whaleFlowProfitabilityFirewall?.status ??
+                      copyShadowSummary.whale_flow_profitability_firewall_status ??
+                      "blocked",
+                  ),
+                  `${money(
+                    copyShadowSummary.whale_flow_profitability_firewall_tail_live_relevant_after_cost_pnl_usd ??
+                      whaleFlowProfitabilityFirewall?.baseline_checks
+                        ?.tail_live_relevant_after_cost_pnl_usd,
+                  )} forward P&L · ${fmt(
+                    whaleFlowProfitabilityFirewall?.baseline_checks?.late_backfill_decision_count ??
+                      copyShadowSummary.whale_flow_tail_fade_late_backfill_decision_count ??
+                      0,
+                  )} late-backfill excluded · random ${
+                    copyShadowSummary.whale_flow_profitability_firewall_tail_beats_random_baseline ||
+                    whaleFlowProfitabilityFirewall?.baseline_checks?.tail_beats_random_baseline
+                      ? "beaten"
+                      : "blocked"
+                  } · market ${
+                    copyShadowSummary.whale_flow_profitability_firewall_market_implied_baseline_proxy_only ||
+                    whaleFlowProfitabilityFirewall?.baseline_checks
+                      ?.market_implied_baseline_proxy_only
+                      ? "proxy-only"
+                      : copyShadowSummary.whale_flow_profitability_firewall_tail_beats_market_implied_baseline ||
+                          whaleFlowProfitabilityFirewall?.baseline_checks
+                            ?.tail_beats_market_implied_baseline
+                        ? "beaten"
+                        : "blocked"
+                  }. ${
+                    whaleFlowProfitabilityFirewall?.next_action ??
+                    "Requires realistic fills, after-cost edge, baseline wins, and model proof."
+                  }`,
+                  whaleFlowProfitabilityFirewall?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "P&L Truth Ladder",
+                  money(whaleFlowPnlTruthLiveRelevant),
+                  `${String(
+                    copyShadowSummary.whale_flow_pnl_truth_ladder_status ??
+                      whaleFlowPnlTruthLadder?.status ??
+                      "not run",
+                  )} · all-shadow ${money(
+                    copyShadowSummary.whale_flow_pnl_truth_all_shadow_pnl_usd,
+                  )} · realistic ${money(
+                    copyShadowSummary.whale_flow_pnl_truth_realistic_after_cost_pnl_usd,
+                  )} · live-relevant ${money(whaleFlowPnlTruthLiveRelevant)} · forward gate ${money(
+                    whaleFlowPnlTruthForwardGate,
+                  )} · inverse/fade ${money(
+                    copyShadowSummary.whale_flow_pnl_truth_inverse_fade_diagnostic_pnl_usd,
+                  )} · ${whaleFlowPnlTruthHeadlineText}. ${
+                    whaleFlowPnlTruthLadder?.next_action ??
+                    "Headline all-shadow P&L is diagnostic only until live-relevant and forward-gate P&L are positive."
+                  }`,
+                  whaleFlowPnlTruthLiveReady ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Evidence Acceleration",
+                  String(
+                    copyShadowSummary.whale_flow_outcome_fetch_repair_status ??
+                      whaleFlowOutcomeFetchRepair?.status ??
+                      "not run",
+                  ),
+                  `repair retryable ${fmt(
+                    copyShadowSummary.whale_flow_outcome_fetch_repair_retryable_fetch_failed_count ??
+                      whaleFlowOutcomeFetchRepair?.retryable_fetch_failed_count ??
+                      0,
+                  )} (${countReasons(whaleFlowOutcomeRepairCounts)}) · quick queue ${fmt(
+                    copyShadowSummary.whale_flow_quick_settling_queue_count ??
+                      whaleFlowQuickSettlingQueue?.queue_count ??
+                      0,
+                  )} · backlog gaps ${fmt(
+                    copyShadowSummary.whale_flow_backlog_accelerator_open_gap_count ??
+                      whaleFlowBacklogAccelerator?.open_backlog_gap_count ??
+                      0,
+                  )} (${countReasons(whaleFlowBacklogAcceleratorCounts)}) · segment actions ${countReasons(
+                    whaleFlowSegmentTailFadeActionCounts,
+                  )} · global flip ${
+                    copyShadowSummary.whale_flow_segment_tail_fade_firewall_global_flip_allowed ||
+                    whaleFlowSegmentTailFadeFirewall?.global_flip_allowed
+                      ? "yes"
+                      : "no"
+                  } · delayed entry ${String(
+                    copyShadowSummary.whale_flow_delayed_entry_forward_test_status ??
+                      whaleFlowDelayedEntryForwardTest?.status ??
+                      "not run",
+                  )} powered ${fmt(
+                    copyShadowSummary.whale_flow_delayed_entry_forward_test_powered_candidate_count ??
+                      whaleFlowDelayedEntryForwardTest?.powered_candidate_count ??
+                      0,
+                  )} underpowered ${fmt(
+                    copyShadowSummary.whale_flow_delayed_entry_forward_test_underpowered_candidate_count ??
+                      whaleFlowDelayedEntryForwardTest?.underpowered_candidate_count ??
+                      0,
+                  )} · trade-ready credit ${
+                    copyShadowSummary.whale_flow_delayed_entry_forward_test_counts_for_trade_ready_unlock ||
+                    whaleFlowDelayedEntryForwardTest?.counts_for_trade_ready_unlock
+                      ? "yes"
+                      : "no"
+                  }.`,
+                  "warn",
+                )}
+                ${metricCard(
+                  "Tail Loss Diagnosis",
+                  String(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_governor_action ??
+                      whaleFlowTailLossDiagnosis?.governor_action ??
+                      "not run",
+                  ),
+                  `${String(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_status ??
+                      whaleFlowTailLossDiagnosis?.status ??
+                      "not run",
+                  )} · ${fmt(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_live_relevant_sample_count ??
+                      whaleFlowTailLossDiagnosis?.baseline_checks?.sample_count ??
+                      0,
+                  )} live-relevant sample(s) · tail ${money(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_tail_after_cost_pnl_usd ??
+                      whaleFlowTailLossDiagnosis?.baseline_checks?.tail_after_cost_pnl_usd,
+                  )} · inverse ${money(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_inverse_after_cost_pnl_usd ??
+                      whaleFlowTailLossDiagnosis?.baseline_checks?.inverse_after_cost_pnl_usd,
+                  )} · no-trade ${
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_tail_beats_no_trade ||
+                    whaleFlowTailLossDiagnosis?.baseline_checks?.tail_beats_no_trade_baseline
+                      ? "beaten"
+                      : "blocked"
+                  } · inverse ${
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_tail_beats_inverse ||
+                    whaleFlowTailLossDiagnosis?.baseline_checks?.tail_beats_inverse_baseline
+                      ? "beaten"
+                      : "blocked"
+                  } · cohorts ${fmt(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_cohort_count ??
+                      whaleFlowTailLossDiagnosis?.cohort_count ??
+                      0,
+                  )} · actions ${countReasons(whaleFlowTailLossActionCounts)} · causes ${countReasons(
+                    whaleFlowTailLossRootCauses,
+                  )} · trade-ready ${
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_counts_for_trade_ready_unlock ||
+                    whaleFlowTailLossDiagnosis?.counts_for_trade_ready_unlock
+                      ? "yes"
+                      : "no"
+                  } · live routing ${
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_affects_live_routing ||
+                    whaleFlowTailLossDiagnosis?.affects_live_routing
+                      ? "yes"
+                      : "no"
+                  }.${whaleFlowTailLossTopCohortText} ${String(
+                    copyShadowSummary.whale_flow_tail_loss_diagnosis_next_action ??
+                      whaleFlowTailLossDiagnosis?.next_action ??
+                      "Keep Whale Flow shadow-only until loss cohorts are resolved.",
+                  )}`,
+                  (copyShadowSummary.whale_flow_tail_loss_diagnosis_governor_action ??
+                    whaleFlowTailLossDiagnosis?.governor_action) === "ACCEPT_FORWARD_PAPER"
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Paper Governor",
+                  String(
+                    copyShadowSummary.whale_flow_paper_governor_action ??
+                      whaleFlowPaperGovernor?.governor_action ??
+                      "not run",
+                  ),
+                  `${String(
+                    copyShadowSummary.whale_flow_paper_governor_status ??
+                      whaleFlowPaperGovernor?.status ??
+                      "not run",
+                  )} · forward-tail materialization ${
+                    copyShadowSummary.whale_flow_paper_governor_forward_tail_materialization_allowed ||
+                    whaleFlowPaperGovernor?.forward_tail_materialization_allowed
+                      ? "allowed"
+                      : "paused"
+                  } · shadow logging ${
+                    copyShadowSummary.whale_flow_paper_governor_shadow_logging_allowed ||
+                    whaleFlowPaperGovernor?.shadow_logging_allowed
+                      ? "on"
+                      : "off"
+                  } · inverse tests ${
+                    copyShadowSummary.whale_flow_paper_governor_inverse_forward_testing_allowed ||
+                    whaleFlowPaperGovernor?.inverse_forward_testing_allowed
+                      ? "on"
+                      : "off"
+                  } · outcomes ${
+                    copyShadowSummary.whale_flow_paper_governor_outcome_grading_allowed ||
+                    whaleFlowPaperGovernor?.outcome_grading_allowed
+                      ? "on"
+                      : "off"
+                  } · reasons ${countReasons(
+                    Object.fromEntries(whaleFlowPaperGovernorReasons.map((reason) => [reason, 1])),
+                  )} · trade-ready ${
+                    copyShadowSummary.whale_flow_paper_governor_counts_for_trade_ready_unlock ||
+                    whaleFlowPaperGovernor?.counts_for_trade_ready_unlock
+                      ? "yes"
+                      : "no"
+                  } · live routing ${
+                    copyShadowSummary.whale_flow_paper_governor_affects_live_routing ||
+                    whaleFlowPaperGovernor?.affects_live_routing
+                      ? "yes"
+                      : "no"
+                  }. ${whaleFlowPaperGovernorBlockedText} ${String(
+                    copyShadowSummary.whale_flow_paper_governor_next_action ??
+                      whaleFlowPaperGovernor?.next_action ??
+                      "Keep Whale Flow paper-only.",
+                  )}`,
+                  copyShadowSummary.whale_flow_paper_governor_forward_tail_materialization_allowed ||
+                    whaleFlowPaperGovernor?.forward_tail_materialization_allowed
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Trade Ready Gate",
+                  String(
+                    whaleFlowTradeReadyGate?.status ??
+                      copyShadowSummary.whale_flow_trade_ready_status ??
+                      "blocked",
+                  ),
+                  `${
+                    whaleFlowTradeReadyBlockers.length
+                      ? `Blocked by ${whaleFlowTradeReadyBlockers.map(plainStrategyToken).join(", ")}. `
+                      : ""
+                  }${
+                    whaleFlowTradeReadyGate?.next_action ??
+                    "Requires after-cost edge, segment health, inverse baseline, and sample proof."
+                  }`,
+                  whaleFlowTradeReadyGate?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "Live Canary Preflight",
+                  String(
+                    whaleFlowLiveCanaryPreflight?.status ??
+                      copyShadowSummary.whale_flow_live_canary_preflight_status ??
+                      "blocked",
+                  ),
+                  `Approval ${
+                    (whaleFlowLiveCanaryPreflight?.conditional_live_canary_approval_recorded ??
+                    copyShadowSummary.whale_flow_live_canary_approval_recorded)
+                      ? "recorded"
+                      : "missing"
+                  } · max order ${money(
+                    whaleFlowLiveCanaryPreflight?.approval_terms?.max_order_usd ??
+                      copyShadowSummary.whale_flow_live_canary_max_order_usd ??
+                      1,
+                  )} · daily cap ${money(
+                    whaleFlowLiveCanaryPreflight?.approval_terms?.daily_loss_cap_usd ??
+                      copyShadowSummary.whale_flow_live_canary_daily_loss_cap_usd ??
+                      5,
+                  )} · ${
+                    (whaleFlowLiveCanaryPreflight?.dry_run_only ??
+                    copyShadowSummary.whale_flow_live_canary_dry_run_only)
+                      ? "dry-run only"
+                      : "not dry-run"
+                  } · intent ${
+                    (whaleFlowLiveCanaryPreflight?.dry_run_order_intent?.intent_available ??
+                    copyShadowSummary.whale_flow_live_canary_order_intent_available)
+                      ? "available"
+                      : "blocked"
+                  }. ${
+                    (
+                      whaleFlowLiveCanaryPreflight?.blockers ??
+                      copyShadowSummary.whale_flow_live_canary_blockers ??
+                      []
+                    ).length
+                      ? `Blocked by ${(
+                          whaleFlowLiveCanaryPreflight?.blockers ??
+                          copyShadowSummary.whale_flow_live_canary_blockers ??
+                          []
+                        )
+                          .map(plainStrategyToken)
+                          .join(", ")}. `
+                      : ""
+                  }${
+                    whaleFlowLiveCanaryPreflight?.next_action ??
+                    "Dry-run only; exact eligibility is required before any canary can execute."
+                  }`,
+                  whaleFlowLiveCanaryPreflight?.verified ? "ok" : "warn",
+                )}
+                ${metricCard(
+                  "p95 Signal Latency",
+                  copyShadowLatencyP95 == null ? "n/a" : `${fmt(copyShadowLatencyP95)} ms`,
+                  `Target ${fmt(copyShadowLatency.near_instant_target_ms ?? copyShadowLatency.max_signal_latency_ms ?? 1000)} ms or faster.`,
+                  copyShadowLatencyP95 != null &&
+                    copyShadowLatencyP95 <=
+                      (copyShadowLatency.near_instant_target_ms ??
+                        copyShadowLatency.max_signal_latency_ms ??
+                        1000)
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Execution Drift",
+                  copyShadowAverageDrift == null ? "n/a" : `${fmt(copyShadowAverageDrift)}¢`,
+                  `Spread ${copyShadowAverageSpread == null ? "n/a" : `${fmt(copyShadowAverageSpread)}¢`} · max drift ${fmt(copyShadowExecution.max_price_drift_cents ?? 2)}¢.`,
+                  copyShadowAverageDrift != null &&
+                    copyShadowAverageDrift <= (copyShadowExecution.max_price_drift_cents ?? 2)
+                    ? "ok"
+                    : "warn",
+                )}
+                ${metricCard(
+                  "Duplicate Signals",
+                  fmt(
+                    copyShadowSignalQuality.duplicate_signal_count ??
+                      copyShadowSummary.duplicate_signal_count ??
+                      0,
+                  ),
+                  "Duplicate signal IDs are ignored so the same Foster fill cannot be counted twice.",
+                  (copyShadowSignalQuality.duplicate_signal_count ??
+                    copyShadowSummary.duplicate_signal_count ??
+                    0)
+                    ? "danger"
+                    : "ok",
+                )}
+              </div>
+              <div>
+                <h4>Copy-Leader Paper Lanes</h4>
+                <div class="kalshi-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Leader</th>
+                        <th>Lane</th>
+                        <th>Copy Mode</th>
+                        <th>Status</th>
+                        <th>Signals</th>
+                        <th>P&L</th>
+                        <th>Blockers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${copyShadowLeaderLanes.length
+                        ? copyShadowLeaderLanes.map(
+                            (lane) => html`<tr>
+                              <td>${fmt(lane.leader_name ?? lane.leader_alias ?? "leader")}</td>
+                              <td>${fmt(lane.lane_type ?? lane.lane_id ?? "paper_lane")}</td>
+                              <td>
+                                ${lane.exact_copy ? "exact copy" : "not exact-copy"} ·
+                                ${fmt(lane.copy_mode ?? "shadow")}
+                              </td>
+                              <td>
+                                ${fmt(
+                                  lane.copyable_now
+                                    ? "paper-ready"
+                                    : (lane.source_status ?? lane.verification_status ?? "blocked"),
+                                )}
+                              </td>
+                              <td>
+                                ${fmt(lane.eligible_shadow_signals ?? 0)} eligible /
+                                ${fmt(lane.signals_seen ?? 0)} seen
+                              </td>
+                              <td>${money(lane.net_shadow_pnl_usd ?? 0)}</td>
+                              <td>
+                                ${fmt(
+                                  lane.blockers?.length
+                                    ? lane.blockers.slice(0, 3).join(", ")
+                                    : (lane.next_action ?? "none"),
+                                )}
+                              </td>
+                            </tr>`,
+                          )
+                        : html`<tr>
+                            <td colspan="7">No copy-leader paper lanes have been configured.</td>
+                          </tr>`}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h4>Source Health</h4>
+                <div class="kalshi-table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Verifier</th>
+                        <th>Status</th>
+                        <th>Schema</th>
+                        <th>Records</th>
+                        <th>Issues</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${copyShadowSourceHealthRows.map(({ label, receipt }) => {
+                        const issueText = receipt?.unsafe_true_flags?.length
+                          ? `unsafe: ${receipt.unsafe_true_flags.join(", ")}`
+                          : receipt?.risk_flags?.length
+                            ? `risk: ${receipt.risk_flags.join(", ")}`
+                            : receipt?.missing_fields?.length
+                              ? `missing: ${receipt.missing_fields.join(", ")}`
+                              : receipt?.invalid_fields?.length
+                                ? `invalid: ${receipt.invalid_fields.join(", ")}`
+                                : receipt?.rejected_record_count
+                                  ? fmt(receipt.rejection_reasons ?? "rejected")
+                                  : (receipt?.next_action ?? "none");
+                        return html`<tr>
+                          <td>${label}</td>
+                          <td>${fmt(receipt?.status ?? "not run")}</td>
+                          <td>${receipt?.schema_passed ? "passed" : "blocked"}</td>
+                          <td>
+                            ${receipt?.record_count == null
+                              ? "n/a"
+                              : `${fmt(receipt.accepted_record_count ?? 0)} accepted / ${fmt(receipt.record_count)} read${
+                                  receipt.materialized_paper_decision_count == null
+                                    ? ""
+                                    : ` · ${fmt(receipt.materialized_paper_decision_count)} paper`
+                                }${
+                                  receipt.raw_trade_quarantine_count == null
+                                    ? ""
+                                    : ` · ${fmt(receipt.raw_trade_quarantine_count)} quarantined`
+                                }`}
+                          </td>
+                          <td>${fmt(issueText)}</td>
+                        </tr>`;
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="kalshi-grid kalshi-grid--two">
+                <div>
+                  <h4>Sources</h4>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Source</th>
+                          <th>Type</th>
+                          <th>Verified</th>
+                          <th>Status</th>
+                          <th>Exact Fill</th>
+                          <th>Signals</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowSources.length
+                          ? copyShadowSources.map(
+                              (source) => html`<tr>
+                                <td>
+                                  ${fmt(
+                                    source.leader_handle ??
+                                      source.leader_name ??
+                                      source.source_id ??
+                                      "source",
+                                  )}
+                                </td>
+                                <td>${fmt(source.source_type ?? "unknown")}</td>
+                                <td>${fmt(source.verification_status ?? "unverified")}</td>
+                                <td>
+                                  ${fmt(
+                                    source.source_status ??
+                                      (source.enabled ? "enabled" : "disabled"),
+                                  )}
+                                </td>
+                                <td>${source.exact_fill ? "yes" : "no"}</td>
+                                <td>${fmt(source.signals_seen)}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td colspan="6">No opt-in leader source has been configured.</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h4>Promotion Gates</h4>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Gate</th>
+                          <th>Status</th>
+                          <th>Detail</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowGates.length
+                          ? copyShadowGates.map(
+                              (gate) => html`<tr>
+                                <td>${fmt(gate.label ?? gate.gate_id)}</td>
+                                <td>${fmt(gate.status ?? "unknown")}</td>
+                                <td>${fmt(gate.blocker ?? gate.detail ?? "none")}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td colspan="3">Copy-shadow gates have not generated yet.</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              <div class="kalshi-grid kalshi-grid--two">
+                <div>
+                  <h4>Skip Reasons</h4>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Reason</th>
+                          <th>Signals</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowSkipReasons.length
+                          ? copyShadowSkipReasons.map(
+                              ([reason, count]) => html`<tr>
+                                <td>${fmt(reason)}</td>
+                                <td>${fmt(count)}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td colspan="2">No skipped Foster signals have been observed.</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h4>Source Proof</h4>
+                  <p class="muted">
+                    ${fmt(
+                      copyShadowLeader.evidence_summary ??
+                        "Foster source proof has not been verified yet.",
+                    )}
+                  </p>
+                  <p class="muted">
+                    Required before copying: verified Foster handle, exact fill source, signed or
+                    trusted timestamps, latency measurements, and exportable append-only logs.
+                  </p>
+                  <div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Discovery</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Identity</td>
+                          <td>
+                            ${copyShadowDiscovery.public_identity_verified
+                              ? "verified"
+                              : "unverified"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>Exact source</td>
+                          <td>
+                            ${copyShadowDiscovery.copyable_exact_source_verified
+                              ? "verified"
+                              : "blocked"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>Authenticated read</td>
+                          <td>
+                            ${copyShadowDiscovery.authenticated_read_attempted
+                              ? copyShadowDiscovery.authenticated_read_ok
+                                ? "passed"
+                                : "blocked"
+                              : "not run"}
+                          </td>
+                        </tr>
+                        ${copyShadowDiscoveryBlockers.length
+                          ? copyShadowDiscoveryBlockers.map(
+                              (blocker) => html`<tr>
+                                <td>Blocker</td>
+                                <td>${fmt(blocker)}</td>
+                              </tr>`,
+                            )
+                          : html`<tr>
+                              <td>Blocker</td>
+                              <td>none recorded</td>
+                            </tr>`}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+              ${copyShadowCandidateSources.length
+                ? html`<div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Source Candidate</th>
+                          <th>Status</th>
+                          <th>Latency</th>
+                          <th>Exact</th>
+                          <th>Identity</th>
+                          <th>Approval</th>
+                          <th>Blocker</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowCandidateSources.map(
+                          (source) => html`<tr>
+                            <td>${fmt(source.candidate ?? source.source_id ?? "source")}</td>
+                            <td>${fmt(source.status ?? "unknown")}</td>
+                            <td>${fmt(source.latency_fit ?? "unknown")}</td>
+                            <td>${fmt(source.exact_fill)}</td>
+                            <td>${fmt(source.leader_identity_available)}</td>
+                            <td>
+                              ${source.requires_external_approval
+                                ? "required"
+                                : source.copyable_now
+                                  ? "ready"
+                                  : "not required"}
+                            </td>
+                            <td>${fmt(source.why_not_copyable ?? "none recorded")}</td>
+                          </tr>`,
+                        )}
+                      </tbody>
+                    </table>
+                  </div>`
+                : null}
+              ${copyShadowDiscoveryMilestones.length
+                ? html`<div class="kalshi-table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Milestone</th>
+                          <th>Complete</th>
+                          <th>Status</th>
+                          <th>Evidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${copyShadowDiscoveryMilestones.map(
+                          (milestone) => html`<tr>
+                            <td>${fmt(milestone.name ?? milestone.milestone_id)}</td>
+                            <td>${fmt(milestone.completion_percentage)}%</td>
+                            <td>${fmt(milestone.status)}</td>
+                            <td>${fmt(milestone.evidence)}</td>
+                          </tr>`,
+                        )}
+                      </tbody>
+                    </table>
+                  </div>`
+                : null}
+              <p class="muted">
+                Initial live review, if ever approved, should start at
+                ${money(copyShadow.recommended_initial_live_order_usd ?? 1)} to
+                ${money(copyShadow.max_recommended_initial_live_order_usd ?? 5)} per order. Current
+                shadow cap: ${money(copyShadowRisk.max_shadow_order_usd ?? 5)} per copied signal.
+              </p>
+            </section>
+
+            <section class="kalshi-panel">
               <h3>Strategy Discovery${metricHelp("Strategy Discovery")}</h3>
               <div class="kalshi-grid kalshi-grid--cards">
                 ${metricCard(
@@ -7609,11 +10693,11 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
 
             <section class="kalshi-panel">
               <h3>Decision Quality</h3>
-              ${bar("Accepted", decisionQuality.accepted ?? 0, total, "ok")}
-              ${bar("Explore", explorationTrades, total, "ok")}
-              ${bar("Forward", forwardPaperTrades, total, "ok")}
-              ${bar("No Trade", decisionQuality.no_trade ?? 0, total, "warn")}
-              ${bar("Rejected", decisionQuality.rejected ?? 0, total, "danger")}
+              ${renderBar("Accepted", decisionQuality.accepted ?? 0, total, "ok")}
+              ${renderBar("Explore", explorationTrades, total, "ok")}
+              ${renderBar("Forward", forwardPaperTrades, total, "ok")}
+              ${renderBar("No Trade", decisionQuality.no_trade ?? 0, total, "warn")}
+              ${renderBar("Rejected", decisionQuality.rejected ?? 0, total, "danger")}
               <p class="muted">
                 Accepted rate: ${pct(distance.accepted_rate)}. Missing outcome rate:
                 ${pct(metrics.missing_outcome_rate)}.
@@ -7622,12 +10706,22 @@ export function renderKalshiDashboard(props: KalshiDashboardProps) {
 
             <section class="kalshi-panel">
               <h3>Live-Readiness Funnel</h3>
-              ${bar("Observed", snapshot?.log_counts?.market_observations ?? 0, 100, "ok")}
-              ${bar("Candidates", total, Math.max(total, 1), "warn")}
-              ${bar("Fair Values", externalFairValues, Math.max(total, 1), "warn")}
-              ${bar("Explore", explorationTrades, Math.max(accepted, explorationTrades, 1), "ok")}
-              ${bar("Forward", forwardPaperTrades, Math.max(accepted, forwardPaperTrades, 1), "ok")}
-              ${bar("Resolved", distance.resolved_outcomes ?? 0, 100, "danger")}
+              ${renderBar("Observed", snapshot?.log_counts?.market_observations ?? 0, 100, "ok")}
+              ${renderBar("Candidates", total, Math.max(total, 1), "warn")}
+              ${renderBar("Fair Values", externalFairValues, Math.max(total, 1), "warn")}
+              ${renderBar(
+                "Explore",
+                explorationTrades,
+                Math.max(accepted, explorationTrades, 1),
+                "ok",
+              )}
+              ${renderBar(
+                "Forward",
+                forwardPaperTrades,
+                Math.max(accepted, forwardPaperTrades, 1),
+                "ok",
+              )}
+              ${renderBar("Resolved", distance.resolved_outcomes ?? 0, 100, "danger")}
               <p class="muted">
                 Exploration trades teach the system. Forward paper trades test whether the lesson
                 holds. Live review remains blocked until evidence is strong.

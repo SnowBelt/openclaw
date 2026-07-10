@@ -254,6 +254,7 @@ export type BookWriterPlan = {
     profanityLevel: BookWriterProfanityLevel;
     profanityDescription: string;
   };
+  continuityControl?: BookWriterContinuityControl;
   chapters: BookWriterChapter[];
   cover: {
     brief: string;
@@ -386,6 +387,13 @@ export type BookWriterPublishedSalesSnapshot = {
   kuPagesRead?: number;
   royaltyUsd?: number;
   notes?: string;
+};
+
+export type BookWriterContinuityControl = {
+  characterFacts: string[];
+  timelineEvents: string[];
+  toneRules: string[];
+  plotDirections: string[];
 };
 
 export type BookWriterPublishedMetrics = {
@@ -1001,9 +1009,14 @@ async function runBookWriterAction(
   action: string,
   method: string,
   params: Record<string, unknown>,
-  opts?: { pushUndo?: boolean },
+  opts?: { pushUndo?: boolean; timeoutMs?: number },
 ): Promise<boolean> {
-  if (!state.client || !state.connected || state.bookWriterSavingAction) {
+  if (!state.client) {
+    state.bookWriterError = "Book Studio is still connecting. Wait a moment, then try again.";
+    state.requestUpdate?.();
+    return false;
+  }
+  if (state.bookWriterSavingAction) {
     return false;
   }
   const currentPlan = state.bookWriterDashboard?.plan;
@@ -1022,7 +1035,9 @@ async function runBookWriterAction(
   state.bookWriterError = null;
   state.requestUpdate?.();
   try {
-    const snapshot = await state.client.request<BookWriterDashboardSnapshot>(method, params);
+    const snapshot = await state.client.request<BookWriterDashboardSnapshot>(method, params, {
+      timeoutMs: opts?.timeoutMs ?? 120_000,
+    });
     applyBookWriterSnapshot(state, snapshot);
     state.bookWriterActionReceipt = receiptForAction({
       action,
@@ -1117,17 +1132,21 @@ export async function createBookWriterFullDraft(state: BookWriterDashboardState)
       state.bookWriterSavingAction = "full-draft-chapters";
       state.bookWriterActiveView = "chapters";
       state.requestUpdate?.();
-      snapshot = await state.client.request<BookWriterDashboardSnapshot>("bookWriter.plan.create", {
-        topic,
-        targetWords: state.bookWriterTargetWordsDraft,
-        tonePreset: state.bookWriterToneDraft,
-        tone:
-          state.bookWriterToneDraft === "custom"
-            ? state.bookWriterCustomToneDraft.trim()
-            : undefined,
-        profanityLevel: state.bookWriterProfanityDraft,
-        penName: state.bookWriterPenNameDraft.trim() || undefined,
-      });
+      snapshot = await state.client.request<BookWriterDashboardSnapshot>(
+        "bookWriter.plan.create",
+        {
+          topic,
+          targetWords: state.bookWriterTargetWordsDraft,
+          tonePreset: state.bookWriterToneDraft,
+          tone:
+            state.bookWriterToneDraft === "custom"
+              ? state.bookWriterCustomToneDraft.trim()
+              : undefined,
+          profanityLevel: state.bookWriterProfanityDraft,
+          penName: state.bookWriterPenNameDraft.trim() || undefined,
+        },
+        { timeoutMs: 300_000 },
+      );
       applyBookWriterSnapshot(state, snapshot);
       syncDraftControlsFromPlan(state, snapshot.plan ?? null);
       const newProject = snapshot.projects.find(
@@ -1158,10 +1177,11 @@ export async function createBookWriterFullDraft(state: BookWriterDashboardState)
       state.bookWriterSavingAction = "full-draft-text";
       state.bookWriterActiveView = "draft";
       state.requestUpdate?.();
-      snapshot = await state.client.request<BookWriterDashboardSnapshot>("bookWriter.plan.draft", {
-        runId: snapshot.plan.runId,
-        baseVersion: snapshot.plan.version,
-      });
+      snapshot = await state.client.request<BookWriterDashboardSnapshot>(
+        "bookWriter.plan.draft",
+        { runId: snapshot.plan.runId, baseVersion: snapshot.plan.version },
+        { timeoutMs: 300_000 },
+      );
       applyBookWriterSnapshot(state, snapshot);
       state.requestUpdate?.();
     }
@@ -1173,10 +1193,11 @@ export async function createBookWriterFullDraft(state: BookWriterDashboardState)
       state.bookWriterSavingAction = "full-draft-preview";
       state.bookWriterActiveView = "draft";
       state.requestUpdate?.();
-      snapshot = await state.client.request<BookWriterDashboardSnapshot>("bookWriter.plan.stitch", {
-        runId: snapshot.plan.runId,
-        baseVersion: snapshot.plan.version,
-      });
+      snapshot = await state.client.request<BookWriterDashboardSnapshot>(
+        "bookWriter.plan.stitch",
+        { runId: snapshot.plan.runId, baseVersion: snapshot.plan.version },
+        { timeoutMs: 300_000 },
+      );
       applyBookWriterSnapshot(state, snapshot);
     }
 
@@ -1234,6 +1255,7 @@ export async function requestBookWriterSetupAiHelp(
         intent,
         ...(customDirection?.trim() ? { customDirection: customDirection.trim() } : {}),
       },
+      { timeoutMs: 120_000 },
     );
     state.bookWriterTopicDraft = suggestion.suggestion;
     state.bookWriterActionReceipt = {
@@ -1268,6 +1290,7 @@ export async function requestBookWriterAiHelp(
         runId: plan.runId,
         ...request,
       },
+      { timeoutMs: 120_000 },
     );
     const nextPlan = applySuggestionToPlan(plan, suggestion, suggestion.suggestion);
     if (nextPlan === plan) {
@@ -1641,7 +1664,7 @@ export async function fillBookWriterParagraphPlans(
       baseVersion: plan.version,
       ...(chapterId ? { chapterId } : {}),
     },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 180_000 },
   );
 }
 
@@ -1662,7 +1685,7 @@ export async function generateBookWriterIdeaSetup(
       baseVersion: plan.version,
       targets,
     },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 180_000 },
   );
 }
 
@@ -1683,7 +1706,7 @@ export async function generateBookWriterChapterSetup(
       baseVersion: plan.version,
       targets,
     },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 240_000 },
   );
 }
 
@@ -1730,7 +1753,7 @@ export async function propagateBookWriterStoryChange(state: BookWriterDashboardS
     "propagate",
     "bookWriter.plan.propagateStoryChange",
     { runId: plan.runId, baseVersion: plan.version },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 300_000 },
   );
 }
 
@@ -1744,7 +1767,7 @@ export async function rebalanceBookWriterStructure(state: BookWriterDashboardSta
     "rebalance",
     "bookWriter.plan.rebalance",
     { runId: plan.runId, baseVersion: plan.version, targetWords: plan.targetWords },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 300_000 },
   );
 }
 
@@ -1776,7 +1799,7 @@ export async function packageBookWriterPlan(state: BookWriterDashboardState) {
     "package",
     "bookWriter.plan.package",
     { runId: plan.runId, baseVersion: plan.version },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 300_000 },
   );
   if (packaged) {
     state.bookWriterActiveView = "package";
@@ -1794,7 +1817,7 @@ export async function fixBookWriterPlan(state: BookWriterDashboardState) {
     "fix",
     "bookWriter.plan.fix",
     { runId: plan.runId, baseVersion: plan.version },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 300_000 },
   );
 }
 
@@ -1912,7 +1935,7 @@ export async function uploadBookWriterCoverFile(state: BookWriterDashboardState,
       mimeType: file.type,
       dataBase64: btoa(binary),
     },
-    { pushUndo: true },
+    { pushUndo: true, timeoutMs: 180_000 },
   );
 }
 

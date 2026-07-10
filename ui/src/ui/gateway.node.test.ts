@@ -530,6 +530,54 @@ describe("GatewayBrowserClient", () => {
     });
   });
 
+  it("times out a bounded RPC and ignores its late response", async () => {
+    useNodeFakeTimers();
+    const onRequestTiming = vi.fn();
+    const client = new GatewayBrowserClient({
+      url: "ws://127.0.0.1:18789",
+      token: "shared-auth-token",
+      onRequestTiming,
+    });
+
+    const { ws, connectFrame } = await startConnect(client);
+    ws.emitMessage({
+      type: "res",
+      id: connectFrame.id,
+      ok: true,
+      payload: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: [] },
+      },
+    });
+    onRequestTiming.mockClear();
+
+    const request = client.request("apps.dashboard.snapshot", {}, { timeoutMs: 5_000 });
+    const frame = JSON.parse(ws.sent.at(-1) ?? "{}") as { id?: string; method?: string };
+    const rejection = expect(request).rejects.toMatchObject({
+      name: "GatewayRequestTimeoutError",
+      method: "apps.dashboard.snapshot",
+      timeoutMs: 5_000,
+    });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await rejection;
+    expectLatestRequestTiming(onRequestTiming, {
+      id: frame.id,
+      method: "apps.dashboard.snapshot",
+      ok: false,
+      errorCode: "CLIENT_TIMEOUT",
+    });
+
+    ws.emitMessage({
+      type: "res",
+      id: frame.id,
+      ok: true,
+      payload: { projects: [] },
+    });
+    expect(onRequestTiming).toHaveBeenCalledTimes(1);
+  });
+
   it("reports failed request timing without including request params", async () => {
     const onRequestTiming = vi.fn();
     const client = new GatewayBrowserClient({
