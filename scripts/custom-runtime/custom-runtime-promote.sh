@@ -81,6 +81,7 @@ data["ProgramArguments"] = ["/bin/sh", wrapper, env_file, launcher, "gateway", "
 with open(path + ".tmp", "wb") as f: plistlib.dump(data, f, sort_keys=False)
 PY
 mv "$plist.tmp" "$plist"
+cp -p "$plist" "$runtime_home/ai.openclaw.gateway.desired.plist"
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
 launchctl bootstrap "gui/$uid" "$plist"
 
