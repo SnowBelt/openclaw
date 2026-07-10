@@ -1,0 +1,225 @@
+{
+  "version": 3,
+  "purpose": "Pattern Lab thumbnail typography policy for city-history packaging. Use Canva first when available; use open-license Fontsource/Chrome fallback when Canva is blocked.",
+  "default_mode": "canva_first_fontsource_chrome_fallback",
+  "public_mutation": "not_authorized",
+  "paid_fonts": "not_authorized_without_owner_approval",
+  "font_roles": {
+    "city_anchor": {
+      "required": true,
+      "purpose": "Make the active city immediately clear at phone/search-shelf size.",
+      "preferred_stack": [
+        "Anton",
+        "Bebas Neue",
+        "Archivo Black",
+        "League Spartan",
+        "Oswald",
+        "Teko",
+        "Bowlby One SC",
+        "Bungee",
+        "Barlow Condensed",
+        "Montserrat",
+        "Saira Condensed",
+        "Roboto Condensed"
+      ],
+      "blocked_default": "Impact",
+      "max_stroke_width": 4,
+      "tracking_range": [
+        -1,
+        1
+      ]
+    },
+    "main_hook": {
+      "required": true,
+      "purpose": "Carry the click question in 1-4 words without looking generic or amateur.",
+      "preferred_stack": [
+        "Anton",
+        "Bebas Neue",
+        "Archivo Black",
+        "League Spartan",
+        "Oswald",
+        "Teko",
+        "Bowlby One SC",
+        "Bungee",
+        "Barlow Condensed",
+        "Montserrat",
+        "Saira Condensed",
+        "Roboto Condensed"
+      ],
+      "blocked_default": "Impact",
+      "max_stroke_width": 4,
+      "tracking_range": [
+        -2,
+        1
+      ]
+    },
+    "supporting_line": {
+      "required": false,
+      "purpose": "Clarify the proof/payoff only when it does not compete with the main hook.",
+      "preferred_stack": [
+        "Barlow Condensed",
+        "Montserrat",
+        "Saira Condensed",
+        "Roboto Condensed",
+        "League Spartan",
+        "Anton",
+        "Bebas Neue",
+        "Archivo Black",
+        "Bungee"
+      ],
+      "max_stroke_width": 0,
+      "tracking_range": [
+        -1,
+        2
+      ]
+    },
+    "document_prop": {
+      "required": false,
+      "purpose": "Only for readable source-file props, redaction props, or document visuals.",
+      "preferred_stack": [
+        "Courier New Bold",
+        "CourierNewPS-BoldMT"
+      ],
+      "max_stroke_width": 0,
+      "tracking_range": [
+        0,
+        1
+      ]
+    }
+  },
+  "hard_blocks": [
+    "Impact used as the main title when Avenir Next Condensed Heavy, Helvetica Neue Condensed Black, DIN Condensed Bold, or Arial Black is available",
+    "oversized black outline used as the main readability method",
+    "missing city-anchor font role",
+    "missing main-hook font role",
+    "more than two public text families outside a document prop",
+    "font choice not recorded in the render report",
+    "main title unreadable at 320x180 or 160x90 shelf preview",
+    "shadow or stroke makes the text muddy",
+    "font choice copied from a competitor layout instead of translated into Pattern Lab's own source-first style",
+    "supporting line more than four public words without explicit owner approval",
+    "supporting line squeezed below the phone-readability threshold",
+    "SOURCE PHOTO, RECEIPT, or generic SOURCE FILE appears as public thumbnail text without a curiosity purpose",
+    "bare redaction bars appear without readable surrounding words",
+    "city or main-hook font family is outside the approved premium manifest",
+    "reference typography score is below 8/10",
+    "thumbnail has no 320x180 and 160x90 mobile shelf previews"
+  ],
+  "successful_channel_patterns_to_translate_not_copy": [
+    {
+      "pattern": "documentary_map_split",
+      "principle": "Use large condensed text beside a concrete map/photo proof object.",
+      "pattern_lab_rule": "City name plus 1-4 word hook over a real city photo, map, or source-file object."
+    },
+    {
+      "pattern": "dark_background_yellow_label",
+      "principle": "Use a high-contrast color block to make one word instantly legible.",
+      "pattern_lab_rule": "Use yellow/cyan blocks only when they clarify the proof object or city hook."
+    },
+    {
+      "pattern": "large_plain_white_over_real_place",
+      "principle": "Use restrained, bold sans text over a recognizable real place image.",
+      "pattern_lab_rule": "No decorative labels; the word count must stay small and pay off in the first 30 seconds."
+    }
+  ],
+  "approved_local_font_inventory": [
+    "Anton",
+    "Bebas Neue",
+    "Archivo Black",
+    "League Spartan",
+    "Oswald",
+    "Teko",
+    "Bowlby One SC",
+    "Bungee",
+    "Barlow Condensed",
+    "Montserrat",
+    "Saira Condensed",
+    "Roboto Condensed"
+  ],
+  "preferred_title_stack_available_on_current_mac": [
+    "Anton",
+    "Bebas Neue",
+    "Archivo Black",
+    "League Spartan",
+    "Oswald",
+    "Teko",
+    "Bowlby One SC",
+    "Bungee",
+    "Barlow Condensed",
+    "Montserrat",
+    "Saira Condensed",
+    "Roboto Condensed"
+  ],
+  "fallback_policy": "Impact and generic system fonts are blocked for city/main hook when the approved Fontsource pack is installed.",
+  "premium_font_pack": "resources/thumbnail-font-pack.json",
+  "bottom_text_max_public_words": 4,
+  "support_text_fit_gate": {
+    "status": "required",
+    "max_words_without_owner_approval": 4,
+    "minimum_rendered_support_font_size_px": 34,
+    "blocked_if": [
+      "supporting text is squeezed below the readability floor",
+      "supporting text exceeds four words without explicit owner approval",
+      "supporting text competes with the main hook instead of clarifying it"
+    ]
+  },
+  "generic_font_blocker": {
+    "status": "required",
+    "blocked_families_for_city_or_main_hook": [
+      "Impact",
+      "Helvetica",
+      "Arial",
+      "System",
+      "SF Pro",
+      "Times New Roman",
+      "Courier New",
+      "Avenir Next Condensed Heavy",
+      "Helvetica Neue Condensed Black",
+      "DIN Condensed Bold",
+      "Arial Black"
+    ],
+    "approved_premium_title_families": [
+      "Anton",
+      "Bebas Neue",
+      "Archivo Black",
+      "League Spartan",
+      "Oswald",
+      "Teko",
+      "Bowlby One SC",
+      "Bungee",
+      "Barlow Condensed",
+      "Montserrat",
+      "Saira Condensed",
+      "Roboto Condensed"
+    ],
+    "require_non_generic_score_at_least": 8
+  },
+  "reference_typography_match_gate": {
+    "status": "required",
+    "minimum_score": 8.5,
+    "scored_traits": [
+      "scale",
+      "outline discipline",
+      "vivid contrast",
+      "phone shelf readability",
+      "non-generic premium feel"
+    ]
+  },
+  "owner_reference_typography_traits": [
+    "giant city anchor",
+    "condensed heavy sans or expressive bold display feel",
+    "white/yellow/red/black high-contrast stack",
+    "black outline or shadow only when it sharpens the letters",
+    "large phone-shelf readable title blocks",
+    "vivid color contrast rather than muted blue/gray default text"
+  ],
+  "chrome_fontsource_renderer": {
+    "status": "required_when_canva_blocked",
+    "renderer": "headless_chrome_fontsource_html_css_no_network",
+    "minimum_tournament_variants": 36,
+    "minimum_tournament_winners": 5,
+    "minimum_winner_score": 8.5,
+    "requires_rendered_ocr": true,
+    "requires_320x180_and_160x90_previews": true
+  }
+}

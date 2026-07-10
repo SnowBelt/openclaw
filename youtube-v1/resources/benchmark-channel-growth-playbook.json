@@ -1,0 +1,93 @@
+{
+  "version": "2026-06-pattern-lab-benchmark-growth-v1",
+  "purpose": "Force Pattern Lab to apply the mechanics seen in high-performing city-history, urbanism, construction, abandoned-place, and public-history channels without copying their creative work.",
+  "core_thesis": "One city. One strange visual clue. One source trail. One hidden system.",
+  "style_target": "Bright Sun Films mystery + The B1M polish + Not Just Bikes clarity + Here Grows New York map proof.",
+  "benchmark_channels": [
+    {
+      "name": "The B1M",
+      "mechanic_to_adapt": "premium documentary polish, clear stakes, big visual proof"
+    },
+    {
+      "name": "Bright Sun Films",
+      "mechanic_to_adapt": "mystery-first place storytelling, real footage, what-happened-here framing"
+    },
+    {
+      "name": "Not Just Bikes",
+      "mechanic_to_adapt": "plain-language urban-system explanation with strong visual comparisons"
+    },
+    {
+      "name": "City Beautiful",
+      "mechanic_to_adapt": "urban-planning clarity and map-led explanations"
+    },
+    {
+      "name": "IT'S HISTORY",
+      "mechanic_to_adapt": "American infrastructure/history packaging around forgotten systems"
+    },
+    {
+      "name": "The Proper People",
+      "mechanic_to_adapt": "immersive place-first exploration and atmosphere"
+    },
+    {
+      "name": "Exploring With Josh",
+      "mechanic_to_adapt": "high-emotion location curiosity and human-scale stakes"
+    },
+    {
+      "name": "Dan Bell",
+      "mechanic_to_adapt": "restrained documentary tension and place decay atmosphere"
+    },
+    {
+      "name": "The Armchair Historian",
+      "mechanic_to_adapt": "consistent visual grammar and easy-to-follow historical sequencing"
+    },
+    {
+      "name": "Townsends",
+      "mechanic_to_adapt": "proof-first public history and trust through material evidence"
+    },
+    {
+      "name": "Here Grows New York",
+      "mechanic_to_adapt": "source-grounded map evolution and visual continuity"
+    }
+  ],
+  "approved_series_families": [
+    "The Map Changed",
+    "Vanished",
+    "Under the City",
+    "One Building Explains",
+    "Before the Cars",
+    "The Street That Moved",
+    "City Myths"
+  ],
+  "minimums": {
+    "thumbnail_candidate_count": 3,
+    "thumbnail_words_min": 2,
+    "thumbnail_words_max": 4,
+    "title_options_min": 5,
+    "rendered_shorts_min_current_package": 3,
+    "shorts_concepts_min_future_package": 5,
+    "visual_categories_min": 7,
+    "max_category_runtime_share": 0.45,
+    "first5_hook_word_max": 18
+  },
+  "mandatory_rules": [
+    "Sell a mystery, contradiction, vanished place, map change, or hidden system; never package as a generic History of X topic.",
+    "Open the first 5 seconds with a visible source/photo/map clue and contradiction before Pattern Lab branding.",
+    "Pay off the title and thumbnail promise within the first 30 seconds.",
+    "Use photo-first and source-grounded thumbnails with one city anchor, one proof object, one dominant focal point, and 2-4 words.",
+    "Keep visuals full of real people, buildings, attractions, neighborhoods, industry, maps, documents, newspapers, transit, aerials, and modern context footage that match the narration.",
+    "No full-screen slide-deck visuals, generic AI history imagery, fake archival proof, copied thumbnail layouts, or generic skyline-only packaging.",
+    "Create every Short as a standalone clue with a first-frame promise, proof/payoff, and bridge back to the long-form video.",
+    "Prepare a 5-7 Short concept pack for each long-form episode even when only the best 3 are rendered first.",
+    "Use YouTube title/thumbnail testing where available; choose winners by watch-time share and expectation-match comments, not taste alone.",
+    "After publishing, analyze CTR by surface, first-30-second retention, average view duration, subscribers per 1,000 views, city requests, source disputes, and Shorts-to-long clicks."
+  ],
+  "blocked_patterns": [
+    "History of {city} as the primary title frame",
+    "generic skyline thumbnail without proof object",
+    "slide deck or vector graphic as the dominant visual grammar",
+    "AI-generated fake historical photo presented as evidence",
+    "thumbnail/title promise not shown in first 30 seconds",
+    "Shorts that are only trailers and not standalone clues",
+    "copying another channel's thumbnail layout or distinctive brand system"
+  ]
+}

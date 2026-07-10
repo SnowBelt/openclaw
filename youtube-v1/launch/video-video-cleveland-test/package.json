@@ -1,0 +1,64 @@
+{
+  "upload_metadata": {
+    "generated_at": "2026-06-28T00:13:49Z",
+    "video_id": "video-cleveland-test",
+    "city": "Cleveland",
+    "active_city": "Cleveland",
+    "title_options": [
+      "Cleveland Was Not Just Decline. The Map Changed.",
+      "The Hidden Map Under Cleveland",
+      "What Old Cleveland Photos Reveal",
+      "Why Cleveland's Streets Still Do Not Make Sense",
+      "The City File That Explains Cleveland"
+    ],
+    "default_title": "Cleveland Was Not Just Decline. The Map Changed.",
+    "default_thumbnail": "images/thumbnail_candidate_a.png",
+    "description": "Pattern Lab studies American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.\n\nThis real-city thumbnail test package uses rights-ledgered Cleveland source images and maps so the thumbnail factory is tested against the same kind of city-specific material required for public work.\n\nNo source, no story.",
+    "description_footer": "Subscribe for evidence-backed city history: one city, one source proof, one hidden pattern at a time.",
+    "tags": [
+      "Pattern Lab",
+      "Cleveland history",
+      "American cities",
+      "urban history",
+      "city history documentary",
+      "historical photos",
+      "urban planning history",
+      "Cleveland documentary"
+    ],
+    "category_id": "27",
+    "made_for_kids": false,
+    "synthetic_disclosure_decision": "Owner must confirm in YouTube Studio. This package uses rights-logged real city images/maps; AI support remains non-proof only.",
+    "pinned_comment": "What Cleveland story should Pattern Lab check against the sources next?",
+    "chapters": [
+      {
+        "time": "0:00",
+        "title": "The map changed the city"
+      },
+      {
+        "time": "0:20",
+        "title": "The source proof"
+      },
+      {
+        "time": "1:00",
+        "title": "Old photos before myths"
+      },
+      {
+        "time": "2:00",
+        "title": "The hidden city system"
+      },
+      {
+        "time": "3:00",
+        "title": "What changed afterward"
+      }
+    ],
+    "shorts": [
+      {
+        "id": "video-cleveland-test-short-01",
+        "title": "The Hidden Map Under Cleveland",
+        "pinned_comment": "Which Cleveland source should Pattern Lab check next?",
+        "related_video_promise": "The full city file shows the map, sources, and hidden system.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      }
+    ]
+  }
+}

@@ -1,0 +1,248 @@
+{
+  "version": 1,
+  "registry_status": "approved_template_ids_present",
+  "production_ready_status": "canva_templates_created_pending_edit_preview_validation",
+  "policy_file": "resources/thumbnail-canva-automation-policy.json",
+  "schema": {
+    "required_fields": [
+      "template_key",
+      "style_family",
+      "allowed_topic_tags",
+      "text_slots",
+      "image_slots",
+      "owner_approval_status",
+      "free_or_pro_asset_status",
+      "font_preservation_expected"
+    ],
+    "required_text_slots": [
+      "CITY",
+      "MAIN_HOOK",
+      "SUPPORT_LINE"
+    ],
+    "required_image_slots": [
+      "PRIMARY_PHOTO"
+    ],
+    "optional_image_slots": [
+      "SECONDARY_PHOTO"
+    ]
+  },
+  "templates": [
+    {
+      "template_key": "canva_infrastructure_cut_urgency",
+      "canva_design_id": "DAHNzw7fvuo",
+      "brand_template_id": "",
+      "style_family": "infrastructure_cut_urgency",
+      "allowed_topic_tags": [
+        "highway",
+        "neighborhood",
+        "infrastructure_cut",
+        "who_cut_it",
+        "route"
+      ],
+      "text_slots": [
+        "CITY",
+        "MAIN_HOOK",
+        "SUPPORT_LINE"
+      ],
+      "image_slots": [
+        "PRIMARY_PHOTO",
+        "SECONDARY_PHOTO"
+      ],
+      "owner_approval_status": "approved",
+      "free_or_pro_asset_status": "free_only_required",
+      "font_preservation_expected": true,
+      "random_arrows_allowed": false,
+      "unexplained_lines_allowed": false,
+      "decorative_boxes_allowed": false,
+      "notes": "Use for city cuts, highways, routes, and neighborhood disruption topics.",
+      "canva_urls": {
+        "edit_url": "https://www.canva.com/d/ArJbyVSEgRf3r8I",
+        "view_url": "https://www.canva.com/d/DzL_eCkEURY2-lW"
+      },
+      "template_creation_method": "canva_generate_design_candidate_converted_to_editable_design",
+      "live_canva_template_created": true
+    },
+    {
+      "template_key": "canva_water_threat_urgency",
+      "canva_design_id": "DAHNz9Z0E8I",
+      "brand_template_id": "",
+      "style_family": "water_threat_urgency",
+      "allowed_topic_tags": [
+        "water",
+        "flood",
+        "coast",
+        "climate",
+        "built_on_water"
+      ],
+      "text_slots": [
+        "CITY",
+        "MAIN_HOOK",
+        "SUPPORT_LINE"
+      ],
+      "image_slots": [
+        "PRIMARY_PHOTO",
+        "SECONDARY_PHOTO"
+      ],
+      "owner_approval_status": "approved",
+      "free_or_pro_asset_status": "free_only_required",
+      "font_preservation_expected": true,
+      "random_arrows_allowed": false,
+      "unexplained_lines_allowed": false,
+      "decorative_boxes_allowed": false,
+      "notes": "Use for flood, water, coast, and hidden-system topics.",
+      "canva_urls": {
+        "edit_url": "https://www.canva.com/d/aiqky46iadptvpN",
+        "view_url": "https://www.canva.com/d/fdhHFWpXrjpn4fA"
+      },
+      "template_creation_method": "canva_generate_design_candidate_converted_to_editable_design",
+      "live_canva_template_created": true
+    },
+    {
+      "template_key": "canva_preservation_erased",
+      "canva_design_id": "DAHNz8cbtaU",
+      "brand_template_id": "",
+      "style_family": "preservation_erased",
+      "allowed_topic_tags": [
+        "preservation",
+        "art_deco",
+        "demolition",
+        "almost_erased",
+        "saved"
+      ],
+      "text_slots": [
+        "CITY",
+        "MAIN_HOOK",
+        "SUPPORT_LINE"
+      ],
+      "image_slots": [
+        "PRIMARY_PHOTO",
+        "SECONDARY_PHOTO"
+      ],
+      "owner_approval_status": "approved",
+      "free_or_pro_asset_status": "free_only_required",
+      "font_preservation_expected": true,
+      "random_arrows_allowed": false,
+      "unexplained_lines_allowed": false,
+      "decorative_boxes_allowed": false,
+      "notes": "Use for demolition, preservation, endangered districts, and saved/lost stories.",
+      "canva_urls": {
+        "edit_url": "https://www.canva.com/d/deetlsdXbcokl1M",
+        "view_url": "https://www.canva.com/d/jjXtLCyMJvNw-7_"
+      },
+      "template_creation_method": "canva_generate_design_candidate_converted_to_editable_design",
+      "live_canva_template_created": true
+    },
+    {
+      "template_key": "canva_document_mystery",
+      "canva_design_id": "DAHNz99VKqk",
+      "brand_template_id": "",
+      "style_family": "document_mystery",
+      "allowed_topic_tags": [
+        "document",
+        "mystery",
+        "map",
+        "file",
+        "hidden"
+      ],
+      "text_slots": [
+        "CITY",
+        "MAIN_HOOK",
+        "SUPPORT_LINE"
+      ],
+      "image_slots": [
+        "PRIMARY_PHOTO",
+        "SECONDARY_PHOTO"
+      ],
+      "owner_approval_status": "approved",
+      "free_or_pro_asset_status": "free_only_required",
+      "font_preservation_expected": true,
+      "random_arrows_allowed": false,
+      "unexplained_lines_allowed": false,
+      "decorative_boxes_allowed": false,
+      "notes": "Use for real documents/maps only; no fake proof.",
+      "canva_urls": {
+        "edit_url": "https://www.canva.com/d/kemr0fk7f_2l78I",
+        "view_url": "https://www.canva.com/d/zEet0q0QVmDVYki"
+      },
+      "template_creation_method": "canva_generate_design_candidate_converted_to_editable_design",
+      "live_canva_template_created": true
+    },
+    {
+      "template_key": "canva_then_now_contrast",
+      "canva_design_id": "DAHNz_FaevQ",
+      "brand_template_id": "",
+      "style_family": "then_now_contrast",
+      "allowed_topic_tags": [
+        "then_now",
+        "before_after",
+        "changed",
+        "rebuilt",
+        "lost"
+      ],
+      "text_slots": [
+        "CITY",
+        "MAIN_HOOK",
+        "SUPPORT_LINE"
+      ],
+      "image_slots": [
+        "PRIMARY_PHOTO",
+        "SECONDARY_PHOTO"
+      ],
+      "owner_approval_status": "approved",
+      "free_or_pro_asset_status": "free_only_required",
+      "font_preservation_expected": true,
+      "random_arrows_allowed": false,
+      "unexplained_lines_allowed": false,
+      "decorative_boxes_allowed": false,
+      "notes": "Use for then/now contrast when the split is intentional and pixel-safe.",
+      "canva_urls": {
+        "edit_url": "https://www.canva.com/d/RY0NGnaPJ0B2nTG",
+        "view_url": "https://www.canva.com/d/M3n4JRwxmVdmL5p"
+      },
+      "template_creation_method": "canva_generate_design_candidate_converted_to_editable_design",
+      "live_canva_template_created": true
+    },
+    {
+      "template_key": "canva_human_stakes_city",
+      "canva_design_id": "DAHNz88uGn4",
+      "brand_template_id": "",
+      "style_family": "human_stakes_city",
+      "allowed_topic_tags": [
+        "human_stakes",
+        "wealth",
+        "danger",
+        "neighborhood",
+        "face"
+      ],
+      "text_slots": [
+        "CITY",
+        "MAIN_HOOK",
+        "SUPPORT_LINE"
+      ],
+      "image_slots": [
+        "PRIMARY_PHOTO",
+        "SECONDARY_PHOTO"
+      ],
+      "owner_approval_status": "approved",
+      "free_or_pro_asset_status": "free_only_required",
+      "font_preservation_expected": true,
+      "random_arrows_allowed": false,
+      "unexplained_lines_allowed": false,
+      "decorative_boxes_allowed": false,
+      "notes": "Use only with rights-safe real human/source imagery or non-proof host imagery; do not fabricate proof people.",
+      "canva_urls": {
+        "edit_url": "https://www.canva.com/d/F951_o6YGkKv-b2",
+        "view_url": "https://www.canva.com/d/EHup81ztChsUBG5"
+      },
+      "template_creation_method": "canva_generate_design_candidate_converted_to_editable_design",
+      "live_canva_template_created": true
+    }
+  ],
+  "owner_canva_template_approval": {
+    "status": "approved",
+    "approved_scope": "create_or_copy_canva_thumbnail_master_templates_for_patternlab_automation",
+    "paid_or_pro_assets": "not_authorized",
+    "youtube_upload_replace_publish": "not_authorized",
+    "public_publish": "not_authorized"
+  }
+}

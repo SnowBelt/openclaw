@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.pattern-lab.wake-scheduler</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/schedule_wake_windows.py</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Hour</key>
+      <integer>12</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+    <dict>
+      <key>Hour</key>
+      <integer>23</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/wake-scheduler.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/wake-scheduler.err.log</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/openclaw/OpenClaw</string>
+</dict>
+</plist>

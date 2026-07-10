@@ -1,0 +1,291 @@
+{
+  "version": 3,
+  "channel": "Pattern Lab",
+  "purpose": "Safe, consistent image and video sourcing for source-first American city-history videos.",
+  "default_rule": "Use only sources in preferred_sources or item-level rights-cleared local archive sources. Every final media asset needs a rights-ledger row before owner review.",
+  "required_rights_ledger_fields": [
+    "asset_id",
+    "asset_type",
+    "filename",
+    "source_title",
+    "source_url",
+    "creator",
+    "archive_or_platform",
+    "source_class",
+    "license_or_rights_basis",
+    "attribution_required",
+    "attribution_text",
+    "commercial_use_ok",
+    "modification_ok",
+    "recognizable_people_property_trademark_risk",
+    "ai_reconstruction_disclosure",
+    "human_review_status"
+  ],
+  "source_roles": {
+    "historical_evidence": "Can support a historical claim only when the item-level source and rights basis are logged.",
+    "modern_context": "Can support pacing, atmosphere, present-day comparison, or texture, but cannot carry a historical claim by itself.",
+    "original_graphic": "Can explain systems, maps, routes, timelines, source boards, and then/now layouts.",
+    "ai_reconstruction": "Can illustrate a concept only when clearly treated as a graphic or reconstruction, never archival proof.",
+    "original_audio": "Can be used for voiceover, music, or sound effects only when the creator/tool and commercial rights basis are logged.",
+    "original_video": "Can be used for Pattern Lab renders, proof clips, Shorts, and assemblies only when derived source assets are logged.",
+    "original_asset": "Can be used for locally created Pattern Lab assets that do not fit a narrower source role.",
+    "ai_thumbnail_support": "Can support thumbnail composition as texture, redacted-paper prop, generic map glow, cutout/mask, background extension, or labeled reconstruction only. It cannot be the city hero or source proof when rights-safe real media exists."
+  },
+  "synthetic_disclosure_policy": {
+    "ai_can_illustrate_not_prove": true,
+    "required_reconstruction_label": "Dramatic reconstruction \u2014 not archival footage",
+    "owner_review_required": true,
+    "blocked_uses": [
+      "fake lip-sync",
+      "fake quotes",
+      "unlabeled fake archival footage",
+      "AI-generated historical photos presented as archival evidence",
+      "synthetic visuals used as source proof"
+    ],
+    "thumbnail_support_rule": "AI support assets may be used in thumbnails only as non-evidence support elements. Public-facing thumbnails must not imply AI output is archival proof.",
+    "internet_reference_rule": "If an internet image cannot be licensed, do not copy, trace, or make a near-duplicate through AI. Use it only to write generic art direction, then generate a materially new support element."
+  },
+  "visual_density_requirements": {
+    "minimum_historical_or_real_photo_assets": 20,
+    "minimum_modern_context_photo_or_video_assets": 10,
+    "minimum_real_media_runtime_share_after_source_proof": 0.9,
+    "maximum_generated_or_support_runtime_share_after_source_proof": 0,
+    "full_screen_non_picture_slide_count": 0,
+    "maximum_non_proof_visual_beat_seconds": 12,
+    "narration_alignment_rule": "Every visual beat should match the nearby narration using source title, filename, source role, or keyword relevance. If the pack cannot match the narration, source more rights-safe media before assembly.",
+    "source_shortfall_rule": "If the source pack is short, OpenClaw must search approved sources for more rights-safe photos/video instead of filling the edit with generated graphics.",
+    "generated_graphics_rule": "Generated graphics are support only when they are overlaid on real source media or photo-backed composites. Do not use full-screen non-picture slides."
+  },
+  "preferred_sources": {
+    "historical_images": [
+      {
+        "name": "Library of Congress",
+        "use_for": [
+          "historical photos",
+          "maps",
+          "posters",
+          "documents"
+        ],
+        "rule": "Use public-domain, no-known-restrictions, or item-level rights-clear records only."
+      },
+      {
+        "name": "National Archives",
+        "use_for": [
+          "federal records",
+          "historical photos",
+          "archival film"
+        ],
+        "rule": "Item-level rights check required; not every holding is automatically public domain."
+      },
+      {
+        "name": "Wikimedia Commons",
+        "use_for": [
+          "historical images",
+          "landmark photos",
+          "maps"
+        ],
+        "rule": "Use only licenses compatible with YouTube/commercial use; preserve attribution and share-alike requirements."
+      },
+      {
+        "name": "Local libraries and archives",
+        "use_for": [
+          "city-specific photos",
+          "neighborhood records",
+          "local maps"
+        ],
+        "rule": "Use only when reuse terms are explicit or written permission is obtained."
+      },
+      {
+        "name": "Openverse",
+        "use_for": [
+          "Creative Commons indexed city photos",
+          "maps",
+          "documents",
+          "landmark context"
+        ],
+        "rule": "Use only item-level commercial/modification-compatible licenses; preserve original landing URL, creator, and license URL."
+      },
+      {
+        "name": "Flickr Commons",
+        "use_for": [
+          "historical city photos",
+          "public archive collections"
+        ],
+        "rule": "Use only no-known-copyright-restrictions or compatible item-level licenses; log collection/source page and creator."
+      },
+      {
+        "name": "OpenStreetMap static map service",
+        "use_for": [
+          "street-grid map support",
+          "route context",
+          "map-background support"
+        ],
+        "rule": "Use as source-grounded map support with OpenStreetMap attribution; owner review required before public use."
+      }
+    ],
+    "modern_stock_photos": [
+      {
+        "name": "Pexels",
+        "use_for": [
+          "modern city context",
+          "texture",
+          "backgrounds",
+          "non-proof thumbnail elements"
+        ],
+        "rule": "No historical claim without independent source proof; avoid trademark/personality-risk use."
+      },
+      {
+        "name": "Pixabay",
+        "use_for": [
+          "modern context photos",
+          "illustrations",
+          "vectors",
+          "backgrounds"
+        ],
+        "rule": "Avoid trademark, logo, recognizable-person, and sensitive-use risks."
+      },
+      {
+        "name": "Unsplash",
+        "use_for": [
+          "premium still photography",
+          "atmosphere",
+          "backgrounds"
+        ],
+        "rule": "Do not use as historical proof; avoid implying endorsement."
+      }
+    ],
+    "modern_stock_video": [
+      {
+        "name": "Pexels",
+        "use_for": [
+          "city B-roll",
+          "traffic",
+          "street texture",
+          "industrial atmosphere",
+          "people walking"
+        ],
+        "rule": "Preferred first stop for watermark-free modern context footage."
+      },
+      {
+        "name": "Pixabay",
+        "use_for": [
+          "stock video",
+          "motion graphics",
+          "abstract backgrounds",
+          "sound-safe visual texture"
+        ],
+        "rule": "Use only clips with item-level terms compatible with the upload and no brand/personality risk."
+      },
+      {
+        "name": "Mixkit",
+        "use_for": [
+          "cinematic B-roll",
+          "vertical clips",
+          "transitions",
+          "lifestyle context"
+        ],
+        "rule": "Verify the clip is under a free stock-video license, not a restricted license."
+      },
+      {
+        "name": "Coverr",
+        "use_for": [
+          "HD background footage",
+          "city-adjacent ambience",
+          "texture"
+        ],
+        "rule": "Log attribution text and item terms; avoid visible brands, trademarks, or sensitive uses."
+      },
+      {
+        "name": "Videvo or Videezy",
+        "use_for": [
+          "specialty clips",
+          "4K gaps",
+          "aerials when no safer source exists"
+        ],
+        "rule": "Use selectively only after item-level license, attribution, and editorial-use status are logged."
+      }
+    ],
+    "archival_video": [
+      {
+        "name": "National Archives",
+        "use_for": [
+          "U.S. government footage",
+          "archival films",
+          "public records"
+        ],
+        "rule": "Item-level rights check required."
+      },
+      {
+        "name": "NASA Image and Video Library",
+        "use_for": [
+          "space",
+          "satellite",
+          "Earth observation",
+          "aeronautics",
+          "environmental context"
+        ],
+        "rule": "Do not imply NASA endorsement; respect logo, person, and promotion restrictions."
+      },
+      {
+        "name": "Internet Archive / Prelinger",
+        "use_for": [
+          "public-domain films",
+          "industrial films",
+          "educational films",
+          "city context"
+        ],
+        "rule": "Use only when item metadata supports public-domain or compatible reuse."
+      }
+    ]
+  },
+  "disallowed_sources": [
+    "random image search results",
+    "watermarked stock previews",
+    "unlicensed YouTube clips",
+    "TikTok, Instagram, Facebook, or X reposts without explicit rights",
+    "editorial-only stock clips for monetized public uploads",
+    "assets with unclear creator, source URL, or rights basis",
+    "AI-generated images presented as historical photos",
+    "stock footage used to imply endorsement, participation, or exact historical evidence",
+    "AI-generated city hero image used while rights-safe real city hero imagery exists",
+    "AI output derived as a near-duplicate of an unlicensed internet reference",
+    "AI-generated support element used as historical/source proof"
+  ],
+  "automation_instruction": "Before sourcing or approving Pattern Lab images or video, read this policy and prefer the matching source class. If no safe source exists, use an original Pattern Lab map, source board, timeline, or labeled reconstruction instead. For thumbnails, resolve the active city first; source recognizable city hero media before using AI support assets.",
+  "thumbnail_support_asset_rules": {
+    "generic_ai_support_execution_quality": {
+      "allowed": [
+        "generic underground tunnel/sewer/crowd/paper/map texture when not presented as source evidence",
+        "partial-redaction document props with fictional text",
+        "lighting/atmospheric/background extension layers that cannot be mistaken for archival proof"
+      ],
+      "blocked": [
+        "generic support image used as if it depicts the active city",
+        "AI image presented as archival/source proof",
+        "support image identifiable as another specific city but used for the active city"
+      ],
+      "logging_required": [
+        "prompt_or_description",
+        "model_or_tool",
+        "support_not_evidence classification",
+        "owner review status"
+      ]
+    },
+    "owner_feedback_v4_ai_boundary": {
+      "allowed": [
+        "generic underground/tunnel/sewer support when not city-specific proof",
+        "redacted paper/document prop with fictional text",
+        "map texture/background extension/cutout/lighting support"
+      ],
+      "blocked": [
+        "AI-generated fake archival proof",
+        "AI-generated fake city skyline when real city imagery is available",
+        "AI support asset without support_not_evidence ledger classification"
+      ],
+      "required_report_fields": [
+        "ai_support_asset_manifest_status",
+        "ai_fake_proof_count"
+      ]
+    }
+  }
+}

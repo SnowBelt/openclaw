@@ -1,0 +1,33 @@
+{
+  "version": "2026-06-patternlab-stock-video-policy-v1",
+  "status": "local_contract_ready",
+  "rule": "Stock video is context, not proof. Historical claims require source photos, maps, documents, or archival footage with rights-ledger rows.",
+  "providers": [
+    {"name": "Pexels", "enabled_when": "API key exists and license page/source URL is logged", "allowed_role": "modern context footage"},
+    {"name": "Pixabay", "enabled_when": "API key exists and license page/source URL is logged", "allowed_role": "modern context footage"},
+    {"name": "Mixkit", "enabled_when": "download page and license proof are logged", "allowed_role": "modern context footage"},
+    {"name": "Coverr", "enabled_when": "download page and license proof are logged", "allowed_role": "modern context footage"},
+    {"name": "Unsplash", "enabled_when": "video-capable source and license proof are logged", "allowed_role": "modern context only when video is available"},
+    {"name": "Videvo", "enabled_when": "item-specific license is commercial-use compatible", "allowed_role": "selective context footage only"},
+    {"name": "Videezy", "enabled_when": "item-specific license is commercial-use compatible and no attribution/watermark blocker exists", "allowed_role": "selective context footage only"}
+  ],
+  "hard_blocks": [
+    "watermarked preview footage",
+    "editorial-only footage for monetized uploads",
+    "unclear license",
+    "noncommercial-only footage",
+    "stock footage used as historical proof",
+    "stock footage before source proof in the first 20 seconds"
+  ],
+  "required_ledger_fields": [
+    "source_url",
+    "source_title",
+    "archive_or_platform",
+    "license_or_rights_basis",
+    "commercial_use_ok",
+    "modification_ok",
+    "source_class",
+    "notes"
+  ],
+  "public_youtube_mutation": "not_performed"
+}

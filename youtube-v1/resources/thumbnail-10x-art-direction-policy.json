@@ -1,0 +1,150 @@
+{
+  "version": 3,
+  "channel": "Pattern Lab",
+  "purpose": "Turn owner thumbnail feedback into city-agnostic 10/10 thumbnail production gates.",
+  "status": "repo_local_policy",
+  "city_agnostic": true,
+  "current_state": {
+    "final_renderer": "Swift/AppKit deterministic composite",
+    "not_currently_using_ai_image_generator_for_final_thumbnails": true,
+    "current_failure_mode": "policy-compliant thumbnails can still be visually weak because the old gates self-certified layout quality rather than using owner ratings and benchmark-level visual judgment.",
+    "latest_owner_feedback": "The 10/10-change batch moved in the right direction, but execution defects remain: dark backgrounds, meaningless text boxes, misspelled city text, faded images, unrealistic full redaction bars, clipped newspaper text, fake masthead weakness, image distortion, wrong THEN/NOW orientation, and repeated low-intent elements."
+  },
+  "owner_feedback_fail_patterns": [
+    {
+      "rating_band": "0-1/10",
+      "blocked_patterns": [
+        "random red lines",
+        "irrelevant internal labels like SOURCE PHOTO or PROOF",
+        "garish color blocks around inserts",
+        "random/disconnected image pairings"
+      ]
+    },
+    {
+      "rating_band": "1-2/10",
+      "blocked_patterns": [
+        "bland composition",
+        "generic or unrecognizable city photos",
+        "city not visually represented beyond text",
+        "background landmarks covered by overlays"
+      ]
+    },
+    {
+      "rating_band": "3/10",
+      "promising_patterns": [
+        "city name as dominant color-separated lockup",
+        "older image consistent with before/fall wording",
+        "redacted-document idea when readable and topic-relevant"
+      ]
+    },
+    {
+      "rating_band": "post-change execution defects",
+      "blocked_patterns": [
+        "misspelled city names",
+        "meaningless bottom-corner text boxes",
+        "overly dark city backgrounds",
+        "faded support images that hide the subject",
+        "redactions that are only black boxes without readable surrounding text",
+        "cut-off newspaper headlines",
+        "fake newspapers without body columns/captions",
+        "stretched or squeezed skyline images",
+        "THEN/NOW orientation reversed",
+        "secondary words receiving stronger color emphasis than the city name"
+      ]
+    },
+    "redrawn concept without map/grid semantics",
+    "underground concept without underground visual support",
+    "partial-word redaction",
+    "low-value redaction labels",
+    "rail/track photo for lost-streets concept",
+    "then/now image crossing center divider",
+    "dark or old-looking NOW-side image"
+  ],
+  "required_10x_gates": [
+    "active city must be resolved dynamically for every package",
+    "city hero image must be beautiful/current/recognizable unless the concept explicitly needs historic imagery",
+    "old image must be used as contrast/proof when words promise before/year/lost/fall",
+    "no public-facing internal labels such as SOURCE PHOTO, SOURCE, PROOF, or MAP PROOF",
+    "no random arrows; arrows only when semantically tied to a route/map/path story",
+    "overlay placement must not cover the most recognizable skyline/landmark region",
+    "AI support elements are allowed only for non-proof graphics, document/redaction props, cutouts, texture, or extensions",
+    "unlicensed internet references must not be cloned or transformed into near-duplicates",
+    "owner ratings must be fed back into a blocked-pattern list before the next render",
+    "every visible word must have documented intent",
+    "active city spelling must be verified after render",
+    "rendered OCR/cutoff proxy must pass before owner review",
+    "background and subject visibility must pass at search-shelf size",
+    "source images must preserve aspect ratio with cover/contain cropping only",
+    "style-specific realism checks must pass for redacted-file, newspaper, underground, and then/now concepts",
+    "creative variation memory must force materially different layouts across the five-concept batch",
+    "each thumbnail must produce a critique explaining words, image choices, emphasis, and weaknesses",
+    "owner_rating_preference_learning_v2",
+    "redrawn_map_semantic_match_gate",
+    "underground_semantic_asset_gate",
+    "whole_word_redaction_gate",
+    "lost_streets_visual_relevance_gate",
+    "then_now_split_integrity_gate",
+    "ai_support_asset_manifest_gate"
+  ],
+  "image_generator_recommendation": {
+    "free_first": "Use ComfyUI local workflow with FLUX.1-schnell/SDXL-class models for support graphics only if local hardware can run it.",
+    "best_quality_if_paid_or_subscription_is_approved": "Use OpenAI gpt-image-2 through OpenClaw image_generate for high-instruction-following support graphics/reference edits, not source proof.",
+    "cutouts": "Use rembg/SAM2 locally first; use gpt-image-1.5 transparent output only if owner approves paid escalation or Codex OAuth route is available.",
+    "llm_director": "Use GPT-5.5-class vision/reasoning to critique against benchmark examples and owner ratings before a low-reasoning executor renders."
+  },
+  "acceptance_rule": "Do not claim a thumbnail system is 10/10 from deterministic gates alone. Claim only that the repo was updated and locally verified; final 10/10 requires owner review and/or YouTube watch-time-share results. Deterministic gates must catch spelling, cutoff, distortion, meaningless words, weak brightness, and repeated owner-rejected patterns before owner review.",
+  "concept_specific_execution_rules": {
+    "redacted_file": {
+      "required": [
+        "active city spelled correctly",
+        "readable sentence fragments",
+        "selective redactions",
+        "redactions support the hook",
+        "no meaningless black rows"
+      ],
+      "example_sentence_template": "The {CITY} route was approved in 1942, then [REDACTED] before construction began."
+    },
+    "newspaper_front_page": {
+      "required": [
+        "fictional masthead",
+        "issue/date line",
+        "large readable headline",
+        "body-text columns",
+        "photo/caption",
+        "no clipped headline"
+      ],
+      "pre_publication_requirement": "Search the web before public use to verify the fictional masthead is not an active/confusing real newspaper name."
+    },
+    "underground_city": {
+      "required": [
+        "tunnel/underground/source imagery",
+        "active city is the attention word",
+        "secondary color does not steal attention",
+        "generic support asset logged if not city-specific"
+      ],
+      "city_specificity_rule": "Generic underground support imagery is acceptable only when it cannot be verified as another city and is not presented as source evidence."
+    },
+    "then_now_split": {
+      "required": [
+        "THEN left",
+        "NOW right",
+        "no image distortion",
+        "old image aligns with THEN",
+        "current skyline/landmark aligns with NOW"
+      ]
+    },
+    "neon_city_myth": {
+      "required": [
+        "background not too dark",
+        "city text dominates",
+        "no meaningless boxes",
+        "one simple support object or none"
+      ]
+    }
+  },
+  "owner_preferred_current_style_v4": {
+    "status": "required_for_next_batch",
+    "baseline": "current_owner_preferred",
+    "deferred": "thumbnail tournament / outside-the-box loop"
+  }
+}

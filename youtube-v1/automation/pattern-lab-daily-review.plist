@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.pattern-lab.daily-review</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_daily_loop.py</string>
+    <string>--target</string>
+    <string>channel:1503779032817209465</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>25</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/daily-review-launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/daily-review-launchd.err.log</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/openclaw/OpenClaw</string>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>

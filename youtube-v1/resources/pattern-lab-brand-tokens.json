@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-07-06T19:18:11Z",
+  "status": "pass",
+  "brand_id": "pattern-lab-archival-civic-v1",
+  "source_direction_id": "archival-civic-investigation",
+  "public_youtube_mutation": "not_performed",
+  "font_license_policy": "free Google Fonts preferred; local system fallbacks allowed when fonts are unavailable",
+  "colors": {
+    "background": "#111315",
+    "panel": "#1B1A17",
+    "paper": "#E8DDC5",
+    "map_blue": "#2E5E73",
+    "evidence_amber": "#C88A2D",
+    "copper": "#9B4F2F",
+    "caption": "#F4F0E8",
+    "proof_red": "#B23A2E",
+    "muted": "#AFA58F"
+  },
+  "typography": {
+    "hook": "Archivo Black",
+    "caption": "Inter",
+    "source_label": "IBM Plex Mono",
+    "fallback_hook": "Avenir Next Condensed Heavy",
+    "fallback_caption": "Avenir Next",
+    "fallback_source_label": "SF Mono"
+  },
+  "shorts": {
+    "canvas": "1080x1920",
+    "first_frame_rule": "city/neighborhood + proof object + 2-5 words visible without sound",
+    "phase_order": [
+      "first_frame",
+      "hook",
+      "proof",
+      "payoff",
+      "long_form_bridge"
+    ],
+    "safe_margin_px": 72,
+    "old_style_blocked": [
+      "bright electric borders",
+      "loud warning-yellow panels",
+      "generic tech panels",
+      "scorecard look"
+    ]
+  },
+  "thumbnail": {
+    "canvas": "1280x720",
+    "must_include": [
+      "city name",
+      "one proof visual",
+      "2-4 word hook"
+    ],
+    "blocked": [
+      "generic skyline-only",
+      "unexplained arrows",
+      "unlabeled boxes",
+      "vibe-only mystery"
+    ]
+  },
+  "captions": {
+    "case": "sentence case for explanatory captions; uppercase only for 2-5 word first-frame hooks",
+    "background": "semi-opaque charcoal panel",
+    "text_color": "#F4F0E8",
+    "accent_color": "#C88A2D"
+  },
+  "map_overlays": {
+    "route_line": "#C88A2D",
+    "neighborhood_outline": "#2E5E73",
+    "destruction_or_displacement_marker": "#B23A2E",
+    "label_background": "#1B1A17"
+  },
+  "source_labels": {
+    "font": "IBM Plex Mono",
+    "fallback_font": "SF Mono",
+    "prefix": "SOURCE",
+    "rule": "source labels identify proof objects; AI reconstructions must be labeled non-proof"
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "purpose": "Reusable Pattern Lab thumbnail format memory. Use this to preserve owner-liked formats intentionally without letting them become the only creative lane.",
+  "version": 1,
+  "rules": {
+    "normal_ab_test_lane": "Use owner-liked formats when testing wording, source image, or topic promise while holding layout mostly constant.",
+    "unique_topic_lane": "Use topic-specific unique formats when the story has a distinctive proof object, event, system, or visual metaphor that should not fit a generic city template.",
+    "reuse_limit": "Do not use the same liked format for more than one thumbnail in a unique-topic set unless the owner explicitly asks for an AB test.",
+    "promotion_rule": "Only promote a format to liked after owner rating or strong performance evidence. Local passing gates are necessary but not sufficient.",
+    "city_name_required": "Every Pattern Lab thumbnail must include the active city name as primary or co-primary readable text. No exception for unique-topic thumbnails.",
+    "no_random_arrows": "Arrows are blocked unless they point to a concrete route, flow, before-after direction, or labeled source feature. Decorative/random arrows fail owner review.",
+    "photo_diversity": "Unique-topic sets must use materially different relevant photos across the three thumbnails when source media allows it; repeated photos are allowed only for intentional AB tests.",
+    "text_contrast": "Every public word must remain readable at search-shelf size; avoid heavy shadow/outline that fights the fill color.",
+    "hook_first_brief_required": "Every rendered thumbnail must have a hook-first brief with city, click question, emotional tension, proof object, source tags, exact hook text, forbidden elements, and first-30-second payoff.",
+    "pre_render_click_score": "Do not render concepts below 8/10 average across curiosity, clarity, source/photo fit, visual novelty, title-thumbnail promise, and first-30-second payoff.",
+    "intentionality_gate": "Every line, arrow, box, divider, prop, and public word must be purpose-labeled; unexplained elements fail owner review.",
+    "liked_format_reuse": "Owner-liked formats are AB-test assets, not default templates; unique-topic batches must vary proof object, photo, hook, and composition unless explicitly labeled AB test."
+  },
+  "liked_formats": [
+    {
+      "id": "source_backed_map_plus_city_inset",
+      "status": "owner_liked_for_ab_tests",
+      "best_for": [
+        "redrawn maps",
+        "river route changes",
+        "street-grid mysteries"
+      ],
+      "do_not_use_for": [
+        "every topic in a batch",
+        "unique event thumbnails where a stronger story object exists"
+      ]
+    },
+    {
+      "id": "underground_city_black_poster",
+      "status": "owner_liked_for_ab_tests",
+      "best_for": [
+        "under-city systems",
+        "tunnels",
+        "transit",
+        "hidden infrastructure"
+      ],
+      "do_not_use_for": [
+        "surface-only stories",
+        "lakefront/shoreline stories"
+      ]
+    },
+    {
+      "id": "then_now_split",
+      "status": "owner_liked_for_ab_tests",
+      "best_for": [
+        "before/after evidence",
+        "public-space transformations",
+        "skyline contrasts"
+      ],
+      "do_not_use_for": [
+        "all three selected candidates in a topic",
+        "stories with one strong proof object"
+      ]
+    }
+  ],
+  "candidate_unique_formats": [
+    "planning_file_cutout",
+    "above_street_cutaway",
+    "loop_system_diagram",
+    "made_land_shoreline_tear",
+    "old_shore_missing_file",
+    "lakefront_blueprint_poster",
+    "city_event_evidence_poster",
+    "waterline_before_after_card",
+    "document_with_real_redactions",
+    "tourist_postcard_contradiction",
+    "street_level_hidden_system",
+    "land_underwater_split",
+    "storm_line_map_overlay",
+    "vanished_neighborhood_file",
+    "coastline_receipt_poster"
+  ],
+  "reject_reasons_v2": {
+    "random_arrow": "Arrow is decorative or not tied to a concrete route, flow, or source feature.",
+    "unexplained_line": "Line/divider appears without a source/story purpose.",
+    "weak_topic": "Topic lacks enough curiosity, conflict, visual proof, or source availability.",
+    "generic_photo": "Photo does not directly support the hook.",
+    "city_missing": "City name is missing from the thumbnail/brief.",
+    "text_over_text": "Public text overlaps or competes with other text.",
+    "unreadable_text": "Text is not readable at search-shelf size.",
+    "fake_proof": "Visual implies proof that is not real source-backed evidence.",
+    "decorative_black_box": "Box/backplate is decorative or unlabeled instead of supporting readability or source context."
+  },
+  "liked_formats_v2": [
+    {
+      "id": "source_backed_map_plus_city_inset_v2",
+      "status": "owner_liked_for_ab_tests",
+      "best_use_cases": [
+        "redrawn map",
+        "river route",
+        "street grid",
+        "lost streets"
+      ],
+      "do_not_use_cases": [
+        "every topic in a unique set",
+        "non-map preservation story"
+      ],
+      "required_proof_object": "map, route, or source document",
+      "allowed_variation_range": "change hook, source photo, color, and crop; preserve map-plus-city logic only for AB tests",
+      "owner_rating_source": "owner rated map/redrawn examples highly and requested controlled reuse only"
+    },
+    {
+      "id": "document_redaction_real_sentence_v2",
+      "status": "owner_liked_when_selective_and_readable",
+      "best_use_cases": [
+        "who decided",
+        "route memo",
+        "city file",
+        "demolition/preservation record"
+      ],
+      "do_not_use_cases": [
+        "generic background decoration",
+        "black bars without readable words"
+      ],
+      "required_proof_object": "document prop with readable sentence fragments and whole-word redactions",
+      "allowed_variation_range": "may change document scale/crop; must keep real sentence fragments visible",
+      "owner_rating_source": "owner liked redacted concept only when redactions were selective and intentional"
+    },
+    {
+      "id": "real_photo_city_mystery_v2",
+      "status": "owner_required_source_backed_default",
+      "best_use_cases": [
+        "neighborhood",
+        "water",
+        "preservation",
+        "infrastructure",
+        "street-level history"
+      ],
+      "do_not_use_cases": [
+        "source media unavailable",
+        "photo unrelated to hook"
+      ],
+      "required_proof_object": "dominant real city photo matching the hook",
+      "allowed_variation_range": "change crop, headline, proof object, and contrast; do not reuse as blind template",
+      "owner_rating_source": "owner explicitly rejected design-only mockups when real photos exist"
+    }
+  ],
+  "typography_v1": {
+    "policy_file": "resources/thumbnail-typography-policy.json",
+    "status": "active",
+    "rule": "Use role-based modern condensed typography for city anchors and main hooks; Impact is last fallback only.",
+    "main_title_preferred_stack": [
+      "Avenir Next Condensed Heavy",
+      "Helvetica Neue Condensed Black",
+      "DIN Condensed Bold",
+      "Arial Black"
+    ],
+    "blocked_default": "Impact",
+    "owner_feedback_basis": "Owner says current main-title fonts are not great and Pattern Lab must learn from successful channels while keeping city/source-first discipline."
+  }
+}

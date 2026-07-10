@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-07-06T19:18:11Z",
+  "status": "pass",
+  "policy": {
+    "free_fonts_only": true,
+    "public_youtube_mutation": "not_performed",
+    "paid_services": "not_used",
+    "brand_promise": "hidden American city history, one city, one mystery, one source trail"
+  },
+  "recommended_direction_id": "archival-civic-investigation",
+  "directions": [
+    {
+      "id": "archival-civic-investigation",
+      "name": "Archival Civic Investigation",
+      "summary": "Premium city-history evidence board: charcoal, archival paper, map blue, amber, copper.",
+      "colors": {
+        "background": "#111315",
+        "panel": "#1B1A17",
+        "paper": "#E8DDC5",
+        "map_blue": "#2E5E73",
+        "evidence_amber": "#C88A2D",
+        "copper": "#9B4F2F",
+        "caption": "#F4F0E8",
+        "proof_red": "#B23A2E",
+        "muted": "#AFA58F"
+      },
+      "fonts": {
+        "hook": "Archivo Black",
+        "caption": "Inter",
+        "source_label": "IBM Plex Mono",
+        "fallback_hook": "Avenir Next Condensed Heavy",
+        "fallback_caption": "Avenir Next",
+        "fallback_source_label": "SF Mono"
+      },
+      "shorts_first_frame": "City/neighborhood + proof object + 2-5 words, no skyline-only frame.",
+      "thumbnail": "One strong map/photo/document proof object, city name visible, 2-4 word mystery.",
+      "why_recommended": "Best match for source-first hidden-city-history and owner rejection of the old loud social palette."
+    },
+    {
+      "id": "map-room-noir",
+      "name": "Map Room Noir",
+      "summary": "Darker investigative look with map-grid depth and restrained parchment labels.",
+      "colors": {
+        "background": "#0E1113",
+        "panel": "#171D20",
+        "paper": "#DDD0B3",
+        "map_blue": "#1F4E5F",
+        "evidence_amber": "#D19A3B",
+        "copper": "#8E4A32",
+        "caption": "#F6F0DF",
+        "proof_red": "#A8372D",
+        "muted": "#9B927F"
+      },
+      "fonts": {
+        "hook": "Oswald",
+        "caption": "Libre Franklin",
+        "source_label": "Roboto Mono",
+        "fallback_hook": "Avenir Next Condensed Heavy",
+        "fallback_caption": "Helvetica Neue",
+        "fallback_source_label": "SF Mono"
+      },
+      "shorts_first_frame": "Bolder noir map label with short location clue and amber proof marker.",
+      "thumbnail": "High-contrast map cut plus document/photo insert.",
+      "why_recommended": "Good for darker investigative episodes but slightly less warm/local than the default."
+    },
+    {
+      "id": "city-file-archive",
+      "name": "City File Archive",
+      "summary": "Warmer archive-folder look with paper cards, stamped source labels, and less dark contrast.",
+      "colors": {
+        "background": "#241F1A",
+        "panel": "#332B22",
+        "paper": "#F0E2C2",
+        "map_blue": "#3B6576",
+        "evidence_amber": "#BD7A24",
+        "copper": "#A65E3B",
+        "caption": "#FFF5DF",
+        "proof_red": "#A63C2F",
+        "muted": "#B7AA8E"
+      },
+      "fonts": {
+        "hook": "League Spartan",
+        "caption": "Source Sans 3",
+        "source_label": "Source Code Pro",
+        "fallback_hook": "Avenir Next Heavy",
+        "fallback_caption": "Avenir Next",
+        "fallback_source_label": "SF Mono"
+      },
+      "shorts_first_frame": "Archive folder card with large city clue and source-object stamp.",
+      "thumbnail": "Warm paper dossier with a single proof photo/map tearout.",
+      "why_recommended": "Most archival, but may feel less modern in Shorts feeds than the default."
+    }
+  ]
+}

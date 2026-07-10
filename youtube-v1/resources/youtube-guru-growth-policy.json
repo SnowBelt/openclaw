@@ -1,0 +1,89 @@
+{
+  "version": "2026-06-pattern-lab-youtube-guru-growth-v1",
+  "purpose": "Convert approved YouTube growth expert recommendations into mandatory Pattern Lab production gates.",
+  "canonical_channel_formula": "One city. One strange visual clue. One source trail. One hidden system.",
+  "milestones": [
+    {
+      "number": 41,
+      "id": "outlier_topic_mining",
+      "name": "Outlier Topic Mining System"
+    },
+    {
+      "number": 42,
+      "id": "title_thumbnail_test_discipline",
+      "name": "Title/Thumbnail Test Discipline"
+    },
+    {
+      "number": 43,
+      "id": "viewer_avatar_topic_filter",
+      "name": "Viewer-Avatar Topic Filter"
+    },
+    {
+      "number": 44,
+      "id": "packaging_lock_before_script",
+      "name": "Packaging Lock Before Scriptwriting"
+    },
+    {
+      "number": 45,
+      "id": "first_30_seconds_mini_product",
+      "name": "First-30-Seconds Mini-Product Gate"
+    },
+    {
+      "number": 46,
+      "id": "retention_boredom_cut",
+      "name": "Retention Boredom-Cut Pass"
+    },
+    {
+      "number": 47,
+      "id": "thumbnail_pre_score",
+      "name": "Thumbnail Pre-Score Gate"
+    },
+    {
+      "number": 48,
+      "id": "shorts_discovery_funnel",
+      "name": "Shorts Discovery Funnel System"
+    },
+    {
+      "number": 49,
+      "id": "audience_satisfaction_tracking",
+      "name": "Audience Satisfaction Tracking"
+    },
+    {
+      "number": 50,
+      "id": "sustainable_production_governor",
+      "name": "Sustainable Production Governor"
+    }
+  ],
+  "minimums": {
+    "title_thumbnail_test_pairs": 3,
+    "thumbnail_candidates": 3,
+    "thumbnail_selected_min_score": 80,
+    "shorts_concepts_min": 5,
+    "shorts_concepts_max": 7,
+    "audience_satisfaction_signals_min": 7
+  },
+  "required_audience_signals": [
+    "i_never_knew_this",
+    "city_requests",
+    "local_corrections",
+    "source_disputes",
+    "confusion",
+    "visual_praise",
+    "expectation_mismatch"
+  ],
+  "required_packaging_lock_fields": [
+    "title",
+    "thumbnail_hypothesis",
+    "first_hook",
+    "proof_object",
+    "first_30_second_payoff",
+    "audience_promise"
+  ],
+  "blocked": [
+    "generic topic-first history packaging",
+    "scriptwriting before packaging lock",
+    "title/thumbnail promises not paid off in the first 30 seconds",
+    "Shorts that function only as trailers",
+    "publishing because of cadence when any quality gate fails"
+  ]
+}

@@ -1,0 +1,712 @@
+{
+  "generated_at": "2026-06-19T15:31:26Z",
+  "video_id": "03",
+  "topic_score": 90.0,
+  "working_title": "Detroit Didn't Just Decline. It Was Rewired.",
+  "lane": "hidden systems behind American cities",
+  "sub_lane": "lost neighborhoods and infrastructure",
+  "public_angle": "A map-led explanation of how industry, freeways, population movement, and policy rewired Detroit instead of simply making it decline.",
+  "artifact_type": "Detroit rewiring evidence map",
+  "retention_ladder": {
+    "version": "2026-05-pattern-lab-retention-ladder-v1",
+    "video_id": "03",
+    "purpose": "Protect long-form watch time and subscriber conversion by forcing source proof, pacing, payoffs, and a repeatable city-history outro.",
+    "rules": {
+      "first_5_seconds": "Open with a result, contradiction, or visible artifact before channel context.",
+      "first_20_seconds": "Show the source proof on screen: Detroit rewiring evidence map.",
+      "max_seconds_without_new_beat": 75,
+      "preferred_major_beat_window_seconds": "45-75",
+      "visual_change_rule": "Change visuals only when the narration changes source, place, time period, proof, or payoff.",
+      "generic_intro_blocked": true,
+      "consistent_outro_required": true,
+      "subscribe_cta_required": true
+    },
+    "beats": [
+      {
+        "beat_id": "hook",
+        "target_start_seconds": 0,
+        "target_end_seconds": 5,
+        "purpose": "result, contradiction, or visible artifact",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "proof",
+        "target_start_seconds": 0,
+        "target_end_seconds": 20,
+        "purpose": "visible source proof",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "source_context",
+        "target_start_seconds": 45,
+        "target_end_seconds": 120,
+        "purpose": "source context that makes the city file credible",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "lost_place_or_system",
+        "target_start_seconds": 120,
+        "target_end_seconds": 240,
+        "purpose": "lost place, infrastructure choice, industry pattern, or turning point",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "city_evidence",
+        "target_start_seconds": 240,
+        "target_end_seconds": 420,
+        "purpose": "artifact-driven city evidence movement",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "shorts_bridge",
+        "target_start_seconds": 420,
+        "target_end_seconds": 540,
+        "purpose": "Shorts funnel logic from the same city-history proof",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "subscribe_bridge",
+        "target_start_seconds": 540,
+        "target_end_seconds": 720,
+        "purpose": "earned subscribe bridge tied to the next city file",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "outro",
+        "target_start_seconds": 560,
+        "target_end_seconds": 840,
+        "purpose": "repeatable Pattern Lab outro",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      }
+    ],
+    "outro": {
+      "required_phrase": "That is the pattern: city, source, system.",
+      "signoff": "No source, no story.",
+      "next_viewer_action": "Subscribe for the next evidence-backed city file."
+    }
+  },
+  "upload_metadata": {
+    "video_id": "03",
+    "title_options": [
+      "Detroit Didn't Just Decline. It Was Rewired.",
+      "The Map That Rewired Detroit",
+      "Detroit Was Rewired",
+      "The Hidden Map Behind Detroit",
+      "What Detroit's Old Maps Reveal"
+    ],
+    "default_title": "Detroit Didn't Just Decline. It Was Rewired.",
+    "default_thumbnail": "images/thumbnail_candidate_a.png",
+    "description": "Pattern Lab studies American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.\n\nThis episode asks: A map-led explanation of how industry, freeways, population movement, and policy rewired Detroit instead of simply making it decline.\n\nThe source proof is a Detroit rewiring evidence map. The goal is to show the source, explain the system, and avoid flattening Detroit into a generic rise-and-fall story.\n\nHistorical images are used only when reuse rights are clear. AI visuals, when used, are treated as graphics or reconstructions rather than archival proof.",
+    "description_footer": "Subscribe for evidence-backed city history: one city, one source proof, one hidden pattern at a time.",
+    "tags": [
+      "Pattern Lab",
+      "Detroit history",
+      "American cities",
+      "US history",
+      "urban history",
+      "city history documentary",
+      "historical photos",
+      "urban planning history",
+      "Michigan history"
+    ],
+    "category_id": "27",
+    "made_for_kids": false,
+    "synthetic_disclosure_decision": "Owner must confirm in YouTube Studio. Expected answer: no realistic altered real person or real event is deceptively depicted. Historical photos must be rights-logged; AI visuals must be graphics/reconstructions, not fake archival proof.",
+    "pinned_comment": "What Detroit story should Pattern Lab check against the sources next? Subscribe for the next city file.",
+    "chapters": [
+      {
+        "time": "0:00",
+        "title": "The map keeps receipts"
+      },
+      {
+        "time": "0:20",
+        "title": "The source proof"
+      },
+      {
+        "time": "2:00",
+        "title": "Sources before myths"
+      },
+      {
+        "time": "5:00",
+        "title": "The hidden city system"
+      },
+      {
+        "time": "8:00",
+        "title": "What changed afterward"
+      }
+    ],
+    "shorts": [
+      {
+        "id": "03-short-01",
+        "title": "The Map Keeps Receipts",
+        "pinned_comment": "Which city should get a Pattern Lab city file next?",
+        "related_video_promise": "The full video shows the map, sources, and hidden system.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      },
+      {
+        "id": "03-short-02",
+        "title": "Old Photos Are Evidence",
+        "pinned_comment": "Do you trust old photos more than modern summaries?",
+        "related_video_promise": "The full video walks through the source ledger and what changed afterward.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      },
+      {
+        "id": "03-short-03",
+        "title": "No Source, No Story",
+        "pinned_comment": "What Detroit story should be checked against the sources?",
+        "related_video_promise": "The full video shows the evidence-backed version of the story.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      }
+    ],
+    "guru_growth_system": {
+      "version": "2026-06-pattern-lab-youtube-guru-growth-v1",
+      "outlier_topic_mining": {
+        "benchmark_or_outlier_rationale": "Successful city-history and urbanism outliers package around a visual mystery, vanished place, map change, or hidden system rather than a broad historical survey.",
+        "viewer_demand_reason": "Curious viewers want to know why the familiar Detroit story feels incomplete and what source evidence changes the explanation.",
+        "proof_object": "Detroit rewiring evidence map",
+        "beats_generic_city_history_because": "The episode promises a specific proof object and hidden system instead of a generic chronological city-history lecture."
+      },
+      "title_thumbnail_test_discipline": {
+        "winner_metric": "watch_time_share_first_then_ctr",
+        "no_misleading_promise": true,
+        "test_pairs": [
+          {
+            "title": "Detroit Didn't Just Decline. It Was Rewired.",
+            "thumbnail": "images/thumbnail_candidate_a.png",
+            "hypothesis": "emotional mystery with a vanished-place proof object"
+          },
+          {
+            "title": "The Map That Rewired Detroit",
+            "thumbnail": "images/thumbnail_candidate_b.png",
+            "hypothesis": "map-system proof for viewers who want the evidence trail"
+          },
+          {
+            "title": "Detroit Was Rewired",
+            "thumbnail": "images/thumbnail_candidate_c.png",
+            "hypothesis": "contrarian history angle that challenges a familiar summary"
+          }
+        ]
+      },
+      "viewer_avatar_topic_filter": {
+        "morgan_viewer_question": "What source-backed clue explains why Detroit looks and remembers itself this way?",
+        "curiosity_trigger": "A familiar city story has a visible contradiction that the source packet can resolve.",
+        "reject_if_only_historically_interesting": true
+      },
+      "packaging_lock_before_script": {
+        "locked_before_script_approval": true,
+        "locked_fields": {
+          "title": "Detroit Didn't Just Decline. It Was Rewired.",
+          "thumbnail_hypothesis": "Photo-first proof object plus 2-4 word mystery text.",
+          "first_hook": "Detroit is not just a city with a history problem.",
+          "proof_object": "Detroit rewiring evidence map",
+          "first_30_second_payoff": "Show the visual clue, contradiction, source proof, stakes, and title-thumbnail payoff by 30 seconds.",
+          "audience_promise": "The episode will explain one hidden city system with sources, not generic history."
+        }
+      },
+      "first_30_seconds_mini_product": {
+        "payoff_by_seconds": 30,
+        "opening_plan_includes": {
+          "visual_clue": "Show the Detroit rewiring evidence map or photo/map clue immediately.",
+          "contradiction": "The familiar Detroit story is incomplete.",
+          "source_proof": "Bring the source proof on screen before broad context.",
+          "stakes": "Explain why the clue changes how the city is understood.",
+          "title_thumbnail_payoff": "Deliver the exact map/photo/source object promised by title and thumbnail."
+        }
+      },
+      "retention_boredom_cut": {
+        "retention_edit_pass_recorded": true,
+        "removed": [
+          "repeated_points",
+          "slow_setup",
+          "unsupported_tangents",
+          "non_advancing_visuals"
+        ],
+        "rule": "Every beat must advance curiosity, proof, or payoff."
+      },
+      "thumbnail_pre_score": {
+        "threshold": 80,
+        "selected_candidate": "A",
+        "candidates": [
+          {
+            "candidate": "A",
+            "scores": {
+              "phone_readability": 15,
+              "visual_mystery": 18,
+              "city_anchor": 15,
+              "proof_object": 17,
+              "emotion": 17,
+              "payoff_match": 18
+            },
+            "total_score": 100
+          },
+          {
+            "candidate": "B",
+            "scores": {
+              "phone_readability": 15,
+              "visual_mystery": 16,
+              "city_anchor": 15,
+              "proof_object": 18,
+              "emotion": 15,
+              "payoff_match": 18
+            },
+            "total_score": 97
+          },
+          {
+            "candidate": "C",
+            "scores": {
+              "phone_readability": 15,
+              "visual_mystery": 17,
+              "city_anchor": 15,
+              "proof_object": 16,
+              "emotion": 16,
+              "payoff_match": 17
+            },
+            "total_score": 96
+          }
+        ]
+      },
+      "shorts_discovery_funnel": {
+        "standalone_not_trailer_only": true,
+        "concepts": [
+          {
+            "id": "03-guru-short-01",
+            "standalone_hook": "Detroit makes more sense when you start with the map, not the skyline.",
+            "visual_clue": "Close-up of the Detroit rewiring evidence map with one visible clue highlighted.",
+            "proof_payoff": "Show the source clue and the system it reveals.",
+            "comment_prompt": "What Detroit source should Pattern Lab check next?",
+            "long_form_bridge": "The full city file shows the source trail and hidden system."
+          },
+          {
+            "id": "03-guru-short-02",
+            "standalone_hook": "Old photos are evidence, not decoration.",
+            "visual_clue": "A historical image with source, place, date, and visible clue called out.",
+            "proof_payoff": "Point to one detail that changes the simplified story.",
+            "comment_prompt": "What old photo changed how you understood a city?",
+            "long_form_bridge": "The full video walks through the rights-logged source packet."
+          },
+          {
+            "id": "03-guru-short-03",
+            "standalone_hook": "No source, no story.",
+            "visual_clue": "Accepted source rows beside rejected unsourced claims.",
+            "proof_payoff": "Explain why an unsourced city myth cannot carry the argument.",
+            "comment_prompt": "Which city myth should be checked against the sources?",
+            "long_form_bridge": "The long-form episode shows the evidence-backed version."
+          },
+          {
+            "id": "03-guru-short-04",
+            "standalone_hook": "The familiar Detroit story skips the mechanism.",
+            "visual_clue": "Then/now image pair with the hidden system labeled.",
+            "proof_payoff": "Show what changed, who moved, or what vanished.",
+            "comment_prompt": "What part of this city story feels missing?",
+            "long_form_bridge": "The full city file connects the clue to the larger system."
+          },
+          {
+            "id": "03-guru-short-05",
+            "standalone_hook": "The map keeps receipts.",
+            "visual_clue": "Map trace, route line, border, or neighborhood cut.",
+            "proof_payoff": "Use the map to show a decision that still shapes the city.",
+            "comment_prompt": "Which map should Pattern Lab inspect next?",
+            "long_form_bridge": "The long-form video shows the map, source, and consequence."
+          },
+          {
+            "id": "03-guru-short-06",
+            "standalone_hook": "A city changes when one proof object changes the question.",
+            "visual_clue": "The Detroit rewiring evidence map staged as a source-first clue.",
+            "proof_payoff": "Reveal why the clue creates a better question than generic city history.",
+            "comment_prompt": "Which clue should become a full city file?",
+            "long_form_bridge": "The full episode follows the clue through the city system."
+          }
+        ]
+      },
+      "shorts_concepts": [
+        {
+          "id": "03-guru-short-01",
+          "standalone_hook": "Detroit makes more sense when you start with the map, not the skyline.",
+          "visual_clue": "Close-up of the Detroit rewiring evidence map with one visible clue highlighted.",
+          "proof_payoff": "Show the source clue and the system it reveals.",
+          "comment_prompt": "What Detroit source should Pattern Lab check next?",
+          "long_form_bridge": "The full city file shows the source trail and hidden system."
+        },
+        {
+          "id": "03-guru-short-02",
+          "standalone_hook": "Old photos are evidence, not decoration.",
+          "visual_clue": "A historical image with source, place, date, and visible clue called out.",
+          "proof_payoff": "Point to one detail that changes the simplified story.",
+          "comment_prompt": "What old photo changed how you understood a city?",
+          "long_form_bridge": "The full video walks through the rights-logged source packet."
+        },
+        {
+          "id": "03-guru-short-03",
+          "standalone_hook": "No source, no story.",
+          "visual_clue": "Accepted source rows beside rejected unsourced claims.",
+          "proof_payoff": "Explain why an unsourced city myth cannot carry the argument.",
+          "comment_prompt": "Which city myth should be checked against the sources?",
+          "long_form_bridge": "The long-form episode shows the evidence-backed version."
+        },
+        {
+          "id": "03-guru-short-04",
+          "standalone_hook": "The familiar Detroit story skips the mechanism.",
+          "visual_clue": "Then/now image pair with the hidden system labeled.",
+          "proof_payoff": "Show what changed, who moved, or what vanished.",
+          "comment_prompt": "What part of this city story feels missing?",
+          "long_form_bridge": "The full city file connects the clue to the larger system."
+        },
+        {
+          "id": "03-guru-short-05",
+          "standalone_hook": "The map keeps receipts.",
+          "visual_clue": "Map trace, route line, border, or neighborhood cut.",
+          "proof_payoff": "Use the map to show a decision that still shapes the city.",
+          "comment_prompt": "Which map should Pattern Lab inspect next?",
+          "long_form_bridge": "The long-form video shows the map, source, and consequence."
+        },
+        {
+          "id": "03-guru-short-06",
+          "standalone_hook": "A city changes when one proof object changes the question.",
+          "visual_clue": "The Detroit rewiring evidence map staged as a source-first clue.",
+          "proof_payoff": "Reveal why the clue creates a better question than generic city history.",
+          "comment_prompt": "Which clue should become a full city file?",
+          "long_form_bridge": "The full episode follows the clue through the city system."
+        }
+      ],
+      "audience_satisfaction_tracking": {
+        "tracked_signals": [
+          "i_never_knew_this",
+          "city_requests",
+          "local_corrections",
+          "source_disputes",
+          "confusion",
+          "visual_praise",
+          "expectation_mismatch"
+        ]
+      },
+      "sustainable_production_governor": {
+        "long_form_per_week_target": 3,
+        "quality_over_frequency": true,
+        "failed_quality_gate_blocks_publish": true,
+        "public_publish_owner_gated": true
+      }
+    }
+  },
+  "benchmark_growth_playbook": {
+    "series_family": "The Map Changed",
+    "core_thesis": "One city. One strange visual clue. One source trail. One hidden system.",
+    "benchmark_style_mix": [
+      "Bright Sun Films mystery",
+      "The B1M polish",
+      "Not Just Bikes clarity",
+      "Here Grows New York map proof"
+    ],
+    "title_thumbnail_thesis": "Detroit was not merely a generic decline story; the map/source trail shows how the city was rewired.",
+    "visual_priority": [
+      "real source media",
+      "deterministic motion on real media",
+      "source-grounded maps and overlays",
+      "labeled non-proof illustration only when a real visual is unavailable"
+    ],
+    "shorts_strategy": "Generate 5-7 standalone clue concepts per long-form; render/upload the strongest three first unless owner approves a larger Shorts batch.",
+    "testing_strategy": "Use YouTube title/thumbnail testing when available and choose by watch-time share, retention, and expectation-match comments."
+  },
+  "guru_growth_system": {
+    "version": "2026-06-pattern-lab-youtube-guru-growth-v1",
+    "outlier_topic_mining": {
+      "benchmark_or_outlier_rationale": "Successful city-history and urbanism outliers package around a visual mystery, vanished place, map change, or hidden system rather than a broad historical survey.",
+      "viewer_demand_reason": "Curious viewers want to know why the familiar Detroit story feels incomplete and what source evidence changes the explanation.",
+      "proof_object": "Detroit rewiring evidence map",
+      "beats_generic_city_history_because": "The episode promises a specific proof object and hidden system instead of a generic chronological city-history lecture."
+    },
+    "title_thumbnail_test_discipline": {
+      "winner_metric": "watch_time_share_first_then_ctr",
+      "no_misleading_promise": true,
+      "test_pairs": [
+        {
+          "title": "Detroit Didn't Just Decline. It Was Rewired.",
+          "thumbnail": "images/thumbnail_candidate_a.png",
+          "hypothesis": "emotional mystery with a vanished-place proof object"
+        },
+        {
+          "title": "The Map That Rewired Detroit",
+          "thumbnail": "images/thumbnail_candidate_b.png",
+          "hypothesis": "map-system proof for viewers who want the evidence trail"
+        },
+        {
+          "title": "Detroit Was Rewired",
+          "thumbnail": "images/thumbnail_candidate_c.png",
+          "hypothesis": "contrarian history angle that challenges a familiar summary"
+        }
+      ]
+    },
+    "viewer_avatar_topic_filter": {
+      "morgan_viewer_question": "What source-backed clue explains why Detroit looks and remembers itself this way?",
+      "curiosity_trigger": "A familiar city story has a visible contradiction that the source packet can resolve.",
+      "reject_if_only_historically_interesting": true
+    },
+    "packaging_lock_before_script": {
+      "locked_before_script_approval": true,
+      "locked_fields": {
+        "title": "Detroit Didn't Just Decline. It Was Rewired.",
+        "thumbnail_hypothesis": "Photo-first proof object plus 2-4 word mystery text.",
+        "first_hook": "Detroit is not just a city with a history problem.",
+        "proof_object": "Detroit rewiring evidence map",
+        "first_30_second_payoff": "Show the visual clue, contradiction, source proof, stakes, and title-thumbnail payoff by 30 seconds.",
+        "audience_promise": "The episode will explain one hidden city system with sources, not generic history."
+      }
+    },
+    "first_30_seconds_mini_product": {
+      "payoff_by_seconds": 30,
+      "opening_plan_includes": {
+        "visual_clue": "Show the Detroit rewiring evidence map or photo/map clue immediately.",
+        "contradiction": "The familiar Detroit story is incomplete.",
+        "source_proof": "Bring the source proof on screen before broad context.",
+        "stakes": "Explain why the clue changes how the city is understood.",
+        "title_thumbnail_payoff": "Deliver the exact map/photo/source object promised by title and thumbnail."
+      }
+    },
+    "retention_boredom_cut": {
+      "retention_edit_pass_recorded": true,
+      "removed": [
+        "repeated_points",
+        "slow_setup",
+        "unsupported_tangents",
+        "non_advancing_visuals"
+      ],
+      "rule": "Every beat must advance curiosity, proof, or payoff."
+    },
+    "thumbnail_pre_score": {
+      "threshold": 80,
+      "selected_candidate": "A",
+      "candidates": [
+        {
+          "candidate": "A",
+          "scores": {
+            "phone_readability": 15,
+            "visual_mystery": 18,
+            "city_anchor": 15,
+            "proof_object": 17,
+            "emotion": 17,
+            "payoff_match": 18
+          },
+          "total_score": 100
+        },
+        {
+          "candidate": "B",
+          "scores": {
+            "phone_readability": 15,
+            "visual_mystery": 16,
+            "city_anchor": 15,
+            "proof_object": 18,
+            "emotion": 15,
+            "payoff_match": 18
+          },
+          "total_score": 97
+        },
+        {
+          "candidate": "C",
+          "scores": {
+            "phone_readability": 15,
+            "visual_mystery": 17,
+            "city_anchor": 15,
+            "proof_object": 16,
+            "emotion": 16,
+            "payoff_match": 17
+          },
+          "total_score": 96
+        }
+      ]
+    },
+    "shorts_discovery_funnel": {
+      "standalone_not_trailer_only": true,
+      "concepts": [
+        {
+          "id": "03-guru-short-01",
+          "standalone_hook": "Detroit makes more sense when you start with the map, not the skyline.",
+          "visual_clue": "Close-up of the Detroit rewiring evidence map with one visible clue highlighted.",
+          "proof_payoff": "Show the source clue and the system it reveals.",
+          "comment_prompt": "What Detroit source should Pattern Lab check next?",
+          "long_form_bridge": "The full city file shows the source trail and hidden system."
+        },
+        {
+          "id": "03-guru-short-02",
+          "standalone_hook": "Old photos are evidence, not decoration.",
+          "visual_clue": "A historical image with source, place, date, and visible clue called out.",
+          "proof_payoff": "Point to one detail that changes the simplified story.",
+          "comment_prompt": "What old photo changed how you understood a city?",
+          "long_form_bridge": "The full video walks through the rights-logged source packet."
+        },
+        {
+          "id": "03-guru-short-03",
+          "standalone_hook": "No source, no story.",
+          "visual_clue": "Accepted source rows beside rejected unsourced claims.",
+          "proof_payoff": "Explain why an unsourced city myth cannot carry the argument.",
+          "comment_prompt": "Which city myth should be checked against the sources?",
+          "long_form_bridge": "The long-form episode shows the evidence-backed version."
+        },
+        {
+          "id": "03-guru-short-04",
+          "standalone_hook": "The familiar Detroit story skips the mechanism.",
+          "visual_clue": "Then/now image pair with the hidden system labeled.",
+          "proof_payoff": "Show what changed, who moved, or what vanished.",
+          "comment_prompt": "What part of this city story feels missing?",
+          "long_form_bridge": "The full city file connects the clue to the larger system."
+        },
+        {
+          "id": "03-guru-short-05",
+          "standalone_hook": "The map keeps receipts.",
+          "visual_clue": "Map trace, route line, border, or neighborhood cut.",
+          "proof_payoff": "Use the map to show a decision that still shapes the city.",
+          "comment_prompt": "Which map should Pattern Lab inspect next?",
+          "long_form_bridge": "The long-form video shows the map, source, and consequence."
+        },
+        {
+          "id": "03-guru-short-06",
+          "standalone_hook": "A city changes when one proof object changes the question.",
+          "visual_clue": "The Detroit rewiring evidence map staged as a source-first clue.",
+          "proof_payoff": "Reveal why the clue creates a better question than generic city history.",
+          "comment_prompt": "Which clue should become a full city file?",
+          "long_form_bridge": "The full episode follows the clue through the city system."
+        }
+      ]
+    },
+    "shorts_concepts": [
+      {
+        "id": "03-guru-short-01",
+        "standalone_hook": "Detroit makes more sense when you start with the map, not the skyline.",
+        "visual_clue": "Close-up of the Detroit rewiring evidence map with one visible clue highlighted.",
+        "proof_payoff": "Show the source clue and the system it reveals.",
+        "comment_prompt": "What Detroit source should Pattern Lab check next?",
+        "long_form_bridge": "The full city file shows the source trail and hidden system."
+      },
+      {
+        "id": "03-guru-short-02",
+        "standalone_hook": "Old photos are evidence, not decoration.",
+        "visual_clue": "A historical image with source, place, date, and visible clue called out.",
+        "proof_payoff": "Point to one detail that changes the simplified story.",
+        "comment_prompt": "What old photo changed how you understood a city?",
+        "long_form_bridge": "The full video walks through the rights-logged source packet."
+      },
+      {
+        "id": "03-guru-short-03",
+        "standalone_hook": "No source, no story.",
+        "visual_clue": "Accepted source rows beside rejected unsourced claims.",
+        "proof_payoff": "Explain why an unsourced city myth cannot carry the argument.",
+        "comment_prompt": "Which city myth should be checked against the sources?",
+        "long_form_bridge": "The long-form episode shows the evidence-backed version."
+      },
+      {
+        "id": "03-guru-short-04",
+        "standalone_hook": "The familiar Detroit story skips the mechanism.",
+        "visual_clue": "Then/now image pair with the hidden system labeled.",
+        "proof_payoff": "Show what changed, who moved, or what vanished.",
+        "comment_prompt": "What part of this city story feels missing?",
+        "long_form_bridge": "The full city file connects the clue to the larger system."
+      },
+      {
+        "id": "03-guru-short-05",
+        "standalone_hook": "The map keeps receipts.",
+        "visual_clue": "Map trace, route line, border, or neighborhood cut.",
+        "proof_payoff": "Use the map to show a decision that still shapes the city.",
+        "comment_prompt": "Which map should Pattern Lab inspect next?",
+        "long_form_bridge": "The long-form video shows the map, source, and consequence."
+      },
+      {
+        "id": "03-guru-short-06",
+        "standalone_hook": "A city changes when one proof object changes the question.",
+        "visual_clue": "The Detroit rewiring evidence map staged as a source-first clue.",
+        "proof_payoff": "Reveal why the clue creates a better question than generic city history.",
+        "comment_prompt": "Which clue should become a full city file?",
+        "long_form_bridge": "The full episode follows the clue through the city system."
+      }
+    ],
+    "audience_satisfaction_tracking": {
+      "tracked_signals": [
+        "i_never_knew_this",
+        "city_requests",
+        "local_corrections",
+        "source_disputes",
+        "confusion",
+        "visual_praise",
+        "expectation_mismatch"
+      ]
+    },
+    "sustainable_production_governor": {
+      "long_form_per_week_target": 3,
+      "quality_over_frequency": true,
+      "failed_quality_gate_blocks_publish": true,
+      "public_publish_owner_gated": true
+    }
+  },
+  "city_first_thumbnail_system": {
+    "status": "v2_required",
+    "active_city": "Detroit",
+    "review_concept_count": 5,
+    "selected_candidate_count": 3,
+    "city_name_rule": "Detroit must use premium condensed display typography and be the primary/co-primary top text.",
+    "visual_recognition_rule": "All concepts must read as Detroit through skyline, landmark, historic city/river view, or skyline-plus-source-card composition.",
+    "winner_metric": "watch_time_share_first_then_ctr",
+    "search_shelf_test_required": true,
+    "review_concepts": [
+      {
+        "headline": "DETROIT WAS REDRAWN",
+        "family": "clear city transformation",
+        "selected_for_production": true,
+        "thumbnail": "images/thumbnail_candidate_a.png"
+      },
+      {
+        "headline": "DETROIT'S HIDDEN MAP",
+        "family": "city + map/system",
+        "selected_for_production": true,
+        "thumbnail": "images/thumbnail_candidate_b.png"
+      },
+      {
+        "headline": "DETROIT 1942",
+        "family": "city + year/time-travel",
+        "selected_for_production": false,
+        "thumbnail": "review/thumbnail-concepts/thumbnail_concept_03_detroit_1942.png"
+      },
+      {
+        "headline": "DETROIT'S LOST STREETS",
+        "family": "city + vanished place",
+        "selected_for_production": false,
+        "thumbnail": "review/thumbnail-concepts/thumbnail_concept_04_detroits_lost_streets.png"
+      },
+      {
+        "headline": "DETROIT'S FALL EXPLAINED",
+        "family": "city + documentary explanation",
+        "selected_for_production": true,
+        "thumbnail": "images/thumbnail_candidate_c.png"
+      }
+    ],
+    "title_thumbnail_pairs": [
+      {
+        "title": "Detroit Didn't Just Decline. It Was Rewired.",
+        "thumbnail": "images/thumbnail_candidate_a.png",
+        "promise": "Detroit was redrawn by a hidden system, not merely declined."
+      },
+      {
+        "title": "The Hidden Map Behind Detroit's Story",
+        "thumbnail": "images/thumbnail_candidate_b.png",
+        "promise": "The hidden map/source system explains Detroit."
+      },
+      {
+        "title": "What Detroit's Old Photos Reveal",
+        "thumbnail": "images/thumbnail_candidate_c.png",
+        "promise": "Old Detroit source images explain the fall story."
+      }
+    ],
+    "hard_blocks": [
+      "ambiguous thumbnail promise",
+      "boring/plain city font",
+      "not recognizably Detroit",
+      "rough proof marks",
+      "source-board clutter",
+      "fake archival proof"
+    ]
+  }
+}

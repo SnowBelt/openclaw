@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "purpose": "Read-only competitor and market thumbnail research workflow for Pattern Lab city-history packaging.",
+  "source_lanes": [
+    "city-history documentaries",
+    "urbanism and planning channels",
+    "infrastructure explainers",
+    "mystery-history channels",
+    "local documentary channels"
+  ],
+  "capture_fields": [
+    "channel_or_video",
+    "topic",
+    "title",
+    "thumbnail_text",
+    "city_or_place_anchor",
+    "dominant_visual_object",
+    "proof_object",
+    "curiosity_gap",
+    "human_stakes",
+    "color_contrast",
+    "word_count",
+    "variant_difference",
+    "what_pattern_lab_should_copy_as_principle",
+    "what_pattern_lab_must_not_copy",
+    "main_title_font_style",
+    "font_weight_width",
+    "outline_or_shadow_method",
+    "phone_size_readability",
+    "typography_contrast_method"
+  ],
+  "pattern_lab_gaps_to_measure": [
+    "sharper contradiction",
+    "larger focal object",
+    "human stakes",
+    "stronger title-thumbnail pairing",
+    "fewer words",
+    "more extreme A/B variation",
+    "clearer proof object",
+    "watch-time-based testing",
+    "stronger main-title typography",
+    "phone-size title readability",
+    "clean contrast instead of muddy outline"
+  ],
+  "blocked_actions": [
+    "copying competitor layouts directly",
+    "using unlicensed thumbnails as assets",
+    "treating competitor claims as factual sources",
+    "public YouTube mutations",
+    "copying competitor font treatment exactly"
+  ],
+  "output_rule": "Research output is strategic guidance only; Pattern Lab must render original thumbnails from rights-safe source media.",
+  "typography_upgrade_rule": "Translate successful-channel typography principles into Pattern Lab originals: large condensed sans, fewer words, clean contrast, visible city anchor, and no Impact-first default."
+}

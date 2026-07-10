@@ -1,0 +1,64 @@
+{
+  "upload_metadata": {
+    "generated_at": "2026-06-26T18:54:30Z",
+    "video_id": "miami-redo-source",
+    "city": "Miami",
+    "active_city": "Miami",
+    "title_options": [
+      "Miami Was Not Just Decline. The Map Changed.",
+      "The Hidden Map Under Miami",
+      "What Old Miami Photos Reveal",
+      "Why Miami's Streets Still Do Not Make Sense",
+      "The City File That Explains Miami"
+    ],
+    "default_title": "Miami Was Not Just Decline. The Map Changed.",
+    "default_thumbnail": "images/thumbnail_candidate_a.png",
+    "description": "Pattern Lab studies American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.\n\nThis real-city thumbnail test package uses rights-ledgered Miami source images and maps so the thumbnail factory is tested against the same kind of city-specific material required for public work.\n\nNo source, no story.",
+    "description_footer": "Subscribe for evidence-backed city history: one city, one source proof, one hidden pattern at a time.",
+    "tags": [
+      "Pattern Lab",
+      "Miami history",
+      "American cities",
+      "urban history",
+      "city history documentary",
+      "historical photos",
+      "urban planning history",
+      "Miami documentary"
+    ],
+    "category_id": "27",
+    "made_for_kids": false,
+    "synthetic_disclosure_decision": "Owner must confirm in YouTube Studio. This package uses rights-logged real city images/maps; AI support remains non-proof only.",
+    "pinned_comment": "What Miami story should Pattern Lab check against the sources next?",
+    "chapters": [
+      {
+        "time": "0:00",
+        "title": "The map changed the city"
+      },
+      {
+        "time": "0:20",
+        "title": "The source proof"
+      },
+      {
+        "time": "1:00",
+        "title": "Old photos before myths"
+      },
+      {
+        "time": "2:00",
+        "title": "The hidden city system"
+      },
+      {
+        "time": "3:00",
+        "title": "What changed afterward"
+      }
+    ],
+    "shorts": [
+      {
+        "id": "miami-redo-source-short-01",
+        "title": "The Hidden Map Under Miami",
+        "pinned_comment": "Which Miami source should Pattern Lab check next?",
+        "related_video_promise": "The full city file shows the map, sources, and hidden system.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      }
+    ]
+  }
+}

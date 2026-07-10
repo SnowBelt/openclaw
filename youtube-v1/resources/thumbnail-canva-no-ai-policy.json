@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "status": "pass",
+  "purpose": "Canva production mode for Pattern Lab thumbnails without Canva AI generation.",
+  "production_mode": "approved_template_edit_export_only",
+  "canva_ai_generation_allowed": false,
+  "magic_layers_image_to_design_allowed_for_production": false,
+  "generate_design_allowed_for_production": false,
+  "paid_or_pro_assets_allowed": false,
+  "youtube_mutation_allowed": false,
+  "allowed_canva_edit_operations": [
+    "replace_text",
+    "find_and_replace_text",
+    "update_fill",
+    "format_text",
+    "update_title"
+  ],
+  "forbidden_canva_operations_or_workflows": [
+    "generate_design",
+    "image_to_design",
+    "magic_layers",
+    "paid_or_pro_assets",
+    "youtube_upload",
+    "youtube_thumbnail_replacement",
+    "public_publish"
+  ],
+  "template_font_rule": "Premium Canva fonts must be preserved inside owner-approved Canva templates. Pattern Lab may replace text and fills but must not claim runtime deterministic font-family selection.",
+  "required_text_slots": [
+    "CITY",
+    "MAIN_HOOK",
+    "SUPPORT_LINE"
+  ],
+  "required_image_slots": [
+    "PRIMARY_PHOTO"
+  ],
+  "optional_image_slots": [
+    "SECONDARY_PHOTO"
+  ],
+  "main_hook_word_range": [
+    1,
+    4
+  ],
+  "support_line_word_range": [
+    2,
+    4
+  ],
+  "max_non_city_public_words": 5,
+  "blocked_public_labels": [
+    "SOURCE PHOTO",
+    "RECEIPT",
+    "SOURCE FILE"
+  ],
+  "blocked_visual_elements": [
+    "random arrows",
+    "unexplained lines",
+    "decorative boxes",
+    "bare redaction bars without readable surrounding words"
+  ],
+  "final_owner_approval_required": true
+}

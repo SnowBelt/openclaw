@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "status": "owner_references_available_private_style_only",
+  "description": "Owner-approved reference thumbnails used only for style/anatomy analysis. Pattern Lab may adapt mechanics, but must not copy layouts, text, images, or proprietary creative work.",
+  "reference_image_directory": "local-output/thumbnail-reference-library/owner-provided-2026-06-27",
+  "reference_images": [
+    {
+      "id": "owner_ref_2026_06_27_01_shelf_face_city",
+      "path": "local-output/thumbnail-reference-library/owner-provided-2026-06-27/owner_ref_2026_06_27_01_shelf_face_city.jpg",
+      "style_family": "search shelf face plus city skyline",
+      "owner_rating": "positive_reference",
+      "owner_feedback_date": "2026-06-27",
+      "approved_style_traits": [
+        "human foreground",
+        "city skyline",
+        "white outlined headline",
+        "orange city emphasis",
+        "high contrast",
+        "phone shelf readable"
+      ],
+      "traits": {
+        "color_energy": "vivid high-saturation colors; avoid muddy dark overlays",
+        "font_energy": "large bold premium/display lettering with strong outline or banner contrast",
+        "city_anchor": "city name or city identity is immediately obvious at phone size",
+        "image_energy": "stunning city photo, human emotion, or dramatic subject; never bland filler proof labels",
+        "curiosity_gap": "clear click question or contradiction without internal labels like source photo or receipt",
+        "lesson": "human face plus bright skyline can make a city topic feel alive; city name must pop; thick white/black title treatment works at shelf size"
+      },
+      "rights_boundary": "Owner-provided third-party screenshot for private style/anatomy reference only; do not copy, trace, publish, or use as source media.",
+      "copy_boundary": "Adapt mechanics only: vivid color, bigger type, stronger human/city subject, clearer curiosity. Do not copy layout, text, people, photos, logos, or channel identity.",
+      "not_public_asset": true
+    },
+    {
+      "id": "owner_ref_2026_06_27_02_giant_city_skyline",
+      "path": "local-output/thumbnail-reference-library/owner-provided-2026-06-27/owner_ref_2026_06_27_02_giant_city_skyline.jpg",
+      "style_family": "giant city word over saturated skyline",
+      "owner_rating": "positive_reference",
+      "owner_feedback_date": "2026-06-27",
+      "approved_style_traits": [
+        "giant city anchor",
+        "saturated blue sky",
+        "white type",
+        "landmark/city recognition",
+        "minimal words"
+      ],
+      "traits": {
+        "color_energy": "vivid high-saturation colors; avoid muddy dark overlays",
+        "font_energy": "large bold premium/display lettering with strong outline or banner contrast",
+        "city_anchor": "city name or city identity is immediately obvious at phone size",
+        "image_energy": "stunning city photo, human emotion, or dramatic subject; never bland filler proof labels",
+        "curiosity_gap": "clear click question or contradiction without internal labels like source photo or receipt",
+        "lesson": "one massive city word over a vivid source photo can outperform small proof labels; image must be stunning"
+      },
+      "rights_boundary": "Owner-provided third-party screenshot for private style/anatomy reference only; do not copy, trace, publish, or use as source media.",
+      "copy_boundary": "Adapt mechanics only: vivid color, bigger type, stronger human/city subject, clearer curiosity. Do not copy layout, text, people, photos, logos, or channel identity.",
+      "not_public_asset": true
+    },
+    {
+      "id": "owner_ref_2026_06_27_03_vivid_character_pop",
+      "path": "local-output/thumbnail-reference-library/owner-provided-2026-06-27/owner_ref_2026_06_27_03_vivid_character_pop.jpg",
+      "style_family": "vivid character cutout and expressive display font",
+      "owner_rating": "positive_reference",
+      "owner_feedback_date": "2026-06-27",
+      "approved_style_traits": [
+        "royal blue background",
+        "character cutouts",
+        "custom display font",
+        "red white outline",
+        "bold cultural signal"
+      ],
+      "traits": {
+        "color_energy": "vivid high-saturation colors; avoid muddy dark overlays",
+        "font_energy": "large bold premium/display lettering with strong outline or banner contrast",
+        "city_anchor": "city name or city identity is immediately obvious at phone size",
+        "image_energy": "stunning city photo, human emotion, or dramatic subject; never bland filler proof labels",
+        "curiosity_gap": "clear click question or contradiction without internal labels like source photo or receipt",
+        "lesson": "highly stylized cutouts and playful display lettering create pop; use only as style energy, not topic/content copying"
+      },
+      "rights_boundary": "Owner-provided third-party screenshot for private style/anatomy reference only; do not copy, trace, publish, or use as source media.",
+      "copy_boundary": "Adapt mechanics only: vivid color, bigger type, stronger human/city subject, clearer curiosity. Do not copy layout, text, people, photos, logos, or channel identity.",
+      "not_public_asset": true
+    },
+    {
+      "id": "owner_ref_2026_06_27_04_drama_then_now",
+      "path": "local-output/thumbnail-reference-library/owner-provided-2026-06-27/owner_ref_2026_06_27_04_drama_then_now.jpg",
+      "style_family": "dramatic foreground figure and then-now contrast",
+      "owner_rating": "positive_reference",
+      "owner_feedback_date": "2026-06-27",
+      "approved_style_traits": [
+        "dramatic human foreground",
+        "night street",
+        "then now labels",
+        "high contrast blocks",
+        "documentary tension"
+      ],
+      "traits": {
+        "color_energy": "vivid high-saturation colors; avoid muddy dark overlays",
+        "font_energy": "large bold premium/display lettering with strong outline or banner contrast",
+        "city_anchor": "city name or city identity is immediately obvious at phone size",
+        "image_energy": "stunning city photo, human emotion, or dramatic subject; never bland filler proof labels",
+        "curiosity_gap": "clear click question or contradiction without internal labels like source photo or receipt",
+        "lesson": "human stakes plus simple THEN/NOW labels are immediately legible; split lines must be purposeful and clean"
+      },
+      "rights_boundary": "Owner-provided third-party screenshot for private style/anatomy reference only; do not copy, trace, publish, or use as source media.",
+      "copy_boundary": "Adapt mechanics only: vivid color, bigger type, stronger human/city subject, clearer curiosity. Do not copy layout, text, people, photos, logos, or channel identity.",
+      "not_public_asset": true
+    },
+    {
+      "id": "owner_ref_2026_06_27_05_saturated_city_anchor",
+      "path": "local-output/thumbnail-reference-library/owner-provided-2026-06-27/owner_ref_2026_06_27_05_saturated_city_anchor.jpg",
+      "style_family": "saturated skyline with huge city anchor",
+      "owner_rating": "positive_reference",
+      "owner_feedback_date": "2026-06-27",
+      "approved_style_traits": [
+        "vivid cityscape",
+        "single city word",
+        "large white condensed sans",
+        "black shadow",
+        "minimal text"
+      ],
+      "traits": {
+        "color_energy": "vivid high-saturation colors; avoid muddy dark overlays",
+        "font_energy": "large bold premium/display lettering with strong outline or banner contrast",
+        "city_anchor": "city name or city identity is immediately obvious at phone size",
+        "image_energy": "stunning city photo, human emotion, or dramatic subject; never bland filler proof labels",
+        "curiosity_gap": "clear click question or contradiction without internal labels like source photo or receipt",
+        "lesson": "stunning saturated city photo plus huge city name gives instant location and shelf clarity"
+      },
+      "rights_boundary": "Owner-provided third-party screenshot for private style/anatomy reference only; do not copy, trace, publish, or use as source media.",
+      "copy_boundary": "Adapt mechanics only: vivid color, bigger type, stronger human/city subject, clearer curiosity. Do not copy layout, text, people, photos, logos, or channel identity.",
+      "not_public_asset": true
+    },
+    {
+      "id": "owner_ref_2026_06_27_06_banner_human_stakes",
+      "path": "local-output/thumbnail-reference-library/owner-provided-2026-06-27/owner_ref_2026_06_27_06_banner_human_stakes.jpg",
+      "style_family": "human presenter plus red/yellow urgency banners",
+      "owner_rating": "positive_reference",
+      "owner_feedback_date": "2026-06-27",
+      "approved_style_traits": [
+        "human pointing",
+        "red banner",
+        "yellow banner",
+        "clear promise",
+        "high saturation",
+        "emotion/curiosity"
+      ],
+      "traits": {
+        "color_energy": "vivid high-saturation colors; avoid muddy dark overlays",
+        "font_energy": "large bold premium/display lettering with strong outline or banner contrast",
+        "city_anchor": "city name or city identity is immediately obvious at phone size",
+        "image_energy": "stunning city photo, human emotion, or dramatic subject; never bland filler proof labels",
+        "curiosity_gap": "clear click question or contradiction without internal labels like source photo or receipt",
+        "lesson": "red/yellow urgency banners and expressive human presence make the click promise feel current and important"
+      },
+      "rights_boundary": "Owner-provided third-party screenshot for private style/anatomy reference only; do not copy, trace, publish, or use as source media.",
+      "copy_boundary": "Adapt mechanics only: vivid color, bigger type, stronger human/city subject, clearer curiosity. Do not copy layout, text, people, photos, logos, or channel identity.",
+      "not_public_asset": true
+    }
+  ],
+  "required_owner_reference_image_count": 3,
+  "analysis_dimensions": [
+    "hero_object_size",
+    "foreground_depth",
+    "background_separation",
+    "title_font_weight",
+    "title_contrast",
+    "mystery_gap",
+    "proof_object_legibility",
+    "city_anchor_presence",
+    "mobile_shelf_readability"
+  ],
+  "hard_rules": [
+    "city name must appear on every Pattern Lab thumbnail",
+    "real city photos/maps/documents must be used when source media exists",
+    "every visible line, arrow, box, redaction, label, and prop must have a declared click-purpose label",
+    "reference thumbnails are for anatomy benchmarking only; do not clone or trace them",
+    "AI support art is allowed only as non-proof support, never as source evidence",
+    "reference screenshots are private style/anatomy references only and must never be copied, traced, published, or used as proof media",
+    "thumbnail colors must feel vivid and alive, not bland, muddy, or overly dark",
+    "main title typography must feel premium/sexy/attention-grabbing at phone size, not generic system text",
+    "do not use public words such as SOURCE PHOTO, RECEIPT, SOURCE FILE, or generic proof labels unless the exact word creates viewer curiosity",
+    "redactions are allowed only when surrounded by readable meaningful words; bare black bars are blocked",
+    "prefer stunning city images, human stakes, dramatic subject scale, and bold red/yellow/white/black contrast when topic-appropriate"
+  ],
+  "blocked_reason_when_empty": "blocked_missing_owner_reference_images"
+}

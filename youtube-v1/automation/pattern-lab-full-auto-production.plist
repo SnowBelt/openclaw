@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.pattern-lab.full-auto-production</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
+    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/patternlab_full_auto_production.py</string>
+    <string>--next-scheduled</string>
+    <string>--live-voice</string>
+    <string>when-configured</string>
+    <string>--shorts-target</string>
+    <string>5</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>5</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/pattern-lab-full-auto-production.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/pattern-lab-full-auto-production.err.log</string>
+</dict>
+</plist>

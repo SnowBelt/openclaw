@@ -1,0 +1,413 @@
+{
+  "version": 4,
+  "status": "pass_open_license_bundled_external_fonts_and_approved_mac_system_fallbacks_v5",
+  "purpose": "Repo-local open-license Fontsource manifest for Pattern Lab premium thumbnail typography. Canva remains primary when available; these fonts power the approved free automated fallback.",
+  "scope": "fontsource_open_license_bundled_fonts_and_approved_mac_system_fonts_for_local_fallback_only",
+  "public_mutation": "not_authorized",
+  "canva": "not_used_by_local_fallback",
+  "paid_fonts": "not_authorized_without_owner_approval",
+  "network_downloads": "approved_for_fontsource_install_only",
+  "license_policy": {
+    "allowed_licenses": [
+      "OFL-1.1",
+      "Apache-2.0"
+    ],
+    "blocked": [
+      "paid",
+      "pro",
+      "unlicensed",
+      "unknown"
+    ],
+    "fail_closed_if_font_file_missing": true
+  },
+  "approved_premium_title_fonts": [
+    "Anton",
+    "Bebas Neue",
+    "Archivo Black",
+    "League Spartan",
+    "Oswald",
+    "Teko",
+    "Bowlby One SC",
+    "Bungee",
+    "Barlow Condensed",
+    "Montserrat",
+    "Saira Condensed",
+    "Roboto Condensed",
+    "Bangers",
+    "Luckiest Guy",
+    "Lilita One",
+    "Passion One",
+    "Changa One",
+    "Rowdies",
+    "Titan One",
+    "Black Han Sans",
+    "Fugaz One",
+    "Kanit",
+    "League Gothic External",
+    "Pilowlava",
+    "Terminal Grotesque Open",
+    "Reglo",
+    "Avenir Next Condensed Heavy",
+    "Helvetica Neue Condensed Black"
+  ],
+  "approved_support_fonts": [
+    "Barlow Condensed",
+    "Montserrat",
+    "Saira Condensed",
+    "Roboto Condensed",
+    "League Spartan",
+    "League Gothic External",
+    "Pilowlava",
+    "Terminal Grotesque Open",
+    "Reglo"
+  ],
+  "blocked_generic_title_fonts": [
+    "Impact",
+    "Helvetica",
+    "Arial",
+    "System",
+    "SF Pro",
+    "Times New Roman",
+    "Courier New",
+    "DIN Condensed Bold",
+    "Arial Black"
+  ],
+  "font_roles": {
+    "city_anchor": {
+      "approved_families": [
+        "Anton",
+        "Bebas Neue",
+        "Archivo Black",
+        "League Spartan",
+        "Bungee",
+        "Barlow Condensed",
+        "Bangers",
+        "Luckiest Guy",
+        "Lilita One",
+        "Passion One",
+        "Changa One",
+        "Rowdies",
+        "Titan One",
+        "Black Han Sans",
+        "Fugaz One",
+        "Kanit",
+        "League Gothic External",
+        "Pilowlava",
+        "Terminal Grotesque Open",
+        "Reglo",
+        "Avenir Next Condensed Heavy",
+        "Helvetica Neue Condensed Black"
+      ],
+      "required_effect": "large high-contrast city name, phone-readable at 160x90"
+    },
+    "main_hook": {
+      "approved_families": [
+        "Anton",
+        "Bebas Neue",
+        "Archivo Black",
+        "League Spartan",
+        "Oswald",
+        "Teko",
+        "Bowlby One SC",
+        "Bungee",
+        "Barlow Condensed",
+        "Montserrat",
+        "Saira Condensed",
+        "Roboto Condensed",
+        "Bangers",
+        "Luckiest Guy",
+        "Lilita One",
+        "Passion One",
+        "Changa One",
+        "Rowdies",
+        "Titan One",
+        "Black Han Sans",
+        "Fugaz One",
+        "Kanit",
+        "League Gothic External",
+        "Pilowlava",
+        "Terminal Grotesque Open",
+        "Reglo",
+        "Avenir Next Condensed Heavy",
+        "Helvetica Neue Condensed Black"
+      ],
+      "required_effect": "huge, condensed, vivid, 1-4 words, no generic/default system treatment"
+    },
+    "supporting_line": {
+      "approved_families": [
+        "Barlow Condensed",
+        "Montserrat",
+        "Saira Condensed",
+        "Roboto Condensed",
+        "League Spartan"
+      ],
+      "max_public_words": 4,
+      "required_effect": "short payoff clue only; never a filler label"
+    }
+  },
+  "font_files": [
+    {
+      "family": "Anton",
+      "package": "@fontsource/anton",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2"
+    },
+    {
+      "family": "Bebas Neue",
+      "package": "@fontsource/bebas-neue",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff2"
+    },
+    {
+      "family": "Archivo Black",
+      "package": "@fontsource/archivo-black",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/archivo-black/files/archivo-black-latin-400-normal.woff2"
+    },
+    {
+      "family": "League Spartan",
+      "package": "@fontsource/league-spartan",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/league-spartan/files/league-spartan-latin-900-normal.woff2"
+    },
+    {
+      "family": "Oswald",
+      "package": "@fontsource/oswald",
+      "license": "OFL-1.1",
+      "weight": 700,
+      "style": "normal",
+      "path": "node_modules/@fontsource/oswald/files/oswald-latin-700-normal.woff2"
+    },
+    {
+      "family": "Teko",
+      "package": "@fontsource/teko",
+      "license": "OFL-1.1",
+      "weight": 700,
+      "style": "normal",
+      "path": "node_modules/@fontsource/teko/files/teko-latin-700-normal.woff2"
+    },
+    {
+      "family": "Bowlby One SC",
+      "package": "@fontsource/bowlby-one-sc",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/bowlby-one-sc/files/bowlby-one-sc-latin-400-normal.woff2"
+    },
+    {
+      "family": "Bungee",
+      "package": "@fontsource/bungee",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/bungee/files/bungee-latin-400-normal.woff2"
+    },
+    {
+      "family": "Barlow Condensed",
+      "package": "@fontsource/barlow-condensed",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-900-normal.woff2"
+    },
+    {
+      "family": "Montserrat",
+      "package": "@fontsource/montserrat",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/montserrat/files/montserrat-latin-900-normal.woff2"
+    },
+    {
+      "family": "Saira Condensed",
+      "package": "@fontsource/saira-condensed",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/saira-condensed/files/saira-condensed-latin-900-normal.woff2"
+    },
+    {
+      "family": "Roboto Condensed",
+      "package": "@fontsource/roboto-condensed",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/roboto-condensed/files/roboto-condensed-latin-900-normal.woff2"
+    },
+    {
+      "family": "Bangers",
+      "package": "@fontsource/bangers",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/bangers/files/bangers-latin-400-normal.woff2"
+    },
+    {
+      "family": "Luckiest Guy",
+      "package": "@fontsource/luckiest-guy",
+      "license": "Apache-2.0",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/luckiest-guy/files/luckiest-guy-latin-400-normal.woff2"
+    },
+    {
+      "family": "Lilita One",
+      "package": "@fontsource/lilita-one",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/lilita-one/files/lilita-one-latin-400-normal.woff2"
+    },
+    {
+      "family": "Passion One",
+      "package": "@fontsource/passion-one",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/passion-one/files/passion-one-latin-900-normal.woff2"
+    },
+    {
+      "family": "Changa One",
+      "package": "@fontsource/changa-one",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/changa-one/files/changa-one-latin-400-normal.woff2"
+    },
+    {
+      "family": "Rowdies",
+      "package": "@fontsource/rowdies",
+      "license": "OFL-1.1",
+      "weight": 700,
+      "style": "normal",
+      "path": "node_modules/@fontsource/rowdies/files/rowdies-latin-700-normal.woff2"
+    },
+    {
+      "family": "Titan One",
+      "package": "@fontsource/titan-one",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/titan-one/files/titan-one-latin-400-normal.woff2"
+    },
+    {
+      "family": "Black Han Sans",
+      "package": "@fontsource/black-han-sans",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/black-han-sans/files/black-han-sans-latin-400-normal.woff2"
+    },
+    {
+      "family": "Fugaz One",
+      "package": "@fontsource/fugaz-one",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "node_modules/@fontsource/fugaz-one/files/fugaz-one-latin-400-normal.woff2"
+    },
+    {
+      "family": "Kanit",
+      "package": "@fontsource/kanit",
+      "license": "OFL-1.1",
+      "weight": 900,
+      "style": "normal",
+      "path": "node_modules/@fontsource/kanit/files/kanit-latin-900-normal.woff2"
+    },
+    {
+      "family": "League Gothic External",
+      "package": "external-foundry-bundled",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/league-gothic-external-regular.woff2",
+      "source_foundry": "The League of Moveable Type",
+      "source_url": "https://www.theleagueofmoveabletype.com/fonts/LeagueGothic-Regular.woff2",
+      "license_url": "https://raw.githubusercontent.com/theleagueof/league-gothic/master/OFL.md",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/league-gothic-OFL.md",
+      "sha256": "2d5acde69b5edc9f7a5ea9f5da85247794a7d721eeba0e3745e0dbf8b53ba8a7",
+      "foundry_id": "league_of_moveable_type",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    },
+    {
+      "family": "Pilowlava",
+      "package": "external-foundry-bundled",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/pilowlava-regular.woff2",
+      "source_foundry": "Velvetyne Type Foundry",
+      "source_url": "https://velvetyne.fr/site/assets/files/1380/pilowlava-regular.woff2",
+      "license_url": "https://openfontlicense.org/",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/pilowlava-OFL-reference.html",
+      "sha256": "4f19e2f626cb3e4dffa70a6310b660aec1d8b52ef49cb041309e95383cf91908",
+      "foundry_id": "velvetyne",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    },
+    {
+      "family": "Terminal Grotesque Open",
+      "package": "external-foundry-bundled",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/terminal-grotesque-open.woff2",
+      "source_foundry": "Open Foundry",
+      "source_url": "https://fonts.open-foundry.com/terminal-grotesque-open/terminal-grotesque-open.woff2",
+      "license_url": "https://openfontlicense.org/",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/terminal-grotesque-open-OFL-reference.html",
+      "sha256": "701a25dba7fc1f6eac9af7ae579fcfab28e5e8df1fa88fbf2bb90cf2a06fecdc",
+      "foundry_id": "open_foundry",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    },
+    {
+      "family": "Reglo",
+      "package": "external-foundry-bundled",
+      "license": "OFL-1.1",
+      "weight": 700,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/reglo-bold.woff2",
+      "source_foundry": "Open Foundry",
+      "source_url": "https://fonts.open-foundry.com/reglo/reglo-bold.woff2",
+      "license_url": "https://openfontlicense.org/",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/reglo-OFL-reference.html",
+      "sha256": "68deb644a67f1053cefdc61d836dbf8fb8f524512a46163b053d605a40d8c259",
+      "foundry_id": "open_foundry",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    }
+  ],
+  "blocked_public_labels": [
+    "SOURCE PHOTO",
+    "RECEIPT",
+    "SOURCE FILE"
+  ],
+  "owner_reference_typography_traits": [
+    "giant city anchor",
+    "condensed heavy sans or expressive bold display feel",
+    "white/yellow/red/black high-contrast stack",
+    "black outline or shadow only when it sharpens the letters",
+    "large phone-shelf readable title blocks",
+    "vivid color contrast rather than muted blue/gray default text",
+    "expressive display fonts that feel designed rather than default",
+    "sticker/cutout/extruded headline effects for click energy",
+    "dominant proof object plus giant readable hook at phone size"
+  ],
+  "external_foundry_fonts_status": "pass",
+  "external_foundry_font_count": 4,
+  "system_fallback_fonts_status": "pass_owner_preferred_current_local_renderer_fallback",
+  "approved_system_fallback_fonts": [
+    "Avenir Next Condensed Heavy",
+    "Helvetica Neue Condensed Black"
+  ]
+}

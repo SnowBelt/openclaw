@@ -1,0 +1,12 @@
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["claim_id", "claim", "source_url", "source_title", "source_type", "source_location_or_excerpt", "confidence", "script_paragraph", "visual_asset_ids", "fact_checker_status"],
+    "properties": {
+      "confidence": {"enum": ["high", "medium", "low"]},
+      "fact_checker_status": {"enum": ["pending", "verified", "rejected"]},
+      "visual_asset_ids": {"type": "array"}
+    }
+  }
+}

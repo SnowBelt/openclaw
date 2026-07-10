@@ -1,0 +1,759 @@
+{
+  "generated_at": "2026-06-30T17:30:51Z",
+  "video_id": "04",
+  "topic_score": 90.8,
+  "working_title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+  "lane": "hidden systems behind American cities",
+  "sub_lane": "lost neighborhoods and infrastructure",
+  "public_angle": "A source-backed story of Black Bottom and Paradise Valley, the culture built there, and how urban renewal and freeway construction changed the city.",
+  "artifact_type": "lost-neighborhood source ledger",
+  "retention_ladder": {
+    "version": "2026-05-pattern-lab-retention-ladder-v1",
+    "video_id": "04",
+    "purpose": "Protect long-form watch time and subscriber conversion by forcing source proof, pacing, payoffs, and a repeatable city-history outro.",
+    "rules": {
+      "first_5_seconds": "Open with a result, contradiction, or visible artifact before channel context.",
+      "first_20_seconds": "Show the source proof on screen: lost-neighborhood source ledger.",
+      "max_seconds_without_new_beat": 75,
+      "preferred_major_beat_window_seconds": "45-75",
+      "visual_change_rule": "Change visuals only when the narration changes source, place, time period, proof, or payoff.",
+      "generic_intro_blocked": true,
+      "consistent_outro_required": true,
+      "subscribe_cta_required": true
+    },
+    "beats": [
+      {
+        "beat_id": "hook",
+        "target_start_seconds": 0,
+        "target_end_seconds": 5,
+        "purpose": "result, contradiction, or visible artifact",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "proof",
+        "target_start_seconds": 0,
+        "target_end_seconds": 20,
+        "purpose": "visible source proof",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "source_context",
+        "target_start_seconds": 45,
+        "target_end_seconds": 120,
+        "purpose": "source context that makes the city file credible",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "lost_place_or_system",
+        "target_start_seconds": 120,
+        "target_end_seconds": 240,
+        "purpose": "lost place, infrastructure choice, industry pattern, or turning point",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "city_evidence",
+        "target_start_seconds": 240,
+        "target_end_seconds": 420,
+        "purpose": "artifact-driven city evidence movement",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "shorts_bridge",
+        "target_start_seconds": 420,
+        "target_end_seconds": 540,
+        "purpose": "Shorts funnel logic from the same city-history proof",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "subscribe_bridge",
+        "target_start_seconds": 540,
+        "target_end_seconds": 720,
+        "purpose": "earned subscribe bridge tied to the next city file",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "outro",
+        "target_start_seconds": 560,
+        "target_end_seconds": 840,
+        "purpose": "repeatable Pattern Lab outro",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      }
+    ],
+    "outro": {
+      "required_phrase": "That is the pattern: city, source, system.",
+      "signoff": "No source, no story.",
+      "next_viewer_action": "Subscribe for the next evidence-backed city file."
+    }
+  },
+  "upload_metadata": {
+    "video_id": "04",
+    "title_options": [
+      "The Map That Cut Detroit's Black Bottom",
+      "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+      "What Detroit Erased",
+      "The Map That Cut Black Bottom",
+      "Detroit's Lost Neighborhood",
+      "Paradise Valley Was Not Empty"
+    ],
+    "default_title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+    "default_thumbnail": "images/thumbnail_candidate_a.png",
+    "description": "Pattern Lab studies American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.\n\nThis episode asks: A source-backed story of Black Bottom and Paradise Valley, the culture built there, and how urban renewal and freeway construction changed the city.\n\nThe source proof is a lost-neighborhood source ledger. The goal is to show the source, explain the system, and avoid flattening Detroit into a generic rise-and-fall story.\n\nHistorical images are used only when reuse rights are clear. AI visuals, when used, are treated as graphics or reconstructions rather than archival proof.",
+    "description_footer": "Subscribe for the next evidence-backed city file: one city, one source proof, one hidden system at a time.",
+    "tags": [
+      "Pattern Lab",
+      "Detroit history",
+      "American cities",
+      "US history",
+      "urban history",
+      "city history documentary",
+      "historical photos",
+      "urban planning history",
+      "Michigan history"
+    ],
+    "category_id": "27",
+    "made_for_kids": false,
+    "synthetic_disclosure_decision": "Owner must confirm in YouTube Studio. Expected answer: no realistic altered real person or real event is deceptively depicted. Historical photos must be rights-logged; AI visuals must be graphics/reconstructions, not fake archival proof.",
+    "pinned_comment": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+    "chapters": [
+      {
+        "time": "0:00",
+        "title": "The map keeps receipts"
+      },
+      {
+        "time": "0:20",
+        "title": "The source proof"
+      },
+      {
+        "time": "2:00",
+        "title": "Sources before myths"
+      },
+      {
+        "time": "5:00",
+        "title": "The hidden city system"
+      },
+      {
+        "time": "8:00",
+        "title": "What changed afterward"
+      }
+    ],
+    "shorts": [
+      {
+        "id": "04-short-01",
+        "title": "Black Bottom Was Not Empty",
+        "pinned_comment": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "related_video_promise": "The full video maps Black Bottom, Paradise Valley, and the freeway/redevelopment footprint.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      },
+      {
+        "id": "04-short-02",
+        "title": "300 Black-Owned Businesses",
+        "pinned_comment": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "related_video_promise": "The full city file shows why Paradise Valley was a business and music district, not an empty clearance zone.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      },
+      {
+        "id": "04-short-03",
+        "title": "The Map Before I-375",
+        "pinned_comment": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "related_video_promise": "The full video follows the map from lived neighborhood to clearance to replacement footprint.",
+        "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
+      }
+    ],
+    "guru_growth_system": {
+      "version": "2026-06-pattern-lab-youtube-guru-growth-v1",
+      "outlier_topic_mining": {
+        "benchmark_or_outlier_rationale": "Successful city-history and urbanism outliers package around a visual mystery, vanished place, map change, or hidden system rather than a broad historical survey.",
+        "viewer_demand_reason": "Curious viewers want to know why the familiar Detroit story feels incomplete and what source evidence changes the explanation.",
+        "proof_object": "lost neighborhood source ledger",
+        "beats_generic_city_history_because": "The episode promises a specific proof object and hidden system instead of a generic chronological city-history lecture."
+      },
+      "title_thumbnail_test_discipline": {
+        "winner_metric": "watch_time_share_first_then_ctr",
+        "no_misleading_promise": true,
+        "test_pairs": [
+          {
+            "title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+            "thumbnail": "images/thumbnail_candidate_a.png",
+            "hypothesis": "emotional mystery with a vanished-place proof object"
+          },
+          {
+            "title": "What Detroit Erased",
+            "thumbnail": "images/thumbnail_candidate_b.png",
+            "hypothesis": "map-system proof for viewers who want the evidence trail"
+          },
+          {
+            "title": "The Map That Cut Black Bottom",
+            "thumbnail": "images/thumbnail_candidate_c.png",
+            "hypothesis": "contrarian history angle that challenges a familiar summary"
+          }
+        ]
+      },
+      "viewer_avatar_topic_filter": {
+        "morgan_viewer_question": "What source-backed clue explains why Detroit looks and remembers itself this way?",
+        "curiosity_trigger": "A familiar city story has a visible contradiction that the source packet can resolve.",
+        "reject_if_only_historically_interesting": true
+      },
+      "packaging_lock_before_script": {
+        "locked_before_script_approval": true,
+        "locked_fields": {
+          "title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+          "thumbnail_hypothesis": "Photo-first proof object plus 2-4 word mystery text.",
+          "first_hook": "Black Bottom was not empty. Detroit erased a living district.",
+          "proof_object": "lost neighborhood source ledger",
+          "first_30_second_payoff": "By 30 seconds, show Detroit, Black Bottom/Paradise Valley, source proof, and the map/replacement-footprint promise.",
+          "audience_promise": "The episode will explain one hidden city system with sources, not generic history."
+        }
+      },
+      "first_30_seconds_mini_product": {
+        "payoff_by_seconds": 30,
+        "opening_plan_includes": {
+          "visual_clue": "Show the lost neighborhood source ledger or photo/map clue immediately.",
+          "contradiction": "The familiar Detroit story is incomplete.",
+          "source_proof": "Bring the source proof on screen before broad context.",
+          "stakes": "Explain why the clue changes how the city is understood.",
+          "title_thumbnail_payoff": "Deliver the exact map/photo/source object promised by title and thumbnail."
+        }
+      },
+      "retention_boredom_cut": {
+        "retention_edit_pass_recorded": true,
+        "removed": [
+          "repeated_points",
+          "slow_setup",
+          "unsupported_tangents",
+          "non_advancing_visuals"
+        ],
+        "rule": "Every beat must advance curiosity, proof, or payoff."
+      },
+      "thumbnail_pre_score": {
+        "threshold": 80,
+        "selected_candidate": "A",
+        "candidates": [
+          {
+            "candidate": "A",
+            "scores": {
+              "phone_readability": 15,
+              "visual_mystery": 18,
+              "city_anchor": 15,
+              "proof_object": 17,
+              "emotion": 17,
+              "payoff_match": 18
+            },
+            "total_score": 100
+          },
+          {
+            "candidate": "B",
+            "scores": {
+              "phone_readability": 15,
+              "visual_mystery": 16,
+              "city_anchor": 15,
+              "proof_object": 18,
+              "emotion": 15,
+              "payoff_match": 18
+            },
+            "total_score": 97
+          },
+          {
+            "candidate": "C",
+            "scores": {
+              "phone_readability": 15,
+              "visual_mystery": 17,
+              "city_anchor": 15,
+              "proof_object": 16,
+              "emotion": 16,
+              "payoff_match": 17
+            },
+            "total_score": 96
+          }
+        ]
+      },
+      "shorts_discovery_funnel": {
+        "standalone_not_trailer_only": true,
+        "concepts": [
+          {
+            "id": "04-guru-short-01",
+            "standalone_hook": "Black Bottom was not empty.",
+            "visual_clue": "Old map or source-ledger view of Black Bottom and Paradise Valley.",
+            "proof_payoff": "Show that the topic is a lived district, not empty land.",
+            "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+            "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+          },
+          {
+            "id": "04-guru-short-02",
+            "standalone_hook": "Black Bottom was not named because it was Black.",
+            "visual_clue": "Name-origin source card plus map label.",
+            "proof_payoff": "Explain the dark bottomland soil origin without reducing the neighborhood story.",
+            "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+            "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+          },
+          {
+            "id": "04-guru-short-03",
+            "standalone_hook": "More than 300 Black-owned businesses changed the story.",
+            "visual_clue": "Paradise Valley business/source board.",
+            "proof_payoff": "Show why Paradise Valley was a commercial ecosystem.",
+            "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+            "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+          },
+          {
+            "id": "04-guru-short-04",
+            "standalone_hook": "The map before I-375 tells on the city.",
+            "visual_clue": "Before/after freeway footprint map.",
+            "proof_payoff": "Show how the map changed from street life to freeway/redevelopment footprint.",
+            "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+            "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+          },
+          {
+            "id": "04-guru-short-05",
+            "standalone_hook": "Urban renewal is too small a phrase.",
+            "visual_clue": "Clearance-policy/federal-funding timeline card.",
+            "proof_payoff": "Show the chain: restriction, labeling, clearance, funding, freeway.",
+            "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+            "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+          },
+          {
+            "id": "04-guru-short-06",
+            "standalone_hook": "A freeway is never just a line.",
+            "visual_clue": "Route trace over old neighborhood footprint.",
+            "proof_payoff": "Show addresses, businesses, and memories beneath the clean line.",
+            "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+            "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+          }
+        ]
+      },
+      "shorts_concepts": [
+        {
+          "id": "04-guru-short-01",
+          "standalone_hook": "Black Bottom was not empty.",
+          "visual_clue": "Old map or source-ledger view of Black Bottom and Paradise Valley.",
+          "proof_payoff": "Show that the topic is a lived district, not empty land.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-02",
+          "standalone_hook": "Black Bottom was not named because it was Black.",
+          "visual_clue": "Name-origin source card plus map label.",
+          "proof_payoff": "Explain the dark bottomland soil origin without reducing the neighborhood story.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-03",
+          "standalone_hook": "More than 300 Black-owned businesses changed the story.",
+          "visual_clue": "Paradise Valley business/source board.",
+          "proof_payoff": "Show why Paradise Valley was a commercial ecosystem.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-04",
+          "standalone_hook": "The map before I-375 tells on the city.",
+          "visual_clue": "Before/after freeway footprint map.",
+          "proof_payoff": "Show how the map changed from street life to freeway/redevelopment footprint.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-05",
+          "standalone_hook": "Urban renewal is too small a phrase.",
+          "visual_clue": "Clearance-policy/federal-funding timeline card.",
+          "proof_payoff": "Show the chain: restriction, labeling, clearance, funding, freeway.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-06",
+          "standalone_hook": "A freeway is never just a line.",
+          "visual_clue": "Route trace over old neighborhood footprint.",
+          "proof_payoff": "Show addresses, businesses, and memories beneath the clean line.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        }
+      ],
+      "audience_satisfaction_tracking": {
+        "tracked_signals": [
+          "i_never_knew_this",
+          "city_requests",
+          "local_corrections",
+          "source_disputes",
+          "confusion",
+          "visual_praise",
+          "expectation_mismatch"
+        ]
+      },
+      "sustainable_production_governor": {
+        "long_form_per_week_target": 3,
+        "quality_over_frequency": true,
+        "failed_quality_gate_blocks_publish": true,
+        "public_publish_owner_gated": true
+      },
+      "transcript_viral_structure": {
+        "proof_hook_before_intro": true,
+        "by_the_end_payoff_promise": "By the end, viewers see the lived neighborhood, clearance story, and replacement footprint.",
+        "comment_source_lead_prompt": "Detroit locals: if your family remembers Black Bottom, Paradise Valley, Hastings Street, St. Antoine, or a business that disappeared from this map, leave the name below. Pattern Lab may follow your lead in a future source trail.",
+        "cliffhanger_transition_rule": "Add curiosity bridges every 45-75 seconds without clickbait."
+      }
+    },
+    "benchmark_growth_playbook": {
+      "series_family": "The Map Changed",
+      "core_thesis": "Detroit's Black Bottom and Paradise Valley story becomes clearer when the viewer follows a map, source trail, and replacement footprint instead of a generic decline narrative.",
+      "benchmark_style_mix": [
+        "Bright Sun Films source-first local mystery",
+        "The B1M infrastructure/system explanation",
+        "Not Just Bikes map-and-street consequence",
+        "Here Grows New York place-specific hidden history"
+      ],
+      "title_thumbnail_thesis": "The thumbnail promises Detroit was redrawn; the first 30 seconds shows the neighborhood/source proof and the map/change payoff.",
+      "shorts_strategy": "Use standalone source clues that lead back to the long-form city file without starting mid-sentence or becoming generic trailers."
+    },
+    "youtube_testing_plan": {
+      "title_thumbnail_test_enabled": true,
+      "candidate_count": 3,
+      "winner_metric": "watch_time_share_first_then_ctr_and_retention",
+      "traffic_surfaces": [
+        "YouTube native test when eligible",
+        "owner-reviewed manual comparison before public test"
+      ],
+      "rule": "Do not choose clickbait CTR over expectation match, retention, and watch-time share."
+    },
+    "shorts_concepts": [
+      {
+        "id": "04-short-concept-01",
+        "standalone_hook": "Black Bottom was not named because it became a Black neighborhood.",
+        "source_or_visual_clue": "Show the Black Bottom label, soil/name explanation, and Detroit map context.",
+        "proof_payoff": "The name hides a deeper story about who lived there and what the city later erased.",
+        "long_form_bridge": "The full city file follows the map from Black Bottom to Paradise Valley and the freeway footprint."
+      },
+      {
+        "id": "04-short-concept-02",
+        "standalone_hook": "Paradise Valley had more than 300 Black-owned businesses nearby.",
+        "source_or_visual_clue": "Show a business/source ledger style visual, Paradise Valley label, and historic Detroit street imagery.",
+        "proof_payoff": "This was not an empty clearance zone; it was a working cultural and business district.",
+        "long_form_bridge": "The full video shows why the source trail changes the Detroit story."
+      },
+      {
+        "id": "04-short-concept-03",
+        "standalone_hook": "A freeway is never just a line on a map.",
+        "source_or_visual_clue": "Show old district map, route/footprint overlay, and then-now comparison.",
+        "proof_payoff": "The route changed memory, business paths, and the story people could still see from the street.",
+        "long_form_bridge": "The long-form episode explains the system behind the line."
+      },
+      {
+        "id": "04-short-concept-04",
+        "standalone_hook": "Urban renewal is too small a phrase for what happened here.",
+        "source_or_visual_clue": "Show archival street/building evidence next to the replacement footprint.",
+        "proof_payoff": "The phrase hides families, churches, businesses, and customers that disappeared from the visible city.",
+        "long_form_bridge": "The full city file names the source trail and the hidden system."
+      },
+      {
+        "id": "04-short-concept-05",
+        "standalone_hook": "Detroit did not simply forget this neighborhood. The map changed.",
+        "source_or_visual_clue": "Show Black Bottom/Paradise Valley labels, source proof, and modern context.",
+        "proof_payoff": "The vanished place becomes visible again when the source, map, and system are shown together.",
+        "long_form_bridge": "Watch the full Pattern Lab city file for the complete source trail."
+      }
+    ],
+    "selected_title": "The Map That Cut Detroit's Black Bottom"
+  },
+  "guru_growth_system": {
+    "version": "2026-06-pattern-lab-youtube-guru-growth-v1",
+    "outlier_topic_mining": {
+      "benchmark_or_outlier_rationale": "Successful city-history and urbanism outliers package around a visual mystery, vanished place, map change, or hidden system rather than a broad historical survey.",
+      "viewer_demand_reason": "Curious viewers want to know why the familiar Detroit story feels incomplete and what source evidence changes the explanation.",
+      "proof_object": "lost neighborhood source ledger",
+      "beats_generic_city_history_because": "The episode promises a specific proof object and hidden system instead of a generic chronological city-history lecture."
+    },
+    "title_thumbnail_test_discipline": {
+      "winner_metric": "watch_time_share_first_then_ctr",
+      "no_misleading_promise": true,
+      "test_pairs": [
+        {
+          "title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+          "thumbnail": "images/thumbnail_candidate_a.png",
+          "hypothesis": "emotional mystery with a vanished-place proof object"
+        },
+        {
+          "title": "What Detroit Erased",
+          "thumbnail": "images/thumbnail_candidate_b.png",
+          "hypothesis": "map-system proof for viewers who want the evidence trail"
+        },
+        {
+          "title": "The Map That Cut Black Bottom",
+          "thumbnail": "images/thumbnail_candidate_c.png",
+          "hypothesis": "contrarian history angle that challenges a familiar summary"
+        }
+      ]
+    },
+    "viewer_avatar_topic_filter": {
+      "morgan_viewer_question": "What source-backed clue explains why Detroit looks and remembers itself this way?",
+      "curiosity_trigger": "A familiar city story has a visible contradiction that the source packet can resolve.",
+      "reject_if_only_historically_interesting": true
+    },
+    "packaging_lock_before_script": {
+      "locked_before_script_approval": true,
+      "locked_fields": {
+        "title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+        "thumbnail_hypothesis": "Photo-first proof object plus 2-4 word mystery text.",
+        "first_hook": "Black Bottom was not empty. Detroit erased a living district.",
+        "proof_object": "lost neighborhood source ledger",
+        "first_30_second_payoff": "By 30 seconds, show Detroit, Black Bottom/Paradise Valley, source proof, and the map/replacement-footprint promise.",
+        "audience_promise": "The episode will explain one hidden city system with sources, not generic history."
+      }
+    },
+    "first_30_seconds_mini_product": {
+      "payoff_by_seconds": 30,
+      "opening_plan_includes": {
+        "visual_clue": "Show the lost neighborhood source ledger or photo/map clue immediately.",
+        "contradiction": "The familiar Detroit story is incomplete.",
+        "source_proof": "Bring the source proof on screen before broad context.",
+        "stakes": "Explain why the clue changes how the city is understood.",
+        "title_thumbnail_payoff": "Deliver the exact map/photo/source object promised by title and thumbnail."
+      }
+    },
+    "retention_boredom_cut": {
+      "retention_edit_pass_recorded": true,
+      "removed": [
+        "repeated_points",
+        "slow_setup",
+        "unsupported_tangents",
+        "non_advancing_visuals"
+      ],
+      "rule": "Every beat must advance curiosity, proof, or payoff."
+    },
+    "thumbnail_pre_score": {
+      "threshold": 80,
+      "selected_candidate": "A",
+      "candidates": [
+        {
+          "candidate": "A",
+          "scores": {
+            "phone_readability": 15,
+            "visual_mystery": 18,
+            "city_anchor": 15,
+            "proof_object": 17,
+            "emotion": 17,
+            "payoff_match": 18
+          },
+          "total_score": 100
+        },
+        {
+          "candidate": "B",
+          "scores": {
+            "phone_readability": 15,
+            "visual_mystery": 16,
+            "city_anchor": 15,
+            "proof_object": 18,
+            "emotion": 15,
+            "payoff_match": 18
+          },
+          "total_score": 97
+        },
+        {
+          "candidate": "C",
+          "scores": {
+            "phone_readability": 15,
+            "visual_mystery": 17,
+            "city_anchor": 15,
+            "proof_object": 16,
+            "emotion": 16,
+            "payoff_match": 17
+          },
+          "total_score": 96
+        }
+      ]
+    },
+    "shorts_discovery_funnel": {
+      "standalone_not_trailer_only": true,
+      "concepts": [
+        {
+          "id": "04-guru-short-01",
+          "standalone_hook": "Black Bottom was not empty.",
+          "visual_clue": "Old map or source-ledger view of Black Bottom and Paradise Valley.",
+          "proof_payoff": "Show that the topic is a lived district, not empty land.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-02",
+          "standalone_hook": "Black Bottom was not named because it was Black.",
+          "visual_clue": "Name-origin source card plus map label.",
+          "proof_payoff": "Explain the dark bottomland soil origin without reducing the neighborhood story.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-03",
+          "standalone_hook": "More than 300 Black-owned businesses changed the story.",
+          "visual_clue": "Paradise Valley business/source board.",
+          "proof_payoff": "Show why Paradise Valley was a commercial ecosystem.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-04",
+          "standalone_hook": "The map before I-375 tells on the city.",
+          "visual_clue": "Before/after freeway footprint map.",
+          "proof_payoff": "Show how the map changed from street life to freeway/redevelopment footprint.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-05",
+          "standalone_hook": "Urban renewal is too small a phrase.",
+          "visual_clue": "Clearance-policy/federal-funding timeline card.",
+          "proof_payoff": "Show the chain: restriction, labeling, clearance, funding, freeway.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        },
+        {
+          "id": "04-guru-short-06",
+          "standalone_hook": "A freeway is never just a line.",
+          "visual_clue": "Route trace over old neighborhood footprint.",
+          "proof_payoff": "Show addresses, businesses, and memories beneath the clean line.",
+          "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+          "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+        }
+      ]
+    },
+    "shorts_concepts": [
+      {
+        "id": "04-guru-short-01",
+        "standalone_hook": "Black Bottom was not empty.",
+        "visual_clue": "Old map or source-ledger view of Black Bottom and Paradise Valley.",
+        "proof_payoff": "Show that the topic is a lived district, not empty land.",
+        "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+      },
+      {
+        "id": "04-guru-short-02",
+        "standalone_hook": "Black Bottom was not named because it was Black.",
+        "visual_clue": "Name-origin source card plus map label.",
+        "proof_payoff": "Explain the dark bottomland soil origin without reducing the neighborhood story.",
+        "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+      },
+      {
+        "id": "04-guru-short-03",
+        "standalone_hook": "More than 300 Black-owned businesses changed the story.",
+        "visual_clue": "Paradise Valley business/source board.",
+        "proof_payoff": "Show why Paradise Valley was a commercial ecosystem.",
+        "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+      },
+      {
+        "id": "04-guru-short-04",
+        "standalone_hook": "The map before I-375 tells on the city.",
+        "visual_clue": "Before/after freeway footprint map.",
+        "proof_payoff": "Show how the map changed from street life to freeway/redevelopment footprint.",
+        "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+      },
+      {
+        "id": "04-guru-short-05",
+        "standalone_hook": "Urban renewal is too small a phrase.",
+        "visual_clue": "Clearance-policy/federal-funding timeline card.",
+        "proof_payoff": "Show the chain: restriction, labeling, clearance, funding, freeway.",
+        "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+      },
+      {
+        "id": "04-guru-short-06",
+        "standalone_hook": "A freeway is never just a line.",
+        "visual_clue": "Route trace over old neighborhood footprint.",
+        "proof_payoff": "Show addresses, businesses, and memories beneath the clean line.",
+        "comment_prompt": "Detroit source hunt: did your family remember Black Bottom, Paradise Valley, Hastings Street, St. Antoine, a club, church, business, school, theater, factory, street, photo, map, or building that disappeared from this story? Leave the name below. Pattern Lab may use viewer memories as leads for a future source trail.",
+        "long_form_bridge": "The full Pattern Lab city file follows the source trail, map change, and human consequence."
+      }
+    ],
+    "audience_satisfaction_tracking": {
+      "tracked_signals": [
+        "i_never_knew_this",
+        "city_requests",
+        "local_corrections",
+        "source_disputes",
+        "confusion",
+        "visual_praise",
+        "expectation_mismatch"
+      ]
+    },
+    "sustainable_production_governor": {
+      "long_form_per_week_target": 3,
+      "quality_over_frequency": true,
+      "failed_quality_gate_blocks_publish": true,
+      "public_publish_owner_gated": true
+    },
+    "transcript_viral_structure": {
+      "proof_hook_before_intro": true,
+      "by_the_end_payoff_promise": "By the end, viewers see the lived neighborhood, clearance story, and replacement footprint.",
+      "comment_source_lead_prompt": "Detroit locals: if your family remembers Black Bottom, Paradise Valley, Hastings Street, St. Antoine, or a business that disappeared from this map, leave the name below. Pattern Lab may follow your lead in a future source trail.",
+      "cliffhanger_transition_rule": "Add curiosity bridges every 45-75 seconds without clickbait."
+    }
+  },
+  "benchmark_growth_playbook": {
+    "series_family": "The Map Changed",
+    "core_thesis": "Detroit's Black Bottom and Paradise Valley story becomes clearer when the viewer follows a map, source trail, and replacement footprint instead of a generic decline narrative.",
+    "benchmark_style_mix": [
+      "Bright Sun Films source-first local mystery",
+      "The B1M infrastructure/system explanation",
+      "Not Just Bikes map-and-street consequence",
+      "Here Grows New York place-specific hidden history"
+    ],
+    "title_thumbnail_thesis": "The thumbnail promises Detroit was redrawn; the first 30 seconds shows the neighborhood/source proof and the map/change payoff.",
+    "shorts_strategy": "Use standalone source clues that lead back to the long-form city file without starting mid-sentence or becoming generic trailers."
+  },
+  "youtube_testing_plan": {
+    "title_thumbnail_test_enabled": true,
+    "candidate_count": 3,
+    "winner_metric": "watch_time_share_first_then_ctr_and_retention",
+    "traffic_surfaces": [
+      "YouTube native test when eligible",
+      "owner-reviewed manual comparison before public test"
+    ],
+    "rule": "Do not choose clickbait CTR over expectation match, retention, and watch-time share."
+  },
+  "shorts_concepts": [
+    {
+      "id": "04-short-concept-01",
+      "standalone_hook": "Black Bottom was not named because it became a Black neighborhood.",
+      "source_or_visual_clue": "Show the Black Bottom label, soil/name explanation, and Detroit map context.",
+      "proof_payoff": "The name hides a deeper story about who lived there and what the city later erased.",
+      "long_form_bridge": "The full city file follows the map from Black Bottom to Paradise Valley and the freeway footprint."
+    },
+    {
+      "id": "04-short-concept-02",
+      "standalone_hook": "Paradise Valley had more than 300 Black-owned businesses nearby.",
+      "source_or_visual_clue": "Show a business/source ledger style visual, Paradise Valley label, and historic Detroit street imagery.",
+      "proof_payoff": "This was not an empty clearance zone; it was a working cultural and business district.",
+      "long_form_bridge": "The full video shows why the source trail changes the Detroit story."
+    },
+    {
+      "id": "04-short-concept-03",
+      "standalone_hook": "A freeway is never just a line on a map.",
+      "source_or_visual_clue": "Show old district map, route/footprint overlay, and then-now comparison.",
+      "proof_payoff": "The route changed memory, business paths, and the story people could still see from the street.",
+      "long_form_bridge": "The long-form episode explains the system behind the line."
+    },
+    {
+      "id": "04-short-concept-04",
+      "standalone_hook": "Urban renewal is too small a phrase for what happened here.",
+      "source_or_visual_clue": "Show archival street/building evidence next to the replacement footprint.",
+      "proof_payoff": "The phrase hides families, churches, businesses, and customers that disappeared from the visible city.",
+      "long_form_bridge": "The full city file names the source trail and the hidden system."
+    },
+    {
+      "id": "04-short-concept-05",
+      "standalone_hook": "Detroit did not simply forget this neighborhood. The map changed.",
+      "source_or_visual_clue": "Show Black Bottom/Paradise Valley labels, source proof, and modern context.",
+      "proof_payoff": "The vanished place becomes visible again when the source, map, and system are shown together.",
+      "long_form_bridge": "Watch the full Pattern Lab city file for the complete source trail."
+    }
+  ],
+  "selected_title": "The Map That Cut Detroit's Black Bottom"
+}

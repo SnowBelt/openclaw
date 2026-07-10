@@ -1,0 +1,117 @@
+{
+  "version": 3,
+  "status": "pass",
+  "purpose": "Canva-like local typography effect recipes for Pattern Lab Chrome/Fontsource rendering.",
+  "recipes": [
+    {
+      "id": "bold_white_black_stroke_yellow_shadow",
+      "font_role": "main_hook",
+      "max_words": 4,
+      "use_case": "high-clarity mystery hooks over vivid city photos",
+      "colors": [
+        "white",
+        "black",
+        "yellow"
+      ]
+    },
+    {
+      "id": "yellow_black_stroke_red_shadow",
+      "font_role": "main_hook",
+      "max_words": 4,
+      "use_case": "urgent infrastructure or water-threat hooks",
+      "colors": [
+        "yellow",
+        "black",
+        "red"
+      ]
+    },
+    {
+      "id": "red_banner_white_condensed",
+      "font_role": "supporting_line",
+      "max_words": 4,
+      "use_case": "short payoff label that does not compete with main hook",
+      "colors": [
+        "red",
+        "white",
+        "black"
+      ]
+    },
+    {
+      "id": "city_anchor_photo_overlay",
+      "font_role": "city_anchor",
+      "max_words": 2,
+      "use_case": "phone-size city recognition using large top-left city text",
+      "colors": [
+        "yellow",
+        "white",
+        "black"
+      ]
+    },
+    {
+      "id": "sticker_outline_double_shadow",
+      "font_role": "main_hook",
+      "max_words": 4,
+      "use_case": "Canva-style pop-out headline without generic Impact styling",
+      "colors": [
+        "white",
+        "black",
+        "red",
+        "yellow"
+      ]
+    },
+    {
+      "id": "slanted_urgent_label",
+      "font_role": "supporting_line",
+      "max_words": 4,
+      "use_case": "purpose-labeled urgency tag only when it supports the hook",
+      "colors": [
+        "red",
+        "yellow",
+        "black",
+        "white"
+      ]
+    },
+    {
+      "id": "comic_pop_black_stroke_red_shadow",
+      "font_role": "main_hook",
+      "max_words": 4,
+      "use_case": "high-energy owner-reference pop for mystery hooks",
+      "colors": [
+        "white",
+        "black",
+        "red",
+        "yellow"
+      ]
+    },
+    {
+      "id": "sticker_cutout_yellow_slab",
+      "font_role": "main_hook",
+      "max_words": 4,
+      "use_case": "Canva-like sticker cutout with yellow slab emphasis",
+      "colors": [
+        "yellow",
+        "white",
+        "black",
+        "red"
+      ]
+    },
+    {
+      "id": "deep_3d_urgent_white",
+      "font_role": "main_hook",
+      "max_words": 4,
+      "use_case": "thick shadow/extrude for shelf-stopping city history claims",
+      "colors": [
+        "white",
+        "black",
+        "red"
+      ]
+    }
+  ],
+  "blocked": [
+    "random arrows",
+    "decorative dividers",
+    "filler labels",
+    "bare redactions",
+    "generic Impact-only title treatment"
+  ]
+}

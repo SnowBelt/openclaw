@@ -1,0 +1,87 @@
+{
+  "version": 3,
+  "status": "pass",
+  "purpose": "Pattern Lab Canva-font automation policy. Canva preserves premium fonts through approved master templates; OpenClaw automates source selection, text/photo replacement plans, QA, owner packets, and final approval gates.",
+  "default_architecture": "canva_primary_renderer_with_approved_free_fallback_when_canva_is_blocked",
+  "runtime_font_family_control": "not_supported_by_current_canva_edit_api",
+  "font_control_rule": "Exact Canva fonts must live in owner-approved master templates. Runtime automation may change text, image fills, size, weight, color, and style only where the plugin supports it, but must not claim deterministic font-family control.",
+  "production_output_rule": "Production-ready thumbnail output uses Canva first when available. If Canva is blocked by quota, auth, export, paid/pro asset, or tool availability, an approved free fallback renderer may satisfy production readiness only after source-first QA, mobile readability, typography, intentionality, renderer provenance, and owner-review gates pass.",
+  "required_text_slots": [
+    "CITY",
+    "MAIN_HOOK",
+    "SUPPORT_LINE"
+  ],
+  "required_image_slots": [
+    "PRIMARY_PHOTO"
+  ],
+  "optional_image_slots": [
+    "SECONDARY_PHOTO"
+  ],
+  "support_line_word_range": [
+    2,
+    4
+  ],
+  "main_hook_word_range": [
+    1,
+    4
+  ],
+  "blocked_public_labels": [
+    "SOURCE PHOTO",
+    "RECEIPT",
+    "SOURCE FILE"
+  ],
+  "blocked_visual_elements": [
+    "random arrows",
+    "unexplained lines",
+    "decorative boxes",
+    "bare redaction bars without readable surrounding words"
+  ],
+  "required_before_owner_approval": [
+    "source-backed thumbnail brief",
+    "approved Canva template or Canva image-to-design/import result for every thumbnail candidate",
+    "Canva preview/contact sheet for every owner-review candidate",
+    "local audit packet",
+    "no paid/pro asset use",
+    "no YouTube mutation"
+  ],
+  "public_mutation": "not_authorized",
+  "canva_live_mutation": "blocked_until_owner_template_approval",
+  "paid_or_pro_assets": "not_authorized",
+  "youtube_upload_replace_publish": "blocked_until_exact_owner_approval",
+  "max_non_city_public_words": 5,
+  "total_public_text_rule": "Every thumbnail must include the city name and may use at most 5 non-city public words across MAIN_HOOK plus optional SUPPORT_LINE.",
+  "support_line_rule": "Support line is optional. If present, it must be 2-4 words and must not push total non-city public words above 5.",
+  "canva_required_for_all_thumbnails": false,
+  "production_renderer_rule": "Canva plugin/templates remain the primary production renderer. When Canva is unavailable for a recorded blocker, Pattern Lab may route to an approved free fallback renderer. Local renderers are production-capable only after approved-renderer coverage, source-first, typography, mobile, and owner-packet gates pass.",
+  "local_renderer_boundary": "Local renderers may create production fallback candidates only when Canva has a recorded blocker and the approved fallback production gate passes; otherwise they remain source prep, drafts, diagnostics, and QA fixtures.",
+  "canva_primary_renderer": true,
+  "approved_free_fallback_allowed": true,
+  "renderer_selection_order": [
+    "canva_plugin",
+    "openclaw_local_renderer",
+    "penpot_self_host",
+    "photopea_api"
+  ],
+  "canva_blocker_codes": [
+    "canva_monthly_ai_limit",
+    "canva_auth_missing",
+    "canva_export_unavailable",
+    "canva_paid_asset_blocked",
+    "canva_tool_unavailable",
+    "canva_template_ids_missing",
+    "canva_partial_coverage"
+  ],
+  "fallback_renderer_requirements": [
+    "recorded_canva_blocker",
+    "source_first_media",
+    "city_name_present",
+    "public_text_budget_pass",
+    "premium_font_gate_pass",
+    "mobile_shelf_preview_pass",
+    "no_filler_public_labels",
+    "no_random_arrows_lines_or_boxes",
+    "no_bare_redactions",
+    "renderer_provenance_report",
+    "owner_review_packet"
+  ]
+}

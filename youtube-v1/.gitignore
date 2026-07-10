@@ -1,0 +1,22 @@
+# Pattern Lab local-only state and credentials
+.env
+.env.*
+local-output/
+.venv*/
+**/__pycache__/
+*.py[cod]
+
+# Generated and source media are kept outside the source commit.
+**/*.mp4
+**/*.mov
+**/*.m4v
+**/*.mp3
+**/*.wav
+**/*.webm
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.zip
+**/*.tgz
+**/generated/

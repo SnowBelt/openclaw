@@ -1,0 +1,468 @@
+{
+  "version": 7,
+  "channel": "Pattern Lab",
+  "purpose": "Create unique, high-click, high-retention thumbnails for source-first American city-history videos where the active city is instantly recognizable, every public word is intentional, images are not distorted, and owner feedback blocks repeated weak patterns.",
+  "canonical_formula": "Recognizable active-city skyline/landmark/place-specific hero + premium city typography + editorial art direction + intentional 2-4 word clear promise + one clear proof object or non-proof support object + verified spelling/OCR/safe-zone/no-distortion checks.",
+  "primary_success_metric": "watch_time_share",
+  "secondary_metrics": [
+    "browse_ctr",
+    "suggested_ctr",
+    "first_30_second_retention",
+    "average_view_duration",
+    "subscriber_conversion"
+  ],
+  "required_candidate_count": 3,
+  "required_candidates": [
+    {
+      "filename": "thumbnail_candidate_a.png",
+      "role": "emotional_mystery",
+      "goal": "Promise a clear map/street transformation: Detroit was redrawn.",
+      "headline": "DETROIT WAS REDRAWN",
+      "source_review_concept": "clear_redrawn",
+      "headline_template": "{CITY} WAS REDRAWN"
+    },
+    {
+      "filename": "thumbnail_candidate_b.png",
+      "role": "map_system_proof",
+      "goal": "Promise a clear hidden map/system explanation.",
+      "headline": "DETROIT'S HIDDEN MAP",
+      "source_review_concept": "hidden_map",
+      "headline_template": "{CITY_POSSESSIVE} HIDDEN MAP"
+    },
+    {
+      "filename": "thumbnail_candidate_c.png",
+      "role": "contrarian_history_angle",
+      "goal": "Promise a clear explanation of the familiar Detroit fall story.",
+      "headline": "DETROIT'S FALL EXPLAINED",
+      "source_review_concept": "fall_explained",
+      "headline_template": "{CITY_POSSESSIVE} FALL EXPLAINED"
+    }
+  ],
+  "pattern_lab_visual_requirements": {
+    "city_anchor": "The city must be instantly legible through skyline, street grid, neighborhood outline, landmark, factory, station, freeway, street sign, or map label.",
+    "visual_contradiction": "The image must show a tension such as old vs new, map line vs neighborhood, vanished building vs present void, or familiar myth vs source.",
+    "proof_object": "Include or imply a real source category: map, archival photo frame, dated document, building record, route line, neighborhood outline, or then/now frame.",
+    "text_limit": "Use 2-4 words. Never repeat the full title.",
+    "title_pairing": "The title completes the thumbnail promise; the thumbnail creates curiosity.",
+    "first_30_second_payoff": "The first 30 seconds of the video must show the exact map, source, place, or clue promised by the thumbnail.",
+    "dominant_real_photo": "Use one dominant rights-cleared photo, map, or document as the thumbnail base. Avoid collage unless it is a simple then/now split with one obvious question.",
+    "human_or_action_interest": "Prefer people, crowds, workers, transit, factories, attractions, demolition, street life, or other visible action over empty skyline or abstract source-board layouts.",
+    "thumbnail_grading": "Apply thumbnail-grade contrast: darker edges, brighter focal point, one bold accent color, strong text shadow, and no tiny explanatory labels.",
+    "source_board_limit": "Source proof must be implied by one clear proof object. Do not make the thumbnail look like an internal research board with many boxes, lines, or small labels.",
+    "city_name_dominance": "The city name must be primary or co-primary text. For Detroit, the viewer should see DETROIT before or as fast as the mystery phrase.",
+    "search_result_shelf_test": "Render a local YouTube search shelf with all five concepts and fail if the city name is weaker than benchmark examples or unclear without reading the title.",
+    "competitive_color_contrast": "Use competitive YouTube search-result contrast: yellow/white city text, one vivid accent, thick stroke/shadow, darker edges, and brighter focal point.",
+    "five_concept_review": "Generate five review concepts, then select the strongest three production candidates from that set.",
+    "clear_thumbnail_promise": "The text must make the likely video topic legible without reading the title. Ambiguous phrases like WAS REWIRED can only pass when upgraded to a clearer promise such as WAS REDRAWN or FALL EXPLAINED.",
+    "premium_city_typography": "Use Impact-style condensed display type, thick black stroke, drop shadow, warm yellow/orange fill, and slight 3D offset for the city name.",
+    "detroit_recognition": "The base image must include a recognizable Detroit skyline, historic Detroit river/city view, landmark, or a skyline-plus-source-card composition. Interior/tunnel/neighborhood-only images need a Detroit skyline or landmark pairing.",
+    "competitive_benchmark_aesthetic": "Match the competitive YouTube examples: large city text across the top, recognizable city/landmark visual, vivid accent, clean proof cue, and minimal clutter.",
+    "polished_proof_mark": "Use clean neon route/map arrows, silhouette-style marks, or proof cards. Avoid crude circles, giant X marks, and rough internal annotation marks.",
+    "active_city_recognition": "The base image must include a recognizable skyline, landmark, waterfront, station, factory, street grid, neighborhood outline, map label, route scar, or other place-specific visual anchor for the active city. Interior/tunnel/neighborhood-only images need skyline, landmark, map-label, or source-card pairing.",
+    "ai_support_asset_boundary": "AI may create non-evidence support graphics, background extensions, generic redacted documents, map textures, and reconstruction-style accents only when they are not presented as source proof and are logged for owner review.",
+    "internet_reference_boundary": "Do not clone or trace internet images that cannot be used. If a web image cannot be licensed, it may only inform a text description of generic composition, lighting, or mood; the generated output must be materially new, not a derivative copy, and cannot reproduce distinctive protected elements, watermarks, people, logos, or another creator thumbnail layout.",
+    "owner_feedback_learning": "Owner ratings under 4/10 are failing training data. Record the exact failure pattern and block repeated use of the same colors, labels, arrows, clutter, or image-placement mistake.",
+    "every_word_earns_place": "Every public word must either name the active city, clarify the curiosity hook, mark a simple time comparison, or create an intentional editorial prop. Filler labels and internal production terms fail the gate.",
+    "spelling_and_ocr_verification": "After rendering, OCR-readiness metadata must verify the active city spelling, expected headline words, and no cut-off text. Any misspelled city name or clipped headline blocks owner review.",
+    "brightness_subject_visibility": "The thumbnail must keep the focal image bright enough to understand at search-shelf size. Dark poster treatments may pass only when the text and focal proof object remain obvious.",
+    "no_image_distortion": "Images may be cropped, masked, graded, blurred, or extended; they must not be stretched or squeezed off-aspect. Then/now comparisons must preserve each source aspect ratio.",
+    "layout_safe_zones": "Keep primary words and important faces/landmarks away from edges and the lower-right YouTube timestamp zone. Overlays must adapt around the recognizable part of the city image.",
+    "concept_specific_art_direction": "Each thumbnail family has a style-specific checklist: redacted documents need readable sentences with selective redactions; newspapers need masthead/body columns/caption; underground concepts need real or generic underground imagery; then/now concepts need THEN left and NOW right unless the copy explicitly says otherwise.",
+    "ai_generic_support": "AI can generate generic non-evidence support objects such as underground tunnels, crowds, paper props, map textures, or lighting layers when rights-safe source photos are missing, but it must be logged as support and never represented as archival proof.",
+    "creative_variation_memory": "Future batches must not reuse the same composition, palette, proof-card placement, or title-bar lockup across all concepts. A batch must include meaningfully different editorial layouts.",
+    "per_thumbnail_critique": "Every rendered thumbnail must include a critique record explaining the intended viewer reaction, why each word appears, why each image appears, what is emphasized, and known weaknesses."
+  },
+  "approved_thumbnail_families": [
+    "DETROIT'S FALL EXPLAINED",
+    "DETROIT'S LOST STREETS",
+    "DETROIT WAS REDRAWN",
+    "DETROIT WAS REWIRED",
+    "DETROIT'S HIDDEN MAP",
+    "DETROIT 1942",
+    "DETROIT VANISHED",
+    "NOT JUST DECLINE",
+    "THE MAP CHANGED",
+    "WHAT VANISHED",
+    "NOT THE WHOLE STORY",
+    "THIS EXPLAINS DETROIT",
+    "BEFORE THE CARS",
+    "CITY FILE",
+    "THE HIDDEN ROUTE",
+    "DETROIT ERASED THIS",
+    "THE STREET VANISHED",
+    "WHO MOVED THIS"
+  ],
+  "example_text": [
+    "DETROIT'S FALL EXPLAINED",
+    "DETROIT'S LOST STREETS",
+    "DETROIT WAS REDRAWN",
+    "DETROIT WAS REWIRED",
+    "DETROIT'S HIDDEN MAP",
+    "DETROIT 1942",
+    "DETROIT VANISHED",
+    "NOT JUST DECLINE",
+    "THE MAP CHANGED",
+    "WHAT VANISHED?",
+    "THE HIDDEN ROUTE",
+    "BEFORE THE CARS",
+    "DETROIT ERASED THIS",
+    "THE STREET VANISHED",
+    "WHO MOVED THIS",
+    "THIS WAS DETROIT"
+  ],
+  "design_constraints": {
+    "aspect_ratio": "16:9",
+    "minimum_export_size": "1280x720",
+    "preferred_working_size": "3840x2160",
+    "preferred_delivery_size": "1920x1080",
+    "accepted_formats": [
+      "png",
+      "jpg"
+    ],
+    "mobile_readability": "Must still read at small phone size.",
+    "composition": "Recognizable active-city skyline/landmark/place-specific base, one source/proof card or polished proof cue, one large city lockup, strong contrast, no source-board clutter.",
+    "brand_style": "Archival documentary plus modern map lab: cream paper, charcoal, muted Detroit blue, signal yellow, thin map lines, subtle grain.",
+    "overlay_budget": "Use at most one major proof mark: one arrow, route line, circle, tear, or split. Avoid multiple boxes, thin grids, and tiny labels.",
+    "photo_selection": "Prefer beautiful, current, instantly recognizable skyline/landmark/current-city hero images first when they fit the promise; use older images as contrast/proof objects when the text promises before/old/year/vanished/fall. For any city, avoid generic interiors or anonymous streets unless paired with a city-specific skyline, landmark, map label, or dated source.",
+    "city_name_size": "City text must be the primary/co-primary top type block in a premium display font.",
+    "search_shelf_readability": "Test every review concept at reduced YouTube search-shelf size before owner review.",
+    "detroit_recognition": "At least four of five review concepts must use skyline/landmark recognition; all five must read as Detroit through city text plus visual context.",
+    "variant_pipeline": "Generate 20 rough concepts, shortlist 8, render 5 owner-review concepts, and select 3 production candidates.",
+    "city_recognition": "At least four of five review concepts must use skyline/landmark/place-specific recognition; all five must read as the active city through city text plus visual context.",
+    "text_word_intent": "Every word must increase curiosity or clarity. Internal labels such as SOURCE PHOTO, PROOF, MAP PROOF, and SOURCE are banned unless the word is part of a viewer-facing promise.",
+    "arrow_rule": "Arrows are banned by default. Allow a route/map arrow only when the video is literally about a route, movement, or map path and the arrow points to the proof object clearly.",
+    "text_intent_gate": "Every word must pass a word-intent map before render. Ban decorative/filler words that do not raise curiosity or clarify the promise.",
+    "safe_zone_pixels": "Primary text must stay at least 60 px from all edges and outside the lower-right timestamp danger zone unless intentionally part of a border/ticker element.",
+    "image_aspect_rule": "Never distort source images. Use proportional cover/contain crop only.",
+    "brightness_rule": "Require focal image visibility at reduced search-shelf size; avoid hiding the skyline/landmark under dark overlays.",
+    "publication_name_rule": "Made-up newspaper names are allowed only as fictional props and require a pre-publication web search before any public thumbnail uses them.",
+    "redaction_rule": "Redaction graphics must show partial readable sentence fragments plus selective black redactions, not rows of 100% black boxes.",
+    "then_now_rule": "For then/now comparisons, THEN is left and NOW is right by default; source images must not be squeezed.",
+    "underground_rule": "Underground concepts should use actual tunnel/underground/source imagery when available; generic AI/support imagery is allowed only if it cannot be verified as another city and is logged as non-proof support."
+  },
+  "software_workflow": {
+    "default_local_generation": "OpenClaw creates deterministic city-recognizable competitive candidates from rights-cleared skyline/landmark/context photos plus proof cards, renders a search-shelf test, then selects production candidates; source-board graphics are support only, not the thumbnail look.",
+    "free_manual_editor": "Photopea or GIMP for manual polish when local generation is not enough.",
+    "recommended_paid_editor": "Canva Pro or Adobe Express Premium for fast premium layouts, brand templates, background removal, and resize workflows.",
+    "expert_editor": "Photoshop/Affinity/Figma when a designer is manually building a reusable professional system.",
+    "youtube_testing": "Use YouTube title/thumbnail A/B testing when available; pick winners by watch time, not CTR alone.",
+    "free_first_default": "Use Canva Free, Photopea, GIMP, Upscayl, Google Fonts, LOC/Wikimedia/public archives, Tesseract/PaddleOCR, CLIP/OpenCLIP, SAM2/rembg before any paid service.",
+    "paid_escalation": "Paid tools or paid assets require documented free-workflow failure plus explicit owner approval.",
+    "current_thumbnail_renderer": "Current repo-local Pattern Lab thumbnail factory uses Swift/AppKit deterministic photo-backed compositing, not an AI image generator, for final thumbnail rendering.",
+    "recommended_free_ai_support_generator": "ComfyUI local workflow with free/open models such as FLUX.1-schnell or SDXL-class models for non-proof support elements, if local hardware permits.",
+    "recommended_premium_ai_support_generator": "OpenAI gpt-image-2 through OpenClaw image_generate for high-instruction-following support graphics/reference edits; use gpt-image-1.5 only when transparent-background cutouts are specifically needed.",
+    "recommended_llm_art_director": "Use GPT-5.5-class reasoning/vision critique for art direction, promise clarity, benchmark comparison, and failure diagnosis before rendering. Low-reasoning agents should only execute the prepared plan and validators.",
+    "ai_support_asset_workflow": "Use real licensed/current city hero images for the recognizable city layer. Use AI only to generate missing support layers: redacted-paper graphic, generic map texture, non-proof silhouette, background extension, clean tear/split, or atmospheric texture. Log prompt/model/reference and mark as support/reconstruction, never evidence."
+  },
+  "recommended_autonomous_architecture": {
+    "canonical_sequence": "OpenClaw strategy/source safety -> Canva plugin render -> OpenClaw validation -> owner review / YouTube test",
+    "openclaw_role": "OpenClaw owns strategy, source safety, rights ledger checks, thumbnail briefs, title-thumbnail promise matching, validation, owner review packet, and YouTube testing notes.",
+    "canva_role": "Canva is the autonomous design/rendering engine when connected. Canva must not choose historical claims, override rights rules, or become the source of truth.",
+    "owner_role": "The owner remains final approver before private/unlisted upload and public publish.",
+    "fallback": "If Canva cannot produce a clean policy-compliant export, OpenClaw must fall back to local generation plus Photopea/GIMP polish."
+  },
+  "canva_renderer_policy": {
+    "role": "Canva is the design/rendering engine. OpenClaw remains responsible for concept, source safety, rights ledger checks, title-thumbnail promise matching, and validation.",
+    "canva_free_allowed": true,
+    "canva_free_rule": "Canva Free is acceptable when the design uses user-uploaded assets, free templates/elements, no Pro-locked media, and exports clean PNG/JPG without watermark.",
+    "canva_pro_recommended_when": [
+      "background removal or advanced cutout work is needed",
+      "brand kit/template consistency saves production time",
+      "premium templates or stock elements materially improve quality",
+      "Magic Resize or faster multi-format export is needed",
+      "OpenClaw cannot produce an excellent thumbnail with free/local tools"
+    ],
+    "plugin_instruction": "When the Canva plugin is available, generate a structured Canva brief for five active-city-recognizable competitive review concepts, use a premium city typography treatment, export the selected PNG/JPG thumbnails, save outputs locally, and record the Canva design URL or id in the review packet.",
+    "fallback_instruction": "If Canva export fails, uses Pro-locked assets, adds watermarking, or cannot meet the policy checks, fall back to local OpenClaw generation plus Photopea/GIMP manual polish.",
+    "hard_reject": [
+      "Canva watermark",
+      "Pro-locked element in a Free-plan export",
+      "premium stock with unclear rights",
+      "template that looks generic or copied",
+      "design not exportable as a clean image file",
+      "thumbnail not reproducible from logged source media and brief"
+    ]
+  },
+  "hard_blocks": [
+    "generic AI cityscape",
+    "fake archival photo",
+    "misleading claim not paid off in first 30 seconds",
+    "text over 4 words unless owner explicitly approves",
+    "collage with too many competing focal points",
+    "low contrast or unreadable phone-size text",
+    "source or rights unclear",
+    "watermarked stock image",
+    "copied thumbnail layout from another channel",
+    "shock face or cheap clickbait inconsistent with Pattern Lab brand",
+    "empty skyline-only visual without a specific contradiction",
+    "source-board clutter or internal research-board look",
+    "thin map lines or boxes that become noise at phone size",
+    "tiny source labels that cannot be read on a phone",
+    "more than one competing focal point",
+    "city only a small tag",
+    "city name unreadable at phone size",
+    "missing local thumbnail search shelf test",
+    "weak city text compared with benchmark search-result examples",
+    "ambiguous thumbnail promise",
+    "boring/plain city font",
+    "not recognizably Detroit",
+    "rough proof marks or crude X/circle annotations",
+    "missing skyline or landmark recognition when source assets are available",
+    "paid tool used without owner approval",
+    "paid asset used without owner approval",
+    "AI output copied from an unlicensed reference image",
+    "AI-generated city hero image used when a rights-safe real city hero image is available",
+    "AI-generated support element presented as source proof",
+    "internal label such as SOURCE, SOURCE PHOTO, PROOF, or MAP PROOF on the public thumbnail",
+    "random arrow not tied to a route/map/path promise",
+    "repeating an owner-rated sub-4/10 failure pattern without redesign",
+    "THEN/NOW comparison with NOW on the left unless explicitly justified",
+    "background too dark to understand at search-shelf size",
+    "cut-off thumbnail text",
+    "fake newspaper without body text/columns/caption when presented as newspaper style",
+    "made-up publication name used publicly without pre-publication web/name-conflict check",
+    "misspelled active city name",
+    "overlays covering the recognizable skyline, landmark, face, or proof object",
+    "redaction graphic with only solid black boxes and no readable sentence context",
+    "reusing the same title-bar/proof-card layout across all five concepts",
+    "stretched or squeezed source image",
+    "unintentional public words or filler labels",
+    "redrawn thumbnail using only a generic skyline when a rights-clear map or street grid is available",
+    "hidden/under-city thumbnail without tunnel, sewer, subway, utility, or hidden-system visual support",
+    "partial-word redactions",
+    "low-value public labels such as REDACTED CITY FILE",
+    "rail or track-only image used for a lost-streets promise",
+    "then/now image crossing the center divider",
+    "NOW-side image that is dark, old-looking, distorted, or not current city context",
+    "AI support asset presented as source proof or archival evidence"
+  ],
+  "required_review_checks": [
+    "phone_size_readability",
+    "title_thumbnail_promise_match",
+    "first_30_second_payoff_match",
+    "candidate_diversity",
+    "rights_ledger_complete",
+    "no_fake_archival_proof",
+    "visual_mystery_clear",
+    "city_anchor_clear",
+    "proof_object_clear",
+    "dominant_real_photo",
+    "human_or_action_interest_when_available",
+    "no_source_board_clutter",
+    "strong_thumbnail_contrast",
+    "single_clear_proof_mark",
+    "city_name_dominance",
+    "city_name_phone_readable",
+    "five_review_concepts",
+    "selected_three_from_five",
+    "search_result_shelf_test",
+    "competitive_color_contrast",
+    "clear_thumbnail_promise",
+    "premium_city_typography",
+    "detroit_skyline_or_landmark_recognition",
+    "detroit_recognizable_visual",
+    "polished_proof_mark",
+    "competitive_benchmark_aesthetic",
+    "free_first_toolchain",
+    "free_source_asset_sourcing",
+    "free_premium_typography",
+    "open_source_enhancement_cutout_lab",
+    "mobile_ocr_readability",
+    "benchmark_similarity_scoring",
+    "twenty_to_eight_to_five_to_three_pipeline",
+    "photopea_gimp_manual_handoff",
+    "active_city_agnostic_templates",
+    "active_city_visual_recognition",
+    "ai_support_asset_policy",
+    "internet_reference_non_derivative_gate",
+    "no_internal_thumbnail_labels",
+    "arrow_semantic_gate",
+    "owner_feedback_learning_gate",
+    "ten_out_of_ten_art_direction_path",
+    "brightness_subject_visibility",
+    "concept_specific_art_direction_gate",
+    "creative_variation_memory_gate",
+    "cutoff_text_detection",
+    "every_word_intent_gate",
+    "generic_ai_support_asset_gate",
+    "layout_safe_zone_gate",
+    "newspaper_realism_gate",
+    "no_image_distortion",
+    "per_thumbnail_critique_report",
+    "publication_name_preflight_gate",
+    "redaction_realism_gate",
+    "spelling_ocr_verification",
+    "then_now_orientation_gate",
+    "owner_rating_preference_learning_v2",
+    "redrawn_map_semantic_match_gate",
+    "underground_semantic_asset_gate",
+    "whole_word_redaction_gate",
+    "curiosity_hook_prominence_gate",
+    "lost_streets_visual_relevance_gate",
+    "then_now_split_integrity_gate",
+    "ai_support_asset_manifest_gate",
+    "current_style_renderer_v4_gate"
+  ],
+  "required_review_concept_count": 5,
+  "selected_candidate_count": 3,
+  "city_name_policy": {
+    "rule": "The active city name must be primary or co-primary text in a premium condensed display treatment, not a small badge, label, or afterthought.",
+    "font_rule": "Use local Impact when present; fallback to Arial Black/Arial Bold only with a report warning.",
+    "phone_size_requirement": "The city name and promise must remain readable in a YouTube search-result shelf and on a phone without reading the video title.",
+    "hard_block": "Block any thumbnail where the active city is only a small tag, the promise is ambiguous, or the visual does not read as that city.",
+    "active_city": "Detroit",
+    "active_city_is_fallback_only": true
+  },
+  "review_concept_families": [
+    {
+      "concept_id": "clear_redrawn",
+      "headline": "DETROIT WAS REDRAWN",
+      "family": "clear city transformation",
+      "required_elements": [
+        "recognizable active-city skyline or landmark",
+        "premium Impact-style city typography",
+        "clear map/street transformation promise",
+        "one polished route/proof cue"
+      ],
+      "headline_template": "{CITY} WAS REDRAWN"
+    },
+    {
+      "concept_id": "hidden_map",
+      "headline": "DETROIT'S HIDDEN MAP",
+      "family": "city + map/system proof",
+      "required_elements": [
+        "recognizable active-city skyline or landmark",
+        "premium city typography",
+        "clear hidden-map promise",
+        "one tunnel/route proof card"
+      ],
+      "headline_template": "{CITY_POSSESSIVE} HIDDEN MAP"
+    },
+    {
+      "concept_id": "detroit_1942",
+      "headline": "DETROIT 1942",
+      "family": "city + year/time-travel",
+      "required_elements": [
+        "recognizable historic active-city city/river/landmark image",
+        "premium city typography",
+        "large year promise",
+        "one dated source card"
+      ],
+      "headline_template": "{CITY} 1942"
+    },
+    {
+      "concept_id": "lost_streets",
+      "headline": "DETROIT'S LOST STREETS",
+      "family": "city + vanished place",
+      "required_elements": [
+        "recognizable active-city skyline or landmark",
+        "premium city typography",
+        "lost-streets promise",
+        "one historic street/landmark proof card"
+      ],
+      "headline_template": "{CITY_POSSESSIVE} LOST STREETS"
+    },
+    {
+      "concept_id": "fall_explained",
+      "headline": "DETROIT'S FALL EXPLAINED",
+      "family": "city + documentary explanation",
+      "required_elements": [
+        "recognizable active-city skyline or landmark",
+        "premium city typography",
+        "specific fall-explained promise",
+        "one source proof card"
+      ],
+      "headline_template": "{CITY_POSSESSIVE} FALL EXPLAINED"
+    }
+  ],
+  "city_agnostic": {
+    "required": true,
+    "active_city_resolution_order": [
+      "upload metadata city",
+      "city profile / package metadata",
+      "default title/title options first recognized city phrase",
+      "policy active_city fallback for current local package only"
+    ],
+    "template_rule": "Use {CITY} and {CITY_POSSESSIVE} templates for all future cities. Detroit may remain the active Video 03 example, but no workflow rule may be Detroit-only.",
+    "thumbnail_city_rule": "The active city name must be the primary or co-primary visual product for every city, not a small tag.",
+    "generic_city_examples": [
+      "{CITY} WAS REDRAWN",
+      "{CITY_POSSESSIVE} HIDDEN MAP",
+      "{CITY} 1942",
+      "{CITY_POSSESSIVE} LOST STREETS",
+      "{CITY_POSSESSIVE} FALL EXPLAINED"
+    ]
+  },
+  "concept_specific_rules": {
+    "redacted_file": {
+      "required": [
+        "active city spelled correctly",
+        "readable sentence fragments",
+        "selective redactions",
+        "redactions support the hook",
+        "no meaningless black rows"
+      ],
+      "example_sentence_template": "The {CITY} route was approved in 1942, then [REDACTED] before construction began."
+    },
+    "newspaper_front_page": {
+      "required": [
+        "fictional masthead",
+        "issue/date line",
+        "large readable headline",
+        "body-text columns",
+        "photo/caption",
+        "no clipped headline"
+      ],
+      "pre_publication_requirement": "Search the web before public use to verify the fictional masthead is not an active/confusing real newspaper name."
+    },
+    "underground_city": {
+      "required": [
+        "tunnel/underground/source imagery",
+        "active city is the attention word",
+        "secondary color does not steal attention",
+        "generic support asset logged if not city-specific"
+      ],
+      "city_specificity_rule": "Generic underground support imagery is acceptable only when it cannot be verified as another city and is not presented as source evidence."
+    },
+    "then_now_split": {
+      "required": [
+        "THEN left",
+        "NOW right",
+        "no image distortion",
+        "old image aligns with THEN",
+        "current skyline/landmark aligns with NOW"
+      ]
+    },
+    "neon_city_myth": {
+      "required": [
+        "background not too dark",
+        "city text dominates",
+        "no meaningless boxes",
+        "one simple support object or none"
+      ]
+    },
+    "redrawn_map_semantic_match": "Redrawn concepts must use a city map, street grid, highway map, or map/photo hybrid when available.",
+    "underground_semantic_asset": "Hidden-map/under-city concepts must use tunnel, sewer, subway, utility, or hidden-system imagery; generic AI support is non-proof only.",
+    "whole_word_redaction": "Redacted document concepts must redact whole words only and keep readable sentence fragments.",
+    "curiosity_hook_prominence": "The curiosity hook, such as WHO ERASED IT?, must be visibly prominent and more important than administrative prop labels.",
+    "lost_streets_visual_relevance": "Lost-streets concepts must use streets, road grids, maps, city blocks, demolition/voids, or old street photos; rail-only photos are blocked.",
+    "then_now_split_integrity": "Then/now concepts must keep THEN on the left, NOW on the right, with no source image crossing the center divider.",
+    "current_style_renderer_v4": "Prefer the owner-rated current workflow baseline for normal review batches; defer outside-the-box tournament formats until explicitly requested."
+  },
+  "owner_rating_preference_v2": {
+    "preferred_baseline_style": "current_owner_preferred",
+    "preferred_examples": [
+      "current redrawn/map style",
+      "current underground/hidden-system style"
+    ],
+    "blocked_defects": [
+      "random lines",
+      "partial-word redactions",
+      "low-value labels",
+      "rail photo for street promise",
+      "split images crossing the median",
+      "dark or old-looking NOW image",
+      "distorted skyline"
+    ]
+  }
+}

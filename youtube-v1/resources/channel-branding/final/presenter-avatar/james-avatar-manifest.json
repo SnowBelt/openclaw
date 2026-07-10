@@ -1,0 +1,32 @@
+{
+  "status": "owner-approved",
+  "presenter_name": "James",
+  "canonical_file": "james-canonical-avatar.png",
+  "sha256": "c78ce02f171268a9131156d3b2e0132367fc3bb42032c72a4dd0f13f4f8217c8",
+  "width": 1254,
+  "height": 1254,
+  "format": "png",
+  "source_tool": "Codex image generation",
+  "source_image_id": "ig_0549a94b41e27006016a0a349e14dc8197bf98ea19e78f5a9d.png",
+  "approved_use": [
+    "channel presenter reference",
+    "static presenter card",
+    "subtle motion treatment",
+    "intro identity moment",
+    "outro identity moment",
+    "decision-moment visual"
+  ],
+  "not_approved_by_default": [
+    "lip-synced talking avatar",
+    "fake interview footage",
+    "celebrity resemblance",
+    "claiming James is a documented public person outside Pattern Lab"
+  ],
+  "reference_rule": "Break the symmetry intentionally: uneven brows, eyes, smile, nose alignment, and natural face proportions while keeping him friendly and usable.",
+  "guardrails": [
+    "Keep James healthy, friendly, and believable.",
+    "Preserve natural imperfections without distorting the face.",
+    "Avoid AI-perfect symmetry, plastic skin, celebrity resemblance, warped facial features, exaggerated handsomeness, and mascot-like cartoon styling.",
+    "Do not replace this file without explicit owner approval and a manifest update."
+  ]
+}

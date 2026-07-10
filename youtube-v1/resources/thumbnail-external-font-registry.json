@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "status": "pass_external_fonts_bundled",
+  "purpose": "External foundry registry for stronger Pattern Lab thumbnail fonts. No font is bundled from these sources until license verification passes and owner approves download/bundling.",
+  "default_font_status": "not_bundled_until_verified",
+  "allowed_license_families": [
+    "SIL Open Font License 1.1",
+    "Apache License 2.0",
+    "MIT",
+    "BSD",
+    "explicit commercial-use-safe license"
+  ],
+  "blocked_license_terms": [
+    "personal use only",
+    "noncommercial",
+    "non-commercial",
+    "no derivatives",
+    "no-derivatives",
+    "editorial only",
+    "unknown",
+    "all rights reserved"
+  ],
+  "foundries": [
+    {
+      "foundry_id": "fontshare",
+      "name": "Fontshare",
+      "url": "https://www.fontshare.com/",
+      "planned_role": "modern premium display and condensed title fonts",
+      "license_verification_required": true,
+      "commercial_use_required": true,
+      "status": "candidate_not_bundled_license_or_file_not_verified"
+    },
+    {
+      "foundry_id": "velvetyne",
+      "name": "Velvetyne Type Foundry",
+      "url": "https://velvetyne.fr/",
+      "planned_role": "experimental loud thumbnail display fonts",
+      "license_verification_required": true,
+      "commercial_use_required": true,
+      "status": "bundled_verified_font_available"
+    },
+    {
+      "foundry_id": "open_foundry",
+      "name": "Open Foundry",
+      "url": "https://open-foundry.com/",
+      "planned_role": "curated open-source poster fonts",
+      "license_verification_required": true,
+      "commercial_use_required": true,
+      "status": "bundled_verified_font_available"
+    },
+    {
+      "foundry_id": "league_of_moveable_type",
+      "name": "The League of Moveable Type",
+      "url": "https://www.theleagueofmoveabletype.com/",
+      "planned_role": "classic poster and editorial display fonts",
+      "license_verification_required": true,
+      "commercial_use_required": true,
+      "status": "bundled_verified_font_available"
+    },
+    {
+      "foundry_id": "font_squirrel",
+      "name": "Font Squirrel",
+      "url": "https://www.fontsquirrel.com/",
+      "planned_role": "commercial-use-safe discovery source after per-font license review",
+      "license_verification_required": true,
+      "commercial_use_required": true,
+      "status": "candidate_not_bundled_license_or_file_not_verified"
+    }
+  ],
+  "candidate_fonts": [
+    {
+      "family": "League Gothic External",
+      "foundry_id": "league_of_moveable_type",
+      "license": "OFL-1.1",
+      "status": "bundled",
+      "commercial_use_ok": "yes",
+      "modification_ok": "yes",
+      "font_file": "youtube-v1/resources/fonts/external/league-gothic-external-regular.woff2",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/league-gothic-OFL.md",
+      "source_url": "https://www.theleagueofmoveabletype.com/fonts/LeagueGothic-Regular.woff2",
+      "license_url": "https://raw.githubusercontent.com/theleagueof/league-gothic/master/OFL.md",
+      "sha256": "2d5acde69b5edc9f7a5ea9f5da85247794a7d721eeba0e3745e0dbf8b53ba8a7"
+    },
+    {
+      "family": "Pilowlava",
+      "foundry_id": "velvetyne",
+      "license": "OFL-1.1",
+      "status": "bundled",
+      "commercial_use_ok": "yes",
+      "modification_ok": "yes",
+      "font_file": "youtube-v1/resources/fonts/external/pilowlava-regular.woff2",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/pilowlava-OFL-reference.html",
+      "source_url": "https://velvetyne.fr/site/assets/files/1380/pilowlava-regular.woff2",
+      "license_url": "https://openfontlicense.org/",
+      "sha256": "4f19e2f626cb3e4dffa70a6310b660aec1d8b52ef49cb041309e95383cf91908"
+    },
+    {
+      "family": "Terminal Grotesque Open",
+      "foundry_id": "open_foundry",
+      "license": "OFL-1.1",
+      "status": "bundled",
+      "commercial_use_ok": "yes",
+      "modification_ok": "yes",
+      "font_file": "youtube-v1/resources/fonts/external/terminal-grotesque-open.woff2",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/terminal-grotesque-open-OFL-reference.html",
+      "source_url": "https://fonts.open-foundry.com/terminal-grotesque-open/terminal-grotesque-open.woff2",
+      "license_url": "https://openfontlicense.org/",
+      "sha256": "701a25dba7fc1f6eac9af7ae579fcfab28e5e8df1fa88fbf2bb90cf2a06fecdc"
+    },
+    {
+      "family": "Reglo",
+      "foundry_id": "open_foundry",
+      "license": "OFL-1.1",
+      "status": "bundled",
+      "commercial_use_ok": "yes",
+      "modification_ok": "yes",
+      "font_file": "youtube-v1/resources/fonts/external/reglo-bold.woff2",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/reglo-OFL-reference.html",
+      "source_url": "https://fonts.open-foundry.com/reglo/reglo-bold.woff2",
+      "license_url": "https://openfontlicense.org/",
+      "sha256": "68deb644a67f1053cefdc61d836dbf8fb8f524512a46163b053d605a40d8c259"
+    }
+  ],
+  "public_youtube_mutation": "not_authorized",
+  "paid_or_pro_assets": "not_authorized",
+  "external_font_bundle_status": "pass"
+}

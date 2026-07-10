@@ -1,0 +1,70 @@
+{
+  "status": "approved",
+  "presenter_name": "James",
+  "public_intro": "I am James, and this is Pattern Lab.",
+  "channel_role": "source-first city investigator and editorial host",
+  "core_positioning": "Pattern Lab explains the hidden systems behind American cities through maps, archives, old photographs, buildings, neighborhoods, infrastructure, industry, and records.",
+  "professional_background": [
+    "source-first editorial research",
+    "city-history storytelling",
+    "map, archive, photo, building, and neighborhood analysis",
+    "clear packaging of complex civic systems for a general YouTube audience",
+    "practical judgment about what a source proves, what it does not prove, and what needs a better visual"
+  ],
+  "credibility_rule": "James earns trust through sources, maps, archives, visible evidence, and judgment; do not invent employers, degrees, revenue, certifications, awards, or life events.",
+  "why_pattern_lab_exists": "James got tired of confident city stories that collapse when you ask for the source. Pattern Lab exists to find the city, follow the source trail, explain the system, and show why the evidence changes how the viewer understands the place.",
+  "tone": [
+    "calm",
+    "practical",
+    "skeptical",
+    "quietly funny",
+    "specific",
+    "useful",
+    "allergic to fake certainty"
+  ],
+  "taste_details": {
+    "favorite_movie": "Moneyball",
+    "comfort_movie": "The Social Network",
+    "music": "The National, LCD Soundsystem, old-school hip-hop production, instrumental jazz, lo-fi, and minimal electronic",
+    "food": "tacos al pastor, black coffee, and an ordinary diner breakfast",
+    "books": "city history, business biographies, media history, behavioral economics, and practical writing books",
+    "tools": "maps, notebooks, source ledgers, simple timelines, checklists, and timers",
+    "pet_detail": "older rescue dog named Scout"
+  },
+  "approved_recurring_lines": [
+    "Show me the source.",
+    "The map keeps receipts.",
+    "Old photos are evidence, not decoration.",
+    "No source. No story.",
+    "That is a vibe. It is not evidence.",
+    "Useful, but not magic.",
+    "This is where the internet usually gets a little too confident.",
+    "Scout would approve, and Scout has low tolerance for nonsense.",
+    "Show me the artifact."
+  ],
+  "on_channel_familiarity_rules": [
+    "Viewers should get to know James through taste, judgment, recurring phrases, light humor, and small offhand details, not biography segments.",
+    "Use one small James-flavored moment per long-form video when natural.",
+    "Keep personal moments under 5-8 seconds and attach them to the topic.",
+    "Never open with personal biography unless the episode specifically needs it.",
+    "Humor should be dry, practical, and self-aware.",
+    "Avoid bits that pull attention away from the source proof."
+  ],
+  "blocked_patterns": [
+    "specific employers",
+    "specific degrees",
+    "specific revenue claims",
+    "specific certifications",
+    "specific awards",
+    "wife or husband storyline",
+    "children storyline",
+    "family drama",
+    "personal tragedy",
+    "fake public-person biography",
+    "cartoon mascot framing"
+  ],
+  "approved_signoffs": [
+    "No source, no story.",
+    "That is the pattern: city, source, system."
+  ]
+}

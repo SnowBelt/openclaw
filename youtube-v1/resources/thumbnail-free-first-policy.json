@@ -1,0 +1,119 @@
+{
+  "version": 4,
+  "channel": "Pattern Lab",
+  "purpose": "Free-first thumbnail production policy for Pattern Lab city-history thumbnails.",
+  "default_cost": "free",
+  "paid_tools_require_owner_approval": true,
+  "approved_free_tools": [
+    "Canva Free",
+    "Photopea",
+    "GIMP",
+    "Upscayl",
+    "Google Fonts",
+    "Library of Congress",
+    "Wikimedia Commons",
+    "public archives",
+    "Tesseract OCR",
+    "PaddleOCR",
+    "CLIP/OpenCLIP",
+    "SAM2",
+    "rembg",
+    "ComfyUI local workflow",
+    "FLUX.1-schnell-class local model",
+    "SDXL-class local model"
+  ],
+  "blocked_by_default_paid_tools": [
+    "Canva Pro",
+    "Adobe Photoshop",
+    "Adobe Firefly paid tier",
+    "Topaz Photo AI",
+    "Gigapixel",
+    "paid stock assets",
+    "paid AI image services"
+  ],
+  "free_asset_requirements": [
+    "rights ledger row",
+    "commercial/YouTube use allowed or owner-reviewed public-domain basis",
+    "source URL or local source path",
+    "no watermark",
+    "no Pro-locked asset",
+    "not fake archival proof"
+  ],
+  "free_font_requirements": [
+    "open-license or system font",
+    "readable at YouTube search-shelf size",
+    "condensed display treatment preferred",
+    "font name logged in the factory report"
+  ],
+  "paid_escalation_required_fields": [
+    "free_tool_attempted",
+    "quality_gate_failed",
+    "reason_free_tool_failed",
+    "requested_paid_tool_or_asset",
+    "owner_approval_status"
+  ],
+  "hard_blocks": [
+    "paid tool used without owner approval",
+    "paid asset used without owner approval",
+    "Canva Pro-locked element",
+    "watermarked stock",
+    "unclear source rights",
+    "AI-generated fake archival proof",
+    "AI support asset presented as city-specific source proof",
+    "AI support asset without non-proof ledger classification"
+  ],
+  "workflow": "OpenClaw free source/assets -> local enhancement/cutout readiness -> OCR/readability and benchmark scoring -> 20 roughs -> 8 shortlisted -> 5 owner-review concepts -> 3 production candidates -> owner approval before any upload or replacement.",
+  "ai_support_asset_policy": {
+    "allowed": [
+      "non-proof redacted document graphic",
+      "generic map texture or route glow",
+      "background extension or atmospheric texture",
+      "cutout/mask assistance",
+      "clearly labeled reconstruction/support element",
+      "generic city-underground tunnel or sewer image when not presented as source proof",
+      "generic crowd/worker/city-atmosphere support image",
+      "generic partial-redaction document prop with fictional text"
+    ],
+    "blocked": [
+      "AI-generated fake archival proof",
+      "AI city hero replacing available rights-safe real city imagery",
+      "derivative copy of an unlicensed internet reference",
+      "copy of another creator thumbnail layout",
+      "generic support image represented as being from the active city",
+      "support image that can be identified as another specific city but is used as the active city"
+    ],
+    "reference_rule": "Unlicensed internet images may be used only to extract generic written art direction, never as a copied/traced/near-duplicate reference output.",
+    "manifest_gate": {
+      "status_field": "ai_support_asset_manifest_status",
+      "required_classification": "non-proof support asset",
+      "allowed_uses": [
+        "generic underground/tunnel/sewer atmosphere",
+        "redacted-paper prop",
+        "crowd or worker atmosphere",
+        "map texture",
+        "mask/cutout/background extension",
+        "lighting or dramatic texture"
+      ],
+      "blocked_uses": [
+        "fake archival proof",
+        "fake city-specific skyline when real city hero imagery is available",
+        "unlicensed reference clone"
+      ]
+    }
+  },
+  "recommended_upgrade_path": {
+    "current_final_renderer": "Swift/AppKit deterministic thumbnail composite",
+    "free_ai_support": "ComfyUI local workflow with FLUX.1-schnell/SDXL-class models for support graphics only",
+    "premium_ai_support_if_owner_approves": "OpenAI gpt-image-2 via image_generate for high-instruction-following support graphics and reference edits",
+    "transparent_cutout_premium_if_owner_approves": "OpenAI gpt-image-1.5 when transparent-background output is required"
+  },
+  "execution_quality_gates": [
+    "intentional public words only",
+    "spelling/OCR-readiness check",
+    "no clipped text",
+    "no image distortion",
+    "brightness/subject visibility",
+    "safe-zone check",
+    "per-thumbnail critique report"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "status": "pass",
+  "purpose": "Pattern Lab renderer fallback capability registry. Canva is primary; free fallback renderers are allowed only when Canva is blocked and QA/provenance gates pass.",
+  "selection_order": [
+    "canva_plugin",
+    "penpot_self_host",
+    "openclaw_local_renderer",
+    "photopea_api"
+  ],
+  "renderers": [
+    {
+      "renderer_id": "canva_plugin",
+      "role": "primary_production_renderer",
+      "cost_status": "free_only_assets_required",
+      "availability": "available_when_plugin_quota_auth_templates_and_export_work",
+      "production_use": "preferred",
+      "requires_recorded_canva_blocker": false,
+      "proof_asset_boundary": "source media and rights ledger stay OpenClaw-controlled; Canva is renderer/polish only"
+    },
+    {
+      "renderer_id": "openclaw_local_renderer",
+      "role": "free_automated_fallback_renderer",
+      "cost_status": "free_local_toolchain",
+      "availability": "available_when_local Chrome/Fontsource renderer and Pattern Lab QA pass",
+      "production_use": "backup_fallback_when_canva_and_penpot_are_blocked_or_template_slots_fail",
+      "requires_recorded_canva_blocker": true,
+      "proof_asset_boundary": "uses rights-ledgered source media only; no AI proof fabrication"
+    },
+    {
+      "renderer_id": "penpot_self_host",
+      "role": "free_canva_like_editable_template_fallback",
+      "cost_status": "open_source_self_host_candidate",
+      "availability": "available_when_local_self_host_export_smoke_and_slot_fill_smoke_pass",
+      "production_use": "approved_fallback_when_canva_export_is_blocked_and_penpot_template_slots_pass",
+      "requires_recorded_canva_blocker": true,
+      "proof_asset_boundary": "must use OpenClaw rights-ledgered media and approved slot schema"
+    },
+    {
+      "renderer_id": "photopea_api",
+      "role": "manual_rescue_fallback_only",
+      "cost_status": "free_api_candidate",
+      "availability": "deferred_until_browser_or_api_export_evaluation",
+      "production_use": "manual_rescue_not_default_automation",
+      "requires_recorded_canva_blocker": true,
+      "proof_asset_boundary": "must not choose historical claims or source evidence"
+    },
+    {
+      "renderer_id": "comfyui_local",
+      "role": "non_proof_support_asset_generator_only",
+      "cost_status": "free_local_ai_candidate",
+      "availability": "blocked_until_exact_model_tool_approval",
+      "production_use": "support_assets_only_never_source_proof",
+      "requires_recorded_canva_blocker": false,
+      "proof_asset_boundary": "AI output cannot be presented as evidence"
+    }
+  ],
+  "hard_rules": [
+    "Canva is always attempted first when available.",
+    "Fallback requires a recorded Canva blocker.",
+    "Every production candidate must show renderer provenance.",
+    "Every production candidate must pass source-first and thumbnail QA gates.",
+    "Owner approval is still required before any YouTube thumbnail replacement."
+  ],
+  "public_youtube_mutation": "not_authorized",
+  "paid_or_pro_assets": "not_authorized"
+}

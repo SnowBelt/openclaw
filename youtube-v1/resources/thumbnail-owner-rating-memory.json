@@ -1,0 +1,92 @@
+{
+  "schema_version": 3,
+  "status": "active",
+  "owner_rules": [
+    "city name required on every thumbnail",
+    "real source-backed city photos/maps/documents required when available",
+    "weak topics must be rejected before rendering",
+    "random arrows, random center lines, filler labels, decorative boxes, and unexplained black boxes are hard blocks",
+    "main title fonts must feel premium, bold, condensed, high-contrast, and phone-readable",
+    "thumbnails should create a mysterious, click-worthy question that the first 30 seconds pays off",
+    "liked thumbnail formats can be saved for A/B tests, but unique topics must not blindly reuse one template",
+    "owner-provided reference screenshots show the target energy: vivid colors, sexy premium fonts, stunning city images, human stakes, huge city anchors, and shelf-readable high contrast",
+    "bare redaction bars with barely any readable words are a hard block",
+    "public-facing filler labels like SOURCE PHOTO, RECEIPT, and SOURCE FILE are hard blocks unless they are the actual curiosity hook and visually worth clicking",
+    "blue/cyan overlays must not look generic or bland; use vivid color systems with clear contrast and topic purpose",
+    "bland thumbnails fail even when technically source-backed; click desire is a required gate"
+  ],
+  "liked_formats": [
+    {
+      "id": "source_file_closeup",
+      "owner_basis": "Owner liked redacted/source-file curiosity when words and redactions are intentional.",
+      "best_use_cases": [
+        "route decision",
+        "demolition file",
+        "city record mystery"
+      ],
+      "do_not_use_cases": [
+        "no real document/map/photo proof",
+        "redactions without readable surrounding words"
+      ],
+      "required_proof_object": "real manifest-backed document, map, or source photo with selective whole-word redaction",
+      "allowed_variation_range": "change typography, crop, proof object, and color system by topic; keep no more than one variant per unique-topic set unless labeled A/B"
+    },
+    {
+      "id": "single_building_trial",
+      "owner_basis": "Owner liked strong, clean, source-backed thumbnails with a clear dominant subject.",
+      "best_use_cases": [
+        "preservation",
+        "landmark fight",
+        "demolition threat"
+      ],
+      "do_not_use_cases": [
+        "generic skyline-only topic",
+        "building photo unrelated to hook"
+      ],
+      "required_proof_object": "dominant real building or street photo tied directly to the title-thumbnail promise",
+      "allowed_variation_range": "new crop, poster depth, evidence tag, and color palette per topic"
+    },
+    {
+      "id": "map_as_crime_scene",
+      "owner_basis": "Owner wants map/source curiosity but rejects random arrows or decorative route marks.",
+      "best_use_cases": [
+        "redrawn map",
+        "highway cut",
+        "lost streets",
+        "shoreline moved"
+      ],
+      "do_not_use_cases": [
+        "map line is decorative",
+        "arrow does not identify a real route or boundary"
+      ],
+      "required_proof_object": "real map/route/source image with exactly one purpose-labeled highlight",
+      "allowed_variation_range": "highlight only a real route, cut, boundary, or changed area"
+    }
+  ],
+  "hard_reject_reasons": [
+    "city_missing",
+    "weak_topic",
+    "generic_photo",
+    "photo_unrelated_to_hook",
+    "random_arrow",
+    "unexplained_line",
+    "decorative_box",
+    "decorative_black_box",
+    "redaction_without_words",
+    "partial_word_redaction",
+    "text_over_text",
+    "unreadable_text",
+    "fake_proof",
+    "font_not_premium",
+    "same_template_reused_for_unique_topic_set",
+    "bare_redaction_blocks",
+    "source_photo_filler_label",
+    "receipt_filler_label",
+    "source_file_filler_label",
+    "bland_color_palette",
+    "generic_font",
+    "not_click_worthy",
+    "weak_image_energy"
+  ],
+  "completion_boundary": "This file stores owner preference rules. It does not replace owner review or performance data."
+}
