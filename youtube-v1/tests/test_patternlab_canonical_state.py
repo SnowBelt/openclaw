@@ -10,6 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from patternlab.models import Approval, ApprovalScope, Artifact, EpisodeState
 from patternlab.release import create_release_candidate
 from patternlab.state import PatternLabState, StateError, utc_now
+from patternlab.schemas import EpisodeManifest
+from patternlab.timeline import timeline_from_manifest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import source_visual_rebuild_assets as source_rebuild
@@ -94,3 +96,24 @@ class CanonicalStateTests(unittest.TestCase):
         payload = credit_health.evaluate_subscription({"character_count": 23_000, "character_limit": 30_000}, 8_000)
         self.assertEqual(payload["status"], "blocked")
         self.assertTrue(payload["block_under_one_episode_with_margin"])
+
+    def test_episode_manifest_requires_direct_visual_proof_for_verified_claim(self):
+        payload = {
+            "episode_id": "04", "title": "The Neighborhood Detroit Erased",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a living Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "historical_evidence", "rights_status": "approved", "evidence_fit": "direct", "visual_fit": "approved", "relative_path": "evidence.jpg", "sha256": "a" * 64}],
+            "visual_beats": [{"beat_id": "beat-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3}],
+        }
+        manifest = EpisodeManifest.model_validate(payload)
+        timeline = timeline_from_manifest(manifest)
+        self.assertEqual(len(timeline.tracks[0]), 1)
+
+    def test_episode_manifest_rejects_context_only_proof_for_verified_claim(self):
+        payload = {
+            "episode_id": "04", "title": "The Neighborhood Detroit Erased",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a living Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "modern_context", "rights_status": "approved", "evidence_fit": "context_only", "visual_fit": "approved", "relative_path": "skyline.jpg", "sha256": "a" * 64}],
+            "visual_beats": [{"beat_id": "beat-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3}],
+        }
+        with self.assertRaises(ValueError):
+            EpisodeManifest.model_validate(payload)
