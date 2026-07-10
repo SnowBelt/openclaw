@@ -192,6 +192,24 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             with patch.object(full_auto, "BASE", base), patch.object(full_auto, "output_root", lambda _: root):
                 self.assertEqual(full_auto.paid_voice_approval("04"), (True, "approved"))
 
+    def test_full_auto_accepts_generic_hash_bound_paid_voice_approval_for_future_video(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            script = base / "launch" / "video-05" / "final-script.md"
+            script.parent.mkdir(parents=True)
+            script.write_text("A source-backed future city script.", encoding="utf-8")
+            root = base / "output" / "video-05"
+            (root / "approval").mkdir(parents=True)
+            expected_sha = __import__("hashlib").sha256(script.read_bytes()).hexdigest()
+            (root / "approval" / "paid-service-approval.json").write_text(json.dumps({
+                "provider": "elevenlabs",
+                "video_id": "05",
+                "script_sha256": expected_sha,
+                "operation": "upload_ready_narration",
+            }), encoding="utf-8")
+            with patch.object(full_auto, "BASE", base), patch.object(full_auto, "output_root", lambda _: root):
+                self.assertEqual(full_auto.paid_voice_approval("05"), (True, "approved"))
+
     def test_full_auto_next_scheduled_uses_only_qualified_queue_candidate(self):
         with patch.object(full_auto, "build_topic_qualification_queue", return_value=({
             "next_candidate": {"video_id": "04", "topic_status": "active_rebuild"}

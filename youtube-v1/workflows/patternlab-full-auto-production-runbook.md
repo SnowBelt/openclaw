@@ -5,7 +5,7 @@ Purpose: produce the complete local Pattern Lab package for the next scheduled e
 ## Default Command
 
 ```bash
-youtube-v1/.venv-youtube/bin/python youtube-v1/scripts/patternlab_full_auto_production.py --next-scheduled --live-voice when-configured --shorts-target 5
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_full_auto_production.py --next-scheduled --live-voice when-approved --shorts-target 5
 ```
 
 ## Required Order

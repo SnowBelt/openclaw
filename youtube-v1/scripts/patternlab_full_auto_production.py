@@ -106,7 +106,12 @@ def paid_voice_approval(video_id: str) -> tuple[bool, str]:
         return False, "paid_voice_approval_video_mismatch"
     if not expected or receipt.get("script_sha256") != expected:
         return False, "paid_voice_approval_script_hash_mismatch"
-    if receipt.get("operation") != "video_04_upload_ready_narration":
+    operation = str(receipt.get("operation") or "").strip()
+    accepted_operations = {
+        "upload_ready_narration",
+        f"video_{video_id}_upload_ready_narration",
+    }
+    if operation not in accepted_operations:
         return False, "paid_voice_approval_operation_mismatch"
     return True, "approved"
 

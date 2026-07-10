@@ -14,18 +14,7 @@ USER_AGENT = "PatternLab/1.0 visual rebuild research"
 MIN_HISTORICAL = 20
 MIN_MODERN = 10
 
-COMMONS_QUERIES = [
-    "Detroit skyline",
-    "Detroit downtown",
-    "Detroit Michigan Renaissance Center",
-    "Detroit Financial District",
-    "Detroit street",
-    "Detroit station",
-    "Detroit factory",
-    "Detroit Riverfront",
-    "Michigan Central Station Detroit",
-    "Fisher Building Detroit",
-]
+EVIDENCE_QUERY_FILE = "evidence-queries.json"
 
 
 def fetch_json(url):
@@ -48,9 +37,33 @@ def safe_slug(text, fallback):
     return (slug[:80] or fallback).strip("-")
 
 
-def loc_search(page=1, count=80):
-    params = {"fa": "location:detroit", "fo": "json", "c": str(count), "sp": str(page)}
+def load_evidence_queries(root, video_id):
+    """Load explicit episode entities; never fall back to generic city scenery."""
+    path = root / "source-packet" / "rebuild-v2" / EVIDENCE_QUERY_FILE
+    if not path.exists():
+        raise SystemExit(
+            f"Missing {display_path(path)}. Create explicit historical and modern evidence queries before sourcing media."
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Invalid evidence query file: {exc}") from exc
+    historical = [str(item).strip() for item in payload.get("historical_queries", []) if str(item).strip()]
+    modern = [str(item).strip() for item in payload.get("modern_context_queries", []) if str(item).strip()]
+    entities = [str(item).strip().lower() for item in payload.get("required_entity_terms", []) if str(item).strip()]
+    if not historical or not entities:
+        raise SystemExit("Evidence query file requires historical_queries and required_entity_terms.")
+    return {"path": path, "historical": historical, "modern": modern, "entities": entities}
+
+
+def loc_search(query, page=1, count=80):
+    params = {"q": query, "fo": "json", "c": str(count), "sp": str(page)}
     return fetch_json("https://www.loc.gov/photos/?" + urllib.parse.urlencode(params))
+
+
+def entity_relevant(text, entities):
+    lowered = str(text or "").lower()
+    return any(entity in lowered for entity in entities)
 
 
 def largest_jpeg_from_loc_item(item_data):
@@ -74,74 +87,82 @@ def largest_jpeg_from_loc_item(item_data):
     return sorted(pool, key=lambda item: (item["width"] * item["height"], -item["size"]), reverse=True)[0]
 
 
-def source_loc_assets(root, video_id, out_dir):
+def source_loc_assets(root, video_id, out_dir, queries):
     historical_dir = ensure_dir(out_dir / "historical")
     assets = []
     seen_urls = set()
-    page = 1
-    while len(assets) < MIN_HISTORICAL and page <= 8:
-        data = loc_search(page=page)
-        page += 1
-        for result in data.get("results", []):
-            item_url = result.get("url") or ""
-            if not item_url or item_url in seen_urls:
-                continue
-            seen_urls.add(item_url)
-            try:
-                item_data = fetch_json(item_url.rstrip("/") + "/?fo=json")
-            except Exception:
-                continue
-            item = item_data.get("item", {})
-            rights = " ".join(str(item.get(key) or "") for key in ["rights_information", "rights_advisory"]).lower()
-            if "no known restrictions" not in rights and "public domain" not in rights:
-                continue
-            image = largest_jpeg_from_loc_item(item_data)
-            if not image:
-                continue
-            loc_id = item_url.rstrip("/").split("/")[-1]
-            title = " ".join(item.get("title") or result.get("title") or [loc_id]) if isinstance(item.get("title"), list) else (item.get("title") or result.get("title") or loc_id)
-            slug = safe_slug(title, loc_id)
-            filename = f"loc-{loc_id}-{slug}.jpg"
-            target = historical_dir / filename
-            try:
-                download(image["url"], target)
-            except Exception:
-                continue
-            rel = target.relative_to(root)
-            asset = {
-                "asset_id": f"video-{video_id}-visual-rebuild-loc-{loc_id}",
-                "asset_type": "image",
-                "filename": str(rel),
-                "local_path": str(rel),
-                "tool": "Library of Congress API",
-                "model_or_service": "LOC public JSON and image services",
-                "source_prompt_or_source_file": image["url"],
-                "source_title": title,
-                "source_url": item_url,
-                "creator": "; ".join(item.get("creators") or item.get("contributor_names") or ["Library of Congress collection item"]),
-                "archive_or_platform": "Library of Congress",
-                "source_class": "historical_evidence",
-                "license_or_rights_basis": item.get("rights_information") or item.get("rights_advisory") or "No known restrictions on publication.",
-                "license_status": item.get("rights_advisory") or item.get("rights_information") or "No known restrictions on publication.",
-                "attribution_required": "no",
-                "attribution_text": f"{title}. Library of Congress. {item_url}",
-                "commercial_use_ok": "yes",
-                "modification_ok": "yes",
-                "recognizable_people_property_trademark_risk": "low: archival public collection item; owner review still required",
-                "ai_reconstruction_disclosure": "not_ai_reconstruction",
-                "created_at": utc_now(),
-                "notes": "visual rebuild historical_evidence; supports Detroit city context and source trail",
-                "human_review_required": "yes",
-                "human_review_status": "pending",
-                "width": image["width"],
-                "height": image["height"],
-            }
-            asset.update(classify_visual_category(root, target, title, "historical_evidence", {str(rel): asset, target.name: asset}))
-            append_ledger(root, asset)
-            assets.append(asset)
-            print(f"historical {len(assets)}/{MIN_HISTORICAL}: {filename}", flush=True)
+    for query in queries["historical"]:
+        page = 1
+        while len(assets) < MIN_HISTORICAL and page <= 4:
+            data = loc_search(query, page=page)
+            page += 1
+            for result in data.get("results", []):
+                item_url = result.get("url") or ""
+                if not item_url or item_url in seen_urls:
+                    continue
+                seen_urls.add(item_url)
+                try:
+                    item_data = fetch_json(item_url.rstrip("/") + "/?fo=json")
+                except Exception:
+                    continue
+                item = item_data.get("item", {})
+                rights = " ".join(str(item.get(key) or "") for key in ["rights_information", "rights_advisory"]).lower()
+                if "no known restrictions" not in rights and "public domain" not in rights:
+                    continue
+                image = largest_jpeg_from_loc_item(item_data)
+                if not image:
+                    continue
+                loc_id = item_url.rstrip("/").split("/")[-1]
+                title = " ".join(item.get("title") or result.get("title") or [loc_id]) if isinstance(item.get("title"), list) else (item.get("title") or result.get("title") or loc_id)
+                relevance_text = " ".join([title, result.get("description", ""), " ".join(item.get("subject") or [])])
+                if not entity_relevant(relevance_text, queries["entities"]):
+                    continue
+                slug = safe_slug(title, loc_id)
+                filename = f"loc-{loc_id}-{slug}.jpg"
+                target = historical_dir / filename
+                try:
+                    download(image["url"], target)
+                except Exception:
+                    continue
+                rel = target.relative_to(root)
+                asset = {
+                    "asset_id": f"video-{video_id}-visual-rebuild-loc-{loc_id}",
+                    "asset_type": "image",
+                    "filename": str(rel),
+                    "local_path": str(rel),
+                    "tool": "Library of Congress API",
+                    "model_or_service": "LOC public JSON and image services",
+                    "source_prompt_or_source_file": image["url"],
+                    "source_title": title,
+                    "source_url": item_url,
+                    "creator": "; ".join(item.get("creators") or item.get("contributor_names") or ["Library of Congress collection item"]),
+                    "archive_or_platform": "Library of Congress",
+                    "source_class": "historical_evidence",
+                    "license_or_rights_basis": item.get("rights_information") or item.get("rights_advisory") or "No known restrictions on publication.",
+                    "license_status": item.get("rights_advisory") or item.get("rights_information") or "No known restrictions on publication.",
+                    "attribution_required": "no",
+                    "attribution_text": f"{title}. Library of Congress. {item_url}",
+                    "commercial_use_ok": "yes",
+                    "modification_ok": "yes",
+                    "recognizable_people_property_trademark_risk": "low: archival public collection item; owner review still required",
+                    "ai_reconstruction_disclosure": "not_ai_reconstruction",
+                    "created_at": utc_now(),
+                    "notes": f"visual rebuild historical_evidence; query={query}; entity-matched source proof only",
+                    "human_review_required": "yes",
+                    "human_review_status": "pending",
+                    "width": image["width"],
+                    "height": image["height"],
+                }
+                asset.update(classify_visual_category(root, target, title, "historical_evidence", {str(rel): asset, target.name: asset}))
+                append_ledger(root, asset)
+                assets.append(asset)
+                print(f"historical {len(assets)}/{MIN_HISTORICAL}: {filename}", flush=True)
+                if len(assets) >= MIN_HISTORICAL:
+                    break
             if len(assets) >= MIN_HISTORICAL:
                 break
+        if len(assets) >= MIN_HISTORICAL:
+            break
     return assets
 
 
@@ -191,11 +212,11 @@ def license_compatible(short_name):
     )
 
 
-def source_commons_assets(root, video_id, out_dir):
+def source_commons_assets(root, video_id, out_dir, queries):
     modern_dir = ensure_dir(out_dir / "modern-context")
     assets = []
     seen_titles = set()
-    for query in COMMONS_QUERIES:
+    for query in queries["modern"]:
         if len(assets) >= MIN_MODERN:
             break
         for title in commons_search_titles(query):
@@ -211,6 +232,8 @@ def source_commons_assets(root, video_id, out_dir):
             meta = info.get("extmetadata") or {}
             license_short = clean_html((meta.get("LicenseShortName") or {}).get("value"))
             if not license_compatible(license_short):
+                continue
+            if not entity_relevant(title, queries["entities"]):
                 continue
             source_url = clean_html((meta.get("UsageTerms") or {}).get("value"))
             description_url = info.get("descriptionurl") or "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
@@ -342,7 +365,7 @@ def annotate_asset_categories(root, assets):
     return annotated
 
 
-def write_reports(root, video_id, out_dir, historical, modern):
+def write_reports(root, video_id, out_dir, historical, modern, queries):
     approval = ensure_dir(root / "approval")
     historical = annotate_asset_categories(root, historical)
     modern = annotate_asset_categories(root, modern)
@@ -366,6 +389,10 @@ def write_reports(root, video_id, out_dir, historical, modern):
         "modern_context_count": len(modern),
         "historical_assets": historical,
         "modern_context_assets": modern,
+        "evidence_query_file": display_path(queries["path"]),
+        "historical_queries": queries["historical"],
+        "modern_context_queries": queries["modern"],
+        "required_entity_terms": queries["entities"],
         "visual_category_counts": category_counts,
         "superseded_private_uploads": old_uploads,
         "public_publish": "blocked_due_failed_visual_review",
@@ -380,6 +407,7 @@ def write_reports(root, video_id, out_dir, historical, modern):
         f"Status: {payload['status']}",
         f"Historical assets: {len(historical)}",
         f"Modern context assets: {len(modern)}",
+        f"Query file: {payload['evidence_query_file']}",
         f"Visual categories: {', '.join(f'{key}={value}' for key, value in sorted(category_counts.items()))}",
         "",
         "## Failed Private Review Draft",
@@ -398,12 +426,13 @@ def write_reports(root, video_id, out_dir, historical, modern):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Source rights-safe real media for the Pattern Lab Video 03 visual rebuild.")
-    parser.add_argument("--video-id", default="03")
+    parser = argparse.ArgumentParser(description="Source claim-specific, rights-safe real media for a Pattern Lab visual rebuild.")
+    parser.add_argument("--video-id", required=True)
     parser.add_argument("--reuse-if-ready", action="store_true", help="Skip network sourcing when the visual rebuild manifest already meets production floors.")
     args = parser.parse_args()
     root = output_root(args.video_id)
     out_dir = ensure_dir(root / "source-packet" / "visual-rebuild")
+    queries = load_evidence_queries(root, args.video_id)
     manifest = out_dir / "visual-rebuild-manifest.json"
     if args.reuse_if_ready and manifest.exists():
         try:
@@ -419,6 +448,7 @@ def main():
                 out_dir,
                 payload.get("historical_assets", []),
                 payload.get("modern_context_assets", []),
+                queries,
             )
             print(json.dumps({
                 "status": "ready",
@@ -430,14 +460,14 @@ def main():
                 "report": display_path(md),
             }, indent=2))
             return
-    historical = source_loc_assets(root, args.video_id, out_dir)
+    historical = source_loc_assets(root, args.video_id, out_dir, queries)
     modern = source_pexels_frame_assets(root, args.video_id, out_dir)
     if len(modern) < MIN_MODERN:
         try:
-            modern = source_commons_assets(root, args.video_id, out_dir)
+            modern = source_commons_assets(root, args.video_id, out_dir, queries)
         except Exception as exc:
             print(f"modern context Commons fallback skipped: {exc}", flush=True)
-    payload, manifest, md = write_reports(root, args.video_id, out_dir, historical, modern)
+    payload, manifest, md = write_reports(root, args.video_id, out_dir, historical, modern, queries)
     print(json.dumps({"status": payload["status"], "historical_count": len(historical), "modern_context_count": len(modern), "manifest": display_path(manifest), "report": display_path(md)}, indent=2))
     if payload["status"] != "ready":
         raise SystemExit(1)
