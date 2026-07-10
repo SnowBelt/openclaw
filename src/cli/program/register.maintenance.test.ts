@@ -153,6 +153,7 @@ describe("registerMaintenanceCommands doctor action", () => {
       skipIds: ["a"],
       onlyIds: ["b"],
       allowExec: true,
+      deep: false,
     });
     expect(runtime.exit).toHaveBeenCalledWith(1);
   });

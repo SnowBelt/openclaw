@@ -65,7 +65,7 @@ import {
   stopWorkboardLifecycleRefresh,
   stopWorkboardPolling,
 } from "./controllers/workboard.ts";
-import { resolveCronJobLastRunStatus } from "./cron-status.ts";
+import { isCronJobActiveFailure } from "./cron-status.ts";
 import { syncCustomThemeStyleTag } from "./custom-theme.ts";
 import { isMonitoredAuthProvider } from "./model-auth-helpers.ts";
 import {
@@ -981,7 +981,7 @@ function buildAttentionItems(host: SettingsAppHost) {
   }
 
   const cronJobs = host.cronJobs ?? [];
-  const failedCron = cronJobs.filter((j) => resolveCronJobLastRunStatus(j) === "error");
+  const failedCron = cronJobs.filter(isCronJobActiveFailure);
   if (failedCron.length > 0) {
     items.push({
       severity: "error",

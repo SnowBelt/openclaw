@@ -8,7 +8,7 @@ import {
   latestControlDirectorDiagnosticsRows,
   summarizeControlDirectorDiagnostics,
 } from "../chat/control-director-diagnostics.ts";
-import { resolveCronJobLastRunStatus } from "../cron-status.ts";
+import { isCronJobActiveFailure, resolveCronJobLastRunStatus } from "../cron-status.ts";
 import { formatCost, formatTokens, formatRelativeTimestamp } from "../format.ts";
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
 import { formatNextRun } from "../presenter.ts";
@@ -233,9 +233,7 @@ export function renderOverviewCards(props: OverviewCardsProps) {
   const cronEnabled = props.cronStatus?.enabled ?? null;
   const cronNext = props.cronStatus?.nextWakeAtMs ?? null;
   const cronJobCount = props.cronJobs.length;
-  const failedCronCount = props.cronJobs.filter(
-    (j) => resolveCronJobLastRunStatus(j) === "error",
-  ).length;
+  const failedCronCount = props.cronJobs.filter(isCronJobActiveFailure).length;
   const authLoading = props.modelAuthStatus === null;
   const authProviders = props.modelAuthStatus?.providers ?? [];
   const monitoredProviders = authProviders.filter(isMonitoredAuthProvider);
