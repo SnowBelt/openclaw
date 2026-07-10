@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.openclaw.custom-runtime.update-weekly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/openclaw/.openclaw-custom-runtime/bin/custom-runtime-updater.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/openclaw/Library/Logs/openclaw/custom-runtime-update.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/openclaw/Library/Logs/openclaw/custom-runtime-update-error.log</string>
+</dict>
+</plist>

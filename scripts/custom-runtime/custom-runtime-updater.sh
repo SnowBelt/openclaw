@@ -2,6 +2,9 @@
 # Weekly stable update pipeline. It preserves failed worktrees and never mutates production before all gates pass.
 set -eu
 
+PATH=/opt/homebrew/opt/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+export PATH
+
 repo=${OPENCLAW_CUSTOM_RUNTIME_REPO:-"$HOME/OpenClaw-pcc-unified-v2-20260710"}
 branch=${OPENCLAW_CUSTOM_RUNTIME_BRANCH:-codex/pcc-unified-v2-20260710}
 official_ref=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_REF:-SnowBelt/main}
