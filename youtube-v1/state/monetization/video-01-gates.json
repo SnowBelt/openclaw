@@ -1,0 +1,46 @@
+{
+  "video_id": "01",
+  "working_title": "I Tested 100 YouTube Ideas. Only 7 Passed.",
+  "lane": "artifact-backed growth analysis",
+  "sub_lane": "platform/content patterns",
+  "public_angle": "A proof-first teardown of why most trend ideas should not be published.",
+  "original_artifact": {
+    "type": "scorecard and rejection gate",
+    "source": "launch/video-01/final-script.md",
+    "required_in_first_20_seconds": true
+  },
+  "topic_scores": {
+    "search_trend_demand": 8,
+    "advertiser_safety": 9,
+    "original_artifact_strength": 9,
+    "business_creator_value": 9,
+    "visual_proof_potential": 9,
+    "long_form_watch_hour_potential": 8,
+    "shorts_hook_potential": 8,
+    "repeatability_without_template_feel": 8
+  },
+  "policy_gates": {
+    "no_openclaw_public_branding": true,
+    "no_copied_titles_scripts_or_thumbnails": true,
+    "no_reused_clips": true,
+    "no_sensitive_event_or_ad_limited_angle": true,
+    "synthetic_disclosure_decision_required": true,
+    "rights_ledger_required": true
+  },
+  "packaging_gates": {
+    "title_options_required": 5,
+    "thumbnail_candidates_required": 3,
+    "default_title_thumbnail_pairing_required": true,
+    "description_required": true,
+    "tags_required": true,
+    "chapters_required": true,
+    "pinned_comment_required": true,
+    "shorts_related_video_checklist_required": true
+  },
+  "human_gates": {
+    "private_upload_approval_required": true,
+    "public_publish_approval_required": true,
+    "phone_speaker_voice_review_required": true,
+    "private_info_review_required": true
+  }
+}

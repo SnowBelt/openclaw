@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "service": "Pattern Lab",
+  "watchdog": {
+    "minimum_free_disk_gb": 20,
+    "max_report_age_minutes": 180,
+    "recovery_cooldown_minutes": 30,
+    "allow_discord_alerts": false,
+    "allow_launchd_recovery": false
+  },
+  "launch_agents": [
+    "com.openclaw.pattern-lab.daily-review",
+    "com.openclaw.pattern-lab.full-auto-production",
+    "com.openclaw.pattern-lab.dashboard",
+    "com.openclaw.pattern-lab.wake-scheduler",
+    "com.openclaw.pattern-lab.runtime-watchdog"
+  ],
+  "non_negotiable_boundaries": [
+    "The watchdog never uploads, publishes, comments, pins, sets Related Video, changes titles, or changes thumbnails.",
+    "Discord alerts and launch-agent recovery are disabled until a separate activation approval is recorded.",
+    "A failed health check creates a report; it does not silently repair production media."
+  ]
+}

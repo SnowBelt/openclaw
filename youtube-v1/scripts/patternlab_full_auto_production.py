@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from patternlab_common import BASE, display_path, ensure_dir, load_dotenv, output_root, utc_now
-from patternlab_content_calendar import build_calendar
+from patternlab_topic_qualification_queue import build_topic_qualification_queue
 
 REPO = BASE.parent
 
@@ -80,6 +80,11 @@ def run_steps_fail_fast(
 def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def script_sha256(video_id: str) -> str:
@@ -104,21 +109,19 @@ def paid_voice_approval(video_id: str) -> tuple[bool, str]:
     if receipt.get("operation") != "video_04_upload_ready_narration":
         return False, "paid_voice_approval_operation_mismatch"
     return True, "approved"
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
 
 
 def next_incomplete_video() -> str:
-    calendar, _report = build_calendar()
-    for row in calendar.get("rows", []):
-        if row.get("next_action") in {"produce_package", "owner_review"} and not row.get("long_form_exists"):
-            return str(row.get("video_id") or "04").zfill(2)
-    for row in calendar.get("rows", []):
-        if row.get("next_action") == "produce_package":
-            return str(row.get("video_id") or "04").zfill(2)
-    return "04"
+    queue, _json_path, _md_path = build_topic_qualification_queue()
+    candidate = queue.get("next_candidate") or {}
+    video_id = str(candidate.get("video_id") or "").strip()
+    status = str(candidate.get("topic_status") or "").strip()
+    if status not in {"active_rebuild", "production_ready"} or not video_id:
+        raise SystemExit(
+            "No production-eligible Pattern Lab topic exists. "
+            "Complete the active rebuild or qualify a source-backed topic before automatic production."
+        )
+    return video_id.zfill(2)
 
 
 def media_state(video_id: str) -> dict[str, Any]:
@@ -216,6 +219,10 @@ def main() -> None:
     voice_approved, voice_reason = paid_voice_approval(video_id)
     live_voice = args.live_voice == "when-approved" and voice_approved
     definitions: list[tuple[str, list[str], bool]] = []
+    # Keep the backlog moving without treating a broad headline as a media-ready
+    # episode. This local worker only writes research briefs and cannot call a
+    # provider, render media, or mutate YouTube.
+    definitions.append(("research_queue_briefs", [py, "youtube-v1/scripts/patternlab_topic_research_worker.py"], False))
     if args.live_voice == "when-approved" and not voice_approved:
         definitions.append(("paid_voice_approval", ["blocked", voice_reason], True))
     definitions.append(("package", [py, "youtube-v1/scripts/patternlab_daily_factory.py", "--video-id", video_id], True))

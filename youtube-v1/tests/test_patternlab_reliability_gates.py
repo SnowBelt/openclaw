@@ -19,6 +19,10 @@ import build_video_ffmpeg as video_builder
 import patternlab_keychain_secret_provider as keychain_provider
 import patternlab_asset_identity as asset_identity
 import patternlab_claim_ledger_quality as claim_quality
+import patternlab_claim_visual_fidelity as claim_visual_fidelity
+import patternlab_topic_qualification_queue as topic_queue
+import patternlab_runtime_watchdog as runtime_watchdog
+import patternlab_topic_research_worker as topic_research
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
@@ -127,6 +131,33 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             self.assertEqual(payload["status"], "blocked")
             self.assertTrue(any("requires_visual" in item for item in payload["blockers"]))
 
+    def test_claim_visual_fidelity_rejects_generic_unlinked_visuals(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-01"
+            approval = root / "approval"
+            rebuild = root / "source-packet" / "rebuild-v2"
+            approval.mkdir(parents=True)
+            rebuild.mkdir(parents=True)
+            (approval / "claim-ledger.json").write_text(json.dumps([{
+                "claim_id": "v01-001",
+                "fact_checker_status": "verified",
+            }]), encoding="utf-8")
+            (rebuild / "claim-visual-links.json").write_text(json.dumps({"links": [{
+                "claim_id": "v01-001",
+                "asset_id": "generic-detroit-skyline",
+                "evidence_basis": "modern_then_now_context",
+                "relevance_note": "Generic skyline only.",
+            }]}), encoding="utf-8")
+            (root / "rights-ledger.csv").write_text(
+                "asset_id,source_class\n"
+                "generic-detroit-skyline,modern_context\n",
+                encoding="utf-8",
+            )
+            with patch.object(claim_visual_fidelity, "output_root", lambda _: root):
+                payload, _, _ = claim_visual_fidelity.build_claim_visual_fidelity_report("01")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertTrue(any("requires_direct_historical" in item for item in payload["blockers"]))
+
     def test_full_auto_stops_after_required_failure(self):
         calls = []
 
@@ -142,6 +173,94 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
         self.assertEqual(calls, ["package"])
         self.assertEqual(steps[1]["status"], "skipped")
         self.assertEqual(steps[1]["blocked_by"], "package")
+
+    def test_full_auto_recognizes_hash_bound_paid_voice_approval(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            script = base / "launch" / "video-04" / "final-script.md"
+            script.parent.mkdir(parents=True)
+            script.write_text("A source-backed Detroit script.", encoding="utf-8")
+            root = base / "output" / "video-04"
+            (root / "approval").mkdir(parents=True)
+            expected_sha = __import__("hashlib").sha256(script.read_bytes()).hexdigest()
+            (root / "approval" / "paid-service-approval.json").write_text(json.dumps({
+                "provider": "elevenlabs",
+                "video_id": "04",
+                "script_sha256": expected_sha,
+                "operation": "video_04_upload_ready_narration",
+            }), encoding="utf-8")
+            with patch.object(full_auto, "BASE", base), patch.object(full_auto, "output_root", lambda _: root):
+                self.assertEqual(full_auto.paid_voice_approval("04"), (True, "approved"))
+
+    def test_full_auto_next_scheduled_uses_only_qualified_queue_candidate(self):
+        with patch.object(full_auto, "build_topic_qualification_queue", return_value=({
+            "next_candidate": {"video_id": "04", "topic_status": "active_rebuild"}
+        }, Path("queue.json"), Path("queue.md"))):
+            self.assertEqual(full_auto.next_incomplete_video(), "04")
+        with patch.object(full_auto, "build_topic_qualification_queue", return_value=({
+            "next_candidate": {"video_id": "05", "topic_status": "research_queue"}
+        }, Path("queue.json"), Path("queue.md"))):
+            with self.assertRaises(SystemExit):
+                full_auto.next_incomplete_video()
+
+    def test_topic_queue_sends_generic_survey_to_research_not_production(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            slate = base / "content-slate.json"
+            strategy = base / "strategy.json"
+            slate.write_text(json.dumps({"topics": [{
+                "video_id": "05",
+                "working_title": "How Detroit Became the Motor City",
+                "public_angle": "A timeline showing geography, factories, labor, roads, and entrepreneurs.",
+                "artifact_type": "Motor City timeline map",
+                "scores": {"search_trend_demand": 10},
+            }]}), encoding="utf-8")
+            strategy.write_text(json.dumps({
+                "topic_score_threshold": 80,
+                "topic_scoring_weights": {"search_trend_demand": 100},
+            }), encoding="utf-8")
+            operations = base / "operations"
+            with (
+                patch.object(topic_queue, "SLATE_PATH", slate),
+                patch.object(topic_queue, "STRATEGY_PATH", strategy),
+                patch.object(topic_queue, "OPERATIONS_ROOT", operations),
+                patch.object(topic_queue, "output_root", lambda _: base / "output" / "video-05"),
+            ):
+                payload, _, _ = topic_queue.build_topic_qualification_queue()
+            self.assertEqual(payload["selection_mode"], "research_only_no_production_eligible")
+            self.assertIn("generic_survey_title", payload["rows"][0]["topic_blockers"])
+
+    def test_topic_queue_never_reselects_prior_upload(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            slate = base / "content-slate.json"
+            strategy = base / "strategy.json"
+            slate.write_text(json.dumps({"topics": [{
+                "video_id": "03",
+                "working_title": "Detroit Didn't Just Decline. It Was Rewired.",
+                "public_angle": "A source-backed map explains a single city system.",
+                "artifact_type": "Detroit rewiring evidence map",
+                "scores": {"search_trend_demand": 10},
+            }]}), encoding="utf-8")
+            strategy.write_text(json.dumps({"topic_score_threshold": 80, "topic_scoring_weights": {"search_trend_demand": 100}}), encoding="utf-8")
+            root = base / "output" / "video-03"
+            (root / "approval").mkdir(parents=True)
+            (root / "approval" / "youtube-upload-report.json").write_text("{}", encoding="utf-8")
+            (root / "source-packet" / "visual-rebuild").mkdir(parents=True)
+            (root / "source-packet" / "visual-rebuild" / "visual-rebuild-manifest.json").write_text(json.dumps({
+                "status": "ready",
+                "historical_assets": [{"archive_or_platform": "Library of Congress"}] * 4,
+                "modern_context_assets": [{"archive_or_platform": "Wikimedia Commons"}] * 4,
+            }), encoding="utf-8")
+            with (
+                patch.object(topic_queue, "SLATE_PATH", slate),
+                patch.object(topic_queue, "STRATEGY_PATH", strategy),
+                patch.object(topic_queue, "OPERATIONS_ROOT", base / "operations"),
+                patch.object(topic_queue, "output_root", lambda _: root),
+            ):
+                payload, _, _ = topic_queue.build_topic_qualification_queue()
+            self.assertEqual(payload["rows"][0]["topic_status"], "archived_existing_package")
+            self.assertIsNone(payload["next_candidate"])
 
     def test_factory_rejects_generic_topic_from_production_script_lane(self):
         self.assertFalse(daily_factory.production_script_available({"working_title": "How Detroit Became the Motor City"}))
@@ -191,6 +310,40 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             first = daily_loop.review_fingerprint(root, "01")
             (video / "pattern-lab-video-01-draft.mp4").write_bytes(b"second")
             self.assertNotEqual(first, daily_loop.review_fingerprint(root, "01"))
+
+    def test_runtime_watchdog_remains_inspection_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            policy = base / "policy.json"
+            policy.write_text(json.dumps({"watchdog": {"minimum_free_disk_gb": 0}}), encoding="utf-8")
+            auth = base / "auth.json"
+            auth.write_text(json.dumps({"status": "configured", "token": {"present": True, "has_refresh_token": True, "missing_scopes": []}}), encoding="utf-8")
+            queue = base / "queue.json"
+            queue.write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+            with (
+                patch.object(runtime_watchdog, "POLICY_PATH", policy),
+                patch.object(runtime_watchdog, "OPERATIONS_ROOT", base / "operations"),
+                patch.object(runtime_watchdog, "BASE", base),
+            ):
+                # The auth and queue report locations derive from BASE.
+                (base / "local-output/video-04/approval").mkdir(parents=True)
+                (base / "local-output/video-04/approval/youtube-auth-health-report.json").write_text(auth.read_text(), encoding="utf-8")
+                (base / "operations").mkdir(parents=True)
+                (base / "operations/topic-qualification-queue.json").write_text(queue.read_text(), encoding="utf-8")
+                payload, _, _ = runtime_watchdog.build_report(runner=lambda *args, **kwargs: type("R", (), {"returncode": 0, "stdout": "{}", "stderr": ""})())
+            self.assertEqual(payload["status"], "pass")
+            self.assertFalse(payload["recovery"]["performed"])
+            self.assertEqual(payload["youtube_mutation"], "not_performed")
+
+    def test_topic_research_brief_has_no_production_side_effect(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            row = {"video_id": "05", "working_title": "How Detroit Became the Motor City", "topic_score": 90, "topic_blockers": ["generic_survey_title"], "source_pack_blockers": ["source_pack_not_built"]}
+            with patch.object(topic_research, "OUTPUT_ROOT", root):
+                json_path, _ = topic_research.write_brief(row)
+            payload = json.loads(json_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "research_required")
+            self.assertIn("YouTube mutation", payload["not_performed"])
 
 
 if __name__ == "__main__":

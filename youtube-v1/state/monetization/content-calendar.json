@@ -1,0 +1,133 @@
+{
+  "generated_at": "2026-07-10T14:32:01Z",
+  "window_days": 14,
+  "cadence": "Long-form Tuesday/Thursday/Saturday at 11:00 AM America/New_York; 3-5 Shorts per long-form same day and following day after owner approval",
+  "long_form_weekdays": [
+    "Tuesday",
+    "Thursday",
+    "Saturday"
+  ],
+  "default_publish_time_local": "11:00",
+  "timezone": "America/New_York",
+  "shorts_per_long_form": "3-5",
+  "public_publish_status": "blocked_until_fresh_exact_owner_approval",
+  "publish_slots_eastern": [
+    "2026-07-11T11:00:00-04:00",
+    "2026-07-14T11:00:00-04:00",
+    "2026-07-16T11:00:00-04:00",
+    "2026-07-18T11:00:00-04:00",
+    "2026-07-21T11:00:00-04:00",
+    "2026-07-23T11:00:00-04:00"
+  ],
+  "rows": [
+    {
+      "publish_target_eastern": "2026-07-11T11:00:00-04:00",
+      "video_id": "03",
+      "working_title": "Detroit Didn't Just Decline. It Was Rewired.",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "topic_score": 90.0,
+      "artifact_type": "Detroit rewiring evidence map",
+      "package_exists": true,
+      "private_upload_readiness": "blocked-before-private-upload",
+      "public_publish_readiness": "blocked-before-public-publish",
+      "monetization_gates": "blocked",
+      "long_form_exists": true,
+      "shorts_count": 3,
+      "learning_label": "learning_report_present",
+      "blockers": [
+        "monetization gates not passing"
+      ],
+      "next_action": "owner_review"
+    },
+    {
+      "publish_target_eastern": "2026-07-14T11:00:00-04:00",
+      "video_id": "04",
+      "working_title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "topic_score": 90.8,
+      "artifact_type": "lost-neighborhood source ledger",
+      "package_exists": true,
+      "private_upload_readiness": "blocked-before-private-upload",
+      "public_publish_readiness": "blocked-before-public-publish",
+      "monetization_gates": "blocked",
+      "long_form_exists": true,
+      "shorts_count": 5,
+      "learning_label": "pending_publish",
+      "blockers": [
+        "monetization gates not passing"
+      ],
+      "next_action": "owner_review"
+    },
+    {
+      "publish_target_eastern": "2026-07-16T11:00:00-04:00",
+      "video_id": "05",
+      "working_title": "How Detroit Became the Motor City",
+      "sub_lane": "people culture and industry",
+      "topic_score": 91.6,
+      "artifact_type": "Motor City timeline map",
+      "package_exists": true,
+      "private_upload_readiness": "blocked-before-private-upload",
+      "public_publish_readiness": "missing",
+      "monetization_gates": "blocked",
+      "long_form_exists": false,
+      "shorts_count": 0,
+      "learning_label": "pending_learning_report",
+      "blockers": [
+        "monetization gates not passing",
+        "fewer than 3 Shorts"
+      ],
+      "next_action": "owner_review"
+    },
+    {
+      "publish_target_eastern": "2026-07-18T11:00:00-04:00",
+      "video_id": "06",
+      "working_title": "The Hidden Detroit Before the Cars",
+      "sub_lane": "city origins and turning points",
+      "topic_score": 89.8,
+      "artifact_type": "pre-auto Detroit timeline",
+      "package_exists": false,
+      "private_upload_readiness": "missing",
+      "public_publish_readiness": "missing",
+      "monetization_gates": "missing",
+      "long_form_exists": false,
+      "shorts_count": 0,
+      "learning_label": "pending_learning_report",
+      "blockers": [],
+      "next_action": "produce_package"
+    },
+    {
+      "publish_target_eastern": "2026-07-21T11:00:00-04:00",
+      "video_id": "07",
+      "working_title": "How Motown Changed America From One City Block",
+      "sub_lane": "people culture and industry",
+      "topic_score": 90.0,
+      "artifact_type": "Motown place-and-people map",
+      "package_exists": false,
+      "private_upload_readiness": "missing",
+      "public_publish_readiness": "missing",
+      "monetization_gates": "missing",
+      "long_form_exists": false,
+      "shorts_count": 0,
+      "learning_label": "pending_learning_report",
+      "blockers": [],
+      "next_action": "produce_package"
+    },
+    {
+      "publish_target_eastern": "2026-07-23T11:00:00-04:00",
+      "video_id": "08",
+      "working_title": "The Freeway That Cut Through Detroit's Memory",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "topic_score": 90.4,
+      "artifact_type": "Detroit freeway impact map",
+      "package_exists": false,
+      "private_upload_readiness": "missing",
+      "public_publish_readiness": "missing",
+      "monetization_gates": "missing",
+      "long_form_exists": false,
+      "shorts_count": 0,
+      "learning_label": "pending_learning_report",
+      "blockers": [],
+      "next_action": "produce_package"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "patternlab-discord-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "peerDependencies": {
+    "openclaw": ">=2026.5.8"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {"optional": false}
+  },
+  "openclaw": {
+    "extensions": ["./index.mjs"]
+  }
+}

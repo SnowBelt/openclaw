@@ -1,0 +1,139 @@
+{
+  "video_id": "04",
+  "working_title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+  "lane": "hidden systems behind American cities",
+  "sub_lane": "lost neighborhoods and infrastructure",
+  "public_angle": "A source-backed story of Black Bottom and Paradise Valley, the culture built there, and how urban renewal and freeway construction changed the city.",
+  "original_artifact": {
+    "type": "lost-neighborhood source ledger",
+    "source": "local-output/video-04/artifacts/black-bottom-paradise-valley-source-ledger.csv",
+    "required_in_first_20_seconds": true
+  },
+  "topic_scores": {
+    "search_trend_demand": 8,
+    "advertiser_safety": 9,
+    "original_artifact_strength": 9,
+    "city_history_value": 9,
+    "visual_proof_potential": 10,
+    "long_form_watch_hour_potential": 10,
+    "shorts_hook_potential": 8,
+    "repeatability_without_template_feel": 9,
+    "subscriber_conversion_fit": 9
+  },
+  "topic_score": 90.8,
+  "policy_gates": {
+    "no_openclaw_public_branding": true,
+    "no_copied_titles_scripts_or_thumbnails": true,
+    "no_reused_clips": true,
+    "no_sensitive_event_or_ad_limited_angle": true,
+    "historical_image_rights_required": true,
+    "ai_reconstructions_must_be_labeled": true,
+    "synthetic_disclosure_decision_required": true,
+    "rights_ledger_required": true
+  },
+  "packaging_gates": {
+    "title_options_required": 5,
+    "thumbnail_candidates_required": 3,
+    "default_title_thumbnail_pairing_required": true,
+    "description_required": true,
+    "tags_required": true,
+    "chapters_required": true,
+    "pinned_comment_required": true,
+    "subscribe_cta_required": true,
+    "shorts_related_video_checklist_required": true
+  },
+  "human_gates": {
+    "private_upload_approval_required": true,
+    "public_publish_approval_required": true,
+    "phone_speaker_voice_review_required": true,
+    "historical_source_rights_review_required": true,
+    "private_info_review_required": true
+  },
+  "retention_ladder_required": true,
+  "retention_ladder": {
+    "version": "2026-05-pattern-lab-retention-ladder-v1",
+    "video_id": "04",
+    "purpose": "Protect long-form watch time and subscriber conversion by forcing source proof, pacing, payoffs, and a repeatable city-history outro.",
+    "rules": {
+      "first_5_seconds": "Open with a result, contradiction, or visible artifact before channel context.",
+      "first_20_seconds": "Show the source proof on screen: lost-neighborhood source ledger.",
+      "max_seconds_without_new_beat": 75,
+      "preferred_major_beat_window_seconds": "45-75",
+      "visual_change_rule": "Change visuals only when the narration changes source, place, time period, proof, or payoff.",
+      "generic_intro_blocked": true,
+      "consistent_outro_required": true,
+      "subscribe_cta_required": true
+    },
+    "beats": [
+      {
+        "beat_id": "hook",
+        "target_start_seconds": 0,
+        "target_end_seconds": 5,
+        "purpose": "result, contradiction, or visible artifact",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "proof",
+        "target_start_seconds": 0,
+        "target_end_seconds": 20,
+        "purpose": "visible source proof",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "source_context",
+        "target_start_seconds": 45,
+        "target_end_seconds": 120,
+        "purpose": "source context that makes the city file credible",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "lost_place_or_system",
+        "target_start_seconds": 120,
+        "target_end_seconds": 240,
+        "purpose": "lost place, infrastructure choice, industry pattern, or turning point",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "city_evidence",
+        "target_start_seconds": 240,
+        "target_end_seconds": 420,
+        "purpose": "artifact-driven city evidence movement",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "shorts_bridge",
+        "target_start_seconds": 420,
+        "target_end_seconds": 540,
+        "purpose": "Shorts funnel logic from the same city-history proof",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "subscribe_bridge",
+        "target_start_seconds": 540,
+        "target_end_seconds": 720,
+        "purpose": "earned subscribe bridge tied to the next city file",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      },
+      {
+        "beat_id": "outro",
+        "target_start_seconds": 560,
+        "target_end_seconds": 840,
+        "purpose": "repeatable Pattern Lab outro",
+        "visual_requirement": "Narration-matched source, map, historical photo, table, timeline, or decision visual.",
+        "payoff_required": true
+      }
+    ],
+    "outro": {
+      "required_phrase": "That is the pattern: city, source, system.",
+      "signoff": "No source, no story.",
+      "next_viewer_action": "Subscribe for the next evidence-backed city file."
+    }
+  }
+}

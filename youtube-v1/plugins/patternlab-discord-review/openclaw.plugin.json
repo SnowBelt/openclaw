@@ -1,0 +1,13 @@
+{
+  "id": "patternlab-discord-review",
+  "name": "Pattern Lab Discord Review",
+  "description": "Deterministic, owner-authorized Pattern Lab review controls. No YouTube mutation.",
+  "activation": {"onStartup": true},
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "repoRoot": {"type": "string"}
+    }
+  }
+}

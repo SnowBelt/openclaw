@@ -1,0 +1,247 @@
+{
+  "generated_for": "Pattern Lab city-history retool: Detroit pilot season",
+  "selection_rule": "Pick the first unproduced city-history topic scoring at least 80/100, prioritizing archival proof, local curiosity, national stakes, and subscriber conversion.",
+  "series_promise": "Detroit first, then repeat the same evidence-backed city-file format across American cities.",
+  "topics": [
+    {
+      "video_id": "03",
+      "working_title": "Detroit Didn't Just Decline. It Was Rewired.",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "public_angle": "A map-led explanation of how industry, freeways, population movement, and policy rewired Detroit instead of simply making it decline.",
+      "artifact_type": "Detroit rewiring evidence map",
+      "artifact_source": "local-output/video-03/artifacts/detroit-rewired-evidence-map.csv",
+      "source_search_seed": "Detroit history Detroit Didn't Just Decline. It Was Rewired.",
+      "scores": {
+        "search_trend_demand": 9,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 9,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 9
+      }
+    },
+    {
+      "video_id": "04",
+      "working_title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "public_angle": "A source-backed story of Black Bottom and Paradise Valley, the culture built there, and how urban renewal and freeway construction changed the city.",
+      "artifact_type": "lost-neighborhood source ledger",
+      "artifact_source": "local-output/video-04/artifacts/black-bottom-paradise-valley-source-ledger.csv",
+      "source_search_seed": "Detroit history The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
+      "scores": {
+        "search_trend_demand": 8,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 10,
+        "long_form_watch_hour_potential": 10,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 9
+      }
+    },
+    {
+      "video_id": "05",
+      "working_title": "How Detroit Became the Motor City",
+      "sub_lane": "people culture and industry",
+      "public_angle": "A timeline and map showing how geography, factories, labor, roads, and entrepreneurs made Detroit the center of the auto industry.",
+      "artifact_type": "Motor City timeline map",
+      "artifact_source": "local-output/video-05/artifacts/motor-city-timeline-map.csv",
+      "source_search_seed": "Detroit history How Detroit Became the Motor City",
+      "scores": {
+        "search_trend_demand": 9,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 10,
+        "visual_proof_potential": 10,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 8
+      }
+    },
+    {
+      "video_id": "06",
+      "working_title": "The Hidden Detroit Before the Cars",
+      "sub_lane": "city origins and turning points",
+      "public_angle": "A pre-auto Detroit city file covering Indigenous history, French colonial origins, the river, border, fort, fire, and early trade routes.",
+      "artifact_type": "pre-auto Detroit timeline",
+      "artifact_source": "local-output/video-06/artifacts/pre-auto-detroit-timeline.csv",
+      "source_search_seed": "Detroit history The Hidden Detroit Before the Cars",
+      "scores": {
+        "search_trend_demand": 8,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 10,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 10,
+        "subscriber_conversion_fit": 8
+      }
+    },
+    {
+      "video_id": "07",
+      "working_title": "How Motown Changed America From One City Block",
+      "sub_lane": "people culture and industry",
+      "public_angle": "A cultural-history episode using place, people, business systems, and sound to explain why Motown could come from Detroit specifically.",
+      "artifact_type": "Motown place-and-people map",
+      "artifact_source": "local-output/video-07/artifacts/motown-place-people-map.csv",
+      "source_search_seed": "Detroit history How Motown Changed America From One City Block",
+      "scores": {
+        "search_trend_demand": 9,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 9,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 9
+      }
+    },
+    {
+      "video_id": "08",
+      "working_title": "The Freeway That Cut Through Detroit's Memory",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "public_angle": "An infrastructure episode showing how freeway routes changed neighborhoods, commutes, wealth, and memory in Detroit.",
+      "artifact_type": "Detroit freeway impact map",
+      "artifact_source": "local-output/video-08/artifacts/detroit-freeway-impact-map.csv",
+      "source_search_seed": "Detroit history The Freeway That Cut Through Detroit's Memory",
+      "scores": {
+        "search_trend_demand": 8,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 10,
+        "long_form_watch_hour_potential": 10,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 8
+      }
+    },
+    {
+      "video_id": "09",
+      "working_title": "The Station That Shows Detroit's Rise, Fall, and Comeback",
+      "sub_lane": "lost neighborhoods and infrastructure",
+      "public_angle": "A building-as-city episode about Michigan Central Station as a visible artifact of Detroit's ambition, decline narrative, and comeback story.",
+      "artifact_type": "Michigan Central then-now ledger",
+      "artifact_source": "local-output/video-09/artifacts/michigan-central-then-now-ledger.csv",
+      "source_search_seed": "Detroit history The Station That Shows Detroit's Rise, Fall, and Comeback",
+      "scores": {
+        "search_trend_demand": 9,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 9,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 8
+      }
+    },
+    {
+      "video_id": "10",
+      "working_title": "The Industry That Built Detroit and Trapped It",
+      "sub_lane": "people culture and industry",
+      "public_angle": "An evidence-backed look at what happens when one industry gives a city wealth, identity, jobs, politics, and vulnerability.",
+      "artifact_type": "single-industry dependency scorecard",
+      "artifact_source": "local-output/video-10/artifacts/detroit-industry-dependency-scorecard.csv",
+      "source_search_seed": "Detroit history The Industry That Built Detroit and Trapped It",
+      "scores": {
+        "search_trend_demand": 8,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 10,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 9
+      }
+    },
+    {
+      "video_id": "11",
+      "working_title": "Detroit's Bankruptcy Was Not the Whole Story",
+      "sub_lane": "city origins and turning points",
+      "public_angle": "A careful, non-outrage explanation of bankruptcy as one chapter in a longer city system: taxes, population, services, debt, and regional fragmentation.",
+      "artifact_type": "bankruptcy context timeline",
+      "artifact_source": "local-output/video-11/artifacts/detroit-bankruptcy-context-timeline.csv",
+      "source_search_seed": "Detroit history Detroit's Bankruptcy Was Not the Whole Story",
+      "scores": {
+        "search_trend_demand": 9,
+        "advertiser_safety": 8,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 10,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 8
+      }
+    },
+    {
+      "video_id": "12",
+      "working_title": "The River, Border, and Fort That Made Detroit Matter",
+      "sub_lane": "city origins and turning points",
+      "public_angle": "A geography-first Detroit episode showing why the river, border position, fort, and trade routes made the city strategically important before it was famous.",
+      "artifact_type": "Detroit geography artifact map",
+      "artifact_source": "local-output/video-12/artifacts/detroit-geography-artifact-map.csv",
+      "source_search_seed": "Detroit history The River, Border, and Fort That Made Detroit Matter",
+      "scores": {
+        "search_trend_demand": 8,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 10,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 8,
+        "repeatability_without_template_feel": 10,
+        "subscriber_conversion_fit": 8
+      }
+    },
+    {
+      "video_id": "13",
+      "working_title": "The Department Store That Made Detroit Feel Rich",
+      "sub_lane": "people culture and industry",
+      "public_angle": "A Hudson's-centered episode about downtown retail, civic identity, class, shopping culture, and what a department store once meant to a city.",
+      "artifact_type": "Hudson's downtown evidence ledger",
+      "artifact_source": "local-output/video-13/artifacts/hudsons-downtown-evidence-ledger.csv",
+      "source_search_seed": "Detroit history The Department Store That Made Detroit Feel Rich",
+      "scores": {
+        "search_trend_demand": 8,
+        "advertiser_safety": 9,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 9,
+        "shorts_hook_potential": 9,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 9
+      }
+    },
+    {
+      "video_id": "14",
+      "working_title": "Is Detroit Really Coming Back? The Evidence vs. the Myth",
+      "sub_lane": "city origins and turning points",
+      "public_angle": "A balanced evidence episode comparing recovery claims with population, investment, neighborhood-level change, and what locals can actually see.",
+      "artifact_type": "Detroit comeback evidence scorecard",
+      "artifact_source": "local-output/video-14/artifacts/detroit-comeback-evidence-scorecard.csv",
+      "source_search_seed": "Detroit history Is Detroit Really Coming Back? The Evidence vs. the Myth",
+      "scores": {
+        "search_trend_demand": 10,
+        "advertiser_safety": 8,
+        "original_artifact_strength": 9,
+        "city_history_value": 9,
+        "visual_proof_potential": 9,
+        "long_form_watch_hour_potential": 10,
+        "shorts_hook_potential": 9,
+        "repeatability_without_template_feel": 9,
+        "subscriber_conversion_fit": 10
+      }
+    }
+  ]
+}
