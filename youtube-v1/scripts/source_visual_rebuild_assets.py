@@ -7,7 +7,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from patternlab_common import append_ledger, display_path, ensure_dir, ffmpeg_cmd, media_duration_seconds, output_root, utc_now
+from patternlab_common import append_ledger, display_path, ensure_dir, ffmpeg_cmd, launch_root, media_duration_seconds, output_root, utc_now
 from patternlab_visual_categories import classify_visual_category
 
 USER_AGENT = "PatternLab/1.0 visual rebuild research"
@@ -39,7 +39,9 @@ def safe_slug(text, fallback):
 
 def load_evidence_queries(root, video_id):
     """Load explicit episode entities; never fall back to generic city scenery."""
-    path = root / "source-packet" / "rebuild-v2" / EVIDENCE_QUERY_FILE
+    source_path = launch_root(video_id) / EVIDENCE_QUERY_FILE
+    local_path = root / "source-packet" / "rebuild-v2" / EVIDENCE_QUERY_FILE
+    path = source_path if source_path.exists() else local_path
     if not path.exists():
         raise SystemExit(
             f"Missing {display_path(path)}. Create explicit historical and modern evidence queries before sourcing media."

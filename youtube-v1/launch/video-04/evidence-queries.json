@@ -1,0 +1,26 @@
+{
+  "episode_id": "04",
+  "historical_queries": [
+    "Black Bottom Detroit",
+    "Paradise Valley Detroit",
+    "Hastings Street Detroit",
+    "St Antoine Street Detroit",
+    "Detroit urban renewal Black Bottom",
+    "I-375 Detroit construction Black Bottom"
+  ],
+  "modern_context_queries": [
+    "I-375 Detroit",
+    "Hastings Street Detroit",
+    "Black Bottom Detroit historical marker",
+    "Paradise Valley Detroit"
+  ],
+  "required_entity_terms": [
+    "black bottom",
+    "paradise valley",
+    "hastings street",
+    "st antoine",
+    "st. antoine",
+    "i-375"
+  ],
+  "notes": "Context footage may support pacing only. Historical claims require direct historical media or a historical map/document linked to the claim ledger."
+}

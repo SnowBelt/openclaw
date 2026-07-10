@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 import sys
 import json
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -12,6 +13,7 @@ from patternlab.state import PatternLabState, StateError, utc_now
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import source_visual_rebuild_assets as source_rebuild
+import patternlab_elevenlabs_credit_health as credit_health
 
 
 class CanonicalStateTests(unittest.TestCase):
@@ -53,17 +55,42 @@ class CanonicalStateTests(unittest.TestCase):
 
     def test_source_rebuild_requires_explicit_claim_queries(self):
         root = Path(self.temp.name) / "video-04"
-        with self.assertRaises(SystemExit):
-            source_rebuild.load_evidence_queries(root, "04")
+        with patch.object(source_rebuild, "launch_root", lambda _: Path(self.temp.name) / "missing-launch"):
+            with self.assertRaises(SystemExit):
+                source_rebuild.load_evidence_queries(root, "04")
 
     def test_source_rebuild_query_contract_rejects_empty_entities(self):
         root = Path(self.temp.name) / "video-04"
         path = root / "source-packet" / "rebuild-v2" / "evidence-queries.json"
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({"historical_queries": ["Black Bottom Detroit"]}), encoding="utf-8")
-        with self.assertRaises(SystemExit):
-            source_rebuild.load_evidence_queries(root, "04")
+        with patch.object(source_rebuild, "launch_root", lambda _: Path(self.temp.name) / "missing-launch"):
+            with self.assertRaises(SystemExit):
+                source_rebuild.load_evidence_queries(root, "04")
+
+    def test_source_rebuild_prefers_versioned_launch_query_contract(self):
+        root = Path(self.temp.name) / "output" / "video-04"
+        launch = Path(self.temp.name) / "launch" / "video-04"
+        launch.mkdir(parents=True)
+        (launch / "evidence-queries.json").write_text(json.dumps({
+            "historical_queries": ["Black Bottom Detroit"],
+            "required_entity_terms": ["black bottom"],
+        }), encoding="utf-8")
+        with patch.object(source_rebuild, "launch_root", lambda _: launch):
+            loaded = source_rebuild.load_evidence_queries(root, "04")
+        self.assertEqual(loaded["path"], launch / "evidence-queries.json")
 
     def test_source_rebuild_entity_match_rejects_generic_city_image(self):
         self.assertFalse(source_rebuild.entity_relevant("Detroit skyline downtown", ["black bottom", "hastings street"]))
         self.assertTrue(source_rebuild.entity_relevant("Hastings Street in Black Bottom", ["black bottom", "hastings street"]))
+
+    def test_elevenlabs_credit_health_warns_before_two_episodes(self):
+        payload = credit_health.evaluate_subscription({"character_count": 18_000, "character_limit": 30_000}, 8_000)
+        self.assertEqual(payload["status"], "warn")
+        self.assertTrue(payload["warn_under_two_episodes"])
+        self.assertFalse(payload["block_under_one_episode_with_margin"])
+
+    def test_elevenlabs_credit_health_blocks_before_one_episode(self):
+        payload = credit_health.evaluate_subscription({"character_count": 23_000, "character_limit": 30_000}, 8_000)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertTrue(payload["block_under_one_episode_with_margin"])

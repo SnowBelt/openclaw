@@ -230,6 +230,8 @@ def main() -> None:
     definitions.append(("research_queue_briefs", [py, "youtube-v1/scripts/patternlab_topic_research_worker.py"], False))
     if args.live_voice == "when-approved" and not voice_approved:
         definitions.append(("paid_voice_approval", ["blocked", voice_reason], True))
+    if live_voice:
+        definitions.append(("elevenlabs_credit_preflight", [py, "youtube-v1/scripts/patternlab_elevenlabs_credit_health.py", "--video-id", video_id, "--live"], True))
     definitions.append(("package", [py, "youtube-v1/scripts/patternlab_daily_factory.py", "--video-id", video_id], True))
     definitions.append(("renderer_decision", [py, "youtube-v1/scripts/patternlab_renderer_decision_gate.py", "--video-id", video_id], True))
     media_cmd = [py, "youtube-v1/scripts/patternlab_media_pipeline.py", "--video-id", video_id]
