@@ -36,6 +36,7 @@ from patternlab_comment_quality import build_comment_quality_report
 from patternlab_transcript_watchtime_score import build_score as build_transcript_watchtime_score
 from patternlab_transcript_editorial_quality import build_report as build_transcript_editorial_quality_report
 from patternlab_claim_ledger_quality import build_report as build_claim_ledger_quality_report
+from patternlab_claim_visual_fidelity import build_claim_visual_fidelity_report
 from patternlab_asset_identity import build_report as build_asset_identity_report
 from patternlab_font_tournament import build_font_tournament_report
 from patternlab_html_thumbnail_renderer import build_html_thumbnail_renderer_report
@@ -318,6 +319,18 @@ def build_quality_gates_report(video_id):
     transcript_watchtime, transcript_watchtime_json_report, transcript_watchtime_md_report = build_transcript_watchtime_score(video_id)
     transcript_editorial, transcript_editorial_json_report, transcript_editorial_md_report = build_transcript_editorial_quality_report(video_id)
     claim_ledger, claim_ledger_json_report, claim_ledger_md_report = build_claim_ledger_quality_report(video_id)
+    # The stricter claim-to-visual gate applies only once a rebuild-v2 evidence
+    # dossier exists. This avoids changing legacy fixture semantics while
+    # ensuring a source-first rebuild cannot pass on generic Detroit imagery.
+    claim_visual_fidelity = None
+    claim_visual_fidelity_json_report = None
+    claim_visual_fidelity_md_report = None
+    if (root / "source-packet" / "rebuild-v2" / "video-04-evidence-dossier.json").exists():
+        (
+            claim_visual_fidelity,
+            claim_visual_fidelity_json_report,
+            claim_visual_fidelity_md_report,
+        ) = build_claim_visual_fidelity_report(video_id)
     asset_identity, asset_identity_json_report, asset_identity_md_report = build_asset_identity_report(video_id)
     add_check(checks, blockers, "episode_standard_pass", episode_standard.get("status") == "pass", display_path(episode_standard_md_report))
     add_check(checks, blockers, "transcript_viral_quality_pass", transcript_viral.get("status") == "pass", display_path(transcript_viral_md_report))
@@ -325,6 +338,14 @@ def build_quality_gates_report(video_id):
     add_check(checks, blockers, "transcript_watchtime_score_pass", transcript_watchtime.get("status") == "pass", f"{transcript_watchtime.get('total_score', 0)}/{transcript_watchtime.get('max_score', 55)}; {display_path(transcript_watchtime_md_report)}")
     add_check(checks, blockers, "transcript_editorial_quality_pass", transcript_editorial.get("status") == "pass", display_path(transcript_editorial_md_report))
     add_check(checks, blockers, "claim_ledger_quality_pass", claim_ledger.get("status") == "pass", display_path(claim_ledger_md_report))
+    if claim_visual_fidelity is not None:
+        add_check(
+            checks,
+            blockers,
+            "claim_visual_fidelity_pass",
+            claim_visual_fidelity.get("status") == "pass",
+            display_path(claim_visual_fidelity_md_report),
+        )
     add_check(checks, blockers, "asset_identity_pass", asset_identity.get("status") == "pass", display_path(asset_identity_md_report))
     add_check(checks, blockers, "shorts_script_package_pass", shorts_script_package.get("status") == "pass", display_path(shorts_script_package_md_report))
     add_check(checks, blockers, "shorts_audio_economy_pass", shorts_audio_economy.get("status") == "pass", display_path(shorts_audio_economy_md_report))
@@ -845,6 +866,7 @@ def build_quality_gates_report(video_id):
             "thumbnail_search_shelf_test": thumbnail.get("thumbnail_search_shelf_test", ""),
             "source_rights": display_path(source_rights_md_report),
             "source_rights_json": display_path(source_rights_json_report),
+            "claim_visual_fidelity": display_path(claim_visual_fidelity_json_report) if claim_visual_fidelity_json_report else "not_applicable",
             "synthetic_disclosure": display_path(synthetic_md_report),
             "synthetic_disclosure_json": display_path(synthetic_json_report),
             "visual_variety": display_path(visual_variety_md_report),

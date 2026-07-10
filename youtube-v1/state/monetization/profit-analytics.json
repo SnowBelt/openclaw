@@ -1,0 +1,47 @@
+{
+  "video_id": "04",
+  "status": "pending_public_metrics",
+  "profit": {
+    "estimated_revenue_usd": 0.0,
+    "rpm_usd": "pending",
+    "watch_hours": 0.0,
+    "subscriber_conversion_per_1000_views": "pending"
+  },
+  "retention": {
+    "ctr_percent": "pending",
+    "average_view_duration_seconds": "pending",
+    "average_percentage_viewed": "pending",
+    "retention_30s_percent": "pending"
+  },
+  "thumbnail_test": {
+    "family": "THIS EXPLAINS DETROIT",
+    "candidate_role": "emotional mystery",
+    "title_thumbnail_promise": "Detroit city-file promise: hidden system explained with sources",
+    "youtube_ab_test_status": "pending_public_publish",
+    "watch_time_share_winner": "pending",
+    "browse_ctr_percent": "pending",
+    "suggested_ctr_percent": "pending",
+    "search_ctr_percent": "pending"
+  },
+  "audience_signals": {
+    "city_requests": 0,
+    "local_corrections": 0,
+    "source_suggestions": 0,
+    "source_disputes": 0,
+    "nostalgia_or_local_emotion": "pending",
+    "geography_confusion": "pending",
+    "expectation_mismatch_comments": "pending"
+  },
+  "shorts_to_long": {
+    "related_video_clicks": 0,
+    "shorts_to_long_click_rate_percent": 0.0
+  },
+  "media_quality": {
+    "tags": "historical-photo-ready;map-proof-ready;stock-broll-context-only",
+    "sponsor_fit": "local history, travel, maps, education"
+  },
+  "generated_at": "2026-07-10T14:32:01Z",
+  "metrics_path": "local-output/video-04/metrics/video-04-performance.csv",
+  "required_import_source": "YouTube Analytics API first read plus YouTube Studio/manual CSV for unsupported CTR, Shorts bridge, and revenue metrics.",
+  "legacy_excluded": true
+}

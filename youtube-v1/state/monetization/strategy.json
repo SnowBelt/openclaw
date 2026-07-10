@@ -1,0 +1,111 @@
+{
+  "channel": "Pattern Lab",
+  "lane": "hidden systems behind American cities",
+  "positioning": "Pattern Lab finds the people, maps, industries, neighborhoods, infrastructure, and decisions that made American cities what they are.",
+  "subscription_promise": "Subscribe for evidence-backed city history: one city, one artifact, one hidden pattern at a time.",
+  "sub_lanes": [
+    "city origins and turning points",
+    "lost neighborhoods and infrastructure",
+    "people culture and industry"
+  ],
+  "monetization_paths": {
+    "primary": {
+      "subscribers": 1000,
+      "valid_public_long_form_watch_hours_12m": 4000
+    },
+    "secondary_shorts": {
+      "subscribers": 1000,
+      "valid_public_shorts_views_90d": 10000000
+    },
+    "early_ypp_where_available": {
+      "subscribers": 500,
+      "public_uploads_90d": 3,
+      "valid_public_long_form_watch_hours_12m": 3000,
+      "valid_public_shorts_views_90d": 3000000
+    }
+  },
+  "cadence": {
+    "long_form_per_week": 3,
+    "shorts_public_target_per_long_form": 2,
+    "shorts_generated_for_review_per_long_form": 3,
+    "long_form_target_minutes_min": 8,
+    "long_form_target_minutes_max": 14,
+    "shorts_target_seconds_min": 25,
+    "shorts_target_seconds_max": 45
+  },
+  "topic_score_threshold": 80,
+  "minimum_quality_scores": {
+    "advertiser_safety": 8,
+    "original_artifact_strength": 8,
+    "city_history_value": 8,
+    "visual_proof_potential": 8,
+    "long_form_watch_hour_potential": 7,
+    "shorts_hook_potential": 7,
+    "subscriber_conversion_fit": 7
+  },
+  "topic_scoring_weights": {
+    "search_trend_demand": 12,
+    "advertiser_safety": 12,
+    "original_artifact_strength": 14,
+    "city_history_value": 14,
+    "visual_proof_potential": 14,
+    "long_form_watch_hour_potential": 14,
+    "shorts_hook_potential": 8,
+    "repeatability_without_template_feel": 8,
+    "subscriber_conversion_fit": 4
+  },
+  "source_policy": {
+    "preferred_sources": [
+      "Library of Congress",
+      "National Archives",
+      "Wikimedia Commons with commercial-use-compatible license",
+      "Detroit Public Library / Burton Historical Collection when rights are clear",
+      "Detroit Historical Society for research, with images used only when rights are explicit"
+    ],
+    "blocked_image_rights": [
+      "unknown",
+      "editorial only",
+      "noncommercial",
+      "no derivatives",
+      "all rights reserved without permission",
+      "random Google Images result"
+    ],
+    "ai_reconstruction_rule": "AI visuals may fill gaps only when labeled as reconstructions and never presented as archival photographs."
+  },
+  "subscribe_cta_policy": {
+    "required_in_long_form": true,
+    "required_in_shorts_bridge": true,
+    "style": "calm, earned, and tied to the series promise; never beg, guilt, or interrupt the opening hook",
+    "approved_lines": [
+      "If you want more city history built from maps, archives, and evidence, subscribe for the next Pattern Lab city file.",
+      "Subscribe for the next city file; the pattern is usually hiding in the map.",
+      "If this kind of evidence-backed city history is useful, subscribe and send me the next city to put under the microscope."
+    ]
+  },
+  "decision_labels": [
+    "double_down",
+    "repackage",
+    "revise_hook",
+    "improve_visual_pacing",
+    "retire_topic",
+    "expand_into_series",
+    "spin_off_city_series"
+  ],
+  "blocked_public_topics": [
+    "celebrity drama",
+    "partisan politics",
+    "active crime",
+    "medical claims",
+    "financial advice",
+    "sensitive events",
+    "shock or outrage-first coverage"
+  ],
+  "official_policy_sources": [
+    "https://support.google.com/youtube/answer/72851",
+    "https://support.google.com/youtube/answer/94522",
+    "https://support.google.com/youtube/answer/1311392",
+    "https://support.google.com/youtube/answer/12504220",
+    "https://support.google.com/youtube/answer/14328491",
+    "https://support.google.com/youtube/answer/6162278"
+  ]
+}
