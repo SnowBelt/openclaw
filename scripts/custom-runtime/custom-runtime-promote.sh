@@ -67,8 +67,15 @@ restore() {
   [ -f "$pointer_backup" ] && cp -p "$pointer_backup" "$previous_pointer" || rm -f "$previous_pointer"
   cp -p "$plist_backup" "$plist"
   launchctl bootout "gui/$uid/$label" 2>/dev/null || true
-  launchctl bootstrap "gui/$uid" "$plist" 2>/dev/null || true
-  printf '{"at":"%s","result":"rolled_back"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+  for _ in $(seq 1 15); do
+    launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  if launchctl bootstrap "gui/$uid" "$plist"; then
+    printf '{"at":"%s","result":"rolled_back"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+  else
+    printf '{"at":"%s","result":"rollback_bootstrap_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+  fi
 }
 
 cp -p "$pointer_tmp" "$previous_pointer"
@@ -83,7 +90,14 @@ PY
 mv "$plist.tmp" "$plist"
 cp -p "$plist" "$runtime_home/ai.openclaw.gateway.desired.plist"
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
-launchctl bootstrap "gui/$uid" "$plist"
+for _ in $(seq 1 15); do
+  launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
+  sleep 1
+done
+if ! launchctl bootstrap "gui/$uid" "$plist"; then
+  restore
+  exit 1
+fi
 
 ok=false
 for _ in $(seq 1 45); do
