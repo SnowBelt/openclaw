@@ -27,7 +27,11 @@ PY
 plist_uses_launcher=false
 if [ -f "$plist" ] && python3 - "$plist" "$launcher" <<'PY'
 import plistlib, sys
-with open(sys.argv[1], "rb") as f: args = plistlib.load(f).get("ProgramArguments", [])
+try:
+    with open(sys.argv[1], "rb") as f:
+        args = plistlib.load(f).get("ProgramArguments", [])
+except (OSError, plistlib.InvalidFileException):
+    raise SystemExit(1)
 raise SystemExit(0 if sys.argv[2] in args else 1)
 PY
 then
