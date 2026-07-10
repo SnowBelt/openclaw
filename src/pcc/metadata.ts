@@ -16,6 +16,25 @@ const TERMINAL_WORK_STATUSES = new Set<PccStatus>([
   "archived",
 ]);
 
+const STATUSES_NOT_REQUIRING_UPDATE = new Set<PccStatus>([
+  ...TERMINAL_WORK_STATUSES,
+  "on_hold",
+  "deferred",
+]);
+
+export function pccProjectIsStale(
+  status: PccStatus,
+  updatedAt: string | undefined,
+  nowMs = Date.now(),
+  maxAgeDays = 14,
+): boolean {
+  if (STATUSES_NOT_REQUIRING_UPDATE.has(status)) {
+    return false;
+  }
+  const updatedMs = updatedAt ? Date.parse(updatedAt) : Number.NaN;
+  return Number.isFinite(updatedMs) && nowMs - updatedMs > maxAgeDays * 24 * 60 * 60 * 1_000;
+}
+
 export function pccMetadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)

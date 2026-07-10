@@ -37,6 +37,7 @@ import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
+import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
@@ -115,6 +116,7 @@ export type PccDashboardProps = {
   modelsLoading?: boolean;
   modelsLastRefreshedAt?: number | null;
   modelsFallback?: boolean;
+  runtimeIdentity?: PccRuntimeIdentity | null;
   onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
   onSetProductFocusMode?: (mode: "pcc_product" | "project_work") => void;
@@ -1233,6 +1235,20 @@ function productionTruthDetail(props: PccDashboardProps): PccProjectDetail | nul
   );
 }
 
+function liveRuntimeTruthInput(props: PccDashboardProps) {
+  if (!props.runtimeIdentity) {
+    return {};
+  }
+  return {
+    runtimeSha: props.runtimeIdentity.runtimeSha,
+    runtimeEntrypoint: props.runtimeIdentity.runtimeEntrypoint,
+    expectedRuntimeRoot: props.runtimeIdentity.expectedRuntimeRoot,
+    runtimeDriftReason: props.runtimeIdentity.runtimeSha
+      ? undefined
+      : "Active Gateway did not expose a verified runtime SHA.",
+  };
+}
+
 function renderProductionTruthCard(props: PccDashboardProps) {
   const detail = productionTruthDetail(props);
   const truth = buildPccProductionTruth({
@@ -1240,6 +1256,7 @@ function renderProductionTruthCard(props: PccDashboardProps) {
     milestones: detail?.milestones ?? [],
     evidence: detail?.evidence ?? [],
     receipts: detail?.receipts ?? [],
+    ...liveRuntimeTruthInput(props),
   });
   return html`<section
     class="pcc-production-truth pcc-production-truth--${truth.status}"
@@ -1329,6 +1346,7 @@ function renderProductionTruthDrawer(props: PccDashboardProps) {
     milestones: detail?.milestones ?? [],
     evidence: detail?.evidence ?? [],
     receipts: detail?.receipts ?? [],
+    ...liveRuntimeTruthInput(props),
   });
   const openByDefault = pccViewMode(props) !== "simple" && truth.status !== "current";
   const badgeLabel =
@@ -1353,6 +1371,7 @@ function projectHeroProofBadge(detail: PccProjectDetail, props: PccDashboardProp
       milestones: productionDetail?.milestones ?? [],
       evidence: productionDetail?.evidence ?? [],
       receipts: productionDetail?.receipts ?? [],
+      ...liveRuntimeTruthInput(props),
     });
     if (truth.status !== "current") {
       return `Current proof: ${truth.label}`;
@@ -4393,7 +4412,9 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         </p>
       </div>
       <span class="pcc-status pcc-status--${autopilot.status}" data-pcc-autopilot-status-label>
-        ${autopilotStatusLabel(autopilot.status)}
+        ${autopilot.executionMode === "simulation" && autopilot.status === "completed"
+          ? "Simulation complete"
+          : autopilotStatusLabel(autopilot.status)}
       </span>
     </div>
     <article class="pcc-autopilot__status-card" data-pcc-autopilot-status-card>
@@ -4411,7 +4432,7 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         ${renderTruthFact(
           "Executor",
           autopilot.currentExecutor === "safe_stub"
-            ? "Safe stub"
+            ? "Safe stub (simulation)"
             : formatStatus(autopilot.currentExecutor),
         )}
         ${renderTruthFact(
@@ -4429,8 +4450,9 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         ${renderTruthFact("Judge", latestJudge?.summary ?? "Judge not run")}
       </dl>
       <p class="pcc-autopilot__safety" data-pcc-autopilot-safe-stub>
-        Safe mode is active: PCC will not spend Codex/high-reasoning tokens, deploy, delete files,
-        change credentials, reboot, or perform external writes without separate approval.
+        Simulation mode is active: PCC records prompts and review guidance only. It does not claim
+        live implementation, spend Codex/high-reasoning tokens, deploy, delete files, change
+        credentials, reboot, or perform external writes.
       </p>
     </article>
     ${permissionForecast.required
@@ -7304,12 +7326,26 @@ function renderSelectedFilteredProjectNotice(
 }
 
 export function renderPccDashboard(props: PccDashboardProps) {
-  const allProjects = focusScopedProjectsForToday(props, props.projects);
+  const scopedProjects = focusScopedProjectsForToday(props, props.projects);
+  const selectedProjectSummary = props.projectDetail
+    ? props.projects.find((project) => project.id === props.projectDetail?.project.id)
+    : undefined;
+  const selectedOutsideScope = Boolean(
+    selectedProjectSummary &&
+    props.projectDetail &&
+    pccWorkScopeForProject(props.projectDetail.project) !== effectivePccFocusMode(props),
+  );
+  const allProjects =
+    selectedOutsideScope &&
+    selectedProjectSummary &&
+    !scopedProjects.some((project) => project.id === selectedProjectSummary.id)
+      ? [...scopedProjects, selectedProjectSummary]
+      : scopedProjects;
   const selectedFilter = effectiveProjectFilter(props, allProjects);
   const filteredByTab = allProjects.filter((project) =>
     projectMatchesFilter(project, selectedFilter),
   );
-  const projects = filteredByTab.filter((project) =>
+  const filteredProjects = filteredByTab.filter((project) =>
     projectMatchesSearch(
       project,
       props.projectSearchQuery,
@@ -7317,6 +7353,17 @@ export function renderPccDashboard(props: PccDashboardProps) {
         (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined),
     ),
   );
+  const projects =
+    selectedOutsideScope &&
+    selectedProjectSummary &&
+    !filteredProjects.some((project) => project.id === selectedProjectSummary.id) &&
+    projectMatchesSearch(
+      selectedProjectSummary,
+      props.projectSearchQuery,
+      props.projectDetails?.[selectedProjectSummary.id] ?? props.projectDetail ?? undefined,
+    )
+      ? [...filteredProjects, selectedProjectSummary]
+      : filteredProjects;
   const mode = pccViewMode(props);
   return html`
     <section

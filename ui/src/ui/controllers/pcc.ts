@@ -24,6 +24,7 @@ import {
 } from "../../../../src/pcc/intake-quality.js";
 import {
   normalizePccResponsibility,
+  pccProjectIsStale,
   pccWorkScopeForProject,
   pccResponsibilityForItem,
 } from "../../../../src/pcc/metadata.js";
@@ -31,6 +32,7 @@ import {
   buildPccWorkflowDraft,
   type PccPlanningMode,
 } from "../../../../src/pcc/project-workflows.js";
+import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
 import {
   getPccWorkLoopSettings,
@@ -227,6 +229,7 @@ export type PccDashboardState = {
   pccViewMode: PccViewMode;
   pccProductFocusMode?: "pcc_product" | "project_work";
   pccReorderMode?: boolean;
+  pccRuntimeIdentity?: PccRuntimeIdentity | null;
   requestUpdate?: () => void;
 };
 
@@ -236,6 +239,7 @@ type PccProjectsListResult = {
 
 type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
+  runtimeIdentity?: PccRuntimeIdentity;
 };
 
 type PccProjectsGetResult = {
@@ -964,13 +968,9 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
     const due = Date.parse(project.dueDate);
     return Number.isFinite(due) && due < now;
   }).length;
-  const stale = projects.filter((project) => {
-    if (terminalStatuses.has(project.status)) {
-      return false;
-    }
-    const updated = Date.parse(project.updatedAt);
-    return Number.isFinite(updated) && now - updated > 14 * 24 * 60 * 60 * 1_000;
-  }).length;
+  const stale = projects.filter((project) =>
+    pccProjectIsStale(project.status, project.updatedAt, now, 14),
+  ).length;
   const proofGaps = projects.filter((project) => project.proofGaps.length > 0).length;
   const deferredOutOfUrgentStatuses = new Set(["archived", "skipped", "on_hold", "deferred"]);
   const needsAttention = projects.filter(
@@ -987,9 +987,7 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
           project.dueDate !== undefined &&
           Number.isFinite(Date.parse(project.dueDate)) &&
           Date.parse(project.dueDate) < now) ||
-        (!terminalStatuses.has(project.status) &&
-          Number.isFinite(Date.parse(project.updatedAt)) &&
-          now - Date.parse(project.updatedAt) > 14 * 24 * 60 * 60 * 1_000)),
+        pccProjectIsStale(project.status, project.updatedAt, now, 14)),
   ).length;
   const averagePercentComplete =
     total === 0
@@ -1201,6 +1199,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
       : [];
     state.pccProjects = projects;
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
+    state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccProjectDetails = state.pccProjectDetail
       ? { ...state.pccProjectDetails, [state.pccProjectDetail.project.id]: state.pccProjectDetail }
       : state.pccProjectDetails;

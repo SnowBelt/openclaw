@@ -1363,6 +1363,7 @@ describe("renderPccDashboard", () => {
       nextActions: ["Continue local proof"],
       proofGaps: [],
       health: "On track",
+      updatedAt: new Date().toISOString(),
     };
     const container = renderView(
       createProps({
@@ -3493,7 +3494,7 @@ describe("renderPccDashboard", () => {
       "Full Build Review",
     );
     expect(autopilot?.textContent).toContain("Autopilot Project Loop");
-    expect(autopilot?.textContent).toContain("Safe mode is active");
+    expect(autopilot?.textContent).toContain("Simulation mode is active");
     expect(autopilot?.textContent).toContain("Permission needed before start");
     expect(container.querySelector("[data-pcc-autopilot-permission-queue]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-autopilot-grant-history]")).not.toBeNull();

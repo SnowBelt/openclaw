@@ -1,3 +1,4 @@
+import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 // Control UI module implements app view state behavior.
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import type { ChatAbortOptions, ChatSendOptions } from "./app-chat.ts";
@@ -211,6 +212,7 @@ export type AppViewState = {
   projectsList?: ProjectsListResult | null;
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
+  pccRuntimeIdentity: PccRuntimeIdentity | null;
   pccLoading: boolean;
   pccError: string | null;
   pccUpdatedAt: number | null;

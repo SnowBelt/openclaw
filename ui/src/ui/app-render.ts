@@ -2871,6 +2871,7 @@ export function renderApp(state: AppViewState) {
                 modelsLoading: state.chatModelsLoading,
                 modelsLastRefreshedAt: state.chatModelCatalogRefreshedAt,
                 modelsFallback: state.chatModelCatalogFallback,
+                runtimeIdentity: state.pccRuntimeIdentity,
                 onRefreshModelCatalog: () => {
                   if (!state.client) {
                     return;

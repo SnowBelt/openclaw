@@ -30,6 +30,7 @@ export type PccAutopilotModeId =
   | "launch_prep";
 
 export type PccAutopilotExecutorKind = "codex" | "local_model" | "safe_stub";
+export type PccAutopilotExecutionMode = "simulation" | "live";
 export type PccAutopilotReasoningLevel = "standard" | "high";
 export type PccAutopilotApprovalTier = "low" | "medium" | "high";
 export type PccAutopilotJudgeSetting = "off" | "optional" | "mandatory";
@@ -249,6 +250,7 @@ export type PccAutopilotFinalReport = {
 
 export type PccAutopilotState = {
   version: 1;
+  executionMode: PccAutopilotExecutionMode;
   status: PccAutopilotStatus;
   mode: PccAutopilotModeId;
   modeTitle: string;
@@ -448,6 +450,10 @@ function executorFromUnknown(value: unknown): PccAutopilotExecutorKind {
   return value === "codex" || value === "local_model" || value === "safe_stub"
     ? value
     : "safe_stub";
+}
+
+function executionModeFromUnknown(value: unknown): PccAutopilotExecutionMode {
+  return value === "live" ? "live" : "simulation";
 }
 
 function approvalTierFromUnknown(value: unknown): PccAutopilotApprovalTier {
@@ -1034,6 +1040,7 @@ export function defaultPccAutopilotState(
   const preset = modePreset("full_build_review");
   return {
     version: 1,
+    executionMode: "simulation",
     status: "off",
     mode: preset.id,
     modeTitle: preset.title,
@@ -1335,6 +1342,7 @@ export function getPccAutopilotState(
     : generatePccAutopilotPromptSlots(input, mode);
   return {
     version: 1,
+    executionMode: executionModeFromUnknown(autopilot.executionMode),
     status: statusFromUnknown(autopilot.status),
     mode,
     modeTitle: stringValue(autopilot.modeTitle) || preset.title,
@@ -1475,7 +1483,10 @@ export function buildPccAutopilotJudgeResult(
   if (!requiresJudge) {
     return {
       status: "not_run",
-      summary: "Judge review is optional for this loop mode.",
+      summary:
+        state.executionMode === "simulation"
+          ? "simulation record only; judge review was not required and live work was not verified."
+          : "Judge review is optional for this loop mode.",
       evidence: [],
     };
   }
@@ -1496,8 +1507,13 @@ export function buildPccAutopilotJudgeResult(
   return {
     status: "passed",
     summary:
-      "Judge verified that the safe Autopilot loop recorded context, run history, limitations, and final report.",
-    evidence: ["Context pack present", "Prompt run history present", "Final report generated"],
+      state.executionMode === "simulation"
+        ? "Judge verified a simulation record only; live implementation and project improvement were not verified."
+        : "Judge verified that the Autopilot loop recorded context, run history, limitations, and final report.",
+    evidence:
+      state.executionMode === "simulation"
+        ? ["Context pack present", "Prompt run history present", "No live changes claimed"]
+        : ["Context pack present", "Prompt run history present", "Final report generated"],
     reviewedAt: now,
   };
 }
@@ -1548,7 +1564,8 @@ export function buildPccAutopilotFinalReport(
       ...DEFAULT_FORBIDDEN_ACTIONS,
     ],
     recommendedNextLoop: state.mode === "full_build_review" ? "bug_hunt" : "test_verify",
-    healthierThanBefore: state.status === "completed" && runs.length > 0,
+    healthierThanBefore:
+      state.executionMode === "live" && state.status === "completed" && runs.length > 0,
     generatedAt: now,
   };
 }
@@ -1652,7 +1669,7 @@ export function runPccAutopilotSafeStubSet(
         slot.promptBody,
         "",
         "Safe stub result: no Codex/high-reasoning token spend, no file edits, no deployment, no external writes.",
-        "Result: review guidance recorded successfully.",
+        "Result: simulation guidance recorded successfully; no live implementation was performed.",
       ].join("\n"),
     };
   });

@@ -34,9 +34,11 @@ import {
 import {
   canonicalizePccProjectForWrite,
   canonicalizePccWorkItemForWrite,
+  pccProjectIsStale,
   pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
+import { readPccRuntimeIdentity } from "../../pcc/runtime-identity.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 
 type PccLedger = {
@@ -445,14 +447,7 @@ function projectSummaryIsOverdue(project: PccProjectSummary): boolean {
 }
 
 function projectSummaryIsStale(project: PccProjectSummary): boolean {
-  if (PROJECT_TERMINAL_STATUSES.has(project.status)) {
-    return false;
-  }
-  const updatedAt = Date.parse(project.updatedAt);
-  if (!Number.isFinite(updatedAt)) {
-    return false;
-  }
-  return Date.now() - updatedAt > PCC_STALE_PROJECT_DAYS * 24 * 60 * 60 * 1_000;
+  return pccProjectIsStale(project.status, project.updatedAt, Date.now(), PCC_STALE_PROJECT_DAYS);
 }
 
 function projectSummaryNeedsAttention(project: PccProjectSummary): boolean {
@@ -2345,10 +2340,14 @@ export const pccHandlers: GatewayRequestHandlers = {
         respond(true, {
           project: summarizeProject(ledger, project),
           portfolio: summarizePortfolio(ledger),
+          runtimeIdentity: readPccRuntimeIdentity(),
         });
         return;
       }
-      respond(true, { portfolio: summarizePortfolio(ledger) });
+      respond(true, {
+        portfolio: summarizePortfolio(ledger),
+        runtimeIdentity: readPccRuntimeIdentity(),
+      });
     } catch (error) {
       respondUnhandled(respond, error);
     }

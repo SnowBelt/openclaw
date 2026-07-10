@@ -80,6 +80,9 @@ describe("PCC Autopilot Project Loop", () => {
     expect(result.runHistory[0]?.executor).toBe("safe_stub");
     expect(result.runHistory.flatMap((run) => run.changedFiles)).toEqual([]);
     expect(result.finalReport?.remainingRisks.join("\n")).toContain("Safe stub mode");
+    expect(result.executionMode).toBe("simulation");
+    expect(result.finalReport?.healthierThanBefore).toBe(false);
+    expect(result.latestJudgeResult?.summary).toContain("simulation record only");
   });
 
   it("forecasts medium-risk approval before full build review starts", () => {

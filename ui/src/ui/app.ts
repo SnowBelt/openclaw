@@ -2,6 +2,7 @@
 import { LitElement } from "lit";
 import { state } from "lit/decorators.js";
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
+import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import {
@@ -458,6 +459,7 @@ export class OpenClawApp extends LitElement {
   @state() projectsList: ProjectsListResult | null = null;
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
+  @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
   @state() pccLoading = false;
   @state() pccError: string | null = null;
   @state() pccUpdatedAt: number | null = null;

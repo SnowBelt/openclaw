@@ -130,24 +130,33 @@ async function main() {
       proofGaps: [],
       updatedAt: now,
     };
-    render(
-      renderPccDashboard({
-        loading: false,
-        error: null,
-        updatedAt: Date.now(),
-        portfolio: {
-          projectsTotal: 1,
-          active: 1,
-          blocked: 0,
-          needsApproval: 0,
-          complete: 0,
-          archived: 0,
-          averagePercentComplete: 0,
-          nextActions: ["First reliable step"],
-        },
-        projects: [summary],
-        selectedProjectId: project.id,
-        projectDetail: {
+    const viewProps = {
+      loading: false,
+      error: null,
+      updatedAt: Date.now(),
+      portfolio: {
+        projectsTotal: 1,
+        active: 1,
+        blocked: 0,
+        needsApproval: 0,
+        complete: 0,
+        archived: 0,
+        averagePercentComplete: 0,
+        nextActions: ["First reliable step"],
+      },
+      projects: [summary],
+      selectedProjectId: project.id,
+      projectDetail: {
+        project,
+        milestones,
+        subMilestones,
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+      projectDetails: {
+        [project.id]: {
           project,
           milestones,
           subMilestones,
@@ -156,83 +165,71 @@ async function main() {
           receipts: [],
           summary,
         },
-        projectDetails: {
-          [project.id]: {
-            project,
-            milestones,
-            subMilestones,
-            permissions: [],
-            evidence: [],
-            receipts: [],
-            summary,
-          },
-        },
-        actionBusy: false,
-        actionError: null,
-        editorMode: null,
-        projectForm: {
-          id: null,
-          title: "",
-          goal: "",
-          status: "active",
-          priority: "3",
-          workflowTemplateId: "software-product",
-          planningMode: "template_only",
-          codexPlanningAllowed: false,
-          remoteProofAllowed: false,
-          runtimeActionsAllowed: false,
-        },
-        milestoneForm: {
-          id: null,
-          projectId: project.id,
-          title: "",
-          status: "not_started",
-          phaseId: "",
-          order: "",
-          percentComplete: "",
-          blocker: "",
-          implementationPlan: "",
-          acceptanceCriteria: "",
-          responsibility: "local_openclaw_agent",
-          costRisk: "low",
-        },
-        chatSyncText: "",
-        chatSyncProposals: [],
-        chatSyncError: null,
-        viewMode: "agent",
-        reorderMode: true,
-        onSetViewMode: (mode) => calls.push(`view:${mode}`),
-        onRefresh: () => calls.push("refresh"),
-        onSelectProject: (id) => calls.push(`select:${id}`),
-        onOpenProjectEditor: () => calls.push("edit-project"),
-        onOpenMilestoneEditor: (milestone) =>
-          calls.push(`edit-milestone:${milestone?.id ?? "new"}`),
-        onProjectFormChange: () => calls.push("project-change"),
-        onMilestoneFormChange: () => calls.push("milestone-change"),
-        onSaveProject: () => calls.push("save-project"),
-        onSaveMilestone: () => calls.push("save-milestone"),
-        onCancelEditor: () => calls.push("cancel"),
-        onSetProjectStatus: (_project, status) => calls.push(`project-status:${status}`),
-        onSetMilestoneStatus: (milestone, status) =>
-          calls.push(`milestone-status:${milestone.id}:${status}`),
-        onSetMilestoneStopHere: (milestone, stopHere) =>
-          calls.push(`stop-here:${milestone.id}:${stopHere}`),
-        onMoveMilestoneBefore: (source, target) =>
-          calls.push(`move-milestone:${source.id}->${target.id}`),
-        onMoveSubMilestoneBefore: (source, target) =>
-          calls.push(`move-sub:${source.id}->${target.id}`),
-        onSetSubMilestoneStatus: (sub, status) => calls.push(`sub-status:${sub.id}:${status}`),
-        onAddCompletionReceipt: () => calls.push("add-receipt"),
-        onSetPermissionStatus: (_permission, status) => calls.push(`permission-status:${status}`),
-        onUpdateWorkLoop: () => calls.push("work-loop-update"),
-        onPrepareNextWorkItem: () => calls.push("work-loop-next"),
-        onChatSyncTextChange: () => undefined,
-        onPreviewChatSync: () => undefined,
-        onApplyChatSyncProposal: () => undefined,
-        onDismissChatSync: () => undefined,
-      }),
-      root,
-    );
+      },
+      actionBusy: false,
+      actionError: null,
+      editorMode: null,
+      projectForm: {
+        id: null,
+        title: "",
+        goal: "",
+        status: "active",
+        priority: "3",
+        workflowTemplateId: "software-product",
+        planningMode: "template_only",
+        codexPlanningAllowed: false,
+        remoteProofAllowed: false,
+        runtimeActionsAllowed: false,
+      },
+      milestoneForm: {
+        id: null,
+        projectId: project.id,
+        title: "",
+        status: "not_started",
+        phaseId: "",
+        order: "",
+        percentComplete: "",
+        blocker: "",
+        implementationPlan: "",
+        acceptanceCriteria: "",
+        responsibility: "local_openclaw_agent",
+        costRisk: "low",
+      },
+      chatSyncText: "",
+      chatSyncProposals: [],
+      chatSyncError: null,
+      viewMode: "agent",
+      reorderMode: true,
+      onSetViewMode: (mode) => calls.push(`view:${mode}`),
+      onRefresh: () => calls.push("refresh"),
+      onSelectProject: (id) => calls.push(`select:${id}`),
+      onOpenProjectEditor: () => calls.push("edit-project"),
+      onOpenMilestoneEditor: (milestone) => calls.push(`edit-milestone:${milestone?.id ?? "new"}`),
+      onProjectFormChange: () => calls.push("project-change"),
+      onMilestoneFormChange: () => calls.push("milestone-change"),
+      onSaveProject: () => calls.push("save-project"),
+      onSaveMilestone: () => calls.push("save-milestone"),
+      onCancelEditor: () => calls.push("cancel"),
+      onSetProjectStatus: (_project, status) => calls.push(`project-status:${status}`),
+      onSetMilestoneStatus: (milestone, status) =>
+        calls.push(`milestone-status:${milestone.id}:${status}`),
+      onSetMilestoneStopHere: (milestone, stopHere) =>
+        calls.push(`stop-here:${milestone.id}:${stopHere}`),
+      onMoveMilestoneBefore: (source, target) =>
+        calls.push(`move-milestone:${source.id}->${target.id}`),
+      onMoveSubMilestoneBefore: (source, target) =>
+        calls.push(`move-sub:${source.id}->${target.id}`),
+      onSetSubMilestoneStatus: (sub, status) => calls.push(`sub-status:${sub.id}:${status}`),
+      onAddCompletionReceipt: () => calls.push("add-receipt"),
+      onSetPermissionStatus: (_permission, status) => calls.push(`permission-status:${status}`),
+      onUpdateWorkLoop: () => calls.push("work-loop-update"),
+      onPrepareNextWorkItem: () => calls.push("work-loop-next"),
+      onChatSyncTextChange: () => undefined,
+      onPreviewChatSync: () => undefined,
+      onApplyChatSyncProposal: () => undefined,
+      onDismissChatSync: () => undefined,
+    };
+    render(renderPccDashboard(viewProps), root);
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
@@ -247,6 +244,14 @@ async function main() {
         '[data-pcc-submilestone-id="proof-sub-2"] [data-pcc-reorder="submilestone-up"]',
       )
       ?.click();
+    const reorderToggle = root.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]");
+    if (!reorderToggle || !reorderToggle.textContent?.includes("Done reordering")) {
+      throw new Error("reorder mode did not activate");
+    }
+    // Action menus are intentionally paused during reorder mode. Exit that mode before proving
+    // a mutation menu; this keeps the smoke aligned with the user-facing safety contract.
+    viewProps.reorderMode = false;
+    render(renderPccDashboard(viewProps), root);
     const menu = root.querySelector<HTMLElement>(
       '[data-pcc-milestone-id="proof-step-1"] [data-pcc-action-menu]',
     );
@@ -254,7 +259,6 @@ async function main() {
     const defer = [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) =>
       button.textContent?.includes("Defer"),
     );
-    defer?.click();
     defer?.click();
 
     const text = root.textContent ?? "";

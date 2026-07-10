@@ -640,6 +640,16 @@ export const PccSummaryGetResultSchema = Type.Object(
   {
     project: Type.Optional(PccProjectSummarySchema),
     portfolio: PccPortfolioSummarySchema,
+    runtimeIdentity: Type.Optional(
+      Type.Object(
+        {
+          runtimeSha: Type.Union([Type.String(), Type.Null()]),
+          runtimeEntrypoint: Type.Union([Type.String(), Type.Null()]),
+          expectedRuntimeRoot: Type.Union([Type.String(), Type.Null()]),
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

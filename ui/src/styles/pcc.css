@@ -3823,7 +3823,7 @@
 @media (max-width: 760px) {
   .pcc-shell {
     gap: 10px;
-    padding-bottom: 18px;
+    padding-bottom: 92px;
   }
 
   .pcc-hero--compact {
@@ -3900,8 +3900,10 @@
     gap: 8px;
     margin: 0;
     padding: 8px;
+    max-width: 100%;
     position: sticky;
-    top: 0;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    top: auto;
     z-index: 12;
   }
 
@@ -3949,6 +3951,7 @@
   .pcc-mobile-command-rail__actions .btn {
     flex: 1 1 140px;
     min-height: 38px;
+    min-width: 0;
   }
 
   .pcc-mobile-section-tabs {
@@ -3973,6 +3976,7 @@
     font-size: 0.78rem;
     font-weight: 850;
     min-height: 36px;
+    min-width: 0;
     padding: 8px 10px;
     white-space: nowrap;
   }

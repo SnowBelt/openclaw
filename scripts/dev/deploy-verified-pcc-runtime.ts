@@ -1,7 +1,9 @@
+import { execFile } from "node:child_process";
 // Deploy a verified PCC runtime only after its dashboard surface contract is intact.
 import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const REQUIRED_SURFACES = [
   "pcc",
@@ -17,6 +19,8 @@ type SurfaceManifest = {
   buildId?: unknown;
   surfaces?: Array<{ id?: unknown; assets?: unknown }>;
 };
+
+const execFileAsync = promisify(execFile);
 
 export type VerifiedRuntimeDeployment = {
   source: string;
@@ -76,6 +80,7 @@ export async function verifyPccDashboardSurfaceManifest(source: string): Promise
 
 export async function copyVerifiedRuntime(deployment: VerifiedRuntimeDeployment): Promise<void> {
   await verifyPccDashboardSurfaceManifest(deployment.source);
+  await verifySourceSha(deployment.source, deployment.sha);
   if (deployment.source === deployment.runtime || deployment.source === deployment.backup) {
     throw new Error("Source, runtime, and backup paths must be distinct.");
   }
@@ -111,6 +116,24 @@ export async function copyVerifiedRuntime(deployment: VerifiedRuntimeDeployment)
       await rename(deployment.backup, deployment.runtime);
     }
     throw error;
+  }
+}
+
+async function verifySourceSha(source: string, expectedSha: string): Promise<void> {
+  try {
+    await stat(path.join(source, ".git"));
+  } catch {
+    // Fixture sources used by the isolated smoke may intentionally omit Git metadata.
+    return;
+  }
+  const { stdout } = await execFileAsync("git", ["-C", source, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  });
+  const actualSha = stdout.trim();
+  if (actualSha !== expectedSha) {
+    throw new Error(
+      `Source SHA ${actualSha} does not match requested verified SHA ${expectedSha}.`,
+    );
   }
 }
 

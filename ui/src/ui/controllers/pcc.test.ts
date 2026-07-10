@@ -306,58 +306,64 @@ describe("loadPccDashboard", () => {
   });
 
   it("computes fallback portfolio attention metrics when summary omits them", async () => {
-    const stale = {
-      ...summary,
-      id: "stale-project",
-      status: "active" as const,
-      proofGaps: [],
-      milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
-      updatedAt: "2000-01-01T00:00:00.000Z",
-    };
-    const proofGap = {
-      ...summary,
-      id: "proof-gap-project",
-      status: "active" as const,
-      proofGaps: ["Missing browser proof"],
-      milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
-    };
-    const overdue = {
-      ...summary,
-      id: "overdue-project",
-      status: "active" as const,
-      proofGaps: [],
-      milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
-      dueDate: "2000-01-02T00:00:00.000Z",
-    };
-    const onHold = {
-      ...summary,
-      id: "on-hold-project",
-      status: "on_hold" as const,
-      proofGaps: ["Deferred browser proof"],
-      milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 1 },
-      health: "At risk",
-    };
-    const deferred = {
-      ...summary,
-      id: "deferred-project",
-      status: "deferred" as const,
-      proofGaps: ["Deferred remote proof"],
-      milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 0 },
-      health: "Overdue",
-    };
-    const request = vi
-      .fn()
-      .mockResolvedValueOnce({ projects: [stale, proofGap, overdue, onHold, deferred] })
-      .mockResolvedValueOnce({});
-    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-27T00:00:00.000Z"));
+    try {
+      const stale = {
+        ...summary,
+        id: "stale-project",
+        status: "active" as const,
+        proofGaps: [],
+        milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
+        updatedAt: "2000-01-01T00:00:00.000Z",
+      };
+      const proofGap = {
+        ...summary,
+        id: "proof-gap-project",
+        status: "active" as const,
+        proofGaps: ["Missing browser proof"],
+        milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
+      };
+      const overdue = {
+        ...summary,
+        id: "overdue-project",
+        status: "active" as const,
+        proofGaps: [],
+        milestoneCounts: { ...summary.milestoneCounts, needsApproval: 0 },
+        dueDate: "2000-01-02T00:00:00.000Z",
+      };
+      const onHold = {
+        ...summary,
+        id: "on-hold-project",
+        status: "on_hold" as const,
+        proofGaps: ["Deferred browser proof"],
+        milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 1 },
+        health: "At risk",
+      };
+      const deferred = {
+        ...summary,
+        id: "deferred-project",
+        status: "deferred" as const,
+        proofGaps: ["Deferred remote proof"],
+        milestoneCounts: { ...summary.milestoneCounts, blocked: 1, needsApproval: 0 },
+        health: "Overdue",
+      };
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ projects: [stale, proofGap, overdue, onHold, deferred] })
+        .mockResolvedValueOnce({});
+      const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
 
-    await loadPccDashboard(state);
+      await loadPccDashboard(state);
 
-    expect(state.pccPortfolioSummary?.needsAttention).toBe(3);
-    expect(state.pccPortfolioSummary?.active).toBe(3);
-    expect(state.pccPortfolioSummary?.proofGaps).toBe(3);
-    expect(state.pccPortfolioSummary?.overdue).toBe(1);
-    expect(state.pccPortfolioSummary?.stale).toBe(1);
+      expect(state.pccPortfolioSummary?.needsAttention).toBe(3);
+      expect(state.pccPortfolioSummary?.active).toBe(3);
+      expect(state.pccPortfolioSummary?.proofGaps).toBe(3);
+      expect(state.pccPortfolioSummary?.overdue).toBe(1);
+      expect(state.pccPortfolioSummary?.stale).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does nothing while disconnected", async () => {
