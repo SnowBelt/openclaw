@@ -205,6 +205,21 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
                         full_auto.main()
                     self.assertIn("elevenlabs_credit_preflight", [item[0] for item in captured["definitions"]])
 
+    def test_full_auto_requires_canonical_evidence_and_release_before_owner_packet(self):
+        with patch.object(full_auto, "paid_voice_approval", return_value=(False, "missing")), patch.object(full_auto, "build_full_auto_report", return_value=({"status": "pass"}, Path("x"), Path("x"))), patch.object(full_auto, "load_dotenv"):
+            with patch.object(sys, "argv", ["program", "--video-id", "04"]):
+                captured = {}
+
+                def capture(definitions, **kwargs):
+                    captured["definitions"] = definitions
+                    return []
+
+                with patch.object(full_auto, "run_steps_fail_fast", side_effect=capture):
+                    full_auto.main()
+        names = [item[0] for item in captured["definitions"]]
+        self.assertLess(names.index("canonical_evidence_preflight"), names.index("owner_packet"))
+        self.assertLess(names.index("canonical_release_registration"), names.index("owner_packet"))
+
     def test_full_auto_accepts_generic_hash_bound_paid_voice_approval_for_future_video(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

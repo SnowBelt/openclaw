@@ -239,10 +239,17 @@ def main() -> None:
         media_cmd.append("--live-voice")
     definitions.append(("media_pipeline", media_cmd, True))
     definitions.append(("shorts_tournament_plan", [py, "youtube-v1/scripts/generate_shorts_ffmpeg.py", "--video-id", video_id, "--shorts-target", str(args.shorts_target), "--dry-run"], True))
+    # The legacy media worker may create files, but no package can reach owner
+    # review until an explicit, hash-verified evidence manifest proves which
+    # assets support the narration.  This intentionally blocks rather than
+    # inferring a source trail from filenames or generic B-roll.
+    definitions.append(("canonical_evidence_preflight", [py, "youtube-v1/scripts/patternlab_canonical_preflight.py", "--video-id", video_id], True))
     definitions.append(("episode_standard", [py, "youtube-v1/scripts/patternlab_episode_standard.py", "--video-id", video_id], True))
     definitions.append(("voice_visual_match", [py, "youtube-v1/scripts/patternlab_voice_visual_match.py", "--video-id", video_id], True))
     definitions.append(("finished_watchdown", [py, "youtube-v1/scripts/patternlab_finished_video_watchdown.py", "--video-id", video_id], True))
     definitions.append(("shorts_followup", [py, "youtube-v1/scripts/patternlab_shorts_followup_packet.py", "--video-id", video_id], True))
+    definitions.append(("package_hashes", [py, "youtube-v1/scripts/patternlab_package_hashes.py", "--video-id", video_id], True))
+    definitions.append(("canonical_release_registration", [py, "youtube-v1/scripts/patternlab_register_release.py", "--video-id", video_id], True))
     definitions.append(("owner_packet", [py, "youtube-v1/scripts/generate_owner_review_packet.py", "--video-id", video_id], True))
     definitions.append(("dashboard_check", [py, "youtube-v1/scripts/patternlab_dashboard_server.py", "--check", "--video-id", video_id], True))
     steps = run_steps_fail_fast(definitions, dry_run=args.dry_run)

@@ -16,6 +16,7 @@ from patternlab.timeline import timeline_from_manifest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import source_visual_rebuild_assets as source_rebuild
 import patternlab_elevenlabs_credit_health as credit_health
+import patternlab_canonical_preflight as canonical_preflight
 
 
 class CanonicalStateTests(unittest.TestCase):
@@ -117,3 +118,41 @@ class CanonicalStateTests(unittest.TestCase):
         }
         with self.assertRaises(ValueError):
             EpisodeManifest.model_validate(payload)
+
+    def test_canonical_preflight_writes_otio_only_for_hash_verified_evidence(self):
+        root = Path(self.temp.name) / "local-output" / "video-04"
+        evidence = root / "evidence" / "black-bottom-map.jpg"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_bytes(b"historical-map")
+        manifest = {
+            "episode_id": "04", "title": "The Neighborhood Detroit Erased",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a living Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "historical_evidence", "rights_status": "approved", "evidence_fit": "direct", "visual_fit": "approved", "relative_path": "evidence/black-bottom-map.jpg", "sha256": __import__("hashlib").sha256(evidence.read_bytes()).hexdigest()}],
+            "visual_beats": [{"beat_id": "beat-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3}],
+        }
+        manifest_path = root / "approval" / "evidence-manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with patch.object(canonical_preflight, "output_root", lambda _: root):
+            payload, _, _ = canonical_preflight.build_report("04")
+        self.assertEqual(payload["status"], "pass")
+        self.assertTrue((root / "video" / "pattern-lab-video-04.otio").exists())
+
+    def test_canonical_preflight_rejects_hash_mismatch(self):
+        root = Path(self.temp.name) / "local-output" / "video-04"
+        evidence = root / "evidence" / "black-bottom-map.jpg"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_bytes(b"historical-map")
+        manifest = {
+            "episode_id": "04", "title": "The Neighborhood Detroit Erased",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a living Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "historical_evidence", "rights_status": "approved", "evidence_fit": "direct", "visual_fit": "approved", "relative_path": "evidence/black-bottom-map.jpg", "sha256": "a" * 64}],
+            "visual_beats": [{"beat_id": "beat-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3}],
+        }
+        manifest_path = root / "approval" / "evidence-manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with patch.object(canonical_preflight, "output_root", lambda _: root):
+            payload, _, _ = canonical_preflight.build_report("04")
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["blockers"], ["evidence_asset_hash_mismatch:asset-1"])
