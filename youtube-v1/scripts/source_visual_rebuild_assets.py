@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -13,14 +14,33 @@ from patternlab_visual_categories import classify_visual_category
 USER_AGENT = "PatternLab/1.0 visual rebuild research"
 MIN_HISTORICAL = 20
 MIN_MODERN = 10
+DEFAULT_HISTORICAL_MAX_YEAR = 1965
 
 EVIDENCE_QUERY_FILE = "evidence-queries.json"
 
 
+class ProviderRateLimited(RuntimeError):
+    """A public source provider asked Pattern Lab to stop requesting content."""
+
+
+def provider_label(url):
+    host = urllib.parse.urlparse(url).netloc.lower()
+    if "loc.gov" in host:
+        return "library_of_congress"
+    if "wikimedia.org" in host:
+        return "wikimedia_commons"
+    return host or "public_source"
+
+
 def fetch_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return json.load(response)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            raise ProviderRateLimited(f"provider_rate_limited:{provider_label(url)}") from exc
+        raise
 
 
 def download(url, target):
@@ -35,6 +55,15 @@ def download(url, target):
 def safe_slug(text, fallback):
     slug = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
     return (slug[:80] or fallback).strip("-")
+
+
+def flatten_metadata(value):
+    """Normalize LOC's string-or-list metadata without changing source meaning."""
+    if isinstance(value, (list, tuple)):
+        return " ".join(flatten_metadata(item) for item in value if flatten_metadata(item))
+    if value is None:
+        return ""
+    return str(value)
 
 
 def load_evidence_queries(root, video_id):
@@ -55,7 +84,10 @@ def load_evidence_queries(root, video_id):
     entities = [str(item).strip().lower() for item in payload.get("required_entity_terms", []) if str(item).strip()]
     if not historical or not entities:
         raise SystemExit("Evidence query file requires historical_queries and required_entity_terms.")
-    return {"path": path, "historical": historical, "modern": modern, "entities": entities}
+    max_year = int(payload.get("historical_max_year", DEFAULT_HISTORICAL_MAX_YEAR))
+    if max_year < 1800 or max_year > 2025:
+        raise SystemExit("Evidence query file historical_max_year must be between 1800 and 2025.")
+    return {"path": path, "historical": historical, "modern": modern, "entities": entities, "historical_max_year": max_year}
 
 
 def loc_search(query, page=1, count=80):
@@ -66,6 +98,30 @@ def loc_search(query, page=1, count=80):
 def entity_relevant(text, entities):
     lowered = str(text or "").lower()
     return any(entity in lowered for entity in entities)
+
+
+def query_entity_terms(query, entities):
+    """Return episode entities explicitly named by this individual source query."""
+    lowered = str(query or "").lower()
+    matched = [entity for entity in entities if entity in lowered]
+    if not matched:
+        raise ValueError(f"evidence_query_missing_required_entity:{query}")
+    return matched
+
+
+def metadata_years(value):
+    """Extract plausible years from nested LOC metadata deterministically."""
+    return [int(item) for item in re.findall(r"(?<!\d)(1[6-9]\d{2}|20\d{2})(?!\d)", flatten_metadata(value))]
+
+
+def historical_date_eligible(item, max_year):
+    """A proof asset must disclose a dated pre-cutover historical record."""
+    values = [
+        item.get("date"), item.get("created_published_date"), item.get("created"),
+        item.get("date_created"), item.get("original_format"),
+    ]
+    years = [year for value in values for year in metadata_years(value)]
+    return bool(years) and min(years) <= max_year
 
 
 def largest_jpeg_from_loc_item(item_data):
@@ -93,10 +149,19 @@ def source_loc_assets(root, video_id, out_dir, queries):
     historical_dir = ensure_dir(out_dir / "historical")
     assets = []
     seen_urls = set()
+    seen_titles = set()
     for query in queries["historical"]:
+        query_entities = query_entity_terms(query, queries["entities"])
         page = 1
         while len(assets) < MIN_HISTORICAL and page <= 4:
-            data = loc_search(query, page=page)
+            try:
+                data = loc_search(query, page=page)
+            except ProviderRateLimited as exc:
+                print(f"historical provider paused: {exc}", flush=True)
+                return assets
+            except Exception as exc:
+                print(f"historical query failed: {query}: {exc}", flush=True)
+                break
             page += 1
             for result in data.get("results", []):
                 item_url = result.get("url") or ""
@@ -111,14 +176,24 @@ def source_loc_assets(root, video_id, out_dir, queries):
                 rights = " ".join(str(item.get(key) or "") for key in ["rights_information", "rights_advisory"]).lower()
                 if "no known restrictions" not in rights and "public domain" not in rights:
                     continue
+                if not historical_date_eligible(item, queries["historical_max_year"]):
+                    continue
                 image = largest_jpeg_from_loc_item(item_data)
                 if not image:
                     continue
                 loc_id = item_url.rstrip("/").split("/")[-1]
                 title = " ".join(item.get("title") or result.get("title") or [loc_id]) if isinstance(item.get("title"), list) else (item.get("title") or result.get("title") or loc_id)
-                relevance_text = " ".join([title, result.get("description", ""), " ".join(item.get("subject") or [])])
-                if not entity_relevant(relevance_text, queries["entities"]):
+                title_key = re.sub(r"\s+", " ", flatten_metadata(title).lower()).strip()
+                if title_key in seen_titles:
                     continue
+                relevance_text = " ".join([
+                    flatten_metadata(title),
+                    flatten_metadata(result.get("description", "")),
+                    flatten_metadata(item.get("subject") or []),
+                ])
+                if not entity_relevant(relevance_text, query_entities):
+                    continue
+                seen_titles.add(title_key)
                 slug = safe_slug(title, loc_id)
                 filename = f"loc-{loc_id}-{slug}.jpg"
                 target = historical_dir / filename
@@ -149,7 +224,7 @@ def source_loc_assets(root, video_id, out_dir, queries):
                     "recognizable_people_property_trademark_risk": "low: archival public collection item; owner review still required",
                     "ai_reconstruction_disclosure": "not_ai_reconstruction",
                     "created_at": utc_now(),
-                    "notes": f"visual rebuild historical_evidence; query={query}; entity-matched source proof only",
+                    "notes": f"visual rebuild historical_evidence; query={query}; query-entity-matched source proof only",
                     "human_review_required": "yes",
                     "human_review_status": "pending",
                     "width": image["width"],

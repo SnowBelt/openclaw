@@ -87,6 +87,32 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertFalse(source_rebuild.entity_relevant("Detroit skyline downtown", ["black bottom", "hastings street"]))
         self.assertTrue(source_rebuild.entity_relevant("Hastings Street in Black Bottom", ["black bottom", "hastings street"]))
 
+    def test_source_rebuild_requires_each_result_to_match_its_own_query_entity(self):
+        query_terms = source_rebuild.query_entity_terms("I-375 Detroit construction Black Bottom", ["black bottom", "i-375"])
+        self.assertEqual(query_terms, ["black bottom", "i-375"])
+        self.assertFalse(source_rebuild.entity_relevant("Detroit skyline near I-375", ["black bottom"]))
+
+    def test_source_rebuild_flattens_list_metadata_from_library_of_congress(self):
+        self.assertEqual(
+            source_rebuild.flatten_metadata(["Black Bottom", ["Detroit", None], 1940]),
+            "Black Bottom Detroit 1940",
+        )
+
+    def test_source_rebuild_rejects_modern_caption_as_historical_proof(self):
+        self.assertFalse(source_rebuild.historical_date_eligible({"date": "2019"}, 1965))
+        self.assertTrue(source_rebuild.historical_date_eligible({"date": ["1940", "1941"]}, 1965))
+
+    def test_source_rebuild_stops_cleanly_when_library_of_congress_rate_limits(self):
+        root = Path(self.temp.name) / "video-04"
+        queries = {"historical": ["Black Bottom Detroit"], "entities": ["black bottom"], "historical_max_year": 1965}
+        with patch.object(source_rebuild, "loc_search", side_effect=source_rebuild.ProviderRateLimited("provider_rate_limited:library_of_congress")):
+            assets = source_rebuild.source_loc_assets(root, "04", root / "source-packet" / "visual-rebuild", queries)
+        self.assertEqual(assets, [])
+
+    def test_source_rebuild_names_rate_limited_provider_from_url(self):
+        self.assertEqual(source_rebuild.provider_label("https://www.loc.gov/photos/?q=x"), "library_of_congress")
+        self.assertEqual(source_rebuild.provider_label("https://commons.wikimedia.org/w/api.php"), "wikimedia_commons")
+
     def test_elevenlabs_credit_health_warns_before_two_episodes(self):
         payload = credit_health.evaluate_subscription({"character_count": 18_000, "character_limit": 30_000}, 8_000)
         self.assertEqual(payload["status"], "warn")
