@@ -53,6 +53,10 @@ import {
 import { loadNodes, type NodesState } from "./controllers/nodes.ts";
 import { loadPccDashboard, type PccDashboardState } from "./controllers/pcc.ts";
 import { loadPresence, type PresenceState } from "./controllers/presence.ts";
+import {
+  loadSelfImprovementRecommendations,
+  type SelfImprovementState,
+} from "./controllers/self-improvement.ts";
 import { loadSessions, type SessionsState } from "./controllers/sessions.ts";
 import {
   loadSkillWorkshopProposals,
@@ -113,7 +117,14 @@ type SettingsHost = {
   agentsList?: AgentsListResult | null;
   selectedAgentId?: string | null;
   agentsSelectedId?: string | null;
-  agentsPanel?: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentsPanel?:
+    | "overview"
+    | "files"
+    | "tools"
+    | "skills"
+    | "channels"
+    | "cron"
+    | "self-improvement";
   pendingGatewayUrl?: string | null;
   systemThemeCleanup?: (() => void) | null;
   pendingGatewayToken?: string | null;
@@ -174,6 +185,7 @@ type SettingsAppHost = SettingsHost &
   LogsState &
   NodesState &
   PresenceState &
+  SelfImprovementState &
   SessionsState &
   SkillsState &
   SkillWorkshopState &
@@ -418,6 +430,10 @@ async function refreshAgentsTab(host: SettingsHost, app: SettingsAppHost) {
       return;
     case "cron":
       void loadCron(host);
+      return;
+    case "self-improvement":
+      void loadSelfImprovementRecommendations(app);
+      return;
     case "overview":
     case "tools":
     case undefined:

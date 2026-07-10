@@ -113,6 +113,28 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
       error: null,
       result: null,
     },
+    selfImprovement: {
+      loading: false,
+      error: null,
+      recommendations: [],
+      groups: [],
+      scorecard: null,
+      scorecards: [],
+      health: null,
+      proposals: [],
+      auditEvents: [],
+      total: 0,
+      scanLoading: false,
+      lastScan: null,
+      analysisLoading: false,
+      lastAnalysis: null,
+      modelPreflightLoading: false,
+      lastModelPreflight: null,
+      productionCheckLoading: false,
+      lastProductionCheck: null,
+      maintenanceLoading: false,
+      lastMaintenance: null,
+    },
     runtimeSessionKey: "main",
     runtimeSessionMatchesSelectedAgent: false,
     modelCatalog: [],
@@ -133,6 +155,15 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
     onChannelsRefresh: () => undefined,
     onCronRefresh: () => undefined,
     onCronRunNow: () => undefined,
+    onSelfImprovementRefresh: () => undefined,
+    onSelfImprovementScan: () => undefined,
+    onSelfImprovementAnalysis: () => undefined,
+    onSelfImprovementModelPreflight: () => undefined,
+    onSelfImprovementProductionCheck: () => undefined,
+    onSelfImprovementMaintenanceDryRun: () => undefined,
+    onSelfImprovementRecommendationUpdate: () => undefined,
+    onSelfImprovementGroupUpdate: () => undefined,
+    onSelfImprovementCuratorUpdate: () => undefined,
     onSkillsFilterChange: () => undefined,
     onSkillsRefresh: () => undefined,
     onAgentSkillToggle: () => undefined,
@@ -144,6 +175,14 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
 }
 
 describe("renderAgents", () => {
+  it("renders the Self-Improvement panel from the Agents tab", () => {
+    const container = document.createElement("div");
+    render(renderAgents(createProps({ activePanel: "self-improvement" })), container);
+
+    expectAgentTab(container, "Self-Improvement");
+    expect(container.textContent).toContain("Self-Improvement Recommendations");
+  });
+
   it("selects the configured primary model on initial render", async () => {
     const container = document.createElement("div");
     const configForm = {
@@ -381,7 +420,15 @@ describe("renderAgents", () => {
         (button) => button.textContent?.trim(),
       );
 
-      expect(tabLabels).toEqual(["概览", "文件", "工具", "技能", "频道", "Cron Jobs"]);
+      expect(tabLabels).toEqual([
+        "概览",
+        "文件",
+        "工具",
+        "技能",
+        "频道",
+        "Cron Jobs",
+        "Self-Improvement",
+      ]);
       const cards = container.querySelectorAll("section.card");
       expect(cards[1]?.querySelector(".muted")?.textContent?.trim()).toBe("上次刷新：从未");
     } finally {

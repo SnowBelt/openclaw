@@ -9,6 +9,7 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { completeSimple } from "../llm/stream.js";
 import type {
   AssistantMessage,
+  SimpleStreamOptions,
   Model,
   ThinkingLevel as SimpleCompletionThinkingLevel,
 } from "../llm/types.js";
@@ -48,7 +49,9 @@ export type SimpleCompletionModelOptions = {
   maxTokens?: number;
   temperature?: number;
   reasoning?: ThinkLevel | SimpleCompletionThinkingLevel;
+  onPayload?: SimpleStreamOptions["onPayload"];
   signal?: AbortSignal;
+  timeoutMs?: SimpleStreamOptions["timeoutMs"];
 };
 
 export type PreparedSimpleCompletionModel =

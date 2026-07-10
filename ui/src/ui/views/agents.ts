@@ -11,6 +11,18 @@ import type {
   CronStatus,
   ModelCatalogEntry,
   SkillStatusReport,
+  SelfImprovementAnalysisRunResult,
+  SelfImprovementAuditEvent,
+  SelfImprovementDailyScorecard,
+  SelfImprovementMaintenanceResult,
+  SelfImprovementModelPreflightResult,
+  SelfImprovementOperationalHealthResult,
+  SelfImprovementProductionCheckResult,
+  SelfImprovementProposal,
+  SelfImprovementRecommendation,
+  SelfImprovementRecommendationGroup,
+  SelfImprovementScanResult,
+  SelfImprovementScorecard,
   ToolsCatalogResult,
   ToolsEffectiveResult,
 } from "../types.ts";
@@ -22,6 +34,7 @@ import {
 } from "./agents-panels-status-files.ts";
 export type { AgentsPanel } from "./agents.types.ts";
 import { renderAgentTools, renderAgentSkills } from "./agents-panels-tools-skills.ts";
+import { renderSelfImprovementPanel } from "./agents-self-improvement.ts";
 import { agentBadgeText, buildAgentContext, normalizeAgentLabel } from "./agents-utils.ts";
 import type { AgentsPanel } from "./agents.types.ts";
 
@@ -76,6 +89,29 @@ export type ToolsEffectiveState = {
   result: ToolsEffectiveResult | null;
 };
 
+export type SelfImprovementState = {
+  loading: boolean;
+  error: string | null;
+  recommendations: SelfImprovementRecommendation[];
+  groups: SelfImprovementRecommendationGroup[];
+  scorecard: SelfImprovementScorecard | null;
+  scorecards: SelfImprovementDailyScorecard[];
+  health: SelfImprovementOperationalHealthResult | null;
+  proposals: SelfImprovementProposal[];
+  auditEvents: SelfImprovementAuditEvent[];
+  total: number;
+  scanLoading: boolean;
+  lastScan: SelfImprovementScanResult["scan"] | null;
+  analysisLoading: boolean;
+  lastAnalysis: SelfImprovementAnalysisRunResult | null;
+  modelPreflightLoading: boolean;
+  lastModelPreflight: SelfImprovementModelPreflightResult | null;
+  productionCheckLoading: boolean;
+  lastProductionCheck: SelfImprovementProductionCheckResult | null;
+  maintenanceLoading: boolean;
+  lastMaintenance: SelfImprovementMaintenanceResult | null;
+};
+
 export type AgentsProps = {
   basePath: string;
   loading: boolean;
@@ -93,6 +129,7 @@ export type AgentsProps = {
   agentSkills: AgentSkillsState;
   toolsCatalog: ToolsCatalogState;
   toolsEffective: ToolsEffectiveState;
+  selfImprovement: SelfImprovementState;
   runtimeSessionKey: string;
   runtimeSessionMatchesSelectedAgent: boolean;
   modelCatalog: ModelCatalogEntry[];
@@ -113,6 +150,39 @@ export type AgentsProps = {
   onChannelsRefresh: () => void;
   onCronRefresh: () => void;
   onCronRunNow: (jobId: string) => void;
+  onSelfImprovementRefresh: () => void;
+  onSelfImprovementScan: () => void;
+  onSelfImprovementAnalysis: () => void;
+  onSelfImprovementModelPreflight: () => void;
+  onSelfImprovementProductionCheck: () => void;
+  onSelfImprovementMaintenanceDryRun: () => void;
+  onSelfImprovementRecommendationUpdate: (input: {
+    id: string;
+    status: string;
+    note?: string;
+    assignedTargetAgentId?: string;
+    claimedBy?: string;
+    resolutionProof?: string;
+    dismissalReason?: string;
+  }) => void;
+  onSelfImprovementGroupUpdate: (input: {
+    id: string;
+    status: string;
+    note?: string;
+    assignedTargetAgentId?: string;
+    claimedBy?: string;
+    resolutionProof?: string;
+    dismissalReason?: string;
+  }) => void;
+  onSelfImprovementCuratorUpdate: (input: {
+    id: string;
+    curatorStatus: string;
+    proof?: string;
+    reason?: string;
+    workshopProposalId?: string;
+    workshopProposalStatus?: string;
+    note?: string;
+  }) => void;
   onSkillsFilterChange: (next: string) => void;
   onSkillsRefresh: () => void;
   onAgentSkillToggle: (agentId: string, skillName: string, enabled: boolean) => void;
@@ -144,6 +214,7 @@ export function renderAgents(props: AgentsProps) {
     skills: selectedSkillCount,
     channels: channelEntryCount,
     cron: cronJobCount || null,
+    "self-improvement": props.selfImprovement.total > 0 ? props.selfImprovement.total : null,
   };
 
   return html`
@@ -343,6 +414,20 @@ export function renderAgents(props: AgentsProps) {
                     onSelectPanel: props.onSelectPanel,
                   })
                 : nothing}
+              ${props.activePanel === "self-improvement"
+                ? renderSelfImprovementPanel({
+                    ...props.selfImprovement,
+                    onRefresh: props.onSelfImprovementRefresh,
+                    onScan: props.onSelfImprovementScan,
+                    onAnalyze: props.onSelfImprovementAnalysis,
+                    onModelPreflight: props.onSelfImprovementModelPreflight,
+                    onProductionCheck: props.onSelfImprovementProductionCheck,
+                    onMaintenanceDryRun: props.onSelfImprovementMaintenanceDryRun,
+                    onRecommendationUpdate: props.onSelfImprovementRecommendationUpdate,
+                    onGroupUpdate: props.onSelfImprovementGroupUpdate,
+                    onCuratorUpdate: props.onSelfImprovementCuratorUpdate,
+                  })
+                : nothing}
             `}
       </section>
     </div>
@@ -361,6 +446,7 @@ function renderAgentTabs(
     { id: "skills", label: t("agents.tabs.skills") },
     { id: "channels", label: t("agents.tabs.channels") },
     { id: "cron", label: t("agents.tabs.cronJobs") },
+    { id: "self-improvement", label: "Self-Improvement" },
   ];
   return html`
     <div class="agent-tabs">

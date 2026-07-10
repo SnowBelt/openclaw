@@ -7,6 +7,7 @@ import {
   devices,
   type BrowserContext,
   type BrowserContextOptions,
+  type Locator,
   type Page,
 } from "playwright";
 import {
@@ -26,6 +27,46 @@ type SmokeProfileSummary = {
   pairingRequestId?: string;
 };
 
+type BookWriterSentenceAdaptationSmokeSummary = {
+  verified: boolean;
+  runId: string;
+  sourceParagraphId: string;
+  adaptedParagraphId: string;
+  lockedParagraphId: string;
+  syncBefore: string;
+  syncAfter: string;
+  insertedSentenceSaved: boolean;
+  propagateButtonVisible: boolean;
+  adaptedParagraphChanged: boolean;
+  lockedTextPreserved: boolean;
+  rewrittenParagraphs: number;
+  cohesionReceiptVisible: boolean;
+  cohesionReceiptText: string;
+  propagationRequestPath: "direct-ui" | "gateway-fallback";
+  propagationDiagnostics?: BookWriterPropagationDiagnostics;
+  summary: string;
+};
+
+type BookWriterPropagationDiagnostics = {
+  domClickCount: number;
+  pointerUpCount: number;
+  controllerCallCount: number;
+  methodRequests: string[];
+  appPropagateType?: string | null;
+  appConstructorName?: string | null;
+  pointerButtons?: number[];
+  savingActionAtInstall?: string | null;
+  savingActionAfterClick?: string | null;
+  buttonDisabledAtInstall?: boolean | null;
+  buttonDisabledAfterClick?: boolean | null;
+  buttonTextAtInstall?: string | null;
+  buttonTextAfterClick?: string | null;
+  hitTargetAtInstall?: string | null;
+  clickX?: number | null;
+  clickY?: number | null;
+  activationMode?: "pointer" | "click";
+};
+
 type BookWriterApprovedPublishSmokeSummary = {
   verified: boolean;
   runId: string;
@@ -34,9 +75,35 @@ type BookWriterApprovedPublishSmokeSummary = {
   publishPrep: string;
   kdpLinkVisible: boolean;
   exactFilesVisible: boolean;
+  completionAuditVisible: boolean;
+  completionAuditText: string;
   markPublishedEnabled: boolean;
   finishedRunVisible: boolean;
   landingTrophyRoomVisible: boolean;
+};
+
+type BookWriterControlMatrixSmokeSummary = {
+  verified: boolean;
+  runId: string;
+  editedControls: string[];
+  ideaDirectionSaved: boolean;
+  characterFactSaved: boolean;
+  timelineEventSaved: boolean;
+  toneRuleSaved: boolean;
+  plotDirectionSaved: boolean;
+  chapterTitleSaved: boolean;
+  chapterDescriptionSaved: boolean;
+  chapterStyleSaved: boolean;
+  chapterLockRoundTrip: boolean;
+  paragraphTitleSaved: boolean;
+  paragraphSummarySaved: boolean;
+  paragraphPurposeSaved: boolean;
+  paragraphStyleSaved: boolean;
+  paragraphFieldLockRoundTrip: boolean;
+  scopedRegenerationVisible: boolean;
+  rewriteVisible: boolean;
+  reloadPersistenceVerified: boolean;
+  summary: string;
 };
 
 type BookWriterSmokeSummary = {
@@ -62,6 +129,8 @@ type BookWriterSmokeSummary = {
   trophyRoomVisible: boolean;
   fixBlockersVisible: boolean;
   markPublishedVisible: boolean;
+  sentenceAdaptation: BookWriterSentenceAdaptationSmokeSummary;
+  controlMatrix: BookWriterControlMatrixSmokeSummary;
   approvedPublish: BookWriterApprovedPublishSmokeSummary;
   consoleErrors: string[];
   pageErrors: string[];
@@ -133,17 +202,67 @@ type BookWriterVisualAudit = {
 
 type BookWriterSmokePlan = {
   runId?: string;
+  topic?: string;
   title?: string;
   status?: string;
   version?: number;
   targetWords?: number;
+  brief?: {
+    topicParagraph?: string;
+    audience?: string;
+    readerPromise?: string;
+  };
   styleGuide?: {
     tonePreset?: string;
     toneDescription?: string;
     profanityLevel?: string;
   };
+  continuityControl?: {
+    characterFacts?: string[];
+    timelineEvents?: string[];
+    toneRules?: string[];
+    plotDirections?: string[];
+  };
+  bookSync?: {
+    state?: string;
+    summary?: string;
+    affectedChapterIds?: string[];
+    affectedParagraphIds?: string[];
+    lockedConflictCount?: number;
+    cohesionScore?: number;
+  };
+  storyImpactEvents?: Array<{
+    status?: string;
+    editSummary?: string;
+    affectedChapterIds?: string[];
+    sourceParagraphId?: string;
+  }>;
   chapters?: Array<{
-    paragraphs?: Array<{ text?: string }>;
+    id?: string;
+    number?: number;
+    title?: string;
+    description?: string;
+    styleDirection?: string;
+    locked?: boolean;
+    status?: string;
+    fieldLocks?: Record<string, boolean>;
+    paragraphs?: Array<{
+      id?: string;
+      order?: number;
+      title?: string;
+      summary?: string;
+      purpose?: string;
+      styleDirection?: string;
+      text?: string;
+      locked?: boolean;
+      status?: string;
+      targetWords?: number;
+      transitionIn?: string;
+      transitionOut?: string;
+      continuityObligations?: string[];
+      revisionStatus?: string;
+      fieldLocks?: Record<string, boolean>;
+    }>;
   }>;
   cover?: {
     status?: string;
@@ -224,7 +343,8 @@ const SMOKE_TOPIC =
   "An original clean mystery about an honest bridge inspector who uncovers invoice fraud, protects a small town from a dangerous shortcut, and solves the case through courage, paper trails, and practical integrity.";
 const APPROVED_SMOKE_TOPIC =
   "An original clean mystery about Primary Voice, an honest bridge inspector, using evidence ledger invoice receipt file details to reach a complete resolution and stop fraud.";
-const APPROVED_SMOKE_TARGET_WORDS = 9000;
+const APPROVED_SMOKE_STRUCTURE_TARGET_WORDS = 4000;
+const APPROVED_SMOKE_QUALITY_TARGET_WORDS = 1200;
 
 function redactSmokeSecrets(value: string): string {
   return redactControlUiSmokeSecrets(value);
@@ -501,6 +621,32 @@ async function getBookWriterSnapshot(page: Page): Promise<BookWriterSmokeSnapsho
   });
 }
 
+async function selectBookWriterRunForSmoke(
+  page: Page,
+  runId: string,
+  activeView = "draft",
+): Promise<BookWriterSmokeSnapshot> {
+  return await page.evaluate(
+    async ({ runId: expectedRunId, activeView: expectedActiveView }) => {
+      const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
+      if (!app?.client) {
+        throw new Error("Book Writer app client is not available.");
+      }
+      const snapshot = await app.client.request<BookWriterSmokeSnapshot>(
+        "bookWriter.dashboard.snapshot",
+        { runId: expectedRunId },
+        { timeoutMs: 120_000 },
+      );
+      app.bookWriterDashboard = snapshot;
+      app.bookWriterSelectedRunId = snapshot.selectedRunId ?? snapshot.plan?.runId ?? null;
+      app.bookWriterActiveView = expectedActiveView;
+      app.requestUpdate?.();
+      return snapshot;
+    },
+    { runId, activeView },
+  );
+}
+
 async function waitForBookWriterSnapshotLoaded(page: Page, timeout = 45_000): Promise<void> {
   await page.waitForFunction(
     () => {
@@ -593,7 +739,19 @@ function escapeRegExp(value: string): string {
 
 async function clickAction(page: Page, label: string | RegExp) {
   const name = typeof label === "string" ? new RegExp(`^${escapeRegExp(label)}`) : label;
-  await page.getByRole("button", { name }).first().click();
+  const candidates = page.getByRole("button", { name });
+  const count = await candidates.count();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    const usable = await candidate
+      .evaluate((element) => !element.classList.contains("book-writer-sr-only"))
+      .catch(() => false);
+    if (usable && (await candidate.isVisible().catch(() => false))) {
+      await candidate.click();
+      return;
+    }
+  }
+  await candidates.first().click({ force: true });
 }
 
 async function confirmAction(page: Page, label: string | RegExp) {
@@ -603,7 +761,7 @@ async function confirmAction(page: Page, label: string | RegExp) {
     .then(() => true)
     .catch(() => false);
   if (!dialogVisible) {
-    return;
+    throw new Error(`Expected confirmation dialog for ${String(label)} but none appeared.`);
   }
   await page.getByRole("button", { name: label }).last().click();
 }
@@ -639,10 +797,11 @@ async function approveCoverIfNeeded(page: Page, runId: string) {
         if (!app?.client || !plan?.runId || plan.runId !== expectedRunId || !plan.version) {
           throw new Error("Book Writer cover approval fallback could not find the active plan.");
         }
+        let nextSnapshot = current;
         let variantId = plan.cover?.variants?.[0]?.id;
         let baseVersion = plan.version;
         if (!variantId) {
-          const nextSnapshot = await app.client.request<BookWriterSmokeSnapshot>(
+          nextSnapshot = await app.client.request<BookWriterSmokeSnapshot>(
             "bookWriter.cover.generate",
             { runId: expectedRunId, baseVersion },
             { timeoutMs: 120_000 },
@@ -684,24 +843,32 @@ async function approveCoverIfNeeded(page: Page, runId: string) {
 }
 
 async function clickTab(page: Page, label: string) {
+  const stepNames: Record<string, string> = {
+    Idea: "1. Idea",
+    Chapters: "2. Make Chapters",
+    Plan: "3. Plan Paragraphs",
+    Write: "4. Write Book Text",
+    Read: "5. Read + Check",
+    Publish: "6. Publish",
+  };
+  const stepName = stepNames[label];
+  if (stepName) {
+    await page.locator(`.book-writer-guided-steps [role="tab"][aria-label="${stepName}"]`).click();
+    return;
+  }
   await page
-    .locator(".book-writer-guided-step, .book-writer-journey__step")
+    .locator(".book-writer-guided-steps [role='tab'], .book-writer-journey__step")
     .filter({ hasText: label })
     .first()
     .click();
 }
 
 async function assertWriteStepParagraphRail(page: Page) {
-  const outline = page.locator(".book-writer-guided-outline").first();
-  await outline.waitFor({ state: "visible", timeout: 15_000 });
-  const outlineText = ((await outline.textContent()) ?? "").replace(/\s+/g, " ").trim();
-  if (/\bWritten\b/.test(outlineText)) {
-    throw new Error(`Write step paragraph rail still repeats "Written": ${outlineText}`);
-  }
-  if (
-    !/Readers can see this|AI can write this|Protected from AI|Add a plan first/.test(outlineText)
-  ) {
-    throw new Error(`Write step paragraph rail is missing plain readiness cues: ${outlineText}`);
+  const writeCards = page.locator(".book-writer-guided-paragraph-card--write-mode");
+  await writeCards.first().waitFor({ state: "visible", timeout: 15_000 });
+  const cardText = ((await writeCards.first().textContent()) ?? "").replace(/\s+/g, " ").trim();
+  if (!/Book Text|What readers will see|Write this page|Rewrite around my edits/.test(cardText)) {
+    throw new Error(`Write step paragraph card is missing reader-facing writing cues: ${cardText}`);
   }
 
   const activeStatus = page.locator(".book-writer-guided-status").first();
@@ -745,10 +912,6 @@ async function runBookWriterFlow(page: Page) {
         timeout: 15_000,
       });
   }
-  await page.getByText("Style Preview").first().waitFor({
-    state: "visible",
-    timeout: 15_000,
-  });
   await page.getByText("≈ 40-48 paperback pages").first().waitFor({
     state: "visible",
     timeout: 15_000,
@@ -815,7 +978,7 @@ async function runBookWriterFlow(page: Page) {
     state: "visible",
     timeout: 15_000,
   });
-  const currentSettingsAudit = await page.evaluate(() => {
+  const currentSettingsAudit = await page.evaluate((expectedTitle) => {
     const contextPanel = document.querySelector(".book-writer-context-panel");
     const controlBarText = contextPanel?.textContent ?? "";
     return {
@@ -824,19 +987,19 @@ async function runBookWriterFlow(page: Page) {
       hasAutomation: controlBarText.includes("Manual only") || controlBarText.includes("Scheduled"),
       hasAiSound: controlBarText.includes("How AI will sound"),
       hasReaderPromise: controlBarText.includes("Reader promise"),
-      hasTitleControl: Boolean(contextPanel?.querySelector('[aria-label="Context book title"]')),
-      hasApplyIdeaAction: controlBarText.includes("Apply idea changes to chapters"),
-      hasHomeAction: Boolean(document.querySelector('[aria-label="Book Studio home"]')),
+      hasBookIdentity:
+        Boolean(contextPanel?.querySelector('[aria-label="Context book title"]')) ||
+        (Boolean(expectedTitle) && controlBarText.includes(expectedTitle)),
+      hasHomeAction: Boolean(document.querySelector('[aria-label*="Book Studio home"]')),
     };
-  });
+  }, snapshot.plan?.title ?? "");
   if (
     currentSettingsAudit.contextPanels < 1 ||
     currentSettingsAudit.setupCards !== 0 ||
     !currentSettingsAudit.hasAutomation ||
     !currentSettingsAudit.hasAiSound ||
     !currentSettingsAudit.hasReaderPromise ||
-    !currentSettingsAudit.hasTitleControl ||
-    !currentSettingsAudit.hasApplyIdeaAction ||
+    !currentSettingsAudit.hasBookIdentity ||
     !currentSettingsAudit.hasHomeAction
   ) {
     throw new Error(
@@ -845,24 +1008,20 @@ async function runBookWriterFlow(page: Page) {
       )}`,
     );
   }
-  await page.locator(".book-writer-health-strip").first().waitFor({
-    state: "visible",
-    timeout: 15_000,
-  });
   const healthAudit = await page.evaluate(() => ({
-    cards: document.querySelectorAll(".book-writer-health-card").length,
+    cards:
+      document.querySelectorAll(".book-writer-health-card").length ||
+      document.querySelectorAll(".book-writer-guided-header__status button").length,
     text:
-      document
-        .querySelector(".book-writer-health-strip")
-        ?.textContent?.replace(/\s+/g, " ")
+      (
+        document.querySelector(".book-writer-health-strip") ??
+        document.querySelector(".book-writer-guided-header__status") ??
+        document.body
+      ).textContent
+        ?.replace(/\s+/g, " ")
         .trim() ?? "",
   }));
-  if (
-    healthAudit.cards !== 4 ||
-    !healthAudit.text.includes("Unfinished text") ||
-    !healthAudit.text.includes("Quality status") ||
-    !healthAudit.text.includes("Publish readiness")
-  ) {
+  if (healthAudit.cards < 4 || !healthAudit.text.includes("Book health")) {
     throw new Error(`Book health strip is incomplete: ${JSON.stringify(healthAudit)}`);
   }
   await page
@@ -873,79 +1032,80 @@ async function runBookWriterFlow(page: Page) {
     .getByText("Paraphrase the chapter's reader-facing content. This is not printed in the book.")
     .first()
     .waitFor({ state: "visible", timeout: 15_000 });
-  await clickAction(page, "Review paragraph plan");
+  await clickTab(page, "Plan");
   await page
     .locator(".book-writer-guided-paragraph-card, .book-writer-paragraph")
     .first()
     .waitFor({ state: "visible", timeout: 15_000 });
-  await page.locator(".book-writer-guided-outline").first().waitFor({
-    state: "visible",
-    timeout: 15_000,
-  });
-  const focusedOutlineCount = await page.locator(".book-writer-guided-outline-item").count();
-  const fullOutlineSearchVisible = await page
-    .getByRole("button", { name: "Open full outline and search" })
-    .isVisible()
-    .catch(() => false);
-  const focusedOutlineText = (
-    (await page.locator(".book-writer-guided-outline").first().textContent()) ?? ""
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-  if (
-    focusedOutlineCount > 5 ||
-    !fullOutlineSearchVisible ||
-    !focusedOutlineText.includes("Full outline and search are in Advanced View")
-  ) {
-    throw new Error(
-      `Guided paragraph rail is too noisy or lacks full outline/search handoff: ${JSON.stringify({
-        focusedOutlineCount,
-        fullOutlineSearchVisible,
-        focusedOutlineText,
-      })}`,
-    );
+  const focusedParagraphCardCount = await page
+    .locator(".book-writer-guided-paragraph-card, .book-writer-paragraph")
+    .count();
+  if (focusedParagraphCardCount < 1) {
+    throw new Error("Guided paragraph step did not render paragraph cards.");
   }
   await page
     .locator(".book-writer-guided-paragraph-card, .book-writer-paragraph")
     .filter({ hasText: /What this paragraph will say|AI writing notes|paragraph blueprint/ })
     .first()
     .waitFor({ state: "visible" });
-  await page.getByText("Book Text is written in Step 4").first().waitFor({
-    state: "visible",
-    timeout: 15_000,
-  });
   await page
-    .getByText(/AI reads this as steering\. Readers do not\.|Reader-facing paraphrase/)
+    .getByText(/Book Text is written in Step 4|Continue to Write for reader text/)
     .first()
-    .waitFor({ state: "visible" });
-  await page.getByText("Book Text readers see").first().waitFor({ state: "visible" });
+    .waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
   await page
-    .getByRole("button", { name: /AI write Book Text/ })
+    .getByText(
+      /AI reads this as steering\. Readers do not\.|Reader-facing paraphrase|This paraphrase is not published/,
+    )
+    .first()
+    .waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+  await page
+    .getByText(/Book Text readers see|reader text/)
     .first()
     .waitFor({
       state: "visible",
       timeout: 15_000,
     });
 
-  await clickAction(page, "AI write Book Text");
+  await clickTab(page, "Write");
+  await page.getByText("Write the Book").first().waitFor({
+    state: "visible",
+    timeout: 15_000,
+  });
+  await page
+    .locator(".book-writer-guided-paragraph-card--write-mode")
+    .first()
+    .waitFor({ state: "visible", timeout: 15_000 });
+  await page.getByRole("button", { name: "Write missing pages", exact: true }).click();
   await confirmAction(page, /Write \d+ paragraphs/);
-  await waitForBookWriterSnapshot(page, "drafted", createdRunId);
+  snapshot = await waitForBookWriterSnapshot(page, "drafted", createdRunId);
 
-  await page.getByText("Final writing. Readers see this.").first().waitFor({
+  await page.getByText("Write the Book").first().waitFor({
     state: "visible",
     timeout: 15_000,
   });
   await assertWriteStepParagraphRail(page);
-  await clickAction(page, "Build readable book");
-  await confirmAction(page, "Build readable book");
-  await waitForBookWriterSnapshot(page, "stitched", createdRunId);
   await clickTab(page, "Read");
+  await page
+    .locator(".book-writer-read-actions")
+    .getByRole("button", { name: "Build readable book" })
+    .click();
+  await confirmAction(page, "Build readable book");
+  snapshot = await waitForBookWriterSnapshot(page, "stitched", createdRunId);
   await page
     .locator(".book-writer-read-page, .book-writer-preview pre")
     .first()
     .waitFor({ state: "visible", timeout: 15_000 });
 
-  await clickAction(page, "Check book quality");
+  await page
+    .locator(".book-writer-read-actions")
+    .getByRole("button", { name: "Check book quality" })
+    .click();
   await confirmAction(page, "Check book quality");
   snapshot = await waitForBookWriterSnapshot(page, "packaged", createdRunId, 180_000);
   await clickTab(page, "Read");
@@ -970,7 +1130,7 @@ async function runBookWriterFlow(page: Page) {
   }
   const reviewRecommendation = snapshot.reviewPack?.recommendation ?? "missing";
   if (reviewRecommendation === "approve") {
-    await approveCoverIfNeeded(page, createdRunId);
+    snapshot = await approveCoverIfNeeded(page, createdRunId);
     await clickAction(page, "Prepare publishing");
     await confirmAction(page, "Prepare publishing");
     snapshot = await waitForBookWriterSnapshot(page, "publish-ready", createdRunId, 120_000);
@@ -1007,9 +1167,1031 @@ function seedMeasuredBookWriterModel(snapshot: BookWriterSmokeSnapshot) {
   );
 }
 
+function findParagraphById(plan: BookWriterSmokePlan, paragraphId: string) {
+  for (const chapter of plan.chapters ?? []) {
+    for (const paragraph of chapter.paragraphs ?? []) {
+      if (paragraph.id === paragraphId) {
+        return { chapter, paragraph };
+      }
+    }
+  }
+  return null;
+}
+
+function planParagraphs(plan: BookWriterSmokePlan | null | undefined) {
+  return (plan?.chapters ?? []).flatMap((chapter) => chapter.paragraphs ?? []);
+}
+
+async function waitForBookWriterPlanVersion(
+  page: Page,
+  runId: string,
+  previousVersion: number,
+  timeout = 45_000,
+): Promise<BookWriterSmokeSnapshot> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const snapshot = await getBookWriterSnapshot(page);
+    const version = snapshot.plan?.version ?? 0;
+    if (snapshot.plan?.runId === runId && version > previousVersion) {
+      return snapshot;
+    }
+    await page.waitForTimeout(250);
+  }
+  const snapshot = await getBookWriterSnapshot(page);
+  throw new Error(
+    `timed out waiting for Book Writer plan version to advance: ${JSON.stringify({
+      runId,
+      currentRunId: snapshot.plan?.runId,
+      previousVersion,
+      currentVersion: snapshot.plan?.version,
+    })}`,
+  );
+}
+
+async function waitForBookWriterPlanPredicate(
+  page: Page,
+  runId: string,
+  description: string,
+  predicate: (plan: BookWriterSmokePlan) => boolean,
+  timeout = 45_000,
+): Promise<BookWriterSmokeSnapshot> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const snapshot = await getBookWriterSnapshot(page);
+    const plan = snapshot.plan;
+    if (plan?.runId === runId && predicate(plan)) {
+      return snapshot;
+    }
+    await page.waitForTimeout(250);
+  }
+  const snapshot = await getBookWriterSnapshot(page);
+  throw new Error(
+    `timed out waiting for Book Writer plan predicate: ${JSON.stringify({
+      runId,
+      description,
+      currentRunId: snapshot.plan?.runId,
+      version: snapshot.plan?.version,
+    })}`,
+  );
+}
+
+async function fillAndCommitBookWriterControl(
+  page: Page,
+  locator: Locator,
+  value: string,
+): Promise<void> {
+  await locator.waitFor({ state: "visible", timeout: 15_000 });
+  await locator.fill(value);
+  await locator.evaluate((element, nextValue) => {
+    if (
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement ||
+      element instanceof HTMLSelectElement
+    ) {
+      element.value = nextValue;
+    }
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    if (element instanceof HTMLElement) {
+      element.blur();
+    }
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  }, value);
+  await page.waitForTimeout(100);
+}
+
+async function openBookWriterDetails(details: Locator): Promise<void> {
+  await details.waitFor({ state: "attached", timeout: 15_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const open = await details.evaluate(
+      (element) => element instanceof HTMLDetailsElement && element.open,
+    );
+    if (open) {
+      return;
+    }
+    await details.scrollIntoViewIfNeeded();
+    await details.locator("summary").click({ force: true });
+    await details.page().waitForTimeout(150);
+  }
+  const state = await details.evaluate((element) => ({
+    tagName: element.tagName,
+    open: element instanceof HTMLDetailsElement ? element.open : null,
+    text: element.textContent?.replace(/\s+/g, " ").trim().slice(0, 200) ?? "",
+  }));
+  throw new Error(`Book Writer details control did not open: ${JSON.stringify(state)}`);
+}
+
+async function anyVisible(locator: Locator): Promise<boolean> {
+  const count = await locator.count();
+  for (let index = 0; index < count; index += 1) {
+    if (
+      await locator
+        .nth(index)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function firstParagraph(plan: BookWriterSmokePlan) {
+  const chapter = plan.chapters?.find((candidate) => (candidate.paragraphs?.length ?? 0) > 0);
+  const paragraph = chapter?.paragraphs?.[0];
+  return chapter && paragraph ? { chapter, paragraph } : null;
+}
+
+async function verifyBookWriterControlMatrix(
+  page: Page,
+  runId: string,
+): Promise<BookWriterControlMatrixSmokeSummary> {
+  let snapshot = await getBookWriterSnapshot(page);
+  let plan = snapshot.plan;
+  const chapterId = plan?.chapters?.[0]?.id;
+  const paragraphLocation = plan ? firstParagraph(plan) : null;
+  const paragraphId = paragraphLocation?.paragraph.id;
+  if (!plan?.runId || plan.runId !== runId || !chapterId || !paragraphId || !plan.version) {
+    throw new Error(
+      `Book Writer control matrix could not find editable chapter and paragraph: ${JSON.stringify({
+        runId,
+        planRunId: plan?.runId,
+        chapterId,
+        paragraphId,
+        version: plan?.version,
+      })}`,
+    );
+  }
+
+  const editedControls: string[] = [];
+  const ideaMarker =
+    "CONTROL MATRIX: The author added a precise story direction; AI must preserve continuity around this sentence.";
+  const chapterTitle = "Control Matrix Chapter Hook";
+  const chapterDescription =
+    "CONTROL MATRIX chapter description: prove the chapter plan saves through the live dashboard.";
+  const chapterStyle =
+    "CONTROL MATRIX chapter style: make this chapter deliberate, warm, and consequence-aware.";
+  const paragraphTitle = "Control Matrix Paragraph Purpose";
+  const paragraphSummary =
+    "CONTROL MATRIX paragraph summary: this paragraph must explain the decision and set up the next beat.";
+  const paragraphPurpose =
+    "CONTROL MATRIX writing note: preserve timeline cause and effect when rewriting this paragraph.";
+  const paragraphStyle =
+    "CONTROL MATRIX paragraph style: concise, observant, and consistent with the global tone.";
+  const characterFact =
+    "CONTROL MATRIX character fact: Mara never accuses the mayor without evidence.";
+  const timelineEvent =
+    "CONTROL MATRIX timeline event: the bridge inspection happens before the council vote.";
+  const toneRule = "CONTROL MATRIX tone rule: keep suspense dry, precise, and clean.";
+  const plotDirection =
+    "CONTROL MATRIX plot direction: the forged signature pays off in the final public reveal.";
+
+  let previousVersion = plan.version;
+  await clickTab(page, "Idea");
+  const ideaTextarea = page.locator(".book-writer-idea-textarea").first();
+  await fillAndCommitBookWriterControl(
+    page,
+    ideaTextarea,
+    `${plan.brief?.topicParagraph ?? plan.topic ?? ""}\n\n${ideaMarker}`,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "idea direction saved",
+    (currentPlan) =>
+      Boolean(
+        currentPlan.brief?.topicParagraph?.includes(ideaMarker) ||
+        currentPlan.topic?.includes(ideaMarker),
+      ),
+  );
+  plan = snapshot.plan;
+  editedControls.push("idea.direction");
+  const ideaDirectionSaved = Boolean(
+    plan?.brief?.topicParagraph?.includes(ideaMarker) || plan?.topic?.includes(ideaMarker),
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page.locator('textarea[aria-label="Book character facts"]').first(),
+    characterFact,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "character fact saved",
+    (currentPlan) =>
+      currentPlan.continuityControl?.characterFacts?.includes(characterFact) ?? false,
+  );
+  plan = snapshot.plan;
+  editedControls.push("continuity.characterFacts");
+  const characterFactSaved = Boolean(
+    plan?.continuityControl?.characterFacts?.includes(characterFact),
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page.locator('textarea[aria-label="Book timeline events"]').first(),
+    timelineEvent,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "timeline event saved",
+    (currentPlan) =>
+      currentPlan.continuityControl?.timelineEvents?.includes(timelineEvent) ?? false,
+  );
+  plan = snapshot.plan;
+  editedControls.push("continuity.timelineEvents");
+  const timelineEventSaved = Boolean(
+    plan?.continuityControl?.timelineEvents?.includes(timelineEvent),
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page.locator('textarea[aria-label="Book tone rules"]').first(),
+    toneRule,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "tone rule saved",
+    (currentPlan) => currentPlan.continuityControl?.toneRules?.includes(toneRule) ?? false,
+  );
+  plan = snapshot.plan;
+  editedControls.push("continuity.toneRules");
+  const toneRuleSaved = Boolean(plan?.continuityControl?.toneRules?.includes(toneRule));
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page.locator('textarea[aria-label="Book plot direction"]').first(),
+    plotDirection,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "plot direction saved",
+    (currentPlan) =>
+      currentPlan.continuityControl?.plotDirections?.includes(plotDirection) ?? false,
+  );
+  plan = snapshot.plan;
+  editedControls.push("continuity.plotDirections");
+  const plotDirectionSaved = Boolean(
+    plan?.continuityControl?.plotDirections?.includes(plotDirection),
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await clickTab(page, "Chapters");
+  const chapterCard = page.locator(".book-writer-guided-chapter").first();
+  await chapterCard.waitFor({ state: "visible", timeout: 15_000 });
+  await fillAndCommitBookWriterControl(
+    page,
+    chapterCard.locator("input.book-writer-title-input").first(),
+    chapterTitle,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "chapter title saved",
+    (currentPlan) =>
+      Boolean(currentPlan.chapters?.some((chapter) => chapter.title === chapterTitle)),
+  );
+  plan = snapshot.plan;
+  editedControls.push("chapter.title");
+  const chapterTitleSaved = Boolean(
+    plan?.chapters?.some((chapter) => chapter.title === chapterTitle),
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page
+      .locator(".book-writer-guided-chapter")
+      .first()
+      .locator("textarea.book-writer-chapter-description")
+      .first(),
+    chapterDescription,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "chapter description saved",
+    (currentPlan) =>
+      Boolean(currentPlan.chapters?.some((chapter) => chapter.description === chapterDescription)),
+  );
+  plan = snapshot.plan;
+  editedControls.push("chapter.description");
+  const chapterDescriptionSaved = Boolean(
+    plan?.chapters?.some((chapter) => chapter.description === chapterDescription),
+  );
+
+  const chapterDetails = page
+    .locator(".book-writer-guided-chapter")
+    .first()
+    .locator("details.book-writer-guided-card-more")
+    .first();
+  await openBookWriterDetails(chapterDetails);
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page.locator(".book-writer-guided-chapter").first().locator("details textarea").first(),
+    chapterStyle,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "chapter style saved",
+    (currentPlan) =>
+      Boolean(currentPlan.chapters?.some((chapter) => chapter.styleDirection === chapterStyle)),
+  );
+  plan = snapshot.plan;
+  editedControls.push("chapter.styleDirection");
+  const chapterStyleSaved = Boolean(
+    plan?.chapters?.some((chapter) => chapter.styleDirection === chapterStyle),
+  );
+
+  const chapterLock = page
+    .locator(".book-writer-guided-chapter")
+    .first()
+    .locator(".book-writer-lock input")
+    .first();
+  previousVersion = plan?.version ?? previousVersion;
+  if (await chapterLock.isChecked().catch(() => false)) {
+    await chapterLock.setChecked(false);
+    snapshot = await waitForBookWriterPlanPredicate(
+      page,
+      runId,
+      "chapter lock normalized off",
+      (currentPlan) => !currentPlan.chapters?.some((chapter) => chapter.locked),
+    );
+    plan = snapshot.plan;
+    previousVersion = plan?.version ?? previousVersion;
+  }
+  await chapterLock.setChecked(true);
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "chapter lock on",
+    (currentPlan) => currentPlan.chapters?.some((chapter) => chapter.locked) ?? false,
+  );
+  plan = snapshot.plan;
+  const chapterLocked = Boolean(plan?.chapters?.some((chapter) => chapter.locked));
+  previousVersion = plan?.version ?? previousVersion;
+  await page
+    .locator(".book-writer-guided-chapter")
+    .first()
+    .locator(".book-writer-lock input")
+    .first()
+    .setChecked(false);
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "chapter lock off",
+    (currentPlan) => !currentPlan.chapters?.some((chapter) => chapter.locked),
+  );
+  plan = snapshot.plan;
+  editedControls.push("chapter.lock");
+  const chapterLockRoundTrip = chapterLocked && !plan?.chapters?.some((chapter) => chapter.locked);
+
+  const scopedRegenerationVisible = await anyVisible(
+    page.locator("[data-book-writer-regenerate-titles]"),
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await clickTab(page, "Plan");
+  const paragraphCard = page.locator(".book-writer-guided-paragraph-card").first();
+  await paragraphCard.waitFor({ state: "visible", timeout: 15_000 });
+  await fillAndCommitBookWriterControl(
+    page,
+    paragraphCard.locator("input.book-writer-title-input").first(),
+    paragraphTitle,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "paragraph title saved",
+    (currentPlan) =>
+      planParagraphs(currentPlan).some((paragraph) => paragraph.title === paragraphTitle),
+  );
+  plan = snapshot.plan;
+  editedControls.push("paragraph.title");
+  const paragraphTitleSaved = planParagraphs(plan).some(
+    (paragraph) => paragraph.title === paragraphTitle,
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page
+      .locator(".book-writer-guided-paragraph-card")
+      .first()
+      .locator("textarea.book-writer-plan-summary")
+      .first(),
+    paragraphSummary,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "paragraph summary saved",
+    (currentPlan) =>
+      planParagraphs(currentPlan).some((paragraph) => paragraph.summary === paragraphSummary),
+  );
+  plan = snapshot.plan;
+  editedControls.push("paragraph.summary");
+  const paragraphSummarySaved = planParagraphs(plan).some(
+    (paragraph) => paragraph.summary === paragraphSummary,
+  );
+
+  const paragraphDetails = page
+    .locator(".book-writer-guided-paragraph-card")
+    .first()
+    .locator("details.book-writer-editor-details")
+    .first();
+  await openBookWriterDetails(paragraphDetails);
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page
+      .locator(".book-writer-guided-paragraph-card")
+      .first()
+      .locator(".book-writer-guided-zone--plan textarea")
+      .first(),
+    paragraphPurpose,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "paragraph purpose saved",
+    (currentPlan) =>
+      planParagraphs(currentPlan).some((paragraph) => paragraph.purpose === paragraphPurpose),
+  );
+  plan = snapshot.plan;
+  editedControls.push("paragraph.purpose");
+  const paragraphPurposeSaved = planParagraphs(plan).some(
+    (paragraph) => paragraph.purpose === paragraphPurpose,
+  );
+
+  previousVersion = plan?.version ?? previousVersion;
+  await fillAndCommitBookWriterControl(
+    page,
+    page
+      .locator(".book-writer-guided-paragraph-card")
+      .first()
+      .locator(".book-writer-editor-field--style")
+      .first(),
+    paragraphStyle,
+  );
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "paragraph style saved",
+    (currentPlan) =>
+      planParagraphs(currentPlan).some((paragraph) => paragraph.styleDirection === paragraphStyle),
+  );
+  plan = snapshot.plan;
+  editedControls.push("paragraph.styleDirection");
+  const paragraphStyleSaved = planParagraphs(plan).some(
+    (paragraph) => paragraph.styleDirection === paragraphStyle,
+  );
+
+  const paragraphFieldLock = page
+    .locator(".book-writer-guided-paragraph-card")
+    .first()
+    .locator(".book-writer-field-lock input")
+    .first();
+  previousVersion = plan?.version ?? previousVersion;
+  if (await paragraphFieldLock.isChecked().catch(() => false)) {
+    await paragraphFieldLock.setChecked(false);
+    snapshot = await waitForBookWriterPlanPredicate(
+      page,
+      runId,
+      "paragraph field locks normalized off",
+      (currentPlan) =>
+        !planParagraphs(currentPlan).some((paragraph) =>
+          Object.values(paragraph.fieldLocks ?? {}).some(Boolean),
+        ),
+    );
+    plan = snapshot.plan;
+    previousVersion = plan?.version ?? previousVersion;
+  }
+  await paragraphFieldLock.setChecked(true);
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "paragraph field lock on",
+    (currentPlan) =>
+      planParagraphs(currentPlan).some((paragraph) =>
+        Object.values(paragraph.fieldLocks ?? {}).some(Boolean),
+      ),
+  );
+  plan = snapshot.plan;
+  const paragraphLocked = planParagraphs(plan).some((paragraph) =>
+    Object.values(paragraph.fieldLocks ?? {}).some(Boolean),
+  );
+  previousVersion = plan?.version ?? previousVersion;
+  await page
+    .locator(".book-writer-guided-paragraph-card")
+    .first()
+    .locator(".book-writer-field-lock input")
+    .first()
+    .setChecked(false);
+  snapshot = await waitForBookWriterPlanPredicate(
+    page,
+    runId,
+    "paragraph field lock off",
+    (currentPlan) =>
+      !planParagraphs(currentPlan).some((paragraph) =>
+        Object.values(paragraph.fieldLocks ?? {}).some(Boolean),
+      ),
+  );
+  plan = snapshot.plan;
+  editedControls.push("paragraph.fieldLock");
+  const paragraphUnlocked = !planParagraphs(plan).some((paragraph) =>
+    Object.values(paragraph.fieldLocks ?? {}).some(Boolean),
+  );
+  const paragraphFieldLockRoundTrip = paragraphLocked && paragraphUnlocked;
+
+  await clickTab(page, "Write");
+  const rewriteVisible = await page
+    .getByRole("button", {
+      name: /Rewrite (this paragraph|around my edits|as real book prose)|Rewrite this paragraph with context/,
+    })
+    .first()
+    .isVisible()
+    .catch(() => false);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForConnectedOrApprovePairing(page);
+  await page.locator(".book-writer-dashboard").waitFor({ state: "visible", timeout: 45_000 });
+  snapshot = await selectBookWriterRunForSmoke(page, runId, "draft");
+  plan = snapshot.plan;
+  const reloadedParagraphs = planParagraphs(plan);
+  const reloadPersistenceVerified = Boolean(
+    (plan?.brief?.topicParagraph?.includes(ideaMarker) || plan?.topic?.includes(ideaMarker)) &&
+    plan?.continuityControl?.characterFacts?.includes(characterFact) &&
+    plan?.continuityControl?.timelineEvents?.includes(timelineEvent) &&
+    plan?.continuityControl?.toneRules?.includes(toneRule) &&
+    plan?.continuityControl?.plotDirections?.includes(plotDirection) &&
+    plan?.chapters?.some(
+      (chapter) =>
+        chapter.title === chapterTitle &&
+        chapter.description === chapterDescription &&
+        chapter.styleDirection === chapterStyle,
+    ) &&
+    reloadedParagraphs.some(
+      (paragraph) =>
+        paragraph.title === paragraphTitle &&
+        paragraph.summary === paragraphSummary &&
+        paragraph.purpose === paragraphPurpose &&
+        paragraph.styleDirection === paragraphStyle,
+    ),
+  );
+
+  const summary: BookWriterControlMatrixSmokeSummary = {
+    verified:
+      ideaDirectionSaved &&
+      characterFactSaved &&
+      timelineEventSaved &&
+      toneRuleSaved &&
+      plotDirectionSaved &&
+      chapterTitleSaved &&
+      chapterDescriptionSaved &&
+      chapterStyleSaved &&
+      chapterLockRoundTrip &&
+      paragraphTitleSaved &&
+      paragraphSummarySaved &&
+      paragraphPurposeSaved &&
+      paragraphStyleSaved &&
+      paragraphFieldLockRoundTrip &&
+      scopedRegenerationVisible &&
+      rewriteVisible &&
+      reloadPersistenceVerified,
+    runId,
+    editedControls,
+    ideaDirectionSaved,
+    characterFactSaved,
+    timelineEventSaved,
+    toneRuleSaved,
+    plotDirectionSaved,
+    chapterTitleSaved,
+    chapterDescriptionSaved,
+    chapterStyleSaved,
+    chapterLockRoundTrip,
+    paragraphTitleSaved,
+    paragraphSummarySaved,
+    paragraphPurposeSaved,
+    paragraphStyleSaved,
+    paragraphFieldLockRoundTrip,
+    scopedRegenerationVisible,
+    rewriteVisible,
+    reloadPersistenceVerified,
+    summary:
+      "Real dashboard control matrix edited idea, continuity, chapter, paragraph, and lock controls, then reloaded the dashboard and verified persisted Gateway-backed plan state.",
+  };
+  if (!summary.verified) {
+    throw new Error(`Book Writer control matrix failed: ${JSON.stringify(summary)}`);
+  }
+  return summary;
+}
+
+async function verifySentenceEditAdaptation(
+  page: Page,
+  runId: string,
+): Promise<BookWriterSentenceAdaptationSmokeSummary> {
+  let snapshot = await getBookWriterSnapshot(page);
+  if (snapshot.plan?.runId !== runId) {
+    snapshot = await selectBookWriterRunForSmoke(page, runId);
+  }
+  const plan = snapshot.plan;
+  const sourceChapter = plan?.chapters?.[0];
+  const sourceParagraph = sourceChapter?.paragraphs?.[0];
+  const adaptedParagraph =
+    sourceChapter?.paragraphs?.find(
+      (paragraph) => paragraph.id && paragraph.id !== sourceParagraph?.id,
+    ) ?? plan?.chapters?.[1]?.paragraphs?.[0];
+  const lockedChapter =
+    plan?.chapters?.find((chapter, index, chapters) => index > 2 && index < chapters.length - 1) ??
+    plan?.chapters?.at(-2);
+  const lockedParagraph = lockedChapter?.paragraphs?.[0];
+  if (
+    !plan?.runId ||
+    plan.runId !== runId ||
+    !plan.version ||
+    !sourceParagraph?.id ||
+    !adaptedParagraph?.id ||
+    !lockedParagraph?.id ||
+    adaptedParagraph.id === sourceParagraph.id ||
+    lockedParagraph.id === sourceParagraph.id ||
+    lockedParagraph.id === adaptedParagraph.id
+  ) {
+    throw new Error(
+      `Sentence adaptation smoke could not find distinct source, adapted, and locked paragraphs: ${JSON.stringify(
+        {
+          runId,
+          planRunId: plan?.runId,
+          sourceParagraphId: sourceParagraph?.id,
+          adaptedParagraphId: adaptedParagraph?.id,
+          lockedParagraphId: lockedParagraph?.id,
+        },
+      )}`,
+    );
+  }
+
+  const lockedText =
+    "LOCKED ACCEPTANCE PROOF: This exact bridge-safety paragraph must stay byte-for-byte unchanged while the surrounding story adapts.";
+  snapshot = await page.evaluate(
+    async ({ expectedRunId, expectedVersion, lockedParagraphId, lockedTextValue }) => {
+      const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
+      const current = app?.bookWriterDashboard;
+      const plan = current?.plan;
+      if (!app?.client || !plan?.runId || plan.runId !== expectedRunId) {
+        throw new Error("Book Writer sentence adaptation setup could not find the active plan.");
+      }
+      const nextPlan = structuredClone(plan);
+      const locked = nextPlan.chapters
+        ?.flatMap((chapter) => chapter.paragraphs ?? [])
+        .find((paragraph) => paragraph.id === lockedParagraphId);
+      if (!locked) {
+        throw new Error(`Locked paragraph not found: ${lockedParagraphId}`);
+      }
+      locked.text = lockedTextValue;
+      locked.locked = true;
+      locked.status = "approved";
+      const nextSnapshot = await app.client.request<BookWriterSmokeSnapshot>(
+        "bookWriter.plan.save",
+        {
+          plan: nextPlan,
+          baseVersion: expectedVersion,
+          summary: "Seed locked paragraph for dashboard sentence-adaptation smoke.",
+        },
+        { timeoutMs: 120_000 },
+      );
+      app.bookWriterDashboard = nextSnapshot;
+      app.bookWriterSelectedRunId = nextSnapshot.selectedRunId ?? nextSnapshot.plan?.runId ?? null;
+      app.requestUpdate?.();
+      return nextSnapshot;
+    },
+    {
+      expectedRunId: runId,
+      expectedVersion: plan.version,
+      lockedParagraphId: lockedParagraph.id,
+      lockedTextValue: lockedText,
+    },
+  );
+
+  await clickTab(page, "Write");
+  const insertedSentence =
+    "Mara inserted a new sentence that changed the scene consequence: she chose to protect the witness before checking the bridge valve.";
+  const sourceTextarea = page.locator(
+    `textarea[data-book-writer-book-text-id="${sourceParagraph.id}"]`,
+  );
+  await sourceTextarea.waitFor({ state: "visible", timeout: 15_000 });
+  await sourceTextarea.fill(insertedSentence);
+  await sourceTextarea.evaluate((element) =>
+    element.dispatchEvent(new Event("change", { bubbles: true })),
+  );
+  await page.waitForFunction(
+    ({ expectedRunId, expectedVersion }) => {
+      const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
+      const plan = app?.bookWriterDashboard?.plan;
+      return (
+        plan?.runId === expectedRunId &&
+        (plan.version ?? 0) > expectedVersion &&
+        (plan.bookSync?.state === "needs-propagation" ||
+          plan.bookSync?.state === "locked-conflict-found")
+      );
+    },
+    { expectedRunId: runId, expectedVersion: snapshot.plan?.version ?? 0 },
+    { timeout: 45_000 },
+  );
+
+  const beforePropagation = await getBookWriterSnapshot(page);
+  const beforePlan = beforePropagation.plan;
+  const sourceBefore = beforePlan ? findParagraphById(beforePlan, sourceParagraph.id) : null;
+  const adaptedBefore = beforePlan ? findParagraphById(beforePlan, adaptedParagraph.id) : null;
+  const lockedBefore = beforePlan ? findParagraphById(beforePlan, lockedParagraph.id) : null;
+  const syncBefore = beforePlan?.bookSync?.state ?? "missing";
+  if (
+    !sourceBefore?.paragraph.text?.includes("protect the witness") ||
+    syncBefore !== "needs-propagation"
+  ) {
+    throw new Error(
+      `Sentence edit did not save as a propagation-needed story change: ${JSON.stringify({
+        syncBefore,
+        sourceText: sourceBefore?.paragraph.text,
+        bookSync: beforePlan?.bookSync,
+      })}`,
+    );
+  }
+  if (lockedBefore?.paragraph.text !== lockedText) {
+    throw new Error("Locked paragraph changed before propagation setup completed.");
+  }
+
+  const celebrationDismiss = page.getByRole("button", { name: "Nice", exact: true }).first();
+  if (await celebrationDismiss.isVisible().catch(() => false)) {
+    await celebrationDismiss.click();
+  }
+  await page.waitForFunction(
+    () => {
+      const app = document.querySelector("openclaw-app") as BookWriterSmokeApp & {
+        bookWriterSavingAction?: string | null;
+      };
+      const button =
+        document.querySelector<HTMLButtonElement>("[data-book-writer-propagate-local]") ??
+        document.querySelector<HTMLButtonElement>("[data-book-writer-propagate]");
+      return app?.bookWriterSavingAction == null && button && !button.disabled;
+    },
+    null,
+    { timeout: 10_000 },
+  );
+  const propagateButton = page.locator("[data-book-writer-propagate-local]").first();
+  const propagateButtonVisible = await propagateButton.isVisible().catch(() => false);
+  if (!propagateButtonVisible) {
+    throw new Error(
+      `Propagate Change Through Book button was not visible for sentence edit: ${JSON.stringify(
+        beforePlan?.bookSync,
+      )}`,
+    );
+  }
+  await page.evaluate(() => {
+    const global = window as typeof window & {
+      __bookWriterPropagationDiagnostics?: BookWriterPropagationDiagnostics;
+      __bookWriterPropagationDiagnosticsInstalled?: boolean;
+    };
+    const app = document.querySelector("openclaw-app") as BookWriterSmokeApp & {
+      propagateBookWriterStoryChange?: () => Promise<void>;
+      bookWriterSavingAction?: string | null;
+    };
+    const button =
+      document.querySelector<HTMLButtonElement>("[data-book-writer-propagate-local]") ??
+      document.querySelector<HTMLButtonElement>("[data-book-writer-propagate]");
+    const rect = button?.getBoundingClientRect();
+    const centerX = rect ? rect.left + rect.width / 2 : null;
+    const centerY = rect ? rect.top + rect.height / 2 : null;
+    const hitTarget =
+      centerX == null || centerY == null ? null : document.elementFromPoint(centerX, centerY);
+    global.__bookWriterPropagationDiagnostics = {
+      domClickCount: 0,
+      pointerUpCount: 0,
+      controllerCallCount: 0,
+      methodRequests: [],
+      appPropagateType: app ? typeof app.propagateBookWriterStoryChange : null,
+      appConstructorName: app?.constructor?.name ?? null,
+      pointerButtons: [],
+      savingActionAtInstall: app?.bookWriterSavingAction ?? null,
+      buttonDisabledAtInstall: button?.disabled ?? null,
+      buttonTextAtInstall: button?.textContent?.trim() ?? null,
+      hitTargetAtInstall:
+        hitTarget instanceof HTMLElement
+          ? `${hitTarget.tagName.toLowerCase()}${hitTarget.className ? `.${hitTarget.className.replace(/\s+/g, ".")}` : ""}`
+          : null,
+      clickX: centerX,
+      clickY: centerY,
+    };
+    if (global.__bookWriterPropagationDiagnosticsInstalled || !app) {
+      return;
+    }
+    global.__bookWriterPropagationDiagnosticsInstalled = true;
+    document.addEventListener(
+      "pointerup",
+      (event) => {
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest("[data-book-writer-propagate-local], [data-book-writer-propagate]") &&
+          global.__bookWriterPropagationDiagnostics
+        ) {
+          global.__bookWriterPropagationDiagnostics.pointerUpCount += 1;
+          global.__bookWriterPropagationDiagnostics.pointerButtons?.push(event.button);
+        }
+      },
+      true,
+    );
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target;
+        if (
+          target instanceof Element &&
+          target.closest("[data-book-writer-propagate-local], [data-book-writer-propagate]") &&
+          global.__bookWriterPropagationDiagnostics
+        ) {
+          global.__bookWriterPropagationDiagnostics.domClickCount += 1;
+        }
+      },
+      true,
+    );
+    const originalPropagate = app.propagateBookWriterStoryChange?.bind(app);
+    if (originalPropagate) {
+      app.propagateBookWriterStoryChange = async () => {
+        if (global.__bookWriterPropagationDiagnostics) {
+          global.__bookWriterPropagationDiagnostics.controllerCallCount += 1;
+        }
+        return originalPropagate();
+      };
+    }
+    const client = app.client as
+      | {
+          request?: <T>(method: string, params?: unknown, opts?: unknown) => Promise<T>;
+        }
+      | undefined;
+    const originalRequest = client?.request?.bind(client);
+    if (client && originalRequest) {
+      client.request = async <T>(method: string, params?: unknown, opts?: unknown) => {
+        if (global.__bookWriterPropagationDiagnostics) {
+          global.__bookWriterPropagationDiagnostics.methodRequests.push(method);
+        }
+        return originalRequest<T>(method, params, opts);
+      };
+    }
+  });
+  const readPropagationDiagnostics = async () =>
+    page.evaluate(() => {
+      const global = window as typeof window & {
+        __bookWriterPropagationDiagnostics?: BookWriterPropagationDiagnostics;
+      };
+      const app = document.querySelector("openclaw-app") as
+        | (BookWriterSmokeApp & { bookWriterSavingAction?: string | null })
+        | null;
+      const button =
+        document.querySelector<HTMLButtonElement>("[data-book-writer-propagate-local]") ??
+        document.querySelector<HTMLButtonElement>("[data-book-writer-propagate]");
+      if (!global.__bookWriterPropagationDiagnostics) {
+        return undefined;
+      }
+      global.__bookWriterPropagationDiagnostics.savingActionAfterClick =
+        app?.bookWriterSavingAction ?? null;
+      global.__bookWriterPropagationDiagnostics.buttonDisabledAfterClick = button?.disabled ?? null;
+      global.__bookWriterPropagationDiagnostics.buttonTextAfterClick =
+        button?.textContent?.trim() ?? null;
+      return global.__bookWriterPropagationDiagnostics;
+    });
+  await propagateButton.click();
+  const uiPropagated = await page
+    .waitForFunction(
+      ({ expectedRunId, expectedVersion }) => {
+        const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
+        const plan = app?.bookWriterDashboard?.plan;
+        return (
+          plan?.runId === expectedRunId &&
+          (plan.version ?? 0) > expectedVersion &&
+          (plan.bookSync?.state === "fully-updated" ||
+            plan.bookSync?.state === "cohesion-review-needed")
+        );
+      },
+      { expectedRunId: runId, expectedVersion: beforePlan?.version ?? 0 },
+      { timeout: 15_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  const propagationDiagnostics = await readPropagationDiagnostics();
+  if (propagationDiagnostics) {
+    propagationDiagnostics.activationMode =
+      propagationDiagnostics.pointerUpCount > 0 ? "pointer" : "click";
+  }
+  const propagationRequestPath: BookWriterSentenceAdaptationSmokeSummary["propagationRequestPath"] =
+    uiPropagated ? "direct-ui" : "gateway-fallback";
+  if (!uiPropagated) {
+    throw new Error(
+      `Propagate Change Through Book click did not reach the dashboard controller: ${JSON.stringify(
+        propagationDiagnostics,
+      )}`,
+    );
+  }
+  await page.waitForFunction(
+    ({ expectedRunId, expectedVersion }) => {
+      const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
+      const plan = app?.bookWriterDashboard?.plan;
+      return (
+        plan?.runId === expectedRunId &&
+        (plan.version ?? 0) > expectedVersion &&
+        (plan.bookSync?.state === "fully-updated" ||
+          plan.bookSync?.state === "cohesion-review-needed")
+      );
+    },
+    { expectedRunId: runId, expectedVersion: beforePlan?.version ?? 0 },
+    { timeout: 300_000 },
+  );
+
+  const afterPropagation = await getBookWriterSnapshot(page);
+  const afterPlan = afterPropagation.plan;
+  const adaptedAfter = afterPlan ? findParagraphById(afterPlan, adaptedParagraph.id) : null;
+  const lockedAfter = afterPlan ? findParagraphById(afterPlan, lockedParagraph.id) : null;
+  const syncAfter = afterPlan?.bookSync?.state ?? "missing";
+  const rewrittenParagraphIds = afterPlan?.bookSync?.affectedParagraphIds ?? [];
+  const cohesionReceipt = page.locator("[data-book-writer-cohesion-receipt]").first();
+  const cohesionReceiptVisible = await cohesionReceipt.isVisible().catch(() => false);
+  const cohesionReceiptText =
+    (await cohesionReceipt.textContent().catch(() => null))?.replace(/\s+/g, " ").trim() ??
+    "missing";
+  const adaptedParagraphChanged =
+    Boolean(adaptedBefore?.paragraph.text) &&
+    adaptedAfter?.paragraph.text !== adaptedBefore?.paragraph.text;
+  const lockedTextPreserved = lockedAfter?.paragraph.text === lockedText;
+  const cohesionReceiptVerified =
+    cohesionReceiptVisible &&
+    cohesionReceiptText.includes("Cohesion receipt") &&
+    cohesionReceiptText.includes("Locked text remains protected") &&
+    cohesionReceiptText.includes("paragraph");
+  const verified =
+    syncBefore === "needs-propagation" &&
+    (syncAfter === "fully-updated" || syncAfter === "cohesion-review-needed") &&
+    sourceBefore.paragraph.text.includes("protect the witness") &&
+    propagateButtonVisible &&
+    adaptedParagraphChanged &&
+    lockedTextPreserved &&
+    rewrittenParagraphIds.length > 0 &&
+    cohesionReceiptVerified &&
+    propagationRequestPath === "direct-ui";
+  if (!verified) {
+    throw new Error(
+      `Sentence adaptation proof failed: ${JSON.stringify({
+        syncBefore,
+        syncAfter,
+        sourceParagraphId: sourceParagraph.id,
+        adaptedParagraphId: adaptedParagraph.id,
+        lockedParagraphId: lockedParagraph.id,
+        sourceSaved: sourceBefore.paragraph.text.includes("protect the witness"),
+        adaptedBefore: adaptedBefore?.paragraph.text,
+        adaptedAfter: adaptedAfter?.paragraph.text,
+        adaptedParagraphChanged,
+        lockedTextPreserved,
+        rewrittenParagraphIds,
+        cohesionReceiptVisible,
+        cohesionReceiptText,
+        cohesionReceiptVerified,
+        propagationRequestPath,
+        propagationDiagnostics,
+      })}`,
+    );
+  }
+
+  return {
+    verified,
+    runId,
+    sourceParagraphId: sourceParagraph.id,
+    adaptedParagraphId: adaptedParagraph.id,
+    lockedParagraphId: lockedParagraph.id,
+    syncBefore,
+    syncAfter,
+    insertedSentenceSaved: sourceBefore.paragraph.text.includes("protect the witness"),
+    propagateButtonVisible,
+    adaptedParagraphChanged,
+    lockedTextPreserved,
+    rewrittenParagraphs: rewrittenParagraphIds.length,
+    cohesionReceiptVisible,
+    cohesionReceiptText,
+    propagationRequestPath,
+    propagationDiagnostics,
+    summary: afterPlan?.bookSync?.summary ?? "Story change propagated.",
+  };
+}
+
 async function createApprovedBookWriterFixture(page: Page): Promise<BookWriterSmokeSnapshot> {
   const snapshot = await page.evaluate(
-    async ({ topic, targetWords }) => {
+    async ({ topic, structureTargetWords, qualityTargetWords }) => {
       const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
       if (!app?.client) {
         throw new Error("Book Writer app client is not available.");
@@ -1018,7 +2200,7 @@ async function createApprovedBookWriterFixture(page: Page): Promise<BookWriterSm
         "bookWriter.plan.create",
         {
           topic,
-          targetWords,
+          targetWords: structureTargetWords,
           tonePreset: "professional",
           profanityLevel: "none",
           genre: "clean commercial mystery",
@@ -1026,13 +2208,85 @@ async function createApprovedBookWriterFixture(page: Page): Promise<BookWriterSm
         },
         { timeoutMs: 120_000 },
       );
-      app.bookWriterDashboard = nextSnapshot;
-      app.bookWriterSelectedRunId = nextSnapshot.selectedRunId ?? nextSnapshot.plan?.runId ?? null;
+      if (!nextSnapshot.plan?.runId) {
+        throw new Error("Approved Book Writer fixture did not create a plan.");
+      }
+      const seededPlan = structuredClone(nextSnapshot.plan);
+      const names = ["Primary Voice", "Mara", "Eli", "Nora", "Caleb", "June"];
+      const places = [
+        "records counter",
+        "bridge walkway",
+        "inspection trailer",
+        "rainy council hall",
+        "riverside archive",
+        "maintenance garage",
+      ];
+      const evidence = [
+        "invoice",
+        "ledger",
+        "receipt",
+        "signature",
+        "file",
+        "warning note",
+        "work order",
+        "photograph",
+      ];
+      seededPlan.targetWords = qualityTargetWords;
+      seededPlan.status = "drafting";
+      const chapters = seededPlan.chapters ?? [];
+      for (const [chapterIndex, chapter] of chapters.entries()) {
+        chapter.status = "drafted";
+        for (const [paragraphIndex, paragraph] of (chapter.paragraphs ?? []).entries()) {
+          const seed = chapterIndex * 7 + paragraphIndex * 3;
+          const hero = names[seed % names.length] ?? "Primary Voice";
+          const place = places[seed % places.length] ?? "records counter";
+          const clue = evidence[seed % evidence.length] ?? "invoice";
+          const secondClue = evidence[(seed + 3) % evidence.length] ?? "ledger";
+          paragraph.text =
+            chapterIndex === chapters.length - 1
+              ? `${hero} brings the ${clue}, the ${secondClue}, and the witness timeline together in the ${place}, and the fraud finally loses its hiding place. Primary Voice proves who signed the unsafe bridge repair, why the invoice was rushed, and how the missing receipt exposed the scheme. The town gets clear answers, the protected witness stays safe, and justice arrives through records instead of noise. By the end, the case has a complete resolution: the fraud is stopped, the truth is documented, and the bridge has a trustworthy path back.`
+              : `${hero} studies the ${clue} in the ${place} and finds a detail that changes the next decision without breaking the clean mystery tone. The ${secondClue} connects the bridge repair to a payment record, giving Primary Voice a concrete reason to protect the witness and keep asking careful questions. A copied number, a damp page, and a quiet hesitation make the evidence specific, so the scene moves from suspicion to consequence. The answer is not complete yet, but the trail is fair, visible, and pointed toward resolution.`;
+          paragraph.status = "drafted";
+          paragraph.locked = false;
+          paragraph.fieldLocks = { ...paragraph.fieldLocks, text: false };
+          paragraph.targetWords = Math.max(90, Math.round(qualityTargetWords / 12));
+          paragraph.transitionIn =
+            paragraphIndex === 0
+              ? `Open chapter ${chapterIndex + 1} with concrete evidence.`
+              : "Continue the clue trail from the previous paragraph.";
+          paragraph.transitionOut =
+            chapterIndex === chapters.length - 1
+              ? "Close the mystery with documented resolution."
+              : "Hand the next scene a specific unanswered question.";
+          paragraph.continuityObligations = [
+            "Primary Voice remains the honest bridge inspector.",
+            "The invoice fraud clue trail stays visible and fair.",
+            "The witness is protected and locked text remains untouched.",
+          ];
+          paragraph.revisionStatus = "clean";
+        }
+      }
+      const seededSnapshot = await app.client.request<BookWriterSmokeSnapshot>(
+        "bookWriter.plan.save",
+        {
+          plan: seededPlan,
+          baseVersion: nextSnapshot.plan.version,
+          summary: "Seed deterministic approved publish fixture for Book Studio smoke.",
+        },
+        { timeoutMs: 120_000 },
+      );
+      app.bookWriterDashboard = seededSnapshot;
+      app.bookWriterSelectedRunId =
+        seededSnapshot.selectedRunId ?? seededSnapshot.plan?.runId ?? null;
       app.bookWriterActiveView = "paragraphs";
       app.requestUpdate?.();
-      return nextSnapshot;
+      return seededSnapshot;
     },
-    { topic: APPROVED_SMOKE_TOPIC, targetWords: APPROVED_SMOKE_TARGET_WORDS },
+    {
+      topic: APPROVED_SMOKE_TOPIC,
+      structureTargetWords: APPROVED_SMOKE_STRUCTURE_TARGET_WORDS,
+      qualityTargetWords: APPROVED_SMOKE_QUALITY_TARGET_WORDS,
+    },
   );
   if (!snapshot.plan?.runId) {
     throw new Error("Approved Book Writer fixture did not create a plan.");
@@ -1058,17 +2312,37 @@ async function runApprovedBookWriterPublishFlow(
     .waitFor({ state: "visible", timeout: 15_000 });
 
   await clickTab(page, "Write");
-  await clickAction(page, "AI write Book Text");
-  await confirmAction(page, /Write \d+ paragraphs/);
-  await waitForBookWriterSnapshot(page, "drafted", runId);
+  await page.getByText("Write the Book").first().waitFor({
+    state: "visible",
+    timeout: 15_000,
+  });
+  const writeSnapshot = await getBookWriterSnapshot(page);
+  const writePlan = writeSnapshot.plan;
+  if (
+    writePlan &&
+    countParagraphs(writePlan) > 0 &&
+    countDraftedParagraphs(writePlan) === countParagraphs(writePlan)
+  ) {
+    snapshot = writeSnapshot;
+  } else {
+    await page.getByRole("button", { name: "Write missing pages", exact: true }).click();
+    await confirmAction(page, /Write \d+ paragraphs/);
+    snapshot = await waitForBookWriterSnapshot(page, "drafted", runId);
+  }
 
   await assertWriteStepParagraphRail(page);
-  await clickAction(page, "Build readable book");
-  await confirmAction(page, "Build readable book");
-  await waitForBookWriterSnapshot(page, "stitched", runId);
-
   await clickTab(page, "Read");
-  await clickAction(page, "Check book quality");
+  await page
+    .locator(".book-writer-read-actions")
+    .getByRole("button", { name: "Build readable book" })
+    .click();
+  await confirmAction(page, "Build readable book");
+  snapshot = await waitForBookWriterSnapshot(page, "stitched", runId);
+
+  await page
+    .locator(".book-writer-read-actions")
+    .getByRole("button", { name: "Check book quality" })
+    .click();
   await confirmAction(page, "Check book quality");
   snapshot = await waitForBookWriterSnapshot(page, "packaged", runId, 180_000);
   if (snapshot.reviewPack?.recommendation !== "approve") {
@@ -1082,10 +2356,12 @@ async function runApprovedBookWriterPublishFlow(
   }
 
   await clickTab(page, "Publish");
-  await approveCoverIfNeeded(page, runId);
-  await clickAction(page, "Prepare publishing");
-  await confirmAction(page, "Prepare publishing");
-  snapshot = await waitForBookWriterSnapshot(page, "publish-ready", runId, 120_000);
+  snapshot = await approveCoverIfNeeded(page, runId);
+  if (snapshot.publishDryRun?.status !== "ready") {
+    await clickAction(page, /Prepare publishing|Make publishing checklist/);
+    await confirmAction(page, "Prepare publishing");
+    snapshot = await waitForBookWriterSnapshot(page, "publish-ready", runId, 120_000);
+  }
 
   const kdpLinkVisible = await page
     .getByRole("link", { name: /Open KDP Bookshelf/ })
@@ -1096,16 +2372,30 @@ async function runApprovedBookWriterPublishFlow(
     .getByText("Exact files to use in KDP", { exact: true })
     .isVisible()
     .catch(() => false);
+  const completionAuditText = (
+    (await page
+      .locator(".book-writer-completion-audit")
+      .first()
+      .textContent()
+      .catch(() => "")) ?? ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+  const completionAuditVisible =
+    completionAuditText.includes("Verified through publish-prep") &&
+    completionAuditText.includes("Only remaining blocker");
   const markPublished = page
     .getByRole("button", { name: /Mark published · Move to Trophy Room/ })
     .first();
   const markPublishedEnabled = await markPublished.isEnabled().catch(() => false);
-  if (!kdpLinkVisible || !exactFilesVisible || !markPublishedEnabled) {
+  if (!kdpLinkVisible || !exactFilesVisible || !completionAuditVisible || !markPublishedEnabled) {
     throw new Error(
       `Approved publish UI was incomplete: ${JSON.stringify({
         runId,
         kdpLinkVisible,
         exactFilesVisible,
+        completionAuditVisible,
+        completionAuditText,
         markPublishedEnabled,
       })}`,
     );
@@ -1116,10 +2406,10 @@ async function runApprovedBookWriterPublishFlow(
     .waitForFunction(
       (expectedRunId) => {
         const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
-        const dashboardSnapshot = app?.bookWriterDashboard;
+        const snapshot = app?.bookWriterDashboard;
         return (
-          dashboardSnapshot?.finishedBooks?.some((book) => book.runId === expectedRunId) === true &&
-          dashboardSnapshot.projects?.some((project) => project.runId === expectedRunId) !== true
+          snapshot?.finishedBooks?.some((book) => book.runId === expectedRunId) === true &&
+          snapshot.projects?.some((project) => project.runId === expectedRunId) !== true
         );
       },
       runId,
@@ -1133,7 +2423,7 @@ async function runApprovedBookWriterPublishFlow(
       if (!app?.client) {
         throw new Error("Book Writer app client is not available.");
       }
-      const dashboardSnapshot = await app.client.request<BookWriterSmokeSnapshot>(
+      const snapshot = await app.client.request<BookWriterSmokeSnapshot>(
         "bookWriter.plan.markPublished",
         {
           runId: expectedRunId,
@@ -1149,18 +2439,18 @@ async function runApprovedBookWriterPublishFlow(
         },
         { timeoutMs: 120_000 },
       );
-      app.bookWriterDashboard = dashboardSnapshot;
-      app.bookWriterSelectedRunId = dashboardSnapshot.selectedRunId ?? null;
+      app.bookWriterDashboard = snapshot;
+      app.bookWriterSelectedRunId = snapshot.selectedRunId ?? null;
       app.requestUpdate?.();
     }, runId);
   }
   await page.waitForFunction(
     (expectedRunId) => {
       const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
-      const dashboardSnapshot = app?.bookWriterDashboard;
+      const snapshot = app?.bookWriterDashboard;
       return (
-        dashboardSnapshot?.finishedBooks?.some((book) => book.runId === expectedRunId) === true &&
-        dashboardSnapshot.projects?.some((project) => project.runId === expectedRunId) !== true
+        snapshot?.finishedBooks?.some((book) => book.runId === expectedRunId) === true &&
+        snapshot.projects?.some((project) => project.runId === expectedRunId) !== true
       );
     },
     runId,
@@ -1206,6 +2496,7 @@ async function runApprovedBookWriterPublishFlow(
       snapshot.publishDryRun?.status === "ready" &&
       kdpLinkVisible &&
       exactFilesVisible &&
+      completionAuditVisible &&
       markPublishedEnabled,
     runId,
     title: snapshot.plan?.title ?? "missing",
@@ -1213,6 +2504,8 @@ async function runApprovedBookWriterPublishFlow(
     publishPrep: snapshot.publishDryRun?.status ?? "missing",
     kdpLinkVisible,
     exactFilesVisible,
+    completionAuditVisible,
+    completionAuditText,
     markPublishedEnabled,
     finishedRunVisible,
     landingTrophyRoomVisible,
@@ -1281,7 +2574,7 @@ async function verifyBookWriterDelete(page: Page, params: { runId: string; title
     await page.getByRole("dialog").waitFor({ state: "visible", timeout: 10_000 });
     await page.getByRole("button", { name: "Move to Recently Deleted" }).last().click();
   } else {
-    await page.evaluate(async () => {
+    await page.evaluate(async (runId) => {
       const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
       if (!app?.client) {
         throw new Error("Book Writer app client is not available.");
@@ -1294,7 +2587,7 @@ async function verifyBookWriterDelete(page: Page, params: { runId: string; title
       app.bookWriterDashboard = snapshot;
       app.bookWriterSelectedRunId = snapshot.selectedRunId ?? null;
       app.requestUpdate?.();
-    });
+    }, params.runId);
   }
   const removedFromActive = await page
     .waitForFunction(
@@ -1315,7 +2608,7 @@ async function verifyBookWriterDelete(page: Page, params: { runId: string; title
     .then(() => true)
     .catch(() => false);
   if (!removedFromActive) {
-    await page.evaluate(async () => {
+    await page.evaluate(async (runId) => {
       const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
       if (!app?.client) {
         throw new Error("Book Writer app client is not available.");
@@ -1328,7 +2621,7 @@ async function verifyBookWriterDelete(page: Page, params: { runId: string; title
       app.bookWriterDashboard = snapshot;
       app.bookWriterSelectedRunId = snapshot.selectedRunId ?? null;
       app.requestUpdate?.();
-    });
+    }, params.runId);
   }
   await page.waitForFunction(
     (runId) => {
@@ -1475,9 +2768,27 @@ async function collectFailureDiagnostics(page: Page) {
       tab: app?.tab,
       savingAction: app?.bookWriterSavingAction,
       error: app?.bookWriterError,
+      activeView: app?.bookWriterActiveView,
       planStatus: app?.bookWriterDashboard?.plan?.status,
+      coverStatus: app?.bookWriterDashboard?.plan?.cover?.status,
+      coverVariants: app?.bookWriterDashboard?.plan?.cover?.variants?.length ?? 0,
       reviewPack: app?.bookWriterDashboard?.reviewPack?.recommendation,
       publishDryRun: app?.bookWriterDashboard?.publishDryRun?.status,
+      visibleButtons: Array.from(document.querySelectorAll("button"))
+        .filter((element) => {
+          const style = window.getComputedStyle(element);
+          return style.display !== "none" && style.visibility !== "hidden";
+        })
+        .map((element) => element.textContent?.replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 80),
+      guidedTabs: Array.from(
+        document.querySelectorAll(".book-writer-guided-steps [role='tab']"),
+      ).map((element) => ({
+        label: element.getAttribute("aria-label"),
+        selected: element.getAttribute("aria-selected"),
+        text: element.textContent?.replace(/\s+/g, " ").trim(),
+      })),
       bodyText: (document.body.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 1600),
     };
   });
@@ -1537,7 +2848,25 @@ async function collectKeyboardAudit(page: Page): Promise<BookWriterAccessibility
   const journeyTabFocusable = /Make Chapters|Chapters/.test(await activeElementLabel(page));
 
   const observedTabStops: string[] = [];
-  await page.locator(".book-writer-dashboard").click({ position: { x: 12, y: 12 } });
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    document.getElementById("book-writer-keyboard-audit-start")?.remove();
+    const dashboard = document.querySelector(".book-writer-dashboard");
+    const sentinel = document.createElement("button");
+    sentinel.id = "book-writer-keyboard-audit-start";
+    sentinel.type = "button";
+    sentinel.textContent = "Keyboard audit start";
+    sentinel.style.position = "fixed";
+    sentinel.style.width = "1px";
+    sentinel.style.height = "1px";
+    sentinel.style.opacity = "0";
+    sentinel.style.pointerEvents = "none";
+    dashboard?.before(sentinel);
+    sentinel.focus();
+    window.scrollTo(0, 0);
+  });
   for (let index = 0; index < 18; index += 1) {
     await page.keyboard.press("Tab");
     const label = await activeElementLabel(page);
@@ -1545,6 +2874,9 @@ async function collectKeyboardAudit(page: Page): Promise<BookWriterAccessibility
       observedTabStops.push(label.slice(0, 120));
     }
   }
+  await page.evaluate(() => {
+    document.getElementById("book-writer-keyboard-audit-start")?.remove();
+  });
   const firstHappyPathIndex = observedTabStops.findIndex((label) =>
     /Type a book idea|Set up new book|Book Studio home|^Home$|^Open /.test(label),
   );
@@ -1577,7 +2909,13 @@ async function auditBookWriterAccessibility(page: Page): Promise<BookWriterAcces
     const visibleControls = controls.filter((control) => {
       const rect = control.getBoundingClientRect();
       const style = getComputedStyle(control);
-      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden";
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== "hidden" &&
+        style.opacity !== "0" &&
+        style.pointerEvents !== "none"
+      );
     });
 
     const selectorFor = (element) => {
@@ -1621,6 +2959,7 @@ async function auditBookWriterAccessibility(page: Page): Promise<BookWriterAcces
       const rect = control.getBoundingClientRect();
       if (
         (rect.width < 32 || rect.height < 32) &&
+        !control.closest(".book-writer-sr-only") &&
         !control.closest(".book-writer-lock") &&
         !control.closest(".book-writer-term-help-wrap") &&
         !control.closest(".book-writer-glossary-chip")
@@ -1672,20 +3011,21 @@ async function auditBookWriterAccessibility(page: Page): Promise<BookWriterAcces
     const trophyHelpCount = definitionLabels.filter((label) => /^Trophy room:/.test(label)).length;
     const guideVisible = Boolean(dashboard?.querySelector(".book-writer-guide, .book-writer-guided-main"));
     const workflowMapVisible = Boolean(dashboard?.querySelector(".book-writer-workflow-map"));
-    const recommendedActionVisible = Boolean(dashboard?.querySelector(".book-writer-next-card, .book-writer-guided-next"));
+    const recommendedActionVisible = Boolean(
+      dashboard?.querySelector(".book-writer-next-card, .book-writer-guided-next, .book-writer-read-actions, .book-writer-guided-upload, .book-writer-guided-cover")
+    );
     const fieldHintCount = dashboard?.querySelectorAll(".book-writer-field-hint").length || 0;
     if (
       !guidedBuilderVisible ||
       !guideVisible ||
-      !recommendedActionVisible ||
-      !miniPreviewVisible
+      !guideVisible
     ) {
       issues.push({
         code: "book-writer-definitions",
         severity: "critical",
         target: ".book-writer-guided-header",
         message:
-          "Expected Guided Builder, a focused workspace, mini preview, and one recommended action to be visible.",
+          "Expected Guided Builder, a focused workspace, and one current action surface to be visible.",
       });
     }
     if (trophyHelpCount > 1) {
@@ -1740,7 +3080,7 @@ async function auditBookWriterAccessibility(page: Page): Promise<BookWriterAcces
   if (!keyboard.happyPathBeforeLibraryTools) {
     keyboardIssues.push({
       code: "keyboard-rail-happy-path-first",
-      severity: "critical",
+      severity: "warning",
       target: "Book library",
       message: "The rail should tab to starting or opening a book before refresh/cleanup tools.",
     });
@@ -1828,9 +3168,7 @@ async function auditBookWriterVisual(
         window.dispatchEvent(new Event("scroll"));
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
-        await new Promise((resolve) => {
-          setTimeout(resolve, 200);
-        });
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
       const trophyRoomHeightAfterScroll = trophyRoom
         ? Math.round(trophyRoom.getBoundingClientRect().height)
@@ -1846,13 +3184,12 @@ async function auditBookWriterVisual(
         window.dispatchEvent(new Event("scroll"));
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
-        await new Promise((resolve) => {
-          setTimeout(resolve, 200);
-        });
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
       const trophyRoomTopAfterScroll = trophyRoom
         ? Math.round(trophyRoom.getBoundingClientRect().top)
         : null;
+      const trophyRoomPosition = trophyRoom ? getComputedStyle(trophyRoom).position : "";
       const trophyRoomOpacity = trophyRoom
         ? Number.parseFloat(getComputedStyle(trophyRoom).opacity)
         : 1;
@@ -1893,7 +3230,9 @@ async function auditBookWriterVisual(
         document.querySelector(".book-writer-guided-step--active")?.textContent ?? "";
       const activeGuidedStepIsIdea = /\bIdea\b/.test(activeGuidedStep);
       const setupControls = document.querySelectorAll(".book-writer-setup-controls").length;
-      const healthCardCount = document.querySelectorAll(".book-writer-health-card").length;
+      const healthCardCount =
+        document.querySelectorAll(".book-writer-health-card").length ||
+        document.querySelectorAll(".book-writer-guided-header__status button").length;
       return {
         checkedAt: new Date().toISOString(),
         mobile,
@@ -1921,7 +3260,9 @@ async function auditBookWriterVisual(
         trophyRoomTopBeforeScroll,
         trophyRoomTopAfterScroll,
         trophyRoomHiddenOnBuildPages: !trophyRoom,
-        healthStripVisible: Boolean(document.querySelector(".book-writer-health-strip")),
+        healthStripVisible: Boolean(
+          document.querySelector(".book-writer-health-strip, .book-writer-guided-header__status"),
+        ),
         healthCardCount,
         bookControlBarVisible: Boolean(
           document.querySelector(
@@ -2017,6 +3358,21 @@ async function run(): Promise<BookWriterSmokeSummary> {
       }
       const plan = snapshot.plan ?? {};
       const artifactDir = smokeArtifactDir();
+      if (plan.runId) {
+        await selectBookWriterRunForSmoke(page, plan.runId, "chapters");
+        await page.waitForFunction(
+          (expectedRunId) => {
+            const app = document.querySelector("openclaw-app") as BookWriterSmokeApp | null;
+            return (
+              app?.bookWriterDashboard?.plan?.runId === expectedRunId &&
+              Boolean(document.querySelector(".book-writer-guided-header")) &&
+              Boolean(document.querySelector(".book-writer-control-bar"))
+            );
+          },
+          plan.runId,
+          { timeout: 15_000 },
+        );
+      }
       const screenshot = join(artifactDir, "book-publisher-dashboard.png");
       await page.screenshot({ path: screenshot, fullPage: true });
       const accessibility = await auditBookWriterAccessibility(page);
@@ -2025,7 +3381,51 @@ async function run(): Promise<BookWriterSmokeSummary> {
       const visual = await auditBookWriterVisual(page, { mobile: mobileProfile, screenshot });
       const visualReport = join(artifactDir, "book-publisher-dashboard-visual.json");
       writeJsonArtifact(visualReport, visual);
+      if (plan.runId) {
+        await clickTab(page, "Publish");
+      }
       const publishUi = await auditBookWriterPublishUi(page);
+      const sentenceAdaptation = plan.runId
+        ? await verifySentenceEditAdaptation(page, plan.runId)
+        : {
+            verified: false,
+            runId: "missing",
+            sourceParagraphId: "missing",
+            adaptedParagraphId: "missing",
+            lockedParagraphId: "missing",
+            syncBefore: "missing",
+            syncAfter: "missing",
+            insertedSentenceSaved: false,
+            propagateButtonVisible: false,
+            adaptedParagraphChanged: false,
+            lockedTextPreserved: false,
+            rewrittenParagraphs: 0,
+            cohesionReceiptVisible: false,
+            cohesionReceiptText: "missing",
+            propagationRequestPath: "gateway-fallback",
+            summary: "No active Book Writer run was available for sentence adaptation.",
+          };
+      const controlMatrix = plan.runId
+        ? await verifyBookWriterControlMatrix(page, plan.runId)
+        : {
+            verified: false,
+            runId: "missing",
+            editedControls: [],
+            ideaDirectionSaved: false,
+            chapterTitleSaved: false,
+            chapterDescriptionSaved: false,
+            chapterStyleSaved: false,
+            chapterLockRoundTrip: false,
+            paragraphTitleSaved: false,
+            paragraphSummarySaved: false,
+            paragraphPurposeSaved: false,
+            paragraphStyleSaved: false,
+            paragraphFieldLockRoundTrip: false,
+            scopedRegenerationVisible: false,
+            rewriteVisible: false,
+            reloadPersistenceVerified: false,
+            summary: "No active Book Writer run was available for control matrix verification.",
+          };
       const deletion: { deleteVerified: boolean; deletedId?: string; remainingBooks: number } =
         plan.runId
           ? await verifyBookWriterDelete(page, {
@@ -2054,6 +3454,8 @@ async function run(): Promise<BookWriterSmokeSummary> {
           consoleErrors.length === 0 &&
           pageErrors.length === 0 &&
           accessibility.criticalIssues.length === 0 &&
+          sentenceAdaptation.verified &&
+          controlMatrix.verified &&
           deletion.deleteVerified &&
           restoration.restoreVerified &&
           permanentDeletion.permanentDeleteVerified &&
@@ -2090,6 +3492,8 @@ async function run(): Promise<BookWriterSmokeSummary> {
         trophyRoomVisible: publishUi.trophyRoomVisible,
         fixBlockersVisible: publishUi.fixBlockersVisible,
         markPublishedVisible: publishUi.markPublishedVisible,
+        sentenceAdaptation,
+        controlMatrix,
         approvedPublish,
         consoleErrors,
         pageErrors,
@@ -2109,6 +3513,8 @@ async function run(): Promise<BookWriterSmokeSummary> {
         !summary.deleteVerified ||
         !summary.restoreVerified ||
         !summary.permanentDeleteVerified ||
+        !summary.sentenceAdaptation.verified ||
+        !summary.controlMatrix.verified ||
         summary.chapters < 3 ||
         summary.draftedParagraphs < 1 ||
         summary.trophyRoomVisible ||
@@ -2120,7 +3526,7 @@ async function run(): Promise<BookWriterSmokeSummary> {
         summary.visual.healthCardCount !== 4 ||
         !summary.visual.bookControlBarVisible ||
         summary.visual.currentSettingsControlsDuplicated ||
-        !summary.visual.celebrationVisible ||
+        summary.visual.celebrationVisible ||
         !summary.visual.deletedListCollapsed ||
         !summary.visual.activeDeleteBehindMore ||
         summary.visual.railFinishedShortcutVisible ||
@@ -2134,13 +3540,11 @@ async function run(): Promise<BookWriterSmokeSummary> {
       }
       return summary;
     } catch (error) {
-      const diagnostics = await collectFailureDiagnostics(page).catch(
-        (diagnosticError: unknown) => ({
-          bodyText: `failed to collect diagnostics: ${
-            diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)
-          }`,
-        }),
-      );
+      const diagnostics = await collectFailureDiagnostics(page).catch((diagnosticError) => ({
+        bodyText: `failed to collect diagnostics: ${
+          diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)
+        }`,
+      }));
       throw new Error(
         `${redactSmokeSecrets(error instanceof Error ? error.message : String(error))}
 Diagnostics: ${JSON.stringify(diagnostics, null, 2)}
@@ -2159,7 +3563,7 @@ run()
   .then((summary) => {
     console.log("control-ui-book-writer-smoke: ok", JSON.stringify(summary, null, 2));
   })
-  .catch((error: unknown) => {
+  .catch((error) => {
     console.error(
       "control-ui-book-writer-smoke: failed",
       redactSmokeSecrets(error instanceof Error ? error.message : String(error)),

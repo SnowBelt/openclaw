@@ -280,6 +280,18 @@ import type {
   ProjectsListResult,
   PccPortfolioSummary,
   PccProjectSummary,
+  SelfImprovementAnalysisRunResult,
+  SelfImprovementAuditEvent,
+  SelfImprovementDailyScorecard,
+  SelfImprovementMaintenanceResult,
+  SelfImprovementModelPreflightResult,
+  SelfImprovementOperationalHealthResult,
+  SelfImprovementProductionCheckResult,
+  SelfImprovementProposal,
+  SelfImprovementRecommendation,
+  SelfImprovementRecommendationGroup,
+  SelfImprovementScanResult,
+  SelfImprovementScorecard,
   ChannelsStatusSnapshot,
   SessionCompactionCheckpoint,
   SessionsListResult,
@@ -721,7 +733,14 @@ export class OpenClawApp extends LitElement {
   @state() toolsEffectiveResultKey: string | null = null;
   @state() toolsEffectiveError: string | null = null;
   @state() toolsEffectiveResult: ToolsEffectiveResult | null = null;
-  @state() agentsPanel: "overview" | "files" | "tools" | "skills" | "channels" | "cron" = "files";
+  @state() agentsPanel:
+    | "overview"
+    | "files"
+    | "tools"
+    | "skills"
+    | "channels"
+    | "cron"
+    | "self-improvement" = "files";
   @state() agentFilesLoading = false;
   @state() agentFilesError: string | null = null;
   @state() agentFilesList: AgentsFilesListResult | null = null;
@@ -736,6 +755,26 @@ export class OpenClawApp extends LitElement {
   @state() agentSkillsError: string | null = null;
   @state() agentSkillsReport: SkillStatusReport | null = null;
   @state() agentSkillsAgentId: string | null = null;
+  @state() selfImprovementLoading = false;
+  @state() selfImprovementError: string | null = null;
+  @state() selfImprovementRecommendations: SelfImprovementRecommendation[] = [];
+  @state() selfImprovementGroups: SelfImprovementRecommendationGroup[] = [];
+  @state() selfImprovementScorecard: SelfImprovementScorecard | null = null;
+  @state() selfImprovementScorecards: SelfImprovementDailyScorecard[] = [];
+  @state() selfImprovementHealth: SelfImprovementOperationalHealthResult | null = null;
+  @state() selfImprovementProposals: SelfImprovementProposal[] = [];
+  @state() selfImprovementAuditEvents: SelfImprovementAuditEvent[] = [];
+  @state() selfImprovementTotal = 0;
+  @state() selfImprovementScanLoading = false;
+  @state() selfImprovementLastScan: SelfImprovementScanResult["scan"] | null = null;
+  @state() selfImprovementAnalysisLoading = false;
+  @state() selfImprovementLastAnalysis: SelfImprovementAnalysisRunResult | null = null;
+  @state() selfImprovementModelPreflightLoading = false;
+  @state() selfImprovementLastModelPreflight: SelfImprovementModelPreflightResult | null = null;
+  @state() selfImprovementProductionCheckLoading = false;
+  @state() selfImprovementLastProductionCheck: SelfImprovementProductionCheckResult | null = null;
+  @state() selfImprovementMaintenanceLoading = false;
+  @state() selfImprovementLastMaintenance: SelfImprovementMaintenanceResult | null = null;
 
   @state() sessionsLoading = false;
   @state() sessionsResult: SessionsListResult | null = null;

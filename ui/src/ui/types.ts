@@ -1,5 +1,24 @@
 // Control UI type declarations define types contracts.
 export type UpdateAvailable = import("../../../src/infra/update-startup.js").UpdateAvailable;
+export type {
+  SelfImprovementActionQueueSummary,
+  SelfImprovementActionability,
+  SelfImprovementAnalysisRunResult,
+  SelfImprovementAuditEvent,
+  SelfImprovementDailyScorecard,
+  SelfImprovementMaintenanceResult,
+  SelfImprovementModelPreflightResult,
+  SelfImprovementOperationalHealthResult,
+  SelfImprovementProductionCheckResult,
+  SelfImprovementProposal,
+  SelfImprovementRecommendation,
+  SelfImprovementRecommendationGroup,
+  SelfImprovementScanResult,
+  SelfImprovementScorecard,
+  SelfImprovementScorecardResult,
+  SelfImprovementSummaryResult,
+} from "../../../src/self-improvement/types.js";
+import type { FastMode } from "@openclaw/normalization-core/string-coerce";
 import type {
   SessionControlDirectorGuardAuditEntry,
   SessionControlDirectorJudgeCompletionApproval,
@@ -8,7 +27,6 @@ import type {
   SessionControlDirectorTruthAuditEntry,
   SessionGoal,
 } from "../../../src/config/sessions/types.js";
-import type { FastMode } from "@openclaw/normalization-core/string-coerce";
 import type { CronJobBase } from "../../../src/cron/types-shared.js";
 import type { ConfigUiHints } from "../../../src/shared/config-ui-hints-types.js";
 import type { FastModeSource } from "../../../src/shared/fast-mode.js";

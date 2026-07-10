@@ -171,7 +171,7 @@ async function run(): Promise<LayoutSmokeSummary> {
   }
 }
 
-run().catch((error: unknown) => {
+run().catch((error) => {
   console.error(
     redactControlUiSmokeSecrets(error instanceof Error ? error.message : String(error)),
   );

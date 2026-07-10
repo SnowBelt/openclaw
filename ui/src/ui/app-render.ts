@@ -187,6 +187,17 @@ import {
 } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
+  loadSelfImprovementRecommendations,
+  runSelfImprovementAnalysis,
+  runSelfImprovementMaintenanceDryRun,
+  runSelfImprovementModelPreflight,
+  runSelfImprovementProductionCheck,
+  runSelfImprovementScan,
+  updateSelfImprovementCuratorProposal,
+  updateSelfImprovementGroup,
+  updateSelfImprovementRecommendation,
+} from "./controllers/self-improvement.ts";
+import {
   branchSessionFromCheckpoint,
   createSessionAndRefresh,
   deleteSessionsAndRefresh,
@@ -2273,8 +2284,22 @@ export function renderApp(state: AppViewState) {
     }
     if (panel === "cron") {
       void state.loadCron();
+      return;
+    }
+    if (panel === "self-improvement") {
+      void loadSelfImprovementRecommendations(state);
     }
   };
+  const promptForSelfImprovementText = (message: string): string | null => {
+    if (typeof globalThis.prompt !== "function") {
+      return null;
+    }
+    const value = globalThis.prompt(message);
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  };
+  const confirmSelfImprovementAction = (message: string): boolean =>
+    typeof globalThis.confirm === "function" ? globalThis.confirm(message) : true;
   const resetAgentFilesState = (clearLoading = false) => {
     state.agentFilesList = null;
     state.agentFilesError = null;
@@ -3964,6 +3989,28 @@ export function renderApp(state: AppViewState) {
                   error: state.toolsEffectiveError,
                   result: state.toolsEffectiveResult,
                 },
+                selfImprovement: {
+                  loading: state.selfImprovementLoading,
+                  error: state.selfImprovementError,
+                  recommendations: state.selfImprovementRecommendations,
+                  groups: state.selfImprovementGroups,
+                  scorecard: state.selfImprovementScorecard,
+                  scorecards: state.selfImprovementScorecards,
+                  health: state.selfImprovementHealth,
+                  proposals: state.selfImprovementProposals,
+                  auditEvents: state.selfImprovementAuditEvents,
+                  total: state.selfImprovementTotal,
+                  scanLoading: state.selfImprovementScanLoading,
+                  lastScan: state.selfImprovementLastScan,
+                  analysisLoading: state.selfImprovementAnalysisLoading,
+                  lastAnalysis: state.selfImprovementLastAnalysis,
+                  modelPreflightLoading: state.selfImprovementModelPreflightLoading,
+                  lastModelPreflight: state.selfImprovementLastModelPreflight,
+                  productionCheckLoading: state.selfImprovementProductionCheckLoading,
+                  lastProductionCheck: state.selfImprovementLastProductionCheck,
+                  maintenanceLoading: state.selfImprovementMaintenanceLoading,
+                  lastMaintenance: state.selfImprovementLastMaintenance,
+                },
                 runtimeSessionKey: state.sessionKey,
                 runtimeSessionMatchesSelectedAgent: toolsPanelUsesActiveSession,
                 modelCatalog: state.chatModelCatalog ?? [],
@@ -4094,6 +4141,116 @@ export function renderApp(state: AppViewState) {
                     return;
                   }
                   void runCronJob(state, job, "force");
+                },
+                onSelfImprovementRefresh: () => {
+                  void loadSelfImprovementRecommendations(state);
+                },
+                onSelfImprovementScan: () => {
+                  void runSelfImprovementScan(state);
+                },
+                onSelfImprovementAnalysis: () => {
+                  void runSelfImprovementAnalysis(state);
+                },
+                onSelfImprovementModelPreflight: () => {
+                  void runSelfImprovementModelPreflight(state);
+                },
+                onSelfImprovementProductionCheck: () => {
+                  void runSelfImprovementProductionCheck(state);
+                },
+                onSelfImprovementMaintenanceDryRun: () => {
+                  void runSelfImprovementMaintenanceDryRun(state);
+                },
+                onSelfImprovementRecommendationUpdate: (input) => {
+                  if (input.status === "dismissed" && !input.dismissalReason) {
+                    const reason = promptForSelfImprovementText("Dismissal reason");
+                    if (!reason) return;
+                    void updateSelfImprovementRecommendation(state, {
+                      ...input,
+                      dismissalReason: reason,
+                    });
+                    return;
+                  }
+                  if (
+                    (input.status === "resolved" || input.resolutionProof === "") &&
+                    !input.resolutionProof
+                  ) {
+                    const proof = promptForSelfImprovementText("Verification or approval proof");
+                    if (!proof) return;
+                    void updateSelfImprovementRecommendation(state, {
+                      ...input,
+                      resolutionProof: proof,
+                    });
+                    return;
+                  }
+                  if (input.claimedBy === "") {
+                    const claimedBy = promptForSelfImprovementText("Claimed by");
+                    if (!claimedBy) return;
+                    void updateSelfImprovementRecommendation(state, { ...input, claimedBy });
+                    return;
+                  }
+                  void updateSelfImprovementRecommendation(state, input);
+                },
+                onSelfImprovementGroupUpdate: (input) => {
+                  if (
+                    input.status === "resolved" &&
+                    !confirmSelfImprovementAction(
+                      "Resolve this entire recommendation group with proof?",
+                    )
+                  ) {
+                    return;
+                  }
+                  if (
+                    input.status === "dismissed" &&
+                    !confirmSelfImprovementAction("Dismiss this entire recommendation group?")
+                  ) {
+                    return;
+                  }
+                  if (input.status === "dismissed" && !input.dismissalReason) {
+                    const reason = promptForSelfImprovementText("Group dismissal reason");
+                    if (!reason) return;
+                    void updateSelfImprovementGroup(state, { ...input, dismissalReason: reason });
+                    return;
+                  }
+                  if (
+                    (input.status === "resolved" || input.resolutionProof === "") &&
+                    !input.resolutionProof
+                  ) {
+                    const proof = promptForSelfImprovementText(
+                      "Group verification or approval proof",
+                    );
+                    if (!proof) return;
+                    void updateSelfImprovementGroup(state, { ...input, resolutionProof: proof });
+                    return;
+                  }
+                  void updateSelfImprovementGroup(state, input);
+                },
+                onSelfImprovementCuratorUpdate: (input) => {
+                  if (
+                    input.curatorStatus === "promoted" &&
+                    !confirmSelfImprovementAction(
+                      "Record promotion proof for this memory/skill proposal?",
+                    )
+                  ) {
+                    return;
+                  }
+                  if (input.proof === "") {
+                    const proof = promptForSelfImprovementText("Curator review or promotion proof");
+                    if (!proof) return;
+                    input = { ...input, proof };
+                  }
+                  if (input.reason === "") {
+                    const reason = promptForSelfImprovementText("Curator reason");
+                    if (!reason) return;
+                    input = { ...input, reason };
+                  }
+                  if (input.workshopProposalId === "") {
+                    const workshopProposalId = promptForSelfImprovementText(
+                      "Skill Workshop proposal id",
+                    );
+                    if (!workshopProposalId) return;
+                    input = { ...input, workshopProposalId };
+                  }
+                  void updateSelfImprovementCuratorProposal(state, input);
                 },
                 onSkillsFilterChange: (next) => (state.skillsFilter = next),
                 onSkillsRefresh: () => {

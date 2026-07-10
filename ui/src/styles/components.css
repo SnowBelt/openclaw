@@ -6878,3 +6878,215 @@ details[open] > .ov-expandable-toggle::after {
   min-width: 18px;
   padding: 2px;
 }
+
+/* Self-Improvement governor panel */
+.agent-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.agent-panel-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.agent-panel-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.agent-panel-kicker {
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.agent-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-self-improvement-panel,
+.agent-self-improvement-list,
+.agent-self-improvement-subsection,
+.agent-self-improvement-card,
+.agent-self-improvement-empty {
+  display: grid;
+}
+
+.agent-self-improvement-panel {
+  gap: 12px;
+}
+
+.agent-self-improvement-list,
+.agent-self-improvement-card {
+  gap: 10px;
+}
+
+.agent-self-improvement-list--compact,
+.agent-self-improvement-subsection {
+  gap: 8px;
+}
+
+.agent-self-improvement-subsection h3,
+.agent-self-improvement-card p,
+.agent-self-improvement-card__section ul {
+  margin: 0;
+}
+
+.agent-self-improvement-subsection h3 {
+  font-size: 14px;
+}
+
+.agent-self-improvement-scorecard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.agent-self-improvement-scorecard div,
+.agent-self-improvement-history,
+.agent-self-improvement-group-strip,
+.agent-self-improvement-card,
+.agent-self-improvement-empty {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 10px;
+}
+
+.agent-self-improvement-card,
+.agent-self-improvement-empty {
+  background: var(--card);
+  padding: 12px;
+}
+
+.agent-self-improvement-scorecard div,
+.agent-self-improvement-history,
+.agent-self-improvement-group-strip,
+.agent-self-improvement-card__section {
+  display: grid;
+}
+
+.agent-self-improvement-scorecard div {
+  gap: 2px;
+}
+
+.agent-self-improvement-scorecard strong {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.agent-self-improvement-scorecard span,
+.agent-self-improvement-history__items,
+.agent-self-improvement-group-strip span,
+.agent-self-improvement-group-strip small,
+.agent-self-improvement-card__meta,
+.agent-self-improvement-route small,
+.agent-self-improvement-empty span,
+.agent-self-improvement-card__section {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.agent-self-improvement-group-strip__blockers {
+  overflow-wrap: anywhere;
+}
+
+.agent-self-improvement-history {
+  gap: 6px;
+}
+
+.agent-self-improvement-history__items,
+.agent-self-improvement-actionability,
+.agent-self-improvement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.agent-self-improvement-group-strip,
+.agent-self-improvement-empty,
+.agent-self-improvement-card__section {
+  gap: 4px;
+}
+
+.agent-self-improvement-card p {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.agent-self-improvement-card__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.agent-self-improvement-card__title,
+.agent-self-improvement-route span {
+  font-weight: 800;
+}
+
+.agent-self-improvement-route {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.agent-self-improvement-route span {
+  font-size: 12px;
+}
+
+.agent-self-improvement-card__section {
+  min-width: 0;
+}
+
+.agent-self-improvement-card__section strong {
+  color: var(--text);
+}
+
+.agent-self-improvement-card__section ul {
+  padding-left: 18px;
+}
+
+.agent-self-improvement-actionability,
+.agent-self-improvement-actions {
+  gap: 6px;
+}
+
+.agent-self-improvement-actionability span {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.agent-self-improvement-actions {
+  align-items: center;
+}
+
+@media (max-width: 700px) {
+  .agent-self-improvement-card__header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .agent-self-improvement-route {
+    justify-items: start;
+    min-width: 0;
+  }
+}

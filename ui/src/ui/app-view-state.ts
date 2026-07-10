@@ -91,6 +91,18 @@ import type {
   ProjectsListResult,
   PccPortfolioSummary,
   PccProjectSummary,
+  SelfImprovementAnalysisRunResult,
+  SelfImprovementAuditEvent,
+  SelfImprovementDailyScorecard,
+  SelfImprovementMaintenanceResult,
+  SelfImprovementModelPreflightResult,
+  SelfImprovementOperationalHealthResult,
+  SelfImprovementProductionCheckResult,
+  SelfImprovementProposal,
+  SelfImprovementRecommendation,
+  SelfImprovementRecommendationGroup,
+  SelfImprovementScanResult,
+  SelfImprovementScorecard,
   SessionsUsageResult,
   CostUsageSummary,
   SessionUsageTimeSeries,
@@ -459,7 +471,7 @@ export type AppViewState = {
   toolsEffectiveResultKey: string | null;
   toolsEffectiveError: string | null;
   toolsEffectiveResult: import("./types.js").ToolsEffectiveResult | null;
-  agentsPanel: "overview" | "files" | "tools" | "skills" | "channels" | "cron";
+  agentsPanel: "overview" | "files" | "tools" | "skills" | "channels" | "cron" | "self-improvement";
   agentFilesLoading: boolean;
   agentFilesError: string | null;
   agentFilesList: AgentsFilesListResult | null;
@@ -474,6 +486,26 @@ export type AppViewState = {
   agentSkillsError: string | null;
   agentSkillsReport: SkillStatusReport | null;
   agentSkillsAgentId: string | null;
+  selfImprovementLoading: boolean;
+  selfImprovementError: string | null;
+  selfImprovementRecommendations: SelfImprovementRecommendation[];
+  selfImprovementGroups: SelfImprovementRecommendationGroup[];
+  selfImprovementScorecard: SelfImprovementScorecard | null;
+  selfImprovementScorecards: SelfImprovementDailyScorecard[];
+  selfImprovementHealth: SelfImprovementOperationalHealthResult | null;
+  selfImprovementProposals: SelfImprovementProposal[];
+  selfImprovementAuditEvents: SelfImprovementAuditEvent[];
+  selfImprovementTotal: number;
+  selfImprovementScanLoading: boolean;
+  selfImprovementLastScan: SelfImprovementScanResult["scan"] | null;
+  selfImprovementAnalysisLoading: boolean;
+  selfImprovementLastAnalysis: SelfImprovementAnalysisRunResult | null;
+  selfImprovementModelPreflightLoading: boolean;
+  selfImprovementLastModelPreflight: SelfImprovementModelPreflightResult | null;
+  selfImprovementProductionCheckLoading: boolean;
+  selfImprovementLastProductionCheck: SelfImprovementProductionCheckResult | null;
+  selfImprovementMaintenanceLoading: boolean;
+  selfImprovementLastMaintenance: SelfImprovementMaintenanceResult | null;
   sessionsLoading: boolean;
   sessionsResult: SessionsListResult | null;
   sessionsError: string | null;

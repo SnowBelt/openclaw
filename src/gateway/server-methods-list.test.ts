@@ -72,6 +72,78 @@ describe("listGatewayMethods", () => {
     }
   });
 
+  it("advertises every SNES Studio method with a registered handler", () => {
+    const methods = listGatewayMethods();
+    const snesMethods = [
+      "snes.benchmark.latest",
+      "snes.glm52.status",
+      "snes.mastery.status",
+      "snes.assetStudio.pipeline",
+      "snes.proof.run",
+      "snes.project.createBlank",
+      "snes.toolchain.status",
+      "snes.visual.artBible",
+      "snes.visual.artManifest",
+      "snes.visual.artSourcePack",
+      "snes.visual.compileArt",
+      "snes.visual.reject",
+      "snes.visual.captureProof",
+      "snes.visual.qualityAudit",
+      "snes.visual.runtimeAssetTruth",
+      "snes.visual.approve",
+      "snes.production.status",
+      "snes.production.continue",
+      "snes.production.auto",
+      "snes.production.pause",
+      "snes.production.resume",
+      "snes.production.cancel",
+      "snes.production.splitNext",
+      "snes.production.retryBlocked",
+      "snes.stanski.production.status",
+      "snes.stanski.production.continue",
+      "snes.stanski.production.auto",
+      "snes.stanski.production.pause",
+      "snes.stanski.production.resume",
+      "snes.stanski.production.cancel",
+      "snes.stanski.production.splitNext",
+      "snes.stanski.production.retryBlocked",
+    ];
+    for (const method of snesMethods) {
+      expect(methods).toContain(method);
+      expect(coreGatewayHandlers[method]).toBeTypeOf("function");
+    }
+  });
+
+  it("advertises every Self-Improvement method with a registered handler", () => {
+    const methods = listGatewayMethods();
+    const selfImprovementMethods = [
+      "selfImprovement.auditEvents.list",
+      "selfImprovement.scan",
+      "selfImprovement.summary",
+      "selfImprovement.scorecard",
+      "selfImprovement.health",
+      "selfImprovement.productionCheck",
+      "selfImprovement.maintenance.run",
+      "selfImprovement.analysis.run",
+      "selfImprovement.models.preflight",
+      "selfImprovement.evals.run",
+      "selfImprovement.groups.update",
+      "selfImprovement.recommendations.list",
+      "selfImprovement.recommendations.get",
+      "selfImprovement.recommendations.update",
+      "selfImprovement.proposals.list",
+      "selfImprovement.proposals.get",
+      "selfImprovement.proposals.update",
+      "selfImprovement.curator.list",
+      "selfImprovement.curator.get",
+      "selfImprovement.curator.update",
+    ];
+    for (const method of selfImprovementMethods) {
+      expect(methods).toContain(method);
+      expect(coreGatewayHandlers[method]).toBeTypeOf("function");
+    }
+  });
+
   it("advertises the versioned Talk session RPCs", () => {
     const methods = listGatewayMethods();
     expect(methods).toContain("talk.client.create");
