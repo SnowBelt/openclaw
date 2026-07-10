@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Root-only helper. It schedules only Pattern Lab-owned one-time wake events.
+exec /Users/openclaw/PatternLabRuntime/youtube-v1/.venv-youtube-3.12/bin/python \
+  /Users/openclaw/PatternLabRuntime/youtube-v1/scripts/schedule_wake_windows.py \
+  --replace-owned

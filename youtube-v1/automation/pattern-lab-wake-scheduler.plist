@@ -3,11 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.openclaw.pattern-lab.wake-scheduler</string>
+  <string>com.openclaw.patternlab-v2.wake-scheduler</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/.venv-youtube-3.12/bin/python</string>
-    <string>/Users/openclaw/OpenClaw/youtube-v1/scripts/schedule_wake_windows.py</string>
+    <string>/usr/local/libexec/openclaw-patternlab-schedule-wake</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -27,10 +26,12 @@
     </dict>
   </array>
   <key>StandardOutPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/wake-scheduler.out.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/wake-scheduler.out.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/openclaw/OpenClaw/youtube-v1/local-output/wake-scheduler.err.log</string>
+  <string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/wake-scheduler.err.log</string>
   <key>WorkingDirectory</key>
-  <string>/Users/openclaw/OpenClaw</string>
+  <string>/Users/openclaw/PatternLabRuntime</string>
+  <key>UserName</key>
+  <string>root</string>
 </dict>
 </plist>
