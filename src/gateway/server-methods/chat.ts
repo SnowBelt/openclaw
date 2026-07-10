@@ -67,6 +67,11 @@ import { resolveMirroredTranscriptText } from "../../config/sessions/transcript-
 import { CURRENT_SESSION_VERSION } from "../../config/sessions/version.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
+  claimAgentRunContext,
+  clearAgentRunContext,
+  getAgentEventLifecycleGeneration,
+} from "../../infra/agent-events.js";
+import {
   emitDiagnosticsTimelineEvent,
   measureDiagnosticsTimelineSpan,
   measureDiagnosticsTimelineSpanSync,
@@ -3475,6 +3480,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         return;
       }
     }
+    const lifecycleGeneration = getAgentEventLifecycleGeneration();
     const activeRunAbort = registerChatAbortController({
       chatAbortControllers: context.chatAbortControllers,
       runId: clientRunId,
@@ -3488,6 +3494,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       providerId: resolvedSessionModel.provider,
       authProviderId: resolvedSessionAuthProvider,
       kind: "chat-send",
+      lifecycleGeneration,
     });
     if (!activeRunAbort.registered) {
       respond(true, { runId: clientRunId, status: "in_flight" as const }, undefined, {
@@ -3496,6 +3503,11 @@ export const chatHandlers: GatewayRequestHandlers = {
       });
       return;
     }
+    claimAgentRunContext(clientRunId, {
+      sessionKey,
+      sessionId: backingSessionId ?? clientRunId,
+      lifecycleGeneration,
+    });
     let trackedTaskId: string | undefined;
     try {
       const trackedTask = createRunningTaskRun({
@@ -3605,6 +3617,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         );
       } catch (err) {
         activeRunAbort.cleanup();
+        clearAgentRunContext(clientRunId, lifecycleGeneration);
         clearActiveChatSendDedupeRun(context.dedupe, activeChatSendDedupeKey, clientRunId);
         logAttachmentFailure(context.logGateway, "chat.send attachment parse/stage failed", err);
         respond(
@@ -5183,6 +5196,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         })
         .finally(() => {
           activeRunAbort.cleanup();
+          clearAgentRunContext(clientRunId, lifecycleGeneration);
           clearActiveChatSendDedupeRun(context.dedupe, activeChatSendDedupeKey, clientRunId);
           context.removeChatRun(clientRunId, clientRunId, sessionKey);
           if (!pendingDispatchLifecycleError) {
@@ -5235,6 +5249,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         });
     } catch (err) {
       activeRunAbort.cleanup();
+      clearAgentRunContext(clientRunId, lifecycleGeneration);
       clearActiveChatSendDedupeRun(context.dedupe, activeChatSendDedupeKey, clientRunId);
       context.removeChatRun(clientRunId, clientRunId, sessionKey);
       const error = errorShape(ErrorCodes.UNAVAILABLE, String(err));

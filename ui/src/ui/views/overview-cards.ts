@@ -8,7 +8,7 @@ import {
   latestControlDirectorDiagnosticsRows,
   summarizeControlDirectorDiagnostics,
 } from "../chat/control-director-diagnostics.ts";
-import { isCronJobActiveFailure, resolveCronJobLastRunStatus } from "../cron-status.ts";
+import { isCronJobActiveFailure } from "../cron-status.ts";
 import { formatCost, formatTokens, formatRelativeTimestamp } from "../format.ts";
 import { isMonitoredAuthProvider } from "../model-auth-helpers.ts";
 import { formatNextRun } from "../presenter.ts";

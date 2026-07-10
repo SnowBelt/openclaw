@@ -3742,6 +3742,7 @@ export function renderChat(props: ChatProps) {
             aria-activedescendant=${ifDefined(activeSlashMenuOptionId ?? undefined)}
             aria-describedby=${SLASH_MENU_ACTIVE_ANNOUNCEMENT_ID}
             @keydown=${handleKeyDown}
+            @beforeinput=${handleBeforeInput}
             @input=${handleInput}
             @compositionstart=${() => {
               vs.composerComposing = true;
