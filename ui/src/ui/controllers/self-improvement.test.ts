@@ -9,8 +9,13 @@ import {
   type SelfImprovementState,
 } from "./self-improvement.ts";
 
-function createState(): { state: SelfImprovementState; request: ReturnType<typeof vi.fn> } {
-  const request = vi.fn<(method: string, ...args: unknown[]) => Promise<unknown>>();
+type RequestMock = {
+  (method: string, ...args: unknown[]): Promise<unknown>;
+  mockImplementation(fn: (method: string) => Promise<unknown>): RequestMock;
+};
+
+function createState(): { state: SelfImprovementState; request: RequestMock } {
+  const request = vi.fn() as unknown as RequestMock;
   const state: SelfImprovementState = {
     client: {
       request,
