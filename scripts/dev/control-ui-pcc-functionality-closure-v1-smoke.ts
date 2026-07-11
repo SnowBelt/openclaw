@@ -264,7 +264,9 @@ async function main() {
       noSnesCardInPccProduct: !Array.from(root.querySelectorAll("[data-pcc-project-card]")).some(
         (node) => node.textContent?.includes("SNES Game Creator"),
       ),
-      completeState: root.querySelector("[data-pcc-complete-state]") !== null,
+      maintenanceHero:
+        root.querySelector("[data-pcc-maintenance-hero]") !== null &&
+        productText.includes("No action required"),
       noTerminalSetupRepair: root.querySelector("[data-pcc-setup-repair]") === null,
       noTerminalWorkLoop: root.querySelector("[data-pcc-work-loop-complete]") === null,
       reorderVisibleButDisabled:
