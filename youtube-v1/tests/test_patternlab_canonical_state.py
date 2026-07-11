@@ -140,6 +140,20 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertEqual(parsed["release_candidate_id"], "rc-04-test")
         self.assertEqual(parsed["artifact_sha256"], "b" * 64)
 
+    def test_manifest_rejects_reused_visual_without_new_evidence_reason(self):
+        payload = {
+            "episode_id": "04",
+            "title": "Black Bottom source proof",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "historical_evidence", "rights_status": "approved", "evidence_fit": "direct", "visual_fit": "approved", "relative_path": "source.jpg", "sha256": "a" * 64}],
+            "visual_beats": [
+                {"beat_id": "proof-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3},
+                {"beat_id": "proof-2", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "archive_evidence", "start_seconds": 3, "end_seconds": 6},
+            ],
+        }
+        with self.assertRaises(ValueError):
+            EpisodeManifest.model_validate(payload)
+
     def test_source_rebuild_requires_explicit_claim_queries(self):
         root = Path(self.temp.name) / "video-04"
         with patch.object(source_rebuild, "launch_root", lambda _: Path(self.temp.name) / "missing-launch"):

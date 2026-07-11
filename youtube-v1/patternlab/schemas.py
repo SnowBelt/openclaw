@@ -65,6 +65,7 @@ class VisualBeat(BaseModel):
     role: VisualRole
     start_seconds: float = Field(ge=0)
     end_seconds: float = Field(gt=0)
+    reuse_reason: str = ""
 
     @model_validator(mode="after")
     def validate_timing_and_proof(self):
@@ -99,6 +100,7 @@ class EpisodeManifest(BaseModel):
         asset_ids = {asset.asset_id for asset in self.assets}
         direct_asset_ids = {asset.asset_id for asset in self.assets if asset.evidence_fit == "direct"}
         proof_by_claim: dict[str, set[str]] = {claim_id: set() for claim_id in claim_ids}
+        seen_asset_ids: set[str] = set()
         for beat in self.visual_beats:
             unknown_claims = set(beat.claim_ids) - claim_ids
             unknown_assets = set(beat.asset_ids) - asset_ids
@@ -107,6 +109,10 @@ class EpisodeManifest(BaseModel):
             if beat.role in {"source_proof", "map_system", "archive_evidence", "document_detail"}:
                 for claim_id in beat.claim_ids:
                     proof_by_claim[claim_id].update(set(beat.asset_ids) & direct_asset_ids)
+            repeated = set(beat.asset_ids) & seen_asset_ids
+            if repeated and not beat.reuse_reason.strip():
+                raise ValueError(f"reused visual assets require reuse_reason: {sorted(repeated)}")
+            seen_asset_ids.update(beat.asset_ids)
         missing = [claim.claim_id for claim in self.claims if claim.fact_checker_status == "verified" and not proof_by_claim[claim.claim_id]]
         if missing:
             raise ValueError(f"verified claims missing direct visual proof: {missing}")

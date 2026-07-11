@@ -93,6 +93,7 @@ def render_plan(video_id: str) -> tuple[dict, Path, Path]:
                 "source_label": source_label[:150],
                 "source_class": asset.source_class,
                 "evidence_fit": asset.evidence_fit,
+                "reuse_reason": beat.reuse_reason,
                 "ai_disclosure": "Supporting reconstruction — not archival evidence" if asset.source_class == "ai_reconstruction" else "",
             })
         if beats and beats[0]["role"] not in PROOF_ROLES:

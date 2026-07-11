@@ -192,12 +192,19 @@ def main():
     )
     alignment_status = json_status(root / "approval" / "word-alignment-report.json")
     if alignment_status == "pass":
-        run(
+        canonical_render = run(
             [sys.executable, "youtube-v1/scripts/patternlab_canonical_renderer.py", "--video-id", args.video_id, "--render"],
             check=False,
             steps=steps,
             name="canonical_evidence_render",
         )
+        if canonical_render.returncode == 0:
+            run(
+                [sys.executable, "youtube-v1/scripts/patternlab_render_quality.py", "--video-id", args.video_id, "--run"],
+                check=False,
+                steps=steps,
+                name="canonical_render_quality",
+            )
     else:
         steps.append(
             {
