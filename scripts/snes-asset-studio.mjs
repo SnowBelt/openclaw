@@ -1576,7 +1576,7 @@ async function main() {
   printReport(report, args.json);
 }
 
-main().catch((...args) => {
+void Promise.resolve(main()).then(undefined, (...args) => {
   const error = args[0];
   printReport(
     blocked(
