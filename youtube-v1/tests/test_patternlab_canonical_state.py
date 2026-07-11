@@ -8,6 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from patternlab.models import Approval, ApprovalScope, Artifact, EpisodeState
+from patternlab.approvals import approval_binding, record_approval
 from patternlab.release import create_release_candidate
 from patternlab.state import PatternLabState, StateError, utc_now
 from patternlab.schemas import EpisodeManifest
@@ -55,6 +56,39 @@ class CanonicalStateTests(unittest.TestCase):
         self.store.register_release(self.candidate("b" * 64))
         with self.assertRaises(StateError):
             self.store.add_approval(Approval("one", "04", first.release_candidate_id, "script", "a" * 64, ApprovalScope.ASSET, "approve", utc_now(), "test"))
+
+    def test_bound_approval_records_current_release_and_artifact_hash(self):
+        candidate = self.candidate()
+        self.store.register_release(candidate)
+        receipt = record_approval(
+            self.store,
+            episode_id="04",
+            scope=ApprovalScope.ASSET,
+            action="approve",
+            source="discord",
+            artifact_id="script",
+        )
+        self.assertEqual(receipt["release_candidate_id"], candidate.release_candidate_id)
+        self.assertEqual(receipt["artifact_sha256"], "a" * 64)
+
+    def test_bound_approval_rejects_asset_absent_from_current_release(self):
+        self.store.register_release(self.candidate())
+        with self.assertRaises(StateError):
+            record_approval(
+                self.store,
+                episode_id="04",
+                scope=ApprovalScope.ASSET,
+                action="approve",
+                source="discord",
+                artifact_id="not-present",
+            )
+
+    def test_bound_approval_preview_does_not_write_state(self):
+        candidate = self.candidate()
+        self.store.register_release(candidate)
+        receipt = approval_binding(self.store, episode_id="04", artifact_id="script")
+        self.assertEqual(receipt["artifact_sha256"], "a" * 64)
+        self.assertEqual(self.store.active_approvals("04", ApprovalScope.ASSET), [])
 
     def test_source_rebuild_requires_explicit_claim_queries(self):
         root = Path(self.temp.name) / "video-04"
