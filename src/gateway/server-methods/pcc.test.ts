@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PccLedger } from "../../pcc/ledger-store.js";
 import { pccHandlers, pccTesting } from "./pcc.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 
@@ -252,7 +253,7 @@ describe("Project Command Center gateway methods", () => {
         project: { title: "Archived project", status: "archived" },
       }),
     );
-    const ledger = pccTesting.readLedger() as {
+    const ledger = pccTesting.readLedger() as unknown as {
       projects: Array<{ id: string; metadata?: Record<string, unknown> }>;
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
@@ -298,7 +299,7 @@ describe("Project Command Center gateway methods", () => {
     ledger.projects = ledger.projects.map((item) =>
       item.id === project.id ? { ...item, metadata: {} } : item,
     );
-    pccTesting.replaceLedger(ledger);
+    pccTesting.replaceLedger(ledger as unknown as PccLedger);
 
     const repair = okPayload<{
       repairedProjectIds: string[];
@@ -357,7 +358,7 @@ describe("Project Command Center gateway methods", () => {
         project: { title: "Duplicate order repair project", status: "active" },
       }),
     );
-    const ledger = pccTesting.readLedger() as {
+    const ledger = pccTesting.readLedger() as unknown as {
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
     };
@@ -407,7 +408,7 @@ describe("Project Command Center gateway methods", () => {
         metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" },
       },
     );
-    pccTesting.replaceLedger(ledger);
+    pccTesting.replaceLedger(ledger as unknown as PccLedger);
 
     const beforeRepair = okPayload<{ projects: Array<{ id: string; proofGaps: string[] }> }>(
       await invoke("pcc.projects.list", {}),
@@ -448,7 +449,7 @@ describe("Project Command Center gateway methods", () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Imported broken project" } }),
     );
-    const ledger = pccTesting.readLedger() as {
+    const ledger = pccTesting.readLedger() as unknown as {
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
       evidence: Array<Record<string, unknown>>;
@@ -574,7 +575,7 @@ describe("Project Command Center gateway methods", () => {
       evidenceIds: "failed-imported-evidence",
       verifiedAt: "2026-01-01T00:00:00.000Z",
     });
-    pccTesting.replaceLedger(ledger);
+    pccTesting.replaceLedger(ledger as unknown as PccLedger);
 
     const listPayload = okPayload<{
       projects: Array<{ id: string; proofGaps: string[]; health: string }>;
@@ -606,7 +607,7 @@ describe("Project Command Center gateway methods", () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Legacy timestamp project" } }),
     );
-    const ledger = pccTesting.readLedger() as {
+    const ledger = pccTesting.readLedger() as unknown as {
       permissions: Array<Record<string, unknown>>;
     };
     ledger.permissions.push({
@@ -620,7 +621,7 @@ describe("Project Command Center gateway methods", () => {
       auditLog: [],
       createdAt: "2026-01-01T00:00:00.000Z",
     });
-    pccTesting.replaceLedger(ledger);
+    pccTesting.replaceLedger(ledger as unknown as PccLedger);
 
     const listPayload = okPayload<{ projects: Array<{ id: string; recentActivity?: string }> }>(
       await invoke("pcc.projects.list", {}),
@@ -1787,7 +1788,7 @@ describe("Project Command Center gateway methods", () => {
     await invoke("pcc.projects.upsert", {
       project: { id: "project-proof-gap", title: "Proof gap project", status: "active" },
     });
-    const ledger = pccTesting.readLedger() as {
+    const ledger = pccTesting.readLedger() as unknown as {
       projects: Array<Record<string, unknown>>;
       milestones: Array<Record<string, unknown>>;
     };
@@ -1802,7 +1803,7 @@ describe("Project Command Center gateway methods", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    pccTesting.replaceLedger(ledger);
+    pccTesting.replaceLedger(ledger as unknown as PccLedger);
 
     const summary = okPayload<{
       portfolio: {

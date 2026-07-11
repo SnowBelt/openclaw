@@ -4100,6 +4100,51 @@
     scroll-margin-top: 150px;
   }
 
+  /* The mobile command rail is the persistent action. Keep the in-flow action card
+     in the document flow so it cannot cover blockers while the user scrolls. */
+  .pcc-primary-action {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    position: static;
+    top: auto;
+  }
+
+  .pcc-primary-action > button {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .pcc-maintenance-hero,
+  .pcc-autopilot-chip {
+    align-items: stretch;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .pcc-maintenance-hero > div,
+  .pcc-autopilot-chip > div,
+  .pcc-blocker-center__list li > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .pcc-maintenance-hero .btn,
+  .pcc-autopilot-chip .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .pcc-blocker-center__list li {
+    align-items: start;
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .pcc-blocker-center__fix,
+  .pcc-blocker-center__list li > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .pcc-project-snapshot__facts,
   .pcc-autopilot__status-card dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4109,6 +4154,13 @@
   .pcc-recent-activity,
   .pcc-production-truth__drawer {
     order: 5;
+  }
+}
+
+@media (max-width: 480px) {
+  .pcc-project-snapshot__facts,
+  .pcc-autopilot__status-card dl {
+    grid-template-columns: 1fr;
   }
 }
 

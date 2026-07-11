@@ -682,6 +682,47 @@ async function main() {
       .first()
       .isVisible()
       .catch(() => false);
+    const mobileSnapshot = page
+      .locator(`[data-pcc-detail-project-id="${setupProjectId}"] [data-pcc-project-snapshot]`)
+      .first();
+    await mobileSnapshot.waitFor({ state: "visible", timeout: 15_000 });
+    const mobileLayout = await mobileSnapshot.evaluate((snapshot) => {
+      const selectors = [
+        ":scope > [data-pcc-primary-action]",
+        ":scope > [data-pcc-blocker-center]",
+        ":scope > [data-pcc-execution-readiness]",
+        ":scope > [data-pcc-universal-preflight]",
+        ":scope > [data-pcc-scope-lock]",
+        ":scope > [data-pcc-autopilot-hero-chip]",
+      ];
+      const cards: Array<{ top: number; bottom: number }> = [];
+      let noHorizontalOverflow = snapshot.scrollWidth <= snapshot.clientWidth + 1;
+      for (const selector of selectors) {
+        const element = snapshot.querySelector<HTMLElement>(selector);
+        if (!element) {
+          continue;
+        }
+        const rect = element.getBoundingClientRect();
+        cards.push({ top: rect.top, bottom: rect.bottom });
+        noHorizontalOverflow &&= element.scrollWidth <= element.clientWidth + 1;
+      }
+      let noCardOverlap = true;
+      for (let index = 0; index < cards.length; index += 1) {
+        for (let otherIndex = index + 1; otherIndex < cards.length; otherIndex += 1) {
+          const card = cards[index]!;
+          const other = cards[otherIndex]!;
+          if (card.bottom > other.top + 1 && other.bottom > card.top + 1) {
+            noCardOverlap = false;
+          }
+        }
+      }
+      const primaryAction = snapshot.querySelector<HTMLElement>("[data-pcc-primary-action]");
+      return {
+        primaryActionIsInFlow: globalThis.getComputedStyle(primaryAction!).position === "static",
+        noCardOverlap,
+        noHorizontalOverflow,
+      };
+    });
     for (const tab of ["projects", "current", "milestones", "autopilot", "more"]) {
       await page.locator(`[data-pcc-mobile-section-tab="${tab}"]`).first().click({ force: true });
       await page.waitForTimeout(150);
@@ -721,6 +762,9 @@ async function main() {
         .catch(() => false),
       mobileCommandRailVisible: await mobileRail.isVisible().catch(() => false),
       mobilePrimaryActionVisible,
+      mobilePrimaryActionIsInFlow: mobileLayout.primaryActionIsInFlow,
+      mobileCardsDoNotOverlap: mobileLayout.noCardOverlap,
+      mobileSnapshotDoesNotOverflow: mobileLayout.noHorizontalOverflow,
       mobileSectionNavigationWorked,
       noSnesMutation: true,
     };

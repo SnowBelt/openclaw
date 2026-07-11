@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { PccStatus } from "../../packages/gateway-protocol/src/schema/types.js";
 import { resolvePccProjectAction } from "./project-action.js";
 
-const project = (status = "active") => ({ status });
+const project = (status: PccStatus = "active") => ({ status });
 
 describe("resolvePccProjectAction", () => {
   it("uses one deterministic safety-first action precedence", () => {
