@@ -243,9 +243,12 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-primary-action]");
     requireSelector(root, "[data-pcc-blocker-center]");
     requireSelector(root, "[data-pcc-milestone-journey]");
-    requireSelector(root, "[data-pcc-project-activity]");
+    if (root.querySelector("[data-pcc-project-activity]")) {
+      throw new Error(
+        "Simple mode should defer routine project activity until Detailed or Agent view",
+      );
+    }
     assertOrder(root, "[data-pcc-project-snapshot]", "[data-pcc-milestone-journey]");
-    assertOrder(root, "[data-pcc-milestone-journey]", "[data-pcc-project-activity]");
 
     const resumeButton = requireSelector(root, "[data-pcc-primary-action] button") as HTMLElement;
     resumeButton.click();
