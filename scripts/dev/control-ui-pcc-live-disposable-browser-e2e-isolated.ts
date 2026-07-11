@@ -69,8 +69,14 @@ async function cleanupIsolatedGateway(instance: OpenClawTestInstance): Promise<v
   if (child && child.exitCode === null && child.signalCode === null) {
     child.kill("SIGTERM");
     await Promise.race([
-      new Promise<void>((resolve) => child.once("exit", () => resolve())),
-      new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+      new Promise<void>((resolve) => {
+        child.once("exit", () => {
+          resolve();
+        });
+      }),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 2_000);
+      }),
     ]);
     if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGKILL");
