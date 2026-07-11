@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "pass_score": 80,
+  "hard_fail_dimensions": [
+    "wrong_place_or_entity",
+    "unsupported_historical_claim",
+    "generic_city_broll_as_proof",
+    "unlabeled_ai_reconstruction",
+    "repeated_frame_without_new_reveal",
+    "unreadable_or_intrusive_caption"
+  ],
+  "dimensions": {
+    "narration_match": {"weight": 30, "minimum": 24},
+    "evidence_visibility": {"weight": 20, "minimum": 16},
+    "visual_variety": {"weight": 15, "minimum": 11},
+    "motion_and_composition": {"weight": 15, "minimum": 11},
+    "typography_and_caption_safety": {"weight": 10, "minimum": 8},
+    "short_form_attention_design": {"weight": 10, "minimum": 8}
+  },
+  "reviewer_contract": "Local visual judging may reject or block. It may not promote an unsupported image to historical evidence."
+}

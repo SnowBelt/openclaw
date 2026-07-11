@@ -8,6 +8,7 @@ REQUIRED_OWNER_REVIEW_GATES = (
     "canonical_release",
     "canonical_render",
     "render_quality",
+    "visual_release_quality",
     "long_form_quality",
     "shorts_quality",
     "thumbnail_quality",
@@ -22,7 +23,7 @@ def owner_review_gate_statuses(*, package_hash: str, canonical_preflight: str,
                                shorts_quality: str, thumbnail_quality: str,
                                episode_standard: str, voice_visual_match: str,
                                finished_watchdown: str, canonical_render: str = "missing",
-                               render_quality: str = "missing") -> dict[str, str]:
+                               render_quality: str = "missing", visual_release_quality: str = "missing") -> dict[str, str]:
     """Return the complete, explicit gate set required before owner review."""
     return {
         "package_hash": package_hash or "missing",
@@ -30,6 +31,7 @@ def owner_review_gate_statuses(*, package_hash: str, canonical_preflight: str,
         "canonical_release": canonical_release or "missing",
         "canonical_render": canonical_render or "missing",
         "render_quality": render_quality or "missing",
+        "visual_release_quality": visual_release_quality or "missing",
         "long_form_quality": long_form_quality or "missing",
         "shorts_quality": shorts_quality or "missing",
         "thumbnail_quality": thumbnail_quality or "missing",

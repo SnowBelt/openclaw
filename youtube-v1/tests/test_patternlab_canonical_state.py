@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import source_visual_rebuild_assets as source_rebuild
 import patternlab_elevenlabs_credit_health as credit_health
 import patternlab_canonical_preflight as canonical_preflight
+import patternlab_evidence_manifest_builder as evidence_builder
 from patternlab_discord_feedback import callback_value, parse_callback
 
 
@@ -119,6 +120,7 @@ class CanonicalStateTests(unittest.TestCase):
             finished_watchdown="pass",
         )
         self.assertEqual(owner_review_status(gates), "blocked-before-owner-review")
+        self.assertEqual(gates["visual_release_quality"], "missing")
 
     def test_discord_callback_rejects_missing_hash_binding(self):
         with self.assertRaises(ValueError):
@@ -326,9 +328,21 @@ class CanonicalStateTests(unittest.TestCase):
         manifest_path = root / "approval" / "evidence-manifest.json"
         manifest_path.parent.mkdir(parents=True)
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        binding = {
+            "status": "pass", "video_id": "04",
+            "manifest_sha256": __import__("hashlib").sha256(manifest_path.read_bytes()).hexdigest(),
+            "script_sha256": "approved-script",
+        }
+        (root / "approval" / "evidence-manifest-binding.json").write_text(json.dumps(binding), encoding="utf-8")
+        script = Path(self.temp.name) / "launch" / "video-04" / "final-script.md"
+        script.parent.mkdir(parents=True)
+        script.write_text("approved script", encoding="utf-8")
         with patch.object(canonical_preflight, "output_root", lambda _: root):
-            payload, _, _ = canonical_preflight.build_report("04")
-        self.assertEqual(payload["status"], "pass")
+            with patch.object(canonical_preflight, "launch_root", lambda _: script.parent):
+                binding["script_sha256"] = __import__("hashlib").sha256(script.read_bytes()).hexdigest()
+                (root / "approval" / "evidence-manifest-binding.json").write_text(json.dumps(binding), encoding="utf-8")
+                payload, _, _ = canonical_preflight.build_report("04")
+        self.assertEqual(payload["status"], "pass", payload["blockers"])
         self.assertTrue((root / "video" / "pattern-lab-video-04.otio").exists())
 
     def test_canonical_preflight_rejects_hash_mismatch(self):
@@ -349,3 +363,43 @@ class CanonicalStateTests(unittest.TestCase):
             payload, _, _ = canonical_preflight.build_report("04")
         self.assertEqual(payload["status"], "blocked")
         self.assertEqual(payload["blockers"], ["evidence_asset_hash_mismatch:asset-1"])
+
+    def test_evidence_builder_blocks_missing_human_accepted_direct_asset(self):
+        root = Path(self.temp.name) / "output" / "video-04"
+        launch = Path(self.temp.name) / "launch" / "video-04"
+        launch.mkdir(parents=True)
+        (launch / "final-script.md").write_text("approved script", encoding="utf-8")
+        intake = root / "source-packet" / "evidence-intake.json"
+        intake.parent.mkdir(parents=True)
+        intake.write_text(json.dumps({"video_id": "04", "assets": []}), encoding="utf-8")
+        with patch.object(evidence_builder, "output_root", lambda _: root), patch.object(evidence_builder, "launch_root", lambda _: launch):
+            payload, _, _ = evidence_builder.build_manifest("04")
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("evidence_intake_assets_missing", payload["blockers"])
+
+    def test_evidence_builder_writes_hash_bound_manifest_from_explicit_intake(self):
+        root = Path(self.temp.name) / "output" / "video-04"
+        launch = Path(self.temp.name) / "launch" / "video-04"
+        launch.mkdir(parents=True)
+        (launch / "final-script.md").write_text("approved script", encoding="utf-8")
+        assets = []
+        for claim in evidence_builder.planned_claims("04"):
+            asset_id = f"asset-{claim['claim_id']}"
+            local = root / "evidence" / f"{asset_id}.jpg"
+            local.parent.mkdir(parents=True, exist_ok=True)
+            local.write_bytes(asset_id.encode("utf-8"))
+            assets.append({
+                "asset_id": asset_id, "source_id": f"source-{asset_id}", "relative_path": str(local.relative_to(root)),
+                "source_url": "https://example.test/archive", "source_title": " ".join(claim["entities"]),
+                "creator": "Detroit archive", "rights_basis": "public domain", "human_accepted": True,
+                "commercial_use_ok": True, "modification_ok": True, "source_class": "historical_evidence",
+                "evidence_fit": "direct", "entity_terms": claim["entities"], "claim_ids": [claim["claim_id"]],
+            })
+        intake = root / "source-packet" / "evidence-intake.json"
+        intake.parent.mkdir(parents=True)
+        intake.write_text(json.dumps({"video_id": "04", "assets": assets}), encoding="utf-8")
+        with patch.object(evidence_builder, "output_root", lambda _: root), patch.object(evidence_builder, "launch_root", lambda _: launch):
+            payload, _, manifest_path = evidence_builder.build_manifest("04")
+        self.assertEqual(payload["status"], "pass", payload["blockers"])
+        self.assertTrue(manifest_path.exists())
+        self.assertTrue((root / "approval" / "evidence-manifest-binding.json").exists())

@@ -28,6 +28,8 @@ import patternlab_monetization_tracker as monetization_tracker
 import patternlab_local_model_health as model_health
 import patternlab_word_alignment as word_alignment
 import patternlab_canonical_renderer as canonical_renderer
+import patternlab_visual_judge as visual_judge
+import patternlab_visual_release_quality as visual_release_quality
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
@@ -35,6 +37,25 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
         escaped = canonical_renderer.escape_drawtext("Source: Black Bottom 50%")
         self.assertIn(r"\:", escaped)
         self.assertIn(r"\%", escaped)
+
+    def test_visual_judge_blocks_missing_local_hash_bound_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            with patch.object(visual_judge, "output_root", lambda _: root), patch.object(visual_judge, "BASE", Path(temp)):
+                payload, _, _ = visual_judge.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("local_visual_judge_receipt_missing", payload["blockers"])
+
+    def test_visual_release_quality_requires_all_hash_bound_visual_reports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            approval = root / "approval"
+            approval.mkdir(parents=True)
+            for filename in visual_release_quality.REQUIRED.values():
+                (approval / filename).write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+            with patch.object(visual_release_quality, "output_root", lambda _: root):
+                payload, _, _ = visual_release_quality.build_report("04")
+            self.assertEqual(payload["status"], "pass")
 
     def test_word_alignment_caption_cards_are_short_and_timestamped(self):
         words = [

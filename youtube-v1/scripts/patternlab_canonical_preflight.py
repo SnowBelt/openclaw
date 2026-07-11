@@ -15,7 +15,26 @@ import opentimelineio as otio
 
 from patternlab.evidence import EvidenceError, load_manifest, verify_manifest_assets
 from patternlab.timeline import timeline_from_manifest
-from patternlab_common import display_path, ensure_dir, output_root, utc_now
+from patternlab_common import display_path, ensure_dir, launch_root, output_root, utc_now
+from patternlab.state import sha256_file
+
+
+def verify_manifest_binding(video_id: str, root: Path, manifest_path: Path) -> None:
+    """Require the manifest to be tied to the immutable approved script and intake."""
+    binding_path = root / "approval" / "evidence-manifest-binding.json"
+    if not binding_path.exists():
+        raise EvidenceError("evidence_manifest_binding_missing")
+    try:
+        binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EvidenceError("evidence_manifest_binding_invalid_json") from exc
+    if binding.get("status") != "pass" or str(binding.get("video_id", "")).zfill(2) != video_id:
+        raise EvidenceError("evidence_manifest_binding_invalid")
+    if binding.get("manifest_sha256") != sha256_file(manifest_path):
+        raise EvidenceError("evidence_manifest_binding_hash_mismatch")
+    script_path = launch_root(video_id) / "final-script.md"
+    if not script_path.exists() or binding.get("script_sha256") != sha256_file(script_path):
+        raise EvidenceError("evidence_manifest_binding_script_hash_mismatch")
 
 
 def build_report(video_id: str, manifest_path: Path | None = None) -> tuple[dict, Path, Path]:
@@ -30,6 +49,7 @@ def build_report(video_id: str, manifest_path: Path | None = None) -> tuple[dict
         if manifest.episode_id != video_id:
             raise EvidenceError(f"evidence_manifest_video_mismatch:{manifest.episode_id}")
         verify_manifest_assets(manifest, root)
+        verify_manifest_binding(video_id, root, manifest_path)
     except EvidenceError as exc:
         blockers.append(str(exc))
     if not blockers and manifest is not None:

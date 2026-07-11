@@ -181,6 +181,7 @@ def main():
     canonical_release = read_json(approval / "canonical-release-registration-report.json") or {}
     canonical_render = read_json(approval / "canonical-render-plan.json") or {}
     render_quality = read_json(approval / "render-quality-report.json") or {}
+    visual_release_quality = read_json(approval / "visual-release-quality-report.json") or {}
     # This packet is a read-only review surface. It must not overwrite the
     # active runtime's calendar or monetization history while inspecting a
     # source worktree.
@@ -209,6 +210,7 @@ def main():
         canonical_release=canonical_release.get("status"),
         canonical_render=canonical_render.get("status"),
         render_quality=render_quality.get("status"),
+        visual_release_quality=visual_release_quality.get("status"),
         long_form_quality=long_form_quality.get("status"),
         shorts_quality=shorts_quality.get("status"),
         thumbnail_quality=thumbnail_quality.get("status"),
@@ -257,6 +259,7 @@ def main():
         f"- Canonical release package hash: {canonical_release.get('package_sha256', 'missing')}",
         f"- Canonical evidence renderer: {canonical_render.get('status', 'missing')}",
         f"- Canonical render quality: {render_quality.get('status', 'missing')}",
+        f"- Visual release quality: {visual_release_quality.get('status', 'missing')}",
         f"- Owner-review canonical blockers: {', '.join(owner_review_blocker_list) if owner_review_blocker_list else 'none'}",
         f"- Canonical owner-review gate report: {repo_display(canonical_gate_path)} ({canonical_gate_report['status']})",
         "",
