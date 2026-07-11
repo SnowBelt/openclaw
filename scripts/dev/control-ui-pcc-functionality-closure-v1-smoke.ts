@@ -266,7 +266,7 @@ async function main() {
       ),
       completeState: root.querySelector("[data-pcc-complete-state]") !== null,
       noTerminalSetupRepair: root.querySelector("[data-pcc-setup-repair]") === null,
-      completeWorkLoop: root.querySelector("[data-pcc-work-loop-complete]") !== null,
+      noTerminalWorkLoop: root.querySelector("[data-pcc-work-loop-complete]") === null,
       reorderVisibleButDisabled:
         root.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.disabled === true,
       noActionMenuButtonsForCompleteSimple:
