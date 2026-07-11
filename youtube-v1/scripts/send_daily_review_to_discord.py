@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import sqlite3
 import shutil
 import subprocess
 import sys
@@ -10,8 +11,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 YOUTUBE = REPO / "youtube-v1"
 sys.path.insert(0, str(YOUTUBE / "scripts"))
+sys.path.insert(0, str(YOUTUBE))
 from patternlab_common import media_duration_seconds, utc_now
 from patternlab_discord_feedback import callback_value
+from patternlab.approvals import current_release, resolve_artifact
+from patternlab.state import PatternLabState, StateError
 
 DEFAULT_TARGET = "channel:1503779032817209465"
 DISCORD_STAGE_ROOT = Path("/tmp/openclaw/pattern-lab-review")
@@ -32,6 +36,39 @@ AVATAR_LABELS = {
     "james_avatar_concept_b.png": "B",
     "james_avatar_concept_c.png": "C",
 }
+ACTIVE_REVIEW_RELEASE: dict = {}
+
+
+def canonical_state_path():
+    return Path(os.environ.get("PATTERNLAB_STATE_DB", YOUTUBE / "local-output" / "patternlab.sqlite3"))
+
+
+def load_review_release(root, video_id):
+    """Load the exact active immutable release that Discord must bind to."""
+    report_path = root / "approval" / "canonical-release-registration-report.json"
+    if not report_path.exists():
+        raise SystemExit("Review delivery blocked: canonical release registration report is missing.")
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Review delivery blocked: canonical release report is invalid: {exc}") from exc
+    if report.get("status") != "pass":
+        raise SystemExit("Review delivery blocked: canonical release registration is not passing.")
+    store = PatternLabState(canonical_state_path())
+    try:
+        release = current_release(store, video_id)
+    except (StateError, OSError, sqlite3.Error) as exc:
+        raise SystemExit(f"Review delivery blocked: current canonical release is unavailable: {exc}") from exc
+    if release.get("release_candidate_id") != report.get("release_candidate_id"):
+        raise SystemExit("Review delivery blocked: canonical release report does not match active state.")
+    if release.get("package_sha256") != report.get("package_sha256"):
+        raise SystemExit("Review delivery blocked: canonical package hash does not match active state.")
+    return release
+
+
+def set_active_review_release(release):
+    global ACTIVE_REVIEW_RELEASE
+    ACTIVE_REVIEW_RELEASE = dict(release)
 
 
 def run(command):
@@ -97,7 +134,17 @@ def validate_duration(path, minimum, maximum, label):
 def validate_review_ready(root, video_id, long_form, long_form_for_discord, shorts):
     monetization = root / "approval" / "monetization-gates-report.json"
     long_form_quality = root / "approval" / "long-form-quality-report.json"
+    canonical_owner_review = root / "approval" / "owner-review-canonical-gate-report.json"
     readiness = root / "approval" / "private-upload-readiness.md"
+    if canonical_owner_review.exists():
+        payload = json.loads(canonical_owner_review.read_text(encoding="utf-8"))
+        if payload.get("status") != "pass":
+            raise SystemExit(
+                "Review delivery blocked: canonical owner-review gate is "
+                f"{payload.get('status')} ({'; '.join(payload.get('blockers', []))})."
+            )
+    else:
+        raise SystemExit("Review delivery blocked: canonical owner-review gate report is missing.")
     if long_form_quality.exists():
         payload = json.loads(long_form_quality.read_text(encoding="utf-8"))
         if payload.get("status") != "pass":
@@ -162,6 +209,29 @@ def stage_media(video_id, path):
 
 
 def callback(action, asset_type, video_id, asset_id=None, filename=None, reason=None, repair_scope=None):
+    if not ACTIVE_REVIEW_RELEASE:
+        raise SystemExit("Discord callback generation blocked: active canonical release binding is missing.")
+    if asset_type == "video" and not filename:
+        asset_id = asset_id or f"video-{video_id}-long-form"
+        filename = f"video/pattern-lab-video-{video_id}-draft.mp4"
+    if asset_type == "short" and not filename:
+        asset_id = asset_id or f"video-{video_id}-short-01"
+        index = asset_id.rsplit("-", 1)[-1]
+        filename = f"shorts/pattern-lab-video-{video_id}-short-{index}.mp4"
+    artifact_sha256 = ""
+    if asset_type and asset_type != "topic":
+        try:
+            artifact = resolve_artifact(
+                ACTIVE_REVIEW_RELEASE,
+                artifact_id=asset_id or "",
+                filename=filename or "",
+            )
+        except StateError as exc:
+            raise SystemExit(
+                "Discord callback generation blocked: asset is absent from active canonical release: "
+                f"{asset_type} {asset_id or filename or '(missing)'} ({exc})"
+            ) from exc
+        artifact_sha256 = artifact["sha256"]
     return callback_value(
         action,
         asset_type,
@@ -170,6 +240,9 @@ def callback(action, asset_type, video_id, asset_id=None, filename=None, reason=
         filename=filename,
         reason=reason,
         repair_scope=repair_scope,
+        release_candidate_id=ACTIVE_REVIEW_RELEASE["release_candidate_id"],
+        release_candidate_sha256=ACTIVE_REVIEW_RELEASE["package_sha256"],
+        artifact_sha256=artifact_sha256,
     )
 
 
@@ -346,6 +419,8 @@ def write_delivery_manifest(root, target, steps):
         "channel_only": target.startswith("channel:"),
         "video_delivery": "plain_discord_attachments",
         "controls_delivery": "separate_messages",
+        "release_candidate_id": ACTIVE_REVIEW_RELEASE.get("release_candidate_id", ""),
+        "release_candidate_sha256": ACTIVE_REVIEW_RELEASE.get("package_sha256", ""),
         "max_media_mb": MAX_DISCORD_MEDIA_BYTES // 1024 // 1024,
         "steps": [
             {
@@ -363,39 +438,16 @@ def group_review_controls(video_id):
     return controls(
         [
             {
-                "label": "Approve images",
-                "style": "success",
-                "value": callback("approve", "image", video_id),
-            },
-            {
-                "label": "Regenerate images",
-                "style": "secondary",
-                "value": callback(
-                    "regenerate",
-                    "image",
-                    video_id,
-                    reason="owner_requested_image_variants",
-                ),
-            },
-            {
-                "label": "Approve voice",
-                "style": "success",
-                "value": callback("approve", "voiceover", video_id),
-            },
-            {
-                "label": "Repair voice",
-                "style": "danger",
-                "value": callback("repair", "voiceover", video_id, reason="voice_needs_revision"),
-            },
-            {
-                "label": "Approve proof",
-                "style": "success",
-                "value": callback("approve", "proof_footage", video_id),
-            },
-            {
                 "label": "Revise hook",
                 "style": "secondary",
-                "value": callback("revise_hook", "video", video_id, reason="owner_requested_hook_revision"),
+                "value": callback(
+                    "revise_hook",
+                    "video",
+                    video_id,
+                    asset_id=f"video-{video_id}-long-form",
+                    filename=f"video/pattern-lab-video-{video_id}-draft.mp4",
+                    reason="owner_requested_hook_revision",
+                ),
             },
             {
                 "label": "Reject topic",
@@ -696,6 +748,7 @@ def main():
     if len(thumbnails) < 3:
         raise SystemExit("Missing review thumbnails: expected at least 3 thumbnail_candidate_*.png files.")
     validate_review_ready(root, args.video_id, long_form, long_form_for_discord, shorts)
+    set_active_review_release(load_review_release(root, args.video_id))
 
     intro = (
         "Pattern Lab revised review packet is ready.\n\n"

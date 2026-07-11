@@ -268,6 +268,9 @@ def apply_review_action(
     freeform_note="",
     timestamp_start="",
     timestamp_end="",
+    release_candidate_id="",
+    release_candidate_sha256="",
+    artifact_sha256="",
     dry_run=False,
     auto_repair=True,
     auto_upload=False,
@@ -290,6 +293,22 @@ def apply_review_action(
     review_package_payload = None
     review_package_report = None
     approval_binding_receipt = {}
+    supplied_binding = {
+        "release_candidate_id": release_candidate_id,
+        "release_candidate_sha256": release_candidate_sha256,
+        "artifact_sha256": artifact_sha256,
+    }
+    if any(supplied_binding.values()):
+        expected_binding = approval_binding(
+            canonical_state_store(),
+            episode_id=video_id,
+            artifact_id=asset_id or "" if asset_type and asset_type != "topic" else "",
+            filename=filename or "" if asset_type and asset_type != "topic" else "",
+        )
+        for key, supplied in supplied_binding.items():
+            if supplied and expected_binding.get(key) != supplied:
+                raise ValueError(f"stale_or_tampered_discord_callback:{key}")
+        approval_binding_receipt = expected_binding
 
     if action == "approve":
         if not asset_type:
@@ -358,13 +377,13 @@ def apply_review_action(
         "rows_changed": changed,
     }
     if action in APPROVAL_ACTIONS:
-        store = canonical_state_store()
-        approval_binding_receipt = approval_binding(
-            store,
-            episode_id=video_id,
-            artifact_id=asset_id or "" if action == "approve" else "",
-            filename=filename or "" if action == "approve" else "",
-        )
+        if not approval_binding_receipt:
+            approval_binding_receipt = approval_binding(
+                canonical_state_store(),
+                episode_id=video_id,
+                artifact_id=asset_id or "" if action == "approve" else "",
+                filename=filename or "" if action == "approve" else "",
+            )
         event.update(approval_binding_receipt)
     if dry_run and action == "approve_public_publish":
         public_blockers = public_publish_preapproval_blockers(root)
@@ -556,6 +575,9 @@ def main():
         args.freeform_note = payload.get("freeform_note", args.freeform_note)
         args.timestamp_start = payload.get("timestamp_start", args.timestamp_start)
         args.timestamp_end = payload.get("timestamp_end", args.timestamp_end)
+        args.release_candidate_id = payload.get("release_candidate_id", "")
+        args.release_candidate_sha256 = payload.get("release_candidate_sha256", "")
+        args.artifact_sha256 = payload.get("artifact_sha256", "")
     if not args.action:
         raise SystemExit("--action or --callback is required")
     result = apply_review_action(
@@ -569,6 +591,9 @@ def main():
         freeform_note=args.freeform_note,
         timestamp_start=args.timestamp_start,
         timestamp_end=args.timestamp_end,
+        release_candidate_id=getattr(args, "release_candidate_id", ""),
+        release_candidate_sha256=getattr(args, "release_candidate_sha256", ""),
+        artifact_sha256=getattr(args, "artifact_sha256", ""),
         dry_run=args.dry_run,
         auto_repair=not args.no_auto_repair,
         auto_upload=args.allow_youtube_upload,

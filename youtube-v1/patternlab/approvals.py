@@ -22,6 +22,11 @@ def resolve_artifact(release: dict, *, artifact_id: str = "", filename: str = ""
     for artifact in artifacts:
         if artifact_id and artifact.get("artifact_id") == artifact_id:
             return artifact
+    # Discord controls use stable, human-readable asset IDs while the immutable
+    # release manifest uses role-derived IDs.  Resolve an exact manifest ID
+    # first, then fall back to the immutable relative filename.  Never return a
+    # loosely matching artifact.
+    for artifact in artifacts:
         if filename and str(artifact.get("relative_path") or "").endswith(filename):
             return artifact
     raise StateError("approved_asset_not_in_current_release")

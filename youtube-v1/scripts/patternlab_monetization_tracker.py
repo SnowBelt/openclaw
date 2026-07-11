@@ -110,7 +110,7 @@ def pct(value, target):
     return round(min(100.0, (float(value) / float(target)) * 100), 1)
 
 
-def build_tracker_report():
+def build_tracker_report(*, write=True):
     strategy = read_json(BASE / "state" / "monetization" / "strategy.json", {})
     manual = {**DEFAULT_PROGRESS, **(read_json(STATE_PATH, {}) or {})}
     aggregate = aggregate_metrics()
@@ -152,7 +152,10 @@ def build_tracker_report():
     profit = {}
     try:
         profit = build_profit_analytics("03")
-    except Exception:
+    # Metrics are unavailable before a public launch.  The tracker is a
+    # non-blocking informational section of an owner packet, so an absent
+    # analytics CSV must not abort source/media review.
+    except (Exception, SystemExit):
         profit = {}
     blockers = []
     if progress["public_uploads_90d"] == 0:
@@ -184,8 +187,9 @@ def build_tracker_report():
             "Record YouTube Studio metrics at 24h, 72h, 7d, and 30d after every public upload.",
         ],
     }
-    ensure_dir(REPORT_JSON.parent)
-    REPORT_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if write:
+        ensure_dir(REPORT_JSON.parent)
+        REPORT_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     lines = [
         "# Pattern Lab YPP Progress",
         "",
@@ -216,7 +220,8 @@ def build_tracker_report():
     lines.extend([f"- {blocker}" for blocker in blockers] or ["- none"])
     lines.extend(["", "## Next Actions", ""])
     lines.extend([f"- {action}" for action in payload["next_actions"]])
-    REPORT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if write:
+        REPORT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return payload, REPORT_MD
 
 

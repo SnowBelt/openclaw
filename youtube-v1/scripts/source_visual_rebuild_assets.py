@@ -119,6 +119,7 @@ def historical_date_eligible(item, max_year):
     values = [
         item.get("date"), item.get("created_published_date"), item.get("created"),
         item.get("date_created"), item.get("original_format"),
+        item.get("DateTimeOriginal"), item.get("DateTime"),
     ]
     years = [year for value in values for year in metadata_years(value)]
     return bool(years) and min(years) <= max_year
@@ -364,6 +365,108 @@ def source_commons_assets(root, video_id, out_dir, queries):
     return assets
 
 
+def commons_metadata_value(meta, key):
+    return clean_html((meta.get(key) or {}).get("value"))
+
+
+def source_commons_historical_assets(root, video_id, out_dir, queries, existing=None):
+    """Use only dated, query-specific, commercially reusable Commons records as proof.
+
+    Commons is a sanctioned fallback after LOC throttles.  It is deliberately
+    stricter than the modern-context collector: a candidate needs a disclosed
+    pre-cutover historical date, an episode-entity match in its item metadata,
+    and a compatible item-level license before it can enter the evidence lane.
+    """
+    historical_dir = ensure_dir(out_dir / "historical")
+    assets = list(existing or [])
+    seen_titles = {str(item.get("source_title", "")).strip().lower() for item in assets}
+    for query in queries["historical"]:
+        if len(assets) >= MIN_HISTORICAL:
+            break
+        query_entities = query_entity_terms(query, queries["entities"])
+        try:
+            titles = commons_search_titles(query, limit=30)
+        except ProviderRateLimited as exc:
+            print(f"historical provider paused: {exc}", flush=True)
+            break
+        except Exception as exc:
+            print(f"historical Commons query failed: {query}: {exc}", flush=True)
+            continue
+        for title in titles:
+            if len(assets) >= MIN_HISTORICAL or title.lower() in seen_titles:
+                continue
+            try:
+                info = commons_info(title)
+            except ProviderRateLimited as exc:
+                print(f"historical provider paused: {exc}", flush=True)
+                return assets
+            except Exception:
+                continue
+            if not info or not str(info.get("mime", "")).startswith("image/"):
+                continue
+            meta = info.get("extmetadata") or {}
+            license_short = commons_metadata_value(meta, "LicenseShortName")
+            if not license_compatible(license_short):
+                continue
+            item_date = commons_metadata_value(meta, "DateTimeOriginal") or commons_metadata_value(meta, "DateTime")
+            if not historical_date_eligible({"DateTimeOriginal": item_date}, queries["historical_max_year"]):
+                continue
+            description = commons_metadata_value(meta, "ImageDescription")
+            categories = commons_metadata_value(meta, "Categories")
+            relevance_text = " ".join([title, description, categories])
+            if not entity_relevant(relevance_text, query_entities):
+                continue
+            description_url = info.get("descriptionurl") or "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
+            download_url = info.get("thumburl") or info.get("url")
+            if not download_url:
+                continue
+            extension = ".png" if ".png" in download_url.lower() else ".jpg"
+            clean_title = title.replace("File:", "")
+            slug = safe_slug(clean_title, f"commons-historical-{len(assets) + 1:02d}")
+            target = historical_dir / f"commons-historical-{len(assets) + 1:02d}-{slug}{extension}"
+            try:
+                download(download_url, target)
+            except Exception:
+                continue
+            rel = target.relative_to(root)
+            artist = commons_metadata_value(meta, "Artist") or "Wikimedia Commons contributor"
+            license_url = commons_metadata_value(meta, "LicenseUrl") or description_url
+            asset = {
+                "asset_id": f"video-{video_id}-visual-rebuild-commons-historical-{len(assets) + 1:02d}",
+                "asset_type": "image",
+                "filename": str(rel),
+                "local_path": str(rel),
+                "tool": "Wikimedia Commons API",
+                "model_or_service": "Commons imageinfo API",
+                "source_prompt_or_source_file": download_url,
+                "source_title": clean_title,
+                "source_url": description_url,
+                "creator": artist,
+                "archive_or_platform": "Wikimedia Commons",
+                "source_class": "historical_evidence",
+                "license_or_rights_basis": f"{license_short}; item page {description_url}; license {license_url}",
+                "license_status": license_short,
+                "attribution_required": "yes" if "cc" in license_short.lower() or "gfdl" in license_short.lower() else "no",
+                "attribution_text": f"{clean_title}; {artist}; {license_short}; {description_url}",
+                "commercial_use_ok": "yes",
+                "modification_ok": "yes",
+                "recognizable_people_property_trademark_risk": "low: historical collection item; owner review still required",
+                "ai_reconstruction_disclosure": "not_ai_reconstruction",
+                "created_at": utc_now(),
+                "notes": f"visual rebuild historical_evidence; query={query}; historical date={item_date}; query-entity-matched source proof only",
+                "human_review_required": "yes",
+                "human_review_status": "pending",
+                "license_url": license_url,
+                "historical_date": item_date,
+            }
+            asset.update(classify_visual_category(root, target, clean_title, "historical_evidence", {str(rel): asset, target.name: asset}))
+            append_ledger(root, asset)
+            assets.append(asset)
+            seen_titles.add(title.lower())
+            print(f"historical {len(assets)}/{MIN_HISTORICAL}: {target.name}", flush=True)
+    return assets
+
+
 
 
 def source_pexels_frame_assets(root, video_id, out_dir):
@@ -538,6 +641,8 @@ def main():
             }, indent=2))
             return
     historical = source_loc_assets(root, args.video_id, out_dir, queries)
+    if len(historical) < MIN_HISTORICAL:
+        historical = source_commons_historical_assets(root, args.video_id, out_dir, queries, existing=historical)
     modern = source_pexels_frame_assets(root, args.video_id, out_dir)
     if len(modern) < MIN_MODERN:
         try:

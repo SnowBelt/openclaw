@@ -24,9 +24,15 @@ import patternlab_topic_qualification_queue as topic_queue
 import patternlab_runtime_watchdog as runtime_watchdog
 import patternlab_topic_research_worker as topic_research
 import patternlab_environment_health as environment_health
+import patternlab_monetization_tracker as monetization_tracker
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
+    def test_monetization_tracker_treats_prelaunch_metrics_as_nonblocking(self):
+        with patch.object(monetization_tracker, "build_profit_analytics", side_effect=SystemExit("metrics absent")):
+            payload, _ = monetization_tracker.build_tracker_report(write=False)
+        self.assertEqual(payload["profit_analytics"]["status"], "missing")
+
     def test_status_reports_blocked_when_mandatory_report_is_missing(self):
         with tempfile.TemporaryDirectory() as temp:
             approval = Path(temp) / "approval"

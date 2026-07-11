@@ -8,8 +8,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from patternlab.models import Approval, ApprovalScope, Artifact, EpisodeState
-from patternlab.approvals import approval_binding, record_approval
+from patternlab.approvals import approval_binding, record_approval, resolve_artifact
 from patternlab.release import create_release_candidate
+from patternlab.review import owner_review_gate_statuses, owner_review_status
 from patternlab.state import PatternLabState, StateError, utc_now
 from patternlab.schemas import EpisodeManifest
 from patternlab.timeline import timeline_from_manifest
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import source_visual_rebuild_assets as source_rebuild
 import patternlab_elevenlabs_credit_health as credit_health
 import patternlab_canonical_preflight as canonical_preflight
+from patternlab_discord_feedback import callback_value, parse_callback
 
 
 class CanonicalStateTests(unittest.TestCase):
@@ -90,6 +92,54 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertEqual(receipt["artifact_sha256"], "a" * 64)
         self.assertEqual(self.store.active_approvals("04", ApprovalScope.ASSET), [])
 
+    def test_bound_approval_can_resolve_human_asset_id_by_immutable_filename(self):
+        candidate = create_release_candidate(
+            "04",
+            [Artifact("package-shorts-short-01", "package_asset", "youtube-v1/local-output/video-04/shorts/pattern-lab-video-04-short-01.mp4", "a" * 64)],
+        )
+        self.store.register_release(candidate)
+        release = self.store.snapshot("04")["release"]
+        artifact = resolve_artifact(
+            release,
+            artifact_id="video-04-short-01",
+            filename="shorts/pattern-lab-video-04-short-01.mp4",
+        )
+        self.assertEqual(artifact["artifact_id"], "package-shorts-short-01")
+
+    def test_owner_review_requires_canonical_package_and_render_quality(self):
+        gates = owner_review_gate_statuses(
+            package_hash="blocked",
+            canonical_preflight="pass",
+            canonical_release="pass",
+            long_form_quality="pass",
+            shorts_quality="pass",
+            thumbnail_quality="pass",
+            episode_standard="pass",
+            voice_visual_match="pass",
+            finished_watchdown="pass",
+        )
+        self.assertEqual(owner_review_status(gates), "blocked-before-owner-review")
+
+    def test_discord_callback_rejects_missing_hash_binding(self):
+        with self.assertRaises(ValueError):
+            parse_callback('patternlab:{"action":"approve","videoId":"04","assetType":"short","assetId":"video-04-short-01","reason":"strong_short_loop"}')
+
+    def test_discord_callback_preserves_hash_binding(self):
+        raw = callback_value(
+            "approve",
+            "short",
+            "04",
+            asset_id="video-04-short-01",
+            filename="shorts/pattern-lab-video-04-short-01.mp4",
+            reason="strong_short_loop",
+            release_candidate_id="rc-04-test",
+            release_candidate_sha256="a" * 64,
+            artifact_sha256="b" * 64,
+        )
+        parsed = parse_callback(raw)
+        self.assertEqual(parsed["release_candidate_id"], "rc-04-test")
+        self.assertEqual(parsed["artifact_sha256"], "b" * 64)
+
     def test_source_rebuild_requires_explicit_claim_queries(self):
         root = Path(self.temp.name) / "video-04"
         with patch.object(source_rebuild, "launch_root", lambda _: Path(self.temp.name) / "missing-launch"):
@@ -142,6 +192,40 @@ class CanonicalStateTests(unittest.TestCase):
         with patch.object(source_rebuild, "loc_search", side_effect=source_rebuild.ProviderRateLimited("provider_rate_limited:library_of_congress")):
             assets = source_rebuild.source_loc_assets(root, "04", root / "source-packet" / "visual-rebuild", queries)
         self.assertEqual(assets, [])
+
+    def test_commons_historical_fallback_requires_date_license_and_entity_match(self):
+        root = Path(self.temp.name) / "video-04"
+        queries = {
+            "historical": ["Black Bottom Detroit"],
+            "entities": ["black bottom", "hastings street"],
+            "historical_max_year": 1965,
+        }
+
+        def fake_download(_url, target):
+            Path(target).write_bytes(b"historical-proof")
+
+        historical_info = {
+            "mime": "image/jpeg",
+            "thumburl": "https://upload.wikimedia.org/example.jpg",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Black_Bottom.jpg",
+            "extmetadata": {
+                "LicenseShortName": {"value": "CC BY 4.0"},
+                "DateTimeOriginal": {"value": "1941"},
+                "ImageDescription": {"value": "Black Bottom Detroit street scene"},
+                "Artist": {"value": "Detroit archive"},
+            },
+        }
+        with (
+            patch.object(source_rebuild, "commons_search_titles", return_value=["File:Black Bottom Detroit.jpg"]),
+            patch.object(source_rebuild, "commons_info", return_value=historical_info),
+            patch.object(source_rebuild, "download", side_effect=fake_download),
+        ):
+            assets = source_rebuild.source_commons_historical_assets(
+                root, "04", root / "source-packet" / "visual-rebuild", queries
+            )
+        self.assertEqual(len(assets), 1)
+        self.assertEqual(assets[0]["source_class"], "historical_evidence")
+        self.assertIn("Black Bottom", assets[0]["source_title"])
 
     def test_source_rebuild_names_rate_limited_provider_from_url(self):
         self.assertEqual(source_rebuild.provider_label("https://www.loc.gov/photos/?q=x"), "library_of_congress")

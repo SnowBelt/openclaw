@@ -2,13 +2,19 @@
 import argparse
 import csv
 import json
+import sys
 from collections import Counter
 from pathlib import Path
+
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import BASE, ensure_dir, media_duration_seconds, output_root, utc_now
 from patternlab_content_calendar import build_calendar
 from patternlab_monetization_tracker import build_tracker_report
 from patternlab_readiness_truth_summary import build_truth_summary
+from patternlab.review import owner_review_blockers, owner_review_gate_statuses, owner_review_status
 
 
 REPO = BASE.parent
@@ -170,8 +176,14 @@ def main():
     visual_manifest = root / "source-packet" / "visual-rebuild" / "visual-rebuild-manifest.json"
     historical_count, modern_context_count, visual_rebuild_status = visual_rebuild_counts(visual_manifest)
     pipeline = read_json(approval / "pipeline-run-report.json") or {}
-    ypp, ypp_report = build_tracker_report()
-    calendar, calendar_report = build_calendar()
+    package_hash = read_json(approval / "package-hash-report.json") or {}
+    canonical_preflight = read_json(approval / "canonical-preflight-report.json") or {}
+    canonical_release = read_json(approval / "canonical-release-registration-report.json") or {}
+    # This packet is a read-only review surface. It must not overwrite the
+    # active runtime's calendar or monetization history while inspecting a
+    # source worktree.
+    ypp, ypp_report = build_tracker_report(write=False)
+    calendar, calendar_report = build_calendar(write=False)
     by_type, approved = ledger_counts(root / "rights-ledger.csv")
     private_status = status_from_report(approval / "private-upload-readiness.md")
     public_status = status_from_report(approval / "public-publish-readiness.md")
@@ -189,25 +201,40 @@ def main():
     tags = upload_metadata.get("tags") or []
     chapters = upload_metadata.get("chapters") or []
     pinned = upload_metadata.get("pinned_comment") or ""
-    transcript_gate_statuses = {
-        "episode_standard": episode_standard.get("status"),
-        "transcript_viral": transcript_viral.get("status"),
-        "comment_quality": comment_quality.get("status"),
-        "transcript_watchtime": transcript_watchtime.get("status"),
-    }
-    owner_review_status = (
-        "ready-for-owner-review"
-        if all(status == "pass" for status in transcript_gate_statuses.values())
-        else "blocked-before-owner-review"
+    owner_review_gates = owner_review_gate_statuses(
+        package_hash=package_hash.get("status"),
+        canonical_preflight=canonical_preflight.get("status"),
+        canonical_release=canonical_release.get("status"),
+        long_form_quality=long_form_quality.get("status"),
+        shorts_quality=shorts_quality.get("status"),
+        thumbnail_quality=thumbnail_quality.get("status"),
+        episode_standard=episode_standard.get("status"),
+        voice_visual_match=voice_visual_match.get("voice_visual_match_status"),
+        finished_watchdown=finished_watchdown.get("finished_video_watchdown_status"),
     )
+    owner_review_status_value = owner_review_status(owner_review_gates)
+    owner_review_blocker_list = owner_review_blockers(owner_review_gates)
+    canonical_gate_report = {
+        "generated_at": utc_now(),
+        "video_id": args.video_id,
+        "status": "pass" if owner_review_status_value == "ready-for-owner-review" else "blocked",
+        "owner_review_status": owner_review_status_value,
+        "gates": owner_review_gates,
+        "blockers": owner_review_blocker_list,
+        "release_candidate_id": canonical_release.get("release_candidate_id", ""),
+        "release_candidate_sha256": canonical_release.get("package_sha256", ""),
+        "youtube_mutation": "not_performed",
+    }
+    canonical_gate_path = approval / "owner-review-canonical-gate-report.json"
+    canonical_gate_path.write_text(json.dumps(canonical_gate_report, indent=2) + "\n", encoding="utf-8")
 
     lines = [
         f"# Pattern Lab Owner Review Packet: Video {args.video_id}",
         "",
         f"Generated: {utc_now()}",
         "",
-        f"Status: {owner_review_status}",
-        "Owner review release: blocked until the episode-standard gate passes" if owner_review_status != "ready-for-owner-review" else "Owner review release: ready for owner review after confirming all listed gates",
+        f"Status: {owner_review_status_value}",
+        "Owner review release: blocked until every canonical package and quality gate passes" if owner_review_status_value != "ready-for-owner-review" else "Owner review release: ready for owner review after confirming all listed gates",
         f"Private/unlisted upload readiness: {private_truth}",
         f"Private/unlisted upload action: {private_action}",
         f"Public publish: {public_truth}",
@@ -222,6 +249,10 @@ def main():
         f"- Optional/external/non-private blockers: {len(truth_summary.get('optional_or_external_blockers', []))}",
         f"- Stale/superseded reports: {len(truth_summary.get('stale_or_nonblocking_reports', []))}",
         f"- Next owner action: {truth_summary.get('next_owner_action', 'missing')}",
+        f"- Canonical release candidate: {canonical_release.get('release_candidate_id', 'missing')}",
+        f"- Canonical release package hash: {canonical_release.get('package_sha256', 'missing')}",
+        f"- Owner-review canonical blockers: {', '.join(owner_review_blocker_list) if owner_review_blocker_list else 'none'}",
+        f"- Canonical owner-review gate report: {repo_display(canonical_gate_path)} ({canonical_gate_report['status']})",
         "",
         "## Review Order",
         "",

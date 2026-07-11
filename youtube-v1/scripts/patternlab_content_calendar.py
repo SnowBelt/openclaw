@@ -79,7 +79,7 @@ def package_exists(video_id):
     return (BASE / "launch" / f"video-{video_id}" / "package.json").exists()
 
 
-def build_calendar(days=14):
+def build_calendar(days=14, *, write=True):
     strategy = read_json(BASE / "state" / "monetization" / "strategy.json", {}) or {}
     slate = read_json(BASE / "state" / "monetization" / "content-slate.json", {}) or {}
     slots = next_publish_slots(days)
@@ -129,8 +129,9 @@ def build_calendar(days=14):
         "publish_slots_eastern": [slot.isoformat() for slot in slots],
         "rows": rows,
     }
-    ensure_dir(CALENDAR_JSON.parent)
-    CALENDAR_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if write:
+        ensure_dir(CALENDAR_JSON.parent)
+        CALENDAR_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     lines = [
         "# Pattern Lab Two-Week Content Calendar",
         "",
@@ -159,7 +160,8 @@ def build_calendar(days=14):
                 "",
             ]
         )
-    CALENDAR_MD.write_text("\n".join(lines), encoding="utf-8")
+    if write:
+        CALENDAR_MD.write_text("\n".join(lines), encoding="utf-8")
     return payload, CALENDAR_MD
 
 
