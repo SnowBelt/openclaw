@@ -247,7 +247,8 @@ async function main() {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
       focusBar: root.querySelectorAll("[data-pcc-project-focus-bar]").length === 1,
       todaySummary: text.includes("PCC is current"),
-      noTopProofDrawerInSimpleCurrent: root.querySelectorAll(".pcc-top-proof-drawer").length === 0,
+      proofDrawerDeferredInSimple:
+        root.querySelector<HTMLDetailsElement>(".pcc-top-proof-drawer")?.open === false,
       proofBadgeInHero:
         root.querySelectorAll("[data-pcc-project-hero] [data-pcc-proof-badge]").length === 1,
       maintenanceHero: root.querySelectorAll("[data-pcc-maintenance-hero]").length === 1,
