@@ -76,7 +76,7 @@ describe("PCC ledger storage", () => {
     );
     withPccLedger(
       (ledger) => {
-        ledger.projects[0]!.title = "Renamed Project";
+        ledger.projects[0].title = "Renamed Project";
       },
       { write: true, auditKind: "projects.rename" },
       env,

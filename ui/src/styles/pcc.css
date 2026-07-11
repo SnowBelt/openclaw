@@ -1,4 +1,6 @@
 .pcc-shell {
+  container-name: pcc-shell;
+  container-type: inline-size;
   display: grid;
   gap: 12px;
   padding: 0 0 32px;
@@ -280,6 +282,30 @@
   display: grid;
   gap: 14px;
   min-width: 0;
+}
+
+.pcc-layout--focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pcc-layout--focus .pcc-workspace {
+  order: 1;
+}
+
+.pcc-layout--focus .pcc-projects {
+  order: 2;
+  position: static;
+}
+
+@container pcc-shell (max-width: 1100px) {
+  .pcc-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pcc-projects,
+  .pcc-detail {
+    position: static;
+  }
 }
 
 .pcc-project-card.is-on-hold:not(.is-selected) {
@@ -2654,6 +2680,15 @@
   margin: 4px 0 0;
 }
 
+.pcc-maintenance-hero__status {
+  color: var(--text);
+  font-size: inherit;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 .pcc-project-snapshot__progress {
   display: grid;
   gap: 8px;
@@ -2669,6 +2704,60 @@
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   margin: 0;
+}
+
+@container pcc-project-snapshot (max-width: 720px) {
+  .pcc-project-snapshot__header,
+  .pcc-maintenance-hero,
+  .pcc-autopilot-chip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pcc-project-snapshot__badges {
+    justify-content: flex-start;
+  }
+
+  .pcc-primary-action {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+    position: static;
+    top: auto;
+  }
+
+  .pcc-primary-action > button,
+  .pcc-maintenance-hero .btn,
+  .pcc-autopilot-chip .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .pcc-blocker-center__list li {
+    align-items: start;
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .pcc-blocker-center__fix,
+  .pcc-blocker-center__list li > button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .pcc-project-snapshot__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pcc-project-snapshot p,
+  .pcc-blocker-center__list li > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@container pcc-project-snapshot (max-width: 480px) {
+  .pcc-project-snapshot__facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .pcc-blocker-center {
@@ -3763,7 +3852,20 @@
 }
 
 .pcc-hero--compact .pcc-view-mode {
+  border-radius: 14px;
   transform-origin: right center;
+  width: min(360px, 100%);
+}
+
+.pcc-hero--compact .pcc-view-mode__option {
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.pcc-hero--compact .pcc-view-mode__option span {
+  display: none;
 }
 
 .pcc-portfolio-console[data-pcc-portfolio-console-ready="false"] {

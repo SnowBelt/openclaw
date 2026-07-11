@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { closePccLedgerStorageForTest, pccLedgerSqlitePath } from "../pcc/ledger-store.js";
+import {
+  closePccLedgerStorageForTest,
+  pccLedgerSqlitePath,
+  readPccLedger,
+  withPccLedger,
+} from "../pcc/ledger-store.js";
 import type { SkillStatusEntry } from "../skills/discovery/status.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
@@ -210,6 +215,61 @@ describe("CORE_HEALTH_CHECKS", () => {
       const repaired = await check.repair?.({ mode: "fix", runtime, cfg: {} }, findings);
       expect(repaired?.changes[0]).toContain("Migrated PCC ledger to SQLite");
       expect(existsSync(pccLedgerSqlitePath())).toBe(true);
+      await expect(check.detect({ mode: "lint", runtime, cfg: {} })).resolves.toEqual([]);
+    });
+  });
+
+  it("repairs legacy PCC production proof flags only through the doctor repair path", async () => {
+    tmp = await fs.mkdtemp(join(tmpdir(), "openclaw-health-pcc-proof-"));
+    await withEnvAsync({ OPENCLAW_STATE_DIR: tmp }, async () => {
+      withPccLedger(
+        (ledger) => {
+          ledger.projects.push({
+            id: "project-command-center",
+            title: "Project Command Center",
+            status: "complete_with_maintenance",
+            createdAt: "2026-07-11T00:00:00.000Z",
+            updatedAt: "2026-07-11T00:00:00.000Z",
+            metadata: {
+              pccProductionTruth: {
+                latestVerifiedSha: "98723615c988f4ded568806d51b63f54412aa556",
+                runtimeSha: "98723615c988f4ded568806d51b63f54412aa556",
+                remoteProofPassed: true,
+                runtimeProofPassed: true,
+                browserProofScreenshotPath: "/tmp/pcc-proof.png",
+              },
+            },
+          });
+        },
+        { write: true, auditKind: "projects.upsert" },
+      );
+      const check = getCheck(
+        createCoreHealthChecks(createDeps()),
+        "core/doctor/pcc-production-truth-bindings",
+      );
+      const findings = await check.detect({ mode: "lint", runtime, cfg: {} });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "warning",
+          fixHint: expect.stringContaining("doctor --fix"),
+        }),
+      );
+      const preview = await check.repair?.(
+        { mode: "fix", runtime, cfg: {}, dryRun: true },
+        findings,
+      );
+      expect(preview?.effects).toContainEqual(
+        expect.objectContaining({ action: "bind-pcc-production-proof-shas" }),
+      );
+      const repaired = await check.repair?.({ mode: "fix", runtime, cfg: {} }, findings);
+      expect(repaired?.changes).toContain(
+        "Bound the recorded browser proof to the active runtime SHA.",
+      );
+      expect(readPccLedger().projects[0]?.metadata?.pccProductionTruth).toMatchObject({
+        remoteProofSha: "98723615c988f4ded568806d51b63f54412aa556",
+        runtimeProofSha: "98723615c988f4ded568806d51b63f54412aa556",
+        browserProofSha: "98723615c988f4ded568806d51b63f54412aa556",
+      });
       await expect(check.detect({ mode: "lint", runtime, cfg: {} })).resolves.toEqual([]);
     });
   });

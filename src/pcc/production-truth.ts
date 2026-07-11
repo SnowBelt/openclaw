@@ -100,6 +100,56 @@ function projectTruthMetadata(project?: PccProject | null): Record<string, unkno
   return metadataObject(metadataObject(project?.metadata).pccProductionTruth);
 }
 
+export type PccProductionTruthRepair = {
+  project: PccProject;
+  changes: string[];
+};
+
+/**
+ * Converts legacy truth flags into the SHA-bound fields required by the current
+ * production-truth contract. This intentionally only binds already-recorded
+ * successful proof; it never invents a proof flag or runtime SHA.
+ */
+export function repairPccProductionTruthBindings(
+  project: PccProject,
+  updatedAt = project.updatedAt,
+): PccProductionTruthRepair {
+  const metadata = metadataObject(project.metadata);
+  const truth = metadataObject(metadata.pccProductionTruth);
+  const nextTruth = { ...truth };
+  const changes: string[] = [];
+  const remotePassed = metadataBoolean(truth.remoteProofPassed) === true;
+  const runtimePassed = metadataBoolean(truth.runtimeProofPassed) === true;
+  const latestVerifiedSha = metadataString(truth.latestVerifiedSha);
+  const runtimeSha = metadataString(truth.runtimeSha);
+  const browserScreenshot = metadataString(truth.browserProofScreenshotPath);
+
+  if (remotePassed && latestVerifiedSha && !metadataString(truth.remoteProofSha)) {
+    nextTruth.remoteProofSha = latestVerifiedSha;
+    changes.push("Bound the recorded remote proof to the verified source SHA.");
+  }
+  if (runtimePassed && runtimeSha && !metadataString(truth.runtimeProofSha)) {
+    nextTruth.runtimeProofSha = runtimeSha;
+    changes.push("Bound the recorded runtime proof to the active runtime SHA.");
+  }
+  if (runtimePassed && runtimeSha && browserScreenshot && !metadataString(truth.browserProofSha)) {
+    nextTruth.browserProofSha = runtimeSha;
+    changes.push("Bound the recorded browser proof to the active runtime SHA.");
+  }
+  if (changes.length === 0) {
+    return { project, changes };
+  }
+  nextTruth.updatedAt = updatedAt;
+  return {
+    project: {
+      ...project,
+      updatedAt,
+      metadata: { ...metadata, pccProductionTruth: nextTruth },
+    },
+    changes,
+  };
+}
+
 function milestoneNeedsRemoteProof(milestone: PccMilestone): boolean {
   const metadata = metadataObject(milestone.metadata);
   return (

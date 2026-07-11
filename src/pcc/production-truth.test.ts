@@ -5,7 +5,7 @@ import type {
   PccMilestone,
   PccProject,
 } from "../../packages/gateway-protocol/src/schema/types.js";
-import { buildPccProductionTruth } from "./production-truth.js";
+import { buildPccProductionTruth, repairPccProductionTruthBindings } from "./production-truth.js";
 
 const VERIFIED_SHA = "98723615c988f4ded568806d51b63f54412aa556";
 
@@ -62,6 +62,35 @@ const receipt: PccCompletionReceipt = {
 };
 
 describe("PCC production truth", () => {
+  it("repairs legacy proof flags into canonical SHA bindings without inventing proof", () => {
+    const repaired = repairPccProductionTruthBindings(
+      {
+        ...project,
+        metadata: {
+          pccProductionTruth: {
+            latestVerifiedSha: VERIFIED_SHA,
+            runtimeSha: VERIFIED_SHA,
+            remoteProofPassed: true,
+            runtimeProofPassed: true,
+            browserProofScreenshotPath: "/tmp/pcc-proof.png",
+          },
+        },
+      },
+      "2026-07-11T00:00:00.000Z",
+    );
+
+    expect(repaired.changes).toHaveLength(3);
+    expect(repaired.project.metadata?.pccProductionTruth).toMatchObject({
+      remoteProofSha: VERIFIED_SHA,
+      runtimeProofSha: VERIFIED_SHA,
+      browserProofSha: VERIFIED_SHA,
+      updatedAt: "2026-07-11T00:00:00.000Z",
+    });
+    expect(
+      repairPccProductionTruthBindings(repaired.project, "2026-07-11T00:00:01.000Z").changes,
+    ).toEqual([]);
+  });
+
   it("reports current when verified, runtime, remote proof, runtime proof, and receipts align", () => {
     const truth = buildPccProductionTruth({
       project,

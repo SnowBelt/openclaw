@@ -364,7 +364,7 @@ export function withPccLedger<T>(
     );
   }
   const database = openLedgerDatabase(env);
-  const result = runSqliteImmediateTransactionSync(database.db, () => {
+  const mutationResult = runSqliteImmediateTransactionSync(database.db, () => {
     const current = selectSnapshot(database.db);
     const ledger = current ? parseSnapshot(current) : defaultLedger();
     const result = mutator(ledger);
@@ -377,7 +377,7 @@ export function withPccLedger<T>(
     return result;
   });
   ensurePrivateStoragePath(database.path);
-  return result;
+  return mutationResult;
 }
 
 export function pccLedgerRevision(env: NodeJS.ProcessEnv = process.env): number | null {

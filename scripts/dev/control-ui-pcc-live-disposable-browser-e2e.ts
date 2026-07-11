@@ -405,6 +405,10 @@ async function main() {
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
 
+    // Simple mode intentionally hides maintenance and editing controls. Switch to
+    // Detailed before exercising durable project mutations.
+    await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
+
     phase = "testing project edit save and cancel";
     summary.phase = phase;
     const editedTitle = `${actionProjectTitle} Edited`;
@@ -435,7 +439,6 @@ async function main() {
 
     phase = "testing autopilot controls";
     summary.phase = phase;
-    await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
     await page
       .locator('[data-pcc-detail-tab="automation"]')
       .first()
@@ -672,6 +675,41 @@ async function main() {
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
 
+    phase = "testing constrained desktop focus layout";
+    summary.phase = phase;
+    await page.setViewportSize({ width: 1220, height: 900 });
+    const simpleView = page.locator('[data-pcc-view-mode-option="simple"]').first();
+    if (await simpleView.isVisible().catch(() => false)) {
+      await simpleView.click({ force: true });
+    }
+    const constrainedDesktop = await page
+      .locator(".pcc-shell")
+      .first()
+      .evaluate((shell) => {
+        const layout = shell.querySelector<HTMLElement>(".pcc-layout");
+        const workspace = shell.querySelector<HTMLElement>("[data-pcc-selected-project-workspace]");
+        const projects = shell.querySelector<HTMLElement>('[data-pcc-mobile-section="projects"]');
+        if (!layout || !workspace || !projects) {
+          return {
+            focusLayout: false,
+            noHorizontalOverflow: false,
+            workspaceBeforeProjectList: false,
+            noWorkspaceOverlap: false,
+          };
+        }
+        const workspaceRect = workspace.getBoundingClientRect();
+        const projectsRect = projects.getBoundingClientRect();
+        return {
+          focusLayout: layout.classList.contains("pcc-layout--focus"),
+          noHorizontalOverflow:
+            document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+          workspaceBeforeProjectList: workspaceRect.top <= projectsRect.top + 1,
+          noWorkspaceOverlap:
+            workspaceRect.bottom <= projectsRect.top + 1 ||
+            projectsRect.bottom <= workspaceRect.top + 1,
+        };
+      });
+
     phase = "testing mobile command rail";
     summary.phase = phase;
     await page.setViewportSize({ width: 390, height: 844 });
@@ -708,9 +746,15 @@ async function main() {
       }
       let noCardOverlap = true;
       for (let index = 0; index < cards.length; index += 1) {
+        const card = cards[index];
+        if (!card) {
+          continue;
+        }
         for (let otherIndex = index + 1; otherIndex < cards.length; otherIndex += 1) {
-          const card = cards[index]!;
-          const other = cards[otherIndex]!;
+          const other = cards[otherIndex];
+          if (!other) {
+            continue;
+          }
           if (card.bottom > other.top + 1 && other.bottom > card.top + 1) {
             noCardOverlap = false;
           }
@@ -760,6 +804,10 @@ async function main() {
         .first()
         .isVisible()
         .catch(() => false),
+      constrainedDesktopUsesFocusLayout: constrainedDesktop.focusLayout,
+      constrainedDesktopDoesNotOverflow: constrainedDesktop.noHorizontalOverflow,
+      constrainedDesktopKeepsWorkspaceFirst: constrainedDesktop.workspaceBeforeProjectList,
+      constrainedDesktopDoesNotOverlap: constrainedDesktop.noWorkspaceOverlap,
       mobileCommandRailVisible: await mobileRail.isVisible().catch(() => false),
       mobilePrimaryActionVisible,
       mobilePrimaryActionIsInFlow: mobileLayout.primaryActionIsInFlow,

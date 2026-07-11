@@ -3451,6 +3451,13 @@ function effectiveProjectFilter(
   if (props.projectFilter) {
     return selected;
   }
+  const selectedProjectId = props.projectDetail?.project.id ?? props.selectedProjectId;
+  const selectedProject = selectedProjectId
+    ? projects.find((project) => project.id === selectedProjectId)
+    : undefined;
+  if (selectedProject && !projectMatchesFilter(selectedProject, selected)) {
+    return "all";
+  }
   const activeCount = projects.filter((project) => projectMatchesFilter(project, "active")).length;
   const needsYouCount = projects.filter((project) =>
     projectMatchesFilter(project, "needs_you"),
@@ -5399,6 +5406,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     props.actionBusy ||
     resolvedAction.primaryActionId === "no_action_required" ||
     (!terminal && !projectIsOnHold(project) && needsSetupRepair && !props.onPreviewSetupAutofill);
+  const simple = pccViewMode(props) === "simple";
   return html`<section
     class="pcc-project-snapshot"
     data-pcc-project-snapshot
@@ -5425,7 +5433,11 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             <span>Project complete</span>
             <strong>${formatStatus(project.status)}</strong>
             <p>
-              Review proof, receipts, and maintenance history when you need to audit or improve it.
+              <em class="pcc-maintenance-hero__status" data-pcc-terminal-primary-status
+                >No action required</em
+              >
+              · ${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
+              milestones complete
             </p>
           </div>
           <button
@@ -5433,7 +5445,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             type="button"
             @click=${() => props.onSetViewMode?.("detailed")}
           >
-            View details
+            Review history
           </button>
         </section>`
       : nothing}
@@ -5444,11 +5456,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         </div>`
       : nothing}
     ${terminal
-      ? html`<div class="pcc-primary-action pcc-primary-action--terminal" data-pcc-primary-action>
-          <span>Maintenance</span>
-          <strong data-pcc-terminal-primary-status>No action required</strong>
-          <em>${resolvedAction.explanation}</em>
-        </div>`
+      ? nothing
       : html`<div class="pcc-primary-action" data-pcc-primary-action>
           <span>Do this next</span>
           <button
@@ -5462,10 +5470,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
           </button>
           <em>${resolvedAction.explanation}</em>
         </div>`}
-    ${renderBlockerClarityCenter(detail, props, setupEvaluation)}
-    ${terminal ? nothing : renderExecutionReadinessCard(detail)}
-    ${terminal ? nothing : renderUniversalPreflightCard(detail)}
-    ${renderProjectScopeLock(detail, props)}
+    ${terminal ? nothing : renderBlockerClarityCenter(detail, props, setupEvaluation)}
+    ${terminal || simple ? nothing : renderExecutionReadinessCard(detail)}
+    ${terminal || simple ? nothing : renderUniversalPreflightCard(detail)}
+    ${terminal || simple ? nothing : renderProjectScopeLock(detail, props)}
     <div class="pcc-project-snapshot__progress">
       <strong>${percent}%</strong>
       <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
@@ -5476,96 +5484,106 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         milestones complete</span
       >
     </div>
-    <section class="pcc-autopilot-chip" data-pcc-autopilot-hero-chip>
-      <div>
-        <span>Autopilot</span>
-        <strong>${autopilotStatusLabel(autopilot.status)}</strong>
-        <em>${autopilot.modeTitle}</em>
-      </div>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        @click=${() => {
-          openPccAutopilot(props);
-        }}
-      >
-        Open Autopilot
-      </button>
-    </section>
-    <dl class="pcc-project-snapshot__facts">
-      ${renderTruthFact("Status", formatStatus(project.status))}
-      ${renderTruthFact("Health", detail.summary.health ?? formatStatus(project.status))}
-      ${renderTruthFact(
-        "Priority",
-        typeof project.priority === "number" ? String(project.priority) : "—",
-      )}
-      ${renderTruthFact("Current milestone", current?.title ?? "Not started")}
-      ${renderTruthFact("Next milestone", next?.title ?? "None")}
-      ${renderTruthFact("Worker", worker)}
-      ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
-    </dl>
-    <section class="pcc-project-brief" data-pcc-project-brief>
-      <span>Project brief</span>
-      <p>${project.goal || "No project goal recorded yet."}</p>
-    </section>
-    ${(() => {
-      const metrics = projectOutcomeMetrics(project);
-      return metrics.length
-        ? html`<section class="pcc-outcome-metrics" data-pcc-outcome-metrics>
-            <span>Outcome metrics</span>
-            <ul>
-              ${metrics.map((metric) => html`<li>${metric}</li>`)}
-            </ul>
-          </section>`
-        : html`<section
-            class="pcc-outcome-metrics pcc-outcome-metrics--empty"
-            data-pcc-outcome-metrics
-          >
-            <span>Outcome metrics</span>
-            <p>No outcome metrics recorded yet.</p>
-          </section>`;
-    })()}
-    ${terminal ? nothing : renderSetupRepairCard(setupEvaluation, props)}
-    <div class="pcc-detail__actions">
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-edit-project
-        @click=${() => props.onOpenProjectEditor(project)}
-      >
-        Edit project
-      </button>
-      <button class="btn btn--subtle" type="button" @click=${() => props.onOpenMilestoneEditor()}>
-        New milestone
-      </button>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-snapshot-add-decision
-        ?disabled=${props.actionBusy}
-        @click=${() => props.onOpenDecisionForm?.()}
-      >
-        Add decision
-      </button>
-      ${project.status === "archived"
-        ? html`<button
+    ${terminal || simple
+      ? nothing
+      : html`
+          <section class="pcc-autopilot-chip" data-pcc-autopilot-hero-chip>
+            <div>
+              <span>Autopilot</span>
+              <strong>${autopilotStatusLabel(autopilot.status)}</strong>
+              <em>${autopilot.modeTitle}</em>
+            </div>
+            <button
+              class="btn btn--subtle"
+              type="button"
+              @click=${() => {
+                openPccAutopilot(props);
+              }}
+            >
+              Open Autopilot
+            </button>
+          </section>
+          <dl class="pcc-project-snapshot__facts">
+            ${renderTruthFact("Status", formatStatus(project.status))}
+            ${renderTruthFact("Health", detail.summary.health ?? formatStatus(project.status))}
+            ${renderTruthFact(
+              "Priority",
+              typeof project.priority === "number" ? String(project.priority) : "—",
+            )}
+            ${renderTruthFact("Current milestone", current?.title ?? "Not started")}
+            ${renderTruthFact("Next milestone", next?.title ?? "None")}
+            ${renderTruthFact("Worker", worker)}
+            ${renderTruthFact("Work", settings.enabled ? formatStatus(settings.state) : "Off")}
+          </dl>
+          <section class="pcc-project-brief" data-pcc-project-brief>
+            <span>Project brief</span>
+            <p>${project.goal || "No project goal recorded yet."}</p>
+          </section>
+          ${(() => {
+            const metrics = projectOutcomeMetrics(project);
+            return metrics.length
+              ? html`<section class="pcc-outcome-metrics" data-pcc-outcome-metrics>
+                  <span>Outcome metrics</span>
+                  <ul>
+                    ${metrics.map((metric) => html`<li>${metric}</li>`)}
+                  </ul>
+                </section>`
+              : html`<section
+                  class="pcc-outcome-metrics pcc-outcome-metrics--empty"
+                  data-pcc-outcome-metrics
+                >
+                  <span>Outcome metrics</span>
+                  <p>No outcome metrics recorded yet.</p>
+                </section>`;
+          })()}
+        `}
+    ${terminal || simple ? nothing : renderSetupRepairCard(setupEvaluation, props)}
+    ${terminal || simple
+      ? nothing
+      : html`<div class="pcc-detail__actions">
+          <button
             class="btn btn--subtle"
             type="button"
-            @click=${() => props.onSetProjectStatus(project, "reopened")}
+            data-pcc-edit-project
+            @click=${() => props.onOpenProjectEditor(project)}
           >
-            Reopen
-          </button>`
-        : html`<button
+            Edit project
+          </button>
+          <button
             class="btn btn--subtle"
             type="button"
-            @click=${(event: Event) =>
-              runPccConfirmedButtonAction(event, "Confirm archive", () =>
-                props.onSetProjectStatus(project, "archived"),
-              )}
+            @click=${() => props.onOpenMilestoneEditor()}
           >
-            Archive
-          </button>`}
-    </div>
+            New milestone
+          </button>
+          <button
+            class="btn btn--subtle"
+            type="button"
+            data-pcc-snapshot-add-decision
+            ?disabled=${props.actionBusy}
+            @click=${() => props.onOpenDecisionForm?.()}
+          >
+            Add decision
+          </button>
+          ${project.status === "archived"
+            ? html`<button
+                class="btn btn--subtle"
+                type="button"
+                @click=${() => props.onSetProjectStatus(project, "reopened")}
+              >
+                Reopen
+              </button>`
+            : html`<button
+                class="btn btn--subtle"
+                type="button"
+                @click=${(event: Event) =>
+                  runPccConfirmedButtonAction(event, "Confirm archive", () =>
+                    props.onSetProjectStatus(project, "archived"),
+                  )}
+              >
+                Archive
+              </button>`}
+        </div>`}
   </section>`;
 }
 
@@ -7290,46 +7308,6 @@ function renderProjectListEmptyState(
   </div>`;
 }
 
-function renderSelectedFilteredProjectNotice(
-  props: PccDashboardProps,
-  visibleProjects: readonly PccProjectSummary[],
-  allProjects: readonly PccProjectSummary[],
-) {
-  const detail = props.projectDetail;
-  if (!detail || visibleProjects.some((project) => project.id === detail.project.id)) {
-    return nothing;
-  }
-  const summary = allProjects.find((project) => project.id === detail.project.id);
-  if (!summary) {
-    return nothing;
-  }
-  return html`<article class="pcc-selected-filtered" data-pcc-selected-filtered-project>
-    <div>
-      <span>Selected project</span>
-      <strong>${summary.title}</strong>
-      <p>This project is open below, but hidden by the current project filter.</p>
-    </div>
-    <div class="pcc-selected-filtered__actions">
-      <button
-        class="btn"
-        type="button"
-        data-pcc-show-selected-in-all
-        @click=${() => props.onSetProjectFilter?.("all")}
-      >
-        Show in All
-      </button>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-open-selected-project
-        @click=${() => props.onSelectProject(detail.project.id)}
-      >
-        Keep open
-      </button>
-    </div>
-  </article>`;
-}
-
 export function renderPccDashboard(props: PccDashboardProps) {
   const scopedProjects = focusScopedProjectsForToday(props, props.projects);
   const selectedProjectSummary = props.projectDetail
@@ -7371,6 +7349,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
       : filteredProjects;
   const mode = pccViewMode(props);
   const deferTodayUntilAfterWorkspace = mode === "simple" && Boolean(props.projectDetail);
+  const focusWorkspace = mode === "simple" && Boolean(props.projectDetail);
   return html`
     <section
       class="pcc-shell"
@@ -7415,9 +7394,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${renderPccOfflineState(props)}
       ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
       ${renderPccMobileCommandRail(props)}
-      ${renderSelectedFilteredProjectNotice(props, projects, allProjects)}
 
-      <div class="pcc-layout">
+      <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
         <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
           ${renderProjectFocusBar(
             props,
@@ -7439,7 +7417,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
                 </section>`}
         </section>
         <section class="pcc-workspace" data-pcc-selected-project-workspace>
-          ${renderProjectDetail(props)} ${renderPortfolioWorkConsole(props)}
+          ${renderProjectDetail(props)}
+          ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
         </section>
       </div>
       ${deferTodayUntilAfterWorkspace
@@ -7459,7 +7438,9 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <summary>Needs You details</summary>
             ${renderImpactAttentionInbox(props)}
           </details>`}
-      ${renderProductionTruthDrawer(props)} ${renderRecentActivityFeed(props)}
+      ${mode === "simple"
+        ? nothing
+        : html`${renderProductionTruthDrawer(props)} ${renderRecentActivityFeed(props)}`}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? renderProjectEditor(props)
         : nothing}

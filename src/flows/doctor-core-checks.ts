@@ -43,6 +43,7 @@ const CODEX_SESSION_ROUTES_CHECK_ID = "core/doctor/codex-session-routes";
 const FINAL_CONFIG_VALIDATION_CHECK_ID = "core/doctor/final-config-validation";
 const GATEWAY_SERVICES_EXTRA_CHECK_ID = "core/doctor/gateway-services/extra";
 const PCC_LEDGER_STORAGE_CHECK_ID = "core/doctor/pcc-ledger-storage";
+const PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID = "core/doctor/pcc-production-truth-bindings";
 
 type CoreHealthCheckContext = HealthCheckContext & {
   readonly deep?: boolean;
@@ -995,6 +996,69 @@ const pccLedgerStorageCheck: HealthCheck = {
   },
 };
 
+const pccProductionTruthBindingsCheck: HealthCheck = {
+  id: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
+  kind: "core",
+  description: "PCC production proof flags are bound to their verified source and runtime SHAs.",
+  source: "doctor",
+  async detect() {
+    const { readPccLedger } = await import("../pcc/ledger-store.js");
+    const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
+    const project = readPccLedger().projects.find((item) => item.id === "project-command-center");
+    if (!project) {
+      return [];
+    }
+    const repair = repairPccProductionTruthBindings(project);
+    return repair.changes.length
+      ? [
+          {
+            checkId: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
+            severity: "warning",
+            message: `PCC production truth needs canonical proof bindings: ${repair.changes.join(" ")}`,
+            fixHint:
+              "Run `openclaw doctor --fix` to bind existing proof records to their verified SHAs.",
+          },
+        ]
+      : [];
+  },
+  async repair(ctx) {
+    const { readPccLedger, withPccLedger } = await import("../pcc/ledger-store.js");
+    const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
+    const project = readPccLedger().projects.find((item) => item.id === "project-command-center");
+    const preview = project ? repairPccProductionTruthBindings(project) : undefined;
+    const effects = preview?.changes.length
+      ? [
+          {
+            kind: "state" as const,
+            action: "bind-pcc-production-proof-shas",
+            target: "project-command-center",
+            dryRunSafe: true,
+          },
+        ]
+      : [];
+    if (!preview?.changes.length || ctx.dryRun === true) {
+      return { status: "repaired" as const, changes: [], effects };
+    }
+    const repairedAt = new Date().toISOString();
+    let changes: string[] = [];
+    withPccLedger(
+      (ledger) => {
+        const index = ledger.projects.findIndex((item) => item.id === "project-command-center");
+        if (index < 0) {
+          return;
+        }
+        const repair = repairPccProductionTruthBindings(ledger.projects[index], repairedAt);
+        if (repair.changes.length > 0) {
+          ledger.projects[index] = repair.project;
+          changes = repair.changes;
+        }
+      },
+      { write: true, auditKind: "production_truth.canonicalize" },
+    );
+    return { status: "repaired" as const, changes, effects };
+  },
+};
+
 function createWorkspaceSuggestionsCheck(deps: CoreHealthCheckDeps): HealthCheck {
   return {
     id: "core/doctor/workspace-suggestions",
@@ -1026,6 +1090,7 @@ function createConvertedWorkflowChecks(deps: CoreHealthCheckDeps): readonly Heal
     shellCompletionCheck,
     uiProtocolFreshnessCheck,
     pccLedgerStorageCheck,
+    pccProductionTruthBindingsCheck,
     gatewayServicesExtraCheck,
     gatewayPlatformNotesCheck,
     createSecurityCheck(deps),

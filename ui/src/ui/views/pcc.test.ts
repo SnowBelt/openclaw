@@ -414,15 +414,22 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-terminal-primary-status]")?.textContent).toContain(
       "No action required",
     );
-    expect(container.querySelector("[data-pcc-primary-action] button")).toBeNull();
-    expect(container.querySelector("[data-pcc-primary-action]")?.textContent).not.toContain(
-      "Fix Setup with AI",
-    );
+    expect(container.querySelector("[data-pcc-primary-action]")).toBeNull();
+    expect(container.querySelector("[data-pcc-blocker-center]")).toBeNull();
     expect(container.querySelector("[data-pcc-execution-readiness]")).toBeNull();
     expect(container.querySelector("[data-pcc-universal-preflight]")).toBeNull();
+    expect(container.querySelector("[data-pcc-scope-lock]")).toBeNull();
+    expect(container.querySelector("[data-pcc-autopilot-hero-chip]")).toBeNull();
+    expect(container.querySelector(".pcc-project-snapshot__facts")).toBeNull();
+    expect(container.querySelector("[data-pcc-project-brief]")).toBeNull();
+    expect(container.querySelector("[data-pcc-outcome-metrics]")).toBeNull();
     expect(container.querySelector("[data-pcc-work-loop-complete]")?.textContent).toContain(
       "Project is complete",
     );
+    expect(
+      container.querySelector<HTMLButtonElement>("[data-pcc-project-tabs] button.is-selected")
+        ?.textContent,
+    ).toContain("All");
   });
 
   it("keeps Simple mode focused on status and milestones instead of advanced activity and Autopilot", () => {
@@ -431,6 +438,13 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-project-snapshot]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-milestone-journey]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-autopilot-project-loop]")).toBeNull();
+    expect(container.querySelector("[data-pcc-autopilot-hero-chip]")).toBeNull();
+    expect(container.querySelector("[data-pcc-execution-readiness]")).toBeNull();
+    expect(container.querySelector("[data-pcc-universal-preflight]")).toBeNull();
+    expect(container.querySelector("[data-pcc-scope-lock]")).toBeNull();
+    expect(container.querySelector(".pcc-project-snapshot__facts")).toBeNull();
+    expect(container.querySelector("[data-pcc-project-brief]")).toBeNull();
+    expect(container.querySelector("[data-pcc-outcome-metrics]")).toBeNull();
     expect(container.querySelector("[data-pcc-project-activity]")).toBeNull();
   });
 
@@ -438,13 +452,18 @@ describe("renderPccDashboard", () => {
     const container = renderView(createProps({ viewMode: "simple" }));
     const workspace = container.querySelector("[data-pcc-selected-project-workspace]");
     const today = container.querySelector("[data-pcc-today]");
+    const layout = container.querySelector(".pcc-layout");
 
     expect(workspace).not.toBeNull();
     expect(today).not.toBeNull();
+    expect(layout?.classList.contains("pcc-layout--focus")).toBe(true);
     expect(workspace!.compareDocumentPosition(today!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
       0,
     );
     expect(container.querySelector(".pcc-today-slot--after-workspace")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-portfolio-console]")).toBeNull();
+    expect(container.querySelector("[data-pcc-production-truth]")).toBeNull();
+    expect(container.querySelector("[data-pcc-recent-activity]")).toBeNull();
   });
 
   it("uses real Details tabs instead of showing every advanced panel at once", () => {
@@ -869,7 +888,7 @@ describe("renderPccDashboard", () => {
     expect(simple.textContent).toContain("Switch to Detailed or Agent");
     expect(simple.querySelector("[data-pcc-work-loop]")).not.toBeNull();
     expect(simple.textContent).toContain("Stop after current task");
-    expect(simple.querySelector("[data-pcc-production-truth]")).not.toBeNull();
+    expect(simple.querySelector("[data-pcc-production-truth]")).toBeNull();
 
     simple.querySelector<HTMLButtonElement>('[data-pcc-view-mode-option="agent"]')?.click();
     expect(onSetViewMode).toHaveBeenCalledWith("agent");
@@ -985,9 +1004,9 @@ describe("renderPccDashboard", () => {
     const selectedTab = [
       ...container.querySelectorAll<HTMLButtonElement>("[data-pcc-project-tabs] button"),
     ].find((button) => button.getAttribute("aria-pressed") === "true");
-    expect(selectedTab?.textContent).toContain("Active");
-    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(0);
-    expect(container.textContent).toContain("No projects in this view");
+    expect(selectedTab?.textContent).toContain("All");
+    expect(container.querySelectorAll("[data-pcc-project-card]")).toHaveLength(1);
+    expect(container.textContent).not.toContain("No projects in this view");
     expect(container.textContent).toContain("No PCC Product work needs you right now");
   });
 
@@ -1278,9 +1297,7 @@ describe("renderPccDashboard", () => {
     expect(onSetProjectFilter).toHaveBeenCalledWith("all");
   });
 
-  it("keeps a hidden selected project obvious and recoverable from filtered views", () => {
-    const onSetProjectFilter = vi.fn();
-    const onSelectProject = vi.fn();
+  it("keeps filtering scoped to the project list instead of adding a conflicting selected-project banner", () => {
     const completeProject = {
       ...project,
       id: "project-maintenance",
@@ -1322,20 +1339,13 @@ describe("renderPccDashboard", () => {
         },
         selectedProjectId: "project-maintenance",
         projectFilter: "active",
-        onSetProjectFilter,
-        onSelectProject,
       }),
     );
 
-    const notice = container.querySelector("[data-pcc-selected-filtered-project]");
-    const layout = container.querySelector(".pcc-layout");
-    expect(notice).not.toBeNull();
-    expect(notice?.textContent).toContain("This project is open below");
-    expect(notice!.compareDocumentPosition(layout!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    notice?.querySelector<HTMLButtonElement>("[data-pcc-show-selected-in-all]")?.click();
-    expect(onSetProjectFilter).toHaveBeenCalledWith("all");
-    notice?.querySelector<HTMLButtonElement>("[data-pcc-open-selected-project]")?.click();
-    expect(onSelectProject).toHaveBeenCalledWith("project-maintenance");
+    expect(container.querySelector("[data-pcc-selected-filtered-project]")).toBeNull();
+    expect(container.querySelector("[data-pcc-project-snapshot]")?.textContent).toContain(
+      "Project Command Center",
+    );
   });
 
   it("renders loading without misreporting an empty portfolio", () => {
@@ -1765,8 +1775,8 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelector("[data-pcc-complete-state]")?.textContent).toContain(
-      "Complete with maintenance",
+    expect(container.querySelector("[data-pcc-maintenance-hero]")?.textContent).toContain(
+      "Complete With Maintenance",
     );
     expect(container.querySelector("[data-pcc-setup-repair]")).toBeNull();
     expect(container.querySelector("[data-pcc-work-loop]")).toBeNull();
@@ -2821,9 +2831,10 @@ describe("renderPccDashboard", () => {
     expect(text).toContain("Setup score");
     expect(text).toContain("100/100");
     expect(text).toContain("Passing");
-    expect(text).toContain(
-      "This project is complete. Review history or start a new improvement only when maintenance is needed.",
+    expect(container.querySelector("[data-pcc-maintenance-hero]")?.textContent).toContain(
+      "No action required",
     );
+    expect(container.querySelector("[data-pcc-primary-action]")).toBeNull();
   });
 
   it("renders project editor and saves form changes", () => {
@@ -3691,7 +3702,7 @@ describe("renderPccDashboard", () => {
   it("renders operational confidence readiness, preflight, scope lock, and recovery center", () => {
     const container = renderView(
       createProps({
-        viewMode: "simple",
+        viewMode: "detailed",
         actionError: "invalid pcc.milestones.upsert params: at /milestone/order: must be >= 0",
       }),
     );
