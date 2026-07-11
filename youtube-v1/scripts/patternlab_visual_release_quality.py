@@ -22,6 +22,7 @@ REQUIRED = {
     "visual_judge": "visual-judge-report.json",
     "local_visual_ai_health": "local-visual-ai-health-report.json",
     "evidence_binding": "evidence-manifest-binding.json",
+    "source_asset_preparation": "source-asset-preparation-report.json",
 }
 
 

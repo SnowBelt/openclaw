@@ -34,6 +34,7 @@ import patternlab_canonical_motion_plan as canonical_motion
 import patternlab_local_visual_ai_health as local_visual_ai_health
 import patternlab_local_visual_model_benchmark as visual_model_benchmark
 import generate_shorts_ffmpeg as shorts_renderer
+import patternlab_source_asset_preparation as asset_preparation
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
@@ -101,6 +102,17 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
     def test_shorts_overlay_brand_uses_city_not_psychology_label(self):
         items = shorts_renderer.overlay_items(Path("/tmp"), "04", [{"index": 1, "title": "Test", "first_frame_text": "MAP CHANGED", "hook": "Hook", "proof_visual": "map", "payoff": "Payoff", "related_video_promise": "Full video"}], "Detroit")
         self.assertTrue(all(item["brand"] == "Pattern Lab • Detroit" for item in items))
+
+    def test_source_asset_preparation_requires_human_focus_box(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            intake = root / "source-packet" / "evidence-intake.json"
+            intake.parent.mkdir(parents=True)
+            intake.write_text(json.dumps({"assets": [{"asset_id": "map", "relative_path": "evidence/map.jpg", "human_accepted": True}]}), encoding="utf-8")
+            with patch.object(asset_preparation, "output_root", lambda _: root):
+                payload, _, _ = asset_preparation.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("map:focus_box_missing_or_invalid", payload["blockers"])
 
     def test_word_alignment_caption_cards_are_short_and_timestamped(self):
         words = [
