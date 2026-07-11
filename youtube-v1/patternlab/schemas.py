@@ -30,6 +30,7 @@ class EvidenceAsset(BaseModel):
     relative_path: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     entity_terms: tuple[str, ...] = ()
+    asset_kind: Literal["photo", "map", "document", "film", "modern_video", "graphic"] = "photo"
 
     @model_validator(mode="after")
     def enforce_proof_rules(self):

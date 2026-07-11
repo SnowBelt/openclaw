@@ -30,6 +30,10 @@ import patternlab_word_alignment as word_alignment
 import patternlab_canonical_renderer as canonical_renderer
 import patternlab_visual_judge as visual_judge
 import patternlab_visual_release_quality as visual_release_quality
+import patternlab_canonical_motion_plan as canonical_motion
+import patternlab_local_visual_ai_health as local_visual_ai_health
+import patternlab_local_visual_model_benchmark as visual_model_benchmark
+import generate_shorts_ffmpeg as shorts_renderer
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
@@ -37,6 +41,10 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
         escaped = canonical_renderer.escape_drawtext("Source: Black Bottom 50%")
         self.assertIn(r"\:", escaped)
         self.assertIn(r"\%", escaped)
+
+    def test_canonical_renderer_uses_distinct_map_motion_profile(self):
+        profile = canonical_renderer.motion_filter(300, 1, "map_zoom_trace")
+        self.assertIn("0.15", profile)
 
     def test_visual_judge_blocks_missing_local_hash_bound_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -56,6 +64,43 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             with patch.object(visual_release_quality, "output_root", lambda _: root):
                 payload, _, _ = visual_release_quality.build_report("04")
             self.assertEqual(payload["status"], "pass")
+
+    def test_canonical_motion_plan_blocks_map_motion_without_map_asset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            approval = root / "approval"
+            approval.mkdir(parents=True)
+            (approval / "canonical-render-plan.json").write_text(json.dumps({
+                "status": "pass", "beats": [{"beat_id": "map", "asset_id": "photo", "asset_kind": "photo", "role": "map_system", "start_seconds": 0, "end_seconds": 5}],
+            }), encoding="utf-8")
+            with patch.object(canonical_motion, "output_root", lambda _: root):
+                payload, _, _ = canonical_motion.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("map_motion_requires_map_or_document:map", payload["blockers"])
+
+    def test_local_visual_ai_health_fails_closed_without_benchmark(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            (Path(temp) / "resources").mkdir()
+            (Path(temp) / "resources" / "local-visual-model-benchmark-policy.json").write_text("{}", encoding="utf-8")
+            with patch.object(local_visual_ai_health, "output_root", lambda _: root), patch.object(local_visual_ai_health, "BASE", Path(temp)):
+                payload, _, _ = local_visual_ai_health.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("local_visual_model_benchmark_not_pass", payload["blockers"])
+
+    def test_visual_model_benchmark_rejects_unidentified_or_weak_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            (Path(temp) / "resources").mkdir()
+            (Path(temp) / "resources" / "local-visual-model-benchmark-policy.json").write_text(json.dumps({"acceptance": {"minimum_fixture_accuracy": 0.9, "maximum_median_seconds_per_frame": 20}}), encoding="utf-8")
+            with patch.object(visual_model_benchmark, "output_root", lambda _: root), patch.object(visual_model_benchmark, "BASE", Path(temp)):
+                payload, _, _ = visual_model_benchmark.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("local_visual_model_benchmark_receipt_missing", payload["blockers"])
+
+    def test_shorts_overlay_brand_uses_city_not_psychology_label(self):
+        items = shorts_renderer.overlay_items(Path("/tmp"), "04", [{"index": 1, "title": "Test", "first_frame_text": "MAP CHANGED", "hook": "Hook", "proof_visual": "map", "payoff": "Payoff", "related_video_promise": "Full video"}], "Detroit")
+        self.assertTrue(all(item["brand"] == "Pattern Lab • Detroit" for item in items))
 
     def test_word_alignment_caption_cards_are_short_and_timestamped(self):
         words = [

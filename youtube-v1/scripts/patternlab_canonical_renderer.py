@@ -92,6 +92,7 @@ def render_plan(video_id: str) -> tuple[dict, Path, Path]:
                 "source_id": asset.source_id,
                 "source_label": source_label[:150],
                 "source_class": asset.source_class,
+                "asset_kind": asset.asset_kind,
                 "evidence_fit": asset.evidence_fit,
                 "reuse_reason": beat.reuse_reason,
                 "ai_disclosure": "Supporting reconstruction — not archival evidence" if asset.source_class == "ai_reconstruction" else "",
@@ -134,11 +135,21 @@ def render_plan(video_id: str) -> tuple[dict, Path, Path]:
     return payload, json_path, md_path
 
 
-def motion_filter(frame_count: int, index: int) -> str:
+def motion_filter(frame_count: int, index: int, style: str = "ken_burns_push") -> str:
     direction = "(iw-iw/zoom)*on/%d" % frame_count if index % 2 else "(iw-iw/zoom)*(1-on/%d)" % frame_count
+    if style == "document_closeup":
+        zoom, x, y = "1.08+0.10*on/%d" % frame_count, "iw/2-(iw/zoom/2)", "(ih-ih/zoom)*on/%d" % frame_count
+    elif style == "map_zoom_trace":
+        zoom, x, y = "1.03+0.15*on/%d" % frame_count, direction, "ih/2-(ih/zoom/2)"
+    elif style == "then_now_split":
+        zoom, x, y = "1.02+0.06*on/%d" % frame_count, "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    elif style == "source_highlight":
+        zoom, x, y = "1.02+0.12*on/%d" % frame_count, direction, "ih/2-(ih/zoom/2)"
+    else:
+        zoom, x, y = "1.01+0.05*on/%d" % frame_count, direction, "ih/2-(ih/zoom/2)"
     return (
         "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
-        f"zoompan=z='1.01+0.05*on/{frame_count}':x='{direction}':y='ih/2-(ih/zoom/2)':d={frame_count}:s=1920x1080:fps={FPS},format=yuv420p"
+        f"zoompan=z='{zoom}':x='{x}':y='{y}':d={frame_count}:s=1920x1080:fps={FPS},format=yuv420p"
     )
 
 
@@ -148,6 +159,10 @@ def render(video_id: str, plan: dict) -> Path:
     captions = root / "captions" / "word-aligned.srt"
     output = root / "video" / f"pattern-lab-video-{video_id}-draft.mp4"
     clips_dir = ensure_dir(root / "video" / "canonical-clips")
+    motion_plan = read_json(root / "approval" / "canonical-motion-plan.json")
+    if motion_plan.get("status") != "pass":
+        raise SystemExit("canonical_motion_plan_not_pass")
+    motion_by_beat = {item.get("beat_id"): item.get("motion_style") for item in motion_plan.get("beats", [])}
     clip_paths: list[Path] = []
     for index, beat in enumerate(plan["beats"], start=1):
         source = root / beat["asset_path"]
@@ -156,7 +171,10 @@ def render(video_id: str, plan: dict) -> Path:
         source_label = escape_drawtext("Source: " + beat["source_label"])
         disclosure = escape_drawtext(beat["ai_disclosure"])
         text = source_label if not disclosure else source_label + "\\n" + disclosure
-        vf = motion_filter(frame_count, index) + f",drawtext=text='{text}':x=48:y=h-th-48:fontsize=30:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=14"
+        style = motion_by_beat.get(beat["beat_id"])
+        if not style:
+            raise SystemExit(f"canonical_motion_style_missing:{beat['beat_id']}")
+        vf = motion_filter(frame_count, index, style) + f",drawtext=text='{text}':x=48:y=h-th-48:fontsize=30:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=14"
         subprocess.run([
             ffmpeg_cmd(), "-y", "-loop", "1", "-i", str(source), "-vf", vf, "-an", "-c:v", "libx264",
             "-preset", "veryfast", "-r", str(FPS), "-frames:v", str(frame_count), str(clip),

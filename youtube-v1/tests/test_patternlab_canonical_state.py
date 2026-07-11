@@ -388,12 +388,18 @@ class CanonicalStateTests(unittest.TestCase):
             local = root / "evidence" / f"{asset_id}.jpg"
             local.parent.mkdir(parents=True, exist_ok=True)
             local.write_bytes(asset_id.encode("utf-8"))
+            asset_kind = "photo"
+            if claim["role"] == "map_system" or claim["claim_id"] == "then-now-footprint":
+                asset_kind = "map"
+            elif claim["role"] == "document_detail":
+                asset_kind = "document"
             assets.append({
                 "asset_id": asset_id, "source_id": f"source-{asset_id}", "relative_path": str(local.relative_to(root)),
                 "source_url": "https://example.test/archive", "source_title": " ".join(claim["entities"]),
                 "creator": "Detroit archive", "rights_basis": "public domain", "human_accepted": True,
                 "commercial_use_ok": True, "modification_ok": True, "source_class": "historical_evidence",
                 "evidence_fit": "direct", "entity_terms": claim["entities"], "claim_ids": [claim["claim_id"]],
+                "asset_kind": asset_kind,
             })
         intake = root / "source-packet" / "evidence-intake.json"
         intake.parent.mkdir(parents=True)

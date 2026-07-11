@@ -17,8 +17,10 @@ from patternlab_common import display_path, ensure_dir, output_root, utc_now
 REQUIRED = {
     "canonical_preflight": "canonical-preflight-report.json",
     "canonical_render_plan": "canonical-render-plan.json",
+    "canonical_motion_plan": "canonical-motion-plan.json",
     "render_quality": "render-quality-report.json",
     "visual_judge": "visual-judge-report.json",
+    "local_visual_ai_health": "local-visual-ai-health-report.json",
     "evidence_binding": "evidence-manifest-binding.json",
 }
 

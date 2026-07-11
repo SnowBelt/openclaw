@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "local_only": true,
+  "candidates": [
+    {
+      "id": "siglip2-base-patch16-224",
+      "purpose": "fast frame-to-claim retrieval prefilter",
+      "role": "retrieval_only",
+      "must_not_approve_evidence_alone": true
+    },
+    {
+      "id": "qwen2.5-vl-7b-instruct",
+      "repository": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "purpose": "local frame-level narration, evidence, typography, and misleading-visual review",
+      "role": "final_local_judge",
+      "must_be_benchmarked_before_production": true
+    }
+  ],
+  "acceptance": {
+    "minimum_fixture_accuracy": 0.9,
+    "maximum_median_seconds_per_frame": 20,
+    "required_device": "mps_or_cpu_benchmark_with_explicit_owner_review",
+    "no_silent_model_fallback": true
+  }
+}

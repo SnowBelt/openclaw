@@ -26,6 +26,13 @@ from patternlab_common import display_path, ensure_dir, launch_root, output_root
 PROOF_ROLES = {"source_proof", "map_system", "archive_evidence", "document_detail"}
 ACCEPTED_SOURCE_CLASSES = {"historical_evidence", "modern_context", "original_graphic", "ai_reconstruction"}
 DIRECT_SOURCE_CLASS = "historical_evidence"
+ROLE_ASSET_KINDS = {
+    "map_system": {"map", "document"},
+    "document_detail": {"document"},
+    "archive_evidence": {"photo", "film"},
+    "source_proof": {"photo", "map", "document", "film"},
+    "then_now": {"photo", "map", "modern_video"},
+}
 
 
 def read_json(path: Path) -> dict:
@@ -80,6 +87,8 @@ def asset_blockers(item: dict, root: Path, required_entities: list[str], proof: 
         errors.append(f"proof_asset_not_direct_historical_evidence:{asset_id}")
     if source_class == "ai_reconstruction" and evidence_fit == "direct":
         errors.append(f"ai_reconstruction_cannot_be_direct_evidence:{asset_id}")
+    if str(item.get("asset_kind") or "") not in {"photo", "map", "document", "film", "modern_video", "graphic"}:
+        errors.append(f"asset_kind_invalid:{asset_id}")
     path = root / str(item.get("relative_path") or "")
     if not path.is_file():
         errors.append(f"asset_local_file_missing:{asset_id}")
@@ -147,6 +156,9 @@ def build_manifest(video_id: str, intake_path: Path | None = None) -> tuple[dict
         valid = []
         for item in candidates:
             item_errors = asset_blockers(item, root, claim["entities"], proof)
+            required_kinds = ROLE_ASSET_KINDS.get(claim["role"], set())
+            if required_kinds and str(item.get("asset_kind") or "") not in required_kinds:
+                item_errors.append(f"asset_kind_incompatible_with_visual_role:{item.get('asset_id', 'unknown')}:{claim['role']}")
             if item_errors:
                 blockers.extend(item_errors)
             else:
@@ -172,7 +184,8 @@ def build_manifest(video_id: str, intake_path: Path | None = None) -> tuple[dict
                     "visual_fit": "approved",
                     "relative_path": str(asset["relative_path"]),
                     "sha256": sha256_file(path),
-                    "entity_terms": tuple(str(value) for value in asset.get("entity_terms", [])),
+                "entity_terms": tuple(str(value) for value in asset.get("entity_terms", [])),
+                "asset_kind": str(asset["asset_kind"]),
                 })
                 asset_ids.add(asset_id)
             role = claim["role"]

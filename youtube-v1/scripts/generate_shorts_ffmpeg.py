@@ -174,10 +174,10 @@ def segment_overlay_paths(root, video_id, segment):
     return [overlay_path(root, video_id, segment["index"], kind) for kind in ["first", "hook", "proof", "payoff", "bridge"]]
 
 
-def overlay_items(root, video_id, segments):
+def overlay_items(root, video_id, segments, city):
     items = []
     for segment in segments:
-        brand = f"Pattern Lab | {segment.get('viewer_psychology', 'pattern')}"
+        brand = f"Pattern Lab • {city}"
         items.extend(
             [
                 {
@@ -220,13 +220,13 @@ def overlay_items(root, video_id, segments):
     return items
 
 
-def write_overlay_spec(root, video_id, segments):
+def write_overlay_spec(root, video_id, segments, city):
     overlays_dir = ensure_dir(root / "shorts" / "overlays")
     path = overlays_dir / "shorts-overlay-spec.json"
     payload = {
         "video_id": video_id,
         "generated_at": utc_now(),
-        "overlays": overlay_items(root, video_id, segments),
+        "overlays": overlay_items(root, video_id, segments, city),
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
@@ -580,8 +580,10 @@ def main():
     duration = media_duration_seconds(source_video)
     if duration < 8 * 60:
         raise SystemExit(f"Shorts generation blocked: source long-form is below 8 minutes ({duration:.1f}s).")
+    if status != "scripted-short-package" or any(segment.get("render_mode") == "legacy_cut_fallback" for segment in segments):
+        raise SystemExit("Shorts generation blocked: only standalone script-package Shorts may render; legacy long-form clipping is forbidden.")
     ensure_dir(root / "shorts")
-    overlay_spec = write_overlay_spec(root, args.video_id, segments)
+    overlay_spec = write_overlay_spec(root, args.video_id, segments, infer_city(args.video_id))
     print(f"Shorts overlay spec: {display_path(overlay_spec)}")
     build_overlay_images(overlay_spec)
     for segment in segments:
