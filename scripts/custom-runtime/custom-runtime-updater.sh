@@ -27,6 +27,7 @@ if ! git -C "$candidate" merge --no-ff --no-edit "$official_ref"; then
 fi
 git -C "$candidate" diff --check || fail merge_whitespace
 pnpm -C "$candidate" install --frozen-lockfile || fail install
+pnpm -C "$candidate" deps:shrinkwrap:generate || fail shrinkwrap_generate
 pnpm -C "$candidate" check || fail check
 pnpm -C "$candidate" ui:build || fail ui_build
 pnpm -C "$candidate" build || fail build
