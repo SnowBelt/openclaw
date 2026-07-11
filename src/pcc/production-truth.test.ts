@@ -5,7 +5,9 @@ import type {
   PccMilestone,
   PccProject,
 } from "../../packages/gateway-protocol/src/schema/types.js";
-import { buildPccProductionTruth, PCC_LATEST_VERIFIED_SHA } from "./production-truth.js";
+import { buildPccProductionTruth } from "./production-truth.js";
+
+const VERIFIED_SHA = "98723615c988f4ded568806d51b63f54412aa556";
 
 const project: PccProject = {
   id: "project-1",
@@ -30,7 +32,11 @@ function milestone(patch: Partial<PccMilestone> = {}): PccMilestone {
   };
 }
 
-function evidence(kind: PccEvidence["kind"], milestoneId = "milestone-1"): PccEvidence {
+function evidence(
+  kind: PccEvidence["kind"],
+  milestoneId = "milestone-1",
+  sha = VERIFIED_SHA,
+): PccEvidence {
   return {
     id: `${kind}-1`,
     projectId: "project-1",
@@ -38,6 +44,7 @@ function evidence(kind: PccEvidence["kind"], milestoneId = "milestone-1"): PccEv
     kind,
     status: "passed",
     summary: `${kind} passed`,
+    sha,
     createdAt: "2026-06-27T00:00:00Z",
   };
 }
@@ -61,7 +68,7 @@ describe("PCC production truth", () => {
       milestones: [milestone()],
       evidence: [evidence("remote_ci"), evidence("browser_proof")],
       receipts: [receipt],
-      runtimeSha: PCC_LATEST_VERIFIED_SHA,
+      runtimeSha: VERIFIED_SHA,
       remoteProofPassed: true,
       runtimeProofPassed: true,
       browserProofScreenshotPath: "/tmp/pcc-proof.png",
@@ -112,7 +119,7 @@ describe("PCC production truth", () => {
           proofEvidenceIds: ["remote_ci-1", "missing-browser-proof"],
         },
       ],
-      runtimeSha: PCC_LATEST_VERIFIED_SHA,
+      runtimeSha: VERIFIED_SHA,
       remoteProofPassed: true,
       runtimeProofPassed: true,
       browserProofScreenshotPath: "/tmp/pcc-proof.png",
@@ -146,7 +153,7 @@ describe("PCC production truth", () => {
       milestones: [milestone()],
       evidence: [evidence("remote_ci"), evidence("browser_proof")],
       receipts: [receipt],
-      runtimeSha: PCC_LATEST_VERIFIED_SHA,
+      runtimeSha: VERIFIED_SHA,
       remoteProofPassed: true,
       runtimeProofPassed: true,
     });
@@ -158,6 +165,37 @@ describe("PCC production truth", () => {
         expect.stringContaining("Gateway service entrypoint is outside the verified runtime"),
         "Gateway runtime drift: LaunchAgent points at an old runtime",
         "Gateway config audit failed",
+      ]),
+    );
+  });
+
+  it("does not trust unbound proof flags when proof is not tied to a verified SHA", () => {
+    const truth = buildPccProductionTruth({
+      project,
+      milestones: [milestone()],
+      evidence: [
+        {
+          ...evidence("remote_ci"),
+          sha: undefined,
+        },
+        {
+          ...evidence("browser_proof"),
+          sha: undefined,
+        },
+      ],
+      receipts: [receipt],
+      latestVerifiedSha: VERIFIED_SHA,
+      runtimeSha: VERIFIED_SHA,
+      remoteProofPassed: true,
+      runtimeProofPassed: true,
+      browserProofScreenshotPath: "/tmp/pcc-proof.png",
+    });
+
+    expect(truth.status).toBe("proof_missing");
+    expect(truth.proofGaps).toEqual(
+      expect.arrayContaining([
+        "PCC remote Workflow Sanity proof is missing or is not bound to the verified SHA",
+        "PCC runtime proof is missing or is not bound to the active runtime SHA",
       ]),
     );
   });

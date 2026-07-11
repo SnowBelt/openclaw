@@ -1,8 +1,5 @@
 // Project Command Center gateway methods persist project/milestone plans and proof receipts.
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   ErrorCodes,
   errorShape,
@@ -32,33 +29,25 @@ import {
   validatePccSummaryGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
 import {
+  closePccLedgerStorageForTest,
+  pccLedgerJsonPath as ledgerPath,
+  pccLedgerSqlitePath,
+  readPccLedger as readLedger,
+  replacePccLedgerForTest,
+  type PccLedger,
+  withPccLedger as withLedger,
+} from "../../pcc/ledger-store.js";
+import {
   canonicalizePccProjectForWrite,
   canonicalizePccWorkItemForWrite,
   pccProjectIsStale,
   pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
-import { readPccRuntimeIdentity } from "../../pcc/runtime-identity.js";
+import { readPccRuntimeIdentity, type PccRuntimeIdentity } from "../../pcc/runtime-identity.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 
-type PccLedger = {
-  version: 1;
-  projects: PccProject[];
-  milestones: PccMilestone[];
-  subMilestones: PccSubMilestone[];
-  permissions: PccPermissionGrant[];
-  evidence: PccEvidence[];
-  receipts: PccCompletionReceipt[];
-  decisions: PccDecision[];
-  lastKnownGood: PccLastKnownGood[];
-};
-
 type ProjectStatusCounts = PccProjectSummary["milestoneCounts"];
-type Mutator<T> = (ledger: PccLedger) => T;
-
-const PCC_LEDGER_VERSION = 1;
-const PCC_DIR_NAME = "pcc";
-const PCC_LEDGER_FILE = "ledger.json";
 const COMPLETE_STATUSES = new Set<PccStatus>(["complete", "complete_with_maintenance"]);
 const BLOCKED_STATUSES = new Set<PccStatus>(["blocked", "failed"]);
 const WAITING_STATUSES = new Set<PccStatus>(["needs_approval", "deferred", "on_hold"]);
@@ -88,6 +77,17 @@ const PCC_PROOF_LEVELS = new Set([
   "runtime",
   "persistence",
   "production",
+]);
+const SHA_BOUND_PROOF_EVIDENCE_KINDS = new Set<PccEvidence["kind"]>([
+  "remote_ci",
+  "runtime_status",
+  "browser_proof",
+  "screenshot",
+]);
+const ACTIVE_RUNTIME_PROOF_EVIDENCE_KINDS = new Set<PccEvidence["kind"]>([
+  "runtime_status",
+  "browser_proof",
+  "screenshot",
 ]);
 const DEFAULT_PCC_PHASES: PccProject["phases"] = [
   { id: "setup", title: "Setup", status: "not_started", weight: 10, order: 0 },
@@ -131,74 +131,6 @@ function slugify(value: string): string {
 function makeId(prefix: string, label?: string): string {
   const suffix = label ? `${slugify(label)}-` : "";
   return `${prefix}-${suffix}${randomUUID().slice(0, 12)}`;
-}
-
-function defaultLedger(): PccLedger {
-  return {
-    version: PCC_LEDGER_VERSION,
-    projects: [],
-    milestones: [],
-    subMilestones: [],
-    permissions: [],
-    evidence: [],
-    receipts: [],
-    decisions: [],
-    lastKnownGood: [],
-  };
-}
-
-function stateRoot(): string {
-  return process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), ".openclaw", "state");
-}
-
-function ledgerPath(): string {
-  return path.join(stateRoot(), PCC_DIR_NAME, PCC_LEDGER_FILE);
-}
-
-function assertLedger(value: unknown): PccLedger {
-  if (!value || typeof value !== "object") {
-    return defaultLedger();
-  }
-  const raw = value as Partial<PccLedger>;
-  return {
-    version: PCC_LEDGER_VERSION,
-    projects: Array.isArray(raw.projects) ? raw.projects : [],
-    milestones: Array.isArray(raw.milestones) ? raw.milestones : [],
-    subMilestones: Array.isArray((raw as { subMilestones?: unknown }).subMilestones)
-      ? ((raw as { subMilestones?: PccSubMilestone[] }).subMilestones ?? [])
-      : [],
-    permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
-    evidence: Array.isArray(raw.evidence) ? raw.evidence : [],
-    receipts: Array.isArray(raw.receipts) ? raw.receipts : [],
-    decisions: Array.isArray(raw.decisions) ? raw.decisions : [],
-    lastKnownGood: Array.isArray(raw.lastKnownGood) ? raw.lastKnownGood : [],
-  };
-}
-
-function readLedger(): PccLedger {
-  const file = ledgerPath();
-  if (!fs.existsSync(file)) {
-    return defaultLedger();
-  }
-  const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
-  return assertLedger(parsed);
-}
-
-function writeLedger(ledger: PccLedger): void {
-  const file = ledgerPath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(ledger, null, 2)}\n`);
-  fs.renameSync(tmp, file);
-}
-
-function withLedger<T>(mutator: Mutator<T>, opts?: { write?: boolean }): T {
-  const ledger = readLedger();
-  const result = mutator(ledger);
-  if (opts?.write) {
-    writeLedger(ledger);
-  }
-  return result;
 }
 
 function hasReceipt(ledger: PccLedger, milestoneId: string): boolean {
@@ -330,6 +262,107 @@ function metadataObjectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function proofShaForEvidence(
+  input: { kind: PccEvidence["kind"]; status?: PccEvidence["status"]; sha?: string },
+  runtimeIdentity: PccRuntimeIdentity,
+): { sha?: string; error?: string } {
+  const requestedSha = metadataStringValue(input.sha);
+  const status = input.status ?? "unknown";
+  if (status !== "passed" || !SHA_BOUND_PROOF_EVIDENCE_KINDS.has(input.kind)) {
+    return requestedSha ? { sha: requestedSha } : {};
+  }
+  if (requestedSha) {
+    return { sha: requestedSha };
+  }
+  if (
+    ACTIVE_RUNTIME_PROOF_EVIDENCE_KINDS.has(input.kind) &&
+    runtimeIdentity.verified &&
+    runtimeIdentity.runtimeSha
+  ) {
+    return { sha: runtimeIdentity.runtimeSha };
+  }
+  return {
+    error:
+      input.kind === "remote_ci"
+        ? "passed remote CI evidence requires the exact source SHA it verified"
+        : "passed runtime/browser evidence requires a verified active runtime SHA",
+  };
+}
+
+function evidenceMetadataWithRuntimeIdentity(
+  metadata: Record<string, unknown> | undefined,
+  runtimeIdentity: PccRuntimeIdentity,
+): Record<string, unknown> | undefined {
+  if (!runtimeIdentity.verified || !runtimeIdentity.runtimeSha) {
+    return metadata;
+  }
+  return {
+    ...metadata,
+    pccRuntimeIdentity: {
+      runtimeSha: runtimeIdentity.runtimeSha,
+      runtimeRoot: runtimeIdentity.expectedRuntimeRoot,
+      runtimeEntrypoint: runtimeIdentity.runtimeEntrypoint,
+      manifestPath: runtimeIdentity.manifestPath,
+      manifestSha256: runtimeIdentity.manifestSha256,
+      buildId: runtimeIdentity.buildId,
+      identitySource: runtimeIdentity.identitySource,
+    },
+  };
+}
+
+function bindPccProductionProofMetadata(
+  project: PccProject,
+  evidence: PccEvidence,
+  runtimeIdentity: PccRuntimeIdentity,
+): PccProject {
+  if (
+    pccWorkScopeForProject(project) !== "pcc_product" ||
+    evidence.status !== "passed" ||
+    !evidence.sha
+  ) {
+    return project;
+  }
+  const metadata = metadataObjectValue(project.metadata);
+  const truth = metadataObjectValue(metadata.pccProductionTruth);
+  const isRuntimeProof = ACTIVE_RUNTIME_PROOF_EVIDENCE_KINDS.has(evidence.kind);
+  const isBrowserProof = evidence.kind === "browser_proof" || evidence.kind === "screenshot";
+  const nextTruth = {
+    ...truth,
+    ...(evidence.kind === "remote_ci"
+      ? {
+          latestVerifiedSha: evidence.sha,
+          remoteProofSha: evidence.sha,
+          remoteProofPassed: true,
+        }
+      : {}),
+    ...(isRuntimeProof
+      ? {
+          runtimeProofSha: evidence.sha,
+          runtimeProofPassed: true,
+          ...(runtimeIdentity.verified && runtimeIdentity.runtimeSha === evidence.sha
+            ? {
+                runtimeSha: runtimeIdentity.runtimeSha,
+                runtimeEntrypoint: runtimeIdentity.runtimeEntrypoint,
+                expectedRuntimeRoot: runtimeIdentity.expectedRuntimeRoot,
+              }
+            : {}),
+        }
+      : {}),
+    ...(isBrowserProof
+      ? {
+          browserProofSha: evidence.sha,
+          ...(evidence.path ? { browserProofScreenshotPath: evidence.path } : {}),
+        }
+      : {}),
+    updatedAt: nowIso(),
+  };
+  return {
+    ...project,
+    updatedAt: nowIso(),
+    metadata: { ...metadata, pccProductionTruth: nextTruth },
+  };
 }
 
 function normalizedReceiptProofLevel(value: unknown): PccCompletionReceipt["proofLevel"] {
@@ -1768,6 +1801,7 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const result = withLedger((ledger) => repairCanonicalMetadataForLedger(ledger, params), {
         write: true,
+        auditKind: "pcc.ledger.repairCanonicalMetadata",
       });
       respond(true, result);
     } catch (error) {
@@ -1788,7 +1822,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           }
           return { project: upsert.project, summary: summarizeProject(ledger, upsert.project) };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.projects.upsert" },
       );
       if ("error" in result) {
         respond(
@@ -1824,7 +1858,7 @@ export const pccHandlers: GatewayRequestHandlers = {
             summary: summarizeProject(ledger, project),
           };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.milestones.upsert" },
       );
       if ("error" in result) {
         respond(
@@ -1889,7 +1923,7 @@ export const pccHandlers: GatewayRequestHandlers = {
             summary: summarizeProject(ledger, project),
           };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.subMilestones.upsert" },
       );
       if ("error" in result) {
         respond(
@@ -2004,7 +2038,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           setAt(ledger.permissions, permission);
           return { permission, summary: summarizeProject(ledger, project) };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.permissions.upsert" },
       );
       if ("error" in result) {
         respond(
@@ -2039,6 +2073,15 @@ export const pccHandlers: GatewayRequestHandlers = {
           if (milestoneError) {
             return { error: milestoneError };
           }
+          const runtimeIdentity = readPccRuntimeIdentity();
+          const proofSha = proofShaForEvidence(params.evidence, runtimeIdentity);
+          if (proofSha.error) {
+            return { error: proofSha.error };
+          }
+          const evidenceMetadata = evidenceMetadataWithRuntimeIdentity(
+            params.evidence.metadata,
+            runtimeIdentity,
+          );
           const evidence: PccEvidence = {
             id: makeId("evidence", params.evidence.kind),
             projectId: params.evidence.projectId,
@@ -2050,19 +2093,19 @@ export const pccHandlers: GatewayRequestHandlers = {
             ...(params.evidence.source !== undefined ? { source: params.evidence.source } : {}),
             ...(params.evidence.url !== undefined ? { url: params.evidence.url } : {}),
             ...(params.evidence.path !== undefined ? { path: params.evidence.path } : {}),
-            ...(params.evidence.sha !== undefined ? { sha: params.evidence.sha } : {}),
+            ...(proofSha.sha ? { sha: proofSha.sha } : {}),
             ...(params.evidence.command !== undefined ? { command: params.evidence.command } : {}),
             ...(params.evidence.exitCode !== undefined
               ? { exitCode: params.evidence.exitCode }
               : {}),
-            ...(params.evidence.metadata !== undefined
-              ? { metadata: params.evidence.metadata }
-              : {}),
+            ...(evidenceMetadata !== undefined ? { metadata: evidenceMetadata } : {}),
           };
           ledger.evidence.push(evidence);
-          return { evidence, summary: summarizeProject(ledger, project) };
+          const updatedProject = bindPccProductionProofMetadata(project, evidence, runtimeIdentity);
+          setAt(ledger.projects, updatedProject);
+          return { evidence, summary: summarizeProject(ledger, updatedProject) };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.evidence.add" },
       );
       if ("error" in result) {
         respond(
@@ -2124,7 +2167,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           ledger.decisions.push(decision);
           return { decision, summary: summarizeProject(ledger, project) };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.decisions.add" },
       );
       if ("error" in result) {
         respond(
@@ -2228,7 +2271,7 @@ export const pccHandlers: GatewayRequestHandlers = {
             summary: summarizeProject(ledger, project),
           };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.receipts.add" },
       );
       if ("error" in result) {
         respond(
@@ -2309,7 +2352,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           setAt(ledger.lastKnownGood, entry);
           return { lastKnownGood: entry, summary: summarizeProject(ledger, project) };
         },
-        { write: true },
+        { write: true, auditKind: "pcc.lastKnownGood.upsert" },
       );
       if ("error" in result) {
         respond(
@@ -2355,7 +2398,10 @@ export const pccHandlers: GatewayRequestHandlers = {
 };
 
 export const pccTesting = {
+  closeLedgerStorage: closePccLedgerStorageForTest,
   ledgerPath,
+  ledgerSqlitePath: pccLedgerSqlitePath,
+  replaceLedger: replacePccLedgerForTest,
   defaultPhases: () => DEFAULT_PCC_PHASES.map((phase) => Object.assign({}, phase)),
   readLedger,
   summarizeProject,

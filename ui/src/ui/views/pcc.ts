@@ -34,6 +34,10 @@ import {
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import {
+  resolvePccProjectAction as resolveCanonicalPccProjectAction,
+  type PccProjectActionResolution,
+} from "../../../../src/pcc/project-action.js";
+import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
@@ -679,123 +683,21 @@ function nextSubMilestoneForMilestone(
   );
 }
 
-type PccResolvedPrimaryActionId =
-  | "pause"
-  | "resume"
-  | "fix_setup"
-  | "review_permission"
-  | "review_blocker"
-  | "work"
-  | "view_details"
-  | "no_action_required";
-
-type PccResolvedProjectAction = {
-  primaryActionId: PccResolvedPrimaryActionId;
-  primaryLabel: string;
-  explanation: string;
-  statusLabel: string;
-  blockerLines: string[];
-  topBlocker?: string;
-  hideWorkControls: boolean;
-};
-
-function resolvePccProjectAction(detail: PccProjectDetail): PccResolvedProjectAction {
+function resolvePccProjectAction(detail: PccProjectDetail): PccProjectActionResolution {
   const setup = setupEvaluationForDetail(detail);
-  const terminal = PROJECT_TERMINAL_STATUSES.has(detail.project.status);
   const blockers = blockerLinesForDetail(detail);
-  const permission = detail.permissions.find((item) => item.status === "needed");
-  if (projectIsOnHold(detail.project)) {
-    return {
-      primaryActionId: "resume",
-      primaryLabel: "Resume Project",
-      explanation:
-        "Resume the project first. PCC will still stop at missing tools, permissions, proof, or safety gates.",
-      statusLabel: "On hold",
-      blockerLines: blockers.length
-        ? blockers
-        : ["Project is on hold. Resume it before starting supervised work."],
-      topBlocker: blockers[0] ?? "Project is on hold. Resume it before starting supervised work.",
-      hideWorkControls: true,
-    };
-  }
-  if (terminal) {
-    return {
-      primaryActionId:
-        detail.project.status === "complete_with_maintenance"
-          ? "no_action_required"
-          : "view_details",
-      primaryLabel:
-        detail.project.status === "complete_with_maintenance"
-          ? "No Action Required"
-          : "View Details",
-      explanation:
-        detail.project.status === "complete_with_maintenance"
-          ? "This project is complete. Review history or start a new improvement only when maintenance is needed."
-          : "This project is complete and outside the active work path.",
-      statusLabel:
-        detail.project.status === "complete_with_maintenance" ? "Maintenance" : "Complete",
-      blockerLines: [],
-      hideWorkControls: true,
-    };
-  }
-  if (!setup.runnable) {
-    return {
-      primaryActionId: "fix_setup",
-      primaryLabel: "Fix Setup with AI",
-      explanation: "PCC can draft the missing setup, then you approve it before work starts.",
-      statusLabel: "Needs setup",
-      blockerLines: blockers,
-      topBlocker: blockers[0],
-      hideWorkControls: true,
-    };
-  }
-  if (permission) {
-    return {
-      primaryActionId: "review_permission",
-      primaryLabel: "Review Permission",
-      explanation: `A ${formatStatus(permission.type)} permission must be reviewed before work continues.`,
-      statusLabel: "Needs permission",
-      blockerLines: blockers.length
-        ? blockers
-        : [`A ${formatStatus(permission.type)} permission must be reviewed.`],
-      topBlocker: blockers[0] ?? `A ${formatStatus(permission.type)} permission must be reviewed.`,
-      hideWorkControls: false,
-    };
-  }
-  if (detail.project.status === "blocked" || detail.summary.milestoneCounts.blocked > 0) {
-    return {
-      primaryActionId: "review_blocker",
-      primaryLabel: "Review Blocker",
-      explanation: "Review the blocker list, fix the first blocker, then continue.",
-      statusLabel: "Blocked",
-      blockerLines: blockers.length ? blockers : ["A blocked milestone needs review."],
-      topBlocker: blockers[0] ?? "A blocked milestone needs review.",
-      hideWorkControls: false,
-    };
-  }
-  const settings = getPccWorkLoopSettings(detail.project);
-  if (settings.enabled && settings.state === "working") {
-    return {
-      primaryActionId: "pause",
-      primaryLabel: "Pause",
-      explanation: "Pause the active guided work loop after the current safe checkpoint.",
-      statusLabel: "Working",
-      blockerLines: [],
-      hideWorkControls: false,
-    };
-  }
-  return {
-    primaryActionId: "work",
-    primaryLabel: "Work This Project",
-    explanation: "PCC will prepare the next safe milestone or sub-step.",
-    statusLabel: "Ready",
-    blockerLines: [],
-    hideWorkControls: false,
-  };
+  return resolveCanonicalPccProjectAction({
+    project: detail.project,
+    setupReady: setup.runnable,
+    blockerLines: blockers,
+    permissions: detail.permissions,
+    hasBlockedMilestone: detail.summary.milestoneCounts.blocked > 0,
+    workLoop: getPccWorkLoopSettings(detail.project),
+  });
 }
 
 function runResolvedProjectPrimaryAction(
-  resolved: PccResolvedProjectAction,
+  resolved: PccProjectActionResolution,
   detail: PccProjectDetail,
   props: PccDashboardProps,
 ): void {
@@ -1243,9 +1145,11 @@ function liveRuntimeTruthInput(props: PccDashboardProps) {
     runtimeSha: props.runtimeIdentity.runtimeSha,
     runtimeEntrypoint: props.runtimeIdentity.runtimeEntrypoint,
     expectedRuntimeRoot: props.runtimeIdentity.expectedRuntimeRoot,
-    runtimeDriftReason: props.runtimeIdentity.runtimeSha
-      ? undefined
-      : "Active Gateway did not expose a verified runtime SHA.",
+    runtimeDriftReason:
+      props.runtimeIdentity.driftReason ??
+      (props.runtimeIdentity.verified
+        ? undefined
+        : "Active Gateway did not expose a verified runtime identity."),
   };
 }
 
@@ -1278,7 +1182,7 @@ function renderProductionTruthCard(props: PccDashboardProps) {
     <dl class="pcc-production-truth__facts">
       <div>
         <dt>Verified SHA</dt>
-        <dd>${truth.latestVerifiedSha.slice(0, 12)}</dd>
+        <dd>${truth.latestVerifiedSha ? truth.latestVerifiedSha.slice(0, 12) : "Not recorded"}</dd>
       </div>
       <div>
         <dt>Runtime SHA</dt>

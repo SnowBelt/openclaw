@@ -1,9 +1,10 @@
 // Doctor core checks tests cover core doctor checks and repair hints.
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { closePccLedgerStorageForTest, pccLedgerSqlitePath } from "../pcc/ledger-store.js";
 import type { SkillStatusEntry } from "../skills/discovery/status.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import {
@@ -151,6 +152,7 @@ describe("CORE_HEALTH_CHECKS", () => {
   });
 
   afterEach(async () => {
+    closePccLedgerStorageForTest();
     if (tmp) {
       await fs.rm(tmp, { force: true, recursive: true });
     }
@@ -162,6 +164,54 @@ describe("CORE_HEALTH_CHECKS", () => {
         check.description.endsWith("represented in the health registry."),
       ),
     ).toBe(false);
+  });
+
+  it("migrates a legacy PCC JSON ledger only through the doctor repair path", async () => {
+    tmp = await fs.mkdtemp(join(tmpdir(), "openclaw-health-pcc-ledger-"));
+    const legacyPath = join(tmp, "pcc", "ledger.json");
+    await fs.mkdir(join(tmp, "pcc"), { recursive: true });
+    await fs.writeFile(
+      legacyPath,
+      JSON.stringify({
+        version: 1,
+        projects: [],
+        milestones: [],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        decisions: [],
+        lastKnownGood: [],
+      }),
+    );
+
+    await withEnvAsync({ OPENCLAW_STATE_DIR: tmp }, async () => {
+      const check = getCheck(
+        createCoreHealthChecks(createDeps()),
+        "core/doctor/pcc-ledger-storage",
+      );
+      const findings = await check.detect({ mode: "lint", runtime, cfg: {} });
+      expect(findings).toContainEqual(
+        expect.objectContaining({
+          severity: "warning",
+          path: legacyPath,
+          fixHint: expect.stringContaining("doctor --fix"),
+        }),
+      );
+      const preview = await check.repair?.(
+        { mode: "fix", runtime, cfg: {}, dryRun: true },
+        findings,
+      );
+      expect(preview?.effects).toContainEqual(
+        expect.objectContaining({ action: "migrate-pcc-ledger-json-to-sqlite" }),
+      );
+      expect(existsSync(pccLedgerSqlitePath())).toBe(false);
+
+      const repaired = await check.repair?.({ mode: "fix", runtime, cfg: {} }, findings);
+      expect(repaired?.changes[0]).toContain("Migrated PCC ledger to SQLite");
+      expect(existsSync(pccLedgerSqlitePath())).toBe(true);
+      await expect(check.detect({ mode: "lint", runtime, cfg: {} })).resolves.toEqual([]);
+    });
   });
 
   it("threads deep mode into structured extra gateway service detection", async () => {

@@ -321,7 +321,9 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-next-safe-action]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-production-truth]")).not.toBeNull();
     expect(text).toContain("Production truth");
-    expect(text).toContain("PCC remote Workflow Sanity proof missing");
+    expect(text).toContain(
+      "PCC remote Workflow Sanity proof is missing or is not bound to the verified SHA",
+    );
     expect(container.querySelector("[data-pcc-selected-project-workspace]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-autopilot-hero-chip]")?.textContent).toContain(
       "Autopilot",
@@ -2407,6 +2409,7 @@ describe("renderPccDashboard", () => {
           projectId: "project-command-center",
           milestoneId: "pcc-proof",
           kind: "remote_ci" as const,
+          sha: verifiedSha,
         },
         {
           ...evidence,
@@ -2414,6 +2417,7 @@ describe("renderPccDashboard", () => {
           projectId: "project-command-center",
           milestoneId: "pcc-proof",
           kind: "browser_proof" as const,
+          sha: verifiedSha,
         },
       ],
       receipts: [
@@ -2491,8 +2495,17 @@ describe("renderPccDashboard", () => {
           subMilestones: [],
           permissions: [],
           evidence: [
-            { ...evidence, kind: "remote_ci" },
-            { ...evidence, id: "evidence-2", kind: "browser_proof" },
+            {
+              ...evidence,
+              kind: "remote_ci",
+              sha: "4d8408034d7131470980c316a2af2f311aa6b785",
+            },
+            {
+              ...evidence,
+              id: "evidence-2",
+              kind: "browser_proof",
+              sha: "4d8408034d7131470980c316a2af2f311aa6b785",
+            },
           ],
           receipts: [receipt],
           summary,

@@ -8,9 +8,6 @@ import type {
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import { pccResponsibilityForItem } from "./metadata.js";
 
-export const PCC_LATEST_VERIFIED_BRANCH = "codex/pcc-usability-completion-v2-20260702";
-export const PCC_LATEST_VERIFIED_SHA = "98723615c988f4ded568806d51b63f54412aa556";
-
 export type PccProductionTruthStatus =
   | "current"
   | "stale"
@@ -23,9 +20,12 @@ export type PccProductionTruthInput = {
   milestones?: readonly PccMilestone[];
   evidence?: readonly PccEvidence[];
   receipts?: readonly PccCompletionReceipt[];
-  latestVerifiedBranch?: string;
-  latestVerifiedSha?: string;
+  latestVerifiedBranch?: string | null;
+  latestVerifiedSha?: string | null;
   runtimeSha?: string | null;
+  remoteProofSha?: string | null;
+  runtimeProofSha?: string | null;
+  browserProofSha?: string | null;
   remoteProofPassed?: boolean;
   runtimeProofPassed?: boolean;
   browserProofScreenshotPath?: string | null;
@@ -39,8 +39,8 @@ export type PccProductionTruthInput = {
 export type PccProductionTruthSummary = {
   status: PccProductionTruthStatus;
   label: string;
-  latestVerifiedBranch: string;
-  latestVerifiedSha: string;
+  latestVerifiedBranch: string | null;
+  latestVerifiedSha: string | null;
   runtimeSha: string | null;
   remoteProofPassed: boolean;
   runtimeProofPassed: boolean;
@@ -49,6 +49,10 @@ export type PccProductionTruthSummary = {
   expectedRuntimeRoot: string | null;
   gatewayConfigAuditOk: boolean | null;
   runtimeDriftReason: string | null;
+  currentRemoteProofEvidenceIds: string[];
+  currentRuntimeProofEvidenceIds: string[];
+  currentBrowserProofEvidenceIds: string[];
+  proofRecordedAt: string | null;
   proofGaps: string[];
   completedMilestones: string[];
   missingReceiptMilestones: string[];
@@ -114,6 +118,32 @@ function evidenceKindMatches(evidence: PccEvidence, allowedKinds: ReadonlySet<st
   return evidence.status === "passed" && allowedKinds.has(evidence.kind);
 }
 
+function evidenceMatchesSha(
+  evidence: PccEvidence,
+  allowedKinds: ReadonlySet<string>,
+  sha: string | null,
+): boolean {
+  return Boolean(sha) && evidenceKindMatches(evidence, allowedKinds) && evidence.sha === sha;
+}
+
+function latestEvidenceSha(
+  evidence: readonly PccEvidence[],
+  allowedKinds: ReadonlySet<string>,
+): string | null {
+  return (
+    evidence
+      .filter((entry) => evidenceKindMatches(entry, allowedKinds) && metadataString(entry.sha))
+      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.sha ?? null
+  );
+}
+
+function latestEvidenceTimestamp(evidence: readonly PccEvidence[]): string | null {
+  return (
+    evidence.toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+      ?.createdAt ?? null
+  );
+}
+
 function milestoneHasEvidence(
   milestone: PccMilestone,
   evidence: readonly PccEvidence[],
@@ -126,13 +156,19 @@ function milestoneHasEvidence(
 
 export function buildPccProductionTruth(input: PccProductionTruthInput): PccProductionTruthSummary {
   const meta = projectTruthMetadata(input.project);
+  const milestones = input.milestones ?? [];
+  const receipts = input.receipts ?? [];
+  const evidence = input.evidence ?? [];
   const latestVerifiedBranch =
-    input.latestVerifiedBranch ??
-    metadataString(meta.latestVerifiedBranch) ??
-    PCC_LATEST_VERIFIED_BRANCH;
+    input.latestVerifiedBranch ?? metadataString(meta.latestVerifiedBranch);
   const latestVerifiedSha =
-    input.latestVerifiedSha ?? metadataString(meta.latestVerifiedSha) ?? PCC_LATEST_VERIFIED_SHA;
+    input.latestVerifiedSha ??
+    metadataString(meta.latestVerifiedSha) ??
+    latestEvidenceSha(evidence, REMOTE_PROOF_STATUSES);
   const runtimeSha = input.runtimeSha ?? metadataString(meta.runtimeSha);
+  const remoteProofSha = input.remoteProofSha ?? metadataString(meta.remoteProofSha);
+  const runtimeProofSha = input.runtimeProofSha ?? metadataString(meta.runtimeProofSha);
+  const browserProofSha = input.browserProofSha ?? metadataString(meta.browserProofSha);
   const browserProofScreenshotPath =
     input.browserProofScreenshotPath ?? metadataString(meta.browserProofScreenshotPath);
   const runtimeEntrypoint = input.runtimeEntrypoint ?? metadataString(meta.runtimeEntrypoint);
@@ -147,17 +183,31 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
     metadataString(meta.runtimeDriftReason) ??
     metadataString(meta.gatewayRuntimeDriftReason);
   const blockedReason = input.blockedReason ?? metadataString(meta.blockedReason);
-  const milestones = input.milestones ?? [];
-  const receipts = input.receipts ?? [];
-  const evidence = input.evidence ?? [];
+  const currentRemoteProofEvidence = evidence.filter((entry) =>
+    evidenceMatchesSha(entry, REMOTE_PROOF_STATUSES, latestVerifiedSha),
+  );
+  const currentRuntimeProofEvidence = evidence.filter((entry) =>
+    evidenceMatchesSha(entry, RUNTIME_PROOF_STATUSES, runtimeSha),
+  );
+  const currentBrowserProofEvidence = evidence.filter((entry) =>
+    evidenceMatchesSha(entry, new Set(["browser_proof", "screenshot"]), runtimeSha),
+  );
   const remoteProofPassed =
-    input.remoteProofPassed ??
-    metadataBoolean(meta.remoteProofPassed) ??
-    evidence.some((entry) => evidenceKindMatches(entry, REMOTE_PROOF_STATUSES));
+    currentRemoteProofEvidence.length > 0 ||
+    ((input.remoteProofPassed ?? metadataBoolean(meta.remoteProofPassed) ?? false) &&
+      Boolean(remoteProofSha) &&
+      remoteProofSha === latestVerifiedSha);
   const runtimeProofPassed =
-    input.runtimeProofPassed ??
-    metadataBoolean(meta.runtimeProofPassed) ??
-    evidence.some((entry) => evidenceKindMatches(entry, RUNTIME_PROOF_STATUSES));
+    currentRuntimeProofEvidence.length > 0 ||
+    ((input.runtimeProofPassed ?? metadataBoolean(meta.runtimeProofPassed) ?? false) &&
+      Boolean(runtimeProofSha) &&
+      runtimeProofSha === runtimeSha);
+  const browserProofPassed =
+    currentBrowserProofEvidence.length > 0 ||
+    (Boolean(browserProofScreenshotPath) &&
+      Boolean(browserProofSha) &&
+      browserProofSha === runtimeSha &&
+      runtimeProofPassed);
   const completedMilestones = milestones
     .filter((milestone) => COMPLETE_STATUSES.has(milestone.status))
     .map((milestone) => milestone.title);
@@ -195,9 +245,18 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
     ...missingReceiptMilestones.map((title) => `Receipt missing: ${title}`),
     ...remoteProofRequired.map((title) => `Remote proof missing: ${title}`),
     ...runtimeProofRequired.map((title) => `Runtime proof missing: ${title}`),
-    ...(!remoteProofPassed ? ["PCC remote Workflow Sanity proof missing"] : []),
-    ...(!runtimeProofPassed ? ["PCC live runtime/browser proof missing"] : []),
-    ...(runtimeSha && runtimeSha !== latestVerifiedSha
+    ...(!latestVerifiedSha ? ["PCC verified source SHA is missing"] : []),
+    ...(!runtimeSha ? ["Active Gateway runtime SHA is missing"] : []),
+    ...(!remoteProofPassed
+      ? ["PCC remote Workflow Sanity proof is missing or is not bound to the verified SHA"]
+      : []),
+    ...(!runtimeProofPassed
+      ? ["PCC runtime proof is missing or is not bound to the active runtime SHA"]
+      : []),
+    ...(!browserProofPassed
+      ? ["PCC browser proof is missing or is not bound to the active runtime SHA"]
+      : []),
+    ...(runtimeSha && latestVerifiedSha && runtimeSha !== latestVerifiedSha
       ? [
           `Runtime SHA ${runtimeSha.slice(0, 12)} does not match verified ${latestVerifiedSha.slice(0, 12)}`,
         ]
@@ -210,7 +269,7 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
     ? "blocked"
     : entrypointDrift || runtimeDriftReason || gatewayConfigAuditOk === false
       ? "needs_repair"
-      : runtimeSha && runtimeSha !== latestVerifiedSha
+      : runtimeSha && latestVerifiedSha && runtimeSha !== latestVerifiedSha
         ? "stale"
         : proofGaps.length > 0
           ? "proof_missing"
@@ -239,6 +298,14 @@ export function buildPccProductionTruth(input: PccProductionTruthInput): PccProd
     expectedRuntimeRoot,
     gatewayConfigAuditOk,
     runtimeDriftReason,
+    currentRemoteProofEvidenceIds: currentRemoteProofEvidence.map((entry) => entry.id),
+    currentRuntimeProofEvidenceIds: currentRuntimeProofEvidence.map((entry) => entry.id),
+    currentBrowserProofEvidenceIds: currentBrowserProofEvidence.map((entry) => entry.id),
+    proofRecordedAt: latestEvidenceTimestamp([
+      ...currentRemoteProofEvidence,
+      ...currentRuntimeProofEvidence,
+      ...currentBrowserProofEvidence,
+    ]),
     proofGaps,
     completedMilestones,
     missingReceiptMilestones,

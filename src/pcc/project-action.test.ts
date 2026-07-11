@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+import { resolvePccProjectAction } from "./project-action.js";
+
+const project = (status = "active") => ({ status });
+
+describe("resolvePccProjectAction", () => {
+  it("uses one deterministic safety-first action precedence", () => {
+    expect(
+      resolvePccProjectAction({
+        project: project("on_hold"),
+        setupReady: false,
+        hasBlockedMilestone: true,
+      }).primaryActionId,
+    ).toBe("resume");
+    expect(
+      resolvePccProjectAction({
+        project: project("complete_with_maintenance"),
+        setupReady: false,
+      }).primaryActionId,
+    ).toBe("no_action_required");
+    expect(
+      resolvePccProjectAction({
+        project: project(),
+        setupReady: false,
+        permissions: [{ status: "needed", type: "codex_usage" }],
+      }).primaryActionId,
+    ).toBe("fix_setup");
+  });
+
+  it("exposes the exact safety action before allowing work", () => {
+    const permission = resolvePccProjectAction({
+      project: project(),
+      setupReady: true,
+      permissions: [{ status: "needed", type: "remote_proof" }],
+    });
+    expect(permission).toMatchObject({
+      primaryActionId: "review_permission",
+      primaryLabel: "Review Permission",
+      topBlocker: "A Remote Proof permission must be reviewed.",
+    });
+
+    expect(
+      resolvePccProjectAction({
+        project: project(),
+        setupReady: true,
+        hasBlockedMilestone: true,
+        blockerLines: ["Missing tool: emulator"],
+      }),
+    ).toMatchObject({
+      primaryActionId: "review_blocker",
+      topBlocker: "Missing tool: emulator",
+    });
+    expect(
+      resolvePccProjectAction({
+        project: project(),
+        setupReady: true,
+        workLoop: { enabled: true, state: "working" },
+      }).primaryActionId,
+    ).toBe("pause");
+  });
+});

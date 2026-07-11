@@ -12,6 +12,7 @@ import {
 type RequestMock = {
   (method: string, ...args: unknown[]): Promise<unknown>;
   mockImplementation(fn: (method: string) => Promise<unknown>): RequestMock;
+  mockResolvedValueOnce(value: unknown): RequestMock;
 };
 
 function createState(): { state: SelfImprovementState; request: RequestMock } {

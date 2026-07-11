@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { callGateway } from "../../src/gateway/call.ts";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../../src/gateway/operator-scopes.ts";
 import type { PccProject, PccProjectSummary, PccMilestone } from "../../ui/src/ui/types.ts";
@@ -23,6 +25,7 @@ type ProofGatewayConnection = {
   dashboardUrl: string;
   gatewayUrl: string;
   token: string;
+  configPath: string;
 };
 
 type CleanupResult = {
@@ -75,7 +78,39 @@ function resolveProofGatewayConnection(): ProofGatewayConnection {
     dashboardUrl: `http://127.0.0.1:${port}/projects#token=${encodeURIComponent(token)}`,
     gatewayUrl: `ws://127.0.0.1:${port}`,
     token,
+    configPath: CONFIG_PATH,
   };
+}
+
+function isPathInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== "..");
+}
+
+/**
+ * This proof deliberately performs mutations. It must never point at the operator's
+ * live Gateway or ledger; the isolated runner starts a temporary Gateway and removes
+ * its entire state directory on exit.
+ */
+function assertDisposableProofIsIsolated(connection: ProofGatewayConnection): void {
+  if (process.env.OPENCLAW_PCC_LIVE_E2E_ISOLATED !== "1") {
+    throw new Error(
+      "refusing to mutate a non-isolated Gateway; run control-ui-pcc-live-disposable-browser-e2e-isolated.ts",
+    );
+  }
+  const stateDir = process.env.OPENCLAW_STATE_DIR?.trim();
+  if (!stateDir) {
+    throw new Error("isolated disposable proof requires OPENCLAW_STATE_DIR");
+  }
+  const temporaryRoot = fs.realpathSync(os.tmpdir());
+  const resolvedStateDir = fs.realpathSync(stateDir);
+  const resolvedConfigPath = fs.realpathSync(connection.configPath);
+  if (
+    !isPathInside(temporaryRoot, resolvedStateDir) ||
+    !isPathInside(resolvedStateDir, resolvedConfigPath)
+  ) {
+    throw new Error("isolated disposable proof requires temporary state and config paths");
+  }
 }
 
 async function gateway<T>(method: string, params?: unknown): Promise<T> {
@@ -272,6 +307,7 @@ async function main() {
   };
 
   try {
+    assertDisposableProofIsIsolated(resolveProofGatewayConnection());
     phase = "preflighting gateway";
     summary.phase = phase;
     summary.preflight = await preflightGatewayForDisposableProof();

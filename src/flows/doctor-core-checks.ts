@@ -42,6 +42,7 @@ const BROWSER_CLAWD_PROFILE_RESIDUE_CHECK_ID = "core/doctor/browser-clawd-profil
 const CODEX_SESSION_ROUTES_CHECK_ID = "core/doctor/codex-session-routes";
 const FINAL_CONFIG_VALIDATION_CHECK_ID = "core/doctor/final-config-validation";
 const GATEWAY_SERVICES_EXTRA_CHECK_ID = "core/doctor/gateway-services/extra";
+const PCC_LEDGER_STORAGE_CHECK_ID = "core/doctor/pcc-ledger-storage";
 
 type CoreHealthCheckContext = HealthCheckContext & {
   readonly deep?: boolean;
@@ -942,6 +943,58 @@ const uiProtocolFreshnessCheck: HealthCheck = {
   },
 };
 
+const pccLedgerStorageCheck: HealthCheck = {
+  id: PCC_LEDGER_STORAGE_CHECK_ID,
+  kind: "core",
+  description: "PCC uses transactional SQLite storage instead of the legacy JSON ledger.",
+  source: "doctor",
+  async detect() {
+    const { detectPccLedgerStorageMigration } = await import("../pcc/ledger-store.js");
+    const detected = detectPccLedgerStorageMigration();
+    return detected.needed
+      ? [
+          {
+            checkId: PCC_LEDGER_STORAGE_CHECK_ID,
+            severity: "warning",
+            message: detected.reason ?? "PCC ledger storage migration is required.",
+            path: detected.legacyPath,
+            fixHint:
+              "Run `openclaw doctor --fix` to migrate PCC data to transactional SQLite storage.",
+          },
+        ]
+      : [];
+  },
+  async repair(ctx) {
+    const { detectPccLedgerStorageMigration, migrateLegacyPccLedgerStorage } =
+      await import("../pcc/ledger-store.js");
+    const detected = detectPccLedgerStorageMigration();
+    const effects = detected.needed
+      ? [
+          {
+            kind: "state" as const,
+            action: "migrate-pcc-ledger-json-to-sqlite",
+            target: detected.sqlitePath,
+            dryRunSafe: true,
+          },
+        ]
+      : [];
+    if (!detected.needed) {
+      return { status: "repaired" as const, changes: [], effects };
+    }
+    if (ctx.dryRun === true) {
+      return { status: "repaired" as const, changes: [], effects };
+    }
+    const migrated = migrateLegacyPccLedgerStorage();
+    return {
+      status: "repaired" as const,
+      changes: [
+        `Migrated PCC ledger to SQLite at ${migrated.sqlitePath}; backup preserved at ${migrated.backupPath}.`,
+      ],
+      effects,
+    };
+  },
+};
+
 function createWorkspaceSuggestionsCheck(deps: CoreHealthCheckDeps): HealthCheck {
   return {
     id: "core/doctor/workspace-suggestions",
@@ -972,6 +1025,7 @@ function createConvertedWorkflowChecks(deps: CoreHealthCheckDeps): readonly Heal
     codexSessionRoutesCheck,
     shellCompletionCheck,
     uiProtocolFreshnessCheck,
+    pccLedgerStorageCheck,
     gatewayServicesExtraCheck,
     gatewayPlatformNotesCheck,
     createSecurityCheck(deps),

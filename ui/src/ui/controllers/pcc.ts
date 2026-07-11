@@ -28,6 +28,7 @@ import {
   pccWorkScopeForProject,
   pccResponsibilityForItem,
 } from "../../../../src/pcc/metadata.js";
+import { resolvePccProjectAction } from "../../../../src/pcc/project-action.js";
 import {
   buildPccWorkflowDraft,
   type PccPlanningMode,
@@ -3293,14 +3294,34 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       milestones: detail.milestones,
       subMilestones: detail.subMilestones ?? [],
     });
-    if (!setupEvaluation.runnable) {
+    const resolvedAction = resolvePccProjectAction({
+      project: detail.project,
+      setupReady: setupEvaluation.runnable,
+      blockerLines: buildPccWorkStartBlockers({
+        project: detail.project,
+        milestones: detail.milestones,
+        subMilestones: detail.subMilestones ?? [],
+        permissions: detail.permissions,
+        receipts: detail.receipts,
+      }),
+      permissions: detail.permissions,
+      hasBlockedMilestone: detail.summary.milestoneCounts.blocked > 0,
+      workLoop: getPccWorkLoopSettings(detail.project),
+    });
+    if (resolvedAction.primaryActionId === "fix_setup") {
       state.pccAutofillPreview = buildPccSetupAutofillPreview(detail, false);
       state.pccActionError = setupRepairMessage(setupEvaluation, detail);
       return;
     }
-    if (detail.project.status === "on_hold") {
+    if (resolvedAction.primaryActionId === "resume") {
       state.pccActionError =
         "Project is on hold. Use Resume Project before preparing the next safe task.";
+      return;
+    }
+    if (resolvedAction.primaryActionId !== "work") {
+      state.pccActionError = `${resolvedAction.primaryLabel}: ${
+        resolvedAction.topBlocker ?? resolvedAction.explanation
+      }`;
       return;
     }
     const next = getPccWorkLoopNext({

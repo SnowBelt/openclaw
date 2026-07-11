@@ -910,7 +910,7 @@ describe("renderBookWriterDashboard", () => {
     const current = snapshot();
     const oldInstructionText =
       "Advance one argument, clue, scene beat, or practical insight. Chapter focus: Open the book with the central problem. The book is about a practical field guide. The paragraph should make one clear move.";
-    const instructionPlan = structuredClone(current.plan);
+    const instructionPlan = structuredClone(current.plan)!;
     instructionPlan.chapters[0].paragraphs[0].text = oldInstructionText;
     instructionPlan.chapters[0].paragraphs[0].status = "drafted";
     const container = document.createElement("div");
@@ -2144,7 +2144,7 @@ describe("renderBookWriterDashboard", () => {
     const onRequestAiAction = vi.fn();
     const onConfirmAiAction = vi.fn();
     const current = snapshot();
-    const emptyPlan = structuredClone(current.plan);
+    const emptyPlan = structuredClone(current.plan)!;
     for (const chapter of emptyPlan.chapters) {
       for (const paragraph of chapter.paragraphs) {
         paragraph.text = "";

@@ -58,6 +58,7 @@ describe("Project Command Center gateway methods", () => {
   });
 
   afterEach(() => {
+    pccTesting.closeLedgerStorage();
     if (previousStateDir === undefined) {
       delete process.env.OPENCLAW_STATE_DIR;
     } else {
@@ -102,7 +103,7 @@ describe("Project Command Center gateway methods", () => {
 
     expect(milestonePayload.summary.percentComplete).toBe(40);
     expect(milestonePayload.summary.milestoneCounts.total).toBe(1);
-    expect(fs.existsSync(pccTesting.ledgerPath())).toBe(true);
+    expect(fs.existsSync(pccTesting.ledgerSqlitePath())).toBe(true);
 
     const listPayload = okPayload<{ projects: Array<{ id: string; percentComplete: number }> }>(
       await invoke("pcc.projects.list", {}),
@@ -251,8 +252,7 @@ describe("Project Command Center gateway methods", () => {
         project: { title: "Archived project", status: "archived" },
       }),
     );
-    const ledgerPath = pccTesting.ledgerPath();
-    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+    const ledger = pccTesting.readLedger() as {
       projects: Array<{ id: string; metadata?: Record<string, unknown> }>;
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
@@ -295,12 +295,10 @@ describe("Project Command Center gateway methods", () => {
       completedBy: "Project Command Center",
       completedAt: "2026-01-01T00:00:00.000Z",
     } as (typeof ledger.receipts)[number]);
-    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
-
     ledger.projects = ledger.projects.map((item) =>
       item.id === project.id ? { ...item, metadata: {} } : item,
     );
-    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+    pccTesting.replaceLedger(ledger);
 
     const repair = okPayload<{
       repairedProjectIds: string[];
@@ -314,7 +312,7 @@ describe("Project Command Center gateway methods", () => {
     expect(repair.repairedSubMilestoneIds).toEqual(["legacy-active-sub"]);
     expect(repair.repairedReceiptIds).toEqual(["legacy-receipt-without-proof-level"]);
 
-    const repairedLedger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+    const repairedLedger = pccTesting.readLedger() as {
       projects: Array<{ id: string; metadata?: Record<string, unknown> }>;
       milestones: Array<{ id: string; order?: number; metadata?: Record<string, unknown> }>;
       subMilestones: Array<{ id: string; metadata?: Record<string, unknown> }>;
@@ -359,8 +357,7 @@ describe("Project Command Center gateway methods", () => {
         project: { title: "Duplicate order repair project", status: "active" },
       }),
     );
-    const ledgerPath = pccTesting.ledgerPath();
-    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+    const ledger = pccTesting.readLedger() as {
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
     };
@@ -410,7 +407,7 @@ describe("Project Command Center gateway methods", () => {
         metadata: { pccResponsibility: "local_openclaw_agent", pccProofLevel: "local" },
       },
     );
-    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+    pccTesting.replaceLedger(ledger);
 
     const beforeRepair = okPayload<{ projects: Array<{ id: string; proofGaps: string[] }> }>(
       await invoke("pcc.projects.list", {}),
@@ -451,8 +448,7 @@ describe("Project Command Center gateway methods", () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Imported broken project" } }),
     );
-    const ledgerPath = pccTesting.ledgerPath();
-    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+    const ledger = pccTesting.readLedger() as {
       milestones: Array<Record<string, unknown>>;
       subMilestones: Array<Record<string, unknown>>;
       evidence: Array<Record<string, unknown>>;
@@ -578,7 +574,7 @@ describe("Project Command Center gateway methods", () => {
       evidenceIds: "failed-imported-evidence",
       verifiedAt: "2026-01-01T00:00:00.000Z",
     });
-    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+    pccTesting.replaceLedger(ledger);
 
     const listPayload = okPayload<{
       projects: Array<{ id: string; proofGaps: string[]; health: string }>;
@@ -610,8 +606,7 @@ describe("Project Command Center gateway methods", () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Legacy timestamp project" } }),
     );
-    const ledgerPath = pccTesting.ledgerPath();
-    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+    const ledger = pccTesting.readLedger() as {
       permissions: Array<Record<string, unknown>>;
     };
     ledger.permissions.push({
@@ -625,7 +620,7 @@ describe("Project Command Center gateway methods", () => {
       auditLog: [],
       createdAt: "2026-01-01T00:00:00.000Z",
     });
-    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+    pccTesting.replaceLedger(ledger);
 
     const listPayload = okPayload<{ projects: Array<{ id: string; recentActivity?: string }> }>(
       await invoke("pcc.projects.list", {}),
@@ -715,6 +710,55 @@ describe("Project Command Center gateway methods", () => {
         }),
       ),
     ).toContain(`proof evidence has not passed: ${evidence.id}`);
+  });
+
+  it("requires passed remote proof evidence to name the exact verified source SHA", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { id: "project-command-center", title: "Project Command Center" },
+      }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: { projectId: project.id, title: "Remote proof" },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.evidence.add", {
+          evidence: {
+            projectId: project.id,
+            milestoneId: milestone.id,
+            kind: "remote_ci",
+            status: "passed",
+          },
+        }),
+      ),
+    ).toContain("requires the exact source SHA");
+
+    const verifiedSha = "0123456789abcdef0123456789abcdef01234567";
+    const proof = okPayload<{ evidence: { sha?: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "remote_ci",
+          status: "passed",
+          sha: verifiedSha,
+        },
+      }),
+    );
+    expect(proof.evidence.sha).toBe(verifiedSha);
+
+    const detail = okPayload<{ project: { metadata?: Record<string, unknown> } }>(
+      await invoke("pcc.projects.get", { projectId: project.id }),
+    );
+    expect(detail.project.metadata?.pccProductionTruth).toMatchObject({
+      latestVerifiedSha: verifiedSha,
+      remoteProofSha: verifiedSha,
+      remoteProofPassed: true,
+    });
   });
 
   it("blocks complete milestone claims until a completion receipt is added", async () => {
@@ -1155,6 +1199,7 @@ describe("Project Command Center gateway methods", () => {
           kind: "browser_proof",
           status: "passed",
           path: "/tmp/openclaw-dashboard-proof.png",
+          sha: "63216a766d7bc20da500a887ad668951cb0a881e",
         },
       }),
     );
@@ -1742,8 +1787,7 @@ describe("Project Command Center gateway methods", () => {
     await invoke("pcc.projects.upsert", {
       project: { id: "project-proof-gap", title: "Proof gap project", status: "active" },
     });
-    const ledgerPath = pccTesting.ledgerPath();
-    const ledger = JSON.parse(fs.readFileSync(ledgerPath, "utf8")) as {
+    const ledger = pccTesting.readLedger() as {
       projects: Array<Record<string, unknown>>;
       milestones: Array<Record<string, unknown>>;
     };
@@ -1758,7 +1802,7 @@ describe("Project Command Center gateway methods", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    fs.writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2));
+    pccTesting.replaceLedger(ledger);
 
     const summary = okPayload<{
       portfolio: {
