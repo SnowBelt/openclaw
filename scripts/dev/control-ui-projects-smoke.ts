@@ -434,7 +434,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch((error: unknown) => {
   console.error(
     "control-ui-projects-smoke: failed",
     error instanceof Error ? error.message : String(error),

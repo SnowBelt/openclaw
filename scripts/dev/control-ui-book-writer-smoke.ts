@@ -3541,7 +3541,7 @@ async function run(): Promise<BookWriterSmokeSummary> {
       }
       return summary;
     } catch (error) {
-      const diagnostics = await collectFailureDiagnostics(page).catch((diagnosticError) => ({
+      const diagnostics = await collectFailureDiagnostics(page).catch((diagnosticError: unknown) => ({
         bodyText: `failed to collect diagnostics: ${
           diagnosticError instanceof Error ? diagnosticError.message : String(diagnosticError)
         }`,
@@ -3564,7 +3564,7 @@ run()
   .then((summary) => {
     console.log("control-ui-book-writer-smoke: ok", JSON.stringify(summary, null, 2));
   })
-  .catch((error) => {
+  .catch((error: unknown) => {
     console.error(
       "control-ui-book-writer-smoke: failed",
       redactSmokeSecrets(error instanceof Error ? error.message : String(error)),

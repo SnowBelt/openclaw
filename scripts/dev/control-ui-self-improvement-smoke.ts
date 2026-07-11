@@ -1051,7 +1051,7 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+  main().catch((error: unknown) => {
     console.error(
       "control-ui-self-improvement-smoke: failed",
       error instanceof Error ? error.message : String(error),
