@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
+from patternlab_local_model_health import inspect_models, model_root, read_manifest
 
 
 PYTHON_MODULES = {
@@ -70,10 +71,13 @@ def build_report(video_id: str) -> tuple[dict, Path, Path]:
     modules = module_status()
     binaries = binary_status()
     node = node_status()
+    manifest = read_manifest()
+    local_models = inspect_models(manifest, model_root(manifest))
     blockers = [f"python_module_missing:{name}" for name, status in modules.items() if not status["available"]]
     blockers.extend(f"binary_missing:{name}" for name, status in binaries.items() if not status["available"])
     if not node.get("available"):
         blockers.append("node_renderer_missing")
+    blockers.extend(f"local_model_missing:{name}" for name, status in local_models.items() if not status["available"])
     free_bytes = shutil.disk_usage(root if root.exists() else BASE).free
     if free_bytes < 20 * 1024**3:
         blockers.append("insufficient_free_disk_under_20_gib")
@@ -85,6 +89,7 @@ def build_report(video_id: str) -> tuple[dict, Path, Path]:
         "python_modules": modules,
         "binaries": binaries,
         "node": node,
+        "local_models": local_models,
         "free_disk_bytes": free_bytes,
         "blockers": blockers,
         "youtube_mutation": "not_performed",

@@ -25,9 +25,32 @@ import patternlab_runtime_watchdog as runtime_watchdog
 import patternlab_topic_research_worker as topic_research
 import patternlab_environment_health as environment_health
 import patternlab_monetization_tracker as monetization_tracker
+import patternlab_local_model_health as model_health
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
+    def test_local_model_health_blocks_when_required_quality_model_is_absent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            manifest_path = Path(temp) / "model-manifest.json"
+            manifest_path.write_text(json.dumps({
+                "model_root_environment": "PATTERNLAB_TEST_MODEL_ROOT",
+                "default_model_root": str(Path(temp) / "models"),
+                "models": {
+                    "siglip2_frame_match": {
+                        "repository": "google/siglip2-base-patch16-224",
+                        "revision": "main",
+                        "local_directory": "siglip2",
+                        "required_files": ["config.json"],
+                        "purpose": "test",
+                    }
+                },
+            }), encoding="utf-8")
+            with patch.object(model_health, "output_root", lambda _: root):
+                payload, _, _ = model_health.build_report("04", manifest_path=manifest_path)
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("local_model_missing:siglip2_frame_match", payload["blockers"])
+
     def test_monetization_tracker_treats_prelaunch_metrics_as_nonblocking(self):
         with patch.object(monetization_tracker, "build_profit_analytics", side_effect=SystemExit("metrics absent")):
             payload, _ = monetization_tracker.build_tracker_report(write=False)
@@ -360,7 +383,7 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             modules = {name: {"available": True} for name in environment_health.PYTHON_MODULES}
             modules["whisperx"] = {"available": False, "reason": "missing"}
             binaries = {name: {"available": True, "path": f"/{name}"} for name in environment_health.BINARY_NAMES}
-            with patch.object(environment_health, "output_root", lambda _: root), patch.object(environment_health, "module_status", return_value=modules), patch.object(environment_health, "binary_status", return_value=binaries), patch.object(environment_health, "node_status", return_value={"available": True}):
+            with patch.object(environment_health, "output_root", lambda _: root), patch.object(environment_health, "module_status", return_value=modules), patch.object(environment_health, "binary_status", return_value=binaries), patch.object(environment_health, "node_status", return_value={"available": True}), patch.object(environment_health, "read_manifest", return_value={"model_root_environment": "PATTERNLAB_MODEL_ROOT", "default_model_root": str(root / "models"), "models": {}}), patch.object(environment_health, "model_root", return_value=root / "models"), patch.object(environment_health, "inspect_models", return_value={}):
                 payload, _, _ = environment_health.build_report("04")
             self.assertEqual(payload["status"], "blocked")
             self.assertIn("python_module_missing:whisperx", payload["blockers"])

@@ -129,6 +129,31 @@ def main():
     run([sys.executable, "youtube-v1/scripts/patternlab_preflight.py", "--video-id", args.video_id], check=False, steps=steps, name="preflight_before")
     run([sys.executable, "youtube-v1/scripts/generate_upload_metadata.py", "--video-id", args.video_id], steps=steps, name="upload_metadata")
     run([sys.executable, "youtube-v1/scripts/patternlab_retention_ladder.py", "--video-id", args.video_id], check=False, steps=steps, name="retention_ladder")
+    # Production media may only be assembled from the explicit immutable
+    # evidence manifest.  Do not let the legacy generic-image path create a
+    # new draft when a source trail is absent or invalid.
+    canonical = run(
+        [sys.executable, "youtube-v1/scripts/patternlab_canonical_preflight.py", "--video-id", args.video_id],
+        check=False,
+        steps=steps,
+        name="canonical_evidence_before_media",
+    )
+    if canonical.returncode != 0:
+        print("Production media blocked: canonical evidence manifest is missing or invalid. Generic image assembly was not run.")
+        steps.append(
+            {
+                "name": "generic_media_assembly",
+                "command": "blocked until canonical evidence preflight passes",
+                "exit_code": 1,
+                "ok": False,
+                "skipped": True,
+            }
+        )
+        final_state = media_state(root, args.video_id)
+        payload = write_pipeline_report(root, args.video_id, steps, final_state)
+        if args.require_complete:
+            raise SystemExit("Pipeline incomplete: canonical evidence manifest is required before media assembly.")
+        return
     run([sys.executable, "youtube-v1/scripts/generate_proof_footage.py", "--video-id", args.video_id], steps=steps, name="proof_footage")
     image_cmd = [
         sys.executable,
