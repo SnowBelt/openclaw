@@ -1576,7 +1576,7 @@ async function main() {
   printReport(report, args.json);
 }
 
-void Promise.resolve(main()).then(undefined, (...args) => {
+function handleMainRejection(...args) {
   const error = args[0];
   printReport(
     blocked(
@@ -1585,4 +1585,6 @@ void Promise.resolve(main()).then(undefined, (...args) => {
     ),
     true,
   );
-});
+}
+
+void Promise.resolve(main()).then(undefined, handleMainRejection);
