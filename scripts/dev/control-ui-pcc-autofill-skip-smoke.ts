@@ -225,7 +225,9 @@ async function main(): Promise<void> {
       chatSyncText: "",
       chatSyncProposals: [],
       chatSyncError: null,
-      viewMode: "simple" as const,
+      // Setup repair and milestone action menus are intentionally advanced
+      // controls. Exercise them in Detailed mode, where they are available.
+      viewMode: "detailed" as const,
       ...handlers,
     };
 
