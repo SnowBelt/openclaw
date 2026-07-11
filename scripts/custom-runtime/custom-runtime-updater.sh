@@ -20,10 +20,12 @@ fail() { printf '{"at":"%s","result":"failed","stage":"%s","worktree":"%s"}\n' "
 
 git -C "$repo" fetch --prune SnowBelt || fail fetch
 git -C "$repo" worktree add -b "codex/runtime-update-$stamp" "$candidate" "$branch" || fail worktree
-if ! git -C "$candidate" merge --no-commit --no-ff "$official_ref"; then
+if ! git -C "$candidate" merge --no-ff --no-edit "$official_ref"; then
+  git -C "$candidate" diff --binary > "$candidate/openclaw-update-merge-conflict.patch" || true
   git -C "$candidate" merge --abort || true
   fail merge_conflict
 fi
+git -C "$candidate" diff --check || fail merge_whitespace
 pnpm -C "$candidate" install --frozen-lockfile || fail install
 pnpm -C "$candidate" check || fail check
 pnpm -C "$candidate" ui:build || fail ui_build
