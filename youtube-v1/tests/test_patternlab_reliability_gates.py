@@ -381,6 +381,42 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             self.assertEqual(report["status"], "protected_reused_approved_script")
             self.assertTrue(report["candidate_write_blocked"])
 
+    def test_factory_preserves_tracked_launch_script_lock_when_output_state_is_absent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            launch = base / "launch" / "video-04"
+            root = base / "output" / "video-04"
+            launch.mkdir(parents=True)
+            approved = "Approved source-backed Detroit script."
+            (launch / "final-script.md").write_text(approved, encoding="utf-8")
+            (launch / "script-lock.json").write_text(
+                json.dumps({"script_sha256": daily_factory.sha256_text(approved), "operation": "owner_approved_script_lock"}),
+                encoding="utf-8",
+            )
+            result = daily_factory.protect_locked_script(launch, root, "04", "A different generated template.")
+            self.assertEqual(result, approved)
+            report = json.loads((root / "approval" / "script-immutability-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "protected_reused_approved_script")
+            self.assertEqual(len(report["lock_files"]), 1)
+            self.assertTrue(report["lock_files"][0].endswith("launch/video-04/script-lock.json"))
+
+    def test_factory_blocks_conflicting_script_locks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            launch = base / "launch" / "video-04"
+            root = base / "output" / "video-04"
+            launch.mkdir(parents=True)
+            (root / "approval").mkdir(parents=True)
+            (launch / "final-script.md").write_text("Approved script.", encoding="utf-8")
+            (launch / "script-lock.json").write_text(
+                json.dumps({"script_sha256": daily_factory.sha256_text("Approved script.")}), encoding="utf-8"
+            )
+            (root / "approval" / "paid-service-approval.json").write_text(
+                json.dumps({"script_sha256": daily_factory.sha256_text("Different approved script.")}), encoding="utf-8"
+            )
+            with self.assertRaises(SystemExit):
+                daily_factory.protect_locked_script(launch, root, "04", "A generated script.")
+
     def test_factory_blocks_when_current_script_differs_from_hash_bound_approval(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)

@@ -25,11 +25,16 @@ def sha256_text(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def script_lock(root):
-    """Return a valid owner lock without treating an arbitrary file as approval."""
+def script_lock(launch, root):
+    """Return one unambiguous hash lock from canonical or owner-approval state."""
     approval = root / "approval"
-    for filename in ("paid-service-approval.json", "script-lock.json"):
-        path = approval / filename
+    paths = (
+        launch / "script-lock.json",
+        approval / "paid-service-approval.json",
+        approval / "script-lock.json",
+    )
+    locks = []
+    for path in paths:
         if not path.exists():
             continue
         try:
@@ -38,14 +43,19 @@ def script_lock(root):
             continue
         script_hash = str(payload.get("script_sha256") or "").strip()
         if len(script_hash) == 64 and all(char in "0123456789abcdef" for char in script_hash):
-            return {"path": path, "script_sha256": script_hash, "operation": payload.get("operation", "")}
-    return None
+            locks.append({"path": path, "script_sha256": script_hash, "operation": payload.get("operation", "")})
+    if not locks:
+        return None
+    hashes = {lock["script_sha256"] for lock in locks}
+    if len(hashes) != 1:
+        return {"status": "conflict", "locks": locks}
+    return {"status": "valid", **locks[0], "locks": locks}
 
 
 def protect_locked_script(launch, root, video_id, candidate):
     """Return the exact safe script text; never overwrite a hash-bound script."""
     script_path = launch / "final-script.md"
-    lock = script_lock(root)
+    lock = script_lock(launch, root)
     if not lock:
         return candidate
 
@@ -56,14 +66,17 @@ def protect_locked_script(launch, root, video_id, candidate):
     payload = {
         "generated_at": utc_now(),
         "video_id": video_id,
-        "lock_file": display_path(lock["path"]),
-        "approved_script_sha256": lock["script_sha256"],
+        "lock_files": [display_path(item["path"]) for item in lock["locks"]],
+        "approved_script_sha256": lock.get("script_sha256", ""),
         "current_script_sha256": current_hash,
         "generated_candidate_sha256": candidate_hash,
-        "candidate_write_blocked": candidate_hash != lock["script_sha256"],
+        "candidate_write_blocked": candidate_hash != lock.get("script_sha256", ""),
         "youtube_mutation": "not_performed",
     }
-    if not current:
+    if lock["status"] == "conflict":
+        payload["status"] = "blocked"
+        payload["blocker"] = "conflicting_script_locks"
+    elif not current:
         payload["status"] = "blocked"
         payload["blocker"] = "approved_script_missing"
     elif current_hash != lock["script_sha256"]:
