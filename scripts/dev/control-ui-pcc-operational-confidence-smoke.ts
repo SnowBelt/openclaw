@@ -260,9 +260,6 @@ async function main(): Promise<void> {
     render(renderPccDashboard(baseProps), root);
     const elapsed = performance.now() - start;
     requireSelector(root, "[data-pcc-recovery-center]");
-    requireSelector(root, "[data-pcc-execution-readiness]");
-    requireSelector(root, "[data-pcc-universal-preflight]");
-    requireSelector(root, "[data-pcc-scope-lock]");
     requireSelector(root, "[data-pcc-reorder-instruction]");
     requireSelector(root, "[data-pcc-completed-history-collapsed]");
     requireSelector(root, "[data-pcc-drag-handle='milestone']");
@@ -271,7 +268,6 @@ async function main(): Promise<void> {
     }
     assertText(root, "[data-pcc-reorder-instruction]", "Action menus are paused");
     assertText(root, "[data-pcc-recovery-center]", "Refresh safely");
-    assertText(root, "[data-pcc-universal-preflight]", "Preflight");
     if (elapsed > 250) {
       throw new Error(`PCC render exceeded operational smoke budget: ${elapsed.toFixed(1)}ms`);
     }
@@ -285,6 +281,10 @@ async function main(): Promise<void> {
       }),
       root,
     );
+    requireSelector(root, "[data-pcc-execution-readiness]");
+    requireSelector(root, "[data-pcc-universal-preflight]");
+    requireSelector(root, "[data-pcc-scope-lock]");
+    assertText(root, "[data-pcc-universal-preflight]", "Preflight");
     requireSelector(root, "[data-pcc-interaction-contract-matrix]");
     assertText(root, "[data-pcc-interaction-contract-matrix]", "Work This Project");
     assertText(root, "[data-pcc-autopilot-history]", "Context:");

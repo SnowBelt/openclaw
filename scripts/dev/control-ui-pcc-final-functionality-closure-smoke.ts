@@ -257,7 +257,7 @@ async function main() {
       proofBadgeInHero:
         root.querySelectorAll("[data-pcc-project-hero] [data-pcc-proof-badge]").length === 1,
       maintenanceHero: root.querySelectorAll("[data-pcc-maintenance-hero]").length === 1,
-      dynamicSearchScope: search?.getAttribute("placeholder")?.includes("Active projects") === true,
+      dynamicSearchScope: search?.getAttribute("placeholder")?.includes("All projects") === true,
       noUrgentProjectWorkInPccProduct:
         !text.includes("Needs You Project") || text.includes("outside PCC Product"),
       currentProofOk: text.includes("Current proof: OK"),

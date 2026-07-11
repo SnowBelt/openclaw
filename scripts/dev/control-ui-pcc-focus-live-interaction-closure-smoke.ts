@@ -247,12 +247,11 @@ async function main() {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
       focusBar: root.querySelectorAll("[data-pcc-project-focus-bar]").length === 1,
       todaySummary: text.includes("PCC is current"),
-      proofDrawerDeferredInSimple:
-        root.querySelector<HTMLDetailsElement>(".pcc-top-proof-drawer")?.open === false,
+      proofDrawerHiddenInSimple: root.querySelector(".pcc-top-proof-drawer") === null,
       proofBadgeInHero:
         root.querySelectorAll("[data-pcc-project-hero] [data-pcc-proof-badge]").length === 1,
       maintenanceHero: root.querySelectorAll("[data-pcc-maintenance-hero]").length === 1,
-      dynamicSearchScope: search?.getAttribute("placeholder")?.includes("Active projects") === true,
+      dynamicSearchScope: search?.getAttribute("placeholder")?.includes("All projects") === true,
       needsYouLabel: text.includes("Needs You"),
     };
     const summary = {
