@@ -3,7 +3,7 @@ import type { SimpleCompletionModelOptions } from "../agents/simple-completion-r
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeSecretInputString } from "../config/types.secrets.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import type { Api, Model } from "../llm/types.js";
+import type { Model } from "../llm/types.js";
 import {
   normalizeSelfImprovementModelId,
   selectSelfImprovementReviewModelPlan,
