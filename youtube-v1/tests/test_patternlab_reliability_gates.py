@@ -23,6 +23,7 @@ import patternlab_claim_visual_fidelity as claim_visual_fidelity
 import patternlab_topic_qualification_queue as topic_queue
 import patternlab_runtime_watchdog as runtime_watchdog
 import patternlab_topic_research_worker as topic_research
+import patternlab_environment_health as environment_health
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
@@ -346,6 +347,17 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             with patch.object(daily_factory, "BASE", base), patch.object(daily_factory, "output_root", lambda _: root):
                 with self.assertRaises(SystemExit):
                     daily_factory.protect_locked_script(launch, root, "04", "A generated script.")
+
+    def test_environment_health_blocks_missing_production_capability(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            modules = {name: {"available": True} for name in environment_health.PYTHON_MODULES}
+            modules["whisperx"] = {"available": False, "reason": "missing"}
+            binaries = {name: {"available": True, "path": f"/{name}"} for name in environment_health.BINARY_NAMES}
+            with patch.object(environment_health, "output_root", lambda _: root), patch.object(environment_health, "module_status", return_value=modules), patch.object(environment_health, "binary_status", return_value=binaries), patch.object(environment_health, "node_status", return_value={"available": True}):
+                payload, _, _ = environment_health.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("python_module_missing:whisperx", payload["blockers"])
 
     def test_dotenv_uses_keychain_fallback_without_overwriting_env(self):
         class Result:
