@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -18,6 +19,64 @@ JAMES_MOMENT = "This is where the internet usually gets a little too confident. 
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def sha256_text(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def script_lock(root):
+    """Return a valid owner lock without treating an arbitrary file as approval."""
+    approval = root / "approval"
+    for filename in ("paid-service-approval.json", "script-lock.json"):
+        path = approval / filename
+        if not path.exists():
+            continue
+        try:
+            payload = read_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        script_hash = str(payload.get("script_sha256") or "").strip()
+        if len(script_hash) == 64 and all(char in "0123456789abcdef" for char in script_hash):
+            return {"path": path, "script_sha256": script_hash, "operation": payload.get("operation", "")}
+    return None
+
+
+def protect_locked_script(launch, root, video_id, candidate):
+    """Return the exact safe script text; never overwrite a hash-bound script."""
+    script_path = launch / "final-script.md"
+    lock = script_lock(root)
+    if not lock:
+        return candidate
+
+    approval = ensure_dir(root / "approval")
+    current = script_path.read_text(encoding="utf-8") if script_path.exists() else ""
+    current_hash = sha256_text(current) if current else ""
+    candidate_hash = sha256_text(candidate)
+    payload = {
+        "generated_at": utc_now(),
+        "video_id": video_id,
+        "lock_file": display_path(lock["path"]),
+        "approved_script_sha256": lock["script_sha256"],
+        "current_script_sha256": current_hash,
+        "generated_candidate_sha256": candidate_hash,
+        "candidate_write_blocked": candidate_hash != lock["script_sha256"],
+        "youtube_mutation": "not_performed",
+    }
+    if not current:
+        payload["status"] = "blocked"
+        payload["blocker"] = "approved_script_missing"
+    elif current_hash != lock["script_sha256"]:
+        payload["status"] = "blocked"
+        payload["blocker"] = "current_script_hash_does_not_match_owner_approval"
+    else:
+        payload["status"] = "protected_reused_approved_script"
+        payload["blocker"] = "generated_candidate_rejected" if payload["candidate_write_blocked"] else ""
+    report = approval / "script-immutability-report.json"
+    report.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if payload["status"] == "blocked":
+        raise SystemExit(f"approved_script_immutable:{payload['blocker']}")
+    return current
 
 
 def weighted_score(strategy, scores):
@@ -746,6 +805,7 @@ def write_package(strategy, topic):
     launch = ensure_dir(BASE / "launch" / f"video-{video_id}")
     root = output_root(video_id)
     ensure_dir(root / "approval")
+    script = protect_locked_script(launch, root, video_id, script_text(topic))
     metadata = upload_metadata(topic)
     package = {
         "generated_at": utc_now(),
@@ -768,7 +828,8 @@ def write_package(strategy, topic):
             encoding="utf-8",
         )
         raise SystemExit("source_specific_script_missing: wrote research brief only; no final-script.md was created")
-    (launch / "final-script.md").write_text(script_text(topic), encoding="utf-8")
+    if not (launch / "final-script.md").exists():
+        (launch / "final-script.md").write_text(script, encoding="utf-8")
     (launch / "image-prompts.md").write_text(image_prompts(topic), encoding="utf-8")
     (launch / "shorts-package.md").write_text(shorts_package(topic), encoding="utf-8")
     ensure_dir(BASE / "state" / "monetization")

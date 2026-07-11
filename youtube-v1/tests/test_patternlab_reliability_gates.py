@@ -312,6 +312,41 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
         self.assertFalse(daily_factory.production_script_available({"working_title": "How Detroit Became the Motor City"}))
         self.assertTrue(daily_factory.production_script_available({"working_title": "What Detroit Erased: Black Bottom"}))
 
+    def test_factory_preserves_hash_bound_script_when_template_differs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            launch = base / "launch" / "video-04"
+            root = base / "output" / "video-04"
+            launch.mkdir(parents=True)
+            (root / "approval").mkdir(parents=True)
+            approved = "Approved source-backed Detroit script."
+            (launch / "final-script.md").write_text(approved, encoding="utf-8")
+            approved_hash = daily_factory.sha256_text(approved)
+            (root / "approval" / "paid-service-approval.json").write_text(
+                json.dumps({"script_sha256": approved_hash, "operation": "upload_ready_narration"}), encoding="utf-8"
+            )
+            with patch.object(daily_factory, "BASE", base), patch.object(daily_factory, "output_root", lambda _: root):
+                result = daily_factory.protect_locked_script(launch, root, "04", "A different generated template.")
+            self.assertEqual(result, approved)
+            report = json.loads((root / "approval" / "script-immutability-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "protected_reused_approved_script")
+            self.assertTrue(report["candidate_write_blocked"])
+
+    def test_factory_blocks_when_current_script_differs_from_hash_bound_approval(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            launch = base / "launch" / "video-04"
+            root = base / "output" / "video-04"
+            launch.mkdir(parents=True)
+            (root / "approval").mkdir(parents=True)
+            (launch / "final-script.md").write_text("Unapproved script.", encoding="utf-8")
+            (root / "approval" / "paid-service-approval.json").write_text(
+                json.dumps({"script_sha256": daily_factory.sha256_text("Approved script."), "operation": "upload_ready_narration"}), encoding="utf-8"
+            )
+            with patch.object(daily_factory, "BASE", base), patch.object(daily_factory, "output_root", lambda _: root):
+                with self.assertRaises(SystemExit):
+                    daily_factory.protect_locked_script(launch, root, "04", "A generated script.")
+
     def test_dotenv_uses_keychain_fallback_without_overwriting_env(self):
         class Result:
             returncode = 0
