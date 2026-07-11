@@ -981,6 +981,54 @@ function scrollPccAutopilotIntoView(): void {
     ?.scrollIntoView?.({ block: "nearest" });
 }
 
+function activatePccDetailTab(tabId: string, root?: ParentNode): void {
+  const target = root ?? globalThis.document;
+  if (!target) {
+    return;
+  }
+  for (const tab of target.querySelectorAll<HTMLButtonElement>("[data-pcc-detail-tab]")) {
+    const active = tab.dataset.pccDetailTab === tabId;
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
+  for (const panel of target.querySelectorAll<HTMLElement>("[data-pcc-detail-tab-panel]")) {
+    panel.hidden = panel.dataset.pccDetailTabPanel !== tabId;
+  }
+}
+
+function handlePccDetailTabKeydown(event: KeyboardEvent, tabId: string): void {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  const root = (event.currentTarget as HTMLElement).closest(".pcc-detail-drawer") ?? undefined;
+  const tabs = [...(root?.querySelectorAll<HTMLButtonElement>("[data-pcc-detail-tab]") ?? [])];
+  const currentIndex = tabs.findIndex((tab) => tab.dataset.pccDetailTab === tabId);
+  if (currentIndex < 0 || tabs.length === 0) {
+    return;
+  }
+  event.preventDefault();
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  const next = tabs[nextIndex];
+  if (!next) {
+    return;
+  }
+  activatePccDetailTab(next.dataset.pccDetailTab ?? "plan", root);
+  next.focus();
+}
+
+function openPccAutopilot(props: PccDashboardProps): void {
+  props.onSetViewMode?.("detailed");
+  requestAnimationFrame(() => {
+    activatePccDetailTab("automation");
+    scrollPccAutopilotIntoView();
+  });
+}
+
 function setPccMobileActiveSection(section: string): void {
   const document = globalThis.document;
   if (!document) {
@@ -1030,6 +1078,14 @@ function scrollPccMobileSectionIntoView(section: string): void {
     ?.scrollIntoView?.({ block: "start" });
 }
 
+function openPccMobileSection(section: string, props: PccDashboardProps): void {
+  if (section === "autopilot" && pccViewMode(props) === "simple") {
+    openPccAutopilot(props);
+    return;
+  }
+  scrollPccMobileSectionIntoView(section);
+}
+
 function renderPccMobileCommandRail(props: PccDashboardProps) {
   const hasProject = Boolean(props.projectDetail);
   const detail = props.projectDetail;
@@ -1067,17 +1123,19 @@ function renderPccMobileCommandRail(props: PccDashboardProps) {
       </span>
     </div>
     <div class="pcc-mobile-command-rail__actions">
-      <button
-        class="btn"
-        type="button"
-        data-pcc-mobile-primary-action
-        ?disabled=${!detail ||
-        resolver?.primaryActionId === "no_action_required" ||
-        props.actionBusy}
-        @click=${() => detail && runResolvedProjectPrimaryAction(resolver!, detail, props)}
-      >
-        ${resolver?.primaryLabel ?? "Select Project"}
-      </button>
+      ${resolver?.primaryActionId === "no_action_required"
+        ? html`<span class="pcc-mobile-command-rail__terminal" data-pcc-mobile-terminal-status
+            >No action required</span
+          >`
+        : html`<button
+            class="btn"
+            type="button"
+            data-pcc-mobile-primary-action
+            ?disabled=${!detail || props.actionBusy}
+            @click=${() => detail && runResolvedProjectPrimaryAction(resolver!, detail, props)}
+          >
+            ${resolver?.primaryLabel ?? "Select Project"}
+          </button>`}
       <span>${activeCount} active</span>
       <span>${needsYouCount} needs you</span>
       <span>${runningCount} running</span>
@@ -1095,7 +1153,7 @@ function renderPccMobileCommandRail(props: PccDashboardProps) {
           ?disabled=${tab.disabled}
           aria-current=${tab.id === "projects" && !hasProject ? "true" : nothing}
           aria-label=${`Open PCC ${tab.label} section`}
-          @click=${() => scrollPccMobileSectionIntoView(tab.id)}
+          @click=${() => openPccMobileSection(tab.id, props)}
         >
           ${tab.label}
         </button>`,
@@ -4672,6 +4730,9 @@ function renderWorkLoopCard(props: PccDashboardProps) {
           settings.lastLoopMessage ??
           "Ready for the next safe milestone.");
   const prepareNeedsSetupRepair = !setupEvaluation.runnable && !projectIsTerminal(detail.project);
+  if (projectIsTerminal(detail.project)) {
+    return nothing;
+  }
   if (resolvedAction.hideWorkControls) {
     return html`<section
       class="pcc-work-loop pcc-work-loop--inactive"
@@ -5382,21 +5443,28 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
           <span>This project is parked and is not counted as urgent PCC product work.</span>
         </div>`
       : nothing}
-    <div class="pcc-primary-action" data-pcc-primary-action>
-      <span>${terminal ? "Maintenance" : "Do this next"}</span>
-      <button
-        class="btn"
-        type="button"
-        data-pcc-primary-action-id=${resolvedAction.primaryActionId}
-        ?disabled=${primaryActionDisabled}
-        @click=${() => runResolvedProjectPrimaryAction(resolvedAction, detail, props)}
-      >
-        ${primaryAction}
-      </button>
-      <em>${resolvedAction.explanation}</em>
-    </div>
+    ${terminal
+      ? html`<div class="pcc-primary-action pcc-primary-action--terminal" data-pcc-primary-action>
+          <span>Maintenance</span>
+          <strong data-pcc-terminal-primary-status>No action required</strong>
+          <em>${resolvedAction.explanation}</em>
+        </div>`
+      : html`<div class="pcc-primary-action" data-pcc-primary-action>
+          <span>Do this next</span>
+          <button
+            class="btn"
+            type="button"
+            data-pcc-primary-action-id=${resolvedAction.primaryActionId}
+            ?disabled=${primaryActionDisabled}
+            @click=${() => runResolvedProjectPrimaryAction(resolvedAction, detail, props)}
+          >
+            ${primaryAction}
+          </button>
+          <em>${resolvedAction.explanation}</em>
+        </div>`}
     ${renderBlockerClarityCenter(detail, props, setupEvaluation)}
-    ${renderExecutionReadinessCard(detail)} ${renderUniversalPreflightCard(detail)}
+    ${terminal ? nothing : renderExecutionReadinessCard(detail)}
+    ${terminal ? nothing : renderUniversalPreflightCard(detail)}
     ${renderProjectScopeLock(detail, props)}
     <div class="pcc-project-snapshot__progress">
       <strong>${percent}%</strong>
@@ -5414,7 +5482,13 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         <strong>${autopilotStatusLabel(autopilot.status)}</strong>
         <em>${autopilot.modeTitle}</em>
       </div>
-      <button class="btn btn--subtle" type="button" @click=${scrollPccAutopilotIntoView}>
+      <button
+        class="btn btn--subtle"
+        type="button"
+        @click=${() => {
+          openPccAutopilot(props);
+        }}
+      >
         Open Autopilot
       </button>
     </section>
@@ -5778,8 +5852,7 @@ function renderProjectDetail(props: PccDashboardProps) {
       >
         ${mode === "simple" ? nothing : renderProjectOrientation(detail)}
         ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
-        ${renderWorkLoopCard(props)} ${renderAutopilotProjectLoop(detail, props)}
-        ${renderProjectActivityTimeline(detail)} ${renderDecisionCapturePanel(detail, props)}
+        ${renderWorkLoopCard(props)}
         <details
           class="pcc-detail-drawer"
           data-pcc-mobile-section="more"
@@ -5792,27 +5865,55 @@ function renderProjectDetail(props: PccDashboardProps) {
                 to keep PCC fast and easy to skim.
               </p>`
             : html`
-                <div class="pcc-detail-tabs" data-pcc-detail-tabs>
-                  <span>Plan</span>
-                  <span>Proof</span>
-                  <span>Decisions</span>
-                  <span>Automation</span>
-                  <span>Diagnostics</span>
+                <div
+                  class="pcc-detail-tabs"
+                  data-pcc-detail-tabs
+                  role="tablist"
+                  aria-label="Project details"
+                >
+                  ${[
+                    ["plan", "Plan"],
+                    ["activity", "Activity"],
+                    ["proof", "Proof"],
+                    ["decisions", "Decisions"],
+                    ["automation", "Automation"],
+                    ["diagnostics", "Diagnostics"],
+                  ].map(
+                    ([id, label]) => html`<button
+                      type="button"
+                      role="tab"
+                      data-pcc-detail-tab=${id}
+                      aria-selected=${id === "plan" ? "true" : "false"}
+                      tabindex=${id === "plan" ? "0" : "-1"}
+                      @click=${(event: Event) =>
+                        activatePccDetailTab(
+                          id,
+                          (event.currentTarget as HTMLElement).closest(".pcc-detail-drawer") ??
+                            undefined,
+                        )}
+                      @keydown=${(event: KeyboardEvent) => handlePccDetailTabKeydown(event, id)}
+                    >
+                      ${label}
+                    </button>`,
+                  )}
                 </div>
-                <section data-pcc-detail-tab-panel="plan">
+                <section data-pcc-detail-tab-panel="plan" role="tabpanel">
                   ${renderNextSafeActionCard(props)} ${renderCurrentTruthAndReadyQueue(props)}
                   ${renderPhaseOverview(detail)} ${renderWorkflowQualityCard(detail)}
                 </section>
-                <section data-pcc-detail-tab-panel="proof">
+                <section data-pcc-detail-tab-panel="activity" role="tabpanel" hidden>
+                  ${renderProjectActivityTimeline(detail)}
+                </section>
+                <section data-pcc-detail-tab-panel="proof" role="tabpanel" hidden>
                   ${renderProjectReceiptsAndArtifacts(detail, props)}
                 </section>
-                <section data-pcc-detail-tab-panel="decisions">
-                  ${renderDecisionList(detail, props)}
+                <section data-pcc-detail-tab-panel="decisions" role="tabpanel" hidden>
+                  ${renderDecisionCapturePanel(detail, props)} ${renderDecisionList(detail, props)}
                 </section>
-                <section data-pcc-detail-tab-panel="automation">
-                  ${renderContextPackageCard(detail)}
+                <section data-pcc-detail-tab-panel="automation" role="tabpanel" hidden>
+                  ${renderAutopilotProjectLoop(detail, props)} ${renderContextPackageCard(detail)}
                 </section>
-                <section data-pcc-detail-tab-panel="diagnostics">
+                <section data-pcc-detail-tab-panel="diagnostics" role="tabpanel" hidden>
                   ${renderInteractionContractMatrix()} ${renderImpactDetailCards(detail, props)}
                 </section>
               `}
@@ -7269,6 +7370,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ? [...filteredProjects, selectedProjectSummary]
       : filteredProjects;
   const mode = pccViewMode(props);
+  const deferTodayUntilAfterWorkspace = mode === "simple" && Boolean(props.projectDetail);
   return html`
     <section
       class="pcc-shell"
@@ -7310,7 +7412,9 @@ export function renderPccDashboard(props: PccDashboardProps) {
         : nothing}
       ${renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
-      ${renderPccOfflineState(props)} ${renderTodayView(props)} ${renderPccMobileCommandRail(props)}
+      ${renderPccOfflineState(props)}
+      ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
+      ${renderPccMobileCommandRail(props)}
       ${renderSelectedFilteredProjectNotice(props, projects, allProjects)}
 
       <div class="pcc-layout">
@@ -7338,6 +7442,11 @@ export function renderPccDashboard(props: PccDashboardProps) {
           ${renderProjectDetail(props)} ${renderPortfolioWorkConsole(props)}
         </section>
       </div>
+      ${deferTodayUntilAfterWorkspace
+        ? html`<div class="pcc-today-slot pcc-today-slot--after-workspace">
+            ${renderTodayView(props)}
+          </div>`
+        : nothing}
       ${mode === "simple"
         ? nothing
         : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">

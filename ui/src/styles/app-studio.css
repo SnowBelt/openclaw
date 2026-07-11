@@ -282,6 +282,11 @@
   aspect-ratio: 9 / 16;
   object-fit: cover;
   background: color-mix(in srgb, #000000 18%, transparent);
+  transition: filter 160ms ease;
+}
+
+.app-studio-visual-preview.is-enhanced img {
+  filter: brightness(1.05) contrast(1.08) saturate(1.14);
 }
 
 .app-studio-visual-preview figcaption,
@@ -306,6 +311,11 @@
   font-size: 0.72rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.app-studio-visual-preview__enhance {
+  justify-self: start;
+  margin-top: 4px;
 }
 
 .app-studio-visual-imported {

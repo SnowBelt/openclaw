@@ -376,6 +376,16 @@ describe("renderAppStudioDashboard", () => {
     expect(container.querySelector<HTMLImageElement>(".app-studio-visual-preview img")?.alt).toBe(
       "settings-wireframe.png preview",
     );
+    const enhancePreview = container.querySelector<HTMLButtonElement>(
+      "[data-app-studio-image-enhance]",
+    );
+    expect(enhancePreview?.textContent).toContain("Enhance preview");
+    enhancePreview?.click();
+    expect(enhancePreview?.getAttribute("aria-pressed")).toBe("true");
+    expect(enhancePreview?.textContent).toContain("Show original");
+    expect(enhancePreview?.closest(".app-studio-visual-preview")?.classList).toContain(
+      "is-enhanced",
+    );
 
     const textarea = container.querySelector("textarea");
     expect(textarea).not.toBeNull();

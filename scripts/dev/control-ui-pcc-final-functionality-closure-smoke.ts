@@ -43,8 +43,12 @@ async function main() {
       priority: 5,
       metadata: {
         pccProductionTruth: {
+          latestVerifiedBranch: "codex/pcc-final-functionality-closure-v1",
           latestVerifiedSha: "d1e08b7522243488ca29609c55559cd79f145087",
           runtimeSha: "d1e08b7522243488ca29609c55559cd79f145087",
+          remoteProofSha: "d1e08b7522243488ca29609c55559cd79f145087",
+          runtimeProofSha: "d1e08b7522243488ca29609c55559cd79f145087",
+          browserProofSha: "d1e08b7522243488ca29609c55559cd79f145087",
           remoteProofPassed: true,
           runtimeProofPassed: true,
           browserProofScreenshotPath: "/tmp/proof.png",
@@ -243,6 +247,8 @@ async function main() {
     });
     const text = root.textContent?.replace(/\s+/g, " ") ?? "";
     const search = root.querySelector<HTMLInputElement>("[data-pcc-project-search] input");
+    const workspace = root.querySelector("[data-pcc-selected-project-workspace]");
+    const today = root.querySelector("[data-pcc-today]");
     const checks = {
       shell: root.querySelectorAll("[data-pcc-shell]").length === 1,
       focusBar: root.querySelectorAll("[data-pcc-project-focus-bar]").length === 1,
@@ -257,6 +263,22 @@ async function main() {
       currentProofOk: text.includes("Current proof: OK"),
       historicalCleanupSplit: text.includes("History cleanup"),
       terminalMaintenanceLabel: text.includes("Maintenance") && !text.includes("Fix Setup with AI"),
+      terminalHasNoFakePrimaryButton:
+        root.querySelector("[data-pcc-primary-action] button") === null &&
+        root
+          .querySelector("[data-pcc-terminal-primary-status]")
+          ?.textContent?.includes("No action required") === true,
+      terminalHasNoReadinessOrPreflight:
+        root.querySelector("[data-pcc-execution-readiness]") === null &&
+        root.querySelector("[data-pcc-universal-preflight]") === null,
+      simpleDefersAdvancedPanels:
+        root.querySelector("[data-pcc-autopilot-project-loop]") === null &&
+        root.querySelector("[data-pcc-project-activity]") === null,
+      selectedWorkspacePrecedesToday: Boolean(
+        workspace &&
+        today &&
+        workspace.compareDocumentPosition(today) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
       grammarSingular: text.includes("1 project-specific item is outside PCC Product"),
     };
     const summary = {

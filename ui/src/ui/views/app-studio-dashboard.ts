@@ -739,12 +739,36 @@ function renderPendingScreenImagePreviews(images: AppStudioScreenImageDraft[]) {
             <figcaption>
               <b>${image.fileName}</b>
               <small>${formatFileSize(image.sizeBytes)}</small>
+              <button
+                class="btn btn--subtle app-studio-visual-preview__enhance"
+                type="button"
+                aria-pressed="false"
+                data-app-studio-image-enhance
+                @click=${toggleAppStudioImagePreviewEnhancement}
+              >
+                Enhance preview
+              </button>
             </figcaption>
           </figure>
         `,
       )}
     </div>
   `;
+}
+
+/**
+ * A display-only enhancement for uploaded reference pictures. It never alters the source file
+ * or the data that will be imported into the project.
+ */
+function toggleAppStudioImagePreviewEnhancement(event: Event): void {
+  const button = event.currentTarget as HTMLButtonElement | null;
+  const preview = button?.closest<HTMLElement>(".app-studio-visual-preview");
+  if (!button || !preview) {
+    return;
+  }
+  const enhanced = preview.classList.toggle("is-enhanced");
+  button.setAttribute("aria-pressed", String(enhanced));
+  button.textContent = enhanced ? "Show original" : "Enhance preview";
 }
 
 function renderImportedVisualInputs(selected: AppStudioSelectedProject | null) {

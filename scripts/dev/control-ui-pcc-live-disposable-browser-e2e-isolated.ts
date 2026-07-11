@@ -123,7 +123,7 @@ function runSelfTest(): void {
 if (process.env.OPENCLAW_PCC_LIVE_E2E_SELF_TEST === "1") {
   runSelfTest();
 } else {
-  void main().catch((error: unknown) => {
+  await main().catch((error: unknown) => {
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     const output = redact(message);
     assertNoTokenLeak(output);

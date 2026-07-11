@@ -357,6 +357,17 @@ describe("renderPccDashboard", () => {
     }
   });
 
+  it("opens the real Autopilot surface from the Simple-mode mobile rail", () => {
+    const onSetViewMode = vi.fn();
+    const container = renderView(createProps({ viewMode: "simple", onSetViewMode }));
+    const autopilotTab = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-mobile-section-tab="autopilot"]',
+    );
+
+    autopilotTab?.click();
+    expect(onSetViewMode).toHaveBeenCalledWith("detailed");
+  });
+
   it("uses one resolved primary action across hero and mobile rail", () => {
     const onSetViewMode = vi.fn();
     const container = renderView(createProps({ onSetViewMode }));
@@ -400,15 +411,73 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelector("[data-pcc-primary-action]")?.textContent).toContain(
-      "No Action Required",
+    expect(container.querySelector("[data-pcc-terminal-primary-status]")?.textContent).toContain(
+      "No action required",
     );
+    expect(container.querySelector("[data-pcc-primary-action] button")).toBeNull();
     expect(container.querySelector("[data-pcc-primary-action]")?.textContent).not.toContain(
       "Fix Setup with AI",
     );
-    expect(container.querySelector("[data-pcc-work-loop]")?.textContent).toContain(
-      "No Action Required",
+    expect(container.querySelector("[data-pcc-execution-readiness]")).toBeNull();
+    expect(container.querySelector("[data-pcc-universal-preflight]")).toBeNull();
+    expect(container.querySelector("[data-pcc-work-loop-complete]")?.textContent).toContain(
+      "Project is complete",
     );
+  });
+
+  it("keeps Simple mode focused on status and milestones instead of advanced activity and Autopilot", () => {
+    const container = renderView(createProps({ viewMode: "simple" }));
+
+    expect(container.querySelector("[data-pcc-project-snapshot]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-milestone-journey]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-autopilot-project-loop]")).toBeNull();
+    expect(container.querySelector("[data-pcc-project-activity]")).toBeNull();
+  });
+
+  it("places a selected project before Today in Simple mode", () => {
+    const container = renderView(createProps({ viewMode: "simple" }));
+    const workspace = container.querySelector("[data-pcc-selected-project-workspace]");
+    const today = container.querySelector("[data-pcc-today]");
+
+    expect(workspace).not.toBeNull();
+    expect(today).not.toBeNull();
+    expect(workspace!.compareDocumentPosition(today!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
+      0,
+    );
+    expect(container.querySelector(".pcc-today-slot--after-workspace")).not.toBeNull();
+  });
+
+  it("uses real Details tabs instead of showing every advanced panel at once", () => {
+    const container = renderView(createProps({ viewMode: "detailed" }));
+    const plan = container.querySelector<HTMLElement>('[data-pcc-detail-tab-panel="plan"]');
+    const automation = container.querySelector<HTMLElement>(
+      '[data-pcc-detail-tab-panel="automation"]',
+    );
+    const automationTab = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-detail-tab="automation"]',
+    );
+
+    expect(plan?.hidden).toBe(false);
+    expect(automation?.hidden).toBe(true);
+    automationTab?.click();
+    expect(plan?.hidden).toBe(true);
+    expect(automation?.hidden).toBe(false);
+    expect(automationTab?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("supports keyboard navigation between Details tabs", () => {
+    const container = renderView(createProps({ viewMode: "detailed" }));
+    const planTab = container.querySelector<HTMLButtonElement>('[data-pcc-detail-tab="plan"]');
+    const activityTab = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-detail-tab="activity"]',
+    );
+    const activityPanel = container.querySelector<HTMLElement>(
+      '[data-pcc-detail-tab-panel="activity"]',
+    );
+
+    planTab?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(activityTab?.getAttribute("aria-selected")).toBe("true");
+    expect(activityPanel?.hidden).toBe(false);
   });
 
   it("shows a selected-project activity timeline from milestones, proof, receipts, and decisions", () => {
@@ -1700,7 +1769,7 @@ describe("renderPccDashboard", () => {
       "Complete with maintenance",
     );
     expect(container.querySelector("[data-pcc-setup-repair]")).toBeNull();
-    expect(container.querySelector("[data-pcc-work-loop-complete]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-work-loop]")).toBeNull();
     expect(
       container.querySelector("[data-pcc-detail]")?.getAttribute("data-pcc-detail-project-title"),
     ).toBe("Project Command Center");
@@ -1708,15 +1777,16 @@ describe("renderPccDashboard", () => {
       container.querySelector<HTMLButtonElement>("[data-pcc-reorder-mode-toggle]")?.disabled,
     ).toBe(true);
     expect(container.querySelectorAll("[data-pcc-action-menu-trigger]")).toHaveLength(0);
-    const primaryButtons = Array.from(
-      container.querySelectorAll<HTMLButtonElement>("[data-pcc-primary-action] button"),
+    expect(container.querySelector("[data-pcc-primary-action] button")).toBeNull();
+    expect(container.querySelector("[data-pcc-terminal-primary-status]")?.textContent).toContain(
+      "No action required",
     );
-    const maintenanceButton = primaryButtons.find((button) =>
-      button.textContent?.includes("No Action Required"),
+    expect(container.querySelector("[data-pcc-execution-readiness]")).toBeNull();
+    expect(container.querySelector("[data-pcc-universal-preflight]")).toBeNull();
+    expect(container.querySelector("[data-pcc-mobile-primary-action]")).toBeNull();
+    expect(container.querySelector("[data-pcc-mobile-terminal-status]")?.textContent).toContain(
+      "No action required",
     );
-    expect(maintenanceButton).not.toBeUndefined();
-    expect(maintenanceButton?.disabled).toBe(true);
-    maintenanceButton?.click();
     expect(onSetViewMode).not.toHaveBeenCalled();
     expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
   });

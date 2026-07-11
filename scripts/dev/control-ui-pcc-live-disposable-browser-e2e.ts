@@ -435,6 +435,12 @@ async function main() {
 
     phase = "testing autopilot controls";
     summary.phase = phase;
+    await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
+    await page
+      .locator('[data-pcc-detail-tab="automation"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await clickSafely(page.locator('[data-pcc-detail-tab="automation"]'));
     const autopilotMode = page.locator("[data-pcc-autopilot-mode-picker]").first();
     await autopilotMode.waitFor({ state: "visible", timeout: 15_000 });
     await autopilotMode.selectOption("bug_hunt");
@@ -782,7 +788,7 @@ function runSelfTest(): void {
 if (process.env.OPENCLAW_PCC_LIVE_E2E_SELF_TEST === "1") {
   runSelfTest();
 } else {
-  void main().catch((error: unknown) => {
+  await main().catch((error: unknown) => {
     const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     const output = redactUrl(message);
     assertNoTokenLeak(output);
