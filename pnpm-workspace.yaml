@@ -133,6 +133,7 @@ allowBuilds:
   baileys: true
   authenticate-pam: true
   "@discordjs/opus": false
+  sharp: true
   esbuild: true
   koffi: false
   node-llama-cpp: false
