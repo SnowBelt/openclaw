@@ -172,7 +172,7 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
       );
     })()
       .then(() => undefined)
-      .catch(async (error) => {
+      .catch(async (error: unknown) => {
         const message = formatErrorMessage(error);
         params.log?.error(`self-improvement background cycle failed: ${message}`);
         if (params.recordOperationalHealth !== false) {

@@ -5,7 +5,7 @@ try {
   const options = parseGlm52RuntimeArgs();
   const report = await runGlm52Runtime(options);
   process.stdout.write(`${JSON.stringify(report, null, options.json ? 0 : 2)}\n`);
-  if (report.ok === false) {
+  if (!report.ok) {
     process.exitCode = 1;
   }
 } catch (error) {

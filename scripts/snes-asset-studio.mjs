@@ -1576,7 +1576,7 @@ async function main() {
   printReport(report, args.json);
 }
 
-main().catch((error) => {
+main().catch((error: unknown) => {
   printReport(
     blocked(
       "openclaw-snes-asset-studio-error-v1",

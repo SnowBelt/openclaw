@@ -834,7 +834,7 @@ function reinforceClosureRequirements(params: {
 
 export function buildSelfImprovementLocalReviewerPayloadHint(params: {
   local?: boolean;
-  model: Pick<Model<Api>, "api">;
+  model: Pick<Model, "api">;
   topP?: number;
 }): SimpleCompletionModelOptions["onPayload"] | undefined {
   if (!params.local) {

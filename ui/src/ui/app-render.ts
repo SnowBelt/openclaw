@@ -2275,6 +2275,8 @@ export function renderApp(state: AppViewState) {
       case "overview":
       case "channels":
       case "cron":
+      case "self-improvement":
+        return;
     }
   };
   const refreshAgentsPanelSupplementalData = (panel: AppViewState["agentsPanel"]) => {

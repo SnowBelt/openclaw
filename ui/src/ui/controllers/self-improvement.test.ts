@@ -43,7 +43,7 @@ function createState(): { state: SelfImprovementState; request: ReturnType<typeo
 describe("loadSelfImprovementRecommendations", () => {
   it("loads recent sanitized audit events with the dashboard recommendation snapshot", async () => {
     const { state, request } = createState();
-    request.mockImplementation((method: string) => {
+    request.mockImplementation(async (method: string) => {
       if (method === "selfImprovement.summary") {
         return Promise.resolve({
           scorecard: {
@@ -164,7 +164,7 @@ describe("loadSelfImprovementRecommendations", () => {
     } as SelfImprovementState["selfImprovementHealth"];
     state.selfImprovementRecommendations = [previousRecommendation];
     state.selfImprovementHealth = previousHealth;
-    request.mockImplementation((method: string) => {
+    request.mockImplementation(async (method: string) => {
       if (method === "selfImprovement.summary") {
         return Promise.resolve({
           groups: [{ id: "sig_new" }],
@@ -204,7 +204,7 @@ describe("loadSelfImprovementRecommendations", () => {
 
   it("updates recommendation action state through the Gateway and refreshes", async () => {
     const { state, request } = createState();
-    request.mockImplementation((method: string) => {
+    request.mockImplementation(async (method: string) => {
       if (method === "selfImprovement.recommendations.update") {
         return Promise.resolve({ recommendation: { id: "sir_1" } });
       }
@@ -261,7 +261,7 @@ describe("loadSelfImprovementRecommendations", () => {
 
   it("updates grouped recommendations through the Gateway and refreshes", async () => {
     const { state, request } = createState();
-    request.mockImplementation((method: string) => {
+    request.mockImplementation(async (method: string) => {
       if (method === "selfImprovement.groups.update") {
         return Promise.resolve({ group: { id: "sig_1" }, recommendations: [] });
       }
@@ -313,7 +313,7 @@ describe("loadSelfImprovementRecommendations", () => {
 
   it("updates curator proposals through the Gateway and refreshes", async () => {
     const { state, request } = createState();
-    request.mockImplementation((method: string) => {
+    request.mockImplementation(async (method: string) => {
       if (method === "selfImprovement.curator.update") {
         return Promise.resolve({ proposal: { id: "sip_memory" } });
       }
