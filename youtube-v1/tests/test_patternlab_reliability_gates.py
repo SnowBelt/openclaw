@@ -26,9 +26,28 @@ import patternlab_topic_research_worker as topic_research
 import patternlab_environment_health as environment_health
 import patternlab_monetization_tracker as monetization_tracker
 import patternlab_local_model_health as model_health
+import patternlab_word_alignment as word_alignment
+import patternlab_canonical_renderer as canonical_renderer
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
+    def test_canonical_renderer_escapes_source_labels_for_ffmpeg_drawtext(self):
+        escaped = canonical_renderer.escape_drawtext("Source: Black Bottom 50%")
+        self.assertIn(r"\:", escaped)
+        self.assertIn(r"\%", escaped)
+
+    def test_word_alignment_caption_cards_are_short_and_timestamped(self):
+        words = [
+            {"word": "Black", "start": 0.0, "end": 0.3},
+            {"word": "Bottom", "start": 0.3, "end": 0.7},
+            {"word": "was", "start": 0.7, "end": 0.9},
+            {"word": "not", "start": 0.9, "end": 1.1},
+            {"word": "empty.", "start": 1.1, "end": 1.5},
+        ]
+        captions = word_alignment.captions_from_words(words)
+        self.assertEqual(captions[0]["text"], "Black Bottom was not empty.")
+        self.assertIn("00:00:00,000", word_alignment.srt_text(captions))
+
     def test_local_model_health_blocks_when_required_quality_model_is_absent(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "output" / "video-04"

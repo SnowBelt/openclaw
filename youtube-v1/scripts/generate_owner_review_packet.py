@@ -179,6 +179,7 @@ def main():
     package_hash = read_json(approval / "package-hash-report.json") or {}
     canonical_preflight = read_json(approval / "canonical-preflight-report.json") or {}
     canonical_release = read_json(approval / "canonical-release-registration-report.json") or {}
+    canonical_render = read_json(approval / "canonical-render-plan.json") or {}
     # This packet is a read-only review surface. It must not overwrite the
     # active runtime's calendar or monetization history while inspecting a
     # source worktree.
@@ -205,6 +206,7 @@ def main():
         package_hash=package_hash.get("status"),
         canonical_preflight=canonical_preflight.get("status"),
         canonical_release=canonical_release.get("status"),
+        canonical_render=canonical_render.get("status"),
         long_form_quality=long_form_quality.get("status"),
         shorts_quality=shorts_quality.get("status"),
         thumbnail_quality=thumbnail_quality.get("status"),
@@ -251,6 +253,7 @@ def main():
         f"- Next owner action: {truth_summary.get('next_owner_action', 'missing')}",
         f"- Canonical release candidate: {canonical_release.get('release_candidate_id', 'missing')}",
         f"- Canonical release package hash: {canonical_release.get('package_sha256', 'missing')}",
+        f"- Canonical evidence renderer: {canonical_render.get('status', 'missing')}",
         f"- Owner-review canonical blockers: {', '.join(owner_review_blocker_list) if owner_review_blocker_list else 'none'}",
         f"- Canonical owner-review gate report: {repo_display(canonical_gate_path)} ({canonical_gate_report['status']})",
         "",

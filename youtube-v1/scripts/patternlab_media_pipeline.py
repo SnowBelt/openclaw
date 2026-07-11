@@ -154,6 +154,70 @@ def main():
         if args.require_complete:
             raise SystemExit("Pipeline incomplete: canonical evidence manifest is required before media assembly.")
         return
+    # Canonical production deliberately has no generic-image fallback.  The
+    # immutable evidence timeline, owner-approved narration, and locally
+    # aligned captions are the only inputs allowed to create a review draft.
+    audio = root / "audio" / "voiceover_full_normalized.mp3"
+    if live_voice:
+        voice_cmd = [
+            sys.executable,
+            "youtube-v1/scripts/generate_voiceover.py",
+            "--video-id",
+            args.video_id,
+            "--script-file",
+            script_file,
+            "--live",
+        ]
+        run(voice_cmd, check=False, steps=steps, name="approved_live_voiceover")
+    if not exists(audio):
+        print("Canonical media blocked: approved normalized voiceover is missing. No provider call or generic assembly was run.")
+        steps.append(
+            {
+                "name": "canonical_render",
+                "command": "blocked until hash-approved normalized narration exists",
+                "exit_code": 1,
+                "ok": False,
+                "skipped": True,
+            }
+        )
+        payload = write_pipeline_report(root, args.video_id, steps, media_state(root, args.video_id))
+        if args.require_complete:
+            raise SystemExit("Pipeline incomplete: approved normalized narration is required before canonical rendering.")
+        return
+    run(
+        [sys.executable, "youtube-v1/scripts/patternlab_word_alignment.py", "--video-id", args.video_id, "--run"],
+        check=False,
+        steps=steps,
+        name="local_whisperx_word_alignment",
+    )
+    alignment_status = json_status(root / "approval" / "word-alignment-report.json")
+    if alignment_status == "pass":
+        run(
+            [sys.executable, "youtube-v1/scripts/patternlab_canonical_renderer.py", "--video-id", args.video_id, "--render"],
+            check=False,
+            steps=steps,
+            name="canonical_evidence_render",
+        )
+    else:
+        steps.append(
+            {
+                "name": "canonical_evidence_render",
+                "command": "blocked until local WhisperX word alignment passes",
+                "exit_code": 1,
+                "ok": False,
+                "skipped": True,
+            }
+        )
+    run([sys.executable, "youtube-v1/scripts/patternlab_long_form_quality.py", "--video-id", args.video_id], check=False, steps=steps, name="long_form_quality")
+    run([sys.executable, "youtube-v1/scripts/patternlab_visual_quality.py", "--video-id", args.video_id], check=False, steps=steps, name="visual_quality")
+    payload = write_pipeline_report(root, args.video_id, steps, media_state(root, args.video_id))
+    if args.require_complete and payload["private_upload_readiness"] != "private-upload-ready":
+        raise SystemExit(f"Pipeline incomplete: {payload['private_upload_readiness']}")
+    return
+
+    # Legacy generic-media code below remains unreachable. It is retained only
+    # temporarily to make the migration diff reviewable and must not be used
+    # for owner-review or production renders.
     run([sys.executable, "youtube-v1/scripts/generate_proof_footage.py", "--video-id", args.video_id], steps=steps, name="proof_footage")
     image_cmd = [
         sys.executable,
