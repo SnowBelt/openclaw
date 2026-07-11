@@ -162,6 +162,7 @@ class CanonicalStateTests(unittest.TestCase):
         (launch / "evidence-queries.json").write_text(json.dumps({
             "historical_queries": ["Black Bottom Detroit"],
             "required_entity_terms": ["black bottom"],
+            "required_city_terms": ["detroit"],
         }), encoding="utf-8")
         with patch.object(source_rebuild, "launch_root", lambda _: launch):
             loaded = source_rebuild.load_evidence_queries(root, "04")
@@ -188,8 +189,15 @@ class CanonicalStateTests(unittest.TestCase):
 
     def test_source_rebuild_stops_cleanly_when_library_of_congress_rate_limits(self):
         root = Path(self.temp.name) / "video-04"
-        queries = {"historical": ["Black Bottom Detroit"], "entities": ["black bottom"], "historical_max_year": 1965}
+        queries = {"historical": ["Black Bottom Detroit"], "entities": ["black bottom"], "city_terms": ["detroit"], "historical_max_year": 1965}
         with patch.object(source_rebuild, "loc_search", side_effect=source_rebuild.ProviderRateLimited("provider_rate_limited:library_of_congress")):
+            assets = source_rebuild.source_loc_assets(root, "04", root / "source-packet" / "visual-rebuild", queries)
+        self.assertEqual(assets, [])
+
+    def test_source_rebuild_falls_back_after_library_of_congress_is_unavailable(self):
+        root = Path(self.temp.name) / "video-04"
+        queries = {"historical": ["Black Bottom Detroit"], "entities": ["black bottom"], "city_terms": ["detroit"], "historical_max_year": 1965}
+        with patch.object(source_rebuild, "loc_search", side_effect=source_rebuild.ProviderUnavailable("provider_unavailable:library_of_congress")):
             assets = source_rebuild.source_loc_assets(root, "04", root / "source-packet" / "visual-rebuild", queries)
         self.assertEqual(assets, [])
 
@@ -198,6 +206,7 @@ class CanonicalStateTests(unittest.TestCase):
         queries = {
             "historical": ["Black Bottom Detroit"],
             "entities": ["black bottom", "hastings street"],
+            "city_terms": ["detroit"],
             "historical_max_year": 1965,
         }
 
@@ -226,6 +235,32 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertEqual(len(assets), 1)
         self.assertEqual(assets[0]["source_class"], "historical_evidence")
         self.assertIn("Black Bottom", assets[0]["source_title"])
+
+    def test_commons_historical_fallback_rejects_black_bottom_dance_without_detroit(self):
+        root = Path(self.temp.name) / "video-04"
+        queries = {
+            "historical": ["Black Bottom Detroit"],
+            "entities": ["black bottom"],
+            "city_terms": ["detroit"],
+            "historical_max_year": 1965,
+        }
+        historical_info = {
+            "mime": "image/jpeg",
+            "thumburl": "https://upload.wikimedia.org/example.jpg",
+            "extmetadata": {
+                "LicenseShortName": {"value": "CC BY 4.0"},
+                "DateTimeOriginal": {"value": "1926"},
+                "ImageDescription": {"value": "Singer performing the Black Bottom dance in London"},
+            },
+        }
+        with (
+            patch.object(source_rebuild, "commons_search_titles", return_value=["File:Black Bottom dance.jpg"]),
+            patch.object(source_rebuild, "commons_info", return_value=historical_info),
+        ):
+            assets = source_rebuild.source_commons_historical_assets(
+                root, "04", root / "source-packet" / "visual-rebuild", queries
+            )
+        self.assertEqual(assets, [])
 
     def test_source_rebuild_names_rate_limited_provider_from_url(self):
         self.assertEqual(source_rebuild.provider_label("https://www.loc.gov/photos/?q=x"), "library_of_congress")

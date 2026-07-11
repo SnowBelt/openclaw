@@ -23,5 +23,8 @@
     "st. antoine",
     "i-375"
   ],
+  "required_city_terms": [
+    "detroit"
+  ],
   "notes": "Context footage may support pacing only. Historical claims require direct historical media or a historical map/document linked to the claim ledger."
 }

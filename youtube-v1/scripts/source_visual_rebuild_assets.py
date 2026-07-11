@@ -23,6 +23,10 @@ class ProviderRateLimited(RuntimeError):
     """A public source provider asked Pattern Lab to stop requesting content."""
 
 
+class ProviderUnavailable(RuntimeError):
+    """A sanctioned provider timed out or became temporarily unavailable."""
+
+
 def provider_label(url):
     host = urllib.parse.urlparse(url).netloc.lower()
     if "loc.gov" in host:
@@ -40,7 +44,11 @@ def fetch_json(url):
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
             raise ProviderRateLimited(f"provider_rate_limited:{provider_label(url)}") from exc
+        if exc.code >= 500:
+            raise ProviderUnavailable(f"provider_unavailable:{provider_label(url)}:http_{exc.code}") from exc
         raise
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise ProviderUnavailable(f"provider_unavailable:{provider_label(url)}") from exc
 
 
 def download(url, target):
@@ -82,12 +90,13 @@ def load_evidence_queries(root, video_id):
     historical = [str(item).strip() for item in payload.get("historical_queries", []) if str(item).strip()]
     modern = [str(item).strip() for item in payload.get("modern_context_queries", []) if str(item).strip()]
     entities = [str(item).strip().lower() for item in payload.get("required_entity_terms", []) if str(item).strip()]
-    if not historical or not entities:
-        raise SystemExit("Evidence query file requires historical_queries and required_entity_terms.")
+    city_terms = [str(item).strip().lower() for item in payload.get("required_city_terms", []) if str(item).strip()]
+    if not historical or not entities or not city_terms:
+        raise SystemExit("Evidence query file requires historical_queries, required_entity_terms, and required_city_terms.")
     max_year = int(payload.get("historical_max_year", DEFAULT_HISTORICAL_MAX_YEAR))
     if max_year < 1800 or max_year > 2025:
         raise SystemExit("Evidence query file historical_max_year must be between 1800 and 2025.")
-    return {"path": path, "historical": historical, "modern": modern, "entities": entities, "historical_max_year": max_year}
+    return {"path": path, "historical": historical, "modern": modern, "entities": entities, "city_terms": city_terms, "historical_max_year": max_year}
 
 
 def loc_search(query, page=1, count=80):
@@ -151,6 +160,7 @@ def source_loc_assets(root, video_id, out_dir, queries):
     assets = []
     seen_urls = set()
     seen_titles = set()
+    city_terms = queries.get("city_terms", ["detroit"])
     for query in queries["historical"]:
         query_entities = query_entity_terms(query, queries["entities"])
         page = 1
@@ -159,6 +169,9 @@ def source_loc_assets(root, video_id, out_dir, queries):
                 data = loc_search(query, page=page)
             except ProviderRateLimited as exc:
                 print(f"historical provider paused: {exc}", flush=True)
+                return assets
+            except ProviderUnavailable as exc:
+                print(f"historical provider unavailable: {exc}", flush=True)
                 return assets
             except Exception as exc:
                 print(f"historical query failed: {query}: {exc}", flush=True)
@@ -192,7 +205,7 @@ def source_loc_assets(root, video_id, out_dir, queries):
                     flatten_metadata(result.get("description", "")),
                     flatten_metadata(item.get("subject") or []),
                 ])
-                if not entity_relevant(relevance_text, query_entities):
+                if not entity_relevant(relevance_text, query_entities) or not entity_relevant(relevance_text, city_terms):
                     continue
                 seen_titles.add(title_key)
                 slug = safe_slug(title, loc_id)
@@ -380,13 +393,14 @@ def source_commons_historical_assets(root, video_id, out_dir, queries, existing=
     historical_dir = ensure_dir(out_dir / "historical")
     assets = list(existing or [])
     seen_titles = {str(item.get("source_title", "")).strip().lower() for item in assets}
+    city_terms = queries.get("city_terms", ["detroit"])
     for query in queries["historical"]:
         if len(assets) >= MIN_HISTORICAL:
             break
         query_entities = query_entity_terms(query, queries["entities"])
         try:
             titles = commons_search_titles(query, limit=30)
-        except ProviderRateLimited as exc:
+        except (ProviderRateLimited, ProviderUnavailable) as exc:
             print(f"historical provider paused: {exc}", flush=True)
             break
         except Exception as exc:
@@ -397,7 +411,7 @@ def source_commons_historical_assets(root, video_id, out_dir, queries, existing=
                 continue
             try:
                 info = commons_info(title)
-            except ProviderRateLimited as exc:
+            except (ProviderRateLimited, ProviderUnavailable) as exc:
                 print(f"historical provider paused: {exc}", flush=True)
                 return assets
             except Exception:
@@ -414,7 +428,7 @@ def source_commons_historical_assets(root, video_id, out_dir, queries, existing=
             description = commons_metadata_value(meta, "ImageDescription")
             categories = commons_metadata_value(meta, "Categories")
             relevance_text = " ".join([title, description, categories])
-            if not entity_relevant(relevance_text, query_entities):
+            if not entity_relevant(relevance_text, query_entities) or not entity_relevant(relevance_text, city_terms):
                 continue
             description_url = info.get("descriptionurl") or "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
             download_url = info.get("thumburl") or info.get("url")
@@ -573,6 +587,7 @@ def write_reports(root, video_id, out_dir, historical, modern, queries):
         "historical_queries": queries["historical"],
         "modern_context_queries": queries["modern"],
         "required_entity_terms": queries["entities"],
+        "required_city_terms": queries.get("city_terms", []),
         "visual_category_counts": category_counts,
         "superseded_private_uploads": old_uploads,
         "public_publish": "blocked_due_failed_visual_review",
