@@ -12,6 +12,12 @@
   <true/>
   <key>StartInterval</key>
   <integer>60</integer>
+  <key>WatchPaths</key>
+  <array>
+    <string>/Users/openclaw/Library/LaunchAgents/ai.openclaw.gateway.plist</string>
+  </array>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
   <key>StandardOutPath</key>
   <string>/Users/openclaw/Library/Logs/openclaw/custom-runtime-guard.log</string>
   <key>StandardErrorPath</key>

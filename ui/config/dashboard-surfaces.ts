@@ -8,6 +8,10 @@ export type DashboardSurface = {
   aliases?: readonly string[];
 };
 
+// Increment when a release adds or reorganizes custom surfaces. Persisted clients
+// use this to reveal the dashboard group once after an update.
+export const DASHBOARD_SURFACE_REGISTRY_VERSION = 1;
+
 export const DASHBOARD_SURFACES = [
   {
     id: "pcc",

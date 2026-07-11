@@ -42,8 +42,10 @@ timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 previous_pointer="$runtime_home/active-runtime.json"
 pointer_backup="$runtime_home/backups/active-runtime.$timestamp.json"
 plist_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.plist"
+env_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.env"
 [ -f "$previous_pointer" ] && cp -p "$previous_pointer" "$pointer_backup" || :
 cp -p "$plist" "$plist_backup"
+cp -p "$env_file" "$env_backup"
 
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 pointer_tmp="$runtime_home/active-runtime.$$.json"
@@ -54,9 +56,13 @@ previous = None
 active = os.path.join(os.path.dirname(target), "active-runtime.json")
 if os.path.exists(active):
     with open(active, encoding="utf-8") as f: previous = json.load(f).get("releaseId")
+with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
+    version = json.load(f).get("version")
+if not isinstance(version, str) or not version:
+    raise SystemExit("release package version is missing")
 data = {"schemaVersion": 1, "releaseId": os.path.basename(root), "runtimeRoot": root,
         "entrypoint": os.path.join(root, "dist", "index.js"), "sourceSha": sha,
-        "openclawVersion": "2026.6.11", "manifestPath": manifest,
+        "openclawVersion": version, "manifestPath": manifest,
         "manifestSha256": manifest_sha,
         "requiredSurfaces": ["pcc", "app-studio", "music-studio", "snes-studio", "book-writer", "kalshi", "pattern-lab"],
         "previousRelease": previous, "promotedAt": promoted_at}
@@ -66,6 +72,7 @@ PY
 restore() {
   [ -f "$pointer_backup" ] && cp -p "$pointer_backup" "$previous_pointer" || rm -f "$previous_pointer"
   cp -p "$plist_backup" "$plist"
+  cp -p "$env_backup" "$env_file"
   launchctl bootout "gui/$uid/$label" 2>/dev/null || true
   for _ in $(seq 1 15); do
     launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
@@ -80,6 +87,18 @@ restore() {
 
 cp -p "$pointer_tmp" "$previous_pointer"
 rm -f "$pointer_tmp"
+python3 - "$env_file" "$launcher" <<'PY'
+import os, shlex, stat, sys
+path, launcher = sys.argv[1:]
+mode = stat.S_IMODE(os.stat(path).st_mode)
+with open(path, encoding="utf-8") as f:
+    lines = [line for line in f.readlines() if not line.startswith("export OPENCLAW_WRAPPER=")]
+lines.append(f"export OPENCLAW_WRAPPER={shlex.quote(launcher)}\n")
+with open(path + ".tmp", "w", encoding="utf-8") as f:
+    f.writelines(lines)
+os.chmod(path + ".tmp", mode)
+PY
+mv "$env_file.tmp" "$env_file"
 python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" <<'PY'
 import plistlib, sys
 path, wrapper, env_file, launcher, port = sys.argv[1:]
@@ -105,6 +124,12 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 if [ "$ok" != true ]; then restore; exit 1; fi
+if ! "$launcher" --verify >/dev/null 2>&1 || \
+   ! pgrep -f "$release/dist/index.js gateway --port $port" >/dev/null 2>&1 || \
+   ! grep -q '^export OPENCLAW_WRAPPER=' "$env_file"; then
+  restore
+  exit 1
+fi
 cp -p "$previous_pointer" "$runtime_home/last-known-good.json"
 printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s"}\n' "$timestamp" "$(basename "$release")" "$source_sha" > "$runtime_home/receipts/promotion-$timestamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"

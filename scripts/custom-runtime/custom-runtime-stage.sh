@@ -34,6 +34,19 @@ cp -p "$config_source" "$stage/openclaw.director.json"
 mkdir -p "$stage/state"
 rsync -a --exclude 'logs' --exclude 'tmp' "$state_source/" "$stage/state/"
 
+# Custom extensions that own dashboard RPCs must remain enabled in copied state.
+python3 - "$stage/openclaw.director.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    config = json.load(f)
+plugins = config.get("plugins", {})
+allowed = plugins.get("allow", [])
+entries = plugins.get("entries", {})
+for plugin_id in ("apps", "book-writer"):
+    if plugin_id not in allowed or entries.get(plugin_id, {}).get("enabled") is not True:
+        raise SystemExit(f"required dashboard plugin unavailable: {plugin_id}")
+PY
+
 # Reuse the launcher's verification logic with a private staging pointer.
 manifest="$release/dist/control-ui/dashboard-surfaces.json"
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
@@ -50,6 +63,20 @@ OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" OPENCLAW_STATE_DIR="$stage/
 pid=$!
 for _ in $(seq 1 45); do
   if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+    for route in pcc projects app-studio music-studio snes-studio book-writer kalshi pattern-lab; do
+      [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" = 200 ] || {
+        printf '%s\n' "candidate stage route failed: $route" >&2
+        exit 1
+      }
+    done
+    curl --silent --show-error --max-time 3 --dump-header "$stage/websocket.headers" --output /dev/null \
+      --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+      -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+      "http://127.0.0.1:$port/" >/dev/null 2>&1 || true
+    grep -q '^HTTP/1.1 101 ' "$stage/websocket.headers" || {
+      printf '%s\n' 'candidate stage WebSocket upgrade failed' >&2
+      exit 1
+    }
     printf '%s\n' "CUSTOM_RUNTIME_STAGE_OK release=$(basename "$release")"
     exit 0
   fi

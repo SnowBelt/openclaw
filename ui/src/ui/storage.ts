@@ -24,6 +24,7 @@ type PersistedUiSettings = Omit<UiSettings, "token" | "sessionKey" | "lastActive
 };
 
 import { isSupportedLocale } from "../i18n/index.ts";
+import { DASHBOARD_SURFACE_REGISTRY_VERSION } from "../../config/dashboard-surfaces.ts";
 import { getSafeLocalStorage, getSafeSessionStorage } from "../local-storage.ts";
 import { parseImportedCustomTheme, type ImportedCustomTheme } from "./custom-theme.ts";
 import { inferBasePathFromPathname, normalizeBasePath } from "./navigation.ts";
@@ -93,6 +94,7 @@ export type UiSettings = {
   navCollapsed: boolean; // Collapsible sidebar state
   navWidth: number; // Sidebar width when expanded (240–400px)
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
+  dashboardSurfaceRegistryVersion?: number;
   recentSessionsCollapsed?: boolean; // Collapse recent sessions list in sidebar
   borderRadius: number; // Corner roundness (0–100, default 50)
   textScale?: TextScaleStop; // Browser-local text scale percentage
@@ -251,6 +253,7 @@ export function loadSettings(): UiSettings {
     navCollapsed: false,
     navWidth: 220,
     navGroupsCollapsed: {},
+    dashboardSurfaceRegistryVersion: DASHBOARD_SURFACE_REGISTRY_VERSION,
     recentSessionsCollapsed: false,
     borderRadius: 50,
     textScale: 100,
@@ -275,6 +278,12 @@ export function loadSettings(): UiSettings {
       (parsed as { theme?: unknown }).theme,
       (parsed as { themeMode?: unknown }).themeMode,
     );
+    const persistedNavGroupsCollapsed =
+      typeof parsed.navGroupsCollapsed === "object" && parsed.navGroupsCollapsed !== null
+        ? parsed.navGroupsCollapsed
+        : defaults.navGroupsCollapsed;
+    const revealUpdatedDashboardSurfaces =
+      parsed.dashboardSurfaceRegistryVersion !== DASHBOARD_SURFACE_REGISTRY_VERSION;
     const settings = {
       gatewayUrl,
       // Gateway auth is intentionally in-memory only; scrub any legacy persisted token on load.
@@ -304,10 +313,10 @@ export function loadSettings(): UiSettings {
         typeof parsed.navWidth === "number" && parsed.navWidth >= 200 && parsed.navWidth <= 400
           ? parsed.navWidth
           : defaults.navWidth,
-      navGroupsCollapsed:
-        typeof parsed.navGroupsCollapsed === "object" && parsed.navGroupsCollapsed !== null
-          ? parsed.navGroupsCollapsed
-          : defaults.navGroupsCollapsed,
+      navGroupsCollapsed: revealUpdatedDashboardSurfaces
+        ? { ...persistedNavGroupsCollapsed, dashboards: false }
+        : persistedNavGroupsCollapsed,
+      dashboardSurfaceRegistryVersion: DASHBOARD_SURFACE_REGISTRY_VERSION,
       recentSessionsCollapsed:
         typeof parsed.recentSessionsCollapsed === "boolean"
           ? parsed.recentSessionsCollapsed
@@ -322,7 +331,7 @@ export function loadSettings(): UiSettings {
       customTheme: customTheme ?? undefined,
       locale: isSupportedLocale(parsed.locale) ? parsed.locale : undefined,
     };
-    if ("token" in parsed) {
+    if ("token" in parsed || revealUpdatedDashboardSurfaces) {
       persistSettings(settings);
     }
     return settings;
@@ -495,6 +504,7 @@ function persistSettings(next: UiSettings) {
     navCollapsed: next.navCollapsed,
     navWidth: next.navWidth,
     navGroupsCollapsed: next.navGroupsCollapsed,
+    dashboardSurfaceRegistryVersion: DASHBOARD_SURFACE_REGISTRY_VERSION,
     recentSessionsCollapsed: next.recentSessionsCollapsed ?? false,
     borderRadius: next.borderRadius,
     textScale: normalizeTextScale(next.textScale),

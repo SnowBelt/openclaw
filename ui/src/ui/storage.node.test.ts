@@ -81,6 +81,49 @@ describe("loadSettings default gateway URL derivation", () => {
     expect(loadSettings().chatAutoScroll).toBe("near-bottom");
   });
 
+  it("reveals custom dashboards once when the surface registry changes", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+    localStorage.setItem(
+      "openclaw.control.settings.v1:wss://gateway.example:8443",
+      JSON.stringify({
+        gatewayUrl: "wss://gateway.example:8443",
+        navGroupsCollapsed: { control: true, dashboards: true },
+      }),
+    );
+
+    const settings = loadSettings();
+
+    expect(settings.navGroupsCollapsed).toEqual({ control: true, dashboards: false });
+    expect(settings.dashboardSurfaceRegistryVersion).toBe(1);
+    expect(
+      JSON.parse(
+        localStorage.getItem("openclaw.control.settings.v1:wss://gateway.example:8443") ?? "{}",
+      ).dashboardSurfaceRegistryVersion,
+    ).toBe(1);
+  });
+
+  it("preserves an intentional dashboards collapse for the current registry", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+    localStorage.setItem(
+      "openclaw.control.settings.v1:wss://gateway.example:8443",
+      JSON.stringify({
+        gatewayUrl: "wss://gateway.example:8443",
+        navGroupsCollapsed: { dashboards: true },
+        dashboardSurfaceRegistryVersion: 1,
+      }),
+    );
+
+    expect(loadSettings().navGroupsCollapsed.dashboards).toBe(true);
+  });
+
   it("infers base path from nested pathname when configured base path is not set", () => {
     setTestLocation({
       protocol: "http:",
@@ -144,7 +187,8 @@ describe("loadSettings default gateway URL derivation", () => {
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
-      navGroupsCollapsed: {},
+      navGroupsCollapsed: { dashboards: false },
+      dashboardSurfaceRegistryVersion: 1,
       recentSessionsCollapsed: false,
       borderRadius: 50,
       textScale: 100,
@@ -180,6 +224,7 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
+      dashboardSurfaceRegistryVersion: 1,
       borderRadius: 50,
       textScale: 100,
     });
@@ -276,6 +321,7 @@ describe("loadSettings default gateway URL derivation", () => {
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
+      dashboardSurfaceRegistryVersion: 1,
       recentSessionsCollapsed: false,
       borderRadius: 50,
       textScale: 100,
