@@ -188,6 +188,18 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertFalse(source_rebuild.entity_relevant("Detroit skyline downtown", ["black bottom", "hastings street"]))
         self.assertTrue(source_rebuild.entity_relevant("Hastings Street in Black Bottom", ["black bottom", "hastings street"]))
 
+    def test_source_rebuild_rejects_black_bottom_dance_as_geographic_evidence(self):
+        self.assertFalse(
+            source_rebuild.geographically_specific_historical_record(
+                "Singer performing the Black Bottom dance in Detroit", ["black bottom"], ["detroit"]
+            )
+        )
+        self.assertTrue(
+            source_rebuild.geographically_specific_historical_record(
+                "Black Bottom Detroit neighborhood street map", ["black bottom"], ["detroit"]
+            )
+        )
+
     def test_source_rebuild_requires_each_result_to_match_its_own_query_entity(self):
         query_terms = source_rebuild.query_entity_terms("I-375 Detroit construction Black Bottom", ["black bottom", "i-375"])
         self.assertEqual(query_terms, ["black bottom", "i-375"])

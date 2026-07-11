@@ -118,6 +118,22 @@ def query_entity_terms(query, entities):
     return matched
 
 
+def geographically_specific_historical_record(text, query_entities, city_terms):
+    """Reject semantic lookalikes such as the Black Bottom dance.
+
+    A matching phrase and a city reference alone are not enough when the phrase
+    names a dance, song, or performer rather than the place under investigation.
+    """
+    lowered = str(text or "").lower()
+    if not entity_relevant(lowered, query_entities) or not entity_relevant(lowered, city_terms):
+        return False
+    ambiguous_black_bottom = "black bottom" in query_entities and "black bottom" in lowered
+    if ambiguous_black_bottom and any(term in lowered for term in (" dance", "dancing", "dancer", "song", "performing")):
+        place_cues = ("neighborhood", "street", "detroit map", "housing", "paradise valley", "hastings", "st antoine", "urban renewal")
+        return any(cue in lowered for cue in place_cues)
+    return True
+
+
 def metadata_years(value):
     """Extract plausible years from nested LOC metadata deterministically."""
     return [int(item) for item in re.findall(r"(?<!\d)(1[6-9]\d{2}|20\d{2})(?!\d)", flatten_metadata(value))]
@@ -205,7 +221,7 @@ def source_loc_assets(root, video_id, out_dir, queries):
                     flatten_metadata(result.get("description", "")),
                     flatten_metadata(item.get("subject") or []),
                 ])
-                if not entity_relevant(relevance_text, query_entities) or not entity_relevant(relevance_text, city_terms):
+                if not geographically_specific_historical_record(relevance_text, query_entities, city_terms):
                     continue
                 seen_titles.add(title_key)
                 slug = safe_slug(title, loc_id)
@@ -428,7 +444,7 @@ def source_commons_historical_assets(root, video_id, out_dir, queries, existing=
             description = commons_metadata_value(meta, "ImageDescription")
             categories = commons_metadata_value(meta, "Categories")
             relevance_text = " ".join([title, description, categories])
-            if not entity_relevant(relevance_text, query_entities) or not entity_relevant(relevance_text, city_terms):
+            if not geographically_specific_historical_record(relevance_text, query_entities, city_terms):
                 continue
             description_url = info.get("descriptionurl") or "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
             download_url = info.get("thumburl") or info.get("url")
