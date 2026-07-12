@@ -713,6 +713,15 @@ async function main() {
     phase = "testing mobile command rail";
     summary.phase = phase;
     await page.setViewportSize({ width: 390, height: 844 });
+    const mobileViewMode = page.locator(".pcc-hero--compact [data-pcc-view-mode]").first();
+    await mobileViewMode.waitFor({ state: "visible", timeout: 15_000 });
+    const mobileViewModeLayout = await mobileViewMode.evaluate((switcher) => {
+      const style = globalThis.getComputedStyle(switcher);
+      return {
+        noHorizontalOverflow: switcher.scrollWidth <= switcher.clientWidth + 1,
+        columns: style.gridTemplateColumns.trim().split(/\s+/u).filter(Boolean).length,
+      };
+    });
     const mobileRail = page.locator("[data-pcc-mobile-command-rail]").first();
     await mobileRail.waitFor({ state: "visible", timeout: 15_000 });
     const mobilePrimaryActionVisible = await page
@@ -813,6 +822,8 @@ async function main() {
       mobilePrimaryActionIsInFlow: mobileLayout.primaryActionIsInFlow,
       mobileCardsDoNotOverlap: mobileLayout.noCardOverlap,
       mobileSnapshotDoesNotOverflow: mobileLayout.noHorizontalOverflow,
+      mobileViewModeIsSingleRow: mobileViewModeLayout.columns === 3,
+      mobileViewModeDoesNotOverflow: mobileViewModeLayout.noHorizontalOverflow,
       mobileSectionNavigationWorked,
       noSnesMutation: true,
     };
