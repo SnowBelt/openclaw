@@ -44,6 +44,8 @@ openclaw doctor --lint --allow-exec
 openclaw doctor --deep
 openclaw doctor --fix
 openclaw doctor --fix --non-interactive
+openclaw doctor --check pcc
+openclaw doctor --fix pcc
 openclaw doctor --generate-gateway-token
 openclaw doctor --post-upgrade
 openclaw doctor --post-upgrade --json
@@ -63,7 +65,8 @@ The targeted Discord capabilities probe reports the bot's effective channel perm
 - `--no-workspace-suggestions`: disable workspace memory/search suggestions
 - `--yes`: accept defaults without prompting
 - `--repair`: apply recommended non-service repairs without prompting; gateway service installs and rewrites still require interactive confirmation or explicit gateway commands
-- `--fix`: alias for `--repair`
+- `--fix [area]`: alias for `--repair`; use `--fix pcc` to repair only PCC ledger storage and production-proof bindings
+- `--check <area>`: run a narrow read-only check; `--check pcc` checks only PCC ledger storage and production-proof bindings
 - `--force`: apply aggressive repairs, including overwriting custom service config when needed
 - `--non-interactive`: run without prompts; safe migrations and non-service repairs only
 - `--generate-gateway-token`: generate and configure a gateway token
@@ -192,6 +195,21 @@ openclaw doctor --lint --skip core/doctor/skills-readiness
 id is not registered, no check runs for that id; use the command's `checksRun`
 and `checksSkipped` fields to verify a focused gate is selecting the checks you
 expect.
+
+## PCC state repair
+
+Use the narrow PCC commands when the Project Command Center needs a state migration or
+proof-binding repair without running unrelated doctor repairs:
+
+```bash
+openclaw doctor --check pcc
+openclaw doctor --fix pcc
+```
+
+`--check pcc` is read-only. `--fix pcc` only migrates the legacy PCC JSON ledger to
+transactional SQLite when needed and repairs the PCC product's verified source, runtime,
+and browser-proof SHA bindings. It preserves the legacy ledger as a backup and does not
+change project work, Gateway configuration, credentials, services, or other doctor areas.
 
 ## Post-upgrade mode
 
