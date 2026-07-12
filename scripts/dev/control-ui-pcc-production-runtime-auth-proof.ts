@@ -23,6 +23,12 @@ type RuntimeIdentity = {
     programArguments: string[];
     entrypoint: string | null;
     serviceVersion: string | null;
+    customRuntime?: {
+      runtimeRoot: string;
+      entrypoint: string;
+      sourceSha: string;
+      manifestPath: string;
+    };
     matchesRuntimeRoot: boolean | null;
     driftReason: string | null;
   };
@@ -97,6 +103,41 @@ function serviceEntrypointFromArgs(args: readonly string[]): string | null {
   return candidate ?? null;
 }
 
+function customRuntimePointerFromArgs(args: readonly string[]) {
+  if (!args.some((arg) => arg.endsWith("/custom-runtime-launcher.sh"))) {
+    return null;
+  }
+  const pointerPath = path.join(os.homedir(), ".openclaw-custom-runtime", "active-runtime.json");
+  const raw = readTextIfPresent(pointerPath);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const pointer = JSON.parse(raw) as {
+      runtimeRoot?: unknown;
+      entrypoint?: unknown;
+      sourceSha?: unknown;
+      manifestPath?: unknown;
+    };
+    const runtimeRoot = typeof pointer.runtimeRoot === "string" ? pointer.runtimeRoot : "";
+    const entrypoint = typeof pointer.entrypoint === "string" ? pointer.entrypoint : "";
+    const sourceSha = typeof pointer.sourceSha === "string" ? pointer.sourceSha.trim() : "";
+    const manifestPath = typeof pointer.manifestPath === "string" ? pointer.manifestPath : "";
+    if (
+      !runtimeRoot ||
+      !pathIsSameOrChild(runtimeRoot, path.join(os.homedir(), ".openclaw-runtime-releases")) ||
+      entrypoint !== path.join(runtimeRoot, "dist", "index.js") ||
+      manifestPath !== path.join(runtimeRoot, "dist", "control-ui", "dashboard-surfaces.json") ||
+      !sourceSha
+    ) {
+      return null;
+    }
+    return { runtimeRoot, entrypoint, sourceSha, manifestPath };
+  } catch {
+    return null;
+  }
+}
+
 async function resolveRuntimeIdentity(runtimeRoot = process.cwd()): Promise<RuntimeIdentity> {
   const markerSha = readTextIfPresent(`${runtimeRoot}/.openclaw-production-sha`);
   const snapshotRaw = readTextIfPresent(`${runtimeRoot}/snapshot.json`);
@@ -133,16 +174,22 @@ async function resolveRuntimeIdentity(runtimeRoot = process.cwd()): Promise<Runt
   if (plistPath) {
     const command = await readLaunchAgentProgramArgumentsFromFile(plistPath).catch(() => null);
     const serviceEntrypoint = command ? serviceEntrypointFromArgs(command.programArguments) : null;
+    const customRuntime = command ? customRuntimePointerFromArgs(command.programArguments) : null;
     const serviceVersion = command?.environment?.OPENCLAW_SERVICE_VERSION?.trim() || null;
-    const matchesRuntimeRoot = serviceEntrypoint
-      ? pathIsSameOrChild(serviceEntrypoint, runtimeRoot)
-      : null;
+    const matchesRuntimeRoot = customRuntime
+      ? customRuntime.sourceSha === identity.runtimeSha
+      : serviceEntrypoint
+        ? pathIsSameOrChild(serviceEntrypoint, runtimeRoot)
+        : null;
     const driftReasons = [
-      command && !serviceEntrypoint
+      command && !serviceEntrypoint && !customRuntime
         ? `LaunchAgent ${plistPath} has no dist entrypoint in ProgramArguments`
         : null,
-      serviceEntrypoint && !matchesRuntimeRoot
+      serviceEntrypoint && !customRuntime && !matchesRuntimeRoot
         ? `LaunchAgent entrypoint ${serviceEntrypoint} is outside ${runtimeRoot}`
+        : null,
+      customRuntime && !matchesRuntimeRoot
+        ? `Custom runtime source SHA ${customRuntime.sourceSha} does not match ${identity.runtimeSha ?? "the dashboard runtime"}`
         : null,
       serviceVersion && serviceVersion !== VERSION
         ? `LaunchAgent service version ${serviceVersion} does not match CLI ${VERSION}`
@@ -153,8 +200,9 @@ async function resolveRuntimeIdentity(runtimeRoot = process.cwd()): Promise<Runt
       plistPath,
       installed: Boolean(command),
       programArguments: command?.programArguments ?? [],
-      entrypoint: serviceEntrypoint,
+      entrypoint: customRuntime?.entrypoint ?? serviceEntrypoint,
       serviceVersion,
+      ...(customRuntime ? { customRuntime } : {}),
       matchesRuntimeRoot,
       driftReason: driftReasons.length ? driftReasons.join("; ") : null,
     };
@@ -464,7 +512,12 @@ async function runBrowserProof(options: ProofOptions) {
     await page.waitForTimeout(1_000);
   }
   await page.locator("[data-pcc-detail]").first().waitFor({ state: "visible", timeout: 45_000 });
-  await page.locator("[data-pcc-work-loop]").first().waitFor({ state: "visible", timeout: 45_000 });
+  const workLoop = page.locator("[data-pcc-work-loop]").first();
+  const maintenanceHero = page.locator("[data-pcc-maintenance-hero]").first();
+  const terminalProject = await maintenanceHero.isVisible().catch(() => false);
+  if (!terminalProject) {
+    await workLoop.waitFor({ state: "visible", timeout: 45_000 });
+  }
   const truthLedger = page.locator(".pcc-production-truth__ledger summary").first();
   if ((await truthLedger.count()) > 0 && (await truthLedger.isVisible().catch(() => false))) {
     await truthLedger.click({ force: true });
@@ -542,11 +595,16 @@ async function runBrowserProof(options: ProofOptions) {
       dashboardCurrency: has("Is this dashboard current?"),
       resourcePolicy:
         portfolioConsoleCount === 0 || has("Policy: as many as safe") || has("as many as safe"),
-      workThisProject: options.profile === "functionality-closure" || has("Work This Project"),
+      workThisProject:
+        terminalProject || options.profile === "functionality-closure" || has("Work This Project"),
       stopAfterCurrent:
-        options.profile === "functionality-closure" || has("Stop after current task"),
+        terminalProject ||
+        options.profile === "functionality-closure" ||
+        has("Stop after current task"),
       stopBeforeDestructive:
-        options.profile === "functionality-closure" || has("Stop before destructive actions"),
+        terminalProject ||
+        options.profile === "functionality-closure" ||
+        has("Stop before destructive actions"),
       productionCurrent: has("Current"),
       remoteProofPassed: has("Remote proof Passed") || has("Remote proof\nPassed"),
       runtimeProofPassed: has("Runtime proof Passed") || has("Runtime proof\nPassed"),

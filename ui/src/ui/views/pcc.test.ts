@@ -1794,9 +1794,8 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-execution-readiness]")).toBeNull();
     expect(container.querySelector("[data-pcc-universal-preflight]")).toBeNull();
     expect(container.querySelector("[data-pcc-mobile-primary-action]")).toBeNull();
-    expect(container.querySelector("[data-pcc-mobile-terminal-status]")?.textContent).toContain(
-      "No action required",
-    );
+    expect(container.querySelector("[data-pcc-mobile-command-rail]")).toBeNull();
+    expect(container.querySelector(".pcc-project-snapshot__progress")).toBeNull();
     expect(onSetViewMode).not.toHaveBeenCalled();
     expect(onPrepareNextWorkItem).not.toHaveBeenCalled();
   });

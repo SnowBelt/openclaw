@@ -2274,6 +2274,19 @@
   .pcc-view-mode {
     grid-template-columns: 1fr;
   }
+
+  /* The compact PCC header is a three-choice segmented control, not a vertical menu. */
+  .pcc-hero--compact .pcc-view-mode {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pcc-hero--compact .pcc-view-mode__option {
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 4px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .pcc-today__hero-grid {
@@ -4102,14 +4115,10 @@
   }
 
   .pcc-mobile-section-tabs {
-    display: flex;
+    display: grid;
     gap: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .pcc-mobile-section-tabs::-webkit-scrollbar {
-    display: none;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow: hidden;
   }
 
   .pcc-mobile-section-tabs button {
@@ -4118,13 +4127,14 @@
     border-radius: 999px;
     color: var(--muted);
     cursor: pointer;
-    flex: 1 0 auto;
+    min-width: 0;
     font: inherit;
     font-size: 0.78rem;
     font-weight: 850;
     min-height: 36px;
-    min-width: 0;
-    padding: 8px 10px;
+    overflow: hidden;
+    padding: 8px 4px;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 

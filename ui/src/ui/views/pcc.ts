@@ -1096,6 +1096,10 @@ function renderPccMobileCommandRail(props: PccDashboardProps) {
   ).length;
   const needsYouCount = focusedAttentionProjects(focusProjects, props).length;
   const runningCount = runningProjectsForToday(props).length;
+  const terminalProject = resolver?.primaryActionId === "no_action_required";
+  if (terminalProject && pccViewMode(props) === "simple") {
+    return nothing;
+  }
   const tabs = [
     { id: "projects", label: "Projects", disabled: false },
     { id: "current", label: "Status", disabled: !hasProject },
@@ -1123,7 +1127,7 @@ function renderPccMobileCommandRail(props: PccDashboardProps) {
       </span>
     </div>
     <div class="pcc-mobile-command-rail__actions">
-      ${resolver?.primaryActionId === "no_action_required"
+      ${terminalProject
         ? html`<span class="pcc-mobile-command-rail__terminal" data-pcc-mobile-terminal-status
             >No action required</span
           >`
@@ -1136,9 +1140,11 @@ function renderPccMobileCommandRail(props: PccDashboardProps) {
           >
             ${resolver?.primaryLabel ?? "Select Project"}
           </button>`}
-      <span>${activeCount} active</span>
-      <span>${needsYouCount} needs you</span>
-      <span>${runningCount} running</span>
+      ${terminalProject
+        ? nothing
+        : html`<span>${activeCount} active</span>
+            <span>${needsYouCount} needs you</span>
+            <span>${runningCount} running</span>`}
     </div>
     <nav
       class="pcc-mobile-section-tabs"
@@ -5474,16 +5480,18 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     ${terminal || simple ? nothing : renderExecutionReadinessCard(detail)}
     ${terminal || simple ? nothing : renderUniversalPreflightCard(detail)}
     ${terminal || simple ? nothing : renderProjectScopeLock(detail, props)}
-    <div class="pcc-project-snapshot__progress">
-      <strong>${percent}%</strong>
-      <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
-        <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
-      </div>
-      <span
-        >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
-        milestones complete</span
-      >
-    </div>
+    ${terminal && simple
+      ? nothing
+      : html`<div class="pcc-project-snapshot__progress">
+          <strong>${percent}%</strong>
+          <div class="pcc-progress" aria-label=${`${project.title} ${percent}% complete`}>
+            <span class="pcc-progress__bar" style=${`width:${percent}%`}></span>
+          </div>
+          <span
+            >${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
+            milestones complete</span
+          >
+        </div>`}
     ${terminal || simple
       ? nothing
       : html`
