@@ -279,7 +279,10 @@ async function fillProjectTitle(
     await stable.fill(value);
     return;
   }
-  await editor.getByLabel("Title").first().fill(value);
+  await editor
+    .getByLabel(/Project name|Title/i)
+    .first()
+    .fill(value);
 }
 
 async function main() {
@@ -288,10 +291,18 @@ async function main() {
   const setupProjectId = `pcc-disposable-live-setup-${suffix}`;
   const actionProjectTitle = `PCC Disposable Live Actions ${suffix}`;
   const setupProjectTitle = `PCC Disposable Live Setup ${suffix}`;
+  const createdProjectTitle = `PCC Guided Creation ${suffix}`;
   let currentActionProjectTitle = actionProjectTitle;
+  let createdProjectId = "";
   const screenshotPath =
     process.env.OPENCLAW_PCC_LIVE_E2E_SCREENSHOT ??
     "/tmp/openclaw-dashboard-pcc-live-disposable-e2e.png";
+  const creationDesktopScreenshotPath =
+    process.env.OPENCLAW_PCC_NEW_PROJECT_DESKTOP_SCREENSHOT ??
+    "/tmp/openclaw-dashboard-pcc-new-project-desktop.png";
+  const creationMobileScreenshotPath =
+    process.env.OPENCLAW_PCC_NEW_PROJECT_MOBILE_SCREENSHOT ??
+    "/tmp/openclaw-dashboard-pcc-new-project-mobile.png";
 
   let browser: import("playwright").Browser | undefined;
   let phase = "initializing";
@@ -302,6 +313,8 @@ async function main() {
     setupProjectId,
     phase,
     screenshotPath,
+    creationDesktopScreenshotPath,
+    creationMobileScreenshotPath,
     checks: {},
     cleanup: [],
   };
@@ -384,6 +397,78 @@ async function main() {
         .locator('[data-pcc-editor="project"]')
         .count()
         .catch(() => 0)) === 0;
+
+    phase = "testing guided new project creation";
+    summary.phase = phase;
+    await clickProjectButton(page, "[data-pcc-new-project]", /^New project$/i);
+    const creationEditor = page.locator('[data-pcc-editor="project"]').first();
+    await creationEditor.waitFor({ state: "visible", timeout: 15_000 });
+    await creationEditor
+      .locator("[data-pcc-project-description]")
+      .fill(
+        "Create a disposable project that proves the guided PCC creation flow without touching user work.",
+      );
+    const customizeDetails = creationEditor.locator("[data-pcc-create-customize]").first();
+    const customizeSummary = customizeDetails.locator(":scope > summary");
+    await customizeSummary.scrollIntoViewIfNeeded();
+    await customizeSummary.click();
+    if ((await customizeDetails.getAttribute("open")) === null) {
+      await customizeSummary.press("Enter");
+    }
+    await creationEditor
+      .locator("[data-pcc-project-title]")
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await fillProjectTitle(creationEditor, createdProjectTitle);
+    const aiExplainerVisible = await creationEditor
+      .locator("[data-pcc-create-ai-explainer]")
+      .isVisible();
+    await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
+    await creationEditor
+      .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
+      .waitFor({ state: "visible", timeout: 15_000 });
+    const userTitlePreserved =
+      (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
+      createdProjectTitle;
+    const reviewExplainsSafety = await creationEditor
+      .locator("[data-pcc-create-review-ready]")
+      .getByText("Nothing has been created or started yet", { exact: false })
+      .isVisible();
+    await page.screenshot({ path: creationDesktopScreenshotPath, fullPage: true });
+    await creationEditor.locator("[data-pcc-create-project-confirm]").click({ force: true });
+    await creationEditor.waitFor({ state: "hidden", timeout: 30_000 });
+    const createdProjects = await gateway<{ projects?: PccProjectSummary[] }>("pcc.projects.list", {
+      includeArchived: false,
+    });
+    createdProjectId =
+      createdProjects.projects?.find((item) => item.title === createdProjectTitle)?.id ?? "";
+    if (!createdProjectId) {
+      throw new Error("guided project creation did not persist the new project");
+    }
+    const newProjectGuidedCreateWorked =
+      aiExplainerVisible && userTitlePreserved && reviewExplainsSafety;
+
+    phase = "testing guided creation on mobile";
+    summary.phase = phase;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clickProjectButton(page, "[data-pcc-new-project]", /^New project$/i);
+    const mobileCreationEditor = page.locator('[data-pcc-editor="project"]').first();
+    await mobileCreationEditor.waitFor({ state: "visible", timeout: 15_000 });
+    const newProjectMobileLayout = await mobileCreationEditor.evaluate((editor) => {
+      const rect = editor.getBoundingClientRect();
+      const explainer = editor.querySelector<HTMLElement>("[data-pcc-create-ai-explainer]");
+      const action = editor.querySelector<HTMLElement>("[data-pcc-create-review-plan]");
+      return {
+        fitsViewport: rect.left >= -1 && rect.right <= globalThis.innerWidth + 1,
+        noHorizontalOverflow: editor.scrollWidth <= editor.clientWidth + 1,
+        explainerVisible: Boolean(explainer && explainer.getBoundingClientRect().height > 0),
+        primaryActionVisible: Boolean(action && action.getBoundingClientRect().height > 0),
+      };
+    });
+    await page.screenshot({ path: creationMobileScreenshotPath, fullPage: true });
+    await mobileCreationEditor.locator("[data-pcc-project-cancel]").click({ force: true });
+    await mobileCreationEditor.waitFor({ state: "hidden", timeout: 15_000 });
+    await page.setViewportSize({ width: 1440, height: 1200 });
 
     phase = "selecting disposable action project";
     summary.phase = phase;
@@ -799,6 +884,11 @@ async function main() {
         sortedAfterMove[0]?.id === `${actionProjectId}-step-1`,
       actionMenuWorked: true,
       newProjectCancelWorked,
+      newProjectGuidedCreateWorked,
+      newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
+      newProjectMobileDoesNotOverflow: newProjectMobileLayout.noHorizontalOverflow,
+      newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,
+      newProjectMobilePrimaryActionVisible: newProjectMobileLayout.primaryActionVisible,
       editSavePersisted,
       editCancelDiscarded,
       autopilotControlsWorked,
@@ -861,6 +951,7 @@ async function main() {
     };
     await cleanupProject(actionProjectId, currentActionProjectTitle, actionProjectCreated);
     await cleanupProject(setupProjectId, setupProjectTitle, setupProjectCreated);
+    await cleanupProject(createdProjectId, createdProjectTitle, Boolean(createdProjectId));
     summary.cleanup = cleanupResults;
     const cleanupComplete = cleanupResults.every((result) => !result.created || result.archived);
     summary.checks = {

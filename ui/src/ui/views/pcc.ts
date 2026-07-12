@@ -274,6 +274,51 @@ function plannerModelRefreshLabel(props: PccDashboardProps): string {
     : `No configured models from last refresh (${freshness})`;
 }
 
+function selectedPlannerModelLabel(props: PccDashboardProps): string {
+  const selected = props.projectForm.plannerModelId || "best-available";
+  return plannerModelOptions(props).find(([value]) => value === selected)?.[1] ?? selected;
+}
+
+function projectPlannerSummary(props: PccDashboardProps): {
+  title: string;
+  detail: string;
+  safety: string;
+} {
+  const form = props.projectForm;
+  switch (form.plannerMode) {
+    case "local_project_manager":
+      return {
+        title: "Local Project Manager",
+        detail: "Creates the project plan and routes each step to the right worker.",
+        safety: "Local planning · no Codex token spend",
+      };
+    case "local_model":
+      return {
+        title: selectedPlannerModelLabel(props),
+        detail: "Uses the selected local model to draft this project plan.",
+        safety: "Local model · no Codex token spend",
+      };
+    case "codex":
+      return {
+        title: "Codex",
+        detail: "Uses Codex to refine the project plan after you approve token spend.",
+        safety: form.codexPlanningAllowed ? "Codex approved for this scope" : "Approval required",
+      };
+    case "high_reasoning_codex":
+      return {
+        title: "High-reasoning Codex",
+        detail: "Uses deeper Codex reasoning for difficult planning after explicit approval.",
+        safety: form.codexPlanningAllowed ? "High reasoning approved" : "Approval required",
+      };
+    default:
+      return {
+        title: "Best available (local first)",
+        detail: "Starts with the Local Project Manager and asks before using Codex.",
+        safety: "Recommended · no surprise token spend",
+      };
+  }
+}
+
 let draggedPccMilestoneId: string | null = null;
 let draggedPccSubMilestoneId: string | null = null;
 
@@ -1749,6 +1794,7 @@ function draftProjectIntakeAnswers(
   const goal =
     form.goal.trim() ||
     detail?.project.goal?.trim() ||
+    form.projectDescription.trim() ||
     source ||
     `Complete ${title} with a verified PCC plan.`;
   const nextMilestone = detail?.milestones.find(
@@ -1816,9 +1862,57 @@ function projectIntakeDraftPatch(
   return {
     title,
     goal,
+    outcomeMetrics:
+      (form.outcomeMetrics ?? "").trim() ||
+      [
+        `${title} produces a first approved deliverable.`,
+        "Every milestone has acceptance criteria and receipt-backed proof before completion.",
+      ].join("\n"),
     intakeAnswers,
     workflowTemplateId: form.workflowTemplateId || recommendation.templateId,
     planPreviewAccepted: false,
+  };
+}
+
+function projectCreationReviewPatch(form: PccProjectFormState): Partial<PccProjectFormState> {
+  return {
+    ...projectIntakeDraftPatch(form),
+    intakeApproved: true,
+    planPreviewAccepted: true,
+  };
+}
+
+function projectCreationBlankCount(form: PccProjectFormState): number {
+  return (
+    Number(!form.title.trim()) +
+    Number(!form.goal.trim()) +
+    Number(!(form.outcomeMetrics ?? "").trim()) +
+    pccMissingRequiredIntakeAnswers(form.intakeAnswers).length
+  );
+}
+
+function projectCreationDraftStats(form: PccProjectFormState): {
+  milestones: number;
+  subMilestones: number;
+} {
+  const source = projectIntakeSourceText(form);
+  const title = form.title.trim() || source.split(/\r?\n/u).find(Boolean)?.trim() || "New project";
+  const goal = form.goal.trim() || source || `Complete ${title}.`;
+  const draft = buildPccWorkflowDraft({
+    title,
+    goal,
+    templateId: form.workflowTemplateId,
+    planningMode: plannerModeToPlanningMode(form.plannerMode),
+    codexPlanningAllowed: form.codexPlanningAllowed,
+    remoteProofAllowed: form.remoteProofAllowed,
+    runtimeActionsAllowed: form.runtimeActionsAllowed,
+  });
+  return {
+    milestones: draft.milestones.length,
+    subMilestones: Object.values(draft.subMilestonesByMilestoneTitle).reduce(
+      (count, items) => count + items.length,
+      0,
+    ),
   };
 }
 
@@ -1973,7 +2067,7 @@ function renderProjectEditModeTabs(props: PccDashboardProps) {
       aria-pressed=${mode === "simple"}
       @click=${() => props.onSetProjectEditMode?.("simple")}
     >
-      Simple Edit
+      Basics
     </button>
     <button
       class=${mode === "advanced" ? "btn" : "btn btn--subtle"}
@@ -1982,7 +2076,7 @@ function renderProjectEditModeTabs(props: PccDashboardProps) {
       aria-pressed=${mode === "advanced"}
       @click=${() => props.onSetProjectEditMode?.("advanced")}
     >
-      Advanced Edit
+      Full plan
     </button>
     <button
       class=${mode === "ai" ? "btn" : "btn btn--subtle"}
@@ -1991,7 +2085,7 @@ function renderProjectEditModeTabs(props: PccDashboardProps) {
       aria-pressed=${mode === "ai"}
       @click=${() => props.onSetProjectEditMode?.("ai")}
     >
-      AI Edit
+      AI help
     </button>
   </nav>`;
 }
@@ -3182,7 +3276,7 @@ function renderMilestoneReorderControls(
         }
       }}
     >
-      ↑
+      <span aria-hidden="true">↑</span><span>Up</span>
     </button>
     <button
       type="button"
@@ -3197,7 +3291,7 @@ function renderMilestoneReorderControls(
         }
       }}
     >
-      ↓
+      <span aria-hidden="true">↓</span><span>Down</span>
     </button>
   </span>`;
 }
@@ -3225,7 +3319,7 @@ function renderSubMilestoneReorderControls(
         }
       }}
     >
-      ↑
+      <span aria-hidden="true">↑</span><span>Up</span>
     </button>
     <button
       type="button"
@@ -3240,7 +3334,7 @@ function renderSubMilestoneReorderControls(
         }
       }}
     >
-      ↓
+      <span aria-hidden="true">↓</span><span>Down</span>
     </button>
   </span>`;
 }
@@ -5667,10 +5761,20 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
       </div>
     </div>
     ${reorderMode && canReorder
-      ? html`<p class="pcc-reorder-instruction" data-pcc-reorder-instruction>
-          Reorder mode is on. Drag by the handle, or use ↑ ↓. Action menus are paused until you
-          choose Done reordering. PCC saves automatically and shows Undo.
-        </p>`
+      ? html`<section class="pcc-reorder-instruction" data-pcc-reorder-instruction>
+          <div>
+            <strong>Reorder mode is on</strong>
+            <span class="pcc-reorder-safety-badge">Dependency checks on</span>
+          </div>
+          <p>
+            Drag the handle, or choose Up or Down. PCC blocks any move that would break a
+            dependency, saves successful moves automatically, and always offers Undo.
+          </p>
+          <small
+            >Action menus are paused while you reorder. Choose Done reordering when the sequence
+            looks right.</small
+          >
+        </section>`
       : nothing}
     <div class="pcc-journey-phases" data-pcc-journey-phases>
       ${phaseGroups.map((group) => {
@@ -5751,7 +5855,7 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                           ☰
                         </button>
                         ${renderMilestoneReorderControls(milestones, milestone, props)}
-                        <span>Reorder step ${globalIndex}</span>
+                        <span>Step ${globalIndex} · safe move controls</span>
                       </div>`
                     : nothing}
                   <details ?open=${mode !== "simple" && journeyClass === "current"}>
@@ -6651,7 +6755,7 @@ function renderProjectIntakeWizard(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderGeneratedPlanPreview(props: PccDashboardProps) {
+function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = true) {
   const form = props.projectForm;
   const description = (form.projectDescription ?? "").trim();
   if (!description && !form.title.trim() && !form.goal.trim()) {
@@ -6726,17 +6830,19 @@ function renderGeneratedPlanPreview(props: PccDashboardProps) {
         </li>`;
       })}
     </ol>
-    <label class="pcc-intake-wizard__approval">
-      <input
-        type="checkbox"
-        .checked=${form.planPreviewAccepted}
-        @change=${(event: Event) =>
-          props.onProjectFormChange({
-            planPreviewAccepted: (event.target as HTMLInputElement).checked,
-          })}
-      />
-      I reviewed this generated plan preview.
-    </label>
+    ${showApproval
+      ? html`<label class="pcc-intake-wizard__approval">
+          <input
+            type="checkbox"
+            .checked=${form.planPreviewAccepted}
+            @change=${(event: Event) =>
+              props.onProjectFormChange({
+                planPreviewAccepted: (event.target as HTMLInputElement).checked,
+              })}
+          />
+          I reviewed this generated plan preview.
+        </label>`
+      : nothing}
   </section>`;
 }
 
@@ -6746,6 +6852,304 @@ function renderEditorActionError(props: PccDashboardProps) {
         <strong>Could not save</strong><span>${props.actionError}</span>
       </p>`
     : nothing;
+}
+
+function renderProjectCoreFields(props: PccDashboardProps) {
+  const form = props.projectForm;
+  return html`<section class="pcc-create-core" data-pcc-create-core-fields>
+    <label>
+      Project name
+      <input
+        required
+        data-pcc-project-title
+        .value=${form.title}
+        @input=${(event: Event) =>
+          props.onProjectFormChange({ title: (event.target as HTMLInputElement).value })}
+      />
+    </label>
+    <label>
+      What should this project accomplish?
+      <textarea
+        data-pcc-project-goal
+        .value=${form.goal}
+        @input=${(event: Event) =>
+          props.onProjectFormChange({ goal: (event.target as HTMLTextAreaElement).value })}
+      ></textarea>
+    </label>
+    <label>
+      How will you know it worked?
+      <textarea
+        data-pcc-project-outcome-metrics
+        placeholder="One clear result per line."
+        .value=${form.outcomeMetrics}
+        @input=${(event: Event) =>
+          props.onProjectFormChange({
+            outcomeMetrics: (event.target as HTMLTextAreaElement).value,
+          })}
+      ></textarea>
+    </label>
+  </section>`;
+}
+
+function renderProjectScheduleAndWorkflow(props: PccDashboardProps) {
+  const form = props.projectForm;
+  return html`<section class="pcc-create-options__group">
+    <div>
+      <strong>Schedule and workflow</strong>
+      <span>Optional. PCC already chose safe defaults.</span>
+    </div>
+    <div class="pcc-editor__grid">
+      <label>
+        Priority
+        <select
+          .value=${form.priority}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({ priority: (event.target as HTMLSelectElement).value })}
+        >
+          <option value="0">Lowest</option>
+          <option value="1">Low</option>
+          <option value="2">Normal</option>
+          <option value="3">Important</option>
+          <option value="4">High</option>
+          <option value="5">Urgent</option>
+        </select>
+      </label>
+      <label>
+        Due date
+        <input
+          type="date"
+          data-pcc-project-due-date
+          .value=${form.dueDate}
+          @input=${(event: Event) =>
+            props.onProjectFormChange({ dueDate: (event.target as HTMLInputElement).value })}
+        />
+      </label>
+      <label>
+        Workflow
+        <select
+          data-pcc-project-workflow
+          .value=${form.workflowTemplateId}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({
+              workflowTemplateId: (event.target as HTMLSelectElement).value,
+            })}
+        >
+          ${PCC_WORKFLOW_TEMPLATES.map(
+            (template) => html`<option value=${template.id}>${template.title}</option>`,
+          )}
+        </select>
+      </label>
+    </div>
+  </section>`;
+}
+
+function renderProjectPlannerSummary(props: PccDashboardProps) {
+  const summary = projectPlannerSummary(props);
+  return html`<section class="pcc-create-planner-summary" data-pcc-create-planner-summary>
+    <div>
+      <span>AI planning this project</span>
+      <strong>${summary.title}</strong>
+      <p>${summary.detail}</p>
+    </div>
+    <em>${summary.safety}</em>
+  </section>`;
+}
+
+function renderProjectPlannerControls(props: PccDashboardProps) {
+  const form = props.projectForm;
+  return html`<section class="pcc-create-options__group" data-pcc-create-model-options>
+    <div>
+      <strong>AI and model</strong>
+      <span>Best available is local-first. PCC asks before Codex spends tokens.</span>
+    </div>
+    <div class="pcc-editor__grid pcc-editor__grid--two">
+      <label>
+        Planning method
+        <select
+          data-pcc-planner-selector
+          .value=${form.plannerMode}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({
+              plannerMode: (event.target as HTMLSelectElement).value as PccPlannerMode,
+            })}
+        >
+          ${renderStringOptions(PLANNER_MODE_OPTIONS, form.plannerMode)}
+        </select>
+      </label>
+      <label>
+        Model
+        <select
+          data-pcc-planner-model
+          .value=${form.plannerModelId || "best-available"}
+          @change=${(event: Event) =>
+            props.onProjectFormChange({
+              plannerModelId: (event.target as HTMLSelectElement).value,
+            })}
+        >
+          ${plannerModelOptions(props).map(
+            ([value, label]) => html`<option value=${value}>${label}</option>`,
+          )}
+        </select>
+        <small data-pcc-model-refresh-status>${plannerModelRefreshLabel(props)}</small>
+      </label>
+    </div>
+    <button
+      class="btn btn--subtle"
+      type="button"
+      data-pcc-refresh-models
+      ?disabled=${props.modelsLoading}
+      @click=${() => props.onRefreshModelCatalog?.()}
+    >
+      Refresh model list
+    </button>
+  </section>`;
+}
+
+function renderProjectCreationCustomize(props: PccDashboardProps, includeCoreFields: boolean) {
+  const form = props.projectForm;
+  const missing = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
+  return html`<details class="pcc-create-options" data-pcc-create-customize>
+    <summary>
+      <span>
+        <strong>Customize plan</strong>
+        <small>Optional · change details, model, workflow, or safety</small>
+      </span>
+    </summary>
+    <div class="pcc-create-options__body">
+      ${includeCoreFields ? renderProjectCoreFields(props) : nothing}
+      ${renderProjectScheduleAndWorkflow(props)} ${renderProjectPlannerControls(props)}
+      ${renderPlannerPermissionCard(props)}
+      <details class="pcc-create-options__nested" data-pcc-advanced-intake>
+        <summary>
+          Review every setup answer · ${missing.length ? `${missing.length} missing` : "ready"}
+        </summary>
+        ${renderProjectIntakeWizard(props)}
+      </details>
+      <section class="pcc-create-options__group">
+        <div>
+          <strong>Safety</strong>
+          <span>These permissions remain off unless you choose them.</span>
+        </div>
+        <div class="pcc-intake-options" data-pcc-workflow-intake>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${form.remoteProofAllowed}
+              @change=${(event: Event) =>
+                props.onProjectFormChange({
+                  remoteProofAllowed: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Allow remote proof when required
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              .checked=${form.runtimeActionsAllowed}
+              @change=${(event: Event) =>
+                props.onProjectFormChange({
+                  runtimeActionsAllowed: (event.target as HTMLInputElement).checked,
+                })}
+            />
+            Allow local runtime actions
+          </label>
+        </div>
+      </section>
+    </div>
+  </details>`;
+}
+
+function renderProjectCreationFlow(props: PccDashboardProps) {
+  const form = props.projectForm;
+  const reviewing = form.planPreviewAccepted;
+  const blankCount = projectCreationBlankCount(form);
+  const stats = projectCreationDraftStats(form);
+  const canReview = Boolean(
+    form.projectDescription.trim() || form.title.trim() || form.goal.trim(),
+  );
+  return html`<section
+    class="pcc-create-flow"
+    data-pcc-create-flow
+    data-pcc-create-step=${reviewing ? "review" : "describe"}
+  >
+    <ol class="pcc-create-steps" aria-label="New project progress">
+      <li class=${reviewing ? "is-complete" : "is-current"}><span>1</span>Describe</li>
+      <li class=${reviewing ? "is-current" : ""}><span>2</span>Review plan</li>
+      <li><span>3</span>Create</li>
+    </ol>
+    ${reviewing
+      ? html`
+          <section class="pcc-create-review-callout" data-pcc-create-review-ready>
+            <div>
+              <strong>Your plan is ready to review</strong>
+              <span
+                >PCC filled blank setup fields and kept everything you typed. Nothing has been
+                created or started yet.</span
+              >
+            </div>
+            <span>${stats.milestones} milestones · ${stats.subMilestones} sub-steps</span>
+          </section>
+          ${renderProjectCoreFields(props)} ${renderGeneratedPlanPreview(props, false)}
+          ${renderProjectPlannerSummary(props)}
+          <details class="pcc-create-request-edit">
+            <summary>Edit original request</summary>
+            <label class="pcc-editor__hero-field">
+              What do you want to accomplish?
+              <textarea
+                data-pcc-project-description
+                .value=${form.projectDescription}
+                @input=${(event: Event) =>
+                  props.onProjectFormChange({
+                    projectDescription: (event.target as HTMLTextAreaElement).value,
+                  })}
+              ></textarea>
+            </label>
+          </details>
+          ${renderProjectCreationCustomize(props, false)}
+        `
+      : html`
+          <label class="pcc-editor__hero-field">
+            What do you want to accomplish?
+            <span>Use everyday language. One or two sentences is enough.</span>
+            <textarea
+              data-pcc-project-description
+              autofocus
+              placeholder="Example: Plan a kitchen remodel, keep it on budget, and make sure permits and inspections are not missed."
+              .value=${form.projectDescription}
+              @input=${(event: Event) =>
+                props.onProjectFormChange({
+                  projectDescription: (event.target as HTMLTextAreaElement).value,
+                })}
+            ></textarea>
+          </label>
+          <section class="pcc-create-ai-explainer" data-pcc-create-ai-explainer>
+            <div>
+              <span class="pcc-create-ai-explainer__icon" aria-hidden="true">✦</span>
+              <div>
+                <strong>AI fills only the blanks</strong>
+                <p>Anything you type stays unchanged. Before saving, you will review:</p>
+              </div>
+            </div>
+            <ul>
+              <li>Project name and goal</li>
+              <li>Setup answers and workflow</li>
+              <li>Milestones and sub-steps</li>
+              <li>Owners, acceptance criteria, and proof</li>
+            </ul>
+            <p data-pcc-create-ai-summary>
+              ${blankCount} blank setup item${blankCount === 1 ? "" : "s"} · draft will include
+              ${stats.milestones} milestones and ${stats.subMilestones} sub-steps · local-first AI ·
+              no Codex token spend
+            </p>
+          </section>
+          ${renderProjectPlannerSummary(props)} ${renderProjectCreationCustomize(props, true)}
+          ${canReview
+            ? nothing
+            : html`<p class="pcc-create-start-hint" data-pcc-create-start-hint>
+                Start by describing the result you want above.
+              </p>`}
+        `}
+  </section>`;
 }
 
 function renderProjectEditor(props: PccDashboardProps) {
@@ -6787,17 +7191,17 @@ function renderProjectEditor(props: PccDashboardProps) {
             ${props.editorMode === "edit-project" ? "Edit project" : "Create project"}
           </h3>
           ${creating
-            ? html`<p>
-                Describe the project. PCC will draft the milestones before anything starts.
-              </p>`
+            ? html`<p>Tell PCC what you want. Review the plan. Then create it.</p>`
             : nothing}
         </div>
-        ${needsAiDraft
-          ? html`<div class="pcc-editor__header-actions">
-              ${renderProjectIntakeAutofillButton(props, "Generate setup with AI")}
-              <span class="pcc-status">${intakeSummary}</span>
-            </div>`
-          : html`<span class="pcc-status">Setup ready</span>`}
+        ${creating
+          ? nothing
+          : needsAiDraft
+            ? html`<div class="pcc-editor__header-actions">
+                ${renderProjectIntakeAutofillButton(props, "Fill missing details with AI")}
+                <span class="pcc-status">${intakeSummary}</span>
+              </div>`
+            : html`<span class="pcc-status">Setup ready</span>`}
         <button
           class="pcc-editor__close"
           type="button"
@@ -6807,209 +7211,124 @@ function renderProjectEditor(props: PccDashboardProps) {
           ×
         </button>
       </header>
-      ${renderEditorActionError(props)} ${renderProjectEditModeTabs(props)}
-      ${editMode === "ai" ? renderSectionAiRegeneratePanel(props) : nothing}
+      ${renderEditorActionError(props)}
       ${creating
-        ? html`<label class="pcc-editor__hero-field">
-            Describe what you want to build
-            <textarea
-              data-pcc-project-description
-              placeholder="Example: Build a dashboard that shows all projects, milestones, blockers, and proof receipts in one simple command center."
-              .value=${form.projectDescription}
-              @input=${(event: Event) =>
-                props.onProjectFormChange({
-                  projectDescription: (event.target as HTMLTextAreaElement).value,
-                })}
-            ></textarea>
-          </label>`
-        : nothing}
-      ${needsAiDraft
-        ? html`<section class="pcc-editor__ai-repair" data-pcc-project-intake-ai-repair>
-            <div>
-              <strong>Let AI fill the setup fields</strong>
-              <span
-                >Drafts the title, goal, intake answers, workflow, owners, and proof rules from the
-                prompt and existing project context. You can edit before saving.</span
-              >
-            </div>
-            ${renderProjectIntakeAutofillButton(props, "Generate setup with AI")}
-          </section>`
-        : nothing}
-      <div class="pcc-editor__grid">
-        <label>
-          Title
-          <input
-            required
-            data-pcc-project-title
-            .value=${form.title}
-            @input=${(event: Event) =>
-              props.onProjectFormChange({ title: (event.target as HTMLInputElement).value })}
-          />
-        </label>
-        <label>
-          Priority
-          <input
-            type="number"
-            min="0"
-            max="5"
-            .value=${form.priority}
-            @input=${(event: Event) =>
-              props.onProjectFormChange({ priority: (event.target as HTMLInputElement).value })}
-          />
-        </label>
-        <label>
-          Due date
-          <input
-            type="date"
-            data-pcc-project-due-date
-            .value=${form.dueDate}
-            @input=${(event: Event) =>
-              props.onProjectFormChange({ dueDate: (event.target as HTMLInputElement).value })}
-          />
-        </label>
-      </div>
-      <label>
-        Goal
-        <textarea
-          data-pcc-project-goal
-          .value=${form.goal}
-          @input=${(event: Event) =>
-            props.onProjectFormChange({ goal: (event.target as HTMLTextAreaElement).value })}
-        ></textarea>
-      </label>
-      <label>
-        Outcome metrics
-        <textarea
-          data-pcc-project-outcome-metrics
-          placeholder="One measurable outcome per line, e.g. Dashboard answers next action in under 5 seconds."
-          .value=${form.outcomeMetrics}
-          @input=${(event: Event) =>
-            props.onProjectFormChange({
-              outcomeMetrics: (event.target as HTMLTextAreaElement).value,
-            })}
-        ></textarea>
-      </label>
-      <div class="pcc-editor__grid">
-        <label>
-          Planner
-          <select
-            data-pcc-planner-selector
-            .value=${form.plannerMode}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                plannerMode: (event.target as HTMLSelectElement).value as PccPlannerMode,
-              })}
-          >
-            ${renderStringOptions(PLANNER_MODE_OPTIONS, form.plannerMode)}
-          </select>
-        </label>
-        <label>
-          Planner model
-          <select
-            data-pcc-planner-model
-            .value=${form.plannerModelId || "best-available"}
-            @change=${(event: Event) =>
-              props.onProjectFormChange({
-                plannerModelId: (event.target as HTMLSelectElement).value,
-              })}
-          >
-            ${plannerModelOptions(props).map(
-              ([value, label]) => html`<option value=${value}>${label}</option>`,
-            )}
-          </select>
-          <small data-pcc-model-refresh-status>${plannerModelRefreshLabel(props)}</small>
-          <button
-            class="btn btn--subtle"
-            type="button"
-            data-pcc-refresh-models
-            ?disabled=${props.modelsLoading}
-            @click=${() => props.onRefreshModelCatalog?.()}
-          >
-            Refresh models
-          </button>
-        </label>
-      </div>
-      ${editMode !== "simple" || creating
-        ? html`<div class="pcc-editor__grid" data-pcc-advanced-edit-fields>
-            <label>
-              Workflow template
-              <select
-                .value=${form.workflowTemplateId}
-                @change=${(event: Event) =>
-                  props.onProjectFormChange({
-                    workflowTemplateId: (event.target as HTMLSelectElement).value,
-                  })}
-              >
-                ${PCC_WORKFLOW_TEMPLATES.map(
-                  (template) => html`<option value=${template.id}>${template.title}</option>`,
-                )}
-              </select>
-            </label>
-            <label>
-              Status
-              <select
-                .value=${form.status}
-                @change=${(event: Event) =>
-                  props.onProjectFormChange({
-                    status: (event.target as HTMLSelectElement).value as PccStatus,
-                  })}
-              >
-                ${renderStatusOptions(PROJECT_STATUSES)}
-              </select>
-            </label>
-          </div>`
-        : nothing}
-      <details
-        class="pcc-detail-drawer"
-        data-pcc-advanced-intake
-        ?open=${creating || needsAiDraft || editMode === "advanced" || editMode === "ai"}
-      >
-        <summary>Project intake answers · ${intakeSummary}</summary>
-        ${renderProjectIntakeWizard(props)}
-      </details>
-      ${editMode === "ai" || creating ? renderGeneratedPlanPreview(props) : nothing}
-      ${renderPlannerPermissionCard(props)}
-      ${editMode !== "simple" || creating
-        ? html`<div class="pcc-intake-options" data-pcc-workflow-intake>
-            <label>
-              <input
-                type="checkbox"
-                .checked=${form.remoteProofAllowed}
-                @change=${(event: Event) =>
-                  props.onProjectFormChange({
-                    remoteProofAllowed: (event.target as HTMLInputElement).checked,
-                  })}
-              />
-              Allow remote proof when required
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                .checked=${form.runtimeActionsAllowed}
-                @change=${(event: Event) =>
-                  props.onProjectFormChange({
-                    runtimeActionsAllowed: (event.target as HTMLInputElement).checked,
-                  })}
-              />
-              Allow local runtime actions
-            </label>
-          </div>`
-        : nothing}
-      ${projectSaveBlocked
+        ? renderProjectCreationFlow(props)
+        : html`
+            ${renderProjectEditModeTabs(props)}
+            ${editMode === "ai" ? renderSectionAiRegeneratePanel(props) : nothing}
+            ${needsAiDraft
+              ? html`<section class="pcc-editor__ai-repair" data-pcc-project-intake-ai-repair>
+                  <div>
+                    <strong>Fill only the missing setup</strong>
+                    <span
+                      >PCC keeps your existing text and previews saved-project changes before it
+                      writes anything.</span
+                    >
+                  </div>
+                  ${renderProjectIntakeAutofillButton(props, "Fill missing details with AI")}
+                </section>`
+              : nothing}
+            ${renderProjectCoreFields(props)} ${renderProjectScheduleAndWorkflow(props)}
+            ${renderProjectPlannerSummary(props)}
+            ${editMode !== "simple"
+              ? html`
+                  ${renderProjectPlannerControls(props)} ${renderPlannerPermissionCard(props)}
+                  <label>
+                    Status
+                    <select
+                      data-pcc-project-status
+                      .value=${form.status}
+                      @change=${(event: Event) =>
+                        props.onProjectFormChange({
+                          status: (event.target as HTMLSelectElement).value as PccStatus,
+                        })}
+                    >
+                      ${renderStatusOptions(PROJECT_STATUSES)}
+                    </select>
+                  </label>
+                  <details
+                    class="pcc-detail-drawer"
+                    data-pcc-advanced-intake
+                    ?open=${needsAiDraft || editMode === "ai"}
+                  >
+                    <summary>Setup answers · ${intakeSummary}</summary>
+                    ${renderProjectIntakeWizard(props)}
+                  </details>
+                  ${editMode === "ai" ? renderGeneratedPlanPreview(props) : nothing}
+                  <div class="pcc-intake-options" data-pcc-workflow-intake>
+                    <label>
+                      <input
+                        type="checkbox"
+                        .checked=${form.remoteProofAllowed}
+                        @change=${(event: Event) =>
+                          props.onProjectFormChange({
+                            remoteProofAllowed: (event.target as HTMLInputElement).checked,
+                          })}
+                      />
+                      Allow remote proof when required
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        .checked=${form.runtimeActionsAllowed}
+                        @change=${(event: Event) =>
+                          props.onProjectFormChange({
+                            runtimeActionsAllowed: (event.target as HTMLInputElement).checked,
+                          })}
+                      />
+                      Allow local runtime actions
+                    </label>
+                  </div>
+                `
+              : nothing}
+          `}
+      ${creating && form.planPreviewAccepted && projectSaveBlocked
         ? html`<p class="pcc-intake-wizard__missing" data-pcc-plan-preview-blocked>
-            Complete intake approval and review the generated plan preview before creating the
-            project.
+            Review the missing setup details before creating the project.
           </p>`
         : nothing}
       <footer>
         ${creating
-          ? html`<button
-              class="btn"
-              type="submit"
-              ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
-            >
-              Approve and create
-            </button>`
+          ? form.planPreviewAccepted
+            ? html`
+                <button
+                  class="btn"
+                  type="submit"
+                  data-pcc-create-project-confirm
+                  ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
+                >
+                  Create project
+                </button>
+                <button
+                  class="btn btn--subtle"
+                  type="button"
+                  data-pcc-create-project-back
+                  @click=${() => props.onProjectFormChange({ planPreviewAccepted: false })}
+                >
+                  Back
+                </button>
+                <button
+                  class="btn btn--subtle"
+                  type="button"
+                  data-pcc-create-fill-remaining
+                  @click=${() => props.onProjectFormChange(projectCreationReviewPatch(form))}
+                >
+                  Fill remaining blanks
+                </button>
+              `
+            : html`<button
+                class="btn"
+                type="button"
+                data-pcc-create-review-plan
+                ?disabled=${props.actionBusy ||
+                !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}
+                @click=${() => props.onProjectFormChange(projectCreationReviewPatch(form))}
+              >
+                ${projectCreationBlankCount(form) > 0
+                  ? "Fill missing details & review"
+                  : "Review plan"}
+              </button>`
           : html`<button
               class="btn"
               type="submit"
@@ -7017,17 +7336,19 @@ function renderProjectEditor(props: PccDashboardProps) {
             >
               Save project
             </button>`}
-        <button
-          class="btn btn--subtle"
-          type="button"
-          data-pcc-project-regenerate-ai
-          @click=${() =>
-            props.onProjectFormChange(
-              projectIntakeDraftPatch(form, projectFormContextDetail(props)),
-            )}
-        >
-          Regenerate with AI
-        </button>
+        ${creating
+          ? nothing
+          : html`<button
+              class="btn btn--subtle"
+              type="button"
+              data-pcc-project-regenerate-ai
+              @click=${() =>
+                props.onProjectFormChange(
+                  projectIntakeDraftPatch(form, projectFormContextDetail(props)),
+                )}
+            >
+              Fill missing details with AI
+            </button>`}
         <button
           class="btn btn--subtle"
           type="button"

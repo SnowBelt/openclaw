@@ -344,7 +344,7 @@ async function main(): Promise<void> {
             blockers: "Planner permission is required.",
           },
           intakeApproved: true,
-          planPreviewAccepted: false,
+          planPreviewAccepted: true,
           codexPlanningAllowed: false,
         },
       }),
@@ -355,12 +355,12 @@ async function main(): Promise<void> {
     });
     const editorText = root.textContent ?? "";
     for (const label of [
-      "Describe what you want to build",
-      "Planner",
+      "Your plan is ready to review",
+      "AI planning this project",
       "Generated plan preview",
       "High-reasoning / Codex permission",
-      "Approve and create",
-      "Regenerate",
+      "Create project",
+      "Fill remaining blanks",
       "Cancel",
     ]) {
       requireText(editorText, label);

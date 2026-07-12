@@ -494,6 +494,14 @@ function inferIntakeAnswersFromDescription(
   };
 }
 
+function inferOutcomeMetrics(title: string): string {
+  const subject = title.trim() || "This project";
+  return [
+    `${subject} produces a first approved deliverable.`,
+    "Every milestone has acceptance criteria and receipt-backed proof before completion.",
+  ].join("\n");
+}
+
 function enrichProjectFormFromDescription(form: PccProjectFormState): PccProjectFormState {
   const plannerMode = form.plannerMode ?? plannerModeFromPlanningMode(form.planningMode);
   const description = (form.projectDescription ?? "").trim();
@@ -517,6 +525,9 @@ function enrichProjectFormFromDescription(form: PccProjectFormState): PccProject
     ...form,
     title: form.title.trim() ? form.title : inferProjectTitle(description),
     goal: form.goal.trim() ? form.goal : description,
+    outcomeMetrics: (form.outcomeMetrics ?? "").trim()
+      ? form.outcomeMetrics
+      : inferOutcomeMetrics(form.title || inferProjectTitle(description)),
     workflowTemplateId: form.workflowTemplateId || recommendation.templateId,
     plannerMode,
     projectDescription: form.projectDescription ?? "",
@@ -1376,13 +1387,7 @@ export function updatePccProjectForm(
       nextForm.codexPlanningAllowed,
     );
   }
-  if (
-    patch.projectDescription !== undefined ||
-    patch.plannerMode !== undefined ||
-    patch.workflowTemplateId !== undefined ||
-    patch.title !== undefined ||
-    patch.goal !== undefined
-  ) {
+  if (patch.projectDescription !== undefined) {
     nextForm = { ...nextForm, planPreviewAccepted: false };
   }
   if (patch.projectDescription !== undefined || patch.plannerMode !== undefined) {
@@ -1796,6 +1801,7 @@ export async function approvePccSetupAutofill(state: PccDashboardState): Promise
 
 export async function savePccProject(state: PccDashboardState): Promise<void> {
   const form = enrichProjectFormFromDescription(state.pccProjectForm);
+  const creating = !form.id;
   await withPccAction(state, async () => {
     if (!state.client) {
       return;
@@ -1969,7 +1975,19 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     }
     state.pccEditorMode = null;
     await loadPccDashboard(state);
+    if (creating) {
+      state.pccProjectFilter = "all";
+    }
     await selectPccProject(state, result.project.id);
+    if (creating) {
+      const firstMilestone = draft?.milestones[0]?.title;
+      setActionNotice(
+        state,
+        firstMilestone
+          ? `Project created. Start with “${firstMilestone}”. Nothing runs until you choose Work This Project.`
+          : "Project created. Review the project, then choose the next safe action when you are ready.",
+      );
+    }
   });
 }
 
@@ -2256,25 +2274,29 @@ function orderedSubMilestoneSequenceItems(
 }
 
 function dependencyMoveBlocker(
-  orderedIds: readonly string[],
+  orderedItems: ReadonlyArray<{ id: string; title: string; dependsOn?: string[] }>,
   sourceId: string,
   targetId: string,
-  dependsOn: readonly string[] | undefined,
 ): string | null {
+  const orderedIds = orderedItems.map((item) => item.id);
   const nextIds = orderedIds.filter((id) => id !== sourceId);
   const targetIndex = nextIds.indexOf(targetId);
   if (targetIndex < 0) {
     return "Target item was not found.";
   }
   nextIds.splice(targetIndex, 0, sourceId);
-  const sourceIndex = nextIds.indexOf(sourceId);
-  const blockingDependency = (dependsOn ?? []).find((id) => {
-    const dependencyIndex = nextIds.indexOf(id);
-    return dependencyIndex >= 0 && dependencyIndex > sourceIndex;
-  });
-  return blockingDependency
-    ? `Cannot move before dependency ${blockingDependency}. Reorder or remove the dependency first.`
-    : null;
+  const itemById = new Map(orderedItems.map((item) => [item.id, item]));
+  for (const item of orderedItems) {
+    const itemIndex = nextIds.indexOf(item.id);
+    for (const dependencyId of item.dependsOn ?? []) {
+      const dependencyIndex = nextIds.indexOf(dependencyId);
+      if (dependencyIndex >= 0 && itemIndex >= 0 && dependencyIndex > itemIndex) {
+        const dependency = itemById.get(dependencyId);
+        return `Cannot move “${item.title}” before its dependency “${dependency?.title ?? dependencyId}”. Keep the dependency earlier in the project sequence.`;
+      }
+    }
+  }
+  return null;
 }
 
 export async function movePccMilestoneBefore(
@@ -2290,10 +2312,9 @@ export async function movePccMilestoneBefore(
     return;
   }
   const dependencyBlocker = dependencyMoveBlocker(
-    orderedMilestoneSequenceItems(detail).map((item) => item.id),
+    orderedMilestoneSequenceItems(detail),
     source.id,
     target.id,
-    source.dependsOn,
   );
   if (dependencyBlocker) {
     state.pccActionError = dependencyBlocker;
@@ -2358,15 +2379,8 @@ export async function movePccSubMilestoneBefore(
   if (!detail) {
     return;
   }
-  const siblingIds = orderedSubMilestoneSequenceItems(detail, source.milestoneId).map(
-    (item) => item.id,
-  );
-  const dependencyBlocker = dependencyMoveBlocker(
-    siblingIds,
-    source.id,
-    target.id,
-    source.dependsOn,
-  );
+  const orderedSiblings = orderedSubMilestoneSequenceItems(detail, source.milestoneId);
+  const dependencyBlocker = dependencyMoveBlocker(orderedSiblings, source.id, target.id);
   if (dependencyBlocker) {
     state.pccActionError = dependencyBlocker;
     state.requestUpdate?.();
@@ -2379,15 +2393,15 @@ export async function movePccSubMilestoneBefore(
     if (!state.client) {
       return;
     }
-    const siblings = (detail.subMilestones ?? [])
+    const nextSiblings = (detail.subMilestones ?? [])
       .filter((item) => item.milestoneId === source.milestoneId)
       .filter((item) => item.id !== source.id);
-    const targetIndex = siblings.findIndex((item) => item.id === target.id);
+    const targetIndex = nextSiblings.findIndex((item) => item.id === target.id);
     if (targetIndex < 0) {
       throw new Error("Target sub-milestone was not found.");
     }
-    siblings.splice(targetIndex, 0, source);
-    const changed = siblings
+    nextSiblings.splice(targetIndex, 0, source);
+    const changed = nextSiblings
       .map((subMilestone, index) => ({ subMilestone, nextOrder: (index + 1) * 10 }))
       .filter(({ subMilestone, nextOrder }) => subMilestone.order !== nextOrder);
     for (const [index, { subMilestone }] of changed.entries()) {

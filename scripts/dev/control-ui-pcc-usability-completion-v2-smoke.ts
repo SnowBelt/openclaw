@@ -228,6 +228,7 @@ async function main(): Promise<void> {
       actionNotice: { kind: "success", text: "Deferred. Undo is available.", undoLabel: "Undo" },
       projectFilter: "active",
       editorMode: "edit-project",
+      projectEditMode: "advanced",
       projectForm: {
         id: project.id,
         title: project.title,

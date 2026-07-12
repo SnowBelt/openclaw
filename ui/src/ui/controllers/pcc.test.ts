@@ -44,6 +44,7 @@ import {
   updatePccDecisionForm,
   updatePccViewMode,
   updatePccProjectEditMode,
+  updatePccProjectForm,
   updatePccProjectSearchQuery,
   type PccDashboardState,
 } from "./pcc.ts";
@@ -1489,7 +1490,12 @@ describe("PCC CRUD controller", () => {
     expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(true);
     expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(true);
     expect(state.pccSelectedProjectId).toBe("project-1");
+    expect(state.pccProjectFilter).toBe("all");
     expect(state.pccEditorMode).toBeNull();
+    expect(state.pccActionNotice?.text).toContain("Project created");
+    expect(state.pccActionNotice?.text).toContain(
+      "Nothing runs until you choose Work This Project",
+    );
   });
 
   it("refuses to create a project from blank required intake answers", async () => {
@@ -2139,6 +2145,24 @@ describe("PCC CRUD controller", () => {
     expect(requestUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the creation review open for manual edits and resets it for a new request", () => {
+    const state = createState({
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Original title",
+        goal: "Original goal",
+        projectDescription: "Original request",
+        planPreviewAccepted: true,
+      },
+    });
+
+    updatePccProjectForm(state, { title: "Edited title", goal: "Edited goal" });
+    expect(state.pccProjectForm.planPreviewAccepted).toBe(true);
+
+    updatePccProjectForm(state, { projectDescription: "A materially different request" });
+    expect(state.pccProjectForm.planPreviewAccepted).toBe(false);
+  });
+
   it("builds and applies scoped AI regenerate previews without broad milestone writes", async () => {
     const detail = {
       project: { ...project, goal: "" },
@@ -2427,7 +2451,51 @@ describe("PCC CRUD controller", () => {
 
     await movePccMilestoneBefore(state, dependent, dependency);
 
-    expect(state.pccActionError).toContain("Cannot move before dependency");
+    expect(state.pccActionError).toContain(
+      "Cannot move “Dependent” before its dependency “Prerequisite”",
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("blocks moving a prerequisite below a milestone that depends on it", async () => {
+    const prerequisite = {
+      ...milestone,
+      id: "milestone-prerequisite",
+      title: "Prerequisite",
+      order: 10,
+    };
+    const dependent = {
+      ...milestone,
+      id: "milestone-dependent",
+      title: "Dependent",
+      order: 20,
+      dependsOn: ["milestone-prerequisite"],
+    };
+    const later = {
+      ...milestone,
+      id: "milestone-later",
+      title: "Later work",
+      order: 30,
+    };
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project,
+        milestones: [prerequisite, dependent, later],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await movePccMilestoneBefore(state, prerequisite, later);
+
+    expect(state.pccActionError).toContain(
+      "Cannot move “Dependent” before its dependency “Prerequisite”",
+    );
     expect(request).not.toHaveBeenCalled();
   });
 

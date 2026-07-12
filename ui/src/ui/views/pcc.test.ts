@@ -2876,6 +2876,106 @@ describe("renderPccDashboard", () => {
     expect(onSaveProject).toHaveBeenCalledTimes(1);
   });
 
+  it("starts new project creation with one clear prompt and transparent local AI guidance", () => {
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: { ...EMPTY_PCC_PROJECT_FORM },
+      }),
+    );
+
+    expect(
+      container.querySelector("[data-pcc-create-flow]")?.getAttribute("data-pcc-create-step"),
+    ).toBe("describe");
+    expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
+      "AI fills only the blanks",
+    );
+    expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
+      "Anything you type stays unchanged",
+    );
+    expect(container.querySelector("[data-pcc-create-planner-summary]")?.textContent).toContain(
+      "Best available (local first)",
+    );
+    expect(container.querySelector("[data-pcc-create-planner-summary]")?.textContent).toContain(
+      "no surprise token spend",
+    );
+    expect(container.querySelector("[data-pcc-create-customize]")?.hasAttribute("open")).toBe(
+      false,
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
+    ).toBe(true);
+  });
+
+  it("fills only missing project details and preserves everything the user entered", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "My Kitchen Plan",
+          goal: "Finish the kitchen safely and on budget.",
+          projectDescription:
+            "Plan a kitchen remodel without missing permits, inspections, or budget checks.",
+          intakeAnswers: { owner: "Todd" },
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "My Kitchen Plan",
+        goal: "Finish the kitchen safely and on budget.",
+        outcomeMetrics: expect.stringContaining(
+          "My Kitchen Plan produces a first approved deliverable",
+        ),
+        intakeApproved: true,
+        planPreviewAccepted: true,
+        intakeAnswers: expect.objectContaining({
+          owner: "Todd",
+          goal: "Finish the kitchen safely and on budget.",
+          doneProof: expect.stringContaining("completion receipt"),
+        }),
+      }),
+    );
+  });
+
+  it("shows a review-first plan and one explicit create action before saving", () => {
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          title: "Kitchen Plan",
+          goal: "Plan the kitchen remodel.",
+          projectDescription: "Plan the kitchen remodel.",
+          outcomeMetrics: "The remodel plan is approved.",
+          intakeAnswers,
+          intakeApproved: true,
+          planPreviewAccepted: true,
+        },
+      }),
+    );
+
+    expect(
+      container.querySelector("[data-pcc-create-flow]")?.getAttribute("data-pcc-create-step"),
+    ).toBe("review");
+    expect(
+      container.querySelector("[data-pcc-create-review-ready]")?.textContent?.replace(/\s+/gu, " "),
+    ).toContain("Nothing has been created or started yet");
+    expect(container.querySelector("[data-pcc-plan-preview]")).not.toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>("[data-pcc-create-project-confirm]")?.disabled,
+    ).toBe(false);
+    expect(container.querySelector("[data-pcc-create-review-ready]")?.textContent).toMatch(
+      /milestones · \d+ sub-steps/u,
+    );
+  });
+
   it("uses inline confirmation before discarding a project draft from cancel", () => {
     const confirmSpy = vi.fn(() => true);
     vi.stubGlobal("confirm", confirmSpy);
@@ -2929,7 +3029,7 @@ describe("renderPccDashboard", () => {
     expect(editorError?.textContent).toContain("Project title already exists");
   });
 
-  it("blocks blank intake before project setup can be saved", () => {
+  it("lets a title-only project continue so AI can fill the remaining setup", () => {
     const container = renderView(
       createProps({
         editorMode: "create-project",
@@ -2938,10 +3038,8 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-intake-blocked]")).not.toBeNull();
-    const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-      button.textContent?.includes("Approve and create"),
-    );
-    expect(save?.disabled).toBe(true);
+    const save = container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]");
+    expect(save?.disabled).toBe(false);
   });
 
   it("generates missing project intake answers from the editor", () => {
@@ -3061,12 +3159,11 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-project-intake-ai-repair]")).not.toBeNull();
-    expect(container.querySelector("details[open] [data-pcc-intake-wizard]")).not.toBeNull();
-    expect(container.querySelector("[data-pcc-intake-answer-ai-tools]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-intake-wizard]")).toBeNull();
     const autofill = container.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
-    expect(autofill?.textContent).toContain("Generate setup with AI");
+    expect(autofill?.textContent).toContain("Fill missing details with AI");
 
     autofill?.click();
 
@@ -3081,6 +3178,7 @@ describe("renderPccDashboard", () => {
     const container = renderView(
       createProps({
         editorMode: "edit-project",
+        projectEditMode: "advanced",
         projectDetail: {
           project: {
             ...project,
@@ -3219,7 +3317,10 @@ describe("renderPccDashboard", () => {
         onProjectFormChange,
       }),
     );
-    expect(codexContainer.querySelector("[data-pcc-codex-planning-gate]")).not.toBeNull();
+    expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).not.toBeNull();
+    expect(
+      codexContainer.querySelector("[data-pcc-create-planner-summary]")?.textContent,
+    ).toContain("Codex");
     expect(codexContainer.textContent).toContain("High-reasoning / Codex permission");
 
     const pmContainer = renderView(
@@ -3236,8 +3337,10 @@ describe("renderPccDashboard", () => {
         onProjectFormChange,
       }),
     );
-    expect(pmContainer.querySelector("[data-pcc-project-manager-intake]")).not.toBeNull();
-    expect(pmContainer.textContent).toContain("Project Manager review");
+    expect(pmContainer.querySelector("[data-pcc-create-planner-summary]")?.textContent).toContain(
+      "Local Project Manager",
+    );
+    expect(pmContainer.textContent).toContain("no Codex token spend");
   });
 
   it("renders responsibility routing labels and editor controls", () => {
@@ -3736,7 +3839,15 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-reorder-instruction]")?.textContent).toContain(
       "Reorder mode is on",
     );
+    expect(container.querySelector("[data-pcc-reorder-instruction]")?.textContent).toContain(
+      "Dependency checks on",
+    );
+    expect(container.querySelector("[data-pcc-reorder-instruction]")?.textContent).toContain(
+      "offers Undo",
+    );
     expect(container.querySelector("[data-pcc-drag-handle='milestone']")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-milestone-reorder]")?.textContent).toContain("Up");
+    expect(container.querySelector("[data-pcc-milestone-reorder]")?.textContent).toContain("Down");
     expect(container.querySelector("[data-pcc-action-menu-trigger]")).toBeNull();
   });
 

@@ -391,9 +391,9 @@ async function main(): Promise<void> {
     requireText(text, "High-reasoning / Codex permission");
     requireText(text, "Codex planning needs approval");
     requireText(text, "Regenerate any section");
-    requireText(text, "Simple Edit");
-    requireText(text, "Advanced Edit");
-    requireText(text, "AI Edit");
+    requireText(text, "Basics");
+    requireText(text, "Full plan");
+    requireText(text, "AI help");
     requireText(text, "Last refresh:");
     requireText(text, "2 configured models");
     if (text.includes("Allow selected Codex/high-reasoning planner for this plan")) {

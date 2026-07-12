@@ -538,7 +538,9 @@ async function runBrowserProof(options: ProofOptions) {
       }
     }
     const setupRepair = page
-      .getByRole("button", { name: /Fill missing setup with AI|Generate setup with AI/i })
+      .getByRole("button", {
+        name: /Fill missing setup with AI|Generate setup with AI|Fill missing details with AI/i,
+      })
       .first();
     if (await setupRepair.isVisible().catch(() => false)) {
       await setupRepair.click({ force: true });
@@ -618,7 +620,8 @@ async function runBrowserProof(options: ProofOptions) {
         options.profile === "focus-live-interaction" ||
         has("Setup needs a few answers") ||
         has("Fill missing setup with AI") ||
-        has("Generate setup with AI"),
+        has("Generate setup with AI") ||
+        has("Fill missing details with AI"),
       autofillPreview:
         options.profile === "production-current" ||
         !autofillPreviewOpened ||

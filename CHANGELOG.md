@@ -19,6 +19,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- **Project Command Center creation:** new projects now use a guided Describe → Review → Create flow, disclose exactly which blanks local-first AI fills without replacing user text, identify the selected planner and token policy, and explain dependency-safe milestone reordering with labeled controls and Undo.
 - **Project Command Center:** runtime truth now validates the active immutable release, production proof must be SHA-bound, and mutable browser proof runs only against a temporary isolated Gateway ledger.
 - **Channel delivery:** Telegram progress rendering, webhook lifecycle, reaction directives, duplicate mirror writes, queued update draining, and WhatsApp durable reply targets are now more reliable. (#95532, #93002, #95183, #94506, #94977, #95069, #95577, #95007, #95914) Thanks @amknight, @snowzlmbot, @zhangguiping-xydt, @shadow-enthusiast, @xialonglee, @travellingsoldier85, @obviyus, @hugenshen, @Cuttingwater, @heichaowo, @LiuwqGit, @freidrich-goldenflow, @mcaxtr, and @vincentkoc.
 - **WhatsApp and message identity:** native quotes, Baileys group reliability, and approval reactions across JID drift now preserve the intended conversation context. (#95483, #94338, #95935) Thanks @mcaxtr, @xialonglee, and @octopuslabs-fl.
