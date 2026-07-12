@@ -725,6 +725,13 @@ async function runBrowserHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   await noteChromeMcpBrowserReadiness(ctx.cfg);
 }
 
+async function runPccHealth(ctx: DoctorHealthFlowContext): Promise<void> {
+  await runCoreContributionHealthRepair(ctx, [
+    "core/doctor/pcc-ledger-storage",
+    "core/doctor/pcc-production-truth-bindings",
+  ]);
+}
+
 async function runOpenAIOAuthTlsHealth(ctx: DoctorHealthFlowContext): Promise<void> {
   const { noteOpenAIOAuthTlsPrerequisites } =
     await import("../plugins/provider-openai-chatgpt-oauth-tls.js");
@@ -1373,6 +1380,15 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       label: "Browser",
       healthCheckIds: ["core/doctor/browser", "core/doctor/browser-clawd-profile-residue"],
       run: runBrowserHealth,
+    }),
+    createDoctorHealthContribution({
+      id: "doctor:pcc",
+      label: "Project Command Center",
+      healthCheckIds: [
+        "core/doctor/pcc-ledger-storage",
+        "core/doctor/pcc-production-truth-bindings",
+      ],
+      run: runPccHealth,
     }),
     createDoctorHealthContribution({
       id: "doctor:oauth-tls",

@@ -20,10 +20,10 @@ export function registerMaintenanceCommands(program: Command) {
     .option("--repair", "Apply recommended repairs without prompting", false)
     .option(
       "--fix [area]",
-      "Apply recommended repairs, or fix one area such as gateway-config",
+      "Apply recommended repairs, or fix one area such as gateway-config or pcc",
       false,
     )
-    .option("--check <area>", "Run a narrow read-only doctor check such as gateway-config")
+    .option("--check <area>", "Run a narrow read-only doctor check such as gateway-config or pcc")
     .option("--force", "Apply aggressive repairs (overwrites custom service config)", false)
     .option("--non-interactive", "Run without prompts (safe migrations only)", false)
     .option("--generate-gateway-token", "Generate and configure a gateway token", false)
@@ -79,20 +79,39 @@ export function registerMaintenanceCommands(program: Command) {
         );
         return;
       }
-      const narrowGatewayConfigMode = resolveNarrowGatewayConfigDoctorMode(opts);
-      if (narrowGatewayConfigMode) {
+      const narrowDoctorMode = resolveNarrowDoctorMode(opts);
+      if (narrowDoctorMode) {
         await runCommandWithRuntime(defaultRuntime, async () => {
-          const { runGatewayConfigDoctor } =
-            await import("../../commands/doctor-gateway-config.js");
-          const report = await runGatewayConfigDoctor({ mode: narrowGatewayConfigMode });
+          if (narrowDoctorMode.area === "gateway-config") {
+            const { runGatewayConfigDoctor } =
+              await import("../../commands/doctor-gateway-config.js");
+            const report = await runGatewayConfigDoctor({ mode: narrowDoctorMode.mode });
+            if (opts.json === true) {
+              const { writeRuntimeJson } = await import("../../runtime.js");
+              writeRuntimeJson(defaultRuntime, report);
+            } else {
+              defaultRuntime.log(
+                report.ok
+                  ? `Gateway config ${narrowDoctorMode.mode === "fix" && report.repaired ? "repaired" : "valid"}.`
+                  : `Gateway config invalid: ${report.issues.join("; ")}`,
+              );
+            }
+            defaultRuntime.exit(report.ok ? 0 : 1);
+            return;
+          }
+          const { runPccDoctor } = await import("../../commands/doctor-pcc.js");
+          const report = await runPccDoctor({
+            mode: narrowDoctorMode.mode,
+            runtime: defaultRuntime,
+          });
           if (opts.json === true) {
             const { writeRuntimeJson } = await import("../../runtime.js");
             writeRuntimeJson(defaultRuntime, report);
           } else {
             defaultRuntime.log(
               report.ok
-                ? `Gateway config ${narrowGatewayConfigMode === "fix" && report.repaired ? "repaired" : "valid"}.`
-                : `Gateway config invalid: ${report.issues.join("; ")}`,
+                ? `PCC ${narrowDoctorMode.mode === "fix" && report.repaired ? "repaired" : "valid"}.`
+                : `PCC doctor needs attention: ${report.remainingFindings.map((finding) => finding.message).join("; ")}`,
             );
           }
           defaultRuntime.exit(report.ok ? 0 : 1);
@@ -201,15 +220,21 @@ export function registerMaintenanceCommands(program: Command) {
     });
 }
 
-function resolveNarrowGatewayConfigDoctorMode(opts: {
+function resolveNarrowDoctorMode(opts: {
   readonly check?: unknown;
   readonly fix?: unknown;
-}): "check" | "fix" | null {
+}): { readonly area: "gateway-config" | "pcc"; readonly mode: "check" | "fix" } | null {
   if (opts.check === "gateway-config") {
-    return "check";
+    return { area: "gateway-config", mode: "check" };
   }
   if (opts.fix === "gateway-config") {
-    return "fix";
+    return { area: "gateway-config", mode: "fix" };
+  }
+  if (opts.check === "pcc") {
+    return { area: "pcc", mode: "check" };
+  }
+  if (opts.fix === "pcc") {
+    return { area: "pcc", mode: "fix" };
   }
   return null;
 }

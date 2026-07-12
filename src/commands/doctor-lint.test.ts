@@ -176,6 +176,33 @@ describe("runDoctorLintCli", () => {
     }
   });
 
+  it("recognizes PCC core doctor checks in --only selections", async () => {
+    mocks.readConfigFileSnapshot.mockResolvedValue({
+      exists: true,
+      valid: true,
+      config: {},
+      path: "/tmp/openclaw.json",
+    });
+
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const exitCode = await runDoctorLintCli(runtime, {
+        json: true,
+        onlyIds: ["core/doctor/pcc-ledger-storage"],
+      });
+
+      expect(exitCode).toBe(0);
+      const payload = JSON.parse(String(stdout.mock.calls.at(-1)?.[0]));
+      expect(payload).toMatchObject({
+        ok: true,
+        checksRun: 1,
+        findings: [],
+      });
+    } finally {
+      stdout.mockRestore();
+    }
+  });
+
   it("reports disabled Codex plugin routes through doctor lint", async () => {
     mocks.readConfigFileSnapshot.mockResolvedValue({
       exists: true,

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   },
   runDoctorLintCli: vi.fn(),
   runGatewayConfigDoctor: vi.fn(),
+  runPccDoctor: vi.fn(),
 }));
 
 const {
@@ -25,6 +26,7 @@ const {
   runtime,
   runDoctorLintCli,
   runGatewayConfigDoctor,
+  runPccDoctor,
 } = mocks;
 
 vi.mock("../../commands/doctor.js", () => ({
@@ -49,6 +51,10 @@ vi.mock("../../commands/doctor-lint.js", () => ({
 
 vi.mock("../../commands/doctor-gateway-config.js", () => ({
   runGatewayConfigDoctor: mocks.runGatewayConfigDoctor,
+}));
+
+vi.mock("../../commands/doctor-pcc.js", () => ({
+  runPccDoctor: mocks.runPccDoctor,
 }));
 
 vi.mock("../../runtime.js", () => ({
@@ -126,6 +132,16 @@ describe("registerMaintenanceCommands doctor action", () => {
     await runMaintenanceCli(["doctor", "--fix", "gateway-config", "--json"]);
 
     expect(runGatewayConfigDoctor).toHaveBeenCalledWith({ mode: "fix" });
+    expect(doctorCommand).not.toHaveBeenCalled();
+    expect(runtime.exit).toHaveBeenCalledWith(0);
+  });
+
+  it("runs narrow PCC storage and proof repair without invoking full doctor", async () => {
+    runPccDoctor.mockResolvedValue({ ok: true, mode: "fix", repaired: true });
+
+    await runMaintenanceCli(["doctor", "--fix", "pcc", "--json"]);
+
+    expect(runPccDoctor).toHaveBeenCalledWith({ mode: "fix", runtime });
     expect(doctorCommand).not.toHaveBeenCalled();
     expect(runtime.exit).toHaveBeenCalledWith(0);
   });

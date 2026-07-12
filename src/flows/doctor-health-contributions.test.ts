@@ -1242,6 +1242,41 @@ describe("doctor health contributions", () => {
     expect(calls).toEqual(["repair", "note"]);
   });
 
+  it("runs PCC ledger migration and proof-binding repairs through the PCC contribution", async () => {
+    mocks.runDoctorHealthRepairs.mockResolvedValue({
+      config: {},
+      findings: [],
+      remainingFindings: [],
+      changes: [],
+      warnings: [],
+      diffs: [],
+      effects: [],
+      checksRun: 2,
+      checksRepaired: 2,
+      checksValidated: 0,
+    });
+    const contribution = requireDoctorContribution("doctor:pcc");
+    const ctx = {
+      cfg: {},
+      cfgForPersistence: {},
+      configResult: { cfg: {} },
+      sourceConfigValid: true,
+      prompter: buildDoctorPrompter(true),
+      runtime: { log: vi.fn(), error: vi.fn(), exit: vi.fn() },
+      options: {},
+      configPath: "/tmp/fake-openclaw.json",
+    } as unknown as Parameters<(typeof contribution)["run"]>[0];
+
+    await contribution.run(ctx);
+
+    expect(mocks.runDoctorHealthRepairs).toHaveBeenCalledWith(expect.any(Object), {
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: "core/doctor/pcc-ledger-storage" }),
+        expect.objectContaining({ id: "core/doctor/pcc-production-truth-bindings" }),
+      ]),
+    });
+  });
+
   it("runs structured repairs before legacy skill repairs and config writes", () => {
     const ids = resolveDoctorHealthContributions().map((entry) => entry.id);
 
