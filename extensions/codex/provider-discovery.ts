@@ -8,7 +8,6 @@ import {
   buildCodexProviderConfig,
   CODEX_APP_SERVER_AUTH_MARKER,
   CODEX_PROVIDER_ID,
-  FALLBACK_CODEX_MODELS,
 } from "./provider-catalog.js";
 
 function resolveCodexPluginConfig(ctx: ProviderCatalogContext): unknown {
@@ -24,7 +23,7 @@ async function runCodexCatalog(ctx: ProviderCatalogContext) {
   });
 }
 
-/** Provider discovery descriptor with static fallback and synthetic auth. */
+/** Provider discovery descriptor with live catalog discovery and synthetic auth. */
 export const codexProviderDiscovery: ProviderPlugin = {
   id: CODEX_PROVIDER_ID,
   label: "Codex",
@@ -37,7 +36,7 @@ export const codexProviderDiscovery: ProviderPlugin = {
   staticCatalog: {
     order: "late",
     run: async () => ({
-      provider: buildCodexProviderConfig(FALLBACK_CODEX_MODELS),
+      provider: buildCodexProviderConfig([]),
     }),
   },
   resolveSyntheticAuth: () => ({

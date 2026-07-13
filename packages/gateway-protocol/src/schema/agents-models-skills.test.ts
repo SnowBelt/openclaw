@@ -3,6 +3,8 @@ import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import {
   AgentsListResultSchema,
+  ModelChoiceSchema,
+  ModelsListParamsSchema,
   SkillsProposalInspectResultSchema,
   SkillsProposalRequestRevisionResultSchema,
   ToolsEffectiveResultSchema,
@@ -60,6 +62,39 @@ describe("AgentsListResultSchema", () => {
     };
 
     expect(Value.Check(AgentsListResultSchema, result)).toBe(true);
+  });
+});
+
+describe("ModelChoiceSchema", () => {
+  it("accepts prepared model runtime classification and keeps it strict", () => {
+    const model = {
+      id: "gpt-5.6-sol",
+      name: "GPT-5.6 Sol",
+      provider: "openai",
+      available: true,
+      agentRuntime: { id: "codex", source: "model" },
+    };
+
+    expect(Value.Check(ModelChoiceSchema, model)).toBe(true);
+    expect(
+      Value.Check(ModelChoiceSchema, {
+        ...model,
+        agentRuntime: { ...model.agentRuntime, unexpected: true },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("ModelsListParamsSchema", () => {
+  it("accepts an explicit catalog refresh and keeps request params strict", () => {
+    expect(Value.Check(ModelsListParamsSchema, { view: "configured", refresh: true })).toBe(true);
+    expect(
+      Value.Check(ModelsListParamsSchema, {
+        view: "configured",
+        refresh: true,
+        unexpected: true,
+      }),
+    ).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@
 
 import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolvePccExecutionProfilePreset } from "../../../../src/pcc/execution-profile.js";
 import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
@@ -366,6 +367,25 @@ describe("renderPccDashboard", () => {
 
     autopilotTab?.click();
     expect(onSetViewMode).toHaveBeenCalledWith("detailed");
+  });
+
+  it("reveals the Automation tab when AI Loop is selected outside Simple mode", () => {
+    const container = renderView(createProps({ viewMode: "detailed" }));
+    const automation = container.querySelector<HTMLElement>(
+      '[data-pcc-detail-tab-panel="automation"]',
+    );
+    const autopilotTab = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-mobile-section-tab="autopilot"]',
+    );
+
+    expect(automation?.hidden).toBe(true);
+    autopilotTab?.click();
+    expect(automation?.hidden).toBe(false);
+    expect(
+      container
+        .querySelector<HTMLButtonElement>('[data-pcc-detail-tab="automation"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
   });
 
   it("uses one resolved primary action across hero and mobile rail", () => {
@@ -2940,9 +2960,7 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
       "Anything you type stays unchanged",
     );
-    expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Local first",
-    );
+    expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain("Focused");
     expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "No automatic Codex use",
     );
@@ -2960,7 +2978,7 @@ describe("renderPccDashboard", () => {
     );
   });
 
-  it("offers four conflict-free AI plans with qualitative Codex usage guidance", () => {
+  it("offers five conflict-free execution profiles with qualitative Codex usage guidance", () => {
     const onProjectFormChange = vi.fn();
     const container = renderView(
       createProps({
@@ -2973,16 +2991,18 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelectorAll("[data-pcc-ai-use-policy]")).toHaveLength(4);
-    expect(container.querySelector('[data-pcc-ai-use-policy="codex_focused"]')).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-execution-profile]")).toHaveLength(5);
+    expect(container.querySelector('[data-pcc-execution-profile="ultra_local"]')).not.toBeNull();
     container
-      .querySelector<HTMLInputElement>('[data-pcc-ai-use-policy="codex_expert"]')
+      .querySelector<HTMLInputElement>('[data-pcc-execution-profile="ultra_hybrid"]')
       ?.dispatchEvent(new Event("change", { bubbles: true }));
     expect(onProjectFormChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        aiUsePolicy: "codex_expert",
-        plannerMode: "codex",
-        planningMode: "codex_full_plan",
+        executionProfile: expect.objectContaining({
+          presetId: "ultra_hybrid",
+          codexRole: "lead",
+          speed: "ultra",
+        }),
         codexPlanningAllowed: false,
       }),
     );
@@ -2993,20 +3013,181 @@ describe("renderPccDashboard", () => {
         projectForm: {
           ...EMPTY_PCC_PROJECT_FORM,
           projectDescription: "Build a dependable family calendar app.",
-          aiUsePolicy: "codex_everything",
-          plannerMode: "codex",
-          planningMode: "codex_full_plan",
+          executionProfile: resolvePccExecutionProfilePreset("ultra_hybrid"),
         },
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Codex-led",
+      "Ultra + Codex",
     );
     expect(codexContainer.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
       "one Codex approval is required before creation",
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).toBeNull();
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
+  });
+
+  it("keeps unavailable models out of new choices while explaining a stale saved selection", () => {
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          projectDescription: "Build a dependable family calendar app.",
+          executionProfile: {
+            ...resolvePccExecutionProfilePreset("local_focused"),
+            localModelId: "ollama/removed-local",
+          },
+        },
+        modelCatalog: [
+          {
+            id: "removed-local",
+            name: "Removed Local",
+            provider: "ollama",
+            available: false,
+            agentRuntime: { id: "openclaw", source: "model" },
+          },
+          {
+            id: "current-local",
+            name: "Current Local",
+            provider: "ollama",
+            available: true,
+            agentRuntime: { id: "openclaw", source: "model" },
+          },
+        ],
+      }),
+    );
+    const options = [
+      ...container.querySelectorAll<HTMLOptionElement>("[data-pcc-planner-model] option"),
+    ];
+    const removed = options.find((option) => option.value === "ollama/removed-local");
+
+    expect(removed?.disabled).toBe(true);
+    expect(removed?.textContent).toContain("Unavailable");
+    expect(options.some((option) => option.value === "ollama/current-local")).toBe(true);
+  });
+
+  it("shows one coherent project profile, safe agent-team action, and recommendation-only learning", () => {
+    const onRunExecutionTeam = vi.fn();
+    const parallelMilestone = {
+      ...milestone,
+      status: "not_started" as const,
+      percentComplete: 0,
+      metadata: {
+        ...milestone.metadata,
+        parallelSafe: true,
+        workspaceLock: "workspace:ui",
+      },
+    };
+    const parallelSubMilestone = {
+      ...subMilestone,
+      milestoneId: parallelMilestone.id,
+      status: "not_started" as const,
+      metadata: {
+        ...subMilestone.metadata,
+        pccProofLevel: "local",
+        parallelSafe: true,
+        workspaceLock: "workspace:ui",
+      },
+    };
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: {
+            ...project,
+            metadata: {
+              ...project.metadata,
+              pccExecutionProfile: resolvePccExecutionProfilePreset("local_parallel"),
+              pccLearningCandidates: [
+                {
+                  status: "proposed",
+                  contentSummary: "Reuse the verified project-intake checklist.",
+                },
+              ],
+            },
+          },
+          milestones: [parallelMilestone],
+          subMilestones: [parallelSubMilestone],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary: {
+            ...summary,
+            status: "active",
+            percentComplete: 0,
+            milestoneCounts: {
+              total: 1,
+              complete: 0,
+              blocked: 0,
+              needsApproval: 0,
+              deferred: 0,
+              skipped: 0,
+            },
+          },
+        },
+        projectDetails: {},
+        executionCapacity: {
+          logicalCpuCount: 12,
+          performanceCpuCount: 8,
+          totalRamGb: 64,
+          freeRamGb: 48,
+          load1: 1,
+          load5: 1,
+          load15: 1,
+          memoryPressure: "low",
+          activeOpenClawTaskCount: 0,
+          configuredSubagentLimit: 4,
+          observedLocalModelProcessCount: 0,
+          safeLocalAgentSlots: 4,
+          timestamp: "2026-07-13T12:00:00.000Z",
+          warnings: [],
+        },
+        agentsList: {
+          defaultId: "main",
+          mainKey: "main",
+          scope: "per-sender",
+          agents: [
+            {
+              id: "main",
+              model: { primary: "ollama/qwen3.6" },
+              agentRuntime: { id: "openclaw", source: "model" },
+            },
+          ],
+        },
+        modelCatalog: [
+          {
+            id: "qwen3.6",
+            name: "Qwen 3.6",
+            provider: "ollama",
+            available: true,
+            agentRuntime: { id: "openclaw", source: "model" },
+          },
+        ],
+        onRunExecutionTeam,
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-project-execution-profile]")?.textContent).toContain(
+      "Parallel",
+    );
+    expect(container.querySelector("[data-pcc-execution-team-status='ready']")).not.toBeNull();
+    const runButton = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-execution-team-action="start"]',
+    );
+    expect(runButton?.textContent).toContain("Run with 1 worker");
+    runButton?.click();
+    expect(onRunExecutionTeam).toHaveBeenCalledWith("start");
+    expect(container.querySelector("[data-pcc-learning-loop]")?.textContent).toContain(
+      "Recommendations only",
+    );
+    expect(container.querySelector("[data-pcc-learning-loop]")?.textContent).toContain(
+      "never edits",
+    );
+    expect(
+      container.querySelector("[data-pcc-autopilot-execution-profile]")?.textContent,
+    ).toContain("Parallel");
   });
 
   it("fills only missing project details and preserves everything the user entered", () => {
@@ -3057,6 +3238,7 @@ describe("renderPccDashboard", () => {
       aiUsePolicy: "codex_expert" as const,
       plannerMode: "codex" as const,
       planningMode: "codex_full_plan" as const,
+      executionProfile: resolvePccExecutionProfilePreset("balanced"),
       intakeAnswers,
       intakeApproved: true,
       planPreviewAccepted: true,
@@ -3462,6 +3644,7 @@ describe("renderPccDashboard", () => {
           plannerMode: "codex",
           planningMode: "codex_full_plan",
           aiUsePolicy: "codex_expert",
+          executionProfile: resolvePccExecutionProfilePreset("balanced"),
           codexPlanningAllowed: false,
           planPreviewAccepted: true,
         },
@@ -3492,7 +3675,7 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Local first",
+      "Focused",
     );
     expect(pmContainer.textContent).toContain("without an LLM call");
   });

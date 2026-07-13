@@ -1,6 +1,7 @@
 // Model list result building resolves visible model catalogs for an agent and
 // strips runtime-only provider params before sending the browse API payload.
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
+import { resolveModelAgentRuntimeMetadata } from "../../agents/agent-runtime-metadata.js";
 import {
   resolveAgentDir,
   resolveAgentEffectiveModelPrimary,
@@ -30,7 +31,10 @@ import { isSecretRef } from "../../config/types.secrets.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type ModelsListView = ModelCatalogBrowseView;
-type ModelsListEntry = ModelCatalogEntry & { available?: boolean };
+type ModelsListEntry = ModelCatalogEntry & {
+  available?: boolean;
+  agentRuntime?: ReturnType<typeof resolveModelAgentRuntimeMetadata>;
+};
 type ModelsListAvailability = boolean | undefined;
 type ModelsListProviderAuthChecker = (
   provider: string,
@@ -53,7 +57,9 @@ function omitRuntimeModelParams(entry: ModelCatalogEntry): ModelCatalogEntry {
   const { params: _params, ...rest } = entry as ModelCatalogEntry & {
     params?: Record<string, unknown>;
   };
-  return rest;
+  return Object.fromEntries(
+    Object.entries(rest).filter(([, value]) => value !== undefined),
+  ) as ModelCatalogEntry;
 }
 
 function createInFlightProviderAuthChecker(
@@ -206,11 +212,20 @@ async function resolveModelsListEntryAvailability(
 
 async function buildPublicModelsListEntry(params: {
   entry: ModelCatalogEntry;
+  cfg: OpenClawConfig;
+  agentId: string;
   providerAuthChecker?: ModelsListProviderAuthChecker;
 }): Promise<ModelsListEntry> {
   const publicEntry = omitRuntimeModelParams(params.entry);
+  const agentRuntime = resolveModelAgentRuntimeMetadata({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    provider: params.entry.provider,
+    model: params.entry.id,
+  });
+  const runtimeMetadata = agentRuntime.id === "auto" ? {} : { agentRuntime };
   if (!params.providerAuthChecker) {
-    return publicEntry;
+    return { ...publicEntry, ...runtimeMetadata };
   }
   const available = await resolveModelsListEntryAvailability(
     params.providerAuthChecker,
@@ -219,6 +234,7 @@ async function buildPublicModelsListEntry(params: {
   return {
     ...publicEntry,
     available: available ?? false,
+    ...runtimeMetadata,
   };
 }
 
@@ -233,6 +249,8 @@ async function buildPublicModelsListEntries(params: {
     params.catalog.map((entry) =>
       buildPublicModelsListEntry({
         entry,
+        cfg: params.cfg,
+        agentId: params.agentId,
         providerAuthChecker,
       }),
     ),
@@ -249,26 +267,32 @@ export async function buildModelsListResult(params: {
   const agentId = params.agentId ?? resolveDefaultAgentId(cfg);
   const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId) ?? resolveDefaultAgentWorkspaceDir();
   const view = resolveModelsListView(params.params);
-  const catalog = await loadModelCatalogForBrowse({
-    cfg,
-    view,
-    loadCatalog: async (loadParams) => {
-      const readOnlyLoad = loadParams.readOnly ?? true;
-      if (params.preloadedCatalog && readOnlyLoad) {
-        return params.preloadedCatalog;
-      }
-      return await params.context.loadGatewayModelCatalog(loadParams);
-    },
-    onTimeout: (timeoutMs) => {
-      if (loggedSlowModelsListCatalog) {
-        return;
-      }
-      loggedSlowModelsListCatalog = true;
-      params.context.logGateway.debug(
-        `models.list continuing without model catalog after ${timeoutMs}ms`,
-      );
-    },
-  });
+  const catalog =
+    params.params.refresh === true
+      ? await params.context.loadGatewayModelCatalog({
+          readOnly: view !== "all",
+          forceRefresh: true,
+        })
+      : await loadModelCatalogForBrowse({
+          cfg,
+          view,
+          loadCatalog: async (loadParams) => {
+            const readOnlyLoad = loadParams.readOnly ?? true;
+            if (params.preloadedCatalog && readOnlyLoad) {
+              return params.preloadedCatalog;
+            }
+            return await params.context.loadGatewayModelCatalog(loadParams);
+          },
+          onTimeout: (timeoutMs) => {
+            if (loggedSlowModelsListCatalog) {
+              return;
+            }
+            loggedSlowModelsListCatalog = true;
+            params.context.logGateway.debug(
+              `models.list continuing without model catalog after ${timeoutMs}ms`,
+            );
+          },
+        });
   if (view === "all") {
     return {
       models: await buildPublicModelsListEntries({ catalog, cfg, agentId, workspaceDir }),

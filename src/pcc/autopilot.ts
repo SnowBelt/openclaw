@@ -7,6 +7,7 @@ import type {
   PccProject,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import { normalizePccExecutionProfile, summarizePccExecutionProfile } from "./execution-profile.js";
 
 export type PccAutopilotStatus =
   | "off"
@@ -1406,6 +1407,11 @@ export function buildPccAutopilotContextPack(
 ): PccAutopilotContextPack {
   const active = activeMilestones(input);
   const blockers = projectBlockers(input);
+  const executionProfile = normalizePccExecutionProfile(input.project.metadata);
+  const codexProfileRule =
+    executionProfile.codexRole === "off"
+      ? "Project profile forbids Codex. Keep every prompt on OpenClaw or safe-stub execution."
+      : `Project profile allows Codex only as ${executionProfile.codexRole} at ${executionProfile.codexEffort} depth after a usable scoped grant.`;
   return {
     projectSummary: `${input.project.title}: ${input.project.goal || "No goal recorded."}`,
     selectedLoopMode: state.mode,
@@ -1437,12 +1443,19 @@ export function buildPccAutopilotContextPack(
       ...(input.decisions ?? []).slice(0, 5).map((item) => item.title),
     ],
     approvalRules: [
+      `Project execution profile: ${summarizePccExecutionProfile(executionProfile)}`,
+      codexProfileRule,
       state.approvalPolicy.note,
       `Low risk: ${state.approvalPolicy.allowLowRisk ? "allowed" : "approval required"}`,
       `Medium risk: ${state.approvalPolicy.allowMediumRisk ? "allowed" : "approval required"}`,
       `High risk: ${state.approvalPolicy.allowHighRisk ? "allowed" : "separate approval required"}`,
     ],
-    forbiddenActions: DEFAULT_FORBIDDEN_ACTIONS,
+    forbiddenActions: [
+      ...DEFAULT_FORBIDDEN_ACTIONS,
+      ...(executionProfile.codexRole === "off"
+        ? ["Do not invoke Codex for this project profile."]
+        : ["Do not broaden Codex beyond the project profile or its scoped grant."]),
+    ],
     userPreferences: [
       "Keep PCC skim-first, reliable, and proof-backed.",
       "Do not claim completion without verified evidence.",

@@ -23,6 +23,13 @@ write skills. Code/config changes still require tests or explicit operator
 approval. Skill updates stay in Skill Workshop pending/quarantined review until
 approved by the Memory/Knowledge Curator.
 
+Governor candidates are recommendation-only, including candidates routed into
+PCC. The [PCC Learning Loop](/automation/pcc-learning-loop) is the canonical
+contract for PCC candidate evidence, lifecycle, and promotion: promotion needs
+before-and-after metrics at `93` or higher with no regression. Any resulting
+memory or skill change remains curator-gated through Skill Workshop; a Governor
+or PCC candidate does not authorize it.
+
 ## What It Inspects
 
 The MVP scanner is deterministic and checks:

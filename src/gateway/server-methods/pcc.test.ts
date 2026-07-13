@@ -22,7 +22,9 @@ function makeOptions(
     client: null,
     isWebchatConnect: () => false,
     respond: respond as unknown as GatewayRequestHandlerOptions["respond"],
-    context: {} as GatewayRequestHandlerOptions["context"],
+    context: {
+      getRuntimeConfig: () => ({ agents: { defaults: { subagents: { maxConcurrent: 4 } } } }),
+    } as GatewayRequestHandlerOptions["context"],
   };
 }
 
@@ -657,6 +659,19 @@ describe("Project Command Center gateway methods", () => {
       await invoke("pcc.summary.get", { projectId: project.id }),
     );
     expect(weighted.project.percentComplete).toBe(7);
+
+    const capacitySummary = okPayload<{
+      executionCapacity: {
+        configuredSubagentLimit: number;
+        safeLocalAgentSlots: number;
+        warnings: string[];
+      };
+    }>(await invoke("pcc.summary.get", { projectId: project.id }));
+    expect(capacitySummary.executionCapacity.configuredSubagentLimit).toBe(4);
+    expect(capacitySummary.executionCapacity.safeLocalAgentSlots).toBeGreaterThanOrEqual(0);
+    expect(capacitySummary.executionCapacity.warnings).toContain(
+      "External local-model process occupancy is unavailable; this is a CPU/RAM safety ceiling, not a throughput guarantee.",
+    );
 
     await invoke("pcc.milestones.upsert", {
       milestone: {

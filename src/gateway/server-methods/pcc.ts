@@ -28,6 +28,9 @@ import {
   validatePccReceiptsAddParams,
   validatePccSummaryGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { resolveSubagentMaxConcurrent } from "../../config/agent-limits.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { collectPccExecutionCapacitySnapshot } from "../../pcc/execution-capacity.js";
 import {
   closePccLedgerStorageForTest,
   pccLedgerJsonPath as ledgerPath,
@@ -45,6 +48,7 @@ import {
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
 import { readPccRuntimeIdentity, type PccRuntimeIdentity } from "../../pcc/runtime-identity.js";
+import { listTaskRecords } from "../../tasks/runtime-internal.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 
 type ProjectStatusCounts = PccProjectSummary["milestoneCounts"];
@@ -117,6 +121,18 @@ const PARTIAL_STATUS_PERCENT: Partial<Record<PccStatus, number>> = {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function readPccExecutionCapacity(config: OpenClawConfig) {
+  const activeOpenClawTaskCount = listTaskRecords().filter(
+    (task) => task.status === "queued" || task.status === "running",
+  ).length;
+  return collectPccExecutionCapacitySnapshot({
+    activeOpenClawTaskCount,
+    configuredSubagentLimit: resolveSubagentMaxConcurrent(config),
+    // OpenClaw has no portable process-level local-model registry yet. Do not guess.
+    observedLocalModelProcessCount: 0,
+  });
 }
 
 function slugify(value: string): string {
@@ -2392,13 +2408,14 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.summary.get": ({ params, respond }) => {
+  "pcc.summary.get": ({ params, respond, context }) => {
     if (!validatePccSummaryGetParams(params)) {
       respondInvalid(respond, "pcc.summary.get", validatePccSummaryGetParams.errors);
       return;
     }
     try {
       const ledger = readLedger();
+      const executionCapacity = readPccExecutionCapacity(context.getRuntimeConfig());
       if (params.projectId) {
         const project = projectOrError(ledger, params.projectId);
         if (!project) {
@@ -2408,12 +2425,14 @@ export const pccHandlers: GatewayRequestHandlers = {
         respond(true, {
           project: summarizeProject(ledger, project),
           portfolio: summarizePortfolio(ledger),
+          executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
         });
         return;
       }
       respond(true, {
         portfolio: summarizePortfolio(ledger),
+        executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
       });
     } catch (error) {

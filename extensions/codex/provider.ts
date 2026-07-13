@@ -16,7 +16,7 @@ import {
   CODEX_APP_SERVER_AUTH_MARKER,
   CODEX_BASE_URL,
   CODEX_PROVIDER_ID,
-  FALLBACK_CODEX_MODELS,
+  KNOWN_CODEX_MODELS,
 } from "./provider-catalog.js";
 import {
   type CodexAppServerStartOptions,
@@ -33,7 +33,7 @@ const DEFAULT_DISCOVERY_TIMEOUT_MS = 2500;
 const LIVE_DISCOVERY_ENV = "OPENCLAW_CODEX_DISCOVERY_LIVE";
 const MODEL_DISCOVERY_PAGE_LIMIT = 100;
 const CODEX_APP_SERVER_SETUP_METHOD_ID = "app-server";
-const CODEX_DEFAULT_MODEL_REF = `${CODEX_PROVIDER_ID}/${FALLBACK_CODEX_MODELS[0].id}`;
+const CODEX_DEFAULT_MODEL_REF = `${CODEX_PROVIDER_ID}/${KNOWN_CODEX_MODELS[0].id}`;
 const codexCatalogLog = createSubsystemLogger("codex/catalog");
 
 type CodexModelLister = (options: {
@@ -108,7 +108,7 @@ export function buildCodexProvider(options: BuildCodexProviderOptions = {}): Pro
     staticCatalog: {
       order: "late",
       run: async () => ({
-        provider: buildCodexProviderConfig(FALLBACK_CODEX_MODELS),
+        provider: buildCodexProviderConfig([]),
       }),
     },
     resolveDynamicModel: (ctx) => resolveCodexDynamicModel(ctx.modelId),
@@ -141,6 +141,7 @@ export function buildCodexProvider(options: BuildCodexProviderOptions = {}): Pro
         { id: "medium" },
         { id: "high" },
         ...(isKnownXHighCodexModel(modelId) ? [{ id: "xhigh" as const }] : []),
+        ...(isGpt56CodexModel(modelId) ? [{ id: "max" as const }] : []),
       ],
     }),
     resolveSystemPromptContribution: ({ config, modelId }) =>
@@ -150,8 +151,9 @@ export function buildCodexProvider(options: BuildCodexProviderOptions = {}): Pro
 }
 
 /**
- * Builds the Codex model catalog from live app-server discovery, falling back
- * to built-in model records when discovery is disabled or unavailable.
+ * Builds the Codex model catalog from live app-server discovery. An unavailable
+ * live catalog stays empty so the UI cannot mistake known model capabilities
+ * for account-specific availability.
  */
 export async function buildCodexProviderCatalog(
   options: BuildCatalogOptions = {},
@@ -169,7 +171,7 @@ export async function buildCodexProviderCatalog(
     });
   }
   return {
-    provider: buildCodexProviderConfig(discovered.length > 0 ? discovered : FALLBACK_CODEX_MODELS),
+    provider: buildCodexProviderConfig(discovered),
   };
 }
 
@@ -178,19 +180,26 @@ function resolveCodexDynamicModel(modelId: string) {
   if (!id) {
     return undefined;
   }
-  const fallbackModel = FALLBACK_CODEX_MODELS.find((model) => model.id === id);
+  const knownModel = KNOWN_CODEX_MODELS.find((model) => model.id === id);
   return normalizeModelCompat({
     ...buildCodexModelDefinition({
       id,
       model: id,
-      inputModalities: fallbackModel?.inputModalities ?? ["text"],
+      inputModalities:
+        knownModel?.inputModalities ??
+        (isKnownImageCapableCodexModel(id) ? ["text", "image"] : ["text"]),
       supportedReasoningEfforts:
-        fallbackModel?.supportedReasoningEfforts ??
+        knownModel?.supportedReasoningEfforts ??
         (shouldDefaultToReasoningModel(id) ? ["medium"] : []),
     }),
     provider: CODEX_PROVIDER_ID,
     baseUrl: CODEX_BASE_URL,
   } as ProviderRuntimeModel);
+}
+
+function isKnownImageCapableCodexModel(modelId: string): boolean {
+  const lower = modelId.trim().toLowerCase();
+  return lower === "gpt-5.5" || lower === "gpt-5.4" || lower === "gpt-5.4-mini";
 }
 
 async function listModelsBestEffort(params: {
@@ -218,7 +227,7 @@ async function listModelsBestEffort(params: {
     return models;
   } catch (error) {
     params.onDiscoveryFailure?.(error);
-    codexCatalogLog.debug("codex model discovery failed; using fallback catalog", {
+    codexCatalogLog.debug("codex model discovery failed; live catalog remains unavailable", {
       error: error instanceof Error ? error.message : String(error),
     });
     return [];
@@ -291,6 +300,10 @@ function isKnownXHighCodexModel(modelId: string): boolean {
   );
 }
 
+function isGpt56CodexModel(modelId: string): boolean {
+  return modelId.trim().toLowerCase().startsWith("gpt-5.6");
+}
+
 /**
  * Returns true for Codex models that use the modern reasoning effort enum and
  * reject the legacy CLI `minimal` default.
@@ -298,6 +311,7 @@ function isKnownXHighCodexModel(modelId: string): boolean {
 export function isModernCodexModel(modelId: string): boolean {
   const lower = modelId.trim().toLowerCase();
   return (
+    lower.startsWith("gpt-5.6") ||
     lower === "gpt-5.5" ||
     lower === "gpt-5.4" ||
     lower === "gpt-5.4-mini" ||

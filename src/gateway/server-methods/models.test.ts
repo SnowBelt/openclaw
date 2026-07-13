@@ -23,6 +23,7 @@ const withoutOpenAIEnvAuth = async <T>(run: () => Promise<T>): Promise<T> =>
 
 function requestModelsList(params: {
   view: "configured" | "all";
+  refresh?: boolean;
   respond?: ReturnType<typeof vi.fn>;
   runtimeConfig?: OpenClawConfig;
   loadGatewayModelCatalog: () => Promise<Array<Record<string, unknown>>>;
@@ -34,9 +35,9 @@ function requestModelsList(params: {
       type: "req",
       id: params.reqId ?? `req-models-list-${params.view}`,
       method: "models.list",
-      params: { view: params.view },
+      params: { view: params.view, ...(params.refresh ? { refresh: true } : {}) },
     },
-    params: { view: params.view },
+    params: { view: params.view, ...(params.refresh ? { refresh: true } : {}) },
     respond: respond as RespondFn,
     client: null,
     isWebchatConnect: () => false,
@@ -52,6 +53,23 @@ function requestModelsList(params: {
 }
 
 describe("models.list", () => {
+  it("passes an explicit user refresh through to the Gateway catalog", async () => {
+    const loadGatewayModelCatalog = vi.fn(async () => []);
+    const { request, respond } = requestModelsList({
+      view: "configured",
+      refresh: true,
+      loadGatewayModelCatalog,
+    });
+
+    await request;
+
+    expect(loadGatewayModelCatalog).toHaveBeenCalledWith({
+      readOnly: true,
+      forceRefresh: true,
+    });
+    expect(respond).toHaveBeenCalledWith(true, { models: [] }, undefined);
+  });
+
   it("does not block the configured view on slow model catalog discovery", async () => {
     await withoutOpenAIEnvAuth(async () => {
       const catalog = createDeferred<never>();
@@ -173,7 +191,17 @@ describe("models.list", () => {
 
         expect(respond).toHaveBeenCalledWith(
           true,
-          { models: [{ id: "gpt-test", name: "GPT Test", provider: "openai", available: false }] },
+          {
+            models: [
+              {
+                id: "gpt-test",
+                name: "GPT Test",
+                provider: "openai",
+                available: false,
+                agentRuntime: { id: "codex", source: "implicit" },
+              },
+            ],
+          },
           undefined,
         );
         expect(loadGatewayModelCatalog).toHaveBeenCalledWith({ readOnly: false });
@@ -245,8 +273,20 @@ describe("models.list", () => {
       true,
       {
         models: [
-          { id: "gpt-5.4-codex", name: "GPT-5.4 Codex", provider: "openai", available: true },
-          { id: "gpt-codex-test", name: "GPT Codex Test", provider: "openai", available: true },
+          {
+            id: "gpt-5.4-codex",
+            name: "GPT-5.4 Codex",
+            provider: "openai",
+            available: true,
+            agentRuntime: { id: "codex", source: "implicit" },
+          },
+          {
+            id: "gpt-codex-test",
+            name: "GPT Codex Test",
+            provider: "openai",
+            available: true,
+            agentRuntime: { id: "codex", source: "implicit" },
+          },
           { id: "llama-local", name: "Llama Local", provider: "vllm", available: true },
           { id: "qwen-local", name: "Qwen Local", provider: "vllm", available: true },
         ],
@@ -268,8 +308,20 @@ describe("models.list", () => {
       {
         models: [
           { id: "claude-test", name: "Claude Test", provider: "anthropic", available: false },
-          { id: "gpt-5.4-codex", name: "GPT-5.4 Codex", provider: "openai", available: true },
-          { id: "gpt-codex-test", name: "GPT Codex Test", provider: "openai", available: true },
+          {
+            id: "gpt-5.4-codex",
+            name: "GPT-5.4 Codex",
+            provider: "openai",
+            available: true,
+            agentRuntime: { id: "codex", source: "implicit" },
+          },
+          {
+            id: "gpt-codex-test",
+            name: "GPT Codex Test",
+            provider: "openai",
+            available: true,
+            agentRuntime: { id: "codex", source: "implicit" },
+          },
           { id: "llama-local", name: "Llama Local", provider: "vllm", available: true },
           { id: "qwen-local", name: "Qwen Local", provider: "vllm", available: true },
         ],
@@ -325,6 +377,7 @@ describe("models.list", () => {
                 provider: "openai",
                 api: "openai-responses",
                 available: true,
+                agentRuntime: { id: "codex", source: "implicit" },
               },
             ],
           },

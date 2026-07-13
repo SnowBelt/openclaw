@@ -19,17 +19,21 @@ const modelCatalogCache = new WeakMap<GatewayBrowserClient, ModelCatalogCacheEnt
  * convention).  Returns an array of {@link ModelCatalogEntry}; on failure the
  * caller receives an empty array rather than throwing.
  */
-export async function loadModels(client: GatewayBrowserClient): Promise<ModelCatalogEntry[]> {
+export async function loadModels(
+  client: GatewayBrowserClient,
+  options: { force?: boolean } = {},
+): Promise<ModelCatalogEntry[]> {
   const cached = modelCatalogCache.get(client);
   const now = Date.now();
-  if (cached?.models && cached.expiresAt > now) {
+  if (!options.force && cached?.models && cached.expiresAt > now) {
     return cached.models;
   }
+  // Reuse an active request even for an explicit refresh so two responses cannot race the cache.
   if (cached?.inFlight) {
     return cached.inFlight;
   }
 
-  const inFlight = requestModels(client, cached?.models).finally(() => {
+  const inFlight = requestModels(client, cached?.models, options.force === true).finally(() => {
     const latest = modelCatalogCache.get(client);
     if (latest?.inFlight === inFlight) {
       delete latest.inFlight;
@@ -53,10 +57,12 @@ export function applyModelCatalogResult(models: unknown): ModelCatalogEntry[] | 
 async function requestModels(
   client: GatewayBrowserClient,
   fallback: ModelCatalogEntry[] | undefined,
+  force: boolean,
 ): Promise<ModelCatalogEntry[]> {
   try {
     const result = await client.request<{ models: ModelCatalogEntry[] }>("models.list", {
       view: "configured",
+      ...(force ? { refresh: true } : {}),
     });
     const models = result?.models ?? [];
     modelCatalogCache.set(client, {
@@ -64,7 +70,10 @@ async function requestModels(
       models,
     });
     return models;
-  } catch {
+  } catch (error) {
+    if (force) {
+      throw error;
+    }
     return fallback ?? [];
   }
 }

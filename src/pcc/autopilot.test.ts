@@ -13,6 +13,7 @@ import {
   updatePccAutopilotPromptSlot,
   withPccAutopilotState,
 } from "./autopilot.js";
+import { resolvePccExecutionProfilePreset } from "./execution-profile.js";
 
 const now = "2026-07-07T12:00:00.000Z";
 const project: PccProject = {
@@ -65,6 +66,25 @@ describe("PCC Autopilot Project Loop", () => {
     expect(context.projectSummary).toContain("Autopilot Test Project");
     expect(context.blockers.join("\n")).toContain("Manual verification pending");
     expect(context.forbiddenActions.join("\n")).toContain("Do not spend Codex");
+    expect(context.approvalRules.join("\n")).toContain("focused local execution");
+    expect(context.forbiddenActions).toContain("Do not invoke Codex for this project profile.");
+  });
+
+  it("inherits the one project execution profile without broadening Codex", () => {
+    const hybridProject = {
+      ...project,
+      metadata: { pccExecutionProfile: resolvePccExecutionProfilePreset("ultra_hybrid") },
+    };
+    const context = buildPccAutopilotContextPack(
+      { ...input(), project: hybridProject },
+      defaultPccAutopilotState({ ...input(), project: hybridProject }, now),
+    );
+
+    expect(context.approvalRules.join("\n")).toContain("ultra local execution");
+    expect(context.approvalRules.join("\n")).toContain("allows Codex only as lead");
+    expect(context.forbiddenActions).toContain(
+      "Do not broaden Codex beyond the project profile or its scoped grant.",
+    );
   });
 
   it("runs safe stub execution without live token spend or file changes", () => {

@@ -1652,7 +1652,10 @@ export function resolveSessionModelRef(
 }
 
 export async function resolveGatewayModelSupportsImages(params: {
-  loadGatewayModelCatalog: (params?: { readOnly?: boolean }) => Promise<ModelCatalogEntry[]>;
+  loadGatewayModelCatalog: (params?: {
+    readOnly?: boolean;
+    forceRefresh?: boolean;
+  }) => Promise<ModelCatalogEntry[]>;
   provider?: string;
   model?: string;
 }): Promise<boolean> {

@@ -1780,7 +1780,7 @@ export function resolveCodexAppServerModelProvider(params: {
 export function resolveReasoningEffort(
   thinkLevel: EmbeddedRunAttemptParams["thinkLevel"],
   modelId: string,
-): "minimal" | "low" | "medium" | "high" | "xhigh" | null {
+): "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null {
   if (thinkLevel === "minimal") {
     return isModernCodexModel(modelId) ? "low" : "minimal";
   }
@@ -1791,6 +1791,9 @@ export function resolveReasoningEffort(
     thinkLevel === "xhigh"
   ) {
     return thinkLevel;
+  }
+  if (thinkLevel === "max" && modelId.trim().toLowerCase().startsWith("gpt-5.6")) {
+    return "max";
   }
   return null;
 }

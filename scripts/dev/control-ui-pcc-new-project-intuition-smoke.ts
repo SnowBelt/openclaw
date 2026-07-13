@@ -75,6 +75,38 @@ async function main(): Promise<void> {
       chatSyncProposals: [],
       chatSyncError: null,
       viewMode: "simple" as const,
+      modelCatalog: [
+        {
+          id: "qwen3.6",
+          name: "Qwen 3.6",
+          provider: "ollama",
+          available: true,
+          agentRuntime: { id: "openclaw", source: "model" as const },
+        },
+        {
+          id: "gpt-5.6-sol",
+          name: "GPT-5.6 Sol",
+          provider: "openai",
+          available: true,
+          agentRuntime: { id: "codex", source: "model" as const },
+        },
+      ],
+      executionCapacity: {
+        logicalCpuCount: 16,
+        performanceCpuCount: null,
+        totalRamGb: 64,
+        freeRamGb: 32,
+        load1: 1,
+        load5: 1,
+        load15: 1,
+        memoryPressure: "low" as const,
+        activeOpenClawTaskCount: 0,
+        configuredSubagentLimit: 8,
+        observedLocalModelProcessCount: 0,
+        safeLocalAgentSlots: 4,
+        timestamp: "2026-07-13T00:00:00.000Z",
+        warnings: [],
+      },
       onRefresh: () => undefined,
       onSelectProject: () => undefined,
       onOpenProjectEditor: () => undefined,
@@ -112,30 +144,35 @@ async function main(): Promise<void> {
     renderCurrent();
     requireText(root, "[data-pcc-create-ai-explainer]", "AI fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
-    requireText(root, "[data-pcc-ai-role-picker]", "Local AI");
-    requireText(root, "[data-pcc-ai-role-picker]", "Focused Codex");
-    requireText(root, "[data-pcc-ai-role-picker]", "Balanced Codex");
-    requireText(root, "[data-pcc-ai-role-picker]", "Codex-led");
+    requireText(root, "[data-pcc-ai-role-picker]", "Focused");
+    requireText(root, "[data-pcc-ai-role-picker]", "Parallel");
+    requireText(root, "[data-pcc-ai-role-picker]", "Ultra");
+    requireText(root, "[data-pcc-ai-role-picker]", "Balanced team");
+    requireText(root, "[data-pcc-ai-role-picker]", "Ultra + Codex");
+    requireText(root, "[data-pcc-ai-role-picker]", "single source of truth");
     requireText(root, "[data-pcc-create-review-plan]", "Generate project plan");
     if (root.querySelector("[data-pcc-planner-selector]")) {
       throw new Error("new project flow must not expose a second planner policy selector");
+    }
+    if (root.querySelector("[data-pcc-ai-use-policy]")) {
+      throw new Error("new project flow must not expose the retired AI routing policy selector");
     }
     const customize = requireSelector(root, "[data-pcc-create-customize]");
     if (customize.hasAttribute("open")) {
       throw new Error("optional project customization must be collapsed by default");
     }
 
-    requireSelector(root, '[data-pcc-ai-use-policy="codex_expert"]').dispatchEvent(
+    requireSelector(root, '[data-pcc-execution-profile="balanced"]').dispatchEvent(
       new dom.window.Event("change", { bubbles: true }),
     );
     if (
-      projectForm.aiUsePolicy !== "codex_expert" ||
-      projectForm.plannerMode !== "codex" ||
+      projectForm.executionProfile.presetId !== "balanced" ||
+      projectForm.executionProfile.codexRole !== "checkpoints" ||
       projectForm.codexPlanningAllowed
     ) {
-      throw new Error("Codex expert preset did not configure permission-gated model routing");
+      throw new Error("Balanced team did not configure the canonical permission-gated profile");
     }
-    requireText(root, "[data-pcc-ai-role-picker]", "Balanced Codex");
+    requireText(root, "[data-pcc-ai-role-picker]", "Balanced team");
     requireText(root, "[data-pcc-create-ai-summary]", "one Codex approval");
 
     (requireSelector(root, "[data-pcc-create-review-plan]") as HTMLButtonElement).click();

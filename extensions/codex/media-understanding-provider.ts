@@ -13,7 +13,7 @@ import type {
   StructuredExtractionRequest,
   StructuredExtractionResult,
 } from "openclaw/plugin-sdk/media-understanding";
-import { CODEX_PROVIDER_ID, FALLBACK_CODEX_MODELS } from "./provider-catalog.js";
+import { CODEX_PROVIDER_ID, KNOWN_CODEX_MODELS } from "./provider-catalog.js";
 import {
   runBoundedCodexAppServerTurn,
   type CodexBoundedTurnOptions,
@@ -21,8 +21,8 @@ import {
 import type { CodexUserInput } from "./src/app-server/protocol.js";
 
 const DEFAULT_CODEX_IMAGE_MODEL =
-  FALLBACK_CODEX_MODELS.find((model) => model.inputModalities.includes("image"))?.id ??
-  FALLBACK_CODEX_MODELS[0]?.id;
+  KNOWN_CODEX_MODELS.find((model) => model.inputModalities.includes("image"))?.id ??
+  KNOWN_CODEX_MODELS[0]?.id;
 const DEFAULT_CODEX_IMAGE_PROMPT = "Describe the image.";
 
 export type CodexMediaUnderstandingProviderOptions = CodexBoundedTurnOptions;

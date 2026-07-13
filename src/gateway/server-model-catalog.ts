@@ -13,6 +13,7 @@ type LoadGatewayModelCatalogParams = {
   getConfig?: () => GatewayModelCatalogConfig;
   loadModelCatalog?: LoadModelCatalog;
   readOnly?: boolean;
+  forceRefresh?: boolean;
 };
 
 type GatewayModelCatalogCache = {
@@ -111,6 +112,12 @@ export async function loadGatewayModelCatalog(
   params?: LoadGatewayModelCatalogParams,
 ): Promise<GatewayModelChoice[]> {
   const cache = resolveGatewayModelCatalogCache(params);
+  if (params?.forceRefresh) {
+    if (cache.inFlightRefresh) {
+      return await cache.inFlightRefresh;
+    }
+    return await startGatewayModelCatalogRefresh(params);
+  }
   const isStale = isGatewayModelCatalogStale(cache);
   if (!isStale && cache.lastSuccessfulCatalog !== null) {
     return cache.lastSuccessfulCatalog;

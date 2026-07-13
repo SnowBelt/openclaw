@@ -1296,14 +1296,30 @@ describe("Codex app-server thread lifecycle timing", () => {
 
 describe("resolveReasoningEffort (#71946)", () => {
   describe("modern Codex models (none/low/medium/high/xhigh enum)", () => {
-    it.each(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"] as const)(
+    it.each([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex-spark",
+    ] as const)(
       "translates 'minimal' -> 'low' for %s so the first request is accepted",
       (modelId) => {
         expect(resolveReasoningEffort("minimal", modelId)).toBe("low");
       },
     );
 
-    it.each(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"] as const)(
+    it.each([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.3-codex-spark",
+    ] as const)(
       "passes 'low' / 'medium' / 'high' / 'xhigh' through unchanged for %s",
       (modelId) => {
         expect(resolveReasoningEffort("low", modelId)).toBe("low");
@@ -1316,6 +1332,11 @@ describe("resolveReasoningEffort (#71946)", () => {
     it("normalizes case-variant model ids", () => {
       expect(resolveReasoningEffort("minimal", "GPT-5.5")).toBe("low");
       expect(resolveReasoningEffort("minimal", " gpt-5.4-mini ")).toBe("low");
+    });
+
+    it("passes Maximum through only for GPT-5.6 models", () => {
+      expect(resolveReasoningEffort("max", "gpt-5.6-sol")).toBe("max");
+      expect(resolveReasoningEffort("max", "gpt-5.5")).toBeNull();
     });
   });
 

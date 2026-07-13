@@ -14,6 +14,29 @@ import {
   type PccAutopilotModeId,
   type PccAutopilotPromptSlot,
 } from "../../../../src/pcc/autopilot.js";
+import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
+import {
+  createPccExecutionPlan,
+  findDuplicateActivePccExecutionPlan,
+  findPccExecutionWorkspaceLeaseCollision,
+  isPccExecutionPlanActive,
+  partitionPccExecutionTasks,
+  transitionPccExecutionPlan,
+  type PccExecutionPlan,
+  type PccExecutionTask,
+  type PccExecutionTaskPartition,
+} from "../../../../src/pcc/execution-plan.js";
+import {
+  PCC_BEST_AVAILABLE_MODEL_ID,
+  DEFAULT_PCC_EXECUTION_PROFILE,
+  derivePccAiUsePolicy,
+  normalizePccExecutionProfile,
+  pccCodexEffortIsSupported,
+  resolvePccEstimatedAgentCounts,
+  resolvePccExecutionProfilePreset,
+  validatePccModelSelection,
+  type PccExecutionProfile,
+} from "../../../../src/pcc/execution-profile.js";
 import {
   evaluatePccProjectSetup,
   PCC_REQUIRED_INTAKE_QUESTIONS,
@@ -43,6 +66,7 @@ import {
   type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
 import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
+import { buildQualifiedChatModelValue } from "../chat-model-ref.ts";
 import { formatConnectError } from "../connect-error.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import { buildPccChatSyncProposals, type PccChatSyncProposal } from "../pcc-chat-sync.ts";
@@ -59,6 +83,8 @@ import type {
   PccProject,
   PccProjectSummary,
   PccStatus,
+  AgentsListResult,
+  ModelCatalogEntry,
 } from "../types.ts";
 
 export type PccProjectDetail = {
@@ -119,6 +145,21 @@ export type PccAutopilotAction =
   | "expire_permission_grant"
   | "apply_permission_repair";
 
+export type PccExecutionTeamAction = "start" | "stop";
+
+export type PccExecutionTeamReadiness = {
+  status: "focused" | "ready" | "running" | "blocked" | "needs_approval";
+  reason: string;
+  profile: PccExecutionProfile;
+  activePlan: PccExecutionPlan | null;
+  tasks: PccExecutionTask[];
+  admittedLocalAgents: number;
+  codexAgents: 0 | 1;
+  coordinatorAgentId: string | null;
+  workerModelId: string | null;
+  codexModelId: string | null;
+};
+
 export type PccActionNotice = {
   kind: "success" | "info";
   text: string;
@@ -172,6 +213,7 @@ export type PccProjectFormState = {
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
   runtimeActionsAllowed: boolean;
+  executionProfile: PccExecutionProfile;
   intakeAnswers: Record<string, string>;
   intakeApproved: boolean;
 };
@@ -234,6 +276,9 @@ export type PccDashboardState = {
   pccProductFocusMode?: "pcc_product" | "project_work";
   pccReorderMode?: boolean;
   pccRuntimeIdentity?: PccRuntimeIdentity | null;
+  pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
+  agentsList?: AgentsListResult | null;
+  chatModelCatalog?: ModelCatalogEntry[];
   requestUpdate?: () => void;
 };
 
@@ -243,6 +288,7 @@ type PccProjectsListResult = {
 
 type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
+  executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
 };
 
@@ -316,6 +362,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
   runtimeActionsAllowed: false,
+  executionProfile: { ...DEFAULT_PCC_EXECUTION_PROFILE },
   intakeAnswers: {},
   intakeApproved: false,
 };
@@ -389,6 +436,543 @@ function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function metadataWithoutLegacyExecutionRouting(value: unknown): Record<string, unknown> {
+  const next = { ...metadataObject(value) };
+  for (const key of [
+    "pccPlanningMode",
+    "pccPlannerMode",
+    "pccAiUsePolicy",
+    "pccPlannerModelId",
+    "pccPlannerPermission",
+    "pccAiRouting",
+    "pccCodexPlanningAllowed",
+  ]) {
+    delete next[key];
+  }
+  return next;
+}
+
+function configuredModelRefs(models: readonly ModelCatalogEntry[] | undefined): string[] {
+  return (models ?? [])
+    .filter((entry) => entry.available !== false)
+    .map((entry) => buildQualifiedChatModelValue(entry.id, entry.provider));
+}
+
+const PCC_EXECUTION_TEAM_TASK_STATUSES = new Set<PccStatus>([
+  "not_started",
+  "active",
+  "in_progress",
+  "reopened",
+]);
+
+const PCC_EXECUTION_PLAN_STATUSES = new Set([
+  "prepared",
+  "dispatching",
+  "running",
+  "paused",
+  "blocked",
+  "failed",
+  "completed",
+  "cancelled",
+]);
+
+function isCodexModelRef(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return normalized.includes("codex/") || normalized.includes("codex:");
+}
+
+function isCodexCatalogModel(entry: ModelCatalogEntry): boolean {
+  return (
+    entry.agentRuntime?.id === "codex" || entry.provider.trim().toLowerCase().includes("codex")
+  );
+}
+
+function modelRefFromCatalog(entry: ModelCatalogEntry): string {
+  return buildQualifiedChatModelValue(entry.id, entry.provider);
+}
+
+function resolveConfiguredExecutionModel(
+  selection: string,
+  catalog: readonly ModelCatalogEntry[] | undefined,
+  kind: "openclaw" | "codex",
+): string | null {
+  const entries = (catalog ?? []).filter(
+    (entry) =>
+      entry.available !== false &&
+      (kind === "codex" ? isCodexCatalogModel(entry) : !isCodexCatalogModel(entry)),
+  );
+  if (selection === PCC_BEST_AVAILABLE_MODEL_ID) {
+    return entries[0] ? modelRefFromCatalog(entries[0]) : null;
+  }
+  return entries.some((entry) => modelRefFromCatalog(entry) === selection) ? selection : null;
+}
+
+function executionPlansFromProject(project: PccProject): PccExecutionPlan[] {
+  const raw = metadataObject(project.metadata).pccExecutionPlans;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((value): value is PccExecutionPlan => {
+    const record = metadataObject(value);
+    return (
+      record.schemaVersion === 1 &&
+      typeof record.id === "string" &&
+      typeof record.projectId === "string" &&
+      record.projectId === project.id &&
+      typeof record.projectRevision === "string" &&
+      typeof record.status === "string" &&
+      PCC_EXECUTION_PLAN_STATUSES.has(record.status) &&
+      typeof record.createdAt === "string" &&
+      typeof record.updatedAt === "string" &&
+      Array.isArray(record.partitions) &&
+      Array.isArray(record.leases) &&
+      Array.isArray(record.proofRequirements) &&
+      Array.isArray(record.auditEvents)
+    );
+  });
+}
+
+function executionWorkspaceId(item: PccMilestone | PccSubMilestone): string {
+  return metadataString(metadataObject(item.metadata).workspaceLock, "").trim();
+}
+
+function executionItemIsLocal(item: PccMilestone | PccSubMilestone): boolean {
+  const responsibility = pccResponsibilityForItem(item);
+  return responsibility === "local_openclaw_agent" || responsibility === "local_model";
+}
+
+function executionItemIsParallelSafe(item: PccMilestone | PccSubMilestone): boolean {
+  const metadata = metadataObject(item.metadata);
+  return (
+    metadata.parallelSafe === true &&
+    PCC_EXECUTION_TEAM_TASK_STATUSES.has(item.status) &&
+    executionItemIsLocal(item) &&
+    executionWorkspaceId(item).length > 0
+  );
+}
+
+function executionTasksForDetail(detail: PccProjectDetail): PccExecutionTask[] {
+  const subMilestones = detail.subMilestones ?? [];
+  const candidateItems: Array<{
+    item: PccMilestone | PccSubMilestone;
+    milestoneId: string;
+    title: string;
+    order: number;
+  }> = [];
+  for (const milestone of detail.milestones.toSorted(
+    (left, right) => (left.order ?? 0) - (right.order ?? 0),
+  )) {
+    const children = subMilestones
+      .filter((item) => item.milestoneId === milestone.id)
+      .toSorted((left, right) => (left.order ?? 0) - (right.order ?? 0));
+    const runnableChildren = children.filter((item) =>
+      PCC_EXECUTION_TEAM_TASK_STATUSES.has(item.status),
+    );
+    if (runnableChildren.length > 0) {
+      for (const child of runnableChildren) {
+        candidateItems.push({
+          item: child,
+          milestoneId: milestone.id,
+          title: `${milestone.title}: ${child.title}`,
+          order: (milestone.order ?? 0) * 10_000 + (child.order ?? 0),
+        });
+      }
+      continue;
+    }
+    candidateItems.push({
+      item: milestone,
+      milestoneId: milestone.id,
+      title: milestone.title,
+      order: (milestone.order ?? 0) * 10_000,
+    });
+  }
+
+  const claimedWorkspaces = new Set<string>();
+  return candidateItems
+    .toSorted((left, right) => left.order - right.order)
+    .flatMap(({ item, milestoneId, title }) => {
+      if (!executionItemIsParallelSafe(item)) {
+        return [];
+      }
+      const workspaceId = executionWorkspaceId(item);
+      if (claimedWorkspaces.has(workspaceId)) {
+        return [];
+      }
+      claimedWorkspaces.add(workspaceId);
+      return [
+        {
+          id: `${"milestoneId" in item ? "submilestone" : "milestone"}:${item.id}`,
+          title,
+          independent: true,
+          workspaceId,
+          milestoneId,
+        },
+      ];
+    });
+}
+
+function activePccExecutionPlan(detail: PccProjectDetail): PccExecutionPlan | null {
+  return (
+    executionPlansFromProject(detail.project)
+      .filter((plan) => isPccExecutionPlanActive(plan.status))
+      .toSorted((left, right) => right.id.localeCompare(left.id))[0] ?? null
+  );
+}
+
+function pccCodexPermissionIsUsable(
+  permission: PccPermissionGrant,
+  profile: PccExecutionProfile,
+  nowMs = Date.now(),
+): boolean {
+  const typeMatches =
+    profile.codexEffort === "medium"
+      ? permission.type === "codex_usage" || permission.type === "high_reasoning_model"
+      : permission.type === "high_reasoning_model";
+  const expiresAt = permission.expiresAt
+    ? Date.parse(permission.expiresAt)
+    : Number.POSITIVE_INFINITY;
+  const usesRemain = permission.maxUses === undefined || permission.usedCount < permission.maxUses;
+  return typeMatches && permission.status === "granted" && expiresAt > nowMs && usesRemain;
+}
+
+function resolvePccCoordinatorSelection(
+  agentsList: AgentsListResult | null | undefined,
+  catalog: readonly ModelCatalogEntry[] | undefined,
+  selectedModelId: string,
+): { agentId: string; workerModelId: string } | null {
+  const availableModelRefs = new Set(
+    (catalog ?? [])
+      .filter((entry) => entry.available !== false && !isCodexCatalogModel(entry))
+      .map(modelRefFromCatalog),
+  );
+  const candidates = (agentsList?.agents ?? []).filter(
+    (agent) =>
+      agent.model?.primary &&
+      agent.agentRuntime?.id !== "codex" &&
+      !isCodexModelRef(agent.model.primary) &&
+      availableModelRefs.has(agent.model.primary),
+  );
+  const exact =
+    selectedModelId === PCC_BEST_AVAILABLE_MODEL_ID
+      ? (candidates.find((agent) => agent.id === agentsList?.defaultId) ?? candidates[0])
+      : candidates.find((agent) => agent.model?.primary === selectedModelId);
+  const workerModelId = exact?.model?.primary;
+  return exact && workerModelId ? { agentId: exact.id, workerModelId } : null;
+}
+
+export function buildPccExecutionTeamReadiness(
+  detail: PccProjectDetail,
+  capacity: PccExecutionCapacitySnapshot | null | undefined,
+  agentsList: AgentsListResult | null | undefined,
+  catalog: readonly ModelCatalogEntry[] | undefined,
+  projectDetails: readonly PccProjectDetail[] = [],
+): PccExecutionTeamReadiness {
+  const profile = normalizePccExecutionProfile(detail.project.metadata);
+  const activePlan = activePccExecutionPlan(detail);
+  const tasks = executionTasksForDetail(detail);
+  const counts = resolvePccEstimatedAgentCounts(profile, capacity?.safeLocalAgentSlots ?? 0);
+  const coordinatorSelection = resolvePccCoordinatorSelection(
+    agentsList,
+    catalog,
+    profile.localModelId,
+  );
+  const workerModelId =
+    coordinatorSelection?.workerModelId ??
+    resolveConfiguredExecutionModel(profile.localModelId, catalog, "openclaw");
+  const codexModelId =
+    profile.codexRole === "off"
+      ? null
+      : resolveConfiguredExecutionModel(profile.codexModelId, catalog, "codex");
+  const coordinatorAgentId = coordinatorSelection?.agentId ?? null;
+  const base = {
+    profile,
+    activePlan,
+    tasks,
+    admittedLocalAgents: Math.min(counts.localAgents, tasks.length),
+    codexAgents: counts.codexAgents,
+    coordinatorAgentId,
+    workerModelId,
+    codexModelId,
+  } as const;
+
+  if (activePlan) {
+    return {
+      ...base,
+      status: "running",
+      reason: `${activePlan.admittedWorkerCount} OpenClaw worker${activePlan.admittedWorkerCount === 1 ? " is" : "s are"} assigned. Review the plan before stopping it.`,
+    };
+  }
+  if (profile.speed === "focused") {
+    return {
+      ...base,
+      status: "focused",
+      reason: "Focused uses one worker at a time. Choose Parallel or Ultra to run an agent team.",
+    };
+  }
+  if (PCC_TERMINAL_STATUSES.has(detail.project.status)) {
+    return { ...base, status: "blocked", reason: "This project is complete or archived." };
+  }
+  if (!["active", "in_progress", "reopened"].includes(detail.project.status)) {
+    return {
+      ...base,
+      status: "blocked",
+      reason: `The project is ${detail.project.status.replace(/_/gu, " ")}. Resolve that state before running a team.`,
+    };
+  }
+  const setup = evaluatePccProjectSetup({
+    project: detail.project,
+    milestones: detail.milestones,
+    subMilestones: detail.subMilestones ?? [],
+  });
+  if (!setup.runnable) {
+    return {
+      ...base,
+      status: "blocked",
+      reason:
+        setup.missing[0] ?? setup.violations[0] ?? setup.needsReview[0] ?? "Setup needs review.",
+    };
+  }
+  if (tasks.length === 0) {
+    return {
+      ...base,
+      status: "blocked",
+      reason: "No ready tasks are explicitly marked parallel-safe with separate workspace locks.",
+    };
+  }
+  const otherActiveLeases = projectDetails
+    .filter((candidate) => candidate.project.id !== detail.project.id)
+    .flatMap((candidate) =>
+      executionPlansFromProject(candidate.project)
+        .filter((plan) => isPccExecutionPlanActive(plan.status))
+        .flatMap((plan) => plan.leases),
+    );
+  const workspaceCollision = tasks
+    .filter((task): task is PccExecutionTask & { workspaceId: string } => Boolean(task.workspaceId))
+    .map((task) =>
+      findPccExecutionWorkspaceLeaseCollision(
+        otherActiveLeases,
+        {
+          workspaceId: task.workspaceId,
+          planId: `candidate:${detail.project.id}`,
+          partitionId: `candidate:${task.id}`,
+        },
+        Date.now(),
+      ),
+    )
+    .find(Boolean);
+  if (workspaceCollision) {
+    return {
+      ...base,
+      status: "blocked",
+      reason: `Workspace ${workspaceCollision.workspaceId} is already leased by another active agent team.`,
+    };
+  }
+  if (!capacity || capacity.safeLocalAgentSlots === 0 || base.admittedLocalAgents === 0) {
+    return {
+      ...base,
+      status: "blocked",
+      reason: capacity?.warnings[0] ?? "No safe OpenClaw worker capacity is available right now.",
+    };
+  }
+  if (!workerModelId) {
+    return {
+      ...base,
+      status: "blocked",
+      reason: "Refresh models and choose an available OpenClaw worker model.",
+    };
+  }
+  if (!coordinatorAgentId) {
+    return {
+      ...base,
+      status: "blocked",
+      reason: workerModelId
+        ? `No non-Codex OpenClaw coordinator agent is configured with ${workerModelId}. Choose an available agent model or update the agent configuration.`
+        : "No non-Codex OpenClaw coordinator agent is configured with an available model.",
+    };
+  }
+  if (profile.codexRole !== "off") {
+    if (!codexModelId) {
+      return {
+        ...base,
+        status: "blocked",
+        reason: "Refresh models and choose an available Codex model for this profile.",
+      };
+    }
+    if (!pccCodexEffortIsSupported(codexModelId, profile.codexEffort)) {
+      return {
+        ...base,
+        status: "blocked",
+        reason: "Maximum Codex depth requires a configured GPT-5.6 model.",
+      };
+    }
+    if (!detail.permissions.some((permission) => pccCodexPermissionIsUsable(permission, profile))) {
+      return {
+        ...base,
+        status: "needs_approval",
+        reason:
+          "Approve the selected Codex role for this project, or switch to a Codex-off profile.",
+      };
+    }
+  }
+  return {
+    ...base,
+    status: "ready",
+    reason: `${base.admittedLocalAgents} OpenClaw worker${base.admittedLocalAgents === 1 ? "" : "s"} can run ${tasks.length} independent task${tasks.length === 1 ? "" : "s"} with separate workspace leases.`,
+  };
+}
+
+function pccExecutionPlanId(projectId: string, nowMs: number): string {
+  return `pcc-team-${projectId}-${nowMs}`.replace(/[^a-zA-Z0-9._-]/gu, "-");
+}
+
+function pccExecutionTransitionAt(plan: PccExecutionPlan): string {
+  return new Date(Math.max(Date.now(), Date.parse(plan.updatedAt))).toISOString();
+}
+
+function buildPccExecutionCoordinatorPrompt(
+  detail: PccProjectDetail,
+  plan: PccExecutionPlan,
+  workerModelId: string,
+  codexModelId: string | null,
+): string {
+  const assignments = plan.partitions.map((partition) => {
+    const task = executionTasksForDetail(detail).find((item) => item.id === partition.taskId);
+    const lease = plan.leases.find((item) => item.partitionId === partition.id);
+    return {
+      partitionId: partition.id,
+      workerId: partition.workerId,
+      taskId: partition.taskId,
+      title: task?.title ?? partition.taskId,
+      milestoneId: partition.milestoneId,
+      workspaceLease: lease ? { workspaceId: lease.workspaceId, expiresAt: lease.expiresAt } : null,
+    };
+  });
+  const codexRule =
+    plan.profile.codexRole === "off"
+      ? "Codex is OFF. Do not invoke Codex or any Codex model for this plan."
+      : `A scoped PCC grant exists for Codex role ${plan.profile.codexRole}. Use ${codexModelId} at ${plan.profile.codexEffort} effort only for that role; do not broaden it.`;
+  return [
+    "You are the PCC supervised execution coordinator.",
+    `Project: ${detail.project.title} (${detail.project.id})`,
+    `Project goal: ${detail.project.goal ?? "No goal recorded."}`,
+    `PCC work scope: ${pccWorkScopeForProject(detail.project)}`,
+    `Execution plan ID: ${plan.id}`,
+    `OpenClaw worker model: ${workerModelId}`,
+    `Maximum concurrent OpenClaw workers: ${plan.admittedWorkerCount}`,
+    codexRule,
+    `Use sessions_spawn with isolated context and pass model: ${workerModelId} for every assigned worker. If that exact model cannot be used, stop and report the mismatch instead of silently substituting another model. A worker may process multiple assigned partitions serially, but never run two partitions that share a workspace lease concurrently.`,
+    "Execute only the listed assignments. Do not infer new parallel work. Stop and report a blocker if a workspace lease, dependency, requirement, or scope is ambiguous.",
+    "Never perform an external write, deployment, credential or session change, destructive action, purchase, publication, reboot, or other high-risk action without a separate explicit permission grant.",
+    "Do not mark PCC milestones or sub-milestones complete. Return proof candidates for user/judge review instead.",
+    "At fan-in, return structured JSON with planId, child session/run IDs, partition statuses, changed files or artifacts, checks run, proof candidates, blockers, and remaining risks.",
+    `Assignments: ${JSON.stringify(assignments)}`,
+    `Required proof candidates: ${JSON.stringify(plan.proofRequirements)}`,
+  ].join("\n\n");
+}
+
+function applyPccProjectUpsertResult(
+  state: PccDashboardState,
+  detail: PccProjectDetail,
+  result: PccProjectsUpsertResult,
+): PccProjectDetail {
+  const normalizedSummary = safeProjectSummary(result.summary);
+  const nextDetail: PccProjectDetail = {
+    ...detail,
+    project: result.project,
+    summary: normalizedSummary,
+  };
+  state.pccProjectDetail = nextDetail;
+  state.pccSelectedProjectId = result.project.id;
+  state.pccProjectDetails = {
+    ...state.pccProjectDetails,
+    [result.project.id]: nextDetail,
+  };
+  state.pccProjects = state.pccProjects.some((item) => item.id === result.project.id)
+    ? state.pccProjects.map((item) => (item.id === result.project.id ? normalizedSummary : item))
+    : [...state.pccProjects, normalizedSummary];
+  state.pccUpdatedAt = Date.now();
+  state.requestUpdate?.();
+  return nextDetail;
+}
+
+async function persistPccExecutionPlan(
+  state: PccDashboardState,
+  fallbackDetail: PccProjectDetail,
+  plan: PccExecutionPlan,
+): Promise<PccProjectDetail> {
+  if (!state.client) {
+    throw new Error("PCC is disconnected; the execution plan was not saved.");
+  }
+  const detail =
+    state.pccProjectDetail?.project.id === fallbackDetail.project.id
+      ? state.pccProjectDetail
+      : fallbackDetail;
+  const previousPlans = executionPlansFromProject(detail.project).filter(
+    (item) => item.id !== plan.id,
+  );
+  const plans = [...previousPlans.slice(-19), plan];
+  const now = new Date().toISOString();
+  const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
+    project: projectUpsertPayload({
+      ...detail.project,
+      metadata: {
+        ...metadataObject(detail.project.metadata),
+        pccExecutionProfile: plan.profile,
+        pccExecutionPlans: plans,
+        pccActiveExecutionPlanId: isPccExecutionPlanActive(plan.status) ? plan.id : null,
+        pccExecutionLastUpdatedAt: now,
+      },
+    }),
+  });
+  return applyPccProjectUpsertResult(state, detail, result);
+}
+
+function pccExecutionProofRequirements(
+  planId: string,
+  tasks: readonly PccExecutionTask[],
+): Array<{ milestoneId: string; proofId: string; description: string }> {
+  return tasks.flatMap((task) =>
+    task.milestoneId
+      ? [
+          {
+            milestoneId: task.milestoneId,
+            proofId: `${planId}:proof:${task.id}`,
+            description: `Review implementation output and applicable checks for ${task.title}.`,
+          },
+        ]
+      : [],
+  );
+}
+
+function pccExecutionWorkspaceLeases(
+  planId: string,
+  partitions: readonly PccExecutionTaskPartition[],
+  acquiredAt: string,
+): Array<{
+  workspaceId: string;
+  planId: string;
+  partitionId: string;
+  holderId: string;
+  acquiredAt: string;
+  expiresAt: string;
+}> {
+  const expiresAt = new Date(Date.parse(acquiredAt) + 2 * 60 * 60 * 1_000).toISOString();
+  return partitions.flatMap((partition) =>
+    partition.workspaceId
+      ? [
+          {
+            workspaceId: partition.workspaceId,
+            planId,
+            partitionId: partition.id,
+            holderId: partition.workerId,
+            acquiredAt,
+            expiresAt,
+          },
+        ]
+      : [],
+  );
 }
 
 function metadataString(value: unknown, fallback: string): string {
@@ -482,19 +1066,6 @@ function aiUsePolicyNeedsCodex(policy: PccAiUsePolicy): boolean {
   return policy !== "local_only";
 }
 
-function aiUsePolicyUsageGuidance(policy: PccAiUsePolicy): string {
-  switch (policy) {
-    case "codex_focused":
-      return "focused";
-    case "codex_expert":
-      return "balanced";
-    case "codex_everything":
-      return "codex_led";
-    default:
-      return "local_first";
-  }
-}
-
 function aiUsePolicyAllowedAction(policy: PccAiUsePolicy): string {
   switch (policy) {
     case "codex_focused":
@@ -507,24 +1078,35 @@ function aiUsePolicyAllowedAction(policy: PccAiUsePolicy): string {
 }
 
 function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectFormState {
-  if (!aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
+  const executionProfile = normalizePccExecutionProfile({
+    pccExecutionProfile: form.executionProfile,
+  });
+  const aiUsePolicy = derivePccAiUsePolicy(executionProfile);
+  if (executionProfile.codexRole === "off") {
     return {
       ...form,
+      executionProfile,
+      aiUsePolicy,
       plannerMode:
         form.plannerMode === "local_model" || form.plannerMode === "local_project_manager"
           ? form.plannerMode
           : "best_available",
       planningMode: "local_project_manager",
+      plannerModelId: executionProfile.localModelId,
+      plannerPermissionScope: executionProfile.approvalScope,
       codexPlanningAllowed: false,
       plannerPermissionBudget: "",
     };
   }
-  const plannerMode =
-    form.plannerMode === "high_reasoning_codex" ? "high_reasoning_codex" : "codex";
+  const plannerMode = executionProfile.codexEffort === "medium" ? "codex" : "high_reasoning_codex";
   return {
     ...form,
+    executionProfile,
+    aiUsePolicy,
     plannerMode,
     planningMode: "codex_full_plan",
+    plannerModelId: executionProfile.localModelId,
+    plannerPermissionScope: executionProfile.approvalScope,
     plannerPermissionBudget: "",
   };
 }
@@ -1107,10 +1689,13 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
   };
 }
 
-function projectFormFromProject(project: PccProject): PccProjectFormState {
+function projectFormFromProject(
+  project: PccProject,
+  permissions: readonly PccPermissionGrant[] = [],
+): PccProjectFormState {
   const metadata = metadataObject(project.metadata);
   const aiRouting = metadataObject(metadata.pccAiRouting);
-  const plannerPermission = metadataObject(metadata.pccPlannerPermission);
+  const executionProfile = normalizePccExecutionProfile(metadata);
   const form: PccProjectFormState = {
     id: project.id,
     title: project.title,
@@ -1135,19 +1720,16 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
         metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
       ),
     ),
-    plannerModelId: metadataString(aiRouting.localModelId ?? metadata.pccPlannerModelId, ""),
-    plannerPermissionScope: metadataString(
-      aiRouting.permissionScope ?? plannerPermission.scope,
-      "project",
-    ) as "plan" | "project" | "ask",
+    plannerModelId: executionProfile.localModelId,
+    plannerPermissionScope: executionProfile.approvalScope,
     plannerPermissionBudget: "",
     planPreviewAccepted: true,
-    codexPlanningAllowed: metadataBoolean(
-      aiRouting.codexAllowed ?? metadata.pccCodexPlanningAllowed,
-      false,
+    codexPlanningAllowed: permissions.some((permission) =>
+      pccCodexPermissionIsUsable(permission, executionProfile),
     ),
     remoteProofAllowed: metadataBoolean(metadata.pccRemoteProofAllowed, false),
     runtimeActionsAllowed: metadataBoolean(metadata.pccRuntimeActionsAllowed, false),
+    executionProfile,
     intakeAnswers: pccIntakeAnswersFromMetadata(metadata),
     intakeApproved: metadataBoolean(metadataObject(metadata.pccIntake).approved, false),
   };
@@ -1299,6 +1881,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
       : [];
     state.pccProjects = projects;
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
+    state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccProjectDetails = state.pccProjectDetail
       ? { ...state.pccProjectDetails, [state.pccProjectDetail.project.id]: state.pccProjectDetail }
@@ -1403,7 +1986,12 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
 export function openPccProjectEditor(state: PccDashboardState, project?: PccProject): void {
   state.pccEditorMode = project ? "edit-project" : "create-project";
   state.pccProjectEditMode = "simple";
-  state.pccProjectForm = project ? projectFormFromProject(project) : { ...EMPTY_PCC_PROJECT_FORM };
+  state.pccProjectForm = project
+    ? projectFormFromProject(
+        project,
+        state.pccProjectDetail?.project.id === project.id ? state.pccProjectDetail.permissions : [],
+      )
+    : { ...EMPTY_PCC_PROJECT_FORM };
   state.pccActionError = null;
   state.requestUpdate?.();
 }
@@ -1469,6 +2057,20 @@ export function updatePccProjectForm(
   patch: Partial<PccProjectFormState>,
 ): void {
   let nextForm = { ...state.pccProjectForm, ...patch };
+  if (patch.executionProfile) {
+    nextForm = canonicalizeProjectAiRouting(nextForm);
+  } else if (patch.aiUsePolicy) {
+    const legacyPreset =
+      patch.aiUsePolicy === "local_only"
+        ? "local_focused"
+        : patch.aiUsePolicy === "codex_everything"
+          ? "ultra_hybrid"
+          : "balanced";
+    nextForm = canonicalizeProjectAiRouting({
+      ...nextForm,
+      executionProfile: resolvePccExecutionProfilePreset(legacyPreset),
+    });
+  }
   if (patch.plannerMode) {
     nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
   }
@@ -1885,10 +2487,22 @@ export async function approvePccSetupAutofill(state: PccDashboardState): Promise
 }
 
 export async function savePccProject(state: PccDashboardState): Promise<void> {
-  const form = enrichProjectFormFromDescription(state.pccProjectForm);
+  const form = canonicalizeProjectAiRouting(enrichProjectFormFromDescription(state.pccProjectForm));
   const creating = !form.id;
   await withPccAction(state, async () => {
     if (!state.client) {
+      return;
+    }
+    const availableModelRefs = configuredModelRefs(state.chatModelCatalog);
+    const selectedModels = [
+      validatePccModelSelection(form.executionProfile.localModelId, availableModelRefs),
+      ...(form.executionProfile.codexRole === "off"
+        ? []
+        : [validatePccModelSelection(form.executionProfile.codexModelId, availableModelRefs)]),
+    ];
+    const unavailableModel = selectedModels.find((selection) => selection.status === "unavailable");
+    if (unavailableModel) {
+      state.pccActionError = `The selected model “${unavailableModel.modelId}” is no longer configured. Refresh the model list, then choose an available model or Best available.`;
       return;
     }
     const intakeMissing = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
@@ -1906,6 +2520,25 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     if (!form.id && aiUsePolicyNeedsCodex(form.aiUsePolicy) && !form.codexPlanningAllowed) {
       state.pccActionError =
         "Approve the selected Codex role once, or choose Local first, before creating the project.";
+      return;
+    }
+    const resolvedCodexModel =
+      form.executionProfile.codexRole === "off"
+        ? null
+        : resolveConfiguredExecutionModel(
+            form.executionProfile.codexModelId,
+            state.chatModelCatalog,
+            "codex",
+          );
+    if (
+      form.executionProfile.codexRole !== "off" &&
+      (!resolvedCodexModel ||
+        !pccCodexEffortIsSupported(resolvedCodexModel, form.executionProfile.codexEffort))
+    ) {
+      state.pccActionError =
+        form.executionProfile.codexEffort === "max"
+          ? "Maximum Codex depth requires an available GPT-5.6 model. Refresh models or choose a lower depth."
+          : "Refresh models and choose an available Codex model before creating this project.";
       return;
     }
     const priority = parseOptionalInteger(form.priority);
@@ -1971,35 +2604,16 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           status: form.status,
           ...(priority !== undefined ? { priority } : {}),
           metadata: {
-            ...metadataObject(state.pccProjectDetail?.project.metadata),
+            ...metadataWithoutLegacyExecutionRouting(state.pccProjectDetail?.project.metadata),
             pccWorkflowTemplateId: form.workflowTemplateId,
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
-            pccPlanningMode: form.planningMode,
-            pccPlannerMode: form.plannerMode,
-            pccAiUsePolicy: form.aiUsePolicy,
-            pccPlannerModelId: form.plannerModelId,
-            pccPlannerPermission: {
-              allowed: form.codexPlanningAllowed,
-              scope: form.plannerPermissionScope,
-              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
-              hasHardTokenLimit: false,
-            },
-            pccAiRouting: {
-              policy: form.aiUsePolicy,
-              plannerMode: form.plannerMode,
-              localModelId: form.plannerModelId,
-              codexReasoning: form.plannerMode === "high_reasoning_codex" ? "high" : "standard",
-              permissionScope: form.plannerPermissionScope,
-              codexAllowed: form.codexPlanningAllowed,
-              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
-            },
+            pccExecutionProfile: form.executionProfile,
             pccProjectDescription: form.projectDescription,
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
               ? { dueDate, pccDueDate: dueDate }
               : { dueDate: undefined, pccDueDate: undefined }),
             pccPlanPreviewAccepted: form.planPreviewAccepted,
-            pccCodexPlanningAllowed: form.codexPlanningAllowed,
             pccRemoteProofAllowed: form.remoteProofAllowed,
             pccRuntimeActionsAllowed: form.runtimeActionsAllowed,
             pccIntake: intakeMetadata,
@@ -2008,28 +2622,10 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       : {
           ...draft!.project,
           metadata: {
-            ...metadataObject(draft!.project.metadata),
+            ...metadataWithoutLegacyExecutionRouting(draft!.project.metadata),
             pccWorkflowTemplateId: form.workflowTemplateId,
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
-            pccPlanningMode: form.planningMode,
-            pccPlannerMode: form.plannerMode,
-            pccAiUsePolicy: form.aiUsePolicy,
-            pccPlannerModelId: form.plannerModelId,
-            pccPlannerPermission: {
-              allowed: form.codexPlanningAllowed,
-              scope: form.plannerPermissionScope,
-              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
-              hasHardTokenLimit: false,
-            },
-            pccAiRouting: {
-              policy: form.aiUsePolicy,
-              plannerMode: form.plannerMode,
-              localModelId: form.plannerModelId,
-              codexReasoning: form.plannerMode === "high_reasoning_codex" ? "high" : "standard",
-              permissionScope: form.plannerPermissionScope,
-              codexAllowed: form.codexPlanningAllowed,
-              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
-            },
+            pccExecutionProfile: form.executionProfile,
             pccProjectDescription: form.projectDescription,
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
@@ -2064,29 +2660,56 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           });
         }
       }
-      if (aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
+    }
+    const existingCodexPermissions = (state.pccProjectDetail?.permissions ?? []).filter(
+      (permission) =>
+        permission.type === "codex_usage" || permission.type === "high_reasoning_model",
+    );
+    if (aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
+      const permissionType =
+        form.plannerMode === "high_reasoning_codex" ? "high_reasoning_model" : "codex_usage";
+      const existingPermission = existingCodexPermissions.find(
+        (permission) => permission.type === permissionType,
+      );
+      await state.client.request("pcc.permissions.upsert", {
+        permission: {
+          ...(existingPermission ? { id: existingPermission.id } : {}),
+          projectId: result.project.id,
+          type: permissionType,
+          status: form.codexPlanningAllowed ? "granted" : "needed",
+          riskLevel: permissionType === "high_reasoning_model" ? "high" : "medium",
+          allowedActions: [aiUsePolicyAllowedAction(form.aiUsePolicy)],
+          forbiddenActions: [
+            "Deployment, credential changes, destructive actions, reboot, purchases, publishing, and unrelated external writes",
+          ],
+          target:
+            form.aiUsePolicy === "codex_everything"
+              ? "All eligible project work"
+              : "Expert project planning and review work",
+          ...(form.plannerPermissionScope === "plan" || form.plannerPermissionScope === "ask"
+            ? { maxUses: 1 }
+            : {}),
+          ...(form.codexPlanningAllowed
+            ? {
+                grantedBy: creating ? "PCC New Project user approval" : "PCC project user approval",
+              }
+            : {}),
+          note: form.codexPlanningAllowed
+            ? `Codex use approved for ${form.plannerPermissionScope === "project" ? "this project" : form.plannerPermissionScope === "plan" ? "this plan" : "the next eligible action"}. No hard token cap is configured; PCC records actual runs when available.`
+            : "Codex use is blocked until the user grants this single scoped permission. No token budget is requested or inferred.",
+        },
+      });
+    } else {
+      for (const permission of existingCodexPermissions.filter(
+        (item) => item.status === "granted" || item.status === "needed",
+      )) {
         await state.client.request("pcc.permissions.upsert", {
           permission: {
+            id: permission.id,
             projectId: result.project.id,
-            type:
-              form.plannerMode === "high_reasoning_codex" ? "high_reasoning_model" : "codex_usage",
-            status: form.codexPlanningAllowed ? "granted" : "needed",
-            riskLevel: form.plannerMode === "high_reasoning_codex" ? "high" : "medium",
-            allowedActions: [aiUsePolicyAllowedAction(form.aiUsePolicy)],
-            forbiddenActions: [
-              "Deployment, credential changes, destructive actions, reboot, purchases, publishing, and unrelated external writes",
-            ],
-            target:
-              form.aiUsePolicy === "codex_everything"
-                ? "All eligible project work"
-                : "Expert project planning and review work",
-            ...(form.plannerPermissionScope === "plan" || form.plannerPermissionScope === "ask"
-              ? { maxUses: 1 }
-              : {}),
-            ...(form.codexPlanningAllowed ? { grantedBy: "PCC New Project user approval" } : {}),
-            note: form.codexPlanningAllowed
-              ? `Codex use approved once for ${form.plannerPermissionScope === "project" ? "this project" : form.plannerPermissionScope === "plan" ? "this plan" : "the next eligible action"}. No hard token cap is configured; PCC records actual runs when available.`
-              : "Codex use is blocked until the user grants this single scoped permission. No token budget is requested or inferred.",
+            type: permission.type,
+            status: "revoked",
+            note: "Revoked because the canonical project execution profile has Codex turned off.",
           },
         });
       }
@@ -2114,7 +2737,13 @@ export async function setPccProjectStatus(
   project: PccProject,
   status: PccStatus,
 ): Promise<void> {
-  state.pccProjectForm = { ...projectFormFromProject(project), status };
+  state.pccProjectForm = {
+    ...projectFormFromProject(
+      project,
+      state.pccProjectDetail?.project.id === project.id ? state.pccProjectDetail.permissions : [],
+    ),
+    status,
+  };
   await savePccProject(state);
 }
 
@@ -3052,6 +3681,171 @@ export async function runPccAutopilotLoopAction(
                   ? "Autopilot repair applied. Prompts were lowered to safe read-only review."
                   : `Autopilot ${action} saved.`,
     );
+  });
+}
+
+export async function runPccExecutionTeamAction(
+  state: PccDashboardState,
+  action: PccExecutionTeamAction,
+): Promise<void> {
+  const initialDetail = state.pccProjectDetail;
+  if (!initialDetail) {
+    state.pccActionError = "Open a project before using an agent team.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const detail =
+      state.pccProjectDetail?.project.id === initialDetail.project.id
+        ? state.pccProjectDetail
+        : initialDetail;
+    const projectScope = pccWorkScopeForProject(detail.project);
+    const focusScope = state.pccProductFocusMode ?? projectScope;
+    if (focusScope !== projectScope) {
+      state.pccActionError =
+        projectScope === "pcc_product"
+          ? "This is PCC Product work. Switch to PCC Product before running an agent team."
+          : "This is Project Work. Switch to Project Work before running an agent team.";
+      return;
+    }
+    const readiness = buildPccExecutionTeamReadiness(
+      detail,
+      state.pccExecutionCapacity,
+      state.agentsList,
+      state.chatModelCatalog,
+      Object.values(state.pccProjectDetails),
+    );
+
+    if (action === "stop") {
+      const activePlan = readiness.activePlan;
+      if (!activePlan) {
+        state.pccActionError = "No active PCC agent team exists for this project.";
+        return;
+      }
+      try {
+        await state.client.request("chat.abort", {
+          sessionKey: activePlan.coordinator.sessionId,
+          runId: activePlan.coordinator.runId,
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        const blocked = transitionPccExecutionPlan(activePlan, "blocked", {
+          at: pccExecutionTransitionAt(activePlan),
+          reason: `Stop could not be confirmed: ${reason}`,
+        });
+        await persistPccExecutionPlan(state, detail, blocked);
+        throw new Error(
+          `Agent team stop could not be confirmed. PCC marked the plan blocked for recovery: ${reason}`,
+          { cause: error },
+        );
+      }
+      const cancelled = transitionPccExecutionPlan(activePlan, "cancelled", {
+        at: pccExecutionTransitionAt(activePlan),
+        reason: "User stopped the supervised agent team.",
+      });
+      await persistPccExecutionPlan(state, detail, cancelled);
+      setActionNotice(
+        state,
+        "Agent team stopped. Saved plan history remains available; no milestone was auto-completed.",
+      );
+      return;
+    }
+
+    if (
+      readiness.status !== "ready" ||
+      !readiness.workerModelId ||
+      !readiness.coordinatorAgentId ||
+      readiness.admittedLocalAgents < 1
+    ) {
+      state.pccActionError = `Agent team cannot start: ${readiness.reason}`;
+      return;
+    }
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
+    const planId = pccExecutionPlanId(detail.project.id, nowMs);
+    const workerIds = Array.from(
+      { length: readiness.admittedLocalAgents },
+      (_, index) => `openclaw-worker-${index + 1}`,
+    );
+    const partitioned = partitionPccExecutionTasks(readiness.tasks, workerIds);
+    if (partitioned.partitions.length === 0) {
+      state.pccActionError = "Agent team cannot start because no independent task was admitted.";
+      return;
+    }
+    const sessionKey = `agent:${readiness.coordinatorAgentId}:pcc-execution-${detail.project.id}`;
+    let plan = createPccExecutionPlan({
+      id: planId,
+      projectId: detail.project.id,
+      projectRevision: detail.project.updatedAt,
+      profile: readiness.profile,
+      coordinator: { sessionId: sessionKey, runId: planId },
+      admittedWorkerCount: readiness.admittedLocalAgents,
+      partitions: partitioned.partitions,
+      leases: pccExecutionWorkspaceLeases(planId, partitioned.partitions, now),
+      proofRequirements: pccExecutionProofRequirements(planId, readiness.tasks),
+      createdAt: now,
+      statusReason: "Execution plan saved before dispatch.",
+    });
+    const duplicate = findDuplicateActivePccExecutionPlan(
+      executionPlansFromProject(detail.project),
+      plan,
+    );
+    if (duplicate) {
+      state.pccActionError = `Agent team ${duplicate.id} is already active for this project.`;
+      return;
+    }
+    await persistPccExecutionPlan(state, detail, plan);
+    plan = transitionPccExecutionPlan(plan, "dispatching", {
+      at: pccExecutionTransitionAt(plan),
+      reason: "Coordinator dispatch is starting.",
+    });
+    await persistPccExecutionPlan(state, detail, plan);
+    try {
+      const acknowledgement = await state.client.request<{
+        runId?: string;
+        status?: string;
+      }>("chat.send", {
+        sessionKey,
+        agentId: readiness.coordinatorAgentId,
+        message: buildPccExecutionCoordinatorPrompt(
+          detail,
+          plan,
+          readiness.workerModelId,
+          readiness.codexModelId,
+        ),
+        deliver: false,
+        suppressCommandInterpretation: true,
+        idempotencyKey: planId,
+      });
+      if (acknowledgement.status === "error" || acknowledgement.status === "timeout") {
+        throw new Error(`OpenClaw coordinator returned ${acknowledgement.status}.`);
+      }
+      plan = transitionPccExecutionPlan(plan, "running", {
+        at: pccExecutionTransitionAt(plan),
+        reason: "OpenClaw coordinator accepted the execution plan.",
+      });
+      if (typeof acknowledgement.runId === "string" && acknowledgement.runId.trim()) {
+        plan = {
+          ...plan,
+          coordinator: { ...plan.coordinator, runId: acknowledgement.runId.trim() },
+        };
+      }
+      await persistPccExecutionPlan(state, detail, plan);
+      setActionNotice(
+        state,
+        `Agent team started with ${readiness.admittedLocalAgents} OpenClaw worker${readiness.admittedLocalAgents === 1 ? "" : "s"}. PCC will require reviewed proof before completion.`,
+      );
+    } catch (error) {
+      const failed = transitionPccExecutionPlan(plan, "failed", {
+        at: pccExecutionTransitionAt(plan),
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      await persistPccExecutionPlan(state, detail, failed);
+      throw error;
+    }
   });
 }
 

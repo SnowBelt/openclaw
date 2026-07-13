@@ -67,7 +67,10 @@ export type GatewayRequestContext = {
   getRuntimeConfig: () => OpenClawConfig;
   execApprovalManager?: ExecApprovalManager;
   pluginApprovalManager?: ExecApprovalManager<PluginApprovalRequestPayload>;
-  loadGatewayModelCatalog: (params?: { readOnly?: boolean }) => Promise<ModelCatalogEntry[]>;
+  loadGatewayModelCatalog: (params?: {
+    readOnly?: boolean;
+    forceRefresh?: boolean;
+  }) => Promise<ModelCatalogEntry[]>;
   getHealthCache: () => HealthSummary | null;
   refreshHealthSnapshot: (opts?: {
     probe?: boolean;

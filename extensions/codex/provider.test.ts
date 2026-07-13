@@ -16,10 +16,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function expectStaticFallbackCatalog(
-  result: Awaited<ReturnType<typeof buildCodexProviderCatalog>>,
-) {
-  expect(result.provider.models.map((model) => model.id)).toEqual(["gpt-5.5", "gpt-5.4-mini"]);
+function expectNoInventedCatalog(result: Awaited<ReturnType<typeof buildCodexProviderCatalog>>) {
+  expect(result.provider.models).toEqual([]);
 }
 
 function createFakeCodexClient(): CodexAppServerClient {
@@ -125,7 +123,7 @@ describe("codex provider", () => {
     });
   });
 
-  it("keeps a static fallback catalog when discovery is disabled", async () => {
+  it("does not invent model availability when discovery is disabled", async () => {
     const listModels = vi.fn();
 
     const result = await buildCodexProviderCatalog({
@@ -135,7 +133,7 @@ describe("codex provider", () => {
     });
 
     expect(listModels).not.toHaveBeenCalled();
-    expectStaticFallbackCatalog(result);
+    expectNoInventedCatalog(result);
   });
 
   it("uses live plugin config to re-enable discovery after startup disable", async () => {
@@ -228,7 +226,7 @@ describe("codex provider", () => {
     expect(result.provider.models.map((model) => model.id)).toEqual(["gpt-5.4", "gpt-5.5"]);
   });
 
-  it("reports discovery failures before using the fallback catalog", async () => {
+  it("reports discovery failures and keeps the selectable catalog empty", async () => {
     const error = new Error("app-server down");
     const onDiscoveryFailure = vi.fn();
     const listModels = vi.fn(async () => {
@@ -242,10 +240,10 @@ describe("codex provider", () => {
     });
 
     expect(onDiscoveryFailure).toHaveBeenCalledWith(error);
-    expectStaticFallbackCatalog(result);
+    expectNoInventedCatalog(result);
   });
 
-  it("keeps a static fallback catalog when live discovery is explicitly disabled by env", async () => {
+  it("keeps the selectable catalog empty when live discovery is disabled by env", async () => {
     const listModels = vi.fn();
 
     const result = await buildCodexProviderCatalog({
@@ -254,7 +252,7 @@ describe("codex provider", () => {
     });
 
     expect(listModels).not.toHaveBeenCalled();
-    expectStaticFallbackCatalog(result);
+    expectNoInventedCatalog(result);
   });
 
   it("closes the transient app-server client after live discovery", async () => {
@@ -329,6 +327,24 @@ describe("codex provider", () => {
       id: "gpt-5.5",
       input: ["text", "image"],
     });
+  });
+
+  it("knows GPT-5.6 capabilities without presenting them as discovered availability", () => {
+    const provider = buildCodexProvider({
+      pluginConfig: { discovery: { enabled: false } },
+    });
+    const model = provider.resolveDynamicModel?.({
+      provider: "codex",
+      modelId: "gpt-5.6-sol",
+      modelRegistry: { find: () => null },
+    } as never);
+    const levels = provider.resolveThinkingProfile?.({
+      provider: "codex",
+      modelId: "gpt-5.6-sol",
+    } as never)?.levels;
+
+    expectRecordFields(model, { id: "gpt-5.6-sol", input: ["text", "image"] });
+    expect(levels?.map((level) => level.id)).toContain("max");
   });
 
   it("treats o4 ids as reasoning-capable Codex models", () => {
@@ -473,7 +489,7 @@ describe("codex provider", () => {
     const authResult = await authChoice?.run({} as never);
     expectRecordFields(authResult, {
       profiles: [],
-      defaultModel: "codex/gpt-5.5",
+      defaultModel: "codex/gpt-5.6-sol",
     });
   });
 
@@ -493,7 +509,7 @@ describe("codex provider", () => {
 
     expect(
       result && "provider" in result ? result.provider.models.map((model) => model.id) : [],
-    ).toEqual(["gpt-5.5", "gpt-5.4-mini"]);
+    ).toEqual([]);
   });
 
   it("adds the GPT-5 prompt overlay to Codex provider runs", () => {

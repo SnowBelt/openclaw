@@ -70,6 +70,20 @@ describe("loadGatewayModelCatalog", () => {
     expect(loadModelCatalog).toHaveBeenCalledWith({ config: getConfig(), readOnly: true });
   });
 
+  it("waits for a forced refresh and replaces the cached catalog", async () => {
+    const staleCatalog = [model("gpt-5.5")];
+    const freshCatalog = [model("gpt-5.6-sol")];
+    const loadModelCatalog = createRefreshingCatalogLoader(staleCatalog, freshCatalog);
+
+    await expectCatalog(loadModelCatalog, staleCatalog);
+    await expect(
+      loadGatewayModelCatalog({ getConfig, loadModelCatalog, forceRefresh: true }),
+    ).resolves.toBe(freshCatalog);
+    await expectCatalog(loadModelCatalog, freshCatalog);
+
+    expect(loadModelCatalog).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps read-only and full catalog caches separate", async () => {
     const readOnlyCatalog = [model("configured-only")];
     const fullCatalog = [model("configured-only"), model("browse-only")];

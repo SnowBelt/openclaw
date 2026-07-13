@@ -5,6 +5,11 @@ import {
   validatePccSubMilestonesUpsertParams,
 } from "../../../../packages/gateway-protocol/src/index.js";
 import {
+  createPccExecutionPlan,
+  transitionPccExecutionPlan,
+} from "../../../../src/pcc/execution-plan.js";
+import { resolvePccExecutionProfilePreset } from "../../../../src/pcc/execution-profile.js";
+import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
@@ -13,6 +18,7 @@ import {
   applyPccSetupAutofill,
   buildPccSetupAutofillPreview,
   applyPccChatSyncProposal,
+  buildPccExecutionTeamReadiness,
   dismissPccSetupAutofill,
   dismissPccChatSync,
   loadPccDashboard,
@@ -28,6 +34,7 @@ import {
   previewPccChatSync,
   resumePccProjectForWork,
   runPccAutopilotLoopAction,
+  runPccExecutionTeamAction,
   runPccUndoAction,
   savePccDecision,
   savePccMilestone,
@@ -226,6 +233,129 @@ const portfolio = {
   averagePercentComplete: 25,
   nextActions: ["Build UI shell"],
 };
+
+const teamCapacity = {
+  logicalCpuCount: 12,
+  performanceCpuCount: 8,
+  totalRamGb: 64,
+  freeRamGb: 48,
+  load1: 1,
+  load5: 1,
+  load15: 1,
+  memoryPressure: "low" as const,
+  activeOpenClawTaskCount: 0,
+  configuredSubagentLimit: 4,
+  observedLocalModelProcessCount: 0,
+  safeLocalAgentSlots: 4,
+  timestamp: "2026-07-13T12:00:00.000Z",
+  warnings: [],
+};
+
+const teamModels = [
+  {
+    id: "qwen3.6",
+    name: "Qwen 3.6",
+    provider: "ollama",
+    available: true,
+    agentRuntime: { id: "openclaw", source: "model" as const },
+  },
+  {
+    id: "gpt-5.6-sol",
+    name: "GPT-5.6 Sol",
+    provider: "openai",
+    available: true,
+    agentRuntime: { id: "codex", source: "model" as const },
+  },
+];
+
+const teamAgents = {
+  defaultId: "main",
+  mainKey: "main",
+  scope: "per-sender",
+  agents: [
+    {
+      id: "main",
+      name: "Local coordinator",
+      model: { primary: "ollama/qwen3.6" },
+      agentRuntime: { id: "openclaw", source: "model" as const },
+    },
+  ],
+};
+
+function executionTeamDetail(
+  preset: "local_parallel" | "ultra_local" | "ultra_hybrid" = "local_parallel",
+) {
+  const executionMilestones = [
+    {
+      ...milestone,
+      id: "team-milestone-1",
+      title: "Build independent UI change",
+      status: "not_started" as const,
+      order: 1,
+      percentComplete: 0,
+      metadata: {
+        ...milestone.metadata,
+        parallelSafe: true,
+        workspaceLock: "workspace:ui",
+      },
+    },
+    {
+      ...milestone,
+      id: "team-milestone-2",
+      title: "Add independent tests",
+      status: "not_started" as const,
+      order: 2,
+      percentComplete: 0,
+      metadata: {
+        ...milestone.metadata,
+        parallelSafe: true,
+        workspaceLock: "workspace:tests",
+      },
+    },
+  ];
+  const executionSubMilestones = executionMilestones.map((parent, index) => ({
+    ...subMilestone,
+    id: `team-submilestone-${index + 1}`,
+    milestoneId: parent.id,
+    title: `Execute ${parent.title}`,
+    status: "not_started" as const,
+    order: 1,
+    percentComplete: 0,
+    metadata: {
+      ...subMilestone.metadata,
+      pccProofLevel: "local",
+      parallelSafe: true,
+      workspaceLock: index === 0 ? "workspace:ui" : "workspace:tests",
+    },
+  }));
+  return {
+    project: {
+      ...project,
+      metadata: {
+        ...project.metadata,
+        pccExecutionProfile: resolvePccExecutionProfilePreset(preset),
+      },
+    },
+    milestones: executionMilestones,
+    subMilestones: executionSubMilestones,
+    permissions: [],
+    evidence: [],
+    receipts: [],
+    summary: {
+      ...summary,
+      status: "active" as const,
+      percentComplete: 0,
+      milestoneCounts: {
+        total: 2,
+        complete: 0,
+        blocked: 0,
+        needsApproval: 0,
+        deferred: 0,
+        skipped: 0,
+      },
+    },
+  };
+}
 
 function assertValidPccWriteParams(method: string, params: unknown): void {
   if (method === "pcc.projects.upsert" && !validatePccProjectsUpsertParams(params)) {
@@ -1442,6 +1572,7 @@ describe("PCC CRUD controller", () => {
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
       pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
         id: null,
         title: "Project Command Center",
         goal: "Track all projects",
@@ -1477,13 +1608,10 @@ describe("PCC CRUD controller", () => {
         priority: 3,
         metadata: expect.objectContaining({
           pccWorkflowTemplateId: "software-product",
-          pccAiUsePolicy: "local_only",
-          pccPlannerMode: "best_available",
-          pccPlanningMode: "local_project_manager",
-          pccCodexPlanningAllowed: false,
-          pccPlannerPermission: expect.objectContaining({
-            hasHardTokenLimit: false,
-            usage: "local_first",
+          pccExecutionProfile: expect.objectContaining({
+            schemaVersion: 1,
+            presetId: "local_focused",
+            codexRole: "off",
           }),
           dueDate: "2099-01-15T00:00:00.000Z",
           pccDueDate: "2099-01-15T00:00:00.000Z",
@@ -1603,6 +1731,7 @@ describe("PCC CRUD controller", () => {
     });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      chatModelCatalog: teamModels,
       pccProjectForm: {
         ...EMPTY_PCC_PROJECT_FORM,
         title: "Project Command Center",
@@ -1611,6 +1740,7 @@ describe("PCC CRUD controller", () => {
         planningMode: "codex_full_plan",
         plannerMode: "codex",
         aiUsePolicy: "codex_expert",
+        executionProfile: resolvePccExecutionProfilePreset("balanced"),
         plannerPermissionScope: "project",
         codexPlanningAllowed: true,
         intakeAnswers,
@@ -1626,7 +1756,12 @@ describe("PCC CRUD controller", () => {
     expect(projectCall?.[1]).toEqual(
       expect.objectContaining({
         project: expect.objectContaining({
-          metadata: expect.objectContaining({ pccAiUsePolicy: "codex_expert" }),
+          metadata: expect.objectContaining({
+            pccExecutionProfile: expect.objectContaining({
+              presetId: "balanced",
+              codexRole: "checkpoints",
+            }),
+          }),
         }),
       }),
     );
@@ -1672,6 +1807,7 @@ describe("PCC CRUD controller", () => {
         goal: "Prove one Codex approval is required.",
         projectDescription: "Create a project with Balanced Codex.",
         aiUsePolicy: "codex_expert",
+        executionProfile: resolvePccExecutionProfilePreset("balanced"),
         plannerMode: "codex",
         planningMode: "codex_full_plan",
         codexPlanningAllowed: false,
@@ -1685,6 +1821,41 @@ describe("PCC CRUD controller", () => {
 
     expect(request).not.toHaveBeenCalled();
     expect(state.pccActionError).toContain("Approve the selected Codex role once");
+  });
+
+  it("refuses to save a model that the live catalog marks unavailable", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      chatModelCatalog: [
+        {
+          id: "removed-local",
+          name: "Removed Local",
+          provider: "ollama",
+          available: false,
+          agentRuntime: { id: "openclaw", source: "model" },
+        },
+      ],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Unavailable model contract",
+        goal: "Never dispatch removed model choices.",
+        projectDescription: "Prove unavailable catalog rows cannot be saved.",
+        executionProfile: {
+          ...resolvePccExecutionProfilePreset("local_focused"),
+          localModelId: "ollama/removed-local",
+        },
+        intakeAnswers,
+        intakeApproved: true,
+        planPreviewAccepted: true,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("no longer configured");
+    expect(state.pccActionError).toContain("ollama/removed-local");
   });
 
   it("updates project status", async () => {
@@ -2762,5 +2933,359 @@ describe("PCC CRUD controller", () => {
     expect(milestonePayloads.every((payload) => !("updatedAt" in payload))).toBe(true);
     expect(milestonePayloads.every((payload) => Number(payload.order) >= 0)).toBe(true);
     expect(milestonePayloads.some((payload) => Number(payload.order) >= 1_000_000_000)).toBe(true);
+  });
+
+  it("admits only available OpenClaw models and never uses a Codex runtime as coordinator", () => {
+    const detail = executionTeamDetail();
+    const ready = buildPccExecutionTeamReadiness(detail, teamCapacity, teamAgents, teamModels);
+
+    expect(ready).toMatchObject({
+      status: "ready",
+      admittedLocalAgents: 2,
+      coordinatorAgentId: "main",
+      workerModelId: "ollama/qwen3.6",
+      codexAgents: 0,
+    });
+
+    const unavailable = buildPccExecutionTeamReadiness(
+      detail,
+      teamCapacity,
+      teamAgents,
+      teamModels.map((model) =>
+        model.agentRuntime.id === "openclaw" ? { ...model, available: false } : model,
+      ),
+    );
+    expect(unavailable).toMatchObject({ status: "blocked", workerModelId: null });
+    expect(unavailable.reason).toContain("available OpenClaw worker model");
+
+    const exactModelDetail = executionTeamDetail();
+    exactModelDetail.project.metadata = {
+      ...exactModelDetail.project.metadata,
+      pccExecutionProfile: {
+        ...resolvePccExecutionProfilePreset("local_parallel"),
+        localModelId: "ollama/other-local",
+      },
+    };
+    const exactModelRequired = buildPccExecutionTeamReadiness(
+      exactModelDetail,
+      teamCapacity,
+      teamAgents,
+      [
+        ...teamModels,
+        {
+          id: "other-local",
+          name: "Other Local",
+          provider: "ollama",
+          available: true,
+          agentRuntime: { id: "openclaw", source: "model" as const },
+        },
+      ],
+    );
+    expect(exactModelRequired).toMatchObject({
+      status: "blocked",
+      workerModelId: "ollama/other-local",
+      coordinatorAgentId: null,
+    });
+    expect(exactModelRequired.reason).toContain("configured with ollama/other-local");
+
+    const codexCoordinator = buildPccExecutionTeamReadiness(
+      detail,
+      teamCapacity,
+      {
+        ...teamAgents,
+        agents: [
+          {
+            ...teamAgents.agents[0],
+            agentRuntime: { id: "codex", source: "agent" as const },
+          },
+        ],
+      },
+      teamModels,
+    );
+    expect(codexCoordinator).toMatchObject({ status: "blocked", coordinatorAgentId: null });
+    expect(codexCoordinator.reason).toContain("non-Codex OpenClaw coordinator");
+  });
+
+  it("requires one project-scoped Codex grant for Ultra hybrid and none for Ultra local", () => {
+    const local = buildPccExecutionTeamReadiness(
+      executionTeamDetail("ultra_local"),
+      teamCapacity,
+      teamAgents,
+      teamModels,
+    );
+    expect(local).toMatchObject({ status: "ready", codexAgents: 0, codexModelId: null });
+
+    const hybrid = executionTeamDetail("ultra_hybrid");
+    expect(
+      buildPccExecutionTeamReadiness(hybrid, teamCapacity, teamAgents, teamModels),
+    ).toMatchObject({ status: "needs_approval", codexAgents: 1 });
+
+    const granted = {
+      ...hybrid,
+      permissions: [
+        {
+          ...permission,
+          id: "codex-grant",
+          milestoneId: undefined,
+          type: "high_reasoning_model" as const,
+          status: "granted" as const,
+          allowedActions: ["Use Codex as the scoped project lead"],
+          usedCount: 0,
+          grantedAt: "2026-07-13T12:00:00.000Z",
+          auditLog: [
+            {
+              at: "2026-07-13T12:00:00.000Z",
+              status: "granted" as const,
+              note: "Project-scoped approval",
+            },
+          ],
+        },
+      ],
+    };
+    expect(
+      buildPccExecutionTeamReadiness(granted, teamCapacity, teamAgents, teamModels),
+    ).toMatchObject({ status: "ready", codexAgents: 1, codexModelId: "openai/gpt-5.6-sol" });
+
+    const staleMaximumCatalog = teamModels.map((model) =>
+      model.agentRuntime.id === "codex" ? { ...model, id: "gpt-5.5", name: "GPT-5.5" } : model,
+    );
+    const staleMaximum = buildPccExecutionTeamReadiness(
+      granted,
+      teamCapacity,
+      teamAgents,
+      staleMaximumCatalog,
+    );
+    expect(staleMaximum).toMatchObject({ status: "blocked" });
+    expect(staleMaximum.reason).toContain("GPT-5.6");
+  });
+
+  it("blocks a workspace leased by another project team", () => {
+    const detail = executionTeamDetail();
+    const profile = resolvePccExecutionProfilePreset("local_parallel");
+    const otherPlan = transitionPccExecutionPlan(
+      createPccExecutionPlan({
+        id: "other-plan",
+        projectId: "project-2",
+        projectRevision: "revision-2",
+        profile,
+        coordinator: { sessionId: "agent:other", runId: "other-run" },
+        admittedWorkerCount: 1,
+        partitions: [
+          {
+            id: "other-partition",
+            taskId: "other-task",
+            workerId: "other-worker",
+            workspaceId: "workspace:ui",
+            status: "running",
+          },
+        ],
+        leases: [
+          {
+            workspaceId: "workspace:ui",
+            planId: "other-plan",
+            partitionId: "other-partition",
+            holderId: "other-worker",
+            acquiredAt: "2026-07-13T12:00:00.000Z",
+            expiresAt: "2099-07-13T14:00:00.000Z",
+          },
+        ],
+        createdAt: "2026-07-13T12:00:00.000Z",
+      }),
+      "dispatching",
+      { at: "2026-07-13T12:00:01.000Z" },
+    );
+    const otherDetail = {
+      ...detail,
+      project: {
+        ...detail.project,
+        id: "project-2",
+        title: "Another Project",
+        metadata: {
+          ...detail.project.metadata,
+          pccWorkScope: "project_work",
+          pccExecutionPlans: [otherPlan],
+        },
+      },
+      milestones: [],
+      summary: { ...detail.summary, id: "project-2", title: "Another Project" },
+    };
+
+    const readiness = buildPccExecutionTeamReadiness(detail, teamCapacity, teamAgents, teamModels, [
+      otherDetail,
+    ]);
+    expect(readiness.status).toBe("blocked");
+    expect(readiness.reason).toContain("workspace:ui");
+    expect(readiness.reason).toContain("already leased");
+  });
+
+  it("persists the supervised plan before dispatch and never auto-completes milestones", async () => {
+    const detail = executionTeamDetail();
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "pcc.projects.upsert") {
+        const projectPatch = (params as { project: Partial<typeof detail.project> }).project;
+        return {
+          project: {
+            ...detail.project,
+            ...projectPatch,
+            metadata: projectPatch.metadata ?? detail.project.metadata,
+          },
+          summary: detail.summary,
+        };
+      }
+      if (method === "chat.send") {
+        return { runId: "coordinator-run", status: "started" };
+      }
+      if (method === "chat.abort") {
+        return { ok: true };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccProjectDetails: { [detail.project.id]: detail },
+      pccExecutionCapacity: teamCapacity,
+      agentsList: teamAgents,
+      chatModelCatalog: teamModels,
+    });
+
+    await runPccExecutionTeamAction(state, "start");
+
+    expect(request.mock.calls.filter(([method]) => method === "pcc.projects.upsert")).toHaveLength(
+      3,
+    );
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        agentId: "main",
+        deliver: false,
+        message: expect.stringContaining("Codex is OFF"),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        message: expect.stringContaining("pass model: ollama/qwen3.6"),
+      }),
+    );
+    expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(false);
+    expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(
+      false,
+    );
+    expect(state.pccProjectDetail?.project.metadata).toEqual(
+      expect.objectContaining({
+        pccActiveExecutionPlanId: expect.stringContaining("pcc-team-project-1"),
+        pccExecutionPlans: [
+          expect.objectContaining({
+            status: "running",
+            admittedWorkerCount: 2,
+            coordinator: expect.objectContaining({ runId: "coordinator-run" }),
+          }),
+        ],
+      }),
+    );
+
+    request.mockClear();
+    await runPccExecutionTeamAction(state, "stop");
+    expect(request).toHaveBeenCalledWith(
+      "chat.abort",
+      expect.objectContaining({ runId: "coordinator-run" }),
+    );
+    expect(state.pccProjectDetail?.project.metadata).toEqual(
+      expect.objectContaining({
+        pccActiveExecutionPlanId: null,
+        pccExecutionPlans: [expect.objectContaining({ status: "cancelled" })],
+      }),
+    );
+  });
+
+  it("marks an execution plan blocked when a stop cannot be confirmed", async () => {
+    const detail = executionTeamDetail();
+    const runningPlan = transitionPccExecutionPlan(
+      transitionPccExecutionPlan(
+        createPccExecutionPlan({
+          id: "running-plan",
+          projectId: detail.project.id,
+          projectRevision: detail.project.updatedAt,
+          profile: resolvePccExecutionProfilePreset("local_parallel"),
+          coordinator: { sessionId: "agent:main:pcc", runId: "run-1" },
+          admittedWorkerCount: 1,
+          createdAt: "2026-07-13T12:00:00.000Z",
+        }),
+        "dispatching",
+        { at: "2026-07-13T12:00:01.000Z" },
+      ),
+      "running",
+      { at: "2026-07-13T12:00:02.000Z" },
+    );
+    const runningDetail = {
+      ...detail,
+      project: {
+        ...detail.project,
+        metadata: {
+          ...detail.project.metadata,
+          pccExecutionPlans: [runningPlan],
+          pccActiveExecutionPlanId: runningPlan.id,
+        },
+      },
+    };
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "chat.abort") {
+        throw new Error("coordinator unreachable");
+      }
+      if (method === "pcc.projects.upsert") {
+        const projectPatch = (params as { project: Partial<typeof runningDetail.project> }).project;
+        return {
+          project: {
+            ...runningDetail.project,
+            ...projectPatch,
+            metadata: projectPatch.metadata ?? runningDetail.project.metadata,
+          },
+          summary: runningDetail.summary,
+        };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: runningDetail,
+      pccProjectDetails: { [runningDetail.project.id]: runningDetail },
+      pccExecutionCapacity: teamCapacity,
+      agentsList: teamAgents,
+      chatModelCatalog: teamModels,
+    });
+
+    await runPccExecutionTeamAction(state, "stop");
+
+    expect(state.pccActionError).toContain("stop could not be confirmed");
+    expect(state.pccProjectDetail?.project.metadata).toEqual(
+      expect.objectContaining({
+        pccActiveExecutionPlanId: runningPlan.id,
+        pccExecutionPlans: [
+          expect.objectContaining({
+            status: "blocked",
+            statusReason: expect.stringContaining("coordinator unreachable"),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("refuses to run an agent team in the wrong PCC focus scope", async () => {
+    const detail = executionTeamDetail();
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccProductFocusMode: "project_work",
+      pccExecutionCapacity: teamCapacity,
+      agentsList: teamAgents,
+      chatModelCatalog: teamModels,
+    });
+
+    await runPccExecutionTeamAction(state, "start");
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Switch to PCC Product");
   });
 });

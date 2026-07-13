@@ -153,6 +153,7 @@ import {
   previewPccChatSync,
   resumePccProjectForWork,
   runPccAutopilotLoopAction,
+  runPccExecutionTeamAction,
   runPccUndoAction,
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
@@ -2895,11 +2896,13 @@ export function renderApp(state: AppViewState) {
                 viewMode: state.pccViewMode,
                 productFocusMode: state.pccProductFocusMode,
                 reorderMode: state.pccReorderMode,
+                agentsList: state.agentsList,
                 modelCatalog: state.chatModelCatalog ?? [],
                 modelsLoading: state.chatModelsLoading,
                 modelsLastRefreshedAt: state.chatModelCatalogRefreshedAt,
                 modelsFallback: state.chatModelCatalogFallback,
                 runtimeIdentity: state.pccRuntimeIdentity,
+                executionCapacity: state.pccExecutionCapacity,
                 onRefreshModelCatalog: () => {
                   if (!state.client) {
                     return;
@@ -2907,11 +2910,14 @@ export function renderApp(state: AppViewState) {
                   const previousCount = state.chatModelCatalog?.length ?? 0;
                   state.chatModelsLoading = true;
                   state.chatModelCatalogFallback = false;
-                  void loadModels(state.client)
+                  void loadModels(state.client, { force: true })
                     .then((models) => {
                       state.chatModelCatalog = models;
-                      state.chatModelCatalogFallback = models.length === 0 && previousCount > 0;
+                      state.chatModelCatalogFallback = false;
                       state.chatModelCatalogRefreshedAt = Date.now();
+                    })
+                    .catch(() => {
+                      state.chatModelCatalogFallback = previousCount > 0;
                     })
                     .finally(() => {
                       state.chatModelsLoading = false;
@@ -2972,6 +2978,7 @@ export function renderApp(state: AppViewState) {
                 onUpdateAutopilotPrompt: (slotId, patch) =>
                   void updatePccAutopilotLoopPrompt(state, slotId, patch),
                 onRunAutopilotAction: (action) => void runPccAutopilotLoopAction(state, action),
+                onRunExecutionTeam: (action) => void runPccExecutionTeamAction(state, action),
                 onChatSyncTextChange: (text) => updatePccChatSyncText(state, text),
                 onPreviewChatSync: () => previewPccChatSync(state),
                 onApplyChatSyncProposal: (proposal) =>

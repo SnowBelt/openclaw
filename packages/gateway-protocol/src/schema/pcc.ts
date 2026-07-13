@@ -640,6 +640,31 @@ export const PccSummaryGetResultSchema = Type.Object(
   {
     project: Type.Optional(PccProjectSummarySchema),
     portfolio: PccPortfolioSummarySchema,
+    executionCapacity: Type.Optional(
+      Type.Object(
+        {
+          logicalCpuCount: Type.Integer({ minimum: 1 }),
+          performanceCpuCount: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+          totalRamGb: Type.Number({ minimum: 0 }),
+          freeRamGb: Type.Number({ minimum: 0 }),
+          load1: Type.Number({ minimum: 0 }),
+          load5: Type.Number({ minimum: 0 }),
+          load15: Type.Number({ minimum: 0 }),
+          memoryPressure: Type.Union([
+            Type.Literal("low"),
+            Type.Literal("medium"),
+            Type.Literal("high"),
+          ]),
+          activeOpenClawTaskCount: Type.Integer({ minimum: 0 }),
+          configuredSubagentLimit: Type.Integer({ minimum: 0 }),
+          observedLocalModelProcessCount: Type.Integer({ minimum: 0 }),
+          safeLocalAgentSlots: Type.Integer({ minimum: 0, maximum: 12 }),
+          timestamp: TimestampSchema,
+          warnings: StringListSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
     runtimeIdentity: Type.Optional(
       Type.Object(
         {

@@ -17,24 +17,32 @@ export const CODEX_APP_SERVER_AUTH_MARKER = "codex-app-server";
 const DEFAULT_CONTEXT_WINDOW = 272_000;
 const DEFAULT_MAX_TOKENS = 128_000;
 
-/** Offline fallback catalog used when live app-server discovery is unavailable. */
-export const FALLBACK_CODEX_MODELS = [
+/** Current known Codex model capabilities used for explicit dynamic resolution. */
+export const KNOWN_CODEX_MODELS = [
   {
-    id: "gpt-5.5",
-    model: "gpt-5.5",
-    displayName: "gpt-5.5",
-    description: "Latest frontier agentic coding model.",
+    id: "gpt-5.6-sol",
+    model: "gpt-5.6-sol",
+    displayName: "GPT-5.6 Sol",
+    description: "Flagship GPT-5.6 model for the hardest quality-first work.",
     isDefault: true,
     inputModalities: ["text", "image"],
-    supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+    supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
   },
   {
-    id: "gpt-5.4-mini",
-    model: "gpt-5.4-mini",
-    displayName: "GPT-5.4-Mini",
-    description: "Smaller frontier agentic coding model.",
+    id: "gpt-5.6-terra",
+    model: "gpt-5.6-terra",
+    displayName: "GPT-5.6 Terra",
+    description: "Strong GPT-5.6 capability with a balanced cost and latency profile.",
     inputModalities: ["text", "image"],
-    supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+    supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    id: "gpt-5.6-luna",
+    model: "gpt-5.6-luna",
+    displayName: "GPT-5.6 Luna",
+    description: "Efficient GPT-5.6 model for high-volume bounded work.",
+    inputModalities: ["text", "image"],
+    supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
   },
 ] satisfies CodexAppServerModel[];
 

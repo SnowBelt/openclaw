@@ -21,6 +21,19 @@ export const ModelChoiceSchema = Type.Object(
     available: Type.Optional(Type.Boolean()),
     contextWindow: Type.Optional(Type.Integer({ minimum: 1 })),
     reasoning: Type.Optional(Type.Boolean()),
+    agentRuntime: Type.Optional(
+      Type.Object(
+        {
+          id: NonEmptyString,
+          source: Type.Union([
+            Type.Literal("model"),
+            Type.Literal("provider"),
+            Type.Literal("implicit"),
+          ]),
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -242,6 +255,7 @@ export const ModelsListParamsSchema = Type.Object(
     view: Type.Optional(
       Type.Union([Type.Literal("default"), Type.Literal("configured"), Type.Literal("all")]),
     ),
+    refresh: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
