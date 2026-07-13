@@ -333,6 +333,7 @@ async function main(): Promise<void> {
             "Build a reusable dashboard that turns any project description into an ordered PCC plan.",
           plannerMode: "codex" as const,
           planningMode: "codex_full_plan" as const,
+          aiUsePolicy: "codex_expert" as const,
           title: "Reusable PCC Planner",
           goal: "Turn text into a safe, proof-gated project plan.",
           intakeAnswers: {
@@ -356,7 +357,7 @@ async function main(): Promise<void> {
     const editorText = root.textContent ?? "";
     for (const label of [
       "Your plan is ready to review",
-      "AI planning this project",
+      "AI roles",
       "Generated plan preview",
       "High-reasoning / Codex permission",
       "Create project",
