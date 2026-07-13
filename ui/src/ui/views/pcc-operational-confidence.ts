@@ -16,9 +16,54 @@ export type PccInteractionContract = {
 
 export const PCC_INTERACTION_CONTRACTS: readonly PccInteractionContract[] = [
   {
+    id: "project.filter",
+    label: "Project Filters",
+    selector: "[data-pcc-project-tabs] button",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "project.search",
+    label: "Project Search",
+    selector: "[data-pcc-project-search] input",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "project.scope",
+    label: "PCC Product or Project Work",
+    selector: "[data-pcc-focus-mode-option]",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
     id: "project.open",
     label: "Open Project",
     selector: "[data-pcc-project-open]",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "project.create",
+    label: "New Project",
+    selector: "[data-pcc-new-project]",
+    surface: "project",
+    mutates: true,
+    reversible: false,
+    requiresPreflight: true,
+  },
+  {
+    id: "project.view",
+    label: "Simple Detailed Agent View",
+    selector: "[data-pcc-view-mode-option]",
     surface: "project",
     mutates: false,
     reversible: false,
@@ -52,6 +97,24 @@ export const PCC_INTERACTION_CONTRACTS: readonly PccInteractionContract[] = [
     requiresPreflight: true,
   },
   {
+    id: "setup.apply",
+    label: "Apply Setup Preview",
+    selector: "[data-pcc-autofill-apply]",
+    surface: "setup",
+    mutates: true,
+    reversible: true,
+    requiresPreflight: true,
+  },
+  {
+    id: "blocker.action",
+    label: "Resolve First Blocker",
+    selector: "[data-pcc-blocker-center] button",
+    surface: "project",
+    mutates: true,
+    reversible: false,
+    requiresPreflight: true,
+  },
+  {
     id: "milestone.menu",
     label: "Milestone Actions",
     selector: "[data-pcc-action-menu-trigger]",
@@ -64,6 +127,33 @@ export const PCC_INTERACTION_CONTRACTS: readonly PccInteractionContract[] = [
     id: "milestone.reorder",
     label: "Reorder Milestones",
     selector: "[data-pcc-reorder-mode-toggle]",
+    surface: "milestone",
+    mutates: true,
+    reversible: true,
+    requiresPreflight: false,
+  },
+  {
+    id: "milestone.keyboard-reorder",
+    label: "Move Milestone Up or Down",
+    selector: "[data-pcc-milestone-reorder]",
+    surface: "milestone",
+    mutates: true,
+    reversible: true,
+    requiresPreflight: false,
+  },
+  {
+    id: "milestone.drag-reorder",
+    label: "Drag Milestone",
+    selector: "[data-pcc-drag-handle='milestone']",
+    surface: "milestone",
+    mutates: true,
+    reversible: true,
+    requiresPreflight: false,
+  },
+  {
+    id: "submilestone.menu",
+    label: "Sub-step Actions",
+    selector: "[data-pcc-submilestone-action-menu]",
     surface: "milestone",
     mutates: true,
     reversible: true,
@@ -86,6 +176,79 @@ export const PCC_INTERACTION_CONTRACTS: readonly PccInteractionContract[] = [
     mutates: true,
     reversible: false,
     requiresPreflight: true,
+  },
+  {
+    id: "autopilot.generate",
+    label: "Generate Autopilot Prompts",
+    selector: "[data-pcc-autopilot-generate-prompts]",
+    surface: "autopilot",
+    mutates: true,
+    reversible: true,
+    requiresPreflight: true,
+  },
+  {
+    id: "autopilot.pause-resume-stop",
+    label: "Pause Resume or Stop Autopilot",
+    selector: "[data-pcc-autopilot-pause], [data-pcc-autopilot-resume], [data-pcc-autopilot-stop]",
+    surface: "autopilot",
+    mutates: true,
+    reversible: false,
+    requiresPreflight: true,
+  },
+  {
+    id: "autopilot.permission",
+    label: "Autopilot Permission Decision",
+    selector:
+      "[data-pcc-autopilot-allow-low], [data-pcc-autopilot-allow-medium], [data-pcc-autopilot-deny-permission]",
+    surface: "autopilot",
+    mutates: true,
+    reversible: true,
+    requiresPreflight: true,
+  },
+  {
+    id: "details.tabs",
+    label: "Project Detail Tabs",
+    selector: "[data-pcc-detail-tab]",
+    surface: "proof",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "context.copy",
+    label: "Copy Context Package",
+    selector: "[data-pcc-copy-context]",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "decision.create",
+    label: "Add Decision",
+    selector: "[data-pcc-open-decision-form]",
+    surface: "project",
+    mutates: true,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "recovery.refresh",
+    label: "Refresh After Failure",
+    selector: "[data-pcc-recovery-center] button",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
+  },
+  {
+    id: "empty.navigate",
+    label: "Leave Empty Project View",
+    selector: "[data-pcc-empty-actions] button",
+    surface: "project",
+    mutates: false,
+    reversible: false,
+    requiresPreflight: false,
   },
   {
     id: "mobile.primary",
@@ -141,11 +304,32 @@ export function buildPccExecutionReadiness(detail: PccProjectDetail): PccExecuti
     detail.receipts.length > 0 ||
     detail.summary.proofGaps.length === 0;
   const checks = [
-    { label: "Setup ready", passed: setup.runnable },
-    { label: "No active blockers", passed: blockers.length === 0 },
-    { label: "Permissions clear", passed: !permissionBlocked },
-    { label: "Milestones executable", passed: milestoneMissing.length === 0 },
-    { label: "Proof path known", passed: proofKnown },
+    {
+      label: setup.runnable ? "Setup ready" : "Setup needs attention",
+      passed: setup.runnable,
+    },
+    {
+      label:
+        blockers.length === 0
+          ? "No active blockers"
+          : `${blockers.length} active blocker${blockers.length === 1 ? "" : "s"}`,
+      passed: blockers.length === 0,
+    },
+    {
+      label: permissionBlocked ? "Permission needed" : "Permissions clear",
+      passed: !permissionBlocked,
+    },
+    {
+      label:
+        milestoneMissing.length === 0
+          ? "Milestones executable"
+          : "Milestone details need attention",
+      passed: milestoneMissing.length === 0,
+    },
+    {
+      label: proofKnown ? "Proof path known" : "Proof path missing",
+      passed: proofKnown,
+    },
   ];
   const passed = checks.filter((check) => check.passed).length;
   const score = Math.round((passed / checks.length) * 100);

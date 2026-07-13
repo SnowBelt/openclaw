@@ -31,6 +31,7 @@ export type PccProjectActionInput = {
   blockerLines?: readonly string[];
   permissions?: readonly Pick<PccPermissionGrant, "status" | "type">[];
   hasBlockedMilestone?: boolean;
+  hasIncompleteMilestone?: boolean;
   workLoop?: {
     enabled: boolean;
     state: string;
@@ -75,6 +76,24 @@ export function resolvePccProjectAction(input: PccProjectActionInput): PccProjec
   }
   if (TERMINAL_STATUSES.has(input.project.status)) {
     const maintenance = input.project.status === "complete_with_maintenance";
+    if (
+      (input.project.status === "complete" || maintenance) &&
+      (input.hasBlockedMilestone || input.hasIncompleteMilestone)
+    ) {
+      const topBlocker = input.hasBlockedMilestone
+        ? (blockers[0] ?? "A blocked milestone still needs review.")
+        : "This project is marked complete, but unfinished milestones still need review.";
+      return {
+        primaryActionId: "review_blocker",
+        primaryLabel: "Review Incomplete Work",
+        explanation:
+          "Review the unfinished milestone history before treating this project as complete.",
+        statusLabel: "Needs review",
+        blockerLines: [topBlocker, ...blockers.filter((line) => line !== topBlocker)],
+        topBlocker,
+        hideWorkControls: true,
+      };
+    }
     return {
       primaryActionId: maintenance ? "no_action_required" : "view_details",
       primaryLabel: maintenance ? "No Action Required" : "View Details",

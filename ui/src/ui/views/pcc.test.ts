@@ -398,7 +398,7 @@ describe("renderPccDashboard", () => {
       createProps({
         projectDetail: {
           project: completeProject,
-          milestones: [milestone],
+          milestones: [{ ...milestone, status: "complete" as const, percentComplete: 100 }],
           subMilestones: [],
           permissions: [],
           evidence: [],
@@ -432,10 +432,47 @@ describe("renderPccDashboard", () => {
     ).toContain("All");
   });
 
+  it("does not hide unfinished work behind a terminal project status", () => {
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project: { ...project, status: "complete_with_maintenance" as const },
+          milestones: [milestone],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary: {
+            ...summary,
+            status: "complete_with_maintenance" as const,
+            milestoneCounts: { ...summary.milestoneCounts, complete: 0, needsApproval: 0 },
+            percentComplete: 100,
+          },
+        },
+      }),
+    );
+
+    expect(container.querySelector("[data-pcc-maintenance-hero]")).toBeNull();
+    expect(container.querySelector("[data-pcc-primary-action]")?.textContent).toContain(
+      "Review Incomplete Work",
+    );
+    expect(container.querySelector("[data-pcc-blocker-center]")?.textContent).toContain(
+      "unfinished milestone",
+    );
+  });
+
   it("keeps Simple mode focused on status and milestones instead of advanced activity and Autopilot", () => {
     const container = renderView(createProps({ viewMode: "simple" }));
 
     expect(container.querySelector("[data-pcc-project-snapshot]")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-simple-project-facts]")?.textContent).toContain(
+      "Current step",
+    );
+    expect(container.querySelector("[data-pcc-simple-project-facts]")?.textContent).toContain(
+      "42%",
+    );
     expect(container.querySelector("[data-pcc-milestone-journey]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-autopilot-project-loop]")).toBeNull();
     expect(container.querySelector("[data-pcc-autopilot-hero-chip]")).toBeNull();
@@ -817,6 +854,12 @@ describe("renderPccDashboard", () => {
     );
 
     container.querySelector<HTMLButtonElement>("[data-pcc-snapshot-add-decision]")?.click();
+    expect(
+      container.querySelector('[data-pcc-detail-tab="decisions"]')?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(
+      container.querySelector<HTMLElement>('[data-pcc-detail-tab-panel="decisions"]')?.hidden,
+    ).toBe(false);
     container.querySelector<HTMLButtonElement>("[data-pcc-open-decision-form]")?.click();
     expect(onOpenDecisionForm).toHaveBeenCalledTimes(2);
 
@@ -3471,7 +3514,11 @@ describe("renderPccDashboard", () => {
     expect(container.textContent).toContain("Context package");
     expect(container.textContent).toContain("Preview next-step packet");
 
-    container.querySelector<HTMLButtonElement>('[data-pcc-copy-context="compact"]')?.click();
+    const copyButton = container.querySelector<HTMLButtonElement>(
+      '[data-pcc-copy-context="compact"]',
+    );
+    expect(copyButton?.getAttribute("aria-live")).toBe("polite");
+    copyButton?.click();
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 0);
     });
@@ -3479,6 +3526,8 @@ describe("renderPccDashboard", () => {
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText.mock.calls[0]?.[0]).toContain("Next milestone: CRUD UI");
     expect(writeText.mock.calls[0]?.[0]).toContain("Worker: local_openclaw_agent");
+    expect(copyButton?.dataset.pccCopyState).toBe("copied");
+    expect(copyButton?.textContent).toBe("Copied");
   });
 
   it("requires inline confirmation for risky chat sync proposals", () => {
@@ -3859,15 +3908,35 @@ describe("renderPccDashboard", () => {
   });
 
   it("renders operational confidence readiness, preflight, scope lock, and recovery center", () => {
+    const base = createProps();
     const container = renderView(
       createProps({
         viewMode: "detailed",
         actionError: "invalid pcc.milestones.upsert params: at /milestone/order: must be >= 0",
+        projectDetail: {
+          ...base.projectDetail!,
+          milestones: [
+            {
+              ...milestone,
+              status: "blocked",
+              metadata: {
+                ...milestone.metadata,
+                blockers: ["Missing required local tool."],
+              },
+            },
+          ],
+        },
       }),
     );
 
     expect(container.querySelector("[data-pcc-execution-readiness]")?.textContent).toContain(
       "Readiness",
+    );
+    expect(container.querySelector("[data-pcc-execution-readiness]")?.textContent).toContain(
+      "active blocker",
+    );
+    expect(container.querySelector("[data-pcc-execution-readiness]")?.textContent).not.toContain(
+      "No active blockers",
     );
     expect(container.querySelector("[data-pcc-universal-preflight]")?.textContent).toContain(
       "Preflight",
@@ -3887,7 +3956,7 @@ describe("renderPccDashboard", () => {
     const matrix = container.querySelector("[data-pcc-interaction-contract-matrix]");
     expect(matrix?.textContent).toContain("Buttons and controls PCC must keep working");
     expect(matrix?.textContent).toContain("Work This Project");
-    expect(matrix?.querySelectorAll("[data-pcc-interaction-contract]").length).toBeGreaterThan(5);
+    expect(matrix?.querySelectorAll("[data-pcc-interaction-contract]").length).toBeGreaterThan(20);
   });
 
   it("keeps reorder mode explicit and hides action menus while handles are active", () => {
@@ -3903,6 +3972,11 @@ describe("renderPccDashboard", () => {
       "offers Undo",
     );
     expect(container.querySelector("[data-pcc-drag-handle='milestone']")).not.toBeNull();
+    const dropTarget = container.querySelector<HTMLElement>("[data-pcc-journey-step]");
+    dropTarget?.dispatchEvent(new Event("dragenter", { bubbles: true, cancelable: true }));
+    expect(dropTarget?.classList.contains("is-drop-target")).toBe(true);
+    dropTarget?.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
+    expect(dropTarget?.classList.contains("is-drop-target")).toBe(false);
     expect(container.querySelector("[data-pcc-milestone-reorder]")?.textContent).toContain("Up");
     expect(container.querySelector("[data-pcc-milestone-reorder]")?.textContent).toContain("Down");
     expect(container.querySelector("[data-pcc-action-menu-trigger]")).toBeNull();

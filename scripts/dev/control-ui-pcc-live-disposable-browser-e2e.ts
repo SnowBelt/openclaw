@@ -9,7 +9,9 @@ import type { PccProject, PccProjectSummary, PccMilestone } from "../../ui/src/u
 type ProjectGetResult = {
   project: PccProject;
   milestones: PccMilestone[];
+  subMilestones?: Array<{ status?: string }>;
   permissions?: Array<{ status?: string; type?: string }>;
+  decisions?: Array<{ title?: string; summary?: string }>;
   summary: PccProjectSummary;
 };
 
@@ -40,6 +42,19 @@ type PreflightResult = {
   projectsReadable: boolean;
   summaryReadable: boolean;
   projectCount: number;
+};
+
+type VisualViewportAudit = {
+  label: string;
+  width: number;
+  height: number;
+  noHorizontalOverflow: boolean;
+  controlsStayInsideViewport: boolean;
+  controlsDoNotClipText: boolean;
+  auditedGroupsDoNotOverlap: boolean;
+  primaryMobileTargetsAreLargeEnough: boolean;
+  screenshotPath: string;
+  failures: string[];
 };
 
 const TOKEN_PATTERN = /([#?&]token=)[^&/#]+/gi;
@@ -194,6 +209,24 @@ async function upsertProject(
   });
 }
 
+async function upsertCompleteProject(id: string, title: string): Promise<void> {
+  await gateway("pcc.projects.upsert", {
+    project: {
+      id,
+      title,
+      goal: `${title} verifies the read-only completed-project experience.`,
+      status: "complete_with_maintenance",
+      priority: 1,
+      metadata: {
+        pccWorkScope: "project_work",
+        pccCurrentScope: "active_project_work",
+        excludedFromPccProductCompletion: true,
+        pccDisposableBrowserProof: true,
+      },
+    },
+  });
+}
+
 async function upsertMilestone(projectId: string, id: string, title: string, order: number) {
   return await gateway("pcc.milestones.upsert", {
     milestone: {
@@ -205,6 +238,80 @@ async function upsertMilestone(projectId: string, id: string, title: string, ord
       percentComplete: 0,
       implementationPlan: "Disposable browser proof step. No user project work.",
       acceptanceCriteria: ["Browser interaction updates and persists."],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        proofRequired: "Disposable browser E2E proof",
+      },
+    },
+  });
+}
+
+async function upsertSubMilestone(
+  projectId: string,
+  milestoneId: string,
+  id: string,
+  title: string,
+): Promise<void> {
+  await gateway("pcc.subMilestones.upsert", {
+    subMilestone: {
+      id,
+      projectId,
+      milestoneId,
+      title,
+      status: "not_started",
+      order: 0,
+      percentComplete: 0,
+      implementationPlan: "Exercise the disposable browser interaction and save the result.",
+      acceptanceCriteria: ["The browser interaction persists after refresh."],
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        proofRequired: "Disposable browser E2E proof",
+      },
+    },
+  });
+}
+
+async function setDisposableProjectStatus(
+  id: string,
+  title: string,
+  status: "active" | "blocked" | "on_hold" | "complete_with_maintenance",
+): Promise<void> {
+  const current = await getProject(id);
+  await gateway("pcc.projects.upsert", {
+    project: {
+      id,
+      title,
+      status,
+      metadata: {
+        ...current.project.metadata,
+        pccWorkScope: "project_work",
+        pccCurrentScope: "active_project_work",
+        excludedFromPccProductCompletion: true,
+        pccDisposableBrowserProof: true,
+      },
+    },
+  });
+}
+
+async function setDisposableMilestoneBlocked(
+  projectId: string,
+  milestoneId: string,
+  title: string,
+  order: number,
+): Promise<void> {
+  await gateway("pcc.milestones.upsert", {
+    milestone: {
+      id: milestoneId,
+      projectId,
+      title,
+      status: "blocked",
+      order,
+      percentComplete: 25,
+      blocker: "Disposable proof blocker. Review the safe recovery step.",
+      implementationPlan: "Disposable browser proof step. No user project work.",
+      acceptanceCriteria: ["Browser shows the exact blocker and recovery action."],
       metadata: {
         pccResponsibility: "local_openclaw_agent",
         pccProofLevel: "local",
@@ -273,10 +380,205 @@ async function clickProjectButton(
   await clickSafely(page.getByRole("button", { name: accessibleName }).first());
 }
 
+async function auditPccViewport(params: {
+  page: import("playwright").Page;
+  width: number;
+  height: number;
+  label: string;
+  artifactDir: string;
+}): Promise<VisualViewportAudit> {
+  const { page, width, height, label } = params;
+  await page.setViewportSize({ width, height });
+  await page.waitForTimeout(180);
+  const result = await page
+    .locator(".pcc-shell")
+    .first()
+    .evaluate(
+      (shell, viewport) => {
+        const failures: string[] = [];
+        const controls: HTMLElement[] = [];
+        for (const candidate of shell.querySelectorAll(
+          "button, input, textarea, select, [role='button']",
+        )) {
+          if (!(candidate instanceof HTMLElement)) {
+            continue;
+          }
+          const candidateRect = candidate.getBoundingClientRect();
+          const candidateStyle = globalThis.getComputedStyle(candidate);
+          if (
+            candidateRect.width > 0 &&
+            candidateRect.height > 0 &&
+            candidateStyle.visibility !== "hidden"
+          ) {
+            controls.push(candidate);
+          }
+        }
+        const offscreenControls: HTMLElement[] = [];
+        const clippedControls: HTMLElement[] = [];
+        for (const control of controls) {
+          const rect = control.getBoundingClientRect();
+          if (rect.left < -1 || rect.right > viewport.width + 1) {
+            offscreenControls.push(control);
+          }
+          const style = globalThis.getComputedStyle(control);
+          if (
+            style.overflow !== "visible" &&
+            style.overflowX !== "visible" &&
+            control.scrollWidth > control.clientWidth + 2
+          ) {
+            clippedControls.push(control);
+          }
+        }
+        if (offscreenControls.length > 0) {
+          const offscreenLabels: string[] = [];
+          for (const control of offscreenControls) {
+            offscreenLabels.push(
+              (control.getAttribute("aria-label") || control.textContent || control.tagName)
+                .replace(/\s+/gu, " ")
+                .trim()
+                .slice(0, 64),
+            );
+          }
+          failures.push(
+            `${offscreenControls.length} controls extend outside the viewport: ${offscreenLabels.join(" | ")}`,
+          );
+        }
+        if (clippedControls.length > 0) {
+          const clippedLabels = clippedControls.map((control) =>
+            (control.getAttribute("aria-label") || control.textContent || control.tagName)
+              .replace(/\s+/gu, " ")
+              .trim()
+              .slice(0, 64),
+          );
+          failures.push(
+            `${clippedControls.length} controls clip their accessible label: ${clippedLabels.join(" | ")}`,
+          );
+        }
+
+        const auditedGroups = [
+          ".pcc-view-mode",
+          ".pcc-project-orientation__facts",
+          ".pcc-project-snapshot__header",
+          ".pcc-project-snapshot__badges",
+          ".pcc-primary-action",
+          ".pcc-blocker-center__list > li",
+          ".pcc-project-focus-bar__top",
+          ".pcc-section-heading",
+        ];
+        let overlapCount = 0;
+        for (const selector of auditedGroups) {
+          for (const group of shell.querySelectorAll(selector)) {
+            if (!(group instanceof HTMLElement)) {
+              continue;
+            }
+            const groupRect = group.getBoundingClientRect();
+            const groupStyle = globalThis.getComputedStyle(group);
+            if (
+              groupRect.width <= 0 ||
+              groupRect.height <= 0 ||
+              groupStyle.visibility === "hidden"
+            ) {
+              continue;
+            }
+            const children: HTMLElement[] = [];
+            for (const child of group.children) {
+              if (!(child instanceof HTMLElement)) {
+                continue;
+              }
+              const childRect = child.getBoundingClientRect();
+              const childStyle = globalThis.getComputedStyle(child);
+              if (
+                childRect.width > 0 &&
+                childRect.height > 0 &&
+                childStyle.visibility !== "hidden"
+              ) {
+                children.push(child);
+              }
+            }
+            for (let index = 0; index < children.length; index += 1) {
+              const current = children[index];
+              if (!current) {
+                continue;
+              }
+              for (const other of children.slice(index + 1)) {
+                const currentRect = current.getBoundingClientRect();
+                const otherRect = other.getBoundingClientRect();
+                if (
+                  currentRect.left < otherRect.right - 1 &&
+                  currentRect.right > otherRect.left + 1 &&
+                  currentRect.top < otherRect.bottom - 1 &&
+                  currentRect.bottom > otherRect.top + 1
+                ) {
+                  overlapCount += 1;
+                }
+              }
+            }
+          }
+        }
+        if (overlapCount > 0) {
+          failures.push(`${overlapCount} sibling layout collisions detected`);
+        }
+
+        const undersizedMobileTargets: HTMLElement[] = [];
+        if (viewport.width <= 430) {
+          for (const target of shell.querySelectorAll(
+            "[data-pcc-mobile-command-rail] button, [data-pcc-primary-action] button, [data-pcc-view-mode-option]",
+          )) {
+            if (!(target instanceof HTMLElement)) {
+              continue;
+            }
+            const targetRect = target.getBoundingClientRect();
+            const targetStyle = globalThis.getComputedStyle(target);
+            if (
+              targetRect.width > 0 &&
+              targetRect.height > 0 &&
+              targetStyle.visibility !== "hidden" &&
+              targetRect.height < 43.5
+            ) {
+              undersizedMobileTargets.push(target);
+            }
+          }
+        }
+        if (undersizedMobileTargets.length > 0) {
+          const undersizedLabels: string[] = [];
+          for (const control of undersizedMobileTargets) {
+            undersizedLabels.push(
+              (control.getAttribute("aria-label") || control.textContent || control.tagName)
+                .replace(/\s+/gu, " ")
+                .trim()
+                .slice(0, 64),
+            );
+          }
+          failures.push(
+            `${undersizedMobileTargets.length} primary mobile controls are under 44px tall: ${undersizedLabels.join(" | ")}`,
+          );
+        }
+
+        return {
+          noHorizontalOverflow:
+            document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
+          controlsStayInsideViewport: offscreenControls.length === 0,
+          controlsDoNotClipText: clippedControls.length === 0,
+          auditedGroupsDoNotOverlap: overlapCount === 0,
+          primaryMobileTargetsAreLargeEnough: undersizedMobileTargets.length === 0,
+          failures,
+        };
+      },
+      { width, height },
+    );
+  const screenshotPath = path.join(params.artifactDir, `${label}-${width}x${height}.png`);
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  return { label, width, height, screenshotPath, ...result };
+}
+
 async function openProjectCard(page: import("playwright").Page, projectId: string): Promise<void> {
   const card = page.locator(`[data-pcc-project-card][data-pcc-project-id="${projectId}"]`).first();
   await card.waitFor({ state: "visible", timeout: 45_000 });
   await clickSafely(card.locator("button", { hasText: /Open|Selected/i }).first());
+  await page
+    .locator(`[data-pcc-detail-project-id="${projectId}"]`)
+    .first()
+    .waitFor({ state: "visible", timeout: 45_000 });
 }
 
 async function fillProjectTitle(
@@ -298,8 +600,10 @@ async function main() {
   const suffix = randomUUID().slice(0, 8);
   const actionProjectId = `pcc-disposable-live-actions-${suffix}`;
   const setupProjectId = `pcc-disposable-live-setup-${suffix}`;
+  const completeProjectId = `pcc-disposable-live-complete-${suffix}`;
   const actionProjectTitle = `PCC Disposable Live Actions ${suffix}`;
   const setupProjectTitle = `PCC Disposable Live Setup ${suffix}`;
+  const completeProjectTitle = `PCC Disposable Complete ${suffix}`;
   const createdProjectTitle = `PCC Guided Creation ${suffix}`;
   let currentActionProjectTitle = actionProjectTitle;
   let createdProjectId = "";
@@ -312,18 +616,28 @@ async function main() {
   const creationMobileScreenshotPath =
     process.env.OPENCLAW_PCC_NEW_PROJECT_MOBILE_SCREENSHOT ??
     "/tmp/openclaw-dashboard-pcc-new-project-mobile.png";
+  const visualMatrixDir = path.join("/tmp", `openclaw-pcc-100-intuitiveness-${suffix}`);
+  fs.mkdirSync(visualMatrixDir, { recursive: true });
 
   let browser: import("playwright").Browser | undefined;
   let phase = "initializing";
   let actionProjectCreated = false;
   let setupProjectCreated = false;
+  let completeProjectCreated = false;
+  let projectSwitchMs: number;
+  let projectPreviewMs: number;
+  let detailPanelOpenMs: number;
+  let projectSearchMs: number;
+  let projectFilterMs: number;
   const summary: Record<string, unknown> = {
     actionProjectId,
     setupProjectId,
+    completeProjectId,
     phase,
     screenshotPath,
     creationDesktopScreenshotPath,
     creationMobileScreenshotPath,
+    visualMatrixDir,
     checks: {},
     cleanup: [],
   };
@@ -361,11 +675,23 @@ async function main() {
       "First live reorder step",
       10,
     );
+    await upsertSubMilestone(
+      actionProjectId,
+      `${actionProjectId}-step-1`,
+      `${actionProjectId}-step-1-check`,
+      "Verify first live interaction",
+    );
     await upsertMilestone(
       actionProjectId,
       `${actionProjectId}-step-2`,
       "Second live reorder step",
       20,
+    );
+    await upsertSubMilestone(
+      actionProjectId,
+      `${actionProjectId}-step-2`,
+      `${actionProjectId}-step-2-check`,
+      "Verify second live interaction",
     );
     phase = "creating disposable setup project";
     summary.phase = phase;
@@ -373,6 +699,10 @@ async function main() {
       pccIntake: { approved: false, answers: {} },
     });
     setupProjectCreated = true;
+    phase = "creating disposable complete project";
+    summary.phase = phase;
+    await upsertCompleteProject(completeProjectId, completeProjectTitle);
+    completeProjectCreated = true;
 
     phase = "opening PCC browser";
     summary.phase = phase;
@@ -386,8 +716,10 @@ async function main() {
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     });
     const page = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+    const navigationStartedAt = performance.now();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    const initialNavigationMs = Math.round(performance.now() - navigationStartedAt);
 
     phase = "testing new project cancel";
     summary.phase = phase;
@@ -444,10 +776,12 @@ async function main() {
     const aiExplainerVisible = await creationEditor
       .locator("[data-pcc-create-ai-explainer]")
       .isVisible();
+    const previewStartedAt = performance.now();
     await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
     await creationEditor
       .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
       .waitFor({ state: "visible", timeout: 15_000 });
+    projectPreviewMs = Math.round(performance.now() - previewStartedAt);
     const userTitlePreserved =
       (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
       createdProjectTitle;
@@ -459,6 +793,24 @@ async function main() {
       .locator("[data-pcc-ai-routing-summary]")
       .getByText("Codex", { exact: false })
       .isVisible();
+    await creationEditor.locator("[data-pcc-create-project-back]").click({ force: true });
+    await creationEditor
+      .locator('[data-pcc-create-flow][data-pcc-create-step="describe"]')
+      .waitFor({ state: "visible", timeout: 15_000 });
+    const backPreservedUserInput =
+      (await creationEditor.locator("[data-pcc-project-description]").inputValue()).includes(
+        "disposable project",
+      ) &&
+      (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
+        createdProjectTitle;
+    await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
+    await creationEditor
+      .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await creationEditor.locator("[data-pcc-create-fill-remaining]").click({ force: true });
+    const fillRemainingPreservedUserInput =
+      (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
+      createdProjectTitle;
     await page.screenshot({ path: creationDesktopScreenshotPath, fullPage: true });
     await creationEditor.locator("[data-pcc-create-project-confirm]").click({ force: true });
     await creationEditor.waitFor({ state: "hidden", timeout: 30_000 });
@@ -490,6 +842,8 @@ async function main() {
       userTitlePreserved &&
       reviewExplainsSafety &&
       routingSummaryVisible &&
+      backPreservedUserInput &&
+      fillRemainingPreservedUserInput &&
       modelRoutingPersisted &&
       codexPermissionQueued;
 
@@ -515,15 +869,81 @@ async function main() {
     await page.screenshot({ path: creationMobileScreenshotPath, fullPage: true });
     await mobileCreationEditor.locator("[data-pcc-project-cancel]").click({ force: true });
     await mobileCreationEditor.waitFor({ state: "hidden", timeout: 15_000 });
-    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.locator('[data-pcc-mobile-section-tab="projects"]').first().click({ force: true });
+    await page.setViewportSize({ width: 1024, height: 900 });
+
+    const createdProjectWorkMode = page
+      .locator('[data-pcc-focus-mode-option="project_work"]:visible')
+      .first();
+    if (await createdProjectWorkMode.isVisible().catch(() => false)) {
+      await createdProjectWorkMode.click({ force: true });
+    }
+    const createdProjectAllTab = page
+      .locator("[data-pcc-project-tabs] button:visible", { hasText: /\bAll\b/i })
+      .first();
+    await clickSafely(createdProjectAllTab);
+
+    phase = "testing project search and filters";
+    summary.phase = phase;
+    const projectSearch = page.locator("[data-pcc-project-search] input[type='search']").first();
+    const searchStartedAt = performance.now();
+    await projectSearch.fill(actionProjectTitle);
+    await page
+      .locator(`[data-pcc-project-card][data-pcc-project-id="${actionProjectId}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
+    projectSearchMs = Math.round(performance.now() - searchStartedAt);
+    const projectSearchWorked =
+      (await page.locator("[data-pcc-project-card]").count()) === 1 &&
+      (await page
+        .locator(`[data-pcc-project-card][data-pcc-project-id="${actionProjectId}"]`)
+        .count()) === 1;
+    await page
+      .getByRole("button", { name: /^Clear search$/i })
+      .first()
+      .click({ force: true });
+    const needsYouStartedAt = performance.now();
+    const needsYouTab = page
+      .locator("[data-pcc-project-tabs] button:visible", { hasText: /\bNeeds You\b/i })
+      .first();
+    await needsYouTab.click({ force: true });
+    await page
+      .locator("[data-pcc-project-card]")
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
+    projectFilterMs = Math.round(performance.now() - needsYouStartedAt);
+    const projectFilterWorked =
+      (await needsYouTab.getAttribute("aria-pressed")) === "true" &&
+      (await page.locator("[data-pcc-project-card]").count()) > 0;
+    await clickSafely(createdProjectAllTab);
+
+    phase = "testing project archive confirmation";
+    summary.phase = phase;
+    await openProjectCard(page, createdProjectId);
+    await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
+    const archiveButton = page.getByRole("button", { name: /^Archive$/i }).first();
+    await archiveButton.click({ force: true });
+    await page
+      .getByRole("button", { name: /^Confirm archive$/i })
+      .first()
+      .click({ force: true });
+    await page.waitForTimeout(500);
+    const archivePersisted = (await getProject(createdProjectId)).project.status === "archived";
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
 
     phase = "selecting disposable action project";
     summary.phase = phase;
-    const projectWorkMode = page.locator('[data-pcc-focus-mode-option="project_work"]').last();
+    const projectWorkMode = page
+      .locator('[data-pcc-focus-mode-option="project_work"]:visible')
+      .first();
+    const projectWorkModeVisible = await projectWorkMode.isVisible().catch(() => false);
     if (await projectWorkMode.isVisible().catch(() => false)) {
       await projectWorkMode.click({ force: true });
     }
-    const allTab = page.locator("[data-pcc-project-tabs] button", { hasText: /^All\b/i }).last();
+    const allTab = page
+      .locator("[data-pcc-project-tabs] button:visible", { hasText: /\bAll\b/i })
+      .first();
     if (await allTab.isVisible().catch(() => false)) {
       await allTab.click({ force: true });
     }
@@ -531,11 +951,51 @@ async function main() {
       .locator(`[data-pcc-project-card][data-pcc-project-id="${actionProjectId}"]`)
       .first();
     await actionCard.waitFor({ state: "visible", timeout: 45_000 });
+    const projectSwitchStartedAt = performance.now();
     await openProjectCard(page, actionProjectId);
+    projectSwitchMs = Math.round(performance.now() - projectSwitchStartedAt);
     await page
       .locator(`[data-pcc-detail-project-id="${actionProjectId}"]`)
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
+
+    phase = "proving first-screen focus hierarchy";
+    summary.phase = phase;
+    await clickSafely(page.locator('[data-pcc-view-mode-option="simple"]'));
+    const activeSimpleDesktop = await auditPccViewport({
+      page,
+      width: 1366,
+      height: 768,
+      label: "active-simple",
+      artifactDir: visualMatrixDir,
+    });
+    const simpleFacts = page.locator("[data-pcc-simple-project-facts]").first();
+    const firstScreenHierarchy = await page
+      .locator(".pcc-shell")
+      .first()
+      .evaluate((shell) => {
+        const viewportBottom = globalThis.innerHeight;
+        const snapshot = shell.querySelector<HTMLElement>("[data-pcc-project-snapshot]");
+        const facts = shell.querySelector<HTMLElement>("[data-pcc-simple-project-facts]");
+        const action = shell.querySelector<HTMLElement>("[data-pcc-primary-action]");
+        const journey = shell.querySelector<HTMLElement>("[data-pcc-milestone-journey]");
+        return {
+          snapshotVisible: Boolean(
+            snapshot && snapshot.getBoundingClientRect().top < viewportBottom,
+          ),
+          factsVisible: Boolean(facts && facts.getBoundingClientRect().top < viewportBottom),
+          primaryActionVisible: Boolean(
+            action && action.getBoundingClientRect().top < viewportBottom,
+          ),
+          journeyStartsNearFirstScreen: Boolean(
+            journey && journey.getBoundingClientRect().top < viewportBottom * 1.35,
+          ),
+        };
+      });
+    const simpleFactsText = (await simpleFacts.textContent()) ?? "";
+    const firstScreenFactsReadable =
+      simpleFactsText.includes("Current step") && simpleFactsText.includes("Progress");
+    await page.setViewportSize({ width: 1440, height: 1200 });
 
     // Simple mode intentionally hides maintenance and editing controls. Switch to
     // Detailed before exercising durable project mutations.
@@ -569,15 +1029,134 @@ async function main() {
     const afterEditCancel = await getProject(actionProjectId);
     const editCancelDiscarded = afterEditCancel.project.title === editedTitle;
 
+    phase = "testing guided work controls";
+    summary.phase = phase;
+    const workLoop = page.locator("[data-pcc-work-loop]").first();
+    await workLoop.waitFor({ state: "visible", timeout: 15_000 });
+    await workLoop.getByRole("button", { name: /^Work This Project$/i }).click({ force: true });
+    await page
+      .getByText("Work This Project is on", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const workLoopEnabled =
+      (
+        (await getProject(actionProjectId)).project.metadata as {
+          pccWorkLoop?: { enabled?: boolean };
+        }
+      )?.pccWorkLoop?.enabled === true;
+    await workLoop.getByRole("button", { name: /^Pause$/i }).click({ force: true });
+    await page
+      .getByText("Work paused", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const workLoopPaused =
+      (
+        (await getProject(actionProjectId)).project.metadata as {
+          pccWorkLoop?: { state?: string };
+        }
+      )?.pccWorkLoop?.state === "paused";
+    await workLoop.getByRole("button", { name: /^Turn off$/i }).click({ force: true });
+    await page
+      .getByText("Work controls turned off", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await workLoop
+      .getByRole("button", { name: /^Prepare next safe task$/i })
+      .click({ force: true });
+    await page
+      .getByText("Next safe task prepared", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const afterPrepare = await getProject(actionProjectId);
+    const prepareNextPersisted =
+      afterPrepare.milestones.some((item) => item.status === "in_progress") ||
+      (afterPrepare.subMilestones?.some((item) => item.status === "in_progress") ?? false);
+    await workLoop.getByRole("button", { name: /^Turn off$/i }).click({ force: true });
+    await page
+      .getByText("Work controls turned off", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const workLoopTurnedOff =
+      (
+        (await getProject(actionProjectId)).project.metadata as {
+          pccWorkLoop?: { enabled?: boolean };
+        }
+      )?.pccWorkLoop?.enabled === false;
+
+    phase = "testing milestone and sub-step disclosure";
+    summary.phase = phase;
+    const secondMilestone = page
+      .locator(`[data-pcc-milestone-id="${actionProjectId}-step-2"]`)
+      .first();
+    const secondMilestoneDetails = secondMilestone.locator(
+      ":scope > .pcc-journey-step__content > details",
+    );
+    if ((await secondMilestoneDetails.getAttribute("open")) === null) {
+      await secondMilestoneDetails.locator(":scope > summary").click({ force: true });
+    }
+    const milestoneDisclosureWorked = (await secondMilestoneDetails.getAttribute("open")) !== null;
+    const subStepDrilldown = secondMilestone.locator("[data-pcc-submilestone-drilldown]").first();
+    await subStepDrilldown.locator(":scope > summary").click({ force: true });
+    const subStepDisclosureWorked = (await subStepDrilldown.getAttribute("open")) !== null;
+
+    phase = "testing context copy feedback";
+    summary.phase = phase;
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: new URL(url).origin,
+    });
+    const copyNextStep = page.locator('[data-pcc-copy-context="compact"]').first();
+    await clickSafely(copyNextStep);
+    await page.waitForFunction(
+      () =>
+        document.querySelector<HTMLElement>('[data-pcc-copy-context="compact"]')?.dataset
+          .pccCopyState === "copied",
+      undefined,
+      { timeout: 15_000 },
+    );
+    const copiedContext = await page.evaluate(() => navigator.clipboard.readText());
+    const contextCopyWorked = copiedContext.includes(editedTitle);
+
+    phase = "testing decision cancel and save";
+    summary.phase = phase;
+    const addDecision = page.locator("[data-pcc-snapshot-add-decision]").first();
+    await addDecision.click({ force: true });
+    const decisionForm = page.locator("[data-pcc-decision-form]").first();
+    await decisionForm.waitFor({ state: "visible", timeout: 15_000 });
+    const decisionPanelRevealed =
+      (await page
+        .locator('[data-pcc-detail-tab="decisions"]')
+        .first()
+        .getAttribute("aria-selected")) === "true";
+    await decisionForm.getByLabel("Decision title").press("Escape");
+    await decisionForm.waitFor({ state: "hidden", timeout: 15_000 });
+    const decisionCancelWorked = (await page.locator("[data-pcc-decision-form]").count()) === 0;
+    await addDecision.click({ force: true });
+    const savedDecisionForm = page.locator("[data-pcc-decision-form]").first();
+    await savedDecisionForm.getByLabel("Decision title").fill("Use disposable interaction proof");
+    await savedDecisionForm
+      .getByLabel("Summary")
+      .fill("Use the isolated browser run as interaction evidence only.");
+    await savedDecisionForm.locator('button[type="submit"]').click({ force: true });
+    await page
+      .getByText("Decision recorded", { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: 30_000 });
+    const decisionSavePersisted =
+      (await getProject(actionProjectId)).decisions?.some(
+        (item) => item.title === "Use disposable interaction proof",
+      ) === true;
+
     phase = "testing autopilot controls";
     summary.phase = phase;
     await page
       .locator('[data-pcc-detail-tab="automation"]')
       .first()
       .waitFor({ state: "visible", timeout: 15_000 });
+    const detailPanelStartedAt = performance.now();
     await clickSafely(page.locator('[data-pcc-detail-tab="automation"]'));
     const autopilotMode = page.locator("[data-pcc-autopilot-mode-picker]").first();
     await autopilotMode.waitFor({ state: "visible", timeout: 15_000 });
+    detailPanelOpenMs = Math.round(performance.now() - detailPanelStartedAt);
     await autopilotMode.selectOption("bug_hunt");
     await page
       .getByText("Autopilot mode set to Bug Hunt", { exact: false })
@@ -596,6 +1175,10 @@ async function main() {
       .locator("[data-pcc-autopilot-permission-queue]")
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
+    await page.screenshot({
+      path: path.join(visualMatrixDir, "autopilot-permission-request-1440x900.png"),
+      fullPage: true,
+    });
     const startDisabledBeforePermission = await page
       .locator("[data-pcc-autopilot-start]")
       .first()
@@ -720,6 +1303,10 @@ async function main() {
       .locator("[data-pcc-reorder-instruction]")
       .first()
       .waitFor({ state: "visible", timeout: 15_000 });
+    await page.screenshot({
+      path: path.join(visualMatrixDir, "reorder-mode-1440x900.png"),
+      fullPage: true,
+    });
 
     const dragHandle = page
       .locator(
@@ -806,6 +1393,7 @@ async function main() {
       .getByText("AI Autofill Preview", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
+    const setupRepairPreviewVisible = true;
 
     phase = "testing Simple, Detailed, and Agent view controls";
     summary.phase = phase;
@@ -854,6 +1442,77 @@ async function main() {
         };
       });
 
+    phase = "auditing required responsive viewport matrix";
+    summary.phase = phase;
+    await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
+    const requiredViewports = [
+      [390, 844],
+      [430, 932],
+      [768, 1024],
+      [1024, 768],
+      [1280, 800],
+      [1366, 768],
+      [1440, 900],
+      [1728, 1117],
+    ] as const;
+    const visualMatrix: VisualViewportAudit[] = [];
+    for (const [width, height] of requiredViewports) {
+      visualMatrix.push(
+        await auditPccViewport({
+          page,
+          width,
+          height,
+          label: "setup-repair-detailed",
+          artifactDir: visualMatrixDir,
+        }),
+      );
+    }
+    const visualMatrixPassed = visualMatrix.every(
+      (audit) =>
+        audit.noHorizontalOverflow &&
+        audit.controlsStayInsideViewport &&
+        audit.controlsDoNotClipText &&
+        audit.auditedGroupsDoNotOverlap &&
+        audit.primaryMobileTargetsAreLargeEnough,
+    );
+    summary.visualMatrix = visualMatrix;
+
+    phase = "auditing 200 percent zoom equivalent and dynamic text pressure";
+    summary.phase = phase;
+    const zoomEquivalentAudit = await auditPccViewport({
+      page,
+      width: 683,
+      height: 384,
+      label: "zoom-200-equivalent",
+      artifactDir: visualMatrixDir,
+    });
+    await page.addStyleTag({
+      content: "html { font-size: 125% !important; }",
+    });
+    const dynamicTextAudit = await auditPccViewport({
+      page,
+      width: 390,
+      height: 844,
+      label: "dynamic-text-125",
+      artifactDir: visualMatrixDir,
+    });
+    await page.evaluate(() => {
+      for (const style of document.head.querySelectorAll("style")) {
+        if (style.textContent?.includes("font-size: 125%")) {
+          style.remove();
+        }
+      }
+    });
+    summary.accessibilityVisualAudits = [zoomEquivalentAudit, dynamicTextAudit];
+    const accessibilityVisualAuditsPassed = [zoomEquivalentAudit, dynamicTextAudit].every(
+      (audit) =>
+        audit.noHorizontalOverflow &&
+        audit.controlsStayInsideViewport &&
+        audit.controlsDoNotClipText &&
+        audit.auditedGroupsDoNotOverlap &&
+        audit.primaryMobileTargetsAreLargeEnough,
+    );
+
     phase = "testing mobile command rail";
     summary.phase = phase;
     await page.setViewportSize({ width: 390, height: 844 });
@@ -876,6 +1535,7 @@ async function main() {
     });
     const mobileRail = page.locator("[data-pcc-mobile-command-rail]").first();
     await mobileRail.waitFor({ state: "visible", timeout: 15_000 });
+    const mobileCommandRailVisible = await mobileRail.isVisible();
     const mobilePrimaryActionVisible = await page
       .locator("[data-pcc-mobile-primary-action]")
       .first()
@@ -939,11 +1599,92 @@ async function main() {
         .getAttribute("aria-current")) === "true";
     await page.screenshot({ path: screenshotPath, fullPage: true });
 
+    phase = "proving blocked on-hold complete and empty states";
+    summary.phase = phase;
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await setDisposableMilestoneBlocked(
+      actionProjectId,
+      `${actionProjectId}-step-1`,
+      "First live reorder step",
+      10,
+    );
+    await setDisposableProjectStatus(actionProjectId, currentActionProjectTitle, "blocked");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await clickSafely(page.locator('[data-pcc-focus-mode-option="project_work"]'));
+    await page
+      .locator("[data-pcc-project-tabs] button")
+      .last()
+      .waitFor({ state: "attached", timeout: 45_000 });
+    await clickSafely(page.locator("[data-pcc-project-tabs] button").last());
+    await openProjectCard(page, actionProjectId);
+    await clickSafely(page.locator('[data-pcc-view-mode-option="simple"]'));
+    const blockedStateVisible =
+      (await page.locator("[data-pcc-blocker-center]").first().isVisible()) &&
+      (await page.locator('[data-pcc-primary-action-id="review_blocker"]').first().isVisible());
+    await page.screenshot({
+      path: path.join(visualMatrixDir, "blocked-project-1440x900.png"),
+      fullPage: true,
+    });
+
+    await setDisposableProjectStatus(actionProjectId, currentActionProjectTitle, "on_hold");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await clickSafely(page.locator('[data-pcc-focus-mode-option="project_work"]'));
+    await page
+      .locator("[data-pcc-project-tabs] button")
+      .last()
+      .waitFor({ state: "attached", timeout: 45_000 });
+    await clickSafely(page.locator("[data-pcc-project-tabs] button").last());
+    await openProjectCard(page, actionProjectId);
+    const onHoldResumeVisible = await page
+      .locator('[data-pcc-primary-action-id="resume"]')
+      .first()
+      .isVisible();
+    await page.screenshot({
+      path: path.join(visualMatrixDir, "on-hold-project-1440x900.png"),
+      fullPage: true,
+    });
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await clickSafely(page.locator('[data-pcc-focus-mode-option="project_work"]'));
+    await page
+      .locator("[data-pcc-project-tabs] button")
+      .last()
+      .waitFor({ state: "attached", timeout: 45_000 });
+    await clickSafely(page.locator("[data-pcc-project-tabs] button").last());
+    await openProjectCard(page, completeProjectId);
+    const completeStateReadOnly =
+      (await page.locator("[data-pcc-maintenance-hero]").first().isVisible()) &&
+      (await page.locator("[data-pcc-primary-action]").count()) === 0 &&
+      (await page.getByText("100%", { exact: true }).count()) > 0;
+    await page.screenshot({
+      path: path.join(visualMatrixDir, "complete-maintenance-1440x900.png"),
+      fullPage: true,
+    });
+
+    await archiveProject(actionProjectId, currentActionProjectTitle);
+    await archiveProject(setupProjectId, setupProjectTitle);
+    await archiveProject(completeProjectId, completeProjectTitle);
+    await archiveProject(createdProjectId, createdProjectTitle);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await clickSafely(page.locator('[data-pcc-focus-mode-option="project_work"]'));
+    const emptyStateVisible = await page
+      .locator("[data-pcc-project-empty-state]")
+      .first()
+      .isVisible();
+    await page.screenshot({
+      path: path.join(visualMatrixDir, "no-active-projects-1440x900.png"),
+      fullPage: true,
+    });
+
     phase = "summarizing live disposable proof";
     summary.phase = phase;
     summary.checks = {
       pccShell: (await page.locator(".pcc-shell").count()) > 0,
-      projectWorkModeVisible: await projectWorkMode.isVisible().catch(() => false),
+      projectWorkModeVisible,
       pointerDragPersisted: sortedAfterPointerDrag[0]?.id === `${actionProjectId}-step-2`,
       keyboardReorderPersisted: sortedAfterMove[0]?.id === `${actionProjectId}-step-1`,
       reorderPersisted:
@@ -955,6 +1696,8 @@ async function main() {
       newProjectCodexExpertPresetVisible: codexExpertPresetVisible,
       newProjectCodexApprovalExplained: codexApprovalExplained,
       newProjectRoutingSummaryVisible: routingSummaryVisible,
+      newProjectBackPreservesInput: backPreservedUserInput,
+      newProjectFillRemainingPreservesInput: fillRemainingPreservedUserInput,
       newProjectModelRoutingPersisted: modelRoutingPersisted,
       newProjectCodexPermissionQueued: codexPermissionQueued,
       newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
@@ -962,8 +1705,21 @@ async function main() {
       newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,
       newProjectMobileAiRolesVisible: newProjectMobileLayout.aiRolesVisible,
       newProjectMobilePrimaryActionVisible: newProjectMobileLayout.primaryActionVisible,
+      archiveConfirmationPersisted: archivePersisted,
+      projectSearchWorked,
+      projectFilterWorked,
       editSavePersisted,
       editCancelDiscarded,
+      workLoopEnabled,
+      workLoopPaused,
+      workLoopTurnedOff,
+      prepareNextPersisted,
+      milestoneDisclosureWorked,
+      subStepDisclosureWorked,
+      contextCopyWorked,
+      decisionPanelRevealed,
+      decisionCancelWorked,
+      decisionSavePersisted,
       autopilotControlsWorked,
       autopilotGrantPersisted,
       autopilotQueueApproved,
@@ -971,17 +1727,34 @@ async function main() {
       autopilotQueueDenied,
       autopilotRepairApplied,
       startDisabledAfterRevoke,
-      setupRepairPreviewVisible: await page
-        .getByText("AI Autofill Preview", { exact: false })
-        .first()
-        .isVisible()
-        .catch(() => false),
+      setupRepairPreviewVisible,
       viewModeControlsWorked,
+      initialNavigationWithinBudget: initialNavigationMs <= 5_000,
+      projectSwitchWithinBudget: projectSwitchMs <= 5_000,
+      projectPreviewWithinBudget: projectPreviewMs <= 2_000,
+      detailPanelWithinBudget: detailPanelOpenMs <= 2_000,
+      projectSearchWithinBudget: projectSearchMs <= 2_000,
+      projectFilterWithinBudget: projectFilterMs <= 2_000,
+      visualMatrixPassed,
+      accessibilityVisualAuditsPassed,
+      firstScreenVisualAuditPassed:
+        activeSimpleDesktop.noHorizontalOverflow &&
+        activeSimpleDesktop.controlsStayInsideViewport &&
+        activeSimpleDesktop.auditedGroupsDoNotOverlap,
+      firstScreenFactsReadable,
+      firstScreenHierarchyVisible:
+        firstScreenHierarchy.snapshotVisible &&
+        firstScreenHierarchy.factsVisible &&
+        firstScreenHierarchy.primaryActionVisible,
+      blockedStateVisible,
+      onHoldResumeVisible,
+      completeStateReadOnly,
+      emptyStateVisible,
       constrainedDesktopUsesFocusLayout: constrainedDesktop.focusLayout,
       constrainedDesktopDoesNotOverflow: constrainedDesktop.noHorizontalOverflow,
       constrainedDesktopKeepsWorkspaceFirst: constrainedDesktop.workspaceBeforeProjectList,
       constrainedDesktopDoesNotOverlap: constrainedDesktop.noWorkspaceOverlap,
-      mobileCommandRailVisible: await mobileRail.isVisible().catch(() => false),
+      mobileCommandRailVisible,
       mobilePrimaryActionVisible,
       mobilePrimaryActionIsInFlow: mobileLayout.primaryActionIsInFlow,
       mobileCardsDoNotOverlap: mobileLayout.noCardOverlap,
@@ -992,6 +1765,22 @@ async function main() {
       mobileViewModeButtonsDoNotOverlap: mobileViewModeLayout.noButtonOverlap,
       mobileSectionNavigationWorked,
       noSnesMutation: true,
+    };
+    summary.performance = {
+      initialNavigationMs,
+      projectSwitchMs,
+      projectPreviewMs,
+      detailPanelOpenMs,
+      projectSearchMs,
+      projectFilterMs,
+      budgetsMs: {
+        initialNavigation: 5_000,
+        projectSwitch: 5_000,
+        projectPreview: 2_000,
+        detailPanel: 2_000,
+        projectSearch: 2_000,
+        projectFilter: 2_000,
+      },
     };
     summary.ok = Object.values(summary.checks as Record<string, boolean>).every(Boolean);
   } catch (error) {
@@ -1027,6 +1816,7 @@ async function main() {
     };
     await cleanupProject(actionProjectId, currentActionProjectTitle, actionProjectCreated);
     await cleanupProject(setupProjectId, setupProjectTitle, setupProjectCreated);
+    await cleanupProject(completeProjectId, completeProjectTitle, completeProjectCreated);
     await cleanupProject(createdProjectId, createdProjectTitle, Boolean(createdProjectId));
     summary.cleanup = cleanupResults;
     const cleanupComplete = cleanupResults.every((result) => !result.created || result.archived);

@@ -387,6 +387,20 @@ function getPccDraggedId(
   return event.dataTransfer?.getData("text/plain") || fallback;
 }
 
+function setPccDropTarget(event: DragEvent, active: boolean): void {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  if (!active) {
+    const related = event.relatedTarget;
+    if (related instanceof Node && target.contains(related)) {
+      return;
+    }
+  }
+  target.classList.toggle("is-drop-target", active);
+}
+
 const LANE_LABELS = [
   ["user", "User"],
   ["localOpenClawAgent", "Local OpenClaw Agent"],
@@ -780,6 +794,9 @@ function resolvePccProjectAction(detail: PccProjectDetail): PccProjectActionReso
     blockerLines: blockers,
     permissions: detail.permissions,
     hasBlockedMilestone: detail.summary.milestoneCounts.blocked > 0,
+    hasIncompleteMilestone: detail.milestones.some(
+      (milestone) => !PROJECT_TERMINAL_STATUSES.has(milestone.status),
+    ),
     workLoop: getPccWorkLoopSettings(detail.project),
   });
 }
@@ -1106,6 +1123,12 @@ function handlePccDetailTabKeydown(event: KeyboardEvent, tabId: string): void {
   }
   activatePccDetailTab(next.dataset.pccDetailTab ?? "plan", root);
   next.focus();
+}
+
+function openPccDecisionCapture(event: Event, props: PccDashboardProps): void {
+  const detail = (event.currentTarget as HTMLElement).closest("[data-pcc-detail]") ?? undefined;
+  activatePccDetailTab("decisions", detail);
+  props.onOpenDecisionForm?.();
 }
 
 function openPccAutopilot(props: PccDashboardProps): void {
@@ -2597,8 +2620,24 @@ function responsibilityLabel(value: string): string {
 async function copyPccContextPackage(
   detail: PccProjectDetail,
   mode: PccContextPackageMode,
+  button: HTMLButtonElement,
 ): Promise<void> {
-  await globalThis.navigator?.clipboard?.writeText(buildPccContextPackage(detail, { mode }));
+  const originalLabel = button.textContent?.trim() || "Copy";
+  try {
+    if (!globalThis.navigator?.clipboard?.writeText) {
+      throw new Error("Clipboard access is unavailable");
+    }
+    await globalThis.navigator.clipboard.writeText(buildPccContextPackage(detail, { mode }));
+    button.dataset.pccCopyState = "copied";
+    button.textContent = "Copied";
+  } catch {
+    button.dataset.pccCopyState = "failed";
+    button.textContent = "Copy failed";
+  }
+  globalThis.setTimeout(() => {
+    button.dataset.pccCopyState = "idle";
+    button.textContent = originalLabel;
+  }, 1_800);
 }
 
 function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboardProps) {
@@ -3081,7 +3120,7 @@ function renderDecisionList(detail: PccProjectDetail, props: PccDashboardProps) 
         type="button"
         data-pcc-open-decision-form
         ?disabled=${props.actionBusy}
-        @click=${() => props.onOpenDecisionForm?.()}
+        @click=${(event: Event) => openPccDecisionCapture(event, props)}
       >
         Add decision
       </button>
@@ -3697,7 +3736,16 @@ function normalizeProjectSearchQuery(query: string | undefined): string[] {
     .filter(Boolean);
 }
 
+const projectSearchTextCache = new WeakMap<
+  PccProjectSummary,
+  { detail?: PccProjectDetail; text: string }
+>();
+
 function projectSearchText(project: PccProjectSummary, detail?: PccProjectDetail): string {
+  const cached = projectSearchTextCache.get(project);
+  if (cached && cached.detail === detail) {
+    return cached.text;
+  }
   const parts = [
     project.title,
     ...projectOutcomeMetrics(project),
@@ -3741,7 +3789,9 @@ function projectSearchText(project: PccProjectSummary, detail?: PccProjectDetail
       parts.push(receipt.summary ?? "");
     }
   }
-  return parts.join("\n").toLocaleLowerCase();
+  const text = parts.join("\n").toLocaleLowerCase();
+  projectSearchTextCache.set(project, { detail, text });
+  return text;
 }
 
 function projectMatchesSearch(
@@ -5619,6 +5669,13 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const primaryAction = resolvedAction.primaryLabel;
   const needsSetupRepair = !setupEvaluation.runnable;
   const terminal = PROJECT_TERMINAL_STATUSES.has(project.status);
+  const hasIncompleteMilestones = detail.milestones.some(
+    (milestone) => !PROJECT_TERMINAL_STATUSES.has(milestone.status),
+  );
+  const completionConflict =
+    (project.status === "complete" || project.status === "complete_with_maintenance") &&
+    hasIncompleteMilestones;
+  const terminalWithoutConflict = terminal && !completionConflict;
   const proofBadge = projectHeroProofBadge(detail, props);
   const scope = pccWorkScopeForProject(project);
   const scopeLabel = pccWorkScopeLabel(scope);
@@ -5651,7 +5708,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
         >
       </div>
     </div>
-    ${terminal
+    ${terminalWithoutConflict
       ? html`<section class="pcc-maintenance-hero" data-pcc-maintenance-hero>
           <div>
             <span>Project complete</span>
@@ -5660,8 +5717,10 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
               <em class="pcc-maintenance-hero__status" data-pcc-terminal-primary-status
                 >No action required</em
               >
-              · ${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total}
-              milestones complete
+              ·
+              ${detail.summary.milestoneCounts.total === 0
+                ? "No milestones"
+                : `${detail.summary.milestoneCounts.complete}/${detail.summary.milestoneCounts.total} milestones complete`}
             </p>
           </div>
           <button
@@ -5679,7 +5738,23 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
           <span>This project is parked and is not counted as urgent PCC product work.</span>
         </div>`
       : nothing}
-    ${terminal
+    ${simple && !terminalWithoutConflict
+      ? html`<dl class="pcc-project-snapshot__simple-facts" data-pcc-simple-project-facts>
+          <div>
+            <dt>Status</dt>
+            <dd>${resolvedAction.statusLabel}</dd>
+          </div>
+          <div>
+            <dt>Progress</dt>
+            <dd>${percent}%</dd>
+          </div>
+          <div class="pcc-project-snapshot__simple-current">
+            <dt>Current step</dt>
+            <dd>${current?.title ?? "Not started"}</dd>
+          </div>
+        </dl>`
+      : nothing}
+    ${terminalWithoutConflict
       ? nothing
       : html`<div class="pcc-primary-action" data-pcc-primary-action>
           <span>Do this next</span>
@@ -5694,11 +5769,13 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
           </button>
           <em>${resolvedAction.explanation}</em>
         </div>`}
-    ${terminal ? nothing : renderBlockerClarityCenter(detail, props, setupEvaluation)}
-    ${terminal || simple ? nothing : renderExecutionReadinessCard(detail)}
-    ${terminal || simple ? nothing : renderUniversalPreflightCard(detail)}
-    ${terminal || simple ? nothing : renderProjectScopeLock(detail, props)}
-    ${terminal && simple
+    ${terminalWithoutConflict
+      ? nothing
+      : renderBlockerClarityCenter(detail, props, setupEvaluation)}
+    ${terminalWithoutConflict || simple ? nothing : renderExecutionReadinessCard(detail)}
+    ${terminalWithoutConflict || simple ? nothing : renderUniversalPreflightCard(detail)}
+    ${terminalWithoutConflict || simple ? nothing : renderProjectScopeLock(detail, props)}
+    ${terminalWithoutConflict && simple
       ? nothing
       : html`<div class="pcc-project-snapshot__progress">
           <strong>${percent}%</strong>
@@ -5710,7 +5787,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             milestones complete</span
           >
         </div>`}
-    ${terminal || simple
+    ${terminalWithoutConflict || simple
       ? nothing
       : html`
           <section class="pcc-autopilot-chip" data-pcc-autopilot-hero-chip>
@@ -5787,7 +5864,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             type="button"
             data-pcc-snapshot-add-decision
             ?disabled=${props.actionBusy}
-            @click=${() => props.onOpenDecisionForm?.()}
+            @click=${(event: Event) => openPccDecisionCapture(event, props)}
           >
             Add decision
           </button>
@@ -5872,7 +5949,8 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
           type="button"
           data-pcc-reorder-mode-toggle
           ?disabled=${!canReorder}
-          title=${reorderDisabledReason || "Show drag handles and move controls"}
+          aria-label=${reorderDisabledReason ||
+          (reorderMode ? "Done reordering milestones" : "Reorder milestones")}
           @click=${() => canReorder && props.onSetReorderMode?.(!reorderMode)}
         >
           ${reorderMode ? "Done reordering" : "Reorder milestones"}
@@ -5935,9 +6013,22 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                 class="pcc-journey-step pcc-journey-step--${journeyClass}"
                 data-pcc-journey-step
                 data-pcc-milestone-id=${milestone.id}
-                @dragover=${(event: DragEvent) => event.preventDefault()}
+                @dragenter=${(event: DragEvent) => {
+                  event.preventDefault();
+                  if (reorderMode && canReorder) {
+                    setPccDropTarget(event, true);
+                  }
+                }}
+                @dragover=${(event: DragEvent) => {
+                  event.preventDefault();
+                  if (event.dataTransfer) {
+                    event.dataTransfer.dropEffect = "move";
+                  }
+                }}
+                @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
                 @drop=${(event: DragEvent) => {
                   event.preventDefault();
+                  setPccDropTarget(event, false);
                   if (!reorderMode || !canReorder) {
                     draggedPccMilestoneId = null;
                     return;
@@ -5951,6 +6042,9 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                 }}
                 @dragend=${() => {
                   draggedPccMilestoneId = null;
+                  document
+                    .querySelectorAll(".pcc-journey-step.is-drop-target")
+                    .forEach((item) => item.classList.remove("is-drop-target"));
                 }}
               >
                 <div
@@ -6261,7 +6355,9 @@ function renderContextPackageCard(detail: PccProjectDetail) {
         class="btn"
         type="button"
         data-pcc-copy-context="compact"
-        @click=${() => void copyPccContextPackage(detail, "compact")}
+        aria-live="polite"
+        @click=${(event: Event) =>
+          void copyPccContextPackage(detail, "compact", event.currentTarget as HTMLButtonElement)}
       >
         Copy next step
       </button>
@@ -6269,7 +6365,9 @@ function renderContextPackageCard(detail: PccProjectDetail) {
         class="btn btn--subtle"
         type="button"
         data-pcc-copy-context="full"
-        @click=${() => void copyPccContextPackage(detail, "full")}
+        aria-live="polite"
+        @click=${(event: Event) =>
+          void copyPccContextPackage(detail, "full", event.currentTarget as HTMLButtonElement)}
       >
         Copy full packet
       </button>
@@ -6556,9 +6654,22 @@ function renderSubMilestoneList(
         class="pcc-submilestone"
         data-pcc-submilestone
         data-pcc-submilestone-id=${subMilestone.id}
-        @dragover=${(event: DragEvent) => event.preventDefault()}
+        @dragenter=${(event: DragEvent) => {
+          event.preventDefault();
+          if (reorderMode) {
+            setPccDropTarget(event, true);
+          }
+        }}
+        @dragover=${(event: DragEvent) => {
+          event.preventDefault();
+          if (event.dataTransfer) {
+            event.dataTransfer.dropEffect = "move";
+          }
+        }}
+        @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
         @drop=${(event: DragEvent) => {
           event.preventDefault();
+          setPccDropTarget(event, false);
           if (!reorderMode) {
             draggedPccSubMilestoneId = null;
             return;
@@ -6572,6 +6683,9 @@ function renderSubMilestoneList(
         }}
         @dragend=${() => {
           draggedPccSubMilestoneId = null;
+          document
+            .querySelectorAll(".pcc-submilestone.is-drop-target")
+            .forEach((item) => item.classList.remove("is-drop-target"));
         }}
       >
         <div class="pcc-submilestone__main">

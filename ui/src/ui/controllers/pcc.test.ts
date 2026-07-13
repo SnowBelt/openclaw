@@ -617,6 +617,7 @@ describe("loadPccDashboard", () => {
       }),
     });
     expect(request).not.toHaveBeenCalledWith(expect.stringContaining("codex"), expect.anything());
+    expect(state.pccActionNotice?.text).toContain("Work This Project is on");
   });
 
   it("opens setup autofill preview instead of dead-ending when setup is missing", async () => {
@@ -702,6 +703,7 @@ describe("loadPccDashboard", () => {
     expect(request).toHaveBeenNthCalledWith(2, "pcc.milestones.upsert", {
       milestone: expect.objectContaining({ id: "milestone-1", status: "in_progress" }),
     });
+    expect(state.pccActionNotice?.text).toContain("Next safe task prepared");
   });
 
   it("prepares the next safe sub-milestone before parent milestone work", async () => {
@@ -766,6 +768,7 @@ describe("loadPccDashboard", () => {
     expect(request).toHaveBeenNthCalledWith(2, "pcc.subMilestones.upsert", {
       subMilestone: expect.objectContaining({ id: "submilestone-1", status: "in_progress" }),
     });
+    expect(state.pccActionNotice?.text).toContain("Next safe task prepared");
   });
 
   it("refuses to prepare project work while PCC Product focus is selected", async () => {

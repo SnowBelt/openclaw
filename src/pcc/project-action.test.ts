@@ -59,4 +59,27 @@ describe("resolvePccProjectAction", () => {
       }).primaryActionId,
     ).toBe("pause");
   });
+
+  it("does not hide unfinished work behind a terminal project status", () => {
+    expect(
+      resolvePccProjectAction({
+        project: project("complete_with_maintenance"),
+        setupReady: true,
+        hasIncompleteMilestone: true,
+      }),
+    ).toMatchObject({
+      primaryActionId: "review_blocker",
+      primaryLabel: "Review Incomplete Work",
+      statusLabel: "Needs review",
+      hideWorkControls: true,
+    });
+
+    expect(
+      resolvePccProjectAction({
+        project: project("complete_with_maintenance"),
+        setupReady: true,
+        hasIncompleteMilestone: false,
+      }).primaryActionId,
+    ).toBe("no_action_required");
+  });
 });

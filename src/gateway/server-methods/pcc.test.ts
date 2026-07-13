@@ -1307,6 +1307,42 @@ describe("Project Command Center gateway methods", () => {
     ).toContain("sub-milestone status skipped must be reopened before changing to in_progress");
   });
 
+  it("rejects project completion while active milestones remain", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Incomplete completion project", status: "active" },
+      }),
+    );
+    await invoke("pcc.milestones.upsert", {
+      milestone: {
+        projectId: project.id,
+        title: "Unfinished milestone",
+        status: "not_started",
+      },
+    });
+
+    expect(
+      errorMessage(
+        await invoke("pcc.projects.upsert", {
+          project: {
+            id: project.id,
+            title: "Incomplete completion project",
+            status: "complete_with_maintenance",
+          },
+        }),
+      ),
+    ).toContain(
+      "complete project status requires every non-skipped milestone to be complete: Unfinished milestone",
+    );
+
+    const emptyProject = okPayload<{ project: { id: string; status: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: { title: "Empty maintenance project", status: "complete_with_maintenance" },
+      }),
+    );
+    expect(emptyProject.project.status).toBe("complete_with_maintenance");
+  });
+
   it("proof-gates complete sub-milestone status", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Sub proof project" } }),

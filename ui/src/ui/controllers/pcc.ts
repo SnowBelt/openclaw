@@ -3307,6 +3307,16 @@ export async function updatePccWorkLoopSettings(
     });
     await loadPccDashboard(state);
     await selectPccProject(state, detail.project.id);
+    setActionNotice(
+      state,
+      patch.state === "paused"
+        ? "Work paused. PCC saved the current project state."
+        : patch.enabled === false
+          ? "Work controls turned off. PCC saved the current project state."
+          : patch.enabled === true
+            ? "Work This Project is on. PCC will still stop before gated or unsafe work."
+            : "Work controls saved.",
+    );
   });
 }
 
@@ -3345,6 +3355,9 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       }),
       permissions: detail.permissions,
       hasBlockedMilestone: detail.summary.milestoneCounts.blocked > 0,
+      hasIncompleteMilestone: detail.milestones.some(
+        (milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status),
+      ),
       workLoop: getPccWorkLoopSettings(detail.project),
     });
     if (resolvedAction.primaryActionId === "fix_setup") {
@@ -3402,5 +3415,9 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
     }
     await loadPccDashboard(state);
     await selectPccProject(state, detail.project.id);
+    setActionNotice(
+      state,
+      `Next safe task prepared: ${next.subMilestone?.title ?? next.milestone?.title ?? "project work"}.`,
+    );
   });
 }

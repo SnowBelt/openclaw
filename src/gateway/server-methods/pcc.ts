@@ -843,9 +843,14 @@ function upsertProject(
   if (transitionError) {
     return { error: transitionError };
   }
+  const projectId = existing?.id ?? input.id ?? makeId("project", input.title);
+  const completionError = ensureProjectCanBeComplete(ledger, projectId, existing?.status, status);
+  if (completionError) {
+    return { error: completionError };
+  }
   const project: PccProject = canonicalizePccProjectForWrite(
     {
-      id: existing?.id ?? input.id ?? makeId("project", input.title),
+      id: projectId,
       title: input.title,
       status,
       createdAt: existing?.createdAt ?? timestamp,
@@ -901,6 +906,26 @@ function validateStatusTransition(
     return `${label} status ${currentStatus} must be reopened before changing to ${nextStatus}`;
   }
   return null;
+}
+
+function ensureProjectCanBeComplete(
+  ledger: PccLedger,
+  projectId: string,
+  currentStatus: PccStatus | undefined,
+  nextStatus: PccStatus,
+): string | null {
+  if (!COMPLETE_STATUSES.has(nextStatus) || COMPLETE_STATUSES.has(currentStatus ?? "not_started")) {
+    return null;
+  }
+  const unfinished = ledger.milestones.find(
+    (milestone) =>
+      milestone.projectId === projectId &&
+      participatesInSequence(milestone.status) &&
+      !COMPLETE_STATUSES.has(milestone.status),
+  );
+  return unfinished
+    ? `complete project status requires every non-skipped milestone to be complete: ${unfinished.title}`
+    : null;
 }
 
 function duplicateIds(ids: readonly string[] | undefined): string[] {
