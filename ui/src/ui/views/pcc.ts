@@ -213,40 +213,44 @@ const PARALLEL_WORK_OPTIONS = [
   ["supervised", "Supervised"],
 ] as const;
 
-const PLANNER_MODE_OPTIONS = [
-  ["best_available", "Best available"],
-  ["local_project_manager", "Local Project Manager"],
-  ["local_model", "Local model"],
-  ["codex", "Codex"],
-  ["high_reasoning_codex", "High-reasoning Codex"],
-] as const;
-
 const AI_USE_POLICY_OPTIONS = [
   {
     value: "local_only",
-    title: "Local AI after creation",
-    detail: "PCC drafts locally now, then routes eligible project work to local OpenClaw AI.",
-    badge: "Default · no Codex spend",
+    title: "Local first",
+    detail: "Local AI handles the project. PCC asks before using Codex later.",
+    badge: "No automatic Codex use",
+    usage: "Codex use: none unless you approve it later",
+  },
+  {
+    value: "codex_focused",
+    title: "Focused Codex",
+    detail:
+      "Codex helps with the initial plan, critical decisions, verification, and final review.",
+    badge: "Light relative use",
+    usage: "Relative use: light · no hard token cap",
   },
   {
     value: "codex_expert",
-    title: "Codex as expert after approval",
+    title: "Balanced Codex",
     detail:
       "Codex plans, architects, solves hard problems, debugs, and reviews. Local AI does routine work.",
-    badge: "Recommended for hard projects",
+    badge: "Recommended",
+    usage: "Relative use: moderate · no hard token cap",
   },
   {
     value: "codex_everything",
-    title: "Codex for everything eligible",
+    title: "Codex-led",
     detail:
       "Codex handles every eligible AI step. User decisions, proof, and restricted actions still use their own gates.",
-    badge: "Highest token use",
+    badge: "Highest relative use",
+    usage: "Relative use: highest · no hard token cap",
   },
 ] as const satisfies ReadonlyArray<{
   value: PccAiUsePolicy;
   title: string;
   detail: string;
   badge: string;
+  usage: string;
 }>;
 
 const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
@@ -316,14 +320,21 @@ function projectPlannerSummary(props: PccDashboardProps): {
   const form = props.projectForm;
   if (form.aiUsePolicy === "codex_everything") {
     return {
-      title: "Codex for everything eligible",
+      title: "Codex-led",
       detail: "Codex is assigned to every eligible planning and milestone step.",
+      safety: form.codexPlanningAllowed ? "Codex approved for this scope" : "Approval required",
+    };
+  }
+  if (form.aiUsePolicy === "codex_focused") {
+    return {
+      title: "Focused Codex",
+      detail: "Codex handles the initial plan, critical decisions, verification, and final review.",
       safety: form.codexPlanningAllowed ? "Codex approved for this scope" : "Approval required",
     };
   }
   if (form.aiUsePolicy === "codex_expert") {
     return {
-      title: "Codex as expert · Local AI for the rest",
+      title: "Balanced Codex",
       detail: "Codex handles planning, architecture, hard problems, debugging, and final review.",
       safety: form.codexPlanningAllowed ? "Codex approved for this scope" : "Approval required",
     };
@@ -1962,18 +1973,10 @@ function aiUsePolicyFormPatch(policy: PccAiUsePolicy): Partial<PccProjectFormSta
     plannerMode: "codex",
     planningMode: "codex_full_plan",
     codexPlanningAllowed: false,
+    plannerPermissionScope: "project",
+    plannerPermissionBudget: "",
     planPreviewAccepted: false,
   };
-}
-
-function aiUsePolicyForPlannerChange(
-  current: PccAiUsePolicy,
-  plannerMode: PccPlannerMode,
-): PccAiUsePolicy {
-  if (plannerMode !== "codex" && plannerMode !== "high_reasoning_codex") {
-    return "local_only";
-  }
-  return current === "codex_everything" ? current : "codex_expert";
 }
 
 function aiUsePolicyOption(policy: PccAiUsePolicy) {
@@ -1985,7 +1988,9 @@ function aiUsePolicyOption(policy: PccAiUsePolicy) {
 function projectCreationAiTruth(form: PccProjectFormState): string {
   return form.aiUsePolicy === "local_only"
     ? "PCC's local planner drafts this preview now without an LLM call; Local AI is assigned after creation."
-    : "PCC's local planner drafts this preview now; Codex is assigned only after scoped approval.";
+    : form.codexPlanningAllowed
+      ? "PCC's local planner drafts this preview now; the selected Codex role is approved for this scope."
+      : "PCC's local planner drafts this preview now; one Codex approval is required before creation.";
 }
 
 function projectCreationBlankCount(form: PccProjectFormState): number {
@@ -2238,21 +2243,26 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
   if (!needsPermission) {
     return nothing;
   }
+  const selected = aiUsePolicyOption(form.aiUsePolicy);
   return html`<section class="pcc-planner-permission" data-pcc-planner-permission-card>
     <div>
-      <p class="pcc-kicker">High-reasoning / Codex permission</p>
-      <h4>${form.codexPlanningAllowed ? "Planner allowed" : "Codex planning needs approval"}</h4>
+      <p class="pcc-kicker">One Codex permission</p>
+      <h4>
+        ${form.codexPlanningAllowed ? "Codex use approved" : "Approve the selected Codex role"}
+      </h4>
       <p>
-        ${form.aiUsePolicy === "codex_everything"
-          ? "Codex is assigned to every eligible AI step."
-          : "Codex is assigned only to planning, architecture, hard problems, debugging, and review."}
-        Approval is scoped to this project and never bypasses deployment, credential, destructive,
-        external-write, or other separate gates.
+        ${selected.title}: ${selected.detail} This is the only Codex-use approval in project
+        creation. It never overrides deployment, credential, destructive, purchase, publishing,
+        reboot, or unrelated external-write gates.
+      </p>
+      <p data-pcc-codex-usage-guidance>
+        ${selected.usage}. Actual usage depends on project context, files, tool output, retries, and
+        verification. PCC does not invent a token estimate or impose a hidden token limit.
       </p>
     </div>
     <div class="pcc-planner-permission__fields">
       <label>
-        Scope
+        Ask again
         <select
           data-pcc-planner-permission-scope
           .value=${form.plannerPermissionScope}
@@ -2264,29 +2274,16 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
                 | "ask",
             })}
         >
-          <option value="plan">This plan only</option>
-          <option value="project">This project</option>
-          <option value="ask">Ask every time</option>
+          <option value="project">Only when this project exceeds the selected role</option>
+          <option value="plan">After this plan</option>
+          <option value="ask">Before every Codex action</option>
         </select>
-      </label>
-      <label>
-        Optional budget
-        <input
-          data-pcc-planner-permission-budget
-          type="text"
-          placeholder="Example: $5 or 50k tokens"
-          .value=${form.plannerPermissionBudget}
-          @input=${(event: Event) =>
-            props.onProjectFormChange({
-              plannerPermissionBudget: (event.target as HTMLInputElement).value,
-            })}
-        />
       </label>
     </div>
     ${form.codexPlanningAllowed
       ? html`<p data-pcc-planner-permission-saved>
-          Saved scope: ${formatStatus(form.plannerPermissionScope)} · Budget:
-          ${form.plannerPermissionBudget.trim() || "not specified"}
+          Saved: ${selected.title} · ${formatStatus(form.plannerPermissionScope)} scope · no hard
+          token cap
         </p>`
       : nothing}
     <div class="pcc-planner-permission__actions">
@@ -2294,10 +2291,10 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
         class="btn"
         type="button"
         data-pcc-planner-permission-allow
-        ?disabled=${props.actionBusy}
+        ?disabled=${props.actionBusy || form.codexPlanningAllowed}
         @click=${() => props.onProjectFormChange({ codexPlanningAllowed: true })}
       >
-        Allow
+        ${form.codexPlanningAllowed ? "Approved" : "Approve Codex use"}
       </button>
       <button
         class="btn btn--subtle"
@@ -2313,7 +2310,7 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
             planPreviewAccepted: false,
           })}
       >
-        Cancel
+        Use Local first instead
       </button>
     </div>
   </section>`;
@@ -7045,10 +7042,10 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
     </div>
     ${plannerNeedsPermission
       ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
-          <strong>High-reasoning / Codex permission</strong>
+          <strong>Codex role selected · approval below</strong>
           <span
-            >${projectCreationAiTruth(form)} Review the routing above, then approve Codex only if it
-            matches what you want.</span
+            >${projectCreationAiTruth(form)} The single approval card explains the scope and usage
+            before you create the project.</span
           >
         </div>`
       : form.plannerMode === "local_project_manager"
@@ -7234,7 +7231,7 @@ function renderProjectAiRolePicker(props: PccDashboardProps) {
           <span>
             <strong>${option.title}</strong>
             <small>${option.detail}</small>
-            <em>${option.badge}</em>
+            <em>${option.badge} · ${option.usage}</em>
           </span>
         </label>`,
       )}
@@ -7242,41 +7239,24 @@ function renderProjectAiRolePicker(props: PccDashboardProps) {
     <p data-pcc-ai-role-routing>
       Planned routing: ${routing.local} local milestone${routing.local === 1 ? "" : "s"} ·
       ${routing.codex} Codex milestone${routing.codex === 1 ? "" : "s"} · ${routing.gated}
-      user/proof gate${routing.gated === 1 ? "" : "s"}. ${projectCreationAiTruth(form)} You can
-      change an individual milestone's worker after creation.
+      user/proof gate${routing.gated === 1 ? "" : "s"}. ${projectCreationAiTruth(form)} This AI plan
+      is the single source of truth. Advanced model choices cannot override it. You can still change
+      an individual milestone's worker after creation.
     </p>
   </details>`;
 }
 
 function renderProjectPlannerControls(props: PccDashboardProps) {
   const form = props.projectForm;
+  const usesCodex = form.aiUsePolicy !== "local_only";
   return html`<section class="pcc-create-options__group" data-pcc-create-model-options>
     <div>
-      <strong>AI and model</strong>
-      <span>Best available is local-first. PCC asks before Codex spends tokens.</span>
+      <strong>Model details</strong>
+      <span>Optional. These choices refine the AI plan above; they never override it.</span>
     </div>
     <div class="pcc-editor__grid pcc-editor__grid--two">
       <label>
-        Planning method
-        <select
-          data-pcc-planner-selector
-          .value=${form.plannerMode}
-          @change=${(event: Event) => {
-            const plannerMode = (event.target as HTMLSelectElement).value as PccPlannerMode;
-            props.onProjectFormChange({
-              plannerMode,
-              planningMode: plannerModeToPlanningMode(plannerMode),
-              aiUsePolicy: aiUsePolicyForPlannerChange(form.aiUsePolicy, plannerMode),
-              codexPlanningAllowed: false,
-              planPreviewAccepted: false,
-            });
-          }}
-        >
-          ${renderStringOptions(PLANNER_MODE_OPTIONS, form.plannerMode)}
-        </select>
-      </label>
-      <label>
-        Model
+        Default local model
         <select
           data-pcc-planner-model
           .value=${form.plannerModelId || "best-available"}
@@ -7291,6 +7271,29 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
         </select>
         <small data-pcc-model-refresh-status>${plannerModelRefreshLabel(props)}</small>
       </label>
+      ${usesCodex
+        ? html`<label>
+            Codex reasoning
+            <select
+              data-pcc-codex-reasoning
+              .value=${form.plannerMode === "high_reasoning_codex" ? "high" : "standard"}
+              @change=${(event: Event) => {
+                const high = (event.target as HTMLSelectElement).value === "high";
+                props.onProjectFormChange({
+                  plannerMode: high ? "high_reasoning_codex" : "codex",
+                  planningMode: "codex_full_plan",
+                  codexPlanningAllowed: false,
+                  plannerPermissionBudget: "",
+                  planPreviewAccepted: false,
+                });
+              }}
+            >
+              <option value="standard">Standard · faster</option>
+              <option value="high">High · difficult architecture or debugging</option>
+            </select>
+            <small>Changing reasoning requires one new approval because it changes the role.</small>
+          </label>`
+        : nothing}
     </div>
     <button
       class="btn btn--subtle"
@@ -7301,6 +7304,11 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
     >
       Refresh model list
     </button>
+    <p data-pcc-model-routing-contract>
+      ${usesCodex
+        ? "Local model applies to local steps. Codex reasoning applies only to Codex steps selected by the AI plan."
+        : "Local model applies to all AI steps. PCC will ask before assigning any step to Codex."}
+    </p>
   </section>`;
 }
 
@@ -7317,7 +7325,6 @@ function renderProjectCreationCustomize(props: PccDashboardProps, includeCoreFie
     <div class="pcc-create-options__body">
       ${includeCoreFields ? renderProjectCoreFields(props) : nothing}
       ${renderProjectScheduleAndWorkflow(props)} ${renderProjectPlannerControls(props)}
-      ${renderPlannerPermissionCard(props)}
       <details class="pcc-create-options__nested" data-pcc-advanced-intake>
         <summary>
           Review every setup answer · ${missing.length ? `${missing.length} missing` : "ready"}
@@ -7390,7 +7397,7 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
             <span>${stats.milestones} milestones · ${stats.subMilestones} sub-steps</span>
           </section>
           ${renderProjectCoreFields(props)} ${renderProjectAiRolePicker(props)}
-          ${renderGeneratedPlanPreview(props, false)}
+          ${renderPlannerPermissionCard(props)} ${renderGeneratedPlanPreview(props, false)}
           <details class="pcc-create-request-edit">
             <summary>Edit original request</summary>
             <label class="pcc-editor__hero-field">
@@ -7458,8 +7465,13 @@ function renderProjectEditor(props: PccDashboardProps) {
   const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
   const creating = props.editorMode === "create-project";
   const editMode = props.projectEditMode ?? "simple";
+  const codexApprovalMissing =
+    creating && form.aiUsePolicy !== "local_only" && !form.codexPlanningAllowed;
   const projectSaveBlocked = creating
-    ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
+    ? missingIntake.length > 0 ||
+      !form.intakeApproved ||
+      !form.planPreviewAccepted ||
+      codexApprovalMissing
     : false;
   const needsAiDraft = projectIntakeNeedsAiDraft(form);
   const intakeSummary = missingIntake.length
@@ -7586,7 +7598,9 @@ function renderProjectEditor(props: PccDashboardProps) {
           `}
       ${creating && form.planPreviewAccepted && projectSaveBlocked
         ? html`<p class="pcc-intake-wizard__missing" data-pcc-plan-preview-blocked>
-            Review the missing setup details before creating the project.
+            ${codexApprovalMissing
+              ? "Approve the selected Codex role once, or choose Local first, before creating the project."
+              : "Review the missing setup details before creating the project."}
           </p>`
         : nothing}
       <footer>

@@ -1452,14 +1452,14 @@ describe("PCC CRUD controller", () => {
         outcomeMetrics:
           "User understands next action in under 5 seconds.\nEvery milestone has receipt-backed proof.",
         workflowTemplateId: "software-product",
-        planningMode: "template_only",
-        plannerMode: "local_model",
+        planningMode: "codex_full_plan",
+        plannerMode: "codex",
         aiUsePolicy: "local_only",
         plannerModelId: "",
         plannerPermissionScope: "plan",
         plannerPermissionBudget: "",
         planPreviewAccepted: true,
-        codexPlanningAllowed: false,
+        codexPlanningAllowed: true,
         remoteProofAllowed: false,
         runtimeActionsAllowed: false,
         intakeAnswers,
@@ -1478,6 +1478,13 @@ describe("PCC CRUD controller", () => {
         metadata: expect.objectContaining({
           pccWorkflowTemplateId: "software-product",
           pccAiUsePolicy: "local_only",
+          pccPlannerMode: "best_available",
+          pccPlanningMode: "local_project_manager",
+          pccCodexPlanningAllowed: false,
+          pccPlannerPermission: expect.objectContaining({
+            hasHardTokenLimit: false,
+            usage: "local_first",
+          }),
           dueDate: "2099-01-15T00:00:00.000Z",
           pccDueDate: "2099-01-15T00:00:00.000Z",
           pccOutcomeMetrics: [
@@ -1566,7 +1573,7 @@ describe("PCC CRUD controller", () => {
     expect(requestUpdate).toHaveBeenCalled();
   });
 
-  it("creates a scoped Codex planning permission only when Codex planning is requested", async () => {
+  it("creates one durable project-scoped Codex grant after the New Project approval", async () => {
     const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "pcc.projects.upsert") {
         return { project, summary };
@@ -1604,7 +1611,8 @@ describe("PCC CRUD controller", () => {
         planningMode: "codex_full_plan",
         plannerMode: "codex",
         aiUsePolicy: "codex_expert",
-        codexPlanningAllowed: false,
+        plannerPermissionScope: "project",
+        codexPlanningAllowed: true,
         intakeAnswers,
         intakeApproved: true,
         planPreviewAccepted: true,
@@ -1641,11 +1649,42 @@ describe("PCC CRUD controller", () => {
     expect(permissionCall?.[1]).toEqual(
       expect.objectContaining({
         permission: expect.objectContaining({
-          status: "needed",
+          status: "granted",
+          grantedBy: "PCC New Project user approval",
           allowedActions: [expect.stringContaining("Local AI handles routine work")],
+          forbiddenActions: [expect.stringContaining("Deployment")],
         }),
       }),
     );
+    const permissionParams = permissionCall?.[1] as
+      | { permission?: { maxUses?: number } }
+      | undefined;
+    expect(permissionParams?.permission?.maxUses).toBeUndefined();
+  });
+
+  it("fails closed when a Codex role reaches save without the single New Project approval", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Approval contract",
+        goal: "Prove one Codex approval is required.",
+        projectDescription: "Create a project with Balanced Codex.",
+        aiUsePolicy: "codex_expert",
+        plannerMode: "codex",
+        planningMode: "codex_full_plan",
+        codexPlanningAllowed: false,
+        intakeAnswers,
+        intakeApproved: true,
+        planPreviewAccepted: true,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Approve the selected Codex role once");
   });
 
   it("updates project status", async () => {

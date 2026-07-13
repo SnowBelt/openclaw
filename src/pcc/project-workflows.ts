@@ -18,7 +18,7 @@ export type PccWorkflowTemplateId =
 
 export type PccPlanningMode = "template_only" | "local_project_manager" | "codex_full_plan";
 
-export type PccAiUsePolicy = "local_only" | "codex_expert" | "codex_everything";
+export type PccAiUsePolicy = "local_only" | "codex_focused" | "codex_expert" | "codex_everything";
 
 export type PccWorkflowTemplate = {
   id: PccWorkflowTemplateId;
@@ -291,6 +291,13 @@ function responsibilityForAiUsePolicy(
   }
   if (policy === "codex_everything") {
     return "codex";
+  }
+  if (policy === "codex_focused") {
+    const focusedWork =
+      item.phaseId === "setup" ||
+      item.phaseId === "production-proof" ||
+      /approv|criteria|final|plan|readiness|review|scope|verify/iu.test(item.title);
+    return focusedWork ? "codex" : "local_openclaw_agent";
   }
   if (policy === "codex_expert") {
     const expertWork =

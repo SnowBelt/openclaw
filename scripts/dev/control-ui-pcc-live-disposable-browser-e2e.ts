@@ -601,7 +601,7 @@ async function main() {
   const actionProjectId = `pcc-disposable-live-actions-${suffix}`;
   const setupProjectId = `pcc-disposable-live-setup-${suffix}`;
   const completeProjectId = `pcc-disposable-live-complete-${suffix}`;
-  const actionProjectTitle = `PCC Disposable Live Actions ${suffix}`;
+  const actionProjectTitle = `PCC Disposable Live Actions search-${suffix}`;
   const setupProjectTitle = `PCC Disposable Live Setup ${suffix}`;
   const completeProjectTitle = `PCC Disposable Complete ${suffix}`;
   const createdProjectTitle = `PCC Guided Creation ${suffix}`;
@@ -752,15 +752,20 @@ async function main() {
     const aiRolePicker = creationEditor.locator("[data-pcc-ai-role-picker]").first();
     await aiRolePicker.locator(":scope > summary").click();
     await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_expert"]').check({ force: true });
-    const codexExpertPresetVisible = await creationEditor
+    const balancedCodexPresetVisible = await creationEditor
       .locator("[data-pcc-ai-role-picker]")
-      .getByText("Codex as expert", { exact: false })
+      .getByText("Balanced Codex", { exact: false })
       .first()
       .isVisible();
-    const codexApprovalExplained = await creationEditor
+    const codexApprovalExplainedOnce = await creationEditor
       .locator("[data-pcc-create-ai-summary]")
-      .getByText("scoped approval", { exact: false })
+      .getByText("one Codex approval", { exact: false })
       .isVisible();
+    const allAiPlansVisible =
+      (await aiRolePicker.locator("[data-pcc-ai-use-policy]").count()) === 4 &&
+      (await aiRolePicker.locator('[data-pcc-ai-use-policy="local_only"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_focused"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_everything"]').count()) === 1;
     const customizeDetails = creationEditor.locator("[data-pcc-create-customize]").first();
     const customizeSummary = customizeDetails.locator(":scope > summary");
     await customizeSummary.scrollIntoViewIfNeeded();
@@ -793,6 +798,26 @@ async function main() {
       .locator("[data-pcc-ai-routing-summary]")
       .getByText("Codex", { exact: false })
       .isVisible();
+    const permissionCardCount = await creationEditor
+      .locator("[data-pcc-planner-permission-card]")
+      .count();
+    const tokenBudgetControlCount = await creationEditor
+      .locator("[data-pcc-planner-permission-budget]")
+      .count();
+    const duplicatePlannerSelectorCount = await creationEditor
+      .locator("[data-pcc-planner-selector]")
+      .count();
+    const createDisabledBeforeApproval = await creationEditor
+      .locator("[data-pcc-create-project-confirm]")
+      .isDisabled();
+    await creationEditor.locator("[data-pcc-planner-permission-allow]").click({ force: true });
+    const permissionApproved = await creationEditor
+      .locator("[data-pcc-planner-permission-saved]")
+      .getByText("no hard token cap", { exact: false })
+      .isVisible();
+    const createEnabledAfterApproval = await creationEditor
+      .locator("[data-pcc-create-project-confirm]")
+      .isEnabled();
     await creationEditor.locator("[data-pcc-create-project-back]").click({ force: true });
     await creationEditor
       .locator('[data-pcc-create-flow][data-pcc-create-step="describe"]')
@@ -831,21 +856,28 @@ async function main() {
       createdResponsibilities.has("codex") &&
       createdResponsibilities.has("local_openclaw_agent") &&
       createdResponsibilities.has("remote_proof");
-    const codexPermissionQueued =
+    const codexPermissionGranted =
       createdProject.permissions?.some(
-        (item) => item.status === "needed" && item.type === "codex_usage",
+        (item) => item.status === "granted" && item.type === "codex_usage" && !item.maxUses,
       ) === true;
     const newProjectGuidedCreateWorked =
       aiExplainerVisible &&
-      codexExpertPresetVisible &&
-      codexApprovalExplained &&
+      balancedCodexPresetVisible &&
+      codexApprovalExplainedOnce &&
+      allAiPlansVisible &&
       userTitlePreserved &&
       reviewExplainsSafety &&
       routingSummaryVisible &&
+      permissionCardCount === 1 &&
+      tokenBudgetControlCount === 0 &&
+      duplicatePlannerSelectorCount === 0 &&
+      createDisabledBeforeApproval &&
+      permissionApproved &&
+      createEnabledAfterApproval &&
       backPreservedUserInput &&
       fillRemainingPreservedUserInput &&
       modelRoutingPersisted &&
-      codexPermissionQueued;
+      codexPermissionGranted;
 
     phase = "testing guided creation on mobile";
     summary.phase = phase;
@@ -888,16 +920,14 @@ async function main() {
     const projectSearch = page.locator("[data-pcc-project-search] input[type='search']").first();
     const searchStartedAt = performance.now();
     await projectSearch.fill(actionProjectTitle);
-    await page
-      .locator(`[data-pcc-project-card][data-pcc-project-id="${actionProjectId}"]`)
-      .first()
-      .waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForTimeout(300);
     projectSearchMs = Math.round(performance.now() - searchStartedAt);
+    const visibleProjectCards = page.locator("[data-pcc-project-card]:visible");
+    const visibleProjectIds = await visibleProjectCards.evaluateAll((cards) =>
+      cards.map((card) => (card as HTMLElement).dataset.pccProjectId ?? ""),
+    );
     const projectSearchWorked =
-      (await page.locator("[data-pcc-project-card]").count()) === 1 &&
-      (await page
-        .locator(`[data-pcc-project-card][data-pcc-project-id="${actionProjectId}"]`)
-        .count()) === 1;
+      visibleProjectIds.length > 0 && visibleProjectIds.every((id) => id === actionProjectId);
     await page
       .getByRole("button", { name: /^Clear search$/i })
       .first()
@@ -907,14 +937,23 @@ async function main() {
       .locator("[data-pcc-project-tabs] button:visible", { hasText: /\bNeeds You\b/i })
       .first();
     await needsYouTab.click({ force: true });
-    await page
-      .locator("[data-pcc-project-card]")
-      .first()
-      .waitFor({ state: "visible", timeout: 15_000 });
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector<HTMLElement>("[data-pcc-project-tabs] button[aria-pressed='true']")
+          ?.textContent?.includes("Needs You") === true,
+      undefined,
+      { timeout: 15_000 },
+    );
     projectFilterMs = Math.round(performance.now() - needsYouStartedAt);
+    const needsYouEmptyStateVisible = await page
+      .locator("[data-pcc-project-empty-state]")
+      .first()
+      .isVisible()
+      .catch(() => false);
     const projectFilterWorked =
       (await needsYouTab.getAttribute("aria-pressed")) === "true" &&
-      (await page.locator("[data-pcc-project-card]").count()) > 0;
+      ((await page.locator("[data-pcc-project-card]").count()) > 0 || needsYouEmptyStateVisible);
     await clickSafely(createdProjectAllTab);
 
     phase = "testing project archive confirmation";
@@ -1693,13 +1732,20 @@ async function main() {
       actionMenuWorked: true,
       newProjectCancelWorked,
       newProjectGuidedCreateWorked,
-      newProjectCodexExpertPresetVisible: codexExpertPresetVisible,
-      newProjectCodexApprovalExplained: codexApprovalExplained,
+      newProjectBalancedCodexPresetVisible: balancedCodexPresetVisible,
+      newProjectAllAiPlansVisible: allAiPlansVisible,
+      newProjectCodexApprovalExplainedOnce: codexApprovalExplainedOnce,
       newProjectRoutingSummaryVisible: routingSummaryVisible,
+      newProjectSinglePermissionCard: permissionCardCount === 1,
+      newProjectNoTokenBudgetControl: tokenBudgetControlCount === 0,
+      newProjectNoDuplicatePlannerSelector: duplicatePlannerSelectorCount === 0,
+      newProjectCreateDisabledBeforeCodexApproval: createDisabledBeforeApproval,
+      newProjectCodexPermissionApproved: permissionApproved,
+      newProjectCreateEnabledAfterCodexApproval: createEnabledAfterApproval,
       newProjectBackPreservesInput: backPreservedUserInput,
       newProjectFillRemainingPreservesInput: fillRemainingPreservedUserInput,
       newProjectModelRoutingPersisted: modelRoutingPersisted,
-      newProjectCodexPermissionQueued: codexPermissionQueued,
+      newProjectCodexPermissionGranted: codexPermissionGranted,
       newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
       newProjectMobileDoesNotOverflow: newProjectMobileLayout.noHorizontalOverflow,
       newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,

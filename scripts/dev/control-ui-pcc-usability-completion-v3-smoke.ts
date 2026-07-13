@@ -367,7 +367,10 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-planner-permission-allow]");
     requireSelector(root, "[data-pcc-planner-permission-cancel]");
     requireSelector(root, "[data-pcc-planner-permission-scope]");
-    requireSelector(root, "[data-pcc-planner-permission-budget]");
+    requireSelector(root, "[data-pcc-codex-usage-guidance]");
+    if (root.querySelector("[data-pcc-planner-permission-budget]")) {
+      throw new Error("project planning must not expose a fabricated Codex token budget");
+    }
     requireSelector(root, "[data-pcc-setup-repair]");
 
     render(renderPccDashboard({ ...props, reorderMode: true } as never), root);
@@ -388,8 +391,8 @@ async function main(): Promise<void> {
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
     requireText(text, "GPT-5.5 High Reasoning");
-    requireText(text, "High-reasoning / Codex permission");
-    requireText(text, "Codex planning needs approval");
+    requireText(text, "One Codex permission");
+    requireText(text, "Approve the selected Codex role");
     requireText(text, "Regenerate any section");
     requireText(text, "Basics");
     requireText(text, "Full plan");

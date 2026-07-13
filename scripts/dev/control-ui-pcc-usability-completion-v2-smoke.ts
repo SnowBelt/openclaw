@@ -329,7 +329,7 @@ async function main(): Promise<void> {
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
     requireText(text, "No configured models from last refresh");
-    requireText(text, "High-reasoning / Codex permission");
+    requireText(text, "One Codex permission");
     requireText(text, "Setup needs a few answers");
     requireText(text, "Autofill answers with AI");
     requireText(text, "Milestone Journey");

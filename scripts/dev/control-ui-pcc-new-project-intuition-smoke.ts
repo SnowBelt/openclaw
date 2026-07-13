@@ -113,7 +113,13 @@ async function main(): Promise<void> {
     requireText(root, "[data-pcc-create-ai-explainer]", "AI fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
     requireText(root, "[data-pcc-ai-role-picker]", "Local AI");
+    requireText(root, "[data-pcc-ai-role-picker]", "Focused Codex");
+    requireText(root, "[data-pcc-ai-role-picker]", "Balanced Codex");
+    requireText(root, "[data-pcc-ai-role-picker]", "Codex-led");
     requireText(root, "[data-pcc-create-review-plan]", "Generate project plan");
+    if (root.querySelector("[data-pcc-planner-selector]")) {
+      throw new Error("new project flow must not expose a second planner policy selector");
+    }
     const customize = requireSelector(root, "[data-pcc-create-customize]");
     if (customize.hasAttribute("open")) {
       throw new Error("optional project customization must be collapsed by default");
@@ -129,8 +135,8 @@ async function main(): Promise<void> {
     ) {
       throw new Error("Codex expert preset did not configure permission-gated model routing");
     }
-    requireText(root, "[data-pcc-ai-role-picker]", "Codex as expert");
-    requireText(root, "[data-pcc-create-ai-summary]", "scoped approval");
+    requireText(root, "[data-pcc-ai-role-picker]", "Balanced Codex");
+    requireText(root, "[data-pcc-create-ai-summary]", "one Codex approval");
 
     (requireSelector(root, "[data-pcc-create-review-plan]") as HTMLButtonElement).click();
     if (projectForm.title !== "My Kitchen Plan" || projectForm.intakeAnswers.owner !== "Todd") {
@@ -141,8 +147,24 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-plan-preview]");
     requireText(root, "[data-pcc-ai-routing-summary]", "Codex");
     const confirm = requireSelector(root, "[data-pcc-create-project-confirm]") as HTMLButtonElement;
-    if (confirm.disabled) {
-      throw new Error("reviewed project create action should be enabled");
+    if (!confirm.disabled) {
+      throw new Error("Codex project creation must wait for its single scoped approval");
+    }
+    if (root.querySelectorAll("[data-pcc-planner-permission-card]").length !== 1) {
+      throw new Error("project creation must render exactly one Codex permission card");
+    }
+    if (root.querySelector("[data-pcc-planner-permission-budget]")) {
+      throw new Error("project creation must not expose a fabricated token budget");
+    }
+    (requireSelector(root, "[data-pcc-planner-permission-allow]") as HTMLButtonElement).click();
+    if (!projectForm.codexPlanningAllowed) {
+      throw new Error("single Codex permission approval did not persist in form state");
+    }
+    requireText(root, "[data-pcc-planner-permission-saved]", "no hard token cap");
+    if (
+      (requireSelector(root, "[data-pcc-create-project-confirm]") as HTMLButtonElement).disabled
+    ) {
+      throw new Error("reviewed project create action should be enabled after Codex approval");
     }
 
     writeFileSync(join(artifactDir, "dom.txt"), root.textContent ?? "");

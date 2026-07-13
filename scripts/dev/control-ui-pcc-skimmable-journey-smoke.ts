@@ -359,7 +359,7 @@ async function main(): Promise<void> {
       "Your plan is ready to review",
       "AI roles",
       "Generated plan preview",
-      "High-reasoning / Codex permission",
+      "One Codex permission",
       "Create project",
       "Fill remaining blanks",
       "Cancel",
@@ -367,7 +367,10 @@ async function main(): Promise<void> {
       requireText(editorText, label);
     }
     requireSelector(root, "[data-pcc-project-description]");
-    requireSelector(root, "[data-pcc-planner-selector]");
+    requireSelector(root, "[data-pcc-planner-model]");
+    if (root.querySelector("[data-pcc-planner-selector]")) {
+      throw new Error("new project review exposed a conflicting planner policy selector");
+    }
     requireSelector(root, "[data-pcc-plan-preview]");
     requireSelector(root, "[data-pcc-codex-planning-gate]");
     requireSelector(root, ".pcc-editor__close");

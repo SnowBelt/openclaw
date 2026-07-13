@@ -166,6 +166,7 @@ export type PccProjectFormState = {
   aiUsePolicy: PccAiUsePolicy;
   plannerModelId: string;
   plannerPermissionScope: "plan" | "project" | "ask";
+  /** Legacy read-only field. New PCC flows use qualitative usage guidance, never token caps. */
   plannerPermissionBudget: string;
   planPreviewAccepted: boolean;
   codexPlanningAllowed: boolean;
@@ -309,7 +310,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   plannerMode: "best_available",
   aiUsePolicy: "local_only",
   plannerModelId: "",
-  plannerPermissionScope: "plan",
+  plannerPermissionScope: "project",
   plannerPermissionBudget: "",
   planPreviewAccepted: false,
   codexPlanningAllowed: false,
@@ -435,9 +436,9 @@ function normalizeDateInput(value: string): string | undefined {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined;
 }
 
-function plannerModeToPlanningMode(mode: PccPlannerMode, codexAllowed = false): PccPlanningMode {
+function plannerModeToPlanningMode(mode: PccPlannerMode): PccPlanningMode {
   if (mode === "best_available") {
-    return codexAllowed ? "codex_full_plan" : "local_project_manager";
+    return "local_project_manager";
   }
   return mode === "codex" || mode === "high_reasoning_codex"
     ? "codex_full_plan"
@@ -468,8 +469,64 @@ function aiUsePolicyFromPlannerMode(mode: PccPlannerMode): PccAiUsePolicy {
   return mode === "codex" || mode === "high_reasoning_codex" ? "codex_expert" : "local_only";
 }
 
+function normalizeAiUsePolicy(value: unknown, fallback: PccAiUsePolicy): PccAiUsePolicy {
+  return value === "local_only" ||
+    value === "codex_focused" ||
+    value === "codex_expert" ||
+    value === "codex_everything"
+    ? value
+    : fallback;
+}
+
 function aiUsePolicyNeedsCodex(policy: PccAiUsePolicy): boolean {
-  return policy === "codex_expert" || policy === "codex_everything";
+  return policy !== "local_only";
+}
+
+function aiUsePolicyUsageGuidance(policy: PccAiUsePolicy): string {
+  switch (policy) {
+    case "codex_focused":
+      return "focused";
+    case "codex_expert":
+      return "balanced";
+    case "codex_everything":
+      return "codex_led";
+    default:
+      return "local_first";
+  }
+}
+
+function aiUsePolicyAllowedAction(policy: PccAiUsePolicy): string {
+  switch (policy) {
+    case "codex_focused":
+      return "Use Codex for initial planning, critical decisions, verification, and final review; Local AI handles routine work";
+    case "codex_everything":
+      return "Use Codex for all eligible project planning and milestone work";
+    default:
+      return "Use Codex for planning, architecture, difficult problem-solving, debugging, and final review; Local AI handles routine work";
+  }
+}
+
+function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectFormState {
+  if (!aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
+    return {
+      ...form,
+      plannerMode:
+        form.plannerMode === "local_model" || form.plannerMode === "local_project_manager"
+          ? form.plannerMode
+          : "best_available",
+      planningMode: "local_project_manager",
+      codexPlanningAllowed: false,
+      plannerPermissionBudget: "",
+    };
+  }
+  const plannerMode =
+    form.plannerMode === "high_reasoning_codex" ? "high_reasoning_codex" : "codex";
+  return {
+    ...form,
+    plannerMode,
+    planningMode: "codex_full_plan",
+    plannerPermissionBudget: "",
+  };
 }
 
 function inferProjectTitle(text: string): string {
@@ -514,41 +571,43 @@ function inferOutcomeMetrics(title: string): string {
 }
 
 function enrichProjectFormFromDescription(form: PccProjectFormState): PccProjectFormState {
-  const plannerMode = form.plannerMode ?? plannerModeFromPlanningMode(form.planningMode);
-  const aiUsePolicy = form.aiUsePolicy ?? aiUsePolicyFromPlannerMode(plannerMode);
-  const description = (form.projectDescription ?? "").trim();
+  const routedForm = canonicalizeProjectAiRouting(form);
+  const plannerMode =
+    routedForm.plannerMode ?? plannerModeFromPlanningMode(routedForm.planningMode);
+  const aiUsePolicy = routedForm.aiUsePolicy ?? aiUsePolicyFromPlannerMode(plannerMode);
+  const description = (routedForm.projectDescription ?? "").trim();
   if (!description) {
     return {
-      ...form,
+      ...routedForm,
       plannerMode,
       aiUsePolicy,
-      projectDescription: form.projectDescription ?? "",
-      plannerModelId: form.plannerModelId ?? "",
-      planPreviewAccepted: form.planPreviewAccepted ?? false,
+      projectDescription: routedForm.projectDescription ?? "",
+      plannerModelId: routedForm.plannerModelId ?? "",
+      planPreviewAccepted: routedForm.planPreviewAccepted ?? false,
       planningMode: plannerModeToPlanningMode(plannerMode),
     };
   }
   const answers = inferIntakeAnswersFromDescription(description, plannerMode);
   const recommendation = recommendPccWorkflow({
-    title: form.title || inferProjectTitle(description),
-    goal: form.goal || description,
-    intakeAnswers: { ...answers, ...form.intakeAnswers },
+    title: routedForm.title || inferProjectTitle(description),
+    goal: routedForm.goal || description,
+    intakeAnswers: { ...answers, ...routedForm.intakeAnswers },
   });
   return {
-    ...form,
-    title: form.title.trim() ? form.title : inferProjectTitle(description),
-    goal: form.goal.trim() ? form.goal : description,
-    outcomeMetrics: (form.outcomeMetrics ?? "").trim()
-      ? form.outcomeMetrics
-      : inferOutcomeMetrics(form.title || inferProjectTitle(description)),
-    workflowTemplateId: form.workflowTemplateId || recommendation.templateId,
+    ...routedForm,
+    title: routedForm.title.trim() ? routedForm.title : inferProjectTitle(description),
+    goal: routedForm.goal.trim() ? routedForm.goal : description,
+    outcomeMetrics: (routedForm.outcomeMetrics ?? "").trim()
+      ? routedForm.outcomeMetrics
+      : inferOutcomeMetrics(routedForm.title || inferProjectTitle(description)),
+    workflowTemplateId: routedForm.workflowTemplateId || recommendation.templateId,
     plannerMode,
     aiUsePolicy,
-    projectDescription: form.projectDescription ?? "",
-    plannerModelId: form.plannerModelId ?? "",
-    planPreviewAccepted: form.planPreviewAccepted ?? false,
+    projectDescription: routedForm.projectDescription ?? "",
+    plannerModelId: routedForm.plannerModelId ?? "",
+    planPreviewAccepted: routedForm.planPreviewAccepted ?? false,
     planningMode: plannerModeToPlanningMode(plannerMode),
-    intakeAnswers: { ...answers, ...form.intakeAnswers },
+    intakeAnswers: { ...answers, ...routedForm.intakeAnswers },
   };
 }
 
@@ -1050,7 +1109,9 @@ function summarizePortfolio(projects: PccProjectSummary[]): PccPortfolioSummary 
 
 function projectFormFromProject(project: PccProject): PccProjectFormState {
   const metadata = metadataObject(project.metadata);
-  return {
+  const aiRouting = metadataObject(metadata.pccAiRouting);
+  const plannerPermission = metadataObject(metadata.pccPlannerPermission);
+  const form: PccProjectFormState = {
     id: project.id,
     title: project.title,
     goal: project.goal ?? "",
@@ -1060,30 +1121,37 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     dueDate: metadataDateInput(metadata.dueDate ?? metadata.pccDueDate),
     outcomeMetrics: outcomeMetricsText(metadata.pccOutcomeMetrics),
     workflowTemplateId: metadataString(metadata.pccWorkflowTemplateId, "software-product"),
-    planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
-    plannerMode: metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
-    aiUsePolicy: metadataString(
-      metadata.pccAiUsePolicy,
+    planningMode: metadataString(
+      aiRouting.planningMode ?? metadata.pccPlanningMode,
+      "template_only",
+    ) as PccPlanningMode,
+    plannerMode: metadataString(
+      aiRouting.plannerMode ?? metadata.pccPlannerMode,
+      "local_project_manager",
+    ) as PccPlannerMode,
+    aiUsePolicy: normalizeAiUsePolicy(
+      aiRouting.policy ?? metadata.pccAiUsePolicy,
       aiUsePolicyFromPlannerMode(
         metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
       ),
-    ) as PccAiUsePolicy,
-    plannerModelId: metadataString(metadata.pccPlannerModelId, ""),
-    plannerPermissionScope: metadataString(
-      metadataObject(metadata.pccPlannerPermission).scope,
-      "plan",
-    ) as "plan" | "project" | "ask",
-    plannerPermissionBudget: metadataString(
-      metadataObject(metadata.pccPlannerPermission).budget,
-      "",
     ),
+    plannerModelId: metadataString(aiRouting.localModelId ?? metadata.pccPlannerModelId, ""),
+    plannerPermissionScope: metadataString(
+      aiRouting.permissionScope ?? plannerPermission.scope,
+      "project",
+    ) as "plan" | "project" | "ask",
+    plannerPermissionBudget: "",
     planPreviewAccepted: true,
-    codexPlanningAllowed: metadataBoolean(metadata.pccCodexPlanningAllowed, false),
+    codexPlanningAllowed: metadataBoolean(
+      aiRouting.codexAllowed ?? metadata.pccCodexPlanningAllowed,
+      false,
+    ),
     remoteProofAllowed: metadataBoolean(metadata.pccRemoteProofAllowed, false),
     runtimeActionsAllowed: metadataBoolean(metadata.pccRuntimeActionsAllowed, false),
     intakeAnswers: pccIntakeAnswersFromMetadata(metadata),
     intakeApproved: metadataBoolean(metadataObject(metadata.pccIntake).approved, false),
   };
+  return canonicalizeProjectAiRouting(form);
 }
 
 function normalizePccProjectDetail(detail: PccProjectsGetResult): PccProjectDetail {
@@ -1402,10 +1470,7 @@ export function updatePccProjectForm(
 ): void {
   let nextForm = { ...state.pccProjectForm, ...patch };
   if (patch.plannerMode) {
-    nextForm.planningMode = plannerModeToPlanningMode(
-      patch.plannerMode,
-      nextForm.codexPlanningAllowed,
-    );
+    nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
   }
   if (patch.projectDescription !== undefined) {
     nextForm = { ...nextForm, planPreviewAccepted: false };
@@ -1838,6 +1903,11 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           : "Review and approve the generated plan preview before creating the project.";
       return;
     }
+    if (!form.id && aiUsePolicyNeedsCodex(form.aiUsePolicy) && !form.codexPlanningAllowed) {
+      state.pccActionError =
+        "Approve the selected Codex role once, or choose Local first, before creating the project.";
+      return;
+    }
     const priority = parseOptionalInteger(form.priority);
     const dueDate = normalizeDateInput(form.dueDate);
     const outcomeMetrics = parseOutcomeMetrics(form.outcomeMetrics);
@@ -1911,7 +1981,17 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlannerPermission: {
               allowed: form.codexPlanningAllowed,
               scope: form.plannerPermissionScope,
-              budget: form.plannerPermissionBudget,
+              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
+              hasHardTokenLimit: false,
+            },
+            pccAiRouting: {
+              policy: form.aiUsePolicy,
+              plannerMode: form.plannerMode,
+              localModelId: form.plannerModelId,
+              codexReasoning: form.plannerMode === "high_reasoning_codex" ? "high" : "standard",
+              permissionScope: form.plannerPermissionScope,
+              codexAllowed: form.codexPlanningAllowed,
+              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
             },
             pccProjectDescription: form.projectDescription,
             pccOutcomeMetrics: outcomeMetrics,
@@ -1938,7 +2018,17 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccPlannerPermission: {
               allowed: form.codexPlanningAllowed,
               scope: form.plannerPermissionScope,
-              budget: form.plannerPermissionBudget,
+              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
+              hasHardTokenLimit: false,
+            },
+            pccAiRouting: {
+              policy: form.aiUsePolicy,
+              plannerMode: form.plannerMode,
+              localModelId: form.plannerModelId,
+              codexReasoning: form.plannerMode === "high_reasoning_codex" ? "high" : "standard",
+              permissionScope: form.plannerPermissionScope,
+              codexAllowed: form.codexPlanningAllowed,
+              usage: aiUsePolicyUsageGuidance(form.aiUsePolicy),
             },
             pccProjectDescription: form.projectDescription,
             pccOutcomeMetrics: outcomeMetrics,
@@ -1974,26 +2064,29 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           });
         }
       }
-      if (aiUsePolicyNeedsCodex(form.aiUsePolicy) && !form.codexPlanningAllowed) {
+      if (aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
         await state.client.request("pcc.permissions.upsert", {
           permission: {
             projectId: result.project.id,
             type:
               form.plannerMode === "high_reasoning_codex" ? "high_reasoning_model" : "codex_usage",
-            status: "needed",
+            status: form.codexPlanningAllowed ? "granted" : "needed",
             riskLevel: form.plannerMode === "high_reasoning_codex" ? "high" : "medium",
-            allowedActions: [
-              form.aiUsePolicy === "codex_everything"
-                ? "Use Codex for all eligible project planning and milestone work"
-                : "Use Codex for planning, architecture, difficult problem-solving, debugging, and final review; Local AI handles routine work",
+            allowedActions: [aiUsePolicyAllowedAction(form.aiUsePolicy)],
+            forbiddenActions: [
+              "Deployment, credential changes, destructive actions, reboot, purchases, publishing, and unrelated external writes",
             ],
-            forbiddenActions: ["Spend Codex or high-reasoning tokens without separate permission"],
             target:
               form.aiUsePolicy === "codex_everything"
                 ? "All eligible project work"
                 : "Expert project planning and review work",
-            maxUses: 1,
-            note: "Codex planning is blocked until the user grants this scoped permission.",
+            ...(form.plannerPermissionScope === "plan" || form.plannerPermissionScope === "ask"
+              ? { maxUses: 1 }
+              : {}),
+            ...(form.codexPlanningAllowed ? { grantedBy: "PCC New Project user approval" } : {}),
+            note: form.codexPlanningAllowed
+              ? `Codex use approved once for ${form.plannerPermissionScope === "project" ? "this project" : form.plannerPermissionScope === "plan" ? "this plan" : "the next eligible action"}. No hard token cap is configured; PCC records actual runs when available.`
+              : "Codex use is blocked until the user grants this single scoped permission. No token budget is requested or inferred.",
           },
         });
       }

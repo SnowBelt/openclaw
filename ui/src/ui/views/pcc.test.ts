@@ -2941,10 +2941,10 @@ describe("renderPccDashboard", () => {
       "Anything you type stays unchanged",
     );
     expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Local AI after creation",
+      "Local first",
     );
     expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "local OpenClaw AI",
+      "No automatic Codex use",
     );
     expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
       "without an LLM call",
@@ -2960,7 +2960,7 @@ describe("renderPccDashboard", () => {
     );
   });
 
-  it("offers three simple AI-role presets and makes Codex approval explicit", () => {
+  it("offers four conflict-free AI plans with qualitative Codex usage guidance", () => {
     const onProjectFormChange = vi.fn();
     const container = renderView(
       createProps({
@@ -2973,7 +2973,8 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelectorAll("[data-pcc-ai-use-policy]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-pcc-ai-use-policy]")).toHaveLength(4);
+    expect(container.querySelector('[data-pcc-ai-use-policy="codex_focused"]')).not.toBeNull();
     container
       .querySelector<HTMLInputElement>('[data-pcc-ai-use-policy="codex_expert"]')
       ?.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2999,11 +3000,13 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Codex for everything eligible",
+      "Codex-led",
     );
     expect(codexContainer.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "Codex is assigned only after scoped approval",
+      "one Codex approval is required before creation",
     );
+    expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).toBeNull();
+    expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
   });
 
   it("fills only missing project details and preserves everything the user entered", () => {
@@ -3041,6 +3044,53 @@ describe("renderPccDashboard", () => {
         }),
       }),
     );
+  });
+
+  it("uses one Codex approval on review and does not expose a token-budget control", () => {
+    const onProjectFormChange = vi.fn();
+    const base = {
+      ...EMPTY_PCC_PROJECT_FORM,
+      title: "Simple Codex project",
+      goal: "Use Codex without conflicting controls.",
+      projectDescription: "Create a clear project plan.",
+      outcomeMetrics: "The plan is clear.",
+      aiUsePolicy: "codex_expert" as const,
+      plannerMode: "codex" as const,
+      planningMode: "codex_full_plan" as const,
+      intakeAnswers,
+      intakeApproved: true,
+      planPreviewAccepted: true,
+    };
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: { ...base, codexPlanningAllowed: false },
+        onProjectFormChange,
+      }),
+    );
+
+    expect(container.querySelectorAll("[data-pcc-planner-permission-card]")).toHaveLength(1);
+    expect(container.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
+    expect(
+      container.querySelector<HTMLButtonElement>("[data-pcc-create-project-confirm]")?.disabled,
+    ).toBe(true);
+    container.querySelector<HTMLButtonElement>("[data-pcc-planner-permission-allow]")?.click();
+    expect(onProjectFormChange).toHaveBeenCalledWith({ codexPlanningAllowed: true });
+
+    const approved = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: { ...base, codexPlanningAllowed: true },
+      }),
+    );
+    expect(
+      approved.querySelector<HTMLButtonElement>("[data-pcc-create-project-confirm]")?.disabled,
+    ).toBe(false);
+    expect(
+      approved
+        .querySelector("[data-pcc-planner-permission-saved]")
+        ?.textContent?.replace(/\s+/gu, " "),
+    ).toContain("no hard token cap");
   });
 
   it("shows a review-first plan and one explicit create action before saving", () => {
@@ -3413,6 +3463,7 @@ describe("renderPccDashboard", () => {
           planningMode: "codex_full_plan",
           aiUsePolicy: "codex_expert",
           codexPlanningAllowed: false,
+          planPreviewAccepted: true,
         },
         onProjectFormChange,
       }),
@@ -3421,7 +3472,10 @@ describe("renderPccDashboard", () => {
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Codex",
     );
-    expect(codexContainer.textContent).toContain("High-reasoning / Codex permission");
+    expect(codexContainer.textContent).toContain("One Codex permission");
+    expect(codexContainer.textContent).toContain("no hard token cap");
+    expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
+    expect(codexContainer.querySelectorAll("[data-pcc-planner-permission-card]")).toHaveLength(1);
 
     const pmContainer = renderView(
       createProps({
@@ -3438,7 +3492,7 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Local AI after creation",
+      "Local first",
     );
     expect(pmContainer.textContent).toContain("without an LLM call");
   });

@@ -99,6 +99,30 @@ describe("PCC workflow templates", () => {
     });
   });
 
+  it("routes Focused Codex only to planning and final verification work", () => {
+    const draft = buildPccWorkflowDraft({
+      title: "New App",
+      templateId: "software-product",
+      planningMode: "codex_full_plan",
+      aiUsePolicy: "codex_focused",
+      codexPlanningAllowed: true,
+    });
+
+    expect(
+      draft.milestones.find((item) => item.title === "Define scope and success criteria")?.metadata,
+    ).toMatchObject({ pccResponsibility: "codex", requiresCodex: true });
+    expect(draft.milestones.find((item) => item.title === "Build MVP")?.metadata).toMatchObject({
+      pccResponsibility: "local_openclaw_agent",
+      requiresCodex: false,
+    });
+    expect(
+      draft.milestones.find((item) => item.title === "Refine and harden")?.metadata,
+    ).toMatchObject({ pccResponsibility: "local_openclaw_agent", requiresCodex: false });
+    expect(
+      draft.milestones.find((item) => item.title === "Production proof")?.metadata,
+    ).toMatchObject({ pccResponsibility: "remote_proof" });
+  });
+
   it("routes every eligible AI milestone to Codex without replacing proof gates", () => {
     const draft = buildPccWorkflowDraft({
       title: "New App",
