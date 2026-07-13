@@ -9,6 +9,7 @@ import type { PccProject, PccProjectSummary, PccMilestone } from "../../ui/src/u
 type ProjectGetResult = {
   project: PccProject;
   milestones: PccMilestone[];
+  permissions?: Array<{ status?: string; type?: string }>;
   summary: PccProjectSummary;
 };
 
@@ -134,6 +135,14 @@ function summaryChecks(summary: Record<string, unknown>): Record<string, unknown
   return summary.checks && typeof summary.checks === "object" && !Array.isArray(summary.checks)
     ? (summary.checks as Record<string, unknown>)
     : {};
+}
+
+function recordString(value: unknown, key: string): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "";
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? field : "";
 }
 
 function formatPreflightError(error: unknown): Error {
@@ -408,6 +417,18 @@ async function main() {
       .fill(
         "Create a disposable project that proves the guided PCC creation flow without touching user work.",
       );
+    const aiRolePicker = creationEditor.locator("[data-pcc-ai-role-picker]").first();
+    await aiRolePicker.locator(":scope > summary").click();
+    await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_expert"]').check({ force: true });
+    const codexExpertPresetVisible = await creationEditor
+      .locator("[data-pcc-ai-role-picker]")
+      .getByText("Codex as expert", { exact: false })
+      .first()
+      .isVisible();
+    const codexApprovalExplained = await creationEditor
+      .locator("[data-pcc-create-ai-summary]")
+      .getByText("scoped approval", { exact: false })
+      .isVisible();
     const customizeDetails = creationEditor.locator("[data-pcc-create-customize]").first();
     const customizeSummary = customizeDetails.locator(":scope > summary");
     await customizeSummary.scrollIntoViewIfNeeded();
@@ -434,6 +455,10 @@ async function main() {
       .locator("[data-pcc-create-review-ready]")
       .getByText("Nothing has been created or started yet", { exact: false })
       .isVisible();
+    const routingSummaryVisible = await creationEditor
+      .locator("[data-pcc-ai-routing-summary]")
+      .getByText("Codex", { exact: false })
+      .isVisible();
     await page.screenshot({ path: creationDesktopScreenshotPath, fullPage: true });
     await creationEditor.locator("[data-pcc-create-project-confirm]").click({ force: true });
     await creationEditor.waitFor({ state: "hidden", timeout: 30_000 });
@@ -445,8 +470,28 @@ async function main() {
     if (!createdProjectId) {
       throw new Error("guided project creation did not persist the new project");
     }
+    const createdProject = await getProject(createdProjectId);
+    const createdResponsibilities = new Set(
+      createdProject.milestones.map((item) => recordString(item.metadata, "pccResponsibility")),
+    );
+    const modelRoutingPersisted =
+      recordString(createdProject.project.metadata, "pccAiUsePolicy") === "codex_expert" &&
+      createdResponsibilities.has("codex") &&
+      createdResponsibilities.has("local_openclaw_agent") &&
+      createdResponsibilities.has("remote_proof");
+    const codexPermissionQueued =
+      createdProject.permissions?.some(
+        (item) => item.status === "needed" && item.type === "codex_usage",
+      ) === true;
     const newProjectGuidedCreateWorked =
-      aiExplainerVisible && userTitlePreserved && reviewExplainsSafety;
+      aiExplainerVisible &&
+      codexExpertPresetVisible &&
+      codexApprovalExplained &&
+      userTitlePreserved &&
+      reviewExplainsSafety &&
+      routingSummaryVisible &&
+      modelRoutingPersisted &&
+      codexPermissionQueued;
 
     phase = "testing guided creation on mobile";
     summary.phase = phase;
@@ -457,11 +502,13 @@ async function main() {
     const newProjectMobileLayout = await mobileCreationEditor.evaluate((editor) => {
       const rect = editor.getBoundingClientRect();
       const explainer = editor.querySelector<HTMLElement>("[data-pcc-create-ai-explainer]");
+      const aiRoles = editor.querySelector<HTMLElement>("[data-pcc-ai-role-picker]");
       const action = editor.querySelector<HTMLElement>("[data-pcc-create-review-plan]");
       return {
         fitsViewport: rect.left >= -1 && rect.right <= globalThis.innerWidth + 1,
         noHorizontalOverflow: editor.scrollWidth <= editor.clientWidth + 1,
         explainerVisible: Boolean(explainer && explainer.getBoundingClientRect().height > 0),
+        aiRolesVisible: Boolean(aiRoles && aiRoles.getBoundingClientRect().height > 0),
         primaryActionVisible: Boolean(action && action.getBoundingClientRect().height > 0),
       };
     });
@@ -760,6 +807,18 @@ async function main() {
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
 
+    phase = "testing Simple, Detailed, and Agent view controls";
+    summary.phase = phase;
+    let viewModeControlsWorked = true;
+    for (const mode of ["detailed", "agent", "simple"] as const) {
+      await clickSafely(page.locator(`[data-pcc-view-mode-option="${mode}"]`));
+      viewModeControlsWorked &&=
+        (await page
+          .locator(`[data-pcc-view-mode="${mode}"]`)
+          .count()
+          .catch(() => 0)) > 0;
+    }
+
     phase = "testing constrained desktop focus layout";
     summary.phase = phase;
     await page.setViewportSize({ width: 1220, height: 900 });
@@ -802,9 +861,17 @@ async function main() {
     await mobileViewMode.waitFor({ state: "visible", timeout: 15_000 });
     const mobileViewModeLayout = await mobileViewMode.evaluate((switcher) => {
       const style = globalThis.getComputedStyle(switcher);
+      const buttons = [...switcher.querySelectorAll<HTMLElement>("[data-pcc-view-mode-option]")];
+      const rects = buttons.map((button) => button.getBoundingClientRect());
       return {
         noHorizontalOverflow: switcher.scrollWidth <= switcher.clientWidth + 1,
         columns: style.gridTemplateColumns.trim().split(/\s+/u).filter(Boolean).length,
+        labelsFit: buttons.every((button) => button.scrollWidth <= button.clientWidth + 1),
+        noButtonOverlap: rects.every((rect, index) =>
+          rects
+            .slice(index + 1)
+            .every((other) => rect.right <= other.left + 1 || other.right <= rect.left + 1),
+        ),
       };
     });
     const mobileRail = page.locator("[data-pcc-mobile-command-rail]").first();
@@ -885,9 +952,15 @@ async function main() {
       actionMenuWorked: true,
       newProjectCancelWorked,
       newProjectGuidedCreateWorked,
+      newProjectCodexExpertPresetVisible: codexExpertPresetVisible,
+      newProjectCodexApprovalExplained: codexApprovalExplained,
+      newProjectRoutingSummaryVisible: routingSummaryVisible,
+      newProjectModelRoutingPersisted: modelRoutingPersisted,
+      newProjectCodexPermissionQueued: codexPermissionQueued,
       newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
       newProjectMobileDoesNotOverflow: newProjectMobileLayout.noHorizontalOverflow,
       newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,
+      newProjectMobileAiRolesVisible: newProjectMobileLayout.aiRolesVisible,
       newProjectMobilePrimaryActionVisible: newProjectMobileLayout.primaryActionVisible,
       editSavePersisted,
       editCancelDiscarded,
@@ -903,6 +976,7 @@ async function main() {
         .first()
         .isVisible()
         .catch(() => false),
+      viewModeControlsWorked,
       constrainedDesktopUsesFocusLayout: constrainedDesktop.focusLayout,
       constrainedDesktopDoesNotOverflow: constrainedDesktop.noHorizontalOverflow,
       constrainedDesktopKeepsWorkspaceFirst: constrainedDesktop.workspaceBeforeProjectList,
@@ -914,6 +988,8 @@ async function main() {
       mobileSnapshotDoesNotOverflow: mobileLayout.noHorizontalOverflow,
       mobileViewModeIsSingleRow: mobileViewModeLayout.columns === 3,
       mobileViewModeDoesNotOverflow: mobileViewModeLayout.noHorizontalOverflow,
+      mobileViewModeLabelsFit: mobileViewModeLayout.labelsFit,
+      mobileViewModeButtonsDoNotOverlap: mobileViewModeLayout.noButtonOverlap,
       mobileSectionNavigationWorked,
       noSnesMutation: true,
     };

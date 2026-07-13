@@ -18,6 +18,8 @@ export type PccWorkflowTemplateId =
 
 export type PccPlanningMode = "template_only" | "local_project_manager" | "codex_full_plan";
 
+export type PccAiUsePolicy = "local_only" | "codex_expert" | "codex_everything";
+
 export type PccWorkflowTemplate = {
   id: PccWorkflowTemplateId;
   title: string;
@@ -280,6 +282,28 @@ function planFor(title: string): string {
   ].join("\n");
 }
 
+function responsibilityForAiUsePolicy(
+  item: PccWorkflowMilestoneTemplate,
+  policy: PccAiUsePolicy,
+): string {
+  if (item.responsibility === "user" || item.responsibility === "remote_proof") {
+    return item.responsibility;
+  }
+  if (policy === "codex_everything") {
+    return "codex";
+  }
+  if (policy === "codex_expert") {
+    const expertWork =
+      item.phaseId === "setup" ||
+      item.phaseId === "refinement" ||
+      /architect|approv|criteria|debug|diagnos|investigat|plan|problem|readiness|refine|review|scope/iu.test(
+        item.title,
+      );
+    return expertWork ? "codex" : "local_openclaw_agent";
+  }
+  return item.responsibility.includes("codex") ? "local_openclaw_agent" : item.responsibility;
+}
+
 export function buildPccWorkflowDraft(input: {
   title: string;
   goal?: string;
@@ -289,26 +313,30 @@ export function buildPccWorkflowDraft(input: {
   remoteProofAllowed?: boolean;
   runtimeActionsAllowed?: boolean;
   planningMode?: PccPlanningMode;
+  aiUsePolicy?: PccAiUsePolicy;
 }): PccWorkflowDraft {
   const template = getPccWorkflowTemplate(input.templateId);
   const title = input.title.trim() || "Untitled Project";
   const phases = template.phases.map((phase) => ({ ...phase }));
   const planningMode = input.planningMode ?? "template_only";
-  const needsCodexPlan = planningMode === "codex_full_plan" && input.codexPlanningAllowed !== true;
+  const aiUsePolicy = input.aiUsePolicy ?? "local_only";
+  const needsCodexPlan =
+    (planningMode === "codex_full_plan" || aiUsePolicy !== "local_only") &&
+    input.codexPlanningAllowed !== true;
   const needsProjectManagerReview = planningMode === "local_project_manager";
   const milestones = template.milestones.map((item, index) => {
+    const responsibility = responsibilityForAiUsePolicy(item, aiUsePolicy);
+    const requiresCodex = responsibility.includes("codex");
     const metadata = {
       pccWorkflowTemplateId: template.id,
       pccProofLevel: item.proofLevel,
-      pccResponsibility: item.responsibility,
-      pccCostRisk:
-        item.responsibility === "remote_proof" || item.responsibility.includes("codex")
-          ? "medium"
-          : "low",
+      pccResponsibility: responsibility,
+      pccAiUsePolicy: aiUsePolicy,
+      pccCostRisk: responsibility === "remote_proof" || requiresCodex ? "medium" : "low",
       pccStopHere: item.stopHere === true,
-      requiresCodex: item.requiresCodex === true,
+      requiresCodex: item.requiresCodex === true || requiresCodex,
       requiresRemoteProof: item.requiresRemoteProof === true,
-      parallelSafe: item.responsibility !== "user" && item.responsibility !== "remote_proof",
+      parallelSafe: responsibility !== "user" && responsibility !== "remote_proof",
       workspaceLock: `${slug(title)}:${item.phaseId}`,
     };
     return {
@@ -338,6 +366,7 @@ export function buildPccWorkflowDraft(input: {
         pccWorkflowTemplateId: template.id,
         pccWorkflowTemplateTitle: template.title,
         pccPlanningMode: planningMode,
+        pccAiUsePolicy: aiUsePolicy,
         pccIntakeStatus: needsCodexPlan
           ? "codex_permission_needed"
           : needsProjectManagerReview
@@ -352,26 +381,31 @@ export function buildPccWorkflowDraft(input: {
     subMilestonesByMilestoneTitle: Object.fromEntries(
       template.milestones.map((item) => [
         item.title,
-        item.subMilestones.map((subTitle, subIndex) => ({
-          title: subTitle,
-          status: "not_started" as PccStatus,
-          order: subIndex + 1,
-          implementationPlan: [
-            `Execute: ${subTitle}`,
-            "Use the parent milestone plan, preserve scope, and stop on missing proof or permissions.",
-          ].join("\n"),
-          acceptanceCriteria: [
-            "The step has an observable result or exact blocker.",
-            "Any command, artifact, source, or screenshot proof is recorded.",
-          ],
-          metadata: {
-            pccWorkflowTemplateId: template.id,
-            pccResponsibility: item.responsibility,
-            pccProofLevel: item.proofLevel,
-            parallelSafe: item.responsibility !== "user" && item.responsibility !== "remote_proof",
-            workspaceLock: `${slug(title)}:${item.phaseId}`,
-          },
-        })),
+        item.subMilestones.map((subTitle, subIndex) => {
+          const responsibility = responsibilityForAiUsePolicy(item, aiUsePolicy);
+          return {
+            title: subTitle,
+            status: "not_started" as PccStatus,
+            order: subIndex + 1,
+            implementationPlan: [
+              `Execute: ${subTitle}`,
+              "Use the parent milestone plan, preserve scope, and stop on missing proof or permissions.",
+            ].join("\n"),
+            acceptanceCriteria: [
+              "The step has an observable result or exact blocker.",
+              "Any command, artifact, source, or screenshot proof is recorded.",
+            ],
+            metadata: {
+              pccWorkflowTemplateId: template.id,
+              pccResponsibility: responsibility,
+              pccAiUsePolicy: aiUsePolicy,
+              pccProofLevel: item.proofLevel,
+              requiresCodex: responsibility.includes("codex"),
+              parallelSafe: responsibility !== "user" && responsibility !== "remote_proof",
+              workspaceLock: `${slug(title)}:${item.phaseId}`,
+            },
+          };
+        }),
       ]),
     ),
   };

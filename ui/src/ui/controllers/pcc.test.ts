@@ -883,7 +883,7 @@ describe("PCC CRUD controller", () => {
   });
 
   it("records a project decision through the controller", async () => {
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "pcc.decisions.add") {
         return { decision, summary };
       }
@@ -1451,6 +1451,7 @@ describe("PCC CRUD controller", () => {
         workflowTemplateId: "software-product",
         planningMode: "template_only",
         plannerMode: "local_model",
+        aiUsePolicy: "local_only",
         plannerModelId: "",
         plannerPermissionScope: "plan",
         plannerPermissionBudget: "",
@@ -1473,6 +1474,7 @@ describe("PCC CRUD controller", () => {
         priority: 3,
         metadata: expect.objectContaining({
           pccWorkflowTemplateId: "software-product",
+          pccAiUsePolicy: "local_only",
           dueDate: "2099-01-15T00:00:00.000Z",
           pccDueDate: "2099-01-15T00:00:00.000Z",
           pccOutcomeMetrics: [
@@ -1562,7 +1564,7 @@ describe("PCC CRUD controller", () => {
   });
 
   it("creates a scoped Codex planning permission only when Codex planning is requested", async () => {
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "pcc.projects.upsert") {
         return { project, summary };
       }
@@ -1598,6 +1600,7 @@ describe("PCC CRUD controller", () => {
         projectDescription: "Track all projects from a single Project Command Center.",
         planningMode: "codex_full_plan",
         plannerMode: "codex",
+        aiUsePolicy: "codex_expert",
         codexPlanningAllowed: false,
         intakeAnswers,
         intakeApproved: true,
@@ -1608,6 +1611,38 @@ describe("PCC CRUD controller", () => {
     await savePccProject(state);
 
     expect(request.mock.calls.some(([method]) => method === "pcc.permissions.upsert")).toBe(true);
+    const projectCall = request.mock.calls.find(([method]) => method === "pcc.projects.upsert");
+    expect(projectCall?.[1]).toEqual(
+      expect.objectContaining({
+        project: expect.objectContaining({
+          metadata: expect.objectContaining({ pccAiUsePolicy: "codex_expert" }),
+        }),
+      }),
+    );
+    const responsibilities = request.mock.calls
+      .filter(([method]) => method === "pcc.milestones.upsert")
+      .map(
+        ([, params]) =>
+          (
+            params as {
+              milestone?: { metadata?: { pccResponsibility?: string } };
+            }
+          ).milestone?.metadata?.pccResponsibility ?? "",
+      );
+    expect(responsibilities).toContain("codex");
+    expect(responsibilities).toContain("local_openclaw_agent");
+    expect(responsibilities).toContain("remote_proof");
+    const permissionCall = request.mock.calls.find(
+      ([method]) => method === "pcc.permissions.upsert",
+    );
+    expect(permissionCall?.[1]).toEqual(
+      expect.objectContaining({
+        permission: expect.objectContaining({
+          status: "needed",
+          allowedActions: [expect.stringContaining("Local AI handles routine work")],
+        }),
+      }),
+    );
   });
 
   it("updates project status", async () => {

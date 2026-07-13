@@ -40,6 +40,7 @@ import {
 import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
+  type PccAiUsePolicy,
 } from "../../../../src/pcc/project-workflows.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import {
@@ -220,6 +221,34 @@ const PLANNER_MODE_OPTIONS = [
   ["high_reasoning_codex", "High-reasoning Codex"],
 ] as const;
 
+const AI_USE_POLICY_OPTIONS = [
+  {
+    value: "local_only",
+    title: "Local AI after creation",
+    detail: "PCC drafts locally now, then routes eligible project work to local OpenClaw AI.",
+    badge: "Default · no Codex spend",
+  },
+  {
+    value: "codex_expert",
+    title: "Codex as expert after approval",
+    detail:
+      "Codex plans, architects, solves hard problems, debugs, and reviews. Local AI does routine work.",
+    badge: "Recommended for hard projects",
+  },
+  {
+    value: "codex_everything",
+    title: "Codex for everything eligible",
+    detail:
+      "Codex handles every eligible AI step. User decisions, proof, and restricted actions still use their own gates.",
+    badge: "Highest token use",
+  },
+] as const satisfies ReadonlyArray<{
+  value: PccAiUsePolicy;
+  title: string;
+  detail: string;
+  badge: string;
+}>;
+
 const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["active", "Active"],
   ["needs_you", "Needs You"],
@@ -285,6 +314,20 @@ function projectPlannerSummary(props: PccDashboardProps): {
   safety: string;
 } {
   const form = props.projectForm;
+  if (form.aiUsePolicy === "codex_everything") {
+    return {
+      title: "Codex for everything eligible",
+      detail: "Codex is assigned to every eligible planning and milestone step.",
+      safety: form.codexPlanningAllowed ? "Codex approved for this scope" : "Approval required",
+    };
+  }
+  if (form.aiUsePolicy === "codex_expert") {
+    return {
+      title: "Codex as expert · Local AI for the rest",
+      detail: "Codex handles planning, architecture, hard problems, debugging, and final review.",
+      safety: form.codexPlanningAllowed ? "Codex approved for this scope" : "Approval required",
+    };
+  }
   switch (form.plannerMode) {
     case "local_project_manager":
       return {
@@ -985,7 +1028,7 @@ function nextMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefi
 function plannerModeToPlanningMode(mode: PccPlannerMode) {
   return mode === "codex" || mode === "high_reasoning_codex"
     ? "codex_full_plan"
-    : mode === "local_project_manager"
+    : mode === "local_project_manager" || mode === "best_available"
       ? "local_project_manager"
       : "template_only";
 }
@@ -1008,7 +1051,6 @@ function renderViewModeSwitcher(props: PccDashboardProps) {
         @click=${() => props.onSetViewMode?.(value)}
       >
         <strong>${label}</strong>
-        <span>${title}</span>
       </button>`,
     )}
   </div>`;
@@ -1882,6 +1924,47 @@ function projectCreationReviewPatch(form: PccProjectFormState): Partial<PccProje
   };
 }
 
+function aiUsePolicyFormPatch(policy: PccAiUsePolicy): Partial<PccProjectFormState> {
+  if (policy === "local_only") {
+    return {
+      aiUsePolicy: policy,
+      plannerMode: "best_available",
+      planningMode: "local_project_manager",
+      codexPlanningAllowed: false,
+      planPreviewAccepted: false,
+    };
+  }
+  return {
+    aiUsePolicy: policy,
+    plannerMode: "codex",
+    planningMode: "codex_full_plan",
+    codexPlanningAllowed: false,
+    planPreviewAccepted: false,
+  };
+}
+
+function aiUsePolicyForPlannerChange(
+  current: PccAiUsePolicy,
+  plannerMode: PccPlannerMode,
+): PccAiUsePolicy {
+  if (plannerMode !== "codex" && plannerMode !== "high_reasoning_codex") {
+    return "local_only";
+  }
+  return current === "codex_everything" ? current : "codex_expert";
+}
+
+function aiUsePolicyOption(policy: PccAiUsePolicy) {
+  return (
+    AI_USE_POLICY_OPTIONS.find((option) => option.value === policy) ?? AI_USE_POLICY_OPTIONS[0]
+  );
+}
+
+function projectCreationAiTruth(form: PccProjectFormState): string {
+  return form.aiUsePolicy === "local_only"
+    ? "PCC's local planner drafts this preview now without an LLM call; Local AI is assigned after creation."
+    : "PCC's local planner drafts this preview now; Codex is assigned only after scoped approval.";
+}
+
 function projectCreationBlankCount(form: PccProjectFormState): number {
   return (
     Number(!form.title.trim()) +
@@ -1906,6 +1989,7 @@ function projectCreationDraftStats(form: PccProjectFormState): {
     codexPlanningAllowed: form.codexPlanningAllowed,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
+    aiUsePolicy: form.aiUsePolicy,
   });
   return {
     milestones: draft.milestones.length,
@@ -1914,6 +1998,41 @@ function projectCreationDraftStats(form: PccProjectFormState): {
       0,
     ),
   };
+}
+
+function projectCreationRoutingStats(form: PccProjectFormState): {
+  codex: number;
+  local: number;
+  gated: number;
+} {
+  const source = projectIntakeSourceText(form);
+  const draft = buildPccWorkflowDraft({
+    title: form.title.trim() || source.split(/\r?\n/u).find(Boolean)?.trim() || "New project",
+    goal: form.goal.trim() || source || "Complete the project.",
+    templateId: form.workflowTemplateId,
+    planningMode: plannerModeToPlanningMode(form.plannerMode),
+    codexPlanningAllowed: form.codexPlanningAllowed,
+    remoteProofAllowed: form.remoteProofAllowed,
+    runtimeActionsAllowed: form.runtimeActionsAllowed,
+    aiUsePolicy: form.aiUsePolicy,
+  });
+  return draft.milestones.reduce(
+    (counts, milestone) => {
+      const responsibility = metadataString(
+        metadataObject(milestone.metadata).pccResponsibility,
+        "",
+      );
+      if (responsibility.includes("codex")) {
+        counts.codex += 1;
+      } else if (responsibility === "user" || responsibility === "remote_proof") {
+        counts.gated += 1;
+      } else {
+        counts.local += 1;
+      }
+      return counts;
+    },
+    { codex: 0, local: 0, gated: 0 },
+  );
 }
 
 function projectIntakeNeedsAiDraft(form: PccProjectFormState): boolean {
@@ -2092,8 +2211,7 @@ function renderProjectEditModeTabs(props: PccDashboardProps) {
 
 function renderPlannerPermissionCard(props: PccDashboardProps) {
   const form = props.projectForm;
-  const needsPermission =
-    form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex";
+  const needsPermission = form.aiUsePolicy !== "local_only";
   if (!needsPermission) {
     return nothing;
   }
@@ -2102,8 +2220,11 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
       <p class="pcc-kicker">High-reasoning / Codex permission</p>
       <h4>${form.codexPlanningAllowed ? "Planner allowed" : "Codex planning needs approval"}</h4>
       <p>
-        Codex and high-reasoning planners may spend tokens. This card is the single place to allow
-        that planner for PCC setup.
+        ${form.aiUsePolicy === "codex_everything"
+          ? "Codex is assigned to every eligible AI step."
+          : "Codex is assigned only to planning, architecture, hard problems, debugging, and review."}
+        Approval is scoped to this project and never bypasses deployment, credential, destructive,
+        external-write, or other separate gates.
       </p>
     </div>
     <div class="pcc-planner-permission__fields">
@@ -2163,7 +2284,10 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
         @click=${() =>
           props.onProjectFormChange({
             plannerMode: "best_available",
+            planningMode: "local_project_manager",
+            aiUsePolicy: "local_only",
             codexPlanningAllowed: false,
+            planPreviewAccepted: false,
           })}
       >
         Cancel
@@ -6773,15 +6897,15 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
     codexPlanningAllowed: form.codexPlanningAllowed,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
+    aiUsePolicy: form.aiUsePolicy,
   });
   const milestoneCount = draft.milestones.length;
   const subMilestoneCount = Object.values(draft.subMilestonesByMilestoneTitle).reduce(
     (count, items) => count + items.length,
     0,
   );
-  const plannerNeedsPermission =
-    (form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex") &&
-    !form.codexPlanningAllowed;
+  const plannerNeedsPermission = form.aiUsePolicy !== "local_only" && !form.codexPlanningAllowed;
+  const routing = projectCreationRoutingStats(form);
   return html`<section class="pcc-plan-preview" data-pcc-plan-preview>
     <div class="pcc-section-heading">
       <div>
@@ -6793,8 +6917,12 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
     </div>
     <div class="pcc-plan-preview__meta">
       <span>${subMilestoneCount} sub-milestones</span>
+      <span>Draft: PCC local planner</span>
       <span>${form.plannerMode.replace(/_/gu, " ")}</span>
       <span>${form.workflowTemplateId.replace(/-/gu, " ")}</span>
+      <span data-pcc-ai-routing-summary
+        >${routing.local} local · ${routing.codex} Codex · ${routing.gated} gated</span
+      >
       <span
         >${plannerNeedsPermission
           ? "Permission needed before Codex"
@@ -6805,8 +6933,8 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
       ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
           <strong>High-reasoning / Codex permission</strong>
           <span
-            >This planner may spend tokens. Allow it for this plan only, or keep the generated local
-            preview without Codex refinement.</span
+            >${projectCreationAiTruth(form)} Review the routing above, then approve Codex only if it
+            matches what you want.</span
           >
         </div>`
       : form.plannerMode === "local_project_manager"
@@ -6821,9 +6949,16 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
     <ol class="pcc-plan-preview__milestones">
       ${draft.milestones.slice(0, 6).map((milestone) => {
         const subs = draft.subMilestonesByMilestoneTitle[milestone.title] ?? [];
+        const responsibility = metadataString(
+          metadataObject(milestone.metadata).pccResponsibility,
+          "local_openclaw_agent",
+        );
         return html`<li>
           <strong>${milestone.title}</strong>
-          <span>${subs.length} sub-milestone${subs.length === 1 ? "" : "s"}</span>
+          <span
+            >${subs.length} sub-milestone${subs.length === 1 ? "" : "s"} ·
+            ${responsibilityLabel(responsibility)}</span
+          >
           <ul>
             ${subs.slice(0, 3).map((sub) => html`<li>${sub.title}</li>`)}
           </ul>
@@ -6955,6 +7090,50 @@ function renderProjectPlannerSummary(props: PccDashboardProps) {
   </section>`;
 }
 
+function renderProjectAiRolePicker(props: PccDashboardProps) {
+  const form = props.projectForm;
+  const selected = aiUsePolicyOption(form.aiUsePolicy);
+  const routing = projectCreationRoutingStats(form);
+  return html`<details class="pcc-ai-role-picker" data-pcc-ai-role-picker>
+    <summary>
+      <span>
+        <small>AI roles</small>
+        <strong>${selected.title}</strong>
+        <em>${selected.detail}</em>
+      </span>
+      <span class="pcc-ai-role-picker__change">Change</span>
+    </summary>
+    <fieldset>
+      <legend>Choose who should do the AI work</legend>
+      ${AI_USE_POLICY_OPTIONS.map(
+        (option) => html`<label
+          class="pcc-ai-role-option ${form.aiUsePolicy === option.value ? "is-selected" : ""}"
+        >
+          <input
+            type="radio"
+            name="pcc-ai-use-policy"
+            value=${option.value}
+            data-pcc-ai-use-policy=${option.value}
+            .checked=${form.aiUsePolicy === option.value}
+            @change=${() => props.onProjectFormChange(aiUsePolicyFormPatch(option.value))}
+          />
+          <span>
+            <strong>${option.title}</strong>
+            <small>${option.detail}</small>
+            <em>${option.badge}</em>
+          </span>
+        </label>`,
+      )}
+    </fieldset>
+    <p data-pcc-ai-role-routing>
+      Planned routing: ${routing.local} local milestone${routing.local === 1 ? "" : "s"} ·
+      ${routing.codex} Codex milestone${routing.codex === 1 ? "" : "s"} · ${routing.gated}
+      user/proof gate${routing.gated === 1 ? "" : "s"}. ${projectCreationAiTruth(form)} You can
+      change an individual milestone's worker after creation.
+    </p>
+  </details>`;
+}
+
 function renderProjectPlannerControls(props: PccDashboardProps) {
   const form = props.projectForm;
   return html`<section class="pcc-create-options__group" data-pcc-create-model-options>
@@ -6968,10 +7147,16 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
         <select
           data-pcc-planner-selector
           .value=${form.plannerMode}
-          @change=${(event: Event) =>
+          @change=${(event: Event) => {
+            const plannerMode = (event.target as HTMLSelectElement).value as PccPlannerMode;
             props.onProjectFormChange({
-              plannerMode: (event.target as HTMLSelectElement).value as PccPlannerMode,
-            })}
+              plannerMode,
+              planningMode: plannerModeToPlanningMode(plannerMode),
+              aiUsePolicy: aiUsePolicyForPlannerChange(form.aiUsePolicy, plannerMode),
+              codexPlanningAllowed: false,
+              planPreviewAccepted: false,
+            });
+          }}
         >
           ${renderStringOptions(PLANNER_MODE_OPTIONS, form.plannerMode)}
         </select>
@@ -7064,6 +7249,7 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
   const reviewing = form.planPreviewAccepted;
   const blankCount = projectCreationBlankCount(form);
   const stats = projectCreationDraftStats(form);
+  const routing = projectCreationRoutingStats(form);
   const canReview = Boolean(
     form.projectDescription.trim() || form.title.trim() || form.goal.trim(),
   );
@@ -7083,14 +7269,14 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
             <div>
               <strong>Your plan is ready to review</strong>
               <span
-                >PCC filled blank setup fields and kept everything you typed. Nothing has been
-                created or started yet.</span
+                >PCC filled blank setup fields and kept everything you typed.
+                ${projectCreationAiTruth(form)} Nothing has been created or started yet.</span
               >
             </div>
             <span>${stats.milestones} milestones · ${stats.subMilestones} sub-steps</span>
           </section>
-          ${renderProjectCoreFields(props)} ${renderGeneratedPlanPreview(props, false)}
-          ${renderProjectPlannerSummary(props)}
+          ${renderProjectCoreFields(props)} ${renderProjectAiRolePicker(props)}
+          ${renderGeneratedPlanPreview(props, false)}
           <details class="pcc-create-request-edit">
             <summary>Edit original request</summary>
             <label class="pcc-editor__hero-field">
@@ -7122,6 +7308,7 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
                 })}
             ></textarea>
           </label>
+          ${renderProjectAiRolePicker(props)}
           <section class="pcc-create-ai-explainer" data-pcc-create-ai-explainer>
             <div>
               <span class="pcc-create-ai-explainer__icon" aria-hidden="true">✦</span>
@@ -7138,11 +7325,11 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
             </ul>
             <p data-pcc-create-ai-summary>
               ${blankCount} blank setup item${blankCount === 1 ? "" : "s"} · draft will include
-              ${stats.milestones} milestones and ${stats.subMilestones} sub-steps · local-first AI ·
-              no Codex token spend
+              ${stats.milestones} milestones and ${stats.subMilestones} sub-steps · ${routing.local}
+              local / ${routing.codex} Codex · ${projectCreationAiTruth(form)}
             </p>
           </section>
-          ${renderProjectPlannerSummary(props)} ${renderProjectCreationCustomize(props, true)}
+          ${renderProjectCreationCustomize(props, true)}
           ${canReview
             ? nothing
             : html`<p class="pcc-create-start-hint" data-pcc-create-start-hint>
@@ -7325,9 +7512,7 @@ function renderProjectEditor(props: PccDashboardProps) {
                 !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}
                 @click=${() => props.onProjectFormChange(projectCreationReviewPatch(form))}
               >
-                ${projectCreationBlankCount(form) > 0
-                  ? "Fill missing details & review"
-                  : "Review plan"}
+                Generate project plan
               </button>`
           : html`<button
               class="btn"

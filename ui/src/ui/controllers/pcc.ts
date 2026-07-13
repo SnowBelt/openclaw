@@ -31,6 +31,7 @@ import {
 import { resolvePccProjectAction } from "../../../../src/pcc/project-action.js";
 import {
   buildPccWorkflowDraft,
+  type PccAiUsePolicy,
   type PccPlanningMode,
 } from "../../../../src/pcc/project-workflows.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
@@ -162,6 +163,7 @@ export type PccProjectFormState = {
   workflowTemplateId: string;
   planningMode: PccPlanningMode;
   plannerMode: PccPlannerMode;
+  aiUsePolicy: PccAiUsePolicy;
   plannerModelId: string;
   plannerPermissionScope: "plan" | "project" | "ask";
   plannerPermissionBudget: string;
@@ -305,6 +307,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   workflowTemplateId: "software-product",
   planningMode: "local_project_manager",
   plannerMode: "best_available",
+  aiUsePolicy: "local_only",
   plannerModelId: "",
   plannerPermissionScope: "plan",
   plannerPermissionBudget: "",
@@ -461,6 +464,14 @@ function plannerResponsibility(mode: PccPlannerMode): string {
         : "local Project Manager";
 }
 
+function aiUsePolicyFromPlannerMode(mode: PccPlannerMode): PccAiUsePolicy {
+  return mode === "codex" || mode === "high_reasoning_codex" ? "codex_expert" : "local_only";
+}
+
+function aiUsePolicyNeedsCodex(policy: PccAiUsePolicy): boolean {
+  return policy === "codex_expert" || policy === "codex_everything";
+}
+
 function inferProjectTitle(text: string): string {
   const firstLine = text
     .split(/\r?\n/u)
@@ -504,11 +515,13 @@ function inferOutcomeMetrics(title: string): string {
 
 function enrichProjectFormFromDescription(form: PccProjectFormState): PccProjectFormState {
   const plannerMode = form.plannerMode ?? plannerModeFromPlanningMode(form.planningMode);
+  const aiUsePolicy = form.aiUsePolicy ?? aiUsePolicyFromPlannerMode(plannerMode);
   const description = (form.projectDescription ?? "").trim();
   if (!description) {
     return {
       ...form,
       plannerMode,
+      aiUsePolicy,
       projectDescription: form.projectDescription ?? "",
       plannerModelId: form.plannerModelId ?? "",
       planPreviewAccepted: form.planPreviewAccepted ?? false,
@@ -530,6 +543,7 @@ function enrichProjectFormFromDescription(form: PccProjectFormState): PccProject
       : inferOutcomeMetrics(form.title || inferProjectTitle(description)),
     workflowTemplateId: form.workflowTemplateId || recommendation.templateId,
     plannerMode,
+    aiUsePolicy,
     projectDescription: form.projectDescription ?? "",
     plannerModelId: form.plannerModelId ?? "",
     planPreviewAccepted: form.planPreviewAccepted ?? false,
@@ -1048,6 +1062,12 @@ function projectFormFromProject(project: PccProject): PccProjectFormState {
     workflowTemplateId: metadataString(metadata.pccWorkflowTemplateId, "software-product"),
     planningMode: metadataString(metadata.pccPlanningMode, "template_only") as PccPlanningMode,
     plannerMode: metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
+    aiUsePolicy: metadataString(
+      metadata.pccAiUsePolicy,
+      aiUsePolicyFromPlannerMode(
+        metadataString(metadata.pccPlannerMode, "local_project_manager") as PccPlannerMode,
+      ),
+    ) as PccAiUsePolicy,
     plannerModelId: metadataString(metadata.pccPlannerModelId, ""),
     plannerPermissionScope: metadataString(
       metadataObject(metadata.pccPlannerPermission).scope,
@@ -1850,6 +1870,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           remoteProofAllowed: form.remoteProofAllowed,
           runtimeActionsAllowed: form.runtimeActionsAllowed,
           planningMode: form.planningMode,
+          aiUsePolicy: form.aiUsePolicy,
         });
     const draftSubMilestones =
       draft?.milestones.flatMap((milestone) =>
@@ -1885,6 +1906,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
             pccPlanningMode: form.planningMode,
             pccPlannerMode: form.plannerMode,
+            pccAiUsePolicy: form.aiUsePolicy,
             pccPlannerModelId: form.plannerModelId,
             pccPlannerPermission: {
               allowed: form.codexPlanningAllowed,
@@ -1911,6 +1933,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
             pccPlanningMode: form.planningMode,
             pccPlannerMode: form.plannerMode,
+            pccAiUsePolicy: form.aiUsePolicy,
             pccPlannerModelId: form.plannerModelId,
             pccPlannerPermission: {
               allowed: form.codexPlanningAllowed,
@@ -1951,10 +1974,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           });
         }
       }
-      if (
-        (form.plannerMode === "codex" || form.plannerMode === "high_reasoning_codex") &&
-        !form.codexPlanningAllowed
-      ) {
+      if (aiUsePolicyNeedsCodex(form.aiUsePolicy) && !form.codexPlanningAllowed) {
         await state.client.request("pcc.permissions.upsert", {
           permission: {
             projectId: result.project.id,
@@ -1963,10 +1983,15 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             status: "needed",
             riskLevel: form.plannerMode === "high_reasoning_codex" ? "high" : "medium",
             allowedActions: [
-              `Use ${plannerResponsibility(form.plannerMode)} to refine generated milestones and sub-milestones`,
+              form.aiUsePolicy === "codex_everything"
+                ? "Use Codex for all eligible project planning and milestone work"
+                : "Use Codex for planning, architecture, difficult problem-solving, debugging, and final review; Local AI handles routine work",
             ],
             forbiddenActions: ["Spend Codex or high-reasoning tokens without separate permission"],
-            target: "Project intake milestone planning",
+            target:
+              form.aiUsePolicy === "codex_everything"
+                ? "All eligible project work"
+                : "Expert project planning and review work",
             maxUses: 1,
             note: "Codex planning is blocked until the user grants this scoped permission.",
           },

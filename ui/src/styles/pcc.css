@@ -928,6 +928,147 @@
   padding: 7px 10px;
 }
 
+.pcc-ai-role-picker {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 20px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pcc-ai-role-picker > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  list-style: none;
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+.pcc-ai-role-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pcc-ai-role-picker > summary > span:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pcc-ai-role-picker > summary small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pcc-ai-role-picker > summary strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.pcc-ai-role-picker > summary em {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.pcc-ai-role-picker__change {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 999px;
+  color: var(--text);
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.pcc-ai-role-picker fieldset {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 15px;
+}
+
+.pcc-ai-role-picker legend {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 0 0 8px;
+}
+
+.pcc-ai-role-option {
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex !important;
+  gap: 11px !important;
+  letter-spacing: normal !important;
+  padding: 12px;
+  text-transform: none !important;
+}
+
+.pcc-ai-role-option.is-selected {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+.pcc-ai-role-option input {
+  flex: 0 0 auto;
+  margin: 3px 0 0;
+  min-height: auto;
+}
+
+.pcc-ai-role-option > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pcc-ai-role-option strong,
+.pcc-ai-role-option small,
+.pcc-ai-role-option em {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.pcc-ai-role-option strong {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.pcc-ai-role-option small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.pcc-ai-role-option em {
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.pcc-ai-role-picker > p {
+  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 12px 15px 14px;
+}
+
 .pcc-create-options,
 .pcc-create-request-edit,
 .pcc-create-options__nested {
@@ -1067,6 +1208,14 @@
     flex: 0 1 auto;
     max-width: 100%;
     white-space: normal;
+  }
+
+  .pcc-ai-role-picker > summary {
+    align-items: flex-start;
+  }
+
+  .pcc-ai-role-picker > summary em {
+    display: none;
   }
 }
 
@@ -2563,8 +2712,12 @@
   display: grid;
   gap: 3px;
   min-height: 48px;
+  min-width: 0;
+  overflow: hidden;
   padding: 8px 10px;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pcc-view-mode__option strong {
@@ -2613,10 +2766,6 @@
 }
 
 @media (max-width: 760px) {
-  .pcc-view-mode {
-    grid-template-columns: 1fr;
-  }
-
   /* The compact PCC header is a three-choice segmented control, not a vertical menu. */
   .pcc-hero--compact .pcc-view-mode {
     grid-template-columns: repeat(3, minmax(0, 1fr));

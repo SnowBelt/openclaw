@@ -885,6 +885,10 @@ describe("renderPccDashboard", () => {
     expect(simple.textContent).toContain("Simple");
     expect(simple.textContent).toContain("Detailed");
     expect(simple.textContent).toContain("Agent");
+    expect(simple.querySelector('[data-pcc-view-mode-option="detailed"] span')).toBeNull();
+    expect(
+      simple.querySelector('[data-pcc-view-mode-option="detailed"]')?.getAttribute("aria-label"),
+    ).toBe("Detailed: Show milestones, receipts, and proof.");
     expect(simple.textContent).toContain("Switch to Detailed or Agent");
     expect(simple.querySelector("[data-pcc-work-loop]")).not.toBeNull();
     expect(simple.textContent).toContain("Stop after current task");
@@ -2876,7 +2880,7 @@ describe("renderPccDashboard", () => {
     expect(onSaveProject).toHaveBeenCalledTimes(1);
   });
 
-  it("starts new project creation with one clear prompt and transparent local AI guidance", () => {
+  it("starts new project creation with one clear prompt, one generate action, and visible AI roles", () => {
     const container = renderView(
       createProps({
         editorMode: "create-project",
@@ -2893,11 +2897,14 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
       "Anything you type stays unchanged",
     );
-    expect(container.querySelector("[data-pcc-create-planner-summary]")?.textContent).toContain(
-      "Best available (local first)",
+    expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
+      "Local AI after creation",
     );
-    expect(container.querySelector("[data-pcc-create-planner-summary]")?.textContent).toContain(
-      "no surprise token spend",
+    expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
+      "local OpenClaw AI",
+    );
+    expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
+      "without an LLM call",
     );
     expect(container.querySelector("[data-pcc-create-customize]")?.hasAttribute("open")).toBe(
       false,
@@ -2905,6 +2912,55 @@ describe("renderPccDashboard", () => {
     expect(
       container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
     ).toBe(true);
+    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
+      "Generate project plan",
+    );
+  });
+
+  it("offers three simple AI-role presets and makes Codex approval explicit", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          projectDescription: "Build a dependable family calendar app.",
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    expect(container.querySelectorAll("[data-pcc-ai-use-policy]")).toHaveLength(3);
+    container
+      .querySelector<HTMLInputElement>('[data-pcc-ai-use-policy="codex_expert"]')
+      ?.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aiUsePolicy: "codex_expert",
+        plannerMode: "codex",
+        planningMode: "codex_full_plan",
+        codexPlanningAllowed: false,
+      }),
+    );
+
+    const codexContainer = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          projectDescription: "Build a dependable family calendar app.",
+          aiUsePolicy: "codex_everything",
+          plannerMode: "codex",
+          planningMode: "codex_full_plan",
+        },
+      }),
+    );
+    expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
+      "Codex for everything eligible",
+    );
+    expect(codexContainer.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
+      "Codex is assigned only after scoped approval",
+    );
   });
 
   it("fills only missing project details and preserves everything the user entered", () => {
@@ -3312,15 +3368,16 @@ describe("renderPccDashboard", () => {
           projectDescription: "Use Codex to plan a PCC project.",
           plannerMode: "codex",
           planningMode: "codex_full_plan",
+          aiUsePolicy: "codex_expert",
           codexPlanningAllowed: false,
         },
         onProjectFormChange,
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).not.toBeNull();
-    expect(
-      codexContainer.querySelector("[data-pcc-create-planner-summary]")?.textContent,
-    ).toContain("Codex");
+    expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
+      "Codex",
+    );
     expect(codexContainer.textContent).toContain("High-reasoning / Codex permission");
 
     const pmContainer = renderView(
@@ -3337,10 +3394,10 @@ describe("renderPccDashboard", () => {
         onProjectFormChange,
       }),
     );
-    expect(pmContainer.querySelector("[data-pcc-create-planner-summary]")?.textContent).toContain(
-      "Local Project Manager",
+    expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
+      "Local AI after creation",
     );
-    expect(pmContainer.textContent).toContain("no Codex token spend");
+    expect(pmContainer.textContent).toContain("without an LLM call");
   });
 
   it("renders responsibility routing labels and editor controls", () => {

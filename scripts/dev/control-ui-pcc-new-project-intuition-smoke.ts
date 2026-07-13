@@ -112,11 +112,25 @@ async function main(): Promise<void> {
     renderCurrent();
     requireText(root, "[data-pcc-create-ai-explainer]", "AI fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
-    requireText(root, "[data-pcc-create-planner-summary]", "Best available (local first)");
+    requireText(root, "[data-pcc-ai-role-picker]", "Local AI");
+    requireText(root, "[data-pcc-create-review-plan]", "Generate project plan");
     const customize = requireSelector(root, "[data-pcc-create-customize]");
     if (customize.hasAttribute("open")) {
       throw new Error("optional project customization must be collapsed by default");
     }
+
+    requireSelector(root, '[data-pcc-ai-use-policy="codex_expert"]').dispatchEvent(
+      new dom.window.Event("change", { bubbles: true }),
+    );
+    if (
+      projectForm.aiUsePolicy !== "codex_expert" ||
+      projectForm.plannerMode !== "codex" ||
+      projectForm.codexPlanningAllowed
+    ) {
+      throw new Error("Codex expert preset did not configure permission-gated model routing");
+    }
+    requireText(root, "[data-pcc-ai-role-picker]", "Codex as expert");
+    requireText(root, "[data-pcc-create-ai-summary]", "scoped approval");
 
     (requireSelector(root, "[data-pcc-create-review-plan]") as HTMLButtonElement).click();
     if (projectForm.title !== "My Kitchen Plan" || projectForm.intakeAnswers.owner !== "Todd") {
@@ -125,6 +139,7 @@ async function main(): Promise<void> {
     requireText(root, "[data-pcc-create-review-ready]", "Your plan is ready to review");
     requireText(root, "[data-pcc-create-review-ready]", "Nothing has been created or started yet");
     requireSelector(root, "[data-pcc-plan-preview]");
+    requireText(root, "[data-pcc-ai-routing-summary]", "Codex");
     const confirm = requireSelector(root, "[data-pcc-create-project-confirm]") as HTMLButtonElement;
     if (confirm.disabled) {
       throw new Error("reviewed project create action should be enabled");

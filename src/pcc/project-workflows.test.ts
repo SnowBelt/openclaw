@@ -75,6 +75,55 @@ describe("PCC workflow templates", () => {
     expect(draft.milestones[0]?.status).toBe("not_started");
   });
 
+  it("routes expert Codex work narrowly while keeping routine work local", () => {
+    const draft = buildPccWorkflowDraft({
+      title: "New App",
+      templateId: "software-product",
+      planningMode: "codex_full_plan",
+      aiUsePolicy: "codex_expert",
+      codexPlanningAllowed: false,
+    });
+
+    expect(draft.project.metadata?.pccAiUsePolicy).toBe("codex_expert");
+    expect(
+      draft.milestones.find((item) => item.title === "Define scope and success criteria")?.metadata,
+    ).toMatchObject({ pccResponsibility: "codex", requiresCodex: true });
+    expect(draft.milestones.find((item) => item.title === "Build MVP")?.metadata).toMatchObject({
+      pccResponsibility: "local_openclaw_agent",
+      requiresCodex: false,
+    });
+    expect(
+      draft.milestones.find((item) => item.title === "Production proof")?.metadata,
+    ).toMatchObject({
+      pccResponsibility: "remote_proof",
+    });
+  });
+
+  it("routes every eligible AI milestone to Codex without replacing proof gates", () => {
+    const draft = buildPccWorkflowDraft({
+      title: "New App",
+      templateId: "software-product",
+      planningMode: "codex_full_plan",
+      aiUsePolicy: "codex_everything",
+      codexPlanningAllowed: true,
+    });
+
+    const eligible = draft.milestones.filter(
+      (item) => item.metadata?.pccResponsibility !== "remote_proof",
+    );
+    expect(eligible.every((item) => item.metadata?.pccResponsibility === "codex")).toBe(true);
+    expect(
+      draft.milestones.find((item) => item.title === "Production proof")?.metadata,
+    ).toMatchObject({
+      pccResponsibility: "remote_proof",
+    });
+    expect(
+      draft.subMilestonesByMilestoneTitle["Build MVP"]?.every(
+        (item) => item.metadata?.pccResponsibility === "codex",
+      ),
+    ).toBe(true);
+  });
+
   it("recommends workflows and evaluates setup quality gates", () => {
     const answers = {
       goal: "Create a patch-only SNES Game Creator.",
