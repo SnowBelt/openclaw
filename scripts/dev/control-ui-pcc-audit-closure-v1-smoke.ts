@@ -339,14 +339,17 @@ async function main(): Promise<void> {
 
     requireSelector(root, "[data-pcc-top-metrics-more]");
     requireSelector(root, "[data-pcc-model-refresh-status]");
-    requireSelector(root, "[data-pcc-planner-permission-saved]");
+    const savedPlannerPermission = requireSelector(root, "[data-pcc-planner-permission-saved]");
     requireText(text, "Active");
     requireText(text, "Needs You");
     requireText(text, "Running");
     requireText(text, "Plan");
     requireText(text, "Proof");
     requireText(text, "Diagnostics");
-    requireText(text, "Saved scope: Project");
+    requireText(
+      (savedPlannerPermission.textContent ?? "").replace(/\s+/gu, " "),
+      "no hard token cap",
+    );
 
     (requireSelector(root, "[data-pcc-action-undo]") as HTMLElement).click();
     if (!calls.includes("undo")) {
