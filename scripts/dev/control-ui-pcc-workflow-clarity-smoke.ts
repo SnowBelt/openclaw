@@ -1,6 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
+import {
+  DEFAULT_PCC_EXECUTION_PROFILE,
+  resolvePccExecutionProfilePreset,
+} from "../../src/pcc/execution-profile.js";
 
 function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -275,6 +279,7 @@ async function main(): Promise<void> {
         planningMode: "local_project_manager" as const,
         plannerMode: "local_project_manager" as const,
         plannerModelId: "",
+        executionProfile: { ...DEFAULT_PCC_EXECUTION_PROFILE },
         planPreviewAccepted: false,
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
@@ -342,6 +347,7 @@ async function main(): Promise<void> {
           plannerMode: "codex" as const,
           planningMode: "codex_full_plan" as const,
           aiUsePolicy: "codex_expert" as const,
+          executionProfile: resolvePccExecutionProfilePreset("balanced"),
           title: "Reusable PCC Planner",
           goal: "Turn text into a safe, proof-gated project plan.",
           intakeAnswers: {
@@ -365,7 +371,7 @@ async function main(): Promise<void> {
     const editorText = root.textContent ?? "";
     for (const label of [
       "Your plan is ready to review",
-      "AI roles",
+      "How this project runs",
       "Generated plan preview",
       "One Codex permission",
       "Create project",

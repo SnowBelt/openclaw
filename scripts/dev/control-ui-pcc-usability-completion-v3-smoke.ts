@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
+import { resolvePccExecutionProfilePreset } from "../../src/pcc/execution-profile.js";
 
 function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -252,6 +253,10 @@ async function main(): Promise<void> {
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
         plannerModelId: "openai:gpt-5.5-high-reasoning",
+        executionProfile: {
+          ...resolvePccExecutionProfilePreset("balanced"),
+          codexModelId: "openai:gpt-5.5-high-reasoning",
+        },
         plannerPermissionScope: "plan",
         plannerPermissionBudget: "",
         planPreviewAccepted: false,
@@ -306,6 +311,7 @@ async function main(): Promise<void> {
         intakeAnswers?: Record<string, string>;
         codexPlanningAllowed?: boolean;
         plannerMode?: string;
+        executionProfile?: { presetId?: string };
       }) => {
         if (patch.intakeAnswers?.firstDeliverable && patch.intakeAnswers.doneProof) {
           calls.push("draft-intake-answers");
@@ -313,7 +319,10 @@ async function main(): Promise<void> {
         if (patch.codexPlanningAllowed === true) {
           calls.push("allow-planner");
         }
-        if (patch.plannerMode === "best_available" && patch.codexPlanningAllowed === false) {
+        if (
+          patch.executionProfile?.presetId === "local_focused" &&
+          patch.codexPlanningAllowed === false
+        ) {
           calls.push("cancel-planner-permission");
         }
       },

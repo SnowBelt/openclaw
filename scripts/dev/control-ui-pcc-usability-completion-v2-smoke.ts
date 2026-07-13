@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
+import { resolvePccExecutionProfilePreset } from "../../src/pcc/execution-profile.js";
 
 function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -240,6 +241,7 @@ async function main(): Promise<void> {
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
         plannerModelId: "gpt-5.5-high-reasoning",
+        executionProfile: resolvePccExecutionProfilePreset("balanced"),
         planPreviewAccepted: false,
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
