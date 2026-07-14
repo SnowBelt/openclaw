@@ -6,6 +6,7 @@ import {
 import {
   PCC_LEARNING_CANDIDATES_METADATA_KEY,
   readPccLearningCandidates,
+  repairPccLearningCandidatesMetadata,
   storePccLearningCandidate,
 } from "./learning-store.js";
 
@@ -91,5 +92,45 @@ describe("PCC learning candidate store", () => {
     expect(() => storePccLearningCandidate({}, { ...value, updatedAt: "invalid" })).toThrow(
       /malformed/,
     );
+  });
+
+  it("repairs legacy five-metric promotions for QA retrial exactly once", () => {
+    const value = createPccLearningCandidate(input(4)).candidate;
+    const legacyMetrics = {
+      speed: 95,
+      accuracy: 95,
+      efficiency: 95,
+      first_pass_quality: 95,
+      overall_quality: 95,
+    };
+    const metadata = {
+      owner: "pcc",
+      [PCC_LEARNING_CANDIDATES_METADATA_KEY]: [
+        {
+          ...value,
+          status: "promoted",
+          baselineMetrics: legacyMetrics,
+          afterMetrics: legacyMetrics,
+        },
+      ],
+    };
+    const now = "2026-07-13T12:00:00.000Z";
+
+    const repaired = repairPccLearningCandidatesMetadata(metadata, now);
+    expect(repaired.repairedCount).toBe(1);
+    expect(repaired.metadata.owner).toBe("pcc");
+    expect(readPccLearningCandidates(repaired.metadata)).toEqual([
+      expect.objectContaining({
+        status: "trial",
+        statusReason:
+          "Legacy promotion requires QA revalidation under the 93/100 quality contract.",
+        baselineMetrics: expect.objectContaining({ qa: 0 }),
+        afterMetrics: expect.objectContaining({ qa: 0 }),
+      }),
+    ]);
+
+    const repeated = repairPccLearningCandidatesMetadata(repaired.metadata, now);
+    expect(repeated.repairedCount).toBe(0);
+    expect(repeated.metadata).toEqual(repaired.metadata);
   });
 });

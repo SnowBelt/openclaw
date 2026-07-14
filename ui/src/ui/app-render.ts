@@ -2903,6 +2903,8 @@ export function renderApp(state: AppViewState) {
                 modelsFallback: state.chatModelCatalogFallback,
                 runtimeIdentity: state.pccRuntimeIdentity,
                 executionCapacity: state.pccExecutionCapacity,
+                skillsReport: state.skillsReport,
+                skillsError: state.skillsError,
                 onRefreshModelCatalog: () => {
                   if (!state.client) {
                     return;

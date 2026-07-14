@@ -1,4 +1,9 @@
 import type { PccExecutionProfile } from "./execution-profile.js";
+import {
+  evaluatePccExecutionQuality,
+  type PccExecutionQualityAssessment,
+  type PccExecutionStandard,
+} from "./execution-standard.js";
 
 export const PCC_EXECUTION_PLAN_SCHEMA_VERSION = 1 as const;
 
@@ -56,6 +61,7 @@ export type PccExecutionProofRequirement = {
   milestoneId: string;
   proofId: string;
   description: string;
+  qualityRequirementId?: string;
 };
 
 export type PccExecutionPlanAuditEvent = {
@@ -70,6 +76,7 @@ export type PccExecutionPlan = {
   projectId: string;
   projectRevision: string;
   profile: PccExecutionProfile;
+  executionStandard?: PccExecutionStandard;
   mode: PccExecutionPlanMode;
   coordinator: PccExecutionCoordinator;
   admittedWorkerCount: number;
@@ -105,6 +112,7 @@ export type PccPlanCompletionAssessment = {
   /** PCC milestone state is always a separate, explicit workflow action. */
   canAutoCompleteMilestones: false;
   milestoneIdsRequiringExplicitCompletion: string[];
+  qualityAssessment?: PccExecutionQualityAssessment;
 };
 
 const ACTIVE_STATUSES = new Set<PccExecutionPlanStatus>([
@@ -160,6 +168,7 @@ export function createPccExecutionPlan(input: {
   projectId: string;
   projectRevision: string;
   profile: PccExecutionProfile;
+  executionStandard?: PccExecutionStandard;
   coordinator: PccExecutionCoordinator;
   admittedWorkerCount: number;
   partitions?: readonly PccExecutionTaskPartition[];
@@ -183,6 +192,9 @@ export function createPccExecutionPlan(input: {
     projectId: nonEmpty(input.projectId, "projectId"),
     projectRevision: nonEmpty(input.projectRevision, "projectRevision"),
     profile: { ...input.profile },
+    ...(input.executionStandard
+      ? { executionStandard: structuredClone(input.executionStandard) }
+      : {}),
     mode: pccExecutionPlanMode(input.profile),
     coordinator: {
       sessionId: nonEmpty(input.coordinator.sessionId, "coordinator.sessionId"),
@@ -231,6 +243,19 @@ export function canTransitionPccExecutionPlan(
 }
 
 export function transitionPccExecutionPlan(
+  plan: PccExecutionPlan,
+  status: PccExecutionPlanStatus,
+  options: { at?: string; reason?: string } = {},
+): PccExecutionPlan {
+  if (status === "completed" && plan.executionStandard) {
+    throw new Error(
+      "canonical PCC execution plans must use completePccExecutionPlan with proof and judge evidence",
+    );
+  }
+  return transitionPccExecutionPlanUnchecked(plan, status, options);
+}
+
+function transitionPccExecutionPlanUnchecked(
   plan: PccExecutionPlan,
   status: PccExecutionPlanStatus,
   options: { at?: string; reason?: string } = {},
@@ -356,8 +381,10 @@ export function assessPccExecutionPlanCompletion(
   plan: {
     partitions: readonly Pick<PccExecutionTaskPartition, "status">[];
     proofRequirements: readonly PccExecutionProofRequirement[];
+    executionStandard?: PccExecutionStandard;
   },
   satisfiedProofIds: readonly string[],
+  options: { judgePassed?: boolean } = {},
 ): PccPlanCompletionAssessment {
   const satisfied = new Set(satisfiedProofIds);
   const missingProofIds = plan.proofRequirements
@@ -367,12 +394,53 @@ export function assessPccExecutionPlanCompletion(
     ...new Set(plan.proofRequirements.map((requirement) => requirement.milestoneId)),
   ].toSorted();
   const fanIn = accountPccExecutionFanIn(plan.partitions);
+  const qualityAssessment = plan.executionStandard
+    ? evaluatePccExecutionQuality({
+        provenEvidenceIds: plan.proofRequirements
+          .filter(
+            (requirement) => requirement.qualityRequirementId && satisfied.has(requirement.proofId),
+          )
+          .map((requirement) => requirement.qualityRequirementId as string),
+        judgePassed: options.judgePassed === true,
+      })
+    : undefined;
   return {
     canCompletePlan:
-      fanIn.readyForFanIn && fanIn.succeeded === fanIn.expected && missingProofIds.length === 0,
+      fanIn.readyForFanIn &&
+      fanIn.succeeded === fanIn.expected &&
+      missingProofIds.length === 0 &&
+      (qualityAssessment?.passed ?? true),
     missingProofIds,
     fanIn,
     canAutoCompleteMilestones: false,
     milestoneIdsRequiringExplicitCompletion,
+    ...(qualityAssessment ? { qualityAssessment } : {}),
   };
+}
+
+export function completePccExecutionPlan(
+  plan: PccExecutionPlan,
+  satisfiedProofIds: readonly string[],
+  options: { judgePassed: boolean; at?: string; reason?: string },
+): PccExecutionPlan {
+  const assessment = assessPccExecutionPlanCompletion(plan, satisfiedProofIds, {
+    judgePassed: options.judgePassed,
+  });
+  if (!assessment.canCompletePlan) {
+    const quality = assessment.qualityAssessment;
+    const blockers = [
+      assessment.fanIn.succeeded !== assessment.fanIn.expected
+        ? "not every partition succeeded"
+        : "",
+      assessment.missingProofIds.length
+        ? `missing proof: ${assessment.missingProofIds.join(", ")}`
+        : "",
+      quality && !quality.judgePassed ? "independent judge did not pass" : "",
+      quality && quality.minimumScore < quality.target
+        ? `quality minimum ${quality.minimumScore} is below ${quality.target}`
+        : "",
+    ].filter(Boolean);
+    throw new Error(`PCC execution plan cannot complete: ${blockers.join("; ")}`);
+  }
+  return transitionPccExecutionPlanUnchecked(plan, "completed", options);
 }

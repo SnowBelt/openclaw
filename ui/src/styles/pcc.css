@@ -5256,6 +5256,97 @@
   overflow-wrap: anywhere;
 }
 
+.pcc-execution-standard {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.pcc-execution-standard--ready {
+  border-color: color-mix(in srgb, var(--success, #15803d) 30%, var(--border));
+}
+
+.pcc-execution-standard--blocked {
+  border-color: color-mix(in srgb, var(--danger, #b91c1c) 38%, var(--border));
+}
+
+.pcc-execution-standard > header,
+.pcc-execution-standard > header > div,
+.pcc-execution-standard__workflow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pcc-execution-standard > header {
+  justify-content: space-between;
+}
+
+.pcc-execution-standard > header span,
+.pcc-execution-standard > header em {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pcc-execution-standard > p,
+.pcc-execution-standard details p,
+.pcc-execution-standard details ul {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pcc-execution-standard__workflow span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-muted) 80%, var(--surface));
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.pcc-execution-standard__workflow b {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.pcc-execution-standard details summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.pcc-execution-standard details ul {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0 0 1.25rem;
+}
+
+.pcc-execution-standard details li span {
+  display: block;
+  color: var(--muted);
+}
+
+.pcc-execution-standard__warning {
+  margin-top: 10px !important;
+  color: var(--warning, #a16207);
+}
+
 .pcc-execution-team__facts span {
   display: inline-flex;
   gap: 5px;
@@ -5291,12 +5382,14 @@
   .pcc-execution-team,
   .pcc-learning-loop,
   .pcc-execution-team > header,
+  .pcc-execution-standard > header,
   .pcc-learning-loop > header,
   .pcc-execution-team__actions {
     align-items: stretch;
   }
 
   .pcc-execution-team > header,
+  .pcc-execution-standard > header,
   .pcc-learning-loop > header,
   .pcc-execution-team__actions {
     flex-direction: column;

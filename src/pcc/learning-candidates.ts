@@ -7,6 +7,7 @@ export const PCC_LEARNING_METRIC_NAMES = [
   "accuracy",
   "efficiency",
   "first_pass_quality",
+  "qa",
   "overall_quality",
 ] as const;
 

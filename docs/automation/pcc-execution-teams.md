@@ -7,7 +7,7 @@ title: "PCC Execution Teams"
 sidebarTitle: "PCC Execution Teams"
 ---
 
-PCC execution teams run explicitly independent project tasks in parallel while keeping one project-level execution profile as the source of truth. `Ultra` is a team-speed preset, not a reasoning level and not permission to use Codex.
+PCC execution teams run explicitly independent project tasks in parallel while keeping one project-level execution profile as the source of truth. Every team also snapshots the [PCC Execution Standard](/automation/pcc-execution-standard), including its selected processes, skills, 93+ QA contract, judge gate, and bounded repair rules. `Ultra` is a team-speed preset, not a reasoning level and not permission to use Codex.
 
 ## Choose One Team Plan
 
@@ -54,13 +54,13 @@ A task is eligible only when it:
 
 PCC saves the versioned execution plan before dispatch. The plan records the project revision, profile snapshot, coordinator, deterministic partitions, worker assignments, two-hour workspace leases, proof requirements, transitions, and bounded audit events. One active team is allowed per project.
 
-The coordinator receives only admitted assignments and is instructed to use isolated subagents, serialize work that shares a lease, stop on ambiguity, and return structured fan-in evidence. It may not infer extra work, broaden Codex use, perform high-risk actions, or mark milestones complete.
+The coordinator receives only admitted assignments and the exact automatic execution-standard snapshot. It is instructed to load selected skills, use isolated subagents, serialize work that shares a lease, stop on ambiguity, and return structured fan-in evidence. It may not infer extra work, broaden Codex use, perform high-risk actions, award its own quality grade, or mark milestones complete.
 
 ## Stop, Fan-In, And Proof
 
 `Stop agent team` aborts the coordinator and persists a cancelled plan. Saved history remains available. Failed dispatch persists a failed plan with the exact reason.
 
-Fan-in distinguishes worker completion from PCC milestone completion. A plan can be complete only after every partition succeeds and every required proof item is satisfied. Even then, PCC never auto-completes milestones; the owning workflow must review evidence and perform the explicit completion transition.
+Fan-in distinguishes worker completion from PCC milestone completion. A canonical plan can be complete only after every partition succeeds, every required proof item is satisfied, all six quality dimensions meet 93, and the independent judge passes. Even then, PCC never auto-completes milestones; the owning workflow must review evidence and perform the explicit completion transition.
 
 ## Learning Boundary
 

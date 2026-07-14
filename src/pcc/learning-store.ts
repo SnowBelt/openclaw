@@ -6,8 +6,12 @@ import {
   type PccLearningCandidateV1,
   type PccLearningMetrics,
 } from "./learning-candidates.js";
+import {
+  PCC_LEARNING_CANDIDATES_METADATA_KEY,
+  repairPccLearningCandidatesMetadata,
+} from "./learning-repair.js";
 
-export const PCC_LEARNING_CANDIDATES_METADATA_KEY = "pccLearningCandidates" as const;
+export { PCC_LEARNING_CANDIDATES_METADATA_KEY, repairPccLearningCandidatesMetadata };
 export const PCC_LEARNING_CANDIDATE_LIMIT = 100;
 
 const STATUSES = new Set<PccLearningCandidateStatus>([

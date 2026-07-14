@@ -38,6 +38,13 @@ import {
   type PccExecutionProfile,
 } from "../../../../src/pcc/execution-profile.js";
 import {
+  PCC_EXECUTION_QUALITY_REQUIREMENTS,
+  buildPccExecutionStandard,
+  buildPccExecutionStandardPrompt,
+  type PccExecutionSkillDescriptor,
+  type PccExecutionStandard,
+} from "../../../../src/pcc/execution-standard.js";
+import {
   evaluatePccProjectSetup,
   PCC_REQUIRED_INTAKE_QUESTIONS,
   pccIntakeAnswersFromMetadata,
@@ -85,6 +92,7 @@ import type {
   PccStatus,
   AgentsListResult,
   ModelCatalogEntry,
+  SkillStatusReport,
 } from "../types.ts";
 
 export type PccProjectDetail = {
@@ -158,6 +166,7 @@ export type PccExecutionTeamReadiness = {
   coordinatorAgentId: string | null;
   workerModelId: string | null;
   codexModelId: string | null;
+  executionStandard: PccExecutionStandard;
 };
 
 export type PccActionNotice = {
@@ -279,6 +288,8 @@ export type PccDashboardState = {
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
   agentsList?: AgentsListResult | null;
   chatModelCatalog?: ModelCatalogEntry[];
+  skillsReport?: SkillStatusReport | null;
+  skillsError?: string | null;
   requestUpdate?: () => void;
 };
 
@@ -662,12 +673,73 @@ function resolvePccCoordinatorSelection(
   return exact && workerModelId ? { agentId: exact.id, workerModelId } : null;
 }
 
+function pccExecutionSkillsFromReport(
+  report: SkillStatusReport | null | undefined,
+): readonly PccExecutionSkillDescriptor[] | null | undefined {
+  if (report === null) {
+    return null;
+  }
+  if (report === undefined) {
+    return [];
+  }
+  return report.skills.map((skill) => ({
+    skillKey: skill.skillKey,
+    name: skill.name,
+    description: skill.description,
+    eligible: skill.eligible,
+    modelVisible: skill.modelVisible,
+    disabled: skill.disabled,
+    blockedByAllowlist: skill.blockedByAllowlist,
+    blockedByAgentFilter: skill.blockedByAgentFilter,
+    missing: skill.missing,
+  }));
+}
+
+export function resolvePccExecutionStandardForDetail(
+  detail: PccProjectDetail,
+  skillsReport?: SkillStatusReport | null,
+  currentWorkTitle?: string,
+  skillsError?: string | null,
+): PccExecutionStandard {
+  return buildPccExecutionStandard({
+    scope: pccWorkScopeForProject(detail.project),
+    title: detail.project.title,
+    goal: detail.project.goal,
+    currentWorkTitle:
+      currentWorkTitle ??
+      [
+        ...detail.milestones
+          .filter((milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status))
+          .map((milestone) => milestone.title),
+        ...(detail.subMilestones ?? [])
+          .filter((subMilestone) => !PCC_TERMINAL_STATUSES.has(subMilestone.status))
+          .map((subMilestone) => subMilestone.title),
+      ].join("\n"),
+    currentWorkDetails: [
+      metadataString(metadataObject(detail.project.metadata).pccProjectDescription, ""),
+      ...detail.milestones.flatMap((milestone) => [
+        milestone.implementationPlan,
+        milestone.blocker,
+      ]),
+      ...(detail.subMilestones ?? []).flatMap((subMilestone) => [
+        subMilestone.implementationPlan,
+        subMilestone.blocker,
+      ]),
+    ]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join("\n"),
+    availableSkills: skillsError ? null : pccExecutionSkillsFromReport(skillsReport),
+  });
+}
+
 export function buildPccExecutionTeamReadiness(
   detail: PccProjectDetail,
   capacity: PccExecutionCapacitySnapshot | null | undefined,
   agentsList: AgentsListResult | null | undefined,
   catalog: readonly ModelCatalogEntry[] | undefined,
   projectDetails: readonly PccProjectDetail[] = [],
+  skillsReport?: SkillStatusReport | null,
+  skillsError?: string | null,
 ): PccExecutionTeamReadiness {
   const profile = normalizePccExecutionProfile(detail.project.metadata);
   const activePlan = activePccExecutionPlan(detail);
@@ -686,6 +758,12 @@ export function buildPccExecutionTeamReadiness(
       ? null
       : resolveConfiguredExecutionModel(profile.codexModelId, catalog, "codex");
   const coordinatorAgentId = coordinatorSelection?.agentId ?? null;
+  const executionStandard = resolvePccExecutionStandardForDetail(
+    detail,
+    skillsReport,
+    tasks.map((task) => task.title).join("\n"),
+    skillsError,
+  );
   const base = {
     profile,
     activePlan,
@@ -695,6 +773,7 @@ export function buildPccExecutionTeamReadiness(
     coordinatorAgentId,
     workerModelId,
     codexModelId,
+    executionStandard,
   } as const;
 
   if (activePlan) {
@@ -719,6 +798,15 @@ export function buildPccExecutionTeamReadiness(
       ...base,
       status: "blocked",
       reason: `The project is ${detail.project.status.replace(/_/gu, " ")}. Resolve that state before running a team.`,
+    };
+  }
+  if (executionStandard.status === "blocked") {
+    return {
+      ...base,
+      status: "blocked",
+      reason:
+        executionStandard.blockers[0] ??
+        "PCC could not resolve the required execution processes and skills.",
     };
   }
   const setup = evaluatePccProjectSetup({
@@ -862,6 +950,9 @@ function buildPccExecutionCoordinatorPrompt(
     `OpenClaw worker model: ${workerModelId}`,
     `Maximum concurrent OpenClaw workers: ${plan.admittedWorkerCount}`,
     codexRule,
+    plan.executionStandard
+      ? buildPccExecutionStandardPrompt(plan.executionStandard)
+      : "PCC execution standard is missing from this legacy plan. Stop and request a fresh plan before implementation.",
     `Use sessions_spawn with isolated context and pass model: ${workerModelId} for every assigned worker. If that exact model cannot be used, stop and report the mismatch instead of silently substituting another model. A worker may process multiple assigned partitions serially, but never run two partitions that share a workspace lease concurrently.`,
     "Execute only the listed assignments. Do not infer new parallel work. Stop and report a blocker if a workspace lease, dependency, requirement, or scope is ambiguous.",
     "Never perform an external write, deployment, credential or session change, destructive action, purchase, publication, reboot, or other high-risk action without a separate explicit permission grant.",
@@ -933,7 +1024,7 @@ function pccExecutionProofRequirements(
   planId: string,
   tasks: readonly PccExecutionTask[],
 ): Array<{ milestoneId: string; proofId: string; description: string }> {
-  return tasks.flatMap((task) =>
+  const taskProof = tasks.flatMap((task) =>
     task.milestoneId
       ? [
           {
@@ -944,6 +1035,16 @@ function pccExecutionProofRequirements(
         ]
       : [],
   );
+  const primaryMilestoneId = tasks.find((task) => task.milestoneId)?.milestoneId;
+  const qualityProof = primaryMilestoneId
+    ? PCC_EXECUTION_QUALITY_REQUIREMENTS.map((requirement) => ({
+        milestoneId: primaryMilestoneId,
+        proofId: `${planId}:quality:${requirement.id}`,
+        description: requirement.label,
+        qualityRequirementId: requirement.id,
+      }))
+    : [];
+  return [...taskProof, ...qualityProof];
 }
 
 function pccExecutionWorkspaceLeases(
@@ -3491,7 +3592,13 @@ export async function applyPccChatSyncProposal(
 const PCC_TEMP_REORDER_ORDER_BASE = 1_000_000_000;
 const PCC_LEGACY_ORDER_REPAIR_BASE = 2_000_000_000;
 
-function autopilotInputForDetail(detail: PccProjectDetail) {
+function autopilotInputForDetail(detail: PccProjectDetail, state?: PccDashboardState) {
+  const executionStandard = resolvePccExecutionStandardForDetail(
+    detail,
+    state?.skillsReport,
+    undefined,
+    state?.skillsError,
+  );
   return {
     project: detail.project,
     milestones: detail.milestones,
@@ -3499,6 +3606,7 @@ function autopilotInputForDetail(detail: PccProjectDetail) {
     permissions: detail.permissions,
     evidence: detail.evidence,
     decisions: detail.decisions ?? [],
+    executionStandard,
   };
 }
 
@@ -3510,8 +3618,23 @@ async function savePccAutopilotStateForDetail(
   if (!state.client) {
     return;
   }
+  const now = new Date().toISOString();
+  const executionStandard = resolvePccExecutionStandardForDetail(
+    detail,
+    state.skillsReport,
+    undefined,
+    state.skillsError,
+  );
   const project = withPccAutopilotState(
-    { ...detail.project, updatedAt: new Date().toISOString() },
+    {
+      ...detail.project,
+      updatedAt: now,
+      metadata: {
+        ...metadataObject(detail.project.metadata),
+        pccResolvedExecutionStandard: executionStandard,
+        pccExecutionStandardResolvedAt: now,
+      },
+    },
     autopilot,
   );
   await state.client.request("pcc.projects.upsert", {
@@ -3533,7 +3656,7 @@ export async function configurePccAutopilotLoopMode(
   }
   await withPccAction(state, async () => {
     const now = new Date().toISOString();
-    const input = autopilotInputForDetail(detail);
+    const input = autopilotInputForDetail(detail, state);
     const current = getPccAutopilotState(input, now);
     const next = queuePccAutopilotPermissionRequest(
       input,
@@ -3557,7 +3680,7 @@ export async function generatePccAutopilotLoopPrompts(state: PccDashboardState):
   }
   await withPccAction(state, async () => {
     const now = new Date().toISOString();
-    const input = autopilotInputForDetail(detail);
+    const input = autopilotInputForDetail(detail, state);
     const current = getPccAutopilotState(input, now);
     const next = queuePccAutopilotPermissionRequest(
       input,
@@ -3593,7 +3716,7 @@ export async function updatePccAutopilotLoopPrompt(
   }
   await withPccAction(state, async () => {
     const now = new Date().toISOString();
-    const input = autopilotInputForDetail(detail);
+    const input = autopilotInputForDetail(detail, state);
     const current = getPccAutopilotState(input, now);
     const next = updatePccAutopilotPromptSlot(current, slotId, patch, now);
     await savePccAutopilotStateForDetail(state, detail, next);
@@ -3613,7 +3736,7 @@ export async function runPccAutopilotLoopAction(
   }
   await withPccAction(state, async () => {
     const now = new Date().toISOString();
-    const input = autopilotInputForDetail(detail);
+    const input = autopilotInputForDetail(detail, state);
     const current = getPccAutopilotState(input, now);
     const permissionActions = [
       "allow_low_risk",
@@ -3717,6 +3840,8 @@ export async function runPccExecutionTeamAction(
       state.agentsList,
       state.chatModelCatalog,
       Object.values(state.pccProjectDetails),
+      state.skillsReport,
+      state.skillsError,
     );
 
     if (action === "stop") {
@@ -3781,6 +3906,7 @@ export async function runPccExecutionTeamAction(
       projectId: detail.project.id,
       projectRevision: detail.project.updatedAt,
       profile: readiness.profile,
+      executionStandard: readiness.executionStandard,
       coordinator: { sessionId: sessionKey, runId: planId },
       admittedWorkerCount: readiness.admittedLocalAgents,
       partitions: partitioned.partitions,
@@ -4188,7 +4314,31 @@ export async function updatePccWorkLoopSettings(
         "Project is on hold. Use Resume Project before starting supervised work.";
       return;
     }
-    const updatedProject = withPccWorkLoopSettings(detail.project, patch, new Date().toISOString());
+    const executionStandard =
+      patch.enabled === true
+        ? resolvePccExecutionStandardForDetail(
+            detail,
+            state.skillsReport,
+            undefined,
+            state.skillsError,
+          )
+        : null;
+    if (executionStandard?.status === "blocked") {
+      state.pccActionError = `Work cannot start: ${executionStandard.blockers[0] ?? "PCC could not resolve the required processes and skills."}`;
+      return;
+    }
+    const now = new Date().toISOString();
+    const withWorkLoop = withPccWorkLoopSettings(detail.project, patch, now);
+    const updatedProject = executionStandard
+      ? {
+          ...withWorkLoop,
+          metadata: {
+            ...metadataObject(withWorkLoop.metadata),
+            pccResolvedExecutionStandard: executionStandard,
+            pccExecutionStandardResolvedAt: now,
+          },
+        }
+      : withWorkLoop;
     await state.client.request("pcc.projects.upsert", {
       project: projectUpsertPayload(updatedProject),
     });
@@ -4270,6 +4420,17 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       permissions: detail.permissions,
       receipts: detail.receipts,
     });
+    const executionStandard = resolvePccExecutionStandardForDetail(
+      detail,
+      state.skillsReport,
+      next.subMilestone?.title ?? next.milestone?.title,
+      state.skillsError,
+    );
+    if (executionStandard.status === "blocked") {
+      state.pccActionError = `Next task cannot be prepared: ${executionStandard.blockers[0] ?? "PCC could not resolve the required processes and skills."}`;
+      return;
+    }
+    const now = new Date().toISOString();
     const updatedProject = withPccWorkLoopSettings(
       detail.project,
       {
@@ -4280,10 +4441,17 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
         lastLoopMessage:
           next.blocker?.message ?? next.taskPrompt ?? "Ready to work this milestone.",
       },
-      new Date().toISOString(),
+      now,
     );
     await state.client.request("pcc.projects.upsert", {
-      project: projectUpsertPayload(updatedProject),
+      project: projectUpsertPayload({
+        ...updatedProject,
+        metadata: {
+          ...metadataObject(updatedProject.metadata),
+          pccResolvedExecutionStandard: executionStandard,
+          pccExecutionStandardResolvedAt: now,
+        },
+      }),
     });
     if (next.subMilestone && !next.blocker && next.subMilestone.status !== "in_progress") {
       await state.client.request("pcc.subMilestones.upsert", {

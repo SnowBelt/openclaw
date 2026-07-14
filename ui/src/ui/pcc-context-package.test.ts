@@ -1,6 +1,26 @@
 import { describe, expect, it } from "vitest";
+import { buildPccExecutionStandard } from "../../../src/pcc/execution-standard.js";
 import type { PccProjectDetail } from "./controllers/pcc.ts";
 import { buildPccContextPackage } from "./pcc-context-package.ts";
+
+const executionStandard = buildPccExecutionStandard({
+  scope: "pcc_product",
+  title: "Project Command Center dashboard test",
+  availableSkills: [
+    {
+      skillKey: "openclaw-testing",
+      name: "openclaw-testing",
+      description: "Test OpenClaw behavior",
+      eligible: true,
+    },
+    {
+      skillKey: "control-ui-e2e",
+      name: "control-ui-e2e",
+      description: "Test the dashboard in a browser",
+      eligible: true,
+    },
+  ],
+});
 
 const project = {
   id: "project-1",
@@ -10,6 +30,10 @@ const project = {
   priority: 3,
   createdAt: "2026-06-26T00:00:00Z",
   updatedAt: "2026-06-26T00:00:00Z",
+  metadata: {
+    pccResolvedExecutionStandard: executionStandard,
+    pccExecutionStandardResolvedAt: "2026-06-26T00:00:00Z",
+  },
 };
 
 const nextMilestone = {
@@ -128,6 +152,10 @@ describe("buildPccContextPackage", () => {
 
     expect(packet).toContain("# Project Command Center handoff packet");
     expect(packet).toContain("Project: Project Command Center");
+    expect(packet).toContain("## PCC automatic execution standard");
+    expect(packet).toContain("at least 93/100");
+    expect(packet).toContain("control-ui-e2e");
+    expect(packet).toContain("no more than 2 targeted repair passes");
     expect(packet).toContain("Next milestone: Context Package Generation V1");
     expect(packet).toContain("Next sub-milestone: Write packet renderer");
     expect(packet).toContain("Write packet renderer — Not Started");
@@ -169,5 +197,18 @@ describe("buildPccContextPackage", () => {
 
     expect(packet).toContain("Legacy receipt imported before proofLevel was required.");
     expect(packet).toContain("Proof=Not recorded.");
+  });
+
+  it("fails closed in handoffs until the live process and skill catalog is resolved", () => {
+    const unresolved: PccProjectDetail = {
+      ...detail,
+      project: { ...detail.project, metadata: {} },
+    };
+
+    const packet = buildPccContextPackage(unresolved, { mode: "compact" });
+
+    expect(packet).toContain("Live processes and skills have not been resolved");
+    expect(packet).toContain("PCC must load the live skill catalog");
+    expect(packet).toContain("Stop rather than silently substituting");
   });
 });

@@ -8,6 +8,10 @@ import type {
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
 import { normalizePccExecutionProfile, summarizePccExecutionProfile } from "./execution-profile.js";
+import {
+  buildPccExecutionStandardPrompt,
+  type PccExecutionStandard,
+} from "./execution-standard.js";
 
 export type PccAutopilotStatus =
   | "off"
@@ -170,6 +174,7 @@ export type PccAutopilotContextPack = {
   userPreferences: string[];
   judgeFindings: string[];
   stopConditions: string[];
+  executionStandard: string[];
 };
 
 export type PccAutopilotRunRecord = {
@@ -295,6 +300,7 @@ export type PccAutopilotProjectInput = {
   permissions?: PccPermissionGrant[];
   evidence?: PccEvidence[];
   decisions?: PccDecision[];
+  executionStandard?: PccExecutionStandard;
 };
 
 export const PCC_AUTOPILOT_MODES: PccAutopilotModePreset[] = [
@@ -1467,6 +1473,12 @@ export function buildPccAutopilotContextPack(
     stopConditions: state.stopConditions
       .filter((condition) => condition.enabled)
       .map((condition) => `${condition.kind}${condition.limit ? `=${condition.limit}` : ""}`),
+    executionStandard: input.executionStandard
+      ? [
+          buildPccExecutionStandardPrompt(input.executionStandard),
+          ...input.executionStandard.selectionTrace,
+        ]
+      : ["PCC execution standard was not supplied to this legacy Autopilot context."],
   };
 }
 
@@ -1588,6 +1600,37 @@ export function runPccAutopilotSafeStubSet(
   state: PccAutopilotState,
   now: string,
 ): PccAutopilotState {
+  if (input.executionStandard?.status === "blocked") {
+    const whyBlocked =
+      input.executionStandard.blockers[0] ??
+      "PCC could not resolve the required processes and skills.";
+    const blocker: PccAutopilotBlocker = {
+      type: "tool_unavailable",
+      whyBlocked,
+      attempted: "Resolve the automatic PCC execution standard before Autopilot start.",
+      needed: "Restore the required live skill catalog or make the required skill eligible.",
+      recommendedNextAction: "Refresh PCC, review Why this plan, then resolve the first blocker.",
+      owner: "OpenClaw configuration",
+    };
+    const judgeResult: PccAutopilotJudgeResult = {
+      status: "failed",
+      summary: "Judge rejected start because PCC could not verify its execution standard.",
+      evidence: ["No prompt execution occurred", "No unsafe action was taken"],
+      repairRecommendation: blocker.recommendedNextAction,
+      reviewedAt: now,
+    };
+    return {
+      ...state,
+      status: "blocked",
+      currentBlocker: blocker,
+      latestJudgeResult: judgeResult,
+      lastOutputSummary: whyBlocked,
+      auditLog: [...state.auditLog, audit(now, "execution_standard_blocked", whyBlocked)].slice(
+        -200,
+      ),
+      updatedAt: now,
+    };
+  }
   const enabled = state.promptSlots.filter((slot) => slot.enabled).slice(0, 5);
   if (enabled.length === 0) {
     return {

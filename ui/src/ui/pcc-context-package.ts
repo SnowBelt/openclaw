@@ -1,3 +1,8 @@
+import {
+  buildPccExecutionStandardPrompt,
+  canonicalPccExecutionStandardMetadata,
+  readPccExecutionStandardSnapshot,
+} from "../../../src/pcc/execution-standard.js";
 // Project Command Center context packages provide deterministic handoff text for agents.
 import { pccProofLevelForItem, pccResponsibilityForItem } from "../../../src/pcc/metadata.js";
 import { getPccWorkLoopNext } from "../../../src/pcc/work-loop.js";
@@ -239,6 +244,11 @@ export function buildPccContextPackage(
   const nextMilestone =
     next.milestone ?? sorted.find((milestone) => milestone.status !== "complete");
   const milestones = mode === "full" ? sorted : nextMilestone ? [nextMilestone] : [];
+  const projectMetadata = metadataObject(detail.project.metadata);
+  const executionStandard = readPccExecutionStandardSnapshot(
+    projectMetadata.pccResolvedExecutionStandard,
+  );
+  const standardMetadata = canonicalPccExecutionStandardMetadata();
   const lines = [
     "# Project Command Center handoff packet",
     `Mode: ${mode}`,
@@ -250,6 +260,21 @@ export function buildPccContextPackage(
     `Next sub-milestone: ${next.subMilestone?.title ?? "No eligible sub-milestone"}`,
     `Runner state: ${formatStatus(next.state)}`,
     `Runner message: ${next.blocker?.message ?? "No runner blocker."}`,
+    "",
+    "## PCC automatic execution standard",
+    ...(executionStandard
+      ? [
+          buildPccExecutionStandardPrompt(executionStandard),
+          `Resolved at: ${metadataString(projectMetadata.pccExecutionStandardResolvedAt, "Not recorded")}`,
+          `Selection trace: ${executionStandard.selectionTrace.join(" ")}`,
+        ]
+      : [
+          `Policy: ${standardMetadata.policy}.`,
+          `Quality target: at least ${standardMetadata.qualityTarget}/100 in speed, accuracy, efficiency, first-pass quality, QA, and overall quality.`,
+          `Maximum repair passes: ${standardMetadata.maxRepairPasses}.`,
+          "Live processes and skills have not been resolved for this exact task. PCC must load the live skill catalog and save a canonical execution-standard snapshot before work starts.",
+          "Stop rather than silently substituting an unavailable required skill or claiming completion without the quality evidence and independent judge pass.",
+        ]),
     "",
   ];
   pushList(

@@ -5,6 +5,8 @@ import type {
   PccStatus,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import { canonicalPccExecutionStandardMetadata } from "./execution-standard.js";
+import { repairPccLearningCandidatesMetadata } from "./learning-repair.js";
 
 type PccWorkItem = PccMilestone | PccSubMilestone;
 export type PccWorkScope = "pcc_product" | "project_work";
@@ -114,16 +116,25 @@ export function canonicalizePccProjectForWrite<TProject extends PccProject>(
   now: string,
 ): TProject {
   const metadata = { ...pccMetadataObject(project.metadata) };
+  const learningRepair = repairPccLearningCandidatesMetadata(metadata, now);
+  const canonicalMetadata = learningRepair.metadata;
   const scope = pccWorkScopeForProject(project);
-  if (metadata.pccWorkScope === scope) {
+  const executionStandard = canonicalPccExecutionStandardMetadata();
+  if (
+    canonicalMetadata.pccWorkScope === scope &&
+    JSON.stringify(canonicalMetadata.pccExecutionStandard) === JSON.stringify(executionStandard) &&
+    learningRepair.repairedCount === 0
+  ) {
     return project;
   }
   return {
     ...project,
     metadata: {
-      ...metadata,
+      ...canonicalMetadata,
       pccWorkScope: scope,
       pccScopeCanonicalizedAt: now,
+      pccExecutionStandard: executionStandard,
+      pccExecutionStandardCanonicalizedAt: now,
     },
   };
 }

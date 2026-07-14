@@ -3,6 +3,7 @@ import {
   accountPccExecutionFanIn,
   assessPccExecutionPlanCompletion,
   canTransitionPccExecutionPlan,
+  completePccExecutionPlan,
   createPccExecutionPlan,
   findDuplicateActivePccExecutionPlan,
   findPccExecutionWorkspaceLeaseCollision,
@@ -11,6 +12,10 @@ import {
   transitionPccExecutionPlan,
 } from "./execution-plan.js";
 import { resolvePccExecutionProfilePreset } from "./execution-profile.js";
+import {
+  PCC_EXECUTION_QUALITY_REQUIREMENTS,
+  buildPccExecutionStandard,
+} from "./execution-standard.js";
 
 const coordinator = { sessionId: "session-1", runId: "run-1" };
 
@@ -45,17 +50,25 @@ describe("PCC multi-agent execution plans", () => {
   });
 
   it("snapshots an explicit hybrid profile without invoking a model", () => {
+    const executionStandard = buildPccExecutionStandard({
+      scope: "pcc_product",
+      title: "Test PCC",
+      availableSkills: [],
+    });
     const created = createPccExecutionPlan({
       id: "hybrid",
       projectId: "project-1",
       projectRevision: "revision-2",
       profile: resolvePccExecutionProfilePreset("ultra_hybrid"),
+      executionStandard,
       coordinator,
       admittedWorkerCount: 12,
     });
 
     expect(created.mode).toBe("hybrid");
     expect(created.profile.codexRole).toBe("lead");
+    expect(created.executionStandard).toEqual(executionStandard);
+    expect(created.executionStandard).not.toBe(executionStandard);
   });
 
   it("enforces strict legal status transitions", () => {
@@ -166,6 +179,73 @@ describe("PCC multi-agent execution plans", () => {
         [],
       ).canCompletePlan,
     ).toBe(false);
+  });
+
+  it("requires all 93+ quality evidence and an independent judge for canonical plan completion", () => {
+    const executionStandard = buildPccExecutionStandard({
+      scope: "pcc_product",
+      title: "Verify PCC execution",
+      availableSkills: [],
+    });
+    const proofRequirements = PCC_EXECUTION_QUALITY_REQUIREMENTS.map((requirement) => ({
+      milestoneId: "milestone-1",
+      proofId: `proof:${requirement.id}`,
+      description: requirement.label,
+      qualityRequirementId: requirement.id,
+    }));
+    const satisfied = proofRequirements.map((requirement) => requirement.proofId);
+    const canonicalPlan = {
+      executionStandard,
+      partitions: [{ status: "succeeded" as const }],
+      proofRequirements,
+    };
+
+    const noJudge = assessPccExecutionPlanCompletion(canonicalPlan, satisfied);
+    expect(noJudge.canCompletePlan).toBe(false);
+    expect(noJudge.qualityAssessment).toMatchObject({ judgePassed: false, minimumScore: 93 });
+
+    const passed = assessPccExecutionPlanCompletion(canonicalPlan, satisfied, {
+      judgePassed: true,
+    });
+    expect(passed.canCompletePlan).toBe(true);
+    expect(passed.qualityAssessment).toMatchObject({ passed: true, minimumScore: 100 });
+
+    const missingQaProofId = proofRequirements.find(
+      (requirement) => requirement.qualityRequirementId === "manual_or_browser_verified",
+    )?.proofId;
+    const missingQa = assessPccExecutionPlanCompletion(
+      canonicalPlan,
+      satisfied.filter((proofId) => proofId !== missingQaProofId),
+      { judgePassed: true },
+    );
+    expect(missingQa.canCompletePlan).toBe(false);
+    expect(missingQa.missingProofIds).toContain(missingQaProofId);
+    expect(missingQa.qualityAssessment?.scores.qa).toBeLessThan(93);
+
+    let running = createPccExecutionPlan({
+      id: "canonical-completion",
+      projectId: "project-1",
+      projectRevision: "revision-1",
+      profile: resolvePccExecutionProfilePreset("local_focused"),
+      executionStandard,
+      coordinator,
+      admittedWorkerCount: 1,
+      partitions: [
+        { id: "partition-1", taskId: "task-1", workerId: "worker-1", status: "succeeded" },
+      ],
+      proofRequirements,
+    });
+    running = transitionPccExecutionPlan(running, "dispatching");
+    running = transitionPccExecutionPlan(running, "running");
+    expect(() => transitionPccExecutionPlan(running, "completed")).toThrow(
+      "must use completePccExecutionPlan",
+    );
+    expect(
+      completePccExecutionPlan(running, satisfied, {
+        judgePassed: true,
+        reason: "Quality and judge proof passed",
+      }),
+    ).toMatchObject({ status: "completed", statusReason: "Quality and judge proof passed" });
   });
 
   it("allows multiple partitions per admitted worker and rejects too many distinct workers", () => {

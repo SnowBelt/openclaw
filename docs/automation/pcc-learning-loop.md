@@ -35,9 +35,12 @@ Promotion requires before-and-after metrics for every required measure:
 - `accuracy`
 - `efficiency`
 - `first_pass_quality`
+- `qa`
 - `overall_quality`
 
 Each after metric must be from `0` through `100`, score at least `93`, and not regress from its baseline. Missing metrics, a score below `93`, or any regression blocks promotion.
+
+The canonical PCC ledger doctor repairs older five-metric records by adding an unproven `qa` score of `0`. A previously promoted legacy candidate returns to `trial` and must provide new QA evidence before promotion. The repair is idempotent and never applies the recommendation.
 
 ## Safety Boundary
 

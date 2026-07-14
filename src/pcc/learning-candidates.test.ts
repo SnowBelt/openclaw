@@ -12,6 +12,7 @@ const metrics = (value: number): PccLearningMetrics => ({
   accuracy: value,
   efficiency: value,
   first_pass_quality: value,
+  qa: value,
   overall_quality: value,
 });
 

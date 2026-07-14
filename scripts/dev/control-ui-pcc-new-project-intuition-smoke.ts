@@ -144,6 +144,8 @@ async function main(): Promise<void> {
     renderCurrent();
     requireText(root, "[data-pcc-create-ai-explainer]", "AI fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
+    requireText(root, "[data-pcc-create-execution-standard]", "automatic local-first");
+    requireText(root, "[data-pcc-create-execution-standard]", "93/100");
     requireText(root, "[data-pcc-ai-role-picker]", "Focused");
     requireText(root, "[data-pcc-ai-role-picker]", "Parallel");
     requireText(root, "[data-pcc-ai-role-picker]", "Ultra");

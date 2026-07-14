@@ -282,6 +282,34 @@ const teamAgents = {
   ],
 };
 
+const readySkill = (skillKey: string, description: string) => ({
+  name: skillKey,
+  description,
+  source: "workspace",
+  filePath: `.agents/skills/${skillKey}/SKILL.md`,
+  baseDir: `.agents/skills/${skillKey}`,
+  skillKey,
+  always: false,
+  disabled: false,
+  blockedByAllowlist: false,
+  blockedByAgentFilter: false,
+  eligible: true,
+  modelVisible: true,
+  requirements: { bins: [], env: [], config: [], os: [] },
+  missing: { bins: [], env: [], config: [], os: [] },
+  configChecks: [],
+  install: [],
+});
+
+const teamSkills = {
+  workspaceDir: "/workspace",
+  managedSkillsDir: "/skills",
+  skills: [
+    readySkill("openclaw-testing", "Run targeted OpenClaw tests and verification."),
+    readySkill("control-ui-e2e", "Run live browser UI interaction proof."),
+  ],
+};
+
 function executionTeamDetail(
   preset: "local_parallel" | "ultra_local" | "ultra_hybrid" = "local_parallel",
 ) {
@@ -657,6 +685,7 @@ describe("loadPccDashboard", () => {
     });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      skillsReport: teamSkills,
       pccSelectedProjectId: project.id,
       pccProjectDetail: {
         project,
@@ -687,6 +716,15 @@ describe("loadPccDashboard", () => {
       status: "pending",
       riskTier: "medium",
     });
+    expect(savedProject.metadata).toEqual(
+      expect.objectContaining({
+        pccResolvedExecutionStandard: expect.objectContaining({
+          policy: "automatic_local_first",
+          qualityTarget: 93,
+          selectedSkillKeys: expect.arrayContaining(["openclaw-testing"]),
+        }),
+      }),
+    );
 
     await runPccAutopilotLoopAction(state, "allow_medium_risk");
     const approvedAutopilot = (
@@ -725,6 +763,7 @@ describe("loadPccDashboard", () => {
       });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      skillsReport: teamSkills,
       pccProjectDetail: {
         project,
         milestones: [milestone],
@@ -743,11 +782,39 @@ describe("loadPccDashboard", () => {
         id: "project-1",
         metadata: expect.objectContaining({
           pccWorkLoop: expect.objectContaining({ enabled: true }),
+          pccResolvedExecutionStandard: expect.objectContaining({
+            policy: "automatic_local_first",
+            qualityTarget: 93,
+            selectedSkillKeys: expect.arrayContaining(["openclaw-testing"]),
+          }),
         }),
       }),
     });
     expect(request).not.toHaveBeenCalledWith(expect.stringContaining("codex"), expect.anything());
     expect(state.pccActionNotice?.text).toContain("Work This Project is on");
+  });
+
+  it("fails closed before enabling work when the live skill catalog cannot load", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      skillsReport: null,
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await updatePccWorkLoopSettings(state, { enabled: true });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Work cannot start");
+    expect(state.pccActionError).toContain("skill catalog could not be loaded");
   });
 
   it("opens setup autofill preview instead of dead-ending when setup is missing", async () => {
@@ -768,6 +835,7 @@ describe("loadPccDashboard", () => {
     };
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      skillsReport: teamSkills,
       pccProjectDetail: {
         project: incompleteProject,
         milestones: [milestone],
@@ -807,6 +875,7 @@ describe("loadPccDashboard", () => {
       });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      skillsReport: teamSkills,
       pccProjectDetail: {
         project,
         milestones: [{ ...milestone, status: "not_started" }],
@@ -826,6 +895,10 @@ describe("loadPccDashboard", () => {
           pccWorkLoop: expect.objectContaining({
             activeMilestoneId: "milestone-1",
             state: "working",
+          }),
+          pccResolvedExecutionStandard: expect.objectContaining({
+            policy: "automatic_local_first",
+            qualityTarget: 93,
           }),
         }),
       }),
@@ -2947,6 +3020,18 @@ describe("PCC CRUD controller", () => {
       codexAgents: 0,
     });
 
+    const staleCatalog = buildPccExecutionTeamReadiness(
+      detail,
+      teamCapacity,
+      teamAgents,
+      teamModels,
+      [],
+      { workspaceDir: "/workspace", managedSkillsDir: "/skills", skills: [] },
+      "skills.status timed out",
+    );
+    expect(staleCatalog).toMatchObject({ status: "blocked" });
+    expect(staleCatalog.reason).toContain("Live skill catalog could not be loaded");
+
     const unavailable = buildPccExecutionTeamReadiness(
       detail,
       teamCapacity,
@@ -3147,6 +3232,7 @@ describe("PCC CRUD controller", () => {
       pccExecutionCapacity: teamCapacity,
       agentsList: teamAgents,
       chatModelCatalog: teamModels,
+      skillsReport: teamSkills,
     });
 
     await runPccExecutionTeamAction(state, "start");
@@ -3168,6 +3254,18 @@ describe("PCC CRUD controller", () => {
         message: expect.stringContaining("pass model: ollama/qwen3.6"),
       }),
     );
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        message: expect.stringContaining("PCC execution standard v1"),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        message: expect.stringContaining("control-ui-e2e"),
+      }),
+    );
     expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(false);
     expect(request.mock.calls.some(([method]) => method === "pcc.subMilestones.upsert")).toBe(
       false,
@@ -3180,6 +3278,15 @@ describe("PCC CRUD controller", () => {
             status: "running",
             admittedWorkerCount: 2,
             coordinator: expect.objectContaining({ runId: "coordinator-run" }),
+            executionStandard: expect.objectContaining({
+              policy: "automatic_local_first",
+              qualityTarget: 93,
+              selectedSkillKeys: expect.arrayContaining(["control-ui-e2e"]),
+            }),
+            proofRequirements: expect.arrayContaining([
+              expect.objectContaining({ qualityRequirementId: "tests_passed" }),
+              expect.objectContaining({ qualityRequirementId: "manual_or_browser_verified" }),
+            ]),
           }),
         ],
       }),

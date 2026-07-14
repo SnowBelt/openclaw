@@ -60,7 +60,10 @@ import {
 } from "../../../../src/pcc/work-loop.js";
 import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
 import { buildQualifiedChatModelValue } from "../chat-model-ref.ts";
-import { buildPccExecutionTeamReadiness } from "../controllers/pcc.ts";
+import {
+  buildPccExecutionTeamReadiness,
+  resolvePccExecutionStandardForDetail,
+} from "../controllers/pcc.ts";
 import type {
   PccActionNotice,
   PccAiRegenerateSection,
@@ -93,6 +96,7 @@ import type {
   PccStatus,
   ModelCatalogEntry,
   AgentsListResult,
+  SkillStatusReport,
 } from "../types.ts";
 import {
   PCC_INTERACTION_CONTRACTS,
@@ -137,6 +141,8 @@ export type PccDashboardProps = {
   modelsFallback?: boolean;
   runtimeIdentity?: PccRuntimeIdentity | null;
   executionCapacity?: PccExecutionCapacitySnapshot | null;
+  skillsReport?: SkillStatusReport | null;
+  skillsError?: string | null;
   onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
   onSetProductFocusMode?: (mode: "pcc_product" | "project_work") => void;
@@ -4634,6 +4640,12 @@ function renderAutopilotPromptSlot(slot: PccAutopilotPromptSlot, props: PccDashb
 }
 
 function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboardProps) {
+  const executionStandard = resolvePccExecutionStandardForDetail(
+    detail,
+    props.skillsReport,
+    undefined,
+    props.skillsError,
+  );
   const autopilot = getPccAutopilotState({
     project: detail.project,
     milestones: detail.milestones,
@@ -4641,6 +4653,7 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
     permissions: detail.permissions,
     evidence: detail.evidence,
     decisions: detail.decisions ?? [],
+    executionStandard,
   });
   const mode = pccViewMode(props);
   const enabledPrompts = autopilot.promptSlots.filter((slot) => slot.enabled);
@@ -4687,6 +4700,24 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         Codex or exceed local capacity beyond this profile.
       </p>
     </article>
+    <article class="pcc-autopilot__inherited-profile" data-pcc-autopilot-execution-standard>
+      <div>
+        <span>Automatic workflow</span>
+        <strong>${executionStandard.status === "ready" ? "Ready" : "Needs attention"}</strong>
+        <small>
+          ${executionStandard.qualityTarget}/100 minimum ·
+          ${executionStandard.selectedSkillKeys.length
+            ? executionStandard.selectedSkillKeys.join(", ")
+            : "built-in workflow"}
+        </small>
+      </div>
+      <p>
+        ${executionStandard.status === "ready"
+          ? "PCC applies the same process, skills, QA, judge, and repair contract to every prompt."
+          : (executionStandard.blockers[0] ??
+            "PCC must resolve its live processes and skills before Autopilot can start.")}
+      </p>
+    </article>
     <article class="pcc-autopilot__status-card" data-pcc-autopilot-status-card>
       <dl>
         ${renderTruthFact("Mode", autopilot.modeTitle)}
@@ -4709,13 +4740,18 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
           "Last output",
           autopilot.lastOutputSummary ?? latestRun?.outputSummary ?? "No output yet",
         )}
-        ${renderTruthFact("Blocker", blocker?.whyBlocked ?? "None")}
+        ${renderTruthFact(
+          "Blocker",
+          blocker?.whyBlocked ?? executionStandard.blockers[0] ?? "None",
+        )}
         ${renderTruthFact(
           "Next action",
           blocker?.recommendedNextAction ??
-            (autopilot.status === "off"
-              ? "Choose a mode and generate prompts"
-              : "Review prompts or start safe loop"),
+            (executionStandard.status === "blocked"
+              ? "Restore the live skill catalog or resolve the first required-skill blocker"
+              : autopilot.status === "off"
+                ? "Choose a mode and generate prompts"
+                : "Review prompts or start safe loop"),
         )}
         ${renderTruthFact("Judge", latestJudge?.summary ?? "Judge not run")}
       </dl>
@@ -4885,7 +4921,10 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
         class="btn"
         type="button"
         data-pcc-autopilot-start
-        ?disabled=${props.actionBusy || enabledPrompts.length === 0 || permissionForecast.required}
+        ?disabled=${props.actionBusy ||
+        enabledPrompts.length === 0 ||
+        permissionForecast.required ||
+        executionStandard.status === "blocked"}
         @click=${() => props.onRunAutopilotAction?.("start")}
       >
         Start Safe Loop
@@ -5014,6 +5053,8 @@ function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProject
     props.agentsList,
     props.modelCatalog,
     Object.values(props.projectDetails ?? {}),
+    props.skillsReport,
+    props.skillsError,
   );
   const running = readiness.status === "running";
   const ready = readiness.status === "ready";
@@ -5044,6 +5085,56 @@ function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProject
       <em>${formatStatus(readiness.status)}</em>
     </header>
     <p>${readiness.reason}</p>
+    <div
+      class="pcc-execution-standard pcc-execution-standard--${readiness.executionStandard.status}"
+      data-pcc-execution-standard
+      data-pcc-execution-standard-status=${readiness.executionStandard.status}
+    >
+      <header>
+        <div>
+          <span>Automatic workflow</span>
+          <strong>
+            ${readiness.executionStandard.status === "ready" ? "Ready" : "Needs attention"}
+          </strong>
+        </div>
+        <em>${readiness.executionStandard.qualityTarget}/100 minimum</em>
+      </header>
+      <p>
+        ${readiness.executionStandard.status === "ready"
+          ? `PCC selected ${readiness.executionStandard.capabilities.length} processes and ${readiness.executionStandard.selectedSkillKeys.length} matching skill${readiness.executionStandard.selectedSkillKeys.length === 1 ? "" : "s"}. You only review permissions or exact blockers.`
+          : props.skillsError
+            ? `PCC could not verify the live skill catalog: ${props.skillsError}`
+            : (readiness.executionStandard.blockers[0] ??
+              "PCC could not verify the required processes and skills.")}
+      </p>
+      <div class="pcc-execution-standard__workflow" aria-label="Automatic workflow steps">
+        ${readiness.executionStandard.workflow.map(
+          (phase, index) => html`<span><b>${index + 1}</b>${formatStatus(phase)}</span>`,
+        )}
+      </div>
+      <details>
+        <summary>Why this plan?</summary>
+        ${readiness.executionStandard.selectedSkillKeys.length
+          ? html`<p>
+              <strong>Skills:</strong>
+              ${readiness.executionStandard.selectedSkillKeys.join(", ")}
+            </p>`
+          : html`<p><strong>Skills:</strong> Built-in workflow; no specialized skill matched.</p>`}
+        <ul>
+          ${readiness.executionStandard.capabilities.map(
+            (capability) => html`<li>
+              <strong>${capability.title}</strong>
+              <span>${capability.selectionReason}</span>
+            </li>`,
+          )}
+        </ul>
+        ${readiness.executionStandard.warnings.length
+          ? html`<p class="pcc-execution-standard__warning">
+              ${readiness.executionStandard.warnings.join(" ")}
+            </p>`
+          : nothing}
+      </details>
+    </div>
     <div class="pcc-execution-team__facts">
       <span
         ><b>${readiness.admittedLocalAgents}</b> OpenClaw
@@ -7696,7 +7787,13 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
               <li>Setup answers and workflow</li>
               <li>Milestones and sub-steps</li>
               <li>Owners, acceptance criteria, and proof</li>
+              <li>Matching processes, skills, QA, judge review, and bounded repair</li>
             </ul>
+            <p data-pcc-create-execution-standard>
+              Every project uses one automatic local-first execution standard. PCC chooses the
+              relevant processes and installed skills, requires verified quality of at least 93/100,
+              and asks you only when a permission or exact blocker needs attention.
+            </p>
             <p data-pcc-create-ai-summary>
               ${blankCount} blank setup item${blankCount === 1 ? "" : "s"} · draft will include
               ${stats.milestones} milestones and ${stats.subMilestones} sub-steps · ${routing.local}

@@ -1297,6 +1297,9 @@
                 "group": "Automation",
                 "pages": [
                   "automation/index",
+                  "automation/pcc-execution-standard",
+                  "automation/pcc-execution-teams",
+                  "automation/pcc-learning-loop",
                   "automation/cron-jobs",
                   "automation/tasks",
                   "automation/taskflow",

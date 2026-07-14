@@ -14,6 +14,7 @@ import {
   withPccAutopilotState,
 } from "./autopilot.js";
 import { resolvePccExecutionProfilePreset } from "./execution-profile.js";
+import { buildPccExecutionStandard } from "./execution-standard.js";
 
 const now = "2026-07-07T12:00:00.000Z";
 const project: PccProject = {
@@ -68,6 +69,35 @@ describe("PCC Autopilot Project Loop", () => {
     expect(context.forbiddenActions.join("\n")).toContain("Do not spend Codex");
     expect(context.approvalRules.join("\n")).toContain("focused local execution");
     expect(context.forbiddenActions).toContain("Do not invoke Codex for this project profile.");
+  });
+
+  it("carries the automatic execution standard and blocks safely when it cannot be resolved", () => {
+    const executionStandard = buildPccExecutionStandard({
+      scope: "project_work",
+      title: "Test and verify the project dashboard",
+      availableSkills: [],
+    });
+    const standardInput = { ...input(), executionStandard };
+    const state = defaultPccAutopilotState(standardInput, now);
+    expect(
+      buildPccAutopilotContextPack(standardInput, state).executionStandard.join("\n"),
+    ).toContain("at least 93/100");
+
+    const blockedStandard = buildPccExecutionStandard({
+      scope: "project_work",
+      title: "Test and verify the project dashboard",
+      availableSkills: null,
+    });
+    const blockedInput = { ...input(), executionStandard: blockedStandard };
+    const blocked = runPccAutopilotSafeStubSet(
+      blockedInput,
+      defaultPccAutopilotState(blockedInput, now),
+      now,
+    );
+    expect(blocked.status).toBe("blocked");
+    expect(blocked.currentBlocker?.type).toBe("tool_unavailable");
+    expect(blocked.latestJudgeResult?.status).toBe("failed");
+    expect(blocked.runHistory).toEqual([]);
   });
 
   it("inherits the one project execution profile without broadening Codex", () => {

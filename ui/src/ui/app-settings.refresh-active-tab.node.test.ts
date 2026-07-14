@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   loadLogsMock: vi.fn(async () => {}),
   loadModelAuthStatusStateMock: vi.fn(async () => {}),
   loadNodesMock: vi.fn(async () => {}),
+  loadPccDashboardMock: vi.fn(async () => {}),
   loadPresenceMock: vi.fn(async () => {}),
   loadSessionsMock: vi.fn(async () => {}),
   loadSkillsMock: vi.fn(async () => {}),
@@ -117,6 +118,9 @@ vi.mock("./controllers/model-auth-status.ts", () => ({
 }));
 vi.mock("./controllers/nodes.ts", () => ({
   loadNodes: mocks.loadNodesMock,
+}));
+vi.mock("./controllers/pcc.ts", () => ({
+  loadPccDashboard: mocks.loadPccDashboardMock,
 }));
 vi.mock("./controllers/presence.ts", () => ({
   loadPresence: mocks.loadPresenceMock,
@@ -390,6 +394,16 @@ describe("refreshActiveTab", () => {
     expect(calls).toEqual(["agents", "reconcile", "skills"]);
     expect(mocks.loadAgentsMock).toHaveBeenCalledWith(host);
     expect(mocks.reconcileSkillsAgentIdMock).toHaveBeenCalledWith(host, host.agentsList);
+    expect(mocks.loadSkillsMock).toHaveBeenCalledWith(host);
+  });
+
+  it("loads the live skill catalog with the PCC dashboard", async () => {
+    const host = createHost();
+    host.tab = "pcc";
+
+    await refreshActiveTab(host as never);
+
+    expect(mocks.loadPccDashboardMock).toHaveBeenCalledWith(host);
     expect(mocks.loadSkillsMock).toHaveBeenCalledWith(host);
   });
 

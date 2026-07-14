@@ -34,21 +34,22 @@ flowchart TD
     Q6 -->|Yes| COMMITMENTS[Inferred Commitments]
 ```
 
-| Use case                                | Recommended            | Why                                              |
-| --------------------------------------- | ---------------------- | ------------------------------------------------ |
-| Send daily report at 9 AM sharp         | Scheduled Tasks (Cron) | Exact timing, isolated execution                 |
-| Remind me in 20 minutes                 | Scheduled Tasks (Cron) | One-shot with precise timing (`--at`)            |
-| Run weekly deep analysis                | Scheduled Tasks (Cron) | Standalone task, can use different model         |
-| Check inbox every 30 min                | Heartbeat              | Batches with other checks, context-aware         |
-| Monitor calendar for upcoming events    | Heartbeat              | Natural fit for periodic awareness               |
-| Check in after a mentioned interview    | Inferred Commitments   | Memory-like follow-up, no exact reminder request |
-| Gentle care check-in after user context | Inferred Commitments   | Scoped to the same agent and channel             |
-| Inspect status of a subagent or ACP run | Background Tasks       | Tasks ledger tracks all detached work            |
-| Audit what ran and when                 | Background Tasks       | `openclaw tasks list` and `openclaw tasks audit` |
-| Multi-step research then summarize      | Task Flow              | Durable orchestration with revision tracking     |
-| Run a script on session reset           | Hooks                  | Event-driven, fires on lifecycle events          |
-| Execute code on every tool call         | Plugin hooks           | In-process hooks can intercept tool calls        |
-| Always check compliance before replying | Standing Orders        | Injected into every session automatically        |
+| Use case                                       | Recommended            | Why                                                         |
+| ---------------------------------------------- | ---------------------- | ----------------------------------------------------------- |
+| Send daily report at 9 AM sharp                | Scheduled Tasks (Cron) | Exact timing, isolated execution                            |
+| Remind me in 20 minutes                        | Scheduled Tasks (Cron) | One-shot with precise timing (`--at`)                       |
+| Run weekly deep analysis                       | Scheduled Tasks (Cron) | Standalone task, can use different model                    |
+| Check inbox every 30 min                       | Heartbeat              | Batches with other checks, context-aware                    |
+| Monitor calendar for upcoming events           | Heartbeat              | Natural fit for periodic awareness                          |
+| Check in after a mentioned interview           | Inferred Commitments   | Memory-like follow-up, no exact reminder request            |
+| Gentle care check-in after user context        | Inferred Commitments   | Scoped to the same agent and channel                        |
+| Inspect status of a subagent or ACP run        | Background Tasks       | Tasks ledger tracks all detached work                       |
+| Audit what ran and when                        | Background Tasks       | `openclaw tasks list` and `openclaw tasks audit`            |
+| Multi-step research then summarize             | Task Flow              | Durable orchestration with revision tracking                |
+| Run a script on session reset                  | Hooks                  | Event-driven, fires on lifecycle events                     |
+| Execute code on every tool call                | Plugin hooks           | In-process hooks can intercept tool calls                   |
+| Always check compliance before replying        | Standing Orders        | Injected into every session automatically                   |
+| Run a PCC project with automatic skills and QA | PCC Execution Standard | Resolves process, skills, routing, proof, judge, and repair |
 
 ### Scheduled Tasks (Cron) vs Heartbeat
 
@@ -63,6 +64,12 @@ flowchart TD
 Use Scheduled Tasks (Cron) when you need precise timing or isolated execution. Use Heartbeat when the work benefits from full session context and approximate timing is fine.
 
 ## Core concepts
+
+### PCC execution standard
+
+PCC project runs use one automatic local-first contract for process and skill selection, permission preflight, model/team routing, verification, independent judge review, bounded repair, proof, and evidence-bound learning. The project execution profile remains the only model-routing source of truth.
+
+See [PCC Execution Standard](/automation/pcc-execution-standard).
 
 ### Scheduled tasks (cron)
 
@@ -123,6 +130,8 @@ See [Heartbeat](/gateway/heartbeat).
 - **Tasks** automatically track all detached work so you can inspect and audit it.
 
 ## Related
+
+- [PCC Execution Standard](/automation/pcc-execution-standard) — automatic process, skill, QA, judge, and repair contract
 
 - [Scheduled Tasks](/automation/cron-jobs) — precise scheduling and one-shot reminders
 - [Inferred Commitments](/concepts/commitments) — memory-like follow-up check-ins

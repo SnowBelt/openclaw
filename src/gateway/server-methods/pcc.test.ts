@@ -137,9 +137,21 @@ describe("Project Command Center gateway methods", () => {
   });
 
   it("canonicalizes future project work item metadata at gateway write time", async () => {
-    const { project } = okPayload<{ project: { id: string } }>(
-      await invoke("pcc.projects.upsert", { project: { title: "Future setup project" } }),
-    );
+    const { project } = okPayload<{
+      project: { id: string; metadata?: Record<string, unknown> };
+    }>(await invoke("pcc.projects.upsert", { project: { title: "Future setup project" } }));
+
+    expect(project.metadata).toMatchObject({
+      pccWorkScope: "project_work",
+      pccExecutionStandard: {
+        schemaVersion: 1,
+        policy: "automatic_local_first",
+        qualityTarget: 93,
+        learningPromotionTarget: 93,
+        maxRepairPasses: 2,
+        contributionContract: "manifest_and_contract_tests_required",
+      },
+    });
 
     const milestonePayload = okPayload<{
       milestone: {
@@ -299,7 +311,44 @@ describe("Project Command Center gateway methods", () => {
       completedAt: "2026-01-01T00:00:00.000Z",
     } as (typeof ledger.receipts)[number]);
     ledger.projects = ledger.projects.map((item) =>
-      item.id === project.id ? { ...item, metadata: {} } : item,
+      item.id === project.id
+        ? {
+            ...item,
+            metadata: {
+              pccLearningCandidates: [
+                {
+                  version: 1,
+                  id: "legacy-learning-1",
+                  fingerprint: "legacy-learning-fingerprint",
+                  status: "promoted",
+                  projectId: project.id,
+                  revision: "legacy-revision",
+                  receiptId: "legacy-receipt",
+                  decisionId: "legacy-decision",
+                  evidenceIds: ["legacy-evidence"],
+                  contentSummary: "Legacy five-metric recommendation.",
+                  createdAt: "2026-01-01T00:00:00.000Z",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  expiresAt: "2027-01-01T00:00:00.000Z",
+                  baselineMetrics: {
+                    speed: 95,
+                    accuracy: 95,
+                    efficiency: 95,
+                    first_pass_quality: 95,
+                    overall_quality: 95,
+                  },
+                  afterMetrics: {
+                    speed: 95,
+                    accuracy: 95,
+                    efficiency: 95,
+                    first_pass_quality: 95,
+                    overall_quality: 95,
+                  },
+                },
+              ],
+            },
+          }
+        : item,
     );
     pccTesting.replaceLedger(ledger as unknown as PccLedger);
 
@@ -324,6 +373,26 @@ describe("Project Command Center gateway methods", () => {
     expect(repairedLedger.projects.find((item) => item.id === project.id)?.metadata).toMatchObject({
       pccWorkScope: "project_work",
       pccScopeCanonicalizedAt: expect.any(String),
+      pccExecutionStandard: {
+        schemaVersion: 1,
+        policy: "automatic_local_first",
+        qualityTarget: 93,
+        learningPromotionTarget: 93,
+        maxRepairPasses: 2,
+        contributionContract: "manifest_and_contract_tests_required",
+      },
+      pccExecutionStandardCanonicalizedAt: expect.any(String),
+      pccLearningCandidatesCanonicalizedAt: expect.any(String),
+      pccLearningCandidates: [
+        expect.objectContaining({
+          id: "legacy-learning-1",
+          status: "trial",
+          statusReason:
+            "Legacy promotion requires QA revalidation under the 93/100 quality contract.",
+          baselineMetrics: expect.objectContaining({ qa: 0 }),
+          afterMetrics: expect.objectContaining({ qa: 0 }),
+        }),
+      ],
     });
     expect(
       repairedLedger.milestones.find((item) => item.id === "legacy-active-milestone")?.metadata,

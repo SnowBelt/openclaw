@@ -10,6 +10,25 @@ import {
 } from "../controllers/pcc.ts";
 import { renderPccDashboard, type PccDashboardProps } from "./pcc.ts";
 
+const readySkill = (skillKey: string, description: string) => ({
+  name: skillKey,
+  description,
+  source: "workspace",
+  filePath: `.agents/skills/${skillKey}/SKILL.md`,
+  baseDir: `.agents/skills/${skillKey}`,
+  skillKey,
+  always: false,
+  disabled: false,
+  blockedByAllowlist: false,
+  blockedByAgentFilter: false,
+  eligible: true,
+  modelVisible: true,
+  requirements: { bins: [], env: [], config: [], os: [] },
+  missing: { bins: [], env: [], config: [], os: [] },
+  configChecks: [],
+  install: [],
+});
+
 const project = {
   id: "project-1",
   title: "Project Command Center",
@@ -3165,6 +3184,14 @@ describe("renderPccDashboard", () => {
             agentRuntime: { id: "openclaw", source: "model" },
           },
         ],
+        skillsReport: {
+          workspaceDir: "/workspace",
+          managedSkillsDir: "/skills",
+          skills: [
+            readySkill("openclaw-testing", "Run targeted OpenClaw tests and verification."),
+            readySkill("control-ui-e2e", "Run live browser UI interaction proof."),
+          ],
+        },
         onRunExecutionTeam,
       }),
     );
@@ -3173,6 +3200,12 @@ describe("renderPccDashboard", () => {
       "Parallel",
     );
     expect(container.querySelector("[data-pcc-execution-team-status='ready']")).not.toBeNull();
+    expect(container.querySelector("[data-pcc-execution-standard]")?.textContent).toContain(
+      "93/100 minimum",
+    );
+    expect(container.querySelector("[data-pcc-execution-standard]")?.textContent).toContain(
+      "control-ui-e2e",
+    );
     const runButton = container.querySelector<HTMLButtonElement>(
       '[data-pcc-execution-team-action="start"]',
     );
@@ -4034,6 +4067,9 @@ describe("renderPccDashboard", () => {
     );
     expect(autopilot?.textContent).toContain("Autopilot Project Loop");
     expect(autopilot?.textContent).toContain("Simulation mode is active");
+    expect(
+      container.querySelector("[data-pcc-autopilot-execution-standard]")?.textContent,
+    ).toContain("93/100 minimum");
     expect(autopilot?.textContent).toContain("Permission needed before start");
     expect(container.querySelector("[data-pcc-autopilot-permission-queue]")).not.toBeNull();
     expect(container.querySelector("[data-pcc-autopilot-grant-history]")).not.toBeNull();
@@ -4048,6 +4084,17 @@ describe("renderPccDashboard", () => {
     );
     container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-allow-medium]")?.click();
     expect(onRunAutopilotAction).toHaveBeenCalledWith("allow_medium_risk");
+  });
+
+  it("shows an exact Autopilot blocker when the live skill catalog cannot load", () => {
+    const container = renderView(createProps({ skillsReport: null }));
+    const standard = container.querySelector("[data-pcc-autopilot-execution-standard]");
+
+    expect(standard?.textContent).toContain("Needs attention");
+    expect(standard?.textContent).toMatch(/live skill catalog could not be loaded/iu);
+    expect(container.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]")?.disabled).toBe(
+      true,
+    );
   });
 
   it("renders Autopilot durable permission queue, grants, and repair actions", () => {

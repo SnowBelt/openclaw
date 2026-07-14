@@ -475,7 +475,7 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
         await loadOverview(host);
         break;
       case "pcc":
-        await loadPccDashboard(app);
+        await Promise.all([loadPccDashboard(app), loadSkills(app)]);
         break;
       case "activity":
         break;
