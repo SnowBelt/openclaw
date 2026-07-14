@@ -238,6 +238,7 @@ esac
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plist,
+          OPENCLAW_NODE_BIN: process.execPath,
           PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         },
       },
