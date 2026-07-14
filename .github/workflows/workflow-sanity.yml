@@ -107,7 +107,7 @@ on:
         required: false
         default: "false"
       pcc-project-agnostic-proof:
-        description: Run Project Command Center Project-Agnostic Completion V1 proof
+        description: Run Project Command Center Project-Agnostic and Operational Excellence proof
         required: false
         default: "false"
 
@@ -2054,6 +2054,130 @@ jobs:
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed -- packages/gateway-protocol/src/schema/pcc.ts src/gateway/server-methods/pcc.ts src/gateway/server-methods/pcc.test.ts ui/src/ui/views/pcc.ts ui/src/ui/views/pcc-operational-confidence.ts ui/src/ui/views/pcc.test.ts ui/src/ui/controllers/pcc.ts ui/src/ui/pcc-context-package.ts ui/src/ui/pcc-context-package.test.ts ui/src/ui/app-render.ts ui/src/ui/app.ts ui/src/ui/app-view-state.ts ui/src/styles/pcc.css ui/src/styles/components.css scripts/dev/control-ui-pcc-project-agnostic-smoke.ts scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts scripts/dev/control-ui-pcc-audit-findings-closure-v1-smoke.ts scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts scripts/dev/control-ui-pcc-skimmable-journey-smoke.ts scripts/dev/control-ui-pcc-new-project-intuition-smoke.ts scripts/dev/control-ui-pcc-apple-simple-ux-smoke.ts scripts/dev/control-ui-pcc-functionality-closure-v1-smoke.ts scripts/dev/control-ui-pcc-focus-live-interaction-closure-smoke.ts scripts/dev/control-ui-pcc-final-functionality-closure-smoke.ts scripts/dev/control-ui-pcc-operational-confidence-smoke.ts scripts/dev/control-ui-pcc-live-disposable-browser-e2e.ts scripts/dev/control-ui-pcc-live-disposable-browser-e2e-isolated.ts scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts src/pcc/ledger-store.ts src/pcc/ledger-store.test.ts src/pcc/project-action.ts src/pcc/project-action.test.ts src/pcc/production-truth.ts src/pcc/production-truth.test.ts src/pcc/runtime-identity.ts src/pcc/runtime-identity.test.ts src/flows/doctor-core-checks.ts src/flows/doctor-core-checks.test.ts src/commands/doctor/shared/legacy-config-migrations.runtime.gateway.ts src/commands/doctor/shared/legacy-config-migrate.test.ts CHANGELOG.md .github/workflows/workflow-sanity.yml
+
+      - name: Run build proof
+        run: pnpm build
+
+  pcc-operational-excellence-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.pcc-project-agnostic-proof == 'true'
+    name: PCC Operational Excellence V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PROOF_BASE_SHA: 4f9a4672b645a57f62fa04ce7339253dd4e5fa38
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "proof_base_sha=${PROOF_BASE_SHA}"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test src/agents/model-fallback.test.ts src/agents/model-routing-policy.test.ts src/agents/model-spend-budget.test.ts src/config/schema.test.ts src/gateway/server-methods/models.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-model-catalog.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server.sessions.create.test.ts src/gateway/session-utils.subagent.test.ts src/gateway/sessions-patch.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/capability-contract.test.ts src/pcc/capability-evidence.test.ts src/pcc/capability-standards.test.ts src/pcc/custom-runtime-capabilities.test.ts src/pcc/operational-excellence-roadmap.test.ts src/pcc/operational-metrics.test.ts src/pcc/project-action.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-stage-promote.test.ts ui/src/ui/chat-model-select-state.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
+          - pnpm tsgo:all
+          - pnpm tsgo:test:ui
+          - pnpm check:pcc-capabilities
+          - pnpm check:custom-runtime-capabilities
+          - node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
+          - pnpm ui:smoke:chat-projects
+          - pnpm ui:smoke:pcc-mobile
+          - pnpm ui:smoke:dashboard-codex-plus-apps
+          - pnpm check:workflows
+          - pnpm check:changed -- $(git diff --name-only 4f9a4672b645a57f62fa04ce7339253dd4e5fa38...HEAD)
+          - pnpm build
+          EOF_COMMANDS
+
+      - name: Run targeted operational-excellence tests
+        run: >-
+          pnpm test
+          src/agents/model-fallback.test.ts
+          src/agents/model-routing-policy.test.ts
+          src/agents/model-spend-budget.test.ts
+          src/config/schema.test.ts
+          src/gateway/server-methods/models.test.ts
+          src/gateway/server-methods/pcc.test.ts
+          src/gateway/server-model-catalog.test.ts
+          src/gateway/server-runtime-services.test.ts
+          src/gateway/server.sessions.create.test.ts
+          src/gateway/session-utils.subagent.test.ts
+          src/gateway/sessions-patch.test.ts
+          src/pcc/capability-addition-registry.test.ts
+          src/pcc/capability-contract.test.ts
+          src/pcc/capability-evidence.test.ts
+          src/pcc/capability-standards.test.ts
+          src/pcc/custom-runtime-capabilities.test.ts
+          src/pcc/operational-excellence-roadmap.test.ts
+          src/pcc/operational-metrics.test.ts
+          src/pcc/project-action.test.ts
+          src/pcc/project-workflows.test.ts
+          src/pcc/runtime-identity.test.ts
+          src/pcc/work-loop.test.ts
+          test/scripts/custom-runtime-launcher.test.ts
+          test/scripts/custom-runtime-stage-promote.test.ts
+          ui/src/ui/chat-model-select-state.test.ts
+          ui/src/ui/controllers/chat.test.ts
+          ui/src/ui/controllers/pcc.test.ts
+          ui/src/ui/views/pcc.test.ts
+
+      - name: Run TypeScript proof
+        run: |
+          pnpm tsgo:all
+          pnpm tsgo:test:ui
+
+      - name: Run capability and runtime integrity checks
+        run: |
+          pnpm check:pcc-capabilities
+          pnpm check:custom-runtime-capabilities
+          node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
+
+      - name: Run browser smoke proof
+        run: |
+          pnpm ui:smoke:chat-projects
+          pnpm ui:smoke:pcc-mobile
+          pnpm ui:smoke:dashboard-codex-plus-apps
+
+      - name: Run workflow syntax check
+        run: pnpm check:workflows
+
+      - name: Run milestone changed gate
+        timeout-minutes: 60
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "${PROOF_BASE_SHA}^{commit}"
+          mapfile -t changed_files < <(git diff --name-only "${PROOF_BASE_SHA}"...HEAD)
+          if (( ${#changed_files[@]} == 0 )); then
+            echo "No milestone files found between ${PROOF_BASE_SHA} and HEAD" >&2
+            exit 1
+          fi
+          printf 'changed_file=%s\n' "${changed_files[@]}"
+          pnpm check:changed -- "${changed_files[@]}"
 
       - name: Run build proof
         run: pnpm build
