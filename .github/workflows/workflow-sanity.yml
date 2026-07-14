@@ -2093,6 +2093,7 @@ jobs:
           - pnpm test src/agents/model-fallback.test.ts src/agents/model-routing-policy.test.ts src/agents/model-spend-budget.test.ts src/config/schema.test.ts src/gateway/server-methods/models.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-model-catalog.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server.sessions.create.test.ts src/gateway/session-utils.subagent.test.ts src/gateway/sessions-patch.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/capability-contract.test.ts src/pcc/capability-evidence.test.ts src/pcc/capability-standards.test.ts src/pcc/custom-runtime-capabilities.test.ts src/pcc/operational-excellence-roadmap.test.ts src/pcc/operational-metrics.test.ts src/pcc/project-action.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-stage-promote.test.ts ui/src/ui/chat-model-select-state.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
           - pnpm tsgo:all
           - pnpm tsgo:test:ui
+          - pnpm build
           - pnpm check:pcc-capabilities
           - pnpm check:custom-runtime-capabilities
           - node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
@@ -2101,7 +2102,6 @@ jobs:
           - pnpm ui:smoke:dashboard-codex-plus-apps
           - pnpm check:workflows
           - pnpm check:changed -- $(git diff --name-only 4f9a4672b645a57f62fa04ce7339253dd4e5fa38...HEAD)
-          - pnpm build
           EOF_COMMANDS
 
       - name: Run targeted operational-excellence tests
@@ -2141,6 +2141,9 @@ jobs:
           pnpm tsgo:all
           pnpm tsgo:test:ui
 
+      - name: Run build proof
+        run: pnpm build
+
       - name: Run capability and runtime integrity checks
         run: |
           pnpm check:pcc-capabilities
@@ -2178,6 +2181,3 @@ jobs:
           fi
           printf 'changed_file=%s\n' "${changed_files[@]}"
           pnpm check:changed -- "${changed_files[@]}"
-
-      - name: Run build proof
-        run: pnpm build
