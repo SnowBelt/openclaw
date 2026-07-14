@@ -160,6 +160,16 @@ function recordString(value: unknown, key: string): string {
   return typeof field === "string" ? field : "";
 }
 
+function recordObject(value: unknown, key: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const field = (value as Record<string, unknown>)[key];
+  return field && typeof field === "object" && !Array.isArray(field)
+    ? (field as Record<string, unknown>)
+    : {};
+}
+
 function formatPreflightError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error);
   const scopeHint = /scope|operator\.admin|unauthori[sz]ed|forbidden|permission/iu.test(message)
@@ -751,10 +761,10 @@ async function main() {
       );
     const aiRolePicker = creationEditor.locator("[data-pcc-ai-role-picker]").first();
     await aiRolePicker.locator(":scope > summary").click();
-    await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_expert"]').check({ force: true });
-    const balancedCodexPresetVisible = await creationEditor
+    await aiRolePicker.locator('[data-pcc-execution-profile="balanced"]').check({ force: true });
+    const balancedTeamPresetVisible = await creationEditor
       .locator("[data-pcc-ai-role-picker]")
-      .getByText("Balanced Codex", { exact: false })
+      .getByText("Balanced team", { exact: false })
       .first()
       .isVisible();
     const codexApprovalExplainedOnce = await creationEditor
@@ -762,10 +772,12 @@ async function main() {
       .getByText("one Codex approval", { exact: false })
       .isVisible();
     const allAiPlansVisible =
-      (await aiRolePicker.locator("[data-pcc-ai-use-policy]").count()) === 4 &&
-      (await aiRolePicker.locator('[data-pcc-ai-use-policy="local_only"]').count()) === 1 &&
-      (await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_focused"]').count()) === 1 &&
-      (await aiRolePicker.locator('[data-pcc-ai-use-policy="codex_everything"]').count()) === 1;
+      (await aiRolePicker.locator("[data-pcc-execution-profile]").count()) === 5 &&
+      (await aiRolePicker.locator('[data-pcc-execution-profile="local_focused"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-execution-profile="local_parallel"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_local"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-execution-profile="balanced"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_hybrid"]').count()) === 1;
     const customizeDetails = creationEditor.locator("[data-pcc-create-customize]").first();
     const customizeSummary = customizeDetails.locator(":scope > summary");
     await customizeSummary.scrollIntoViewIfNeeded();
@@ -828,6 +840,20 @@ async function main() {
       ) &&
       (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
         createdProjectTitle;
+    if ((await aiRolePicker.getAttribute("open")) === null) {
+      await aiRolePicker.locator(":scope > summary").click();
+    }
+    const localParallelProfile = aiRolePicker.locator(
+      '[data-pcc-execution-profile="local_parallel"]',
+    );
+    await localParallelProfile.check({ force: true });
+    const localFallbackSelected =
+      (await localParallelProfile.isChecked()) &&
+      (await creationEditor
+        .locator("[data-pcc-ai-role-picker]")
+        .getByText("Parallel", { exact: true })
+        .first()
+        .isVisible());
     await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
     await creationEditor
       .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
@@ -838,7 +864,20 @@ async function main() {
       createdProjectTitle;
     await page.screenshot({ path: creationDesktopScreenshotPath, fullPage: true });
     await creationEditor.locator("[data-pcc-create-project-confirm]").click({ force: true });
-    await creationEditor.waitFor({ state: "hidden", timeout: 30_000 });
+    try {
+      await creationEditor.waitFor({ state: "hidden", timeout: 30_000 });
+    } catch (error) {
+      const editorError =
+        (
+          await creationEditor
+            .locator("[data-pcc-editor-error]")
+            .textContent()
+            .catch(() => "")
+        )
+          ?.replace(/\s+/gu, " ")
+          .trim() || "No editor error was rendered.";
+      throw new Error(`guided project creation remained open: ${editorError}`, { cause: error });
+    }
     const createdProjects = await gateway<{ projects?: PccProjectSummary[] }>("pcc.projects.list", {
       includeArchived: false,
     });
@@ -852,17 +891,19 @@ async function main() {
       createdProject.milestones.map((item) => recordString(item.metadata, "pccResponsibility")),
     );
     const modelRoutingPersisted =
-      recordString(createdProject.project.metadata, "pccAiUsePolicy") === "codex_expert" &&
-      createdResponsibilities.has("codex") &&
+      recordString(createdProject.project.metadata, "pccAiUsePolicy") === "" &&
+      recordObject(createdProject.project.metadata, "pccExecutionProfile").presetId ===
+        "local_parallel" &&
+      !createdResponsibilities.has("codex") &&
       createdResponsibilities.has("local_openclaw_agent") &&
       createdResponsibilities.has("remote_proof");
-    const codexPermissionGranted =
-      createdProject.permissions?.some(
-        (item) => item.status === "granted" && item.type === "codex_usage" && !item.maxUses,
-      ) === true;
+    const codexPermissionNotCreated =
+      createdProject.permissions?.every(
+        (item) => item.type !== "codex_usage" && item.type !== "high_reasoning_model",
+      ) !== false;
     const newProjectGuidedCreateWorked =
       aiExplainerVisible &&
-      balancedCodexPresetVisible &&
+      balancedTeamPresetVisible &&
       codexApprovalExplainedOnce &&
       allAiPlansVisible &&
       userTitlePreserved &&
@@ -875,9 +916,10 @@ async function main() {
       permissionApproved &&
       createEnabledAfterApproval &&
       backPreservedUserInput &&
+      localFallbackSelected &&
       fillRemainingPreservedUserInput &&
       modelRoutingPersisted &&
-      codexPermissionGranted;
+      codexPermissionNotCreated;
 
     phase = "testing guided creation on mobile";
     summary.phase = phase;
@@ -1732,7 +1774,7 @@ async function main() {
       actionMenuWorked: true,
       newProjectCancelWorked,
       newProjectGuidedCreateWorked,
-      newProjectBalancedCodexPresetVisible: balancedCodexPresetVisible,
+      newProjectBalancedTeamPresetVisible: balancedTeamPresetVisible,
       newProjectAllAiPlansVisible: allAiPlansVisible,
       newProjectCodexApprovalExplainedOnce: codexApprovalExplainedOnce,
       newProjectRoutingSummaryVisible: routingSummaryVisible,
@@ -1743,9 +1785,10 @@ async function main() {
       newProjectCodexPermissionApproved: permissionApproved,
       newProjectCreateEnabledAfterCodexApproval: createEnabledAfterApproval,
       newProjectBackPreservesInput: backPreservedUserInput,
+      newProjectLocalFallbackSelected: localFallbackSelected,
       newProjectFillRemainingPreservesInput: fillRemainingPreservedUserInput,
       newProjectModelRoutingPersisted: modelRoutingPersisted,
-      newProjectCodexPermissionGranted: codexPermissionGranted,
+      newProjectCodexPermissionNotPersistedForLocalProfile: codexPermissionNotCreated,
       newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
       newProjectMobileDoesNotOverflow: newProjectMobileLayout.noHorizontalOverflow,
       newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,
