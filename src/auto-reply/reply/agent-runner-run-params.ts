@@ -34,6 +34,7 @@ export function resolveModelFallbackOptions(
     agentDir: run.agentDir,
     agentId: run.agentId,
     sessionKey: run.runtimePolicySessionKey ?? run.sessionKey,
+    automaticSelection: run.hasSessionModelOverride !== true || run.modelOverrideSource === "auto",
     fallbacksOverride,
   };
 }

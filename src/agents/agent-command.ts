@@ -1863,8 +1863,12 @@ async function agentCommandInternal(
           runId,
           agentDir,
           agentId: sessionAgentId,
+          projectId: sessionEntry?.projectId,
           sessionId,
           sessionKey: sessionKey ?? sessionId,
+          automaticSelection:
+            !hasExplicitRunOverride && (!hasStoredOverride || storedModelOverrideSource === "auto"),
+          automaticPurpose: "general",
           prepareAgentHarnessRuntime: async ({
             provider: providerValue,
             model: modelValue,

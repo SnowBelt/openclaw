@@ -7,6 +7,7 @@ import {
   resolveAgentModelFallbackValues,
   resolveAgentModelPrimaryValue,
 } from "../config/model-input.js";
+import type { ModelRoutingPurpose } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { emitFailoverEvent } from "../infra/diagnostic-events.js";
 import { formatErrorMessage, toErrorObject } from "../infra/errors.js";
@@ -55,6 +56,7 @@ import { MissingAgentHarnessError, isMissingAgentHarnessError } from "./harness/
 import { resolveAgentHarnessPolicy } from "./harness/policy.js";
 import { getRegisteredAgentHarness } from "./harness/registry.js";
 import { LiveSessionModelSwitchError } from "./live-model-switch-error.js";
+import type { ModelInputType } from "./model-catalog.types.js";
 import {
   isModelFallbackDecisionLogEnabled,
   logModelFallbackDecision,
@@ -62,6 +64,10 @@ import {
   type ModelFallbackStepFields,
 } from "./model-fallback-observation.js";
 import type { FallbackAttempt, ModelCandidate } from "./model-fallback.types.js";
+import {
+  applyAutomaticModelRoutingPolicy,
+  resolveAutomaticModelRoutingProfile,
+} from "./model-routing-policy.js";
 import { isCliRuntimeAlias } from "./model-runtime-aliases.js";
 import { isCliProvider } from "./model-selection-cli.js";
 import {
@@ -69,6 +75,7 @@ import {
   modelKey,
   normalizeModelRef,
   normalizeProviderId,
+  parseModelRef,
 } from "./model-selection-normalize.js";
 import {
   buildConfiguredAllowlistKeys,
@@ -76,6 +83,7 @@ import {
   resolveConfiguredModelRef,
   resolveModelRefFromString,
 } from "./model-selection-resolve.js";
+import { reserveAutomaticDailySpendBudget } from "./model-spend-budget.js";
 import { isAgentRunRestartAbortReason } from "./run-termination.js";
 import {
   resolveSessionSuspensionReason,
@@ -1295,6 +1303,14 @@ type RunWithModelFallbackParams<T> = {
   agentDir?: string;
   /** Optional explicit fallbacks list; when provided (even empty), replaces agents.defaults.model.fallbacks. */
   fallbacksOverride?: string[];
+  /** Apply models.routing only when selection was not made explicitly by a user. */
+  automaticSelection?: boolean;
+  /** Deterministic profile for the current automatic task purpose. */
+  automaticPurpose?: ModelRoutingPurpose;
+  /** Input capability required by the automatic task. */
+  automaticRequiredInput?: ModelInputType;
+  /** Project owning any automatic metered spend reservation. */
+  projectId?: string;
   run: ModelFallbackRunFn<T>;
   onError?: ModelFallbackErrorHandler;
   onFallbackStep?: ModelFallbackStepHandler;
@@ -1352,13 +1368,50 @@ async function runWithModelFallbackInternal<T>(
   params: RunWithModelFallbackParams<T>,
   deferredSuspension: DeferredSessionSuspensionState,
 ): Promise<ModelFallbackRunResult<T>> {
-  const candidates = resolveModelCandidateChain({
-    cfg: params.cfg,
-    provider: params.provider,
-    model: params.model,
-    fallbacksOverride: params.fallbacksOverride,
-    manifestPlugins: params.manifestPlugins,
-  });
+  const profile = params.automaticSelection
+    ? resolveAutomaticModelRoutingProfile({ cfg: params.cfg, purpose: params.automaticPurpose })
+    : [];
+  const resolvedCandidates =
+    profile.length > 0
+      ? profile.flatMap((ref) => {
+          const candidate = parseModelRef(ref, params.provider);
+          return candidate ? [candidate] : [];
+        })
+      : resolveModelCandidateChain({
+          cfg: params.cfg,
+          provider: params.provider,
+          model: params.model,
+          fallbacksOverride: params.fallbacksOverride,
+          manifestPlugins: params.manifestPlugins,
+        });
+  const routing = params.automaticSelection
+    ? applyAutomaticModelRoutingPolicy({
+        cfg: params.cfg,
+        candidates: resolvedCandidates,
+        requiredInput: params.automaticRequiredInput,
+      })
+    : { candidates: resolvedCandidates, blocked: [] };
+  const routingConfig = params.cfg?.models?.routing;
+  const dailyBudget =
+    params.automaticSelection &&
+    (routingConfig?.automaticDailyMaxCostUsd !== undefined ||
+      routingConfig?.automaticProjectDailyMaxCostUsd !== undefined)
+      ? await reserveAutomaticDailySpendBudget({
+          cfg: params.cfg!,
+          candidates: routing.candidates,
+          agentId: params.agentId,
+          projectId: params.projectId,
+        })
+      : { candidates: routing.candidates, blocked: [] };
+  const candidates = dailyBudget.candidates;
+  if (candidates.length === 0) {
+    const blocked = [...routing.blocked, ...dailyBudget.blocked]
+      .map((candidate) => `${candidate.provider}/${candidate.model} (${candidate.route})`)
+      .join(", ");
+    throw new Error(
+      `Automatic model routing blocked every configured candidate${blocked ? `: ${blocked}` : ""}. Configure a local or subscription route, allow the needed route, or select a model explicitly.`,
+    );
+  }
   const authRuntime =
     !params.skipAuthProfileRuntime && params.cfg && hasAnyAuthProfileStoreSource(params.agentDir)
       ? await loadModelFallbackAuthRuntime()

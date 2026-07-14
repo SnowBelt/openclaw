@@ -132,6 +132,43 @@ export type ModelMediaInputConfig = {
 /** Authentication mode expected by a configured model provider. */
 export type ModelProviderAuthMode = "api-key" | "aws-sdk" | "oauth" | "token";
 
+/** Provider-neutral execution and billing facts used by automatic routing. */
+export type ModelRouteConfig = {
+  location?: "local" | "remote";
+  billing?: "included" | "metered";
+};
+
+/** Operator-owned evidence state for a model eligible for automatic work. */
+export type ModelCertificationConfig = {
+  state: "candidate" | "certified";
+  verifiedAt?: string;
+  evidence?: string;
+};
+
+export type ModelRoutingPurpose =
+  | "general"
+  | "vision"
+  | "coding"
+  | "reasoning"
+  | "scheduled"
+  | "maintenance";
+
+/**
+ * Controls automatic selection only. Explicit user choices are never replaced
+ * by this policy.
+ */
+export type ModelRoutingPolicyConfig = {
+  preference?: "preserve" | "local-first";
+  automaticMetered?: "allow" | "deny";
+  automaticUnknown?: "allow" | "deny";
+  automaticMaxCostUsd?: number;
+  automaticDailyMaxCostUsd?: number;
+  automaticProjectDailyMaxCostUsd?: number;
+  automaticProfiles?: Partial<Record<ModelRoutingPurpose, string[]>>;
+  requireCertifiedForAutomatic?: boolean;
+  certifications?: Record<string, ModelCertificationConfig>;
+};
+
 export type ModelProviderLocalServiceConfig = {
   /** Executable started before model requests are sent. */
   command: string;
@@ -161,7 +198,7 @@ export type ModelDefinitionConfig = {
   /** Whether the model supports reasoning/thinking controls. */
   reasoning: boolean;
   /** Supported input modalities for routing and media-tool selection. */
-  input: Array<"text" | "image" | "video" | "audio">;
+  input: Array<"text" | "image" | "video" | "audio" | "document">;
   /** Token pricing in USD per million tokens. */
   cost: {
     input: number;
@@ -197,6 +234,8 @@ export type ModelDefinitionConfig = {
   params?: Record<string, unknown>;
   /** Optional agent execution runtime override for this provider/model pair. */
   agentRuntime?: AgentRuntimePolicyConfig;
+  /** Optional route facts overriding the provider defaults. */
+  route?: ModelRouteConfig;
   /** Static headers merged into requests for this model. */
   headers?: Record<string, string>;
   /** Provider compatibility flags for payload shaping and feature gating. */
@@ -231,6 +270,8 @@ export type ModelProviderConfig = {
   params?: Record<string, unknown>;
   /** Optional default agent execution runtime for models under this provider. */
   agentRuntime?: AgentRuntimePolicyConfig;
+  /** Optional route facts shared by models under this provider. */
+  route?: ModelRouteConfig;
   /** Optional local service to start before calling this provider. */
   localService?: ModelProviderLocalServiceConfig;
   /** Secret-bearing headers merged into provider requests. */
@@ -276,6 +317,12 @@ export type ModelPricingConfig = {
   enabled?: boolean;
 };
 
+/** Opt-in periodic refresh for provider-owned model catalogs. */
+export type ModelCatalogRefreshConfig = {
+  enabled?: boolean;
+  intervalMinutes?: number;
+};
+
 export type ModelsConfig = {
   /** Merge provider config with bundled catalogs or replace bundled catalogs entirely. */
   mode?: "merge" | "replace";
@@ -283,6 +330,10 @@ export type ModelsConfig = {
   providers?: Record<string, ModelProviderConfig>;
   /** Pricing enrichment settings. */
   pricing?: ModelPricingConfig;
+  /** Optional automatic catalog refresh; disabled unless explicitly enabled. */
+  catalogRefresh?: ModelCatalogRefreshConfig;
+  /** Local-first and paid-route policy for automatic selection only. */
+  routing?: ModelRoutingPolicyConfig;
 };
 
 /** Top-level models config input before provider entries are normalized. */

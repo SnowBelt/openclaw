@@ -271,6 +271,7 @@ export function createCronPromptExecutor(params: {
       lane: resolveCronAgentLane(params.lane),
       agentDir: params.agentDir,
       agentId: params.agentId,
+      projectId: params.cronSession.sessionEntry.projectId,
       sessionKey: params.runSessionKey,
       prepareAgentHarnessRuntime: async ({ provider, model, agentHarnessRuntimeOverride }) => {
         await ensureSelectedAgentHarnessPlugin({
@@ -284,6 +285,9 @@ export function createCronPromptExecutor(params: {
         });
       },
       fallbacksOverride: cronFallbacksOverride,
+      automaticSelection:
+        params.job.payload.kind === "agentTurn" && !params.job.payload.model?.trim(),
+      automaticPurpose: "scheduled",
       run: async (providerOverride, modelOverride, runOptions) => {
         if (params.abortSignal?.aborted) {
           throw new Error(params.abortReason());

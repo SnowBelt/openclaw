@@ -1206,5 +1206,53 @@
   {
     "source": "Zalo ClawBot",
     "target": "Zalo ClawBot"
+  },
+  {
+    "source": "PCC Execution Teams",
+    "target": "PCC 执行团队"
+  },
+  {
+    "source": "PCC Learning Loop",
+    "target": "PCC 学习循环"
+  },
+  {
+    "source": "PCC Operational Excellence",
+    "target": "PCC 卓越运营"
+  },
+  {
+    "source": "Self-Improvement Governor",
+    "target": "自我改进治理器"
+  },
+  {
+    "source": "Background tasks",
+    "target": "后台任务"
+  },
+  {
+    "source": "SNES Game Creator Platform Runbook",
+    "target": "SNES 游戏创作平台运行手册"
+  },
+  {
+    "source": "SNES Studio",
+    "target": "SNES Studio"
+  },
+  {
+    "source": "SNES Studio Agent Routing",
+    "target": "SNES Studio 智能体路由"
+  },
+  {
+    "source": "SNES Studio Art Pipeline",
+    "target": "SNES Studio 美术流水线"
+  },
+  {
+    "source": "SNES Studio Model Benchmarking",
+    "target": "SNES Studio 模型基准测试"
+  },
+  {
+    "source": "SNES Studio Proof Gates",
+    "target": "SNES Studio 证明门禁"
+  },
+  {
+    "source": "SNES Studio Workflow",
+    "target": "SNES Studio 工作流"
   }
 ]

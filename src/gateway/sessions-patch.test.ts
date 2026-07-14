@@ -320,6 +320,25 @@ describe("gateway sessions patch", () => {
     expect(entry.fastMode).toBeUndefined();
   });
 
+  test("sets and clears the PCC project attached to a session", async () => {
+    const store = mainStoreEntry({});
+    const attached = expectPatchOk(
+      await runPatch({
+        store,
+        patch: { key: MAIN_SESSION_KEY, projectId: " project-pcc " },
+      }),
+    );
+    expect(attached.projectId).toBe("project-pcc");
+
+    const detached = expectPatchOk(
+      await runPatch({
+        store,
+        patch: { key: MAIN_SESSION_KEY, projectId: null },
+      }),
+    );
+    expect(detached.projectId).toBeUndefined();
+  });
+
   test("sets fastMode to auto", async () => {
     const store: Record<string, SessionEntry> = {
       [MAIN_SESSION_KEY]: {} as SessionEntry,

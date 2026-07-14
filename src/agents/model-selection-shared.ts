@@ -667,6 +667,8 @@ function applyModelCatalogMetadata(params: {
     params.entry.compat || configuredEntry?.compat
       ? { ...params.entry.compat, ...configuredEntry?.compat }
       : undefined;
+  const nextBaseUrl = configuredEntry?.baseUrl ?? params.entry.baseUrl;
+  const nextRouteConfig = configuredEntry?.routeConfig ?? params.entry.routeConfig;
 
   return {
     ...params.entry,
@@ -678,6 +680,8 @@ function applyModelCatalogMetadata(params: {
     ...(nextInput ? { input: nextInput } : {}),
     ...(nextParams ? { params: nextParams } : {}),
     ...(nextCompat ? { compat: nextCompat } : {}),
+    ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+    ...(nextRouteConfig ? { routeConfig: nextRouteConfig } : {}),
   };
 }
 
@@ -694,6 +698,8 @@ function buildSyntheticAllowedCatalogEntry(params: {
   const nextInput = configuredEntry?.input;
   const nextParams = configuredEntry?.params;
   const nextCompat = configuredEntry?.compat;
+  const nextBaseUrl = configuredEntry?.baseUrl;
+  const nextRouteConfig = configuredEntry?.routeConfig;
 
   return {
     id: params.parsed.model,
@@ -706,6 +712,8 @@ function buildSyntheticAllowedCatalogEntry(params: {
     ...(nextInput ? { input: nextInput } : {}),
     ...(nextParams ? { params: nextParams } : {}),
     ...(nextCompat ? { compat: nextCompat } : {}),
+    ...(nextBaseUrl ? { baseUrl: nextBaseUrl } : {}),
+    ...(nextRouteConfig ? { routeConfig: nextRouteConfig } : {}),
   };
 }
 
@@ -1323,6 +1331,8 @@ export function buildConfiguredModelCatalog(params: {
         id,
         name,
         api: model.api ?? provider.api,
+        baseUrl: model.baseUrl ?? provider.baseUrl,
+        routeConfig: model.route ?? provider.route,
         contextWindow,
         contextTokens,
         reasoning,

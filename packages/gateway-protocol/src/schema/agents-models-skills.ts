@@ -21,6 +21,28 @@ export const ModelChoiceSchema = Type.Object(
     available: Type.Optional(Type.Boolean()),
     contextWindow: Type.Optional(Type.Integer({ minimum: 1 })),
     reasoning: Type.Optional(Type.Boolean()),
+    input: Type.Optional(
+      Type.Array(
+        Type.Union([
+          Type.Literal("text"),
+          Type.Literal("image"),
+          Type.Literal("audio"),
+          Type.Literal("video"),
+          Type.Literal("document"),
+        ]),
+      ),
+    ),
+    route: Type.Optional(
+      Type.Union([
+        Type.Literal("local"),
+        Type.Literal("subscription"),
+        Type.Literal("metered"),
+        Type.Literal("unknown"),
+      ]),
+    ),
+    certification: Type.Optional(
+      Type.Union([Type.Literal("candidate"), Type.Literal("certified"), Type.Literal("unlisted")]),
+    ),
     agentRuntime: Type.Optional(
       Type.Object(
         {

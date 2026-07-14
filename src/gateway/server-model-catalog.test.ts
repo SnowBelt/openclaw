@@ -9,6 +9,7 @@ import {
   resetModelCatalogCacheForTest,
   loadGatewayModelCatalog,
   markGatewayModelCatalogStaleForReload,
+  startGatewayModelCatalogPeriodicRefresh,
 } from "./server-model-catalog.js";
 
 type LoadModelCatalogForTest = NonNullable<
@@ -177,5 +178,33 @@ describe("loadGatewayModelCatalog", () => {
     await vi.waitFor(async () => {
       await expectCatalog(loadModelCatalog, freshCatalog);
     });
+  });
+
+  it("periodically refreshes the full catalog and stops cleanly", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = [model("local-1")];
+      const second = [model("local-2")];
+      const loadModelCatalog = vi
+        .fn<LoadModelCatalogForTest>()
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(second);
+      const stop = startGatewayModelCatalogPeriodicRefresh({
+        getConfig,
+        loadModelCatalog,
+        intervalMs: 1_000,
+      });
+
+      await vi.waitFor(() => expect(loadModelCatalog).toHaveBeenCalledTimes(1));
+      expect(loadModelCatalog).toHaveBeenLastCalledWith({ config: getConfig(), readOnly: false });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(loadModelCatalog).toHaveBeenCalledTimes(2));
+
+      stop();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(loadModelCatalog).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

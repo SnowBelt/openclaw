@@ -2087,6 +2087,8 @@ export async function runAgentTurnWithFallback(params: {
       const outcomePlan = buildAgentRuntimeOutcomePlan();
       const runLane = CommandLane.Main;
       const runAbortSignal = params.replyOperation?.abortSignal ?? params.opts?.abortSignal;
+      const hasImageInput =
+        (params.followupRun.images?.length ?? 0) > 0 || (params.opts?.images?.length ?? 0) > 0;
       let queuedUserMessagePersistedAcrossFallback = false;
       let assistantErrorPersistedAcrossFallback = false;
       const userTurnTranscriptRecorder =
@@ -2112,7 +2114,11 @@ export async function runAgentTurnWithFallback(params: {
           ...resolveModelFallbackOptions(effectiveRun, runtimeConfig),
           runId,
           sessionId: params.followupRun.run.sessionId,
+          agentId: params.followupRun.run.agentId,
+          projectId: params.getActiveSessionEntry()?.projectId,
           lane: runLane,
+          automaticPurpose: hasImageInput ? "vision" : "general",
+          ...(hasImageInput ? { automaticRequiredInput: "image" as const } : {}),
           abortSignal: runAbortSignal,
           resolveAgentHarnessRuntimeOverride: (provider) =>
             resolveSessionRuntimeOverrideForProvider({

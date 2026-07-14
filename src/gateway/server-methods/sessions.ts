@@ -1425,6 +1425,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
             key: target.canonicalKey,
             label: normalizeOptionalString(p.label),
             model: normalizeOptionalString(p.model),
+            projectId: normalizeOptionalString(p.projectId),
           },
           loadGatewayModelCatalog: context.loadGatewayModelCatalog,
         });

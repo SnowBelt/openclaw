@@ -56,6 +56,7 @@ type ChatSessionPickerSearchController = {
 type ChatInlineSelectOption = {
   value: string;
   label: string;
+  group?: string;
 };
 
 const FAST_MODE_PROVIDER_IDS = new Set([
@@ -852,7 +853,8 @@ async function refreshVisibleToolsEffectiveForCurrentSessionLazy(state: AppViewS
 }
 
 export function renderChatModelSelect(state: AppViewState) {
-  const { currentOverride, defaultLabel, options } = resolveChatModelSelectState(state);
+  const { currentOverride, defaultLabel, options, optionGroups } =
+    resolveChatModelSelectState(state);
   const thinking = resolveChatThinkingSelectState(state);
   const fastMode = resolveChatFastModeSelectState(state, currentOverride);
   const busy =
@@ -877,7 +879,12 @@ export function renderChatModelSelect(state: AppViewState) {
       ? thinking.defaultLabel
       : (thinking.options.find((entry) => entry.value === thinking.currentOverride)?.label ??
         thinking.currentOverride);
-  const modelOptions = [{ value: "", label: defaultLabel }, ...options];
+  const modelOptions = [
+    { value: "", label: defaultLabel, group: "Default" },
+    ...optionGroups.flatMap((group) =>
+      group.options.map((option) => ({ ...option, group: group.label })),
+    ),
+  ];
   return renderChatModelReasoningSelect({
     disabled,
     modelOptions,
@@ -1144,6 +1151,11 @@ function renderChatModelReasoningSelect(params: {
   const triggerModel = formatCombinedPickerModelLabel(selectedModelLabel);
   const triggerThinking = formatCombinedPickerThinkingLabel(selectedThinkingLabel);
   const triggerLabel = `${triggerModel} · ${triggerThinking}`;
+  const modelOptionGroups = new Map<string, ChatInlineSelectOption[]>();
+  for (const option of modelOptions) {
+    const group = option.group ?? "Other / unclassified";
+    modelOptionGroups.set(group, [...(modelOptionGroups.get(group) ?? []), option]);
+  }
   return html`
     <details class="chat-controls__session chat-controls__inline-select chat-controls__model">
       <summary
@@ -1176,45 +1188,52 @@ function renderChatModelReasoningSelect(params: {
         <div class="chat-controls__inline-select-section-label">Model</div>
         <div class="chat-controls__combined-model-list">
           ${repeat(
-            modelOptions,
-            (entry) => entry.value,
-            (entry) => {
-              const selected = entry.value === selectedModelValue;
-              return html`
-                <div class="chat-controls__combined-model">
-                  <button
-                    class="chat-controls__inline-select-option chat-controls__combined-model-option ${selected
-                      ? "chat-controls__inline-select-option--selected"
-                      : ""}"
-                    data-chat-model-option=${entry.value}
-                    role="option"
-                    aria-selected=${selected ? "true" : "false"}
-                    type="button"
-                    ?disabled=${disabled}
-                    @click=${async (event: MouseEvent) => {
-                      if (disabled || selected) {
-                        event.preventDefault();
-                        return;
-                      }
-                      (event.currentTarget as HTMLElement)
-                        .closest("details")
-                        ?.removeAttribute("open");
-                      await onModelSelect(entry.value);
-                    }}
-                  >
-                    <span>${formatCombinedPickerModelOptionLabel(entry, selected)}</span>
-                    ${selected
-                      ? html`<span
-                          class="chat-controls__inline-select-check chat-controls__combined-model-arrow"
-                          aria-hidden="true"
-                        >
-                          ${icons.chevronDown}
-                        </span>`
-                      : ""}
-                  </button>
-                </div>
-              `;
-            },
+            [...modelOptionGroups.entries()],
+            ([group]) => group,
+            ([group, entries]) => html`
+              <div class="chat-controls__inline-select-section-label">${group}</div>
+              ${repeat(
+                entries,
+                (entry) => entry.value,
+                (entry) => {
+                  const selected = entry.value === selectedModelValue;
+                  return html`
+                    <div class="chat-controls__combined-model">
+                      <button
+                        class="chat-controls__inline-select-option chat-controls__combined-model-option ${selected
+                          ? "chat-controls__inline-select-option--selected"
+                          : ""}"
+                        data-chat-model-option=${entry.value}
+                        role="option"
+                        aria-selected=${selected ? "true" : "false"}
+                        type="button"
+                        ?disabled=${disabled}
+                        @click=${async (event: MouseEvent) => {
+                          if (disabled || selected) {
+                            event.preventDefault();
+                            return;
+                          }
+                          (event.currentTarget as HTMLElement)
+                            .closest("details")
+                            ?.removeAttribute("open");
+                          await onModelSelect(entry.value);
+                        }}
+                      >
+                        <span>${formatCombinedPickerModelOptionLabel(entry, selected)}</span>
+                        ${selected
+                          ? html`<span
+                              class="chat-controls__inline-select-check chat-controls__combined-model-arrow"
+                              aria-hidden="true"
+                            >
+                              ${icons.chevronDown}
+                            </span>`
+                          : ""}
+                      </button>
+                    </div>
+                  `;
+                },
+              )}
+            `,
           )}
         </div>
         <div

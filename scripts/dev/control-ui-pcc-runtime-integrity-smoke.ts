@@ -4,21 +4,16 @@ import os from "node:os";
 import path from "node:path";
 import {
   copyVerifiedRuntime,
+  REQUIRED_PCC_DASHBOARD_SURFACES,
+  verifyCustomRuntimeCapabilityManifest,
   verifyPccDashboardSurfaceManifest,
 } from "./deploy-verified-pcc-runtime.ts";
 
 const source = process.cwd();
 await verifyPccDashboardSurfaceManifest(source);
+await verifyCustomRuntimeCapabilityManifest(source);
 
-const surfaceIds = [
-  "pcc",
-  "app-studio",
-  "music-studio",
-  "snes-studio",
-  "book-writer",
-  "kalshi",
-  "pattern-lab",
-];
+const surfaceIds = [...REQUIRED_PCC_DASHBOARD_SURFACES];
 const temp = await mkdtemp(path.join(os.tmpdir(), "openclaw-pcc-runtime-integrity-"));
 try {
   const fixtureSource = path.join(temp, "source");
@@ -36,6 +31,26 @@ try {
       surfaces: surfaceIds.map((id) => ({ id, assets: [`assets/${id}.js`] })),
     }),
   );
+  const capabilityManifest = JSON.parse(
+    await readFile(path.join(source, "config", "custom-runtime-capabilities.json"), "utf8"),
+  ) as { capabilities: Array<{ requiredPaths: string[] }> };
+  const fixtureCapabilityManifest = path.join(
+    fixtureSource,
+    "config",
+    "custom-runtime-capabilities.json",
+  );
+  await mkdir(path.dirname(fixtureCapabilityManifest), { recursive: true });
+  await writeFile(fixtureCapabilityManifest, JSON.stringify(capabilityManifest));
+  for (const requiredPath of new Set(
+    capabilityManifest.capabilities.flatMap((capability) => capability.requiredPaths),
+  )) {
+    const target = path.join(fixtureSource, requiredPath);
+    if (requiredPath === "dist/control-ui/dashboard-surfaces.json") {
+      continue;
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, `// ${requiredPath}\n`);
+  }
   await mkdir(runtime, { recursive: true });
   await writeFile(path.join(runtime, "previous-runtime.txt"), "previous");
 

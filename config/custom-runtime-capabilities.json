@@ -1,0 +1,201 @@
+{
+  "schema": "openclaw.custom-runtime-capabilities.v1",
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "dashboard:pcc",
+      "kind": "dashboard_surface",
+      "surfaceId": "pcc",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "dashboard:app-studio",
+      "kind": "dashboard_surface",
+      "surfaceId": "app-studio",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "dashboard:music-studio",
+      "kind": "dashboard_surface",
+      "surfaceId": "music-studio",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "dashboard:snes-studio",
+      "kind": "dashboard_surface",
+      "surfaceId": "snes-studio",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "dashboard:book-writer",
+      "kind": "dashboard_surface",
+      "surfaceId": "book-writer",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "dashboard:kalshi",
+      "kind": "dashboard_surface",
+      "surfaceId": "kalshi",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "dashboard:pattern-lab",
+      "kind": "dashboard_surface",
+      "surfaceId": "pattern-lab",
+      "requiredPaths": ["ui/config/dashboard-surfaces.ts"]
+    },
+    {
+      "id": "plugin:apps",
+      "kind": "plugin",
+      "pluginId": "apps",
+      "requiredPaths": ["extensions/apps/openclaw.plugin.json"]
+    },
+    {
+      "id": "plugin:book-writer",
+      "kind": "plugin",
+      "pluginId": "book-writer",
+      "requiredPaths": ["extensions/book-writer/openclaw.plugin.json"]
+    },
+    {
+      "id": "workflow:pcc-project-management",
+      "kind": "workflow",
+      "requiredPaths": ["src/pcc/project-workflows.ts", "src/gateway/server-methods/pcc.ts"]
+    },
+    {
+      "id": "workflow:pcc-operational-excellence",
+      "kind": "workflow",
+      "requiredPaths": [
+        "src/pcc/operational-excellence-roadmap.ts",
+        "src/pcc/capability-contract.ts"
+      ]
+    },
+    {
+      "id": "runtime:control-director-truth-gates",
+      "kind": "runtime",
+      "requiredPaths": ["src/agents/control-director-delivery-guards.ts"]
+    },
+    {
+      "id": "runtime:local-first-model-intelligence",
+      "kind": "runtime",
+      "requiredPaths": ["src/agents/model-routing-policy.ts"]
+    },
+    {
+      "id": "runtime:chat-work-surface",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/chat/work-snapshot.ts",
+        "scripts/dev/control-ui-chat-work-surface-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-native-projects",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/controllers/chat.ts",
+        "packages/gateway-protocol/src/schema/sessions.ts",
+        "src/gateway/sessions-patch.ts",
+        "scripts/dev/control-ui-chat-projects-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-plan-mode",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/chat/proposed-plan.ts",
+        "scripts/dev/control-ui-chat-plan-mode-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-pursue-goal",
+      "kind": "runtime",
+      "requiredPaths": [
+        "src/gateway/server-methods/tasks.ts",
+        "scripts/dev/control-ui-chat-pursue-goal-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-approval-cards",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/views/chat.ts",
+        "scripts/dev/control-ui-chat-approval-cards-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-tool-proof-artifact-cards",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/chat/tool-cards.ts",
+        "scripts/dev/control-ui-chat-tool-proof-artifact-cards-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-multi-agent-work-tree",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/chat/work-snapshot.ts",
+        "ui/src/ui/views/chat.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-truth-completion-diagnostics",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/chat/control-director-diagnostics.ts",
+        "scripts/dev/control-ui-chat-truth-diagnostics-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-polish-accessibility",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/styles/chat.css",
+        "scripts/dev/control-ui-chat-polish-a11y-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-network-remote-approvals",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/views/chat.ts",
+        "scripts/dev/control-ui-chat-network-remote-approval-cards-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:pcc-mobile-control",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/views/pcc.ts",
+        "ui/src/styles/pcc.css",
+        "scripts/dev/control-ui-pcc-mobile-section-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:chat-ux-cleanup",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/views/chat.ts",
+        "ui/src/styles/chat.css",
+        "scripts/dev/control-ui-chat-ux-cleanup-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:pcc-chat-sync",
+      "kind": "runtime",
+      "requiredPaths": [
+        "src/pcc/project-action.ts",
+        "ui/src/ui/controllers/chat.ts",
+        "scripts/dev/control-ui-pcc-chat-sync-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:dashboard-codex-plus-apps",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/config/dashboard-surfaces.ts",
+        "ui/src/ui/navigation.ts",
+        "scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts"
+      ]
+    }
+  ]
+}

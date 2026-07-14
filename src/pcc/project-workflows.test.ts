@@ -38,6 +38,11 @@ describe("PCC workflow templates", () => {
     });
 
     expect(draft.project.metadata?.pccWorkflowTemplateId).toBe("snes-studio");
+    expect(draft.project.metadata?.pccCapabilityContract).toMatchObject({
+      schema: "openclaw.pcc.capability-contract.v1",
+      qualityThreshold: 93,
+      workflowTemplateId: "snes-studio",
+    });
     expect(draft.project.phases?.length).toBeGreaterThan(0);
     expect(draft.milestones.length).toBe(7);
     expect(draft.milestones[0]?.metadata).toMatchObject({ pccStopHere: true });
@@ -285,6 +290,11 @@ describe("PCC workflow templates", () => {
       expect(milestone.acceptanceCriteria).toBeTruthy();
       expect(milestone.metadata?.pccResponsibility).toBeTruthy();
       expect(milestone.metadata?.pccProofLevel).toBeTruthy();
+      expect(milestone.metadata?.pccCapabilityContractSchema).toBe(
+        "openclaw.pcc.capability-contract.v1",
+      );
+      expect(milestone.metadata?.pccCapabilityRequirementIds).toBeInstanceOf(Array);
+      expect(milestone.metadata?.pccQualityThreshold).toBe(93);
     }
   });
 

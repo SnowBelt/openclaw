@@ -6,6 +6,12 @@ import type {
   PccStatus,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import {
+  buildPccCapabilityContract,
+  PCC_CAPABILITY_CONTRACT_SCHEMA,
+  pccCapabilityContractMetadata,
+  pccCapabilityRequirementIdsForPhase,
+} from "./capability-contract.js";
 
 export type PccWorkflowTemplateId =
   | "software-product"
@@ -327,6 +333,8 @@ export function buildPccWorkflowDraft(input: {
   const phases = template.phases.map((phase) => ({ ...phase }));
   const planningMode = input.planningMode ?? "template_only";
   const aiUsePolicy = input.aiUsePolicy ?? "local_only";
+  const capabilityContract = buildPccCapabilityContract(template.id);
+  const capabilityContractMetadata = pccCapabilityContractMetadata(capabilityContract);
   const needsCodexPlan =
     (planningMode === "codex_full_plan" || aiUsePolicy !== "local_only") &&
     input.codexPlanningAllowed !== true;
@@ -334,6 +342,10 @@ export function buildPccWorkflowDraft(input: {
   const milestones = template.milestones.map((item, index) => {
     const responsibility = responsibilityForAiUsePolicy(item, aiUsePolicy);
     const requiresCodex = responsibility.includes("codex");
+    const capabilityRequirementIds = pccCapabilityRequirementIdsForPhase(
+      capabilityContract,
+      item.phaseId,
+    );
     const metadata = {
       pccWorkflowTemplateId: template.id,
       pccProofLevel: item.proofLevel,
@@ -345,6 +357,9 @@ export function buildPccWorkflowDraft(input: {
       requiresRemoteProof: item.requiresRemoteProof === true,
       parallelSafe: responsibility !== "user" && responsibility !== "remote_proof",
       workspaceLock: `${slug(title)}:${item.phaseId}`,
+      pccCapabilityContractSchema: PCC_CAPABILITY_CONTRACT_SCHEMA,
+      pccCapabilityRequirementIds: capabilityRequirementIds,
+      pccQualityThreshold: capabilityContract.qualityThreshold,
     };
     return {
       title: item.title,
@@ -356,6 +371,7 @@ export function buildPccWorkflowDraft(input: {
         "All sub-milestones are complete or explicitly skipped with reason.",
         "Required proof is attached before completion.",
         "A completion receipt records what was done and what not to redo.",
+        `Applicable quality dimensions score at least ${capabilityContract.qualityThreshold}/100 with no critical regression.`,
       ],
       metadata,
     };
@@ -382,6 +398,7 @@ export function buildPccWorkflowDraft(input: {
         pccCodexPlanningAllowed: input.codexPlanningAllowed === true,
         pccRemoteProofAllowed: input.remoteProofAllowed === true,
         pccRuntimeActionsAllowed: input.runtimeActionsAllowed === true,
+        pccCapabilityContract: capabilityContractMetadata,
       },
     },
     milestones,
@@ -390,6 +407,10 @@ export function buildPccWorkflowDraft(input: {
         item.title,
         item.subMilestones.map((subTitle, subIndex) => {
           const responsibility = responsibilityForAiUsePolicy(item, aiUsePolicy);
+          const capabilityRequirementIds = pccCapabilityRequirementIdsForPhase(
+            capabilityContract,
+            item.phaseId,
+          );
           return {
             title: subTitle,
             status: "not_started" as PccStatus,
@@ -410,6 +431,9 @@ export function buildPccWorkflowDraft(input: {
               requiresCodex: responsibility.includes("codex"),
               parallelSafe: responsibility !== "user" && responsibility !== "remote_proof",
               workspaceLock: `${slug(title)}:${item.phaseId}`,
+              pccCapabilityContractSchema: PCC_CAPABILITY_CONTRACT_SCHEMA,
+              pccCapabilityRequirementIds: capabilityRequirementIds,
+              pccQualityThreshold: capabilityContract.qualityThreshold,
             },
           };
         }),

@@ -41,6 +41,10 @@ import {
   pccWorkScopeForProject,
   pccWorkScopeLabel,
 } from "../../../../src/pcc/metadata.js";
+import {
+  buildPccOperationalMetrics,
+  type PccOperationalMetrics,
+} from "../../../../src/pcc/operational-metrics.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import {
@@ -4064,6 +4068,84 @@ function renderCompactMetric(label: string, value: string | number) {
   return html`<span class="pcc-today__compact-metric"><strong>${value}</strong>${label}</span>`;
 }
 
+function pccOperationalEvidence(props: PccDashboardProps): PccEvidence[] {
+  const details = Object.values(props.projectDetails ?? {});
+  if (
+    props.projectDetail &&
+    !details.some((detail) => detail.project.id === props.projectDetail?.project.id)
+  ) {
+    details.push(props.projectDetail);
+  }
+  const byId = new Map<string, PccEvidence>();
+  for (const detail of details) {
+    for (const evidence of detail.evidence) {
+      byId.set(evidence.id, evidence);
+    }
+  }
+  return [...byId.values()];
+}
+
+function operationalHealthLabel(metrics: PccOperationalMetrics): string {
+  switch (metrics.health) {
+    case "meeting":
+      return "Meeting target";
+    case "at_risk":
+      return "At risk";
+    case "breached":
+      return "Gate breached";
+    default:
+      return "Proof pending";
+  }
+}
+
+function metricValue(value: number | null, suffix = "%"): string {
+  return value === null ? "No data" : `${value}${suffix}`;
+}
+
+function renderPccOperationalMetrics(metrics: PccOperationalMetrics) {
+  return html`<section
+    class=${`pcc-operational-metrics pcc-operational-metrics--${metrics.health}`}
+    data-pcc-operational-metrics
+    data-pcc-operational-health=${metrics.health}
+    aria-label="Operational quality and efficiency"
+  >
+    <header>
+      <div>
+        <span>Operational quality</span>
+        <strong>${operationalHealthLabel(metrics)}</strong>
+      </div>
+      <small>Target ${metrics.target}/100 · ${metrics.source}</small>
+    </header>
+    <div class="pcc-operational-metrics__grid">
+      ${renderCompactMetric("First pass", metricValue(metrics.firstPassRate))}
+      ${renderCompactMetric("Error budget left", metricValue(metrics.errorBudgetRemaining))}
+      ${renderCompactMetric("Quality gate", metricValue(metrics.qualityPassRate))}
+      ${renderCompactMetric("Local first", metricValue(metrics.localFirstRate))}
+      ${renderCompactMetric(
+        "Paid use authorized",
+        metrics.paidUseCount > 0
+          ? `${metrics.authorizedPaidUseCount}/${metrics.paidUseCount}`
+          : "None",
+      )}
+      ${renderCompactMetric("Rework attempts", metrics.reworkAttempts)}
+      ${renderCompactMetric("Defects", metrics.defectCount)}
+    </div>
+    <p>
+      ${metrics.latestEvidenceAt
+        ? `Latest source evidence: ${metrics.latestEvidenceAt}`
+        : "No evidence metadata has been recorded yet; no success is inferred."}
+    </p>
+    ${metrics.gaps.length
+      ? html`<details>
+          <summary>${metrics.gaps.length} proof gap${metrics.gaps.length === 1 ? "" : "s"}</summary>
+          <ul>
+            ${metrics.gaps.map((gap) => html`<li>${gap}</li>`)}
+          </ul>
+        </details>`
+      : html`<p class="pcc-operational-metrics__ok">All measured gates meet policy.</p>`}
+  </section>`;
+}
+
 function renderTodayProjectSignal(
   props: PccDashboardProps,
   label: string,
@@ -4163,6 +4245,7 @@ function renderTodayView(props: PccDashboardProps) {
   ).length;
   const portfolioNeedsAttention = attentionProjects.length;
   const focusMode = effectivePccFocusMode(props);
+  const operationalMetrics = buildPccOperationalMetrics(pccOperationalEvidence(props));
   const plainSummary = portfolioPlainSummary({
     focusMode,
     activeCount,
@@ -4179,6 +4262,9 @@ function renderTodayView(props: PccDashboardProps) {
         ${renderPccFocusModeSwitch(props)}
         <strong>${runningProjects.length} running</strong>
         <strong>${attentionProjects.length} Needs You</strong>
+        <strong data-pcc-operational-health-compact>
+          Quality ${operationalHealthLabel(operationalMetrics)}
+        </strong>
         ${deferredProjects.length
           ? html`<strong>${deferredProjects.length} deferred</strong>`
           : nothing}
@@ -4248,6 +4334,7 @@ function renderTodayView(props: PccDashboardProps) {
             </em>
           </article>
         </div>
+        ${renderPccOperationalMetrics(operationalMetrics)}
         <details class="pcc-today__drawer">
           <summary>Show all project queues</summary>
           <div class="pcc-today__queues">

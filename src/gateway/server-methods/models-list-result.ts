@@ -54,7 +54,12 @@ function resolveModelsListView(params: Record<string, unknown>): ModelsListView 
 // Runtime-only model params are useful inside provider routing, but exposing
 // them here would leak provider invocation details into the Control UI API.
 function omitRuntimeModelParams(entry: ModelCatalogEntry): ModelCatalogEntry {
-  const { params: _params, ...rest } = entry as ModelCatalogEntry & {
+  const {
+    params: _params,
+    baseUrl: _baseUrl,
+    routeConfig: _routeConfig,
+    ...rest
+  } = entry as ModelCatalogEntry & {
     params?: Record<string, unknown>;
   };
   return Object.fromEntries(

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PCC_OPERATIONAL_QUALITY_DIMENSIONS } from "../../pcc/capability-contract.js";
 import type { PccLedger } from "../../pcc/ledger-store.js";
 import { pccHandlers, pccTesting } from "./pcc.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
@@ -726,6 +727,105 @@ describe("Project Command Center gateway methods", () => {
         }),
       ),
     ).toContain(`proof evidence has not passed: ${evidence.id}`);
+  });
+
+  it("enforces capability-use and 93-point quality evidence on contracted receipts", async () => {
+    const { project } = okPayload<{ project: { id: string } }>(
+      await invoke("pcc.projects.upsert", {
+        project: {
+          title: "Contracted production proof",
+          status: "active",
+          metadata: {
+            pccWorkflowTemplateId: "software-product",
+            pccCapabilityContract: { schema: "openclaw.pcc.capability-contract.v1" },
+          },
+        },
+      }),
+    );
+    const { milestone } = okPayload<{ milestone: { id: string } }>(
+      await invoke("pcc.milestones.upsert", {
+        milestone: {
+          projectId: project.id,
+          title: "Production proof",
+          phaseId: "production-proof",
+          status: "proof_pending",
+          metadata: {
+            pccCapabilityRequirementIds: ["truth-gated-completion", "upgrade-preservation"],
+          },
+        },
+      }),
+    );
+    const { evidence: incompleteEvidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "passed",
+          metadata: {},
+        },
+      }),
+    );
+
+    expect(
+      errorMessage(
+        await invoke("pcc.receipts.add", {
+          receipt: {
+            projectId: project.id,
+            milestoneId: milestone.id,
+            summary: "Incomplete contracted proof must fail.",
+            proofEvidenceIds: [incompleteEvidence.id],
+            proofLevel: "local",
+          },
+        }),
+      ),
+    ).toContain("contracted completion evidence incomplete");
+
+    const scores = Object.fromEntries(
+      PCC_OPERATIONAL_QUALITY_DIMENSIONS.map((dimension) => [dimension, 93]),
+    );
+    const { evidence: completeEvidence } = okPayload<{ evidence: { id: string } }>(
+      await invoke("pcc.evidence.add", {
+        evidence: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          kind: "local_test",
+          status: "passed",
+          metadata: {
+            pccCapabilityUse: [
+              { id: "truth-gated-completion", status: "used" },
+              { id: "upgrade-preservation", status: "used" },
+            ],
+            pccFirstPass: {
+              attemptCount: 1,
+              defectCount: 0,
+              latencyMs: 250,
+              costClass: "local",
+              openAiApiUsed: false,
+            },
+            pccQualityAssessment: {
+              assessor: "independent-local-qa",
+              independent: true,
+              criticalRegression: false,
+              scores,
+            },
+          },
+        },
+      }),
+    );
+    const result = okPayload<{ milestone: { status: string; percentComplete: number } }>(
+      await invoke("pcc.receipts.add", {
+        receipt: {
+          projectId: project.id,
+          milestoneId: milestone.id,
+          summary: "Contracted production proof passed.",
+          proofEvidenceIds: [completeEvidence.id],
+          proofLevel: "local",
+        },
+      }),
+    );
+
+    expect(result.milestone).toMatchObject({ status: "complete", percentComplete: 100 });
   });
 
   it("requires passed remote proof evidence to name the exact verified source SHA", async () => {

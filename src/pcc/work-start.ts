@@ -5,6 +5,7 @@ import type {
   PccProject,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import type { PccCapabilityInventoryEntry } from "./capability-contract.js";
 import { evaluatePccProjectSetup } from "./intake-quality.js";
 import { getPccWorkLoopNext } from "./work-loop.js";
 
@@ -14,6 +15,7 @@ export type PccWorkStartInput = {
   subMilestones?: readonly PccSubMilestone[];
   permissions?: readonly PccPermissionGrant[];
   receipts?: readonly PccCompletionReceipt[];
+  capabilityInventory?: readonly PccCapabilityInventoryEntry[];
 };
 
 function metadataObject(value: unknown): Record<string, unknown> {

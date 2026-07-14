@@ -55,6 +55,61 @@ model as `provider/model`.
 - `copilot-proxy` - local VS Code Copilot Proxy bridge; use `openclaw onboard --auth-choice copilot-proxy`
 - `google-gemini-cli` - unofficial Gemini CLI OAuth flow; requires a local `gemini` install (`brew install gemini-cli` or `npm install -g @google/gemini-cli`); default model `google-gemini-cli/gemini-3-flash-preview`; use `openclaw onboard --auth-choice google-gemini-cli` or `openclaw models auth login --provider google-gemini-cli --set-default`
 
+## Local-first automatic routing
+
+Model selectors group catalog rows by route, certification, and capability instead of placing every model in one undifferentiated list. Routes are provider-neutral:
+
+- **Local and self-hosted:** no remote model request is required.
+- **Subscription:** remote capacity is included in an operator-owned subscription.
+- **Metered API:** the attempt can create incremental usage charges.
+- **Other or unclassified:** OpenClaw cannot prove the cost or location and does not assume it is free.
+
+An explicit user model selection stays explicit. The routing policy applies only when OpenClaw is choosing automatically. This example prefers local models and prevents automatic paid or unclassified requests:
+
+```json5
+{
+  models: {
+    routing: {
+      preference: "local-first",
+      automaticMetered: "deny",
+      automaticUnknown: "deny",
+      automaticProfiles: {
+        general: ["ollama/local-general"],
+        vision: ["ollama/local-vision"],
+        coding: ["ollama/local-code"],
+      },
+      requireCertifiedForAutomatic: true,
+      certifications: {
+        "ollama/local-general": {
+          state: "certified",
+          verifiedAt: "2026-07-12T00:00:00.000Z",
+          evidence: "local-general-smoke-v1",
+        },
+      },
+    },
+    providers: {
+      ollama: {
+        route: { location: "local", billing: "included" },
+      },
+    },
+  },
+}
+```
+
+When metered automatic routing is explicitly allowed, at least one per-attempt, per-agent daily, or per-project daily ceiling is required. OpenClaw reserves the conservative maximum in a local durable ledger before attempting candidates governed by a daily ceiling. Missing permission, cost ceiling, price, token-limit, project, or route facts fail closed rather than estimating optimistically.
+
+Provider-owned catalogs can refresh without hard-coding model release names:
+
+```json5
+{
+  models: {
+    catalogRefresh: { enabled: true, intervalMinutes: 60 },
+  },
+}
+```
+
+Periodic refresh is opt-in. A failed refresh retains the previous known-good catalog, and a manual refresh remains available through the model list UI. Catalog appearance does not certify a model for automatic work; certification remains an operator-owned evidence gate.
+
 For the full provider catalog (xAI, Groq, Mistral, etc.) and advanced configuration,
 see [Model providers](/concepts/model-providers).
 

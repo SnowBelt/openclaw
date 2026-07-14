@@ -98,6 +98,68 @@ describe("config schema", () => {
     };
   });
 
+  it("accepts local-first model routing policy and route facts", () => {
+    const parsed = OpenClawSchema.parse({
+      models: {
+        catalogRefresh: { enabled: true, intervalMinutes: 60 },
+        routing: {
+          preference: "local-first",
+          automaticMetered: "deny",
+          automaticUnknown: "deny",
+          automaticMaxCostUsd: 0.25,
+          automaticDailyMaxCostUsd: 2,
+          automaticProjectDailyMaxCostUsd: 1,
+          automaticProfiles: { general: ["local/small"], vision: ["local/vision"] },
+          requireCertifiedForAutomatic: true,
+          certifications: {
+            "local/small": {
+              state: "certified",
+              verifiedAt: "2026-07-12T00:00:00.000Z",
+              evidence: "local-smoke-v1",
+            },
+          },
+        },
+        providers: {
+          local: {
+            baseUrl: "http://127.0.0.1:11434",
+            api: "ollama",
+            route: { location: "local", billing: "included" },
+            models: [
+              {
+                id: "local-model",
+                name: "Local model",
+                route: { location: "local" },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(parsed.models?.routing).toEqual({
+      preference: "local-first",
+      automaticMetered: "deny",
+      automaticUnknown: "deny",
+      automaticMaxCostUsd: 0.25,
+      automaticDailyMaxCostUsd: 2,
+      automaticProjectDailyMaxCostUsd: 1,
+      automaticProfiles: { general: ["local/small"], vision: ["local/vision"] },
+      requireCertifiedForAutomatic: true,
+      certifications: {
+        "local/small": {
+          state: "certified",
+          verifiedAt: "2026-07-12T00:00:00.000Z",
+          evidence: "local-smoke-v1",
+        },
+      },
+    });
+    expect(parsed.models?.catalogRefresh).toEqual({ enabled: true, intervalMinutes: 60 });
+    expect(parsed.models?.providers?.local?.route).toEqual({
+      location: "local",
+      billing: "included",
+    });
+  });
+
   it("exports schema + hints", () => {
     const res = baseSchema;
     const schema = res.schema as { properties?: Record<string, unknown> };

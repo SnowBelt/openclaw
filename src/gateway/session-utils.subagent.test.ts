@@ -33,6 +33,22 @@ describe("listSessionsFromStore subagent metadata", () => {
     agents: { list: [{ id: "main", default: true }] },
   } as OpenClawConfig;
 
+  test("projects the PCC project id into dashboard session rows", () => {
+    const row = buildGatewaySessionRow({
+      cfg,
+      storePath: "/tmp/sessions.json",
+      store: {},
+      key: "agent:main:main",
+      entry: {
+        sessionId: "sess-main",
+        updatedAt: 10,
+        projectId: "project-operational-excellence",
+      },
+    });
+
+    expect(row.projectId).toBe("project-operational-excellence");
+  });
+
   test("projects Judge guard audit entries into dashboard session rows", () => {
     const row = buildGatewaySessionRow({
       cfg,

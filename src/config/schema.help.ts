@@ -958,6 +958,44 @@ export const FIELD_HELP: Record<string, string> = {
     "Controls the optional background model-pricing bootstrap that fetches remote per-token cost catalogs.",
   "models.pricing.enabled":
     "Enable the background model-pricing bootstrap. Set to false to skip OpenRouter and LiteLLM catalog fetches during Gateway startup; changing this value requires a Gateway restart.",
+  "models.catalogRefresh":
+    "Optional periodic refresh of provider-owned model catalogs. Static providers remain static; enable only for catalog sources you intentionally allow OpenClaw to contact.",
+  "models.catalogRefresh.enabled":
+    "Enable periodic provider-owned model catalog refresh. This is disabled by default and requires a Gateway restart when changed.",
+  "models.catalogRefresh.intervalMinutes":
+    "Minutes between background catalog refresh attempts, from 1 to 1440. The previous known-good catalog stays visible while a refresh fails or is in progress.",
+  "models.routing":
+    "Optional local-first policy for automatic model selection. Explicit user model choices remain explicit; this policy never silently replaces them.",
+  "models.routing.preference":
+    'Use "local-first" to prefer configured local/self-hosted models, then subscription-backed models, before other eligible candidates.',
+  "models.routing.automaticMetered":
+    'Set to "deny" to prevent automatic selection from starting a metered API request. An explicit user selection is unchanged.',
+  "models.routing.automaticUnknown":
+    'Set to "deny" to prevent automatic selection when OpenClaw cannot classify a model route. Unknown is never assumed free.',
+  "models.routing.automaticMaxCostUsd":
+    "Conservative USD ceiling for one automatic metered attempt. OpenClaw blocks a candidate when configured pricing or token limits cannot prove the attempt stays within this ceiling.",
+  "models.routing.automaticDailyMaxCostUsd":
+    "Conservative daily USD ceiling for automatic metered attempts per agent. OpenClaw atomically reserves every eligible metered fallback attempt in a local durable ledger before routing; unknown routes or missing configured price/token bounds block metered automatic work rather than guessing.",
+  "models.routing.automaticProjectDailyMaxCostUsd":
+    "Conservative daily USD ceiling for automatic metered attempts per project. OpenClaw atomically reserves eligible metered fallback attempts in the local project ledger; automatic metered work without a project association is blocked when this guard is enabled.",
+  "models.routing.automaticProfiles":
+    "Ordered operator-owned provider/model candidate lists for explicit automatic purposes such as general, vision, scheduled, and maintenance work. Profiles never replace a user-selected model.",
+  "models.routing.automaticProfiles.general": "Ordered candidates for automatic general work.",
+  "models.routing.automaticProfiles.vision": "Ordered candidates for automatic image work.",
+  "models.routing.automaticProfiles.coding": "Ordered candidates for automatic coding work.",
+  "models.routing.automaticProfiles.reasoning": "Ordered candidates for automatic reasoning work.",
+  "models.routing.automaticProfiles.scheduled": "Ordered candidates for scheduled work.",
+  "models.routing.automaticProfiles.maintenance": "Ordered candidates for maintenance work.",
+  "models.routing.requireCertifiedForAutomatic":
+    "Require an operator-owned certified receipt in models.routing.certifications before OpenClaw may select a model automatically.",
+  "models.routing.certifications":
+    "Map of canonical provider/model references to candidate or certified evidence receipts. Evidence text stays local and is not returned to Control UI clients.",
+  "models.routing.certifications.*.state":
+    'Operator-owned evidence state: "candidate" is visible but not approved, while "certified" is eligible when automatic certification is required.',
+  "models.routing.certifications.*.verifiedAt":
+    "ISO timestamp for the proof that established the certification state.",
+  "models.routing.certifications.*.evidence":
+    "Local evidence reference for the certification. This value is not returned by models.list.",
   "models.providers.*.baseUrl":
     "Base URL for the provider endpoint used to serve model requests for that provider entry. Use HTTPS endpoints and keep URLs environment-specific through config templating where needed.",
   "models.providers.*.apiKey":
@@ -966,6 +1004,11 @@ export const FIELD_HELP: Record<string, string> = {
     'Selects provider auth style: "api-key" for API key auth, "token" for bearer token auth, "oauth" for OAuth credentials, and "aws-sdk" for AWS credential resolution. Match this to your provider requirements.',
   "models.providers.*.api":
     "Provider API adapter selection controlling request/response compatibility handling for model calls. Use the adapter that matches your upstream provider protocol to avoid feature mismatch.",
+  "models.providers.*.route":
+    "Operator-declared route facts. Mark local endpoints local, subscription-backed routes included, and direct paid APIs metered so automatic routing can make conservative decisions.",
+  "models.providers.*.route.location": "Whether this provider executes locally or remotely.",
+  "models.providers.*.route.billing":
+    "Whether capacity is included in an owned route or metered per use.",
   "models.providers.*.contextWindow":
     "Default native context window applied to models under this provider when a model entry does not set contextWindow. Use model-level contextWindow for per-model overrides.",
   "models.providers.*.contextTokens":
@@ -1073,6 +1116,11 @@ export const FIELD_HELP: Record<string, string> = {
     "Optional low-level agent runtime policy for this specific model. Model runtime policy overrides the provider runtime policy.",
   "models.providers.*.models[].agentRuntime.id":
     'Model agent runtime id: "openclaw", "auto", a registered plugin harness id such as "codex", or a supported CLI backend alias such as "claude-cli".',
+  "models.providers.*.models[].route":
+    "Optional model-level route facts overriding the provider route for automatic selection.",
+  "models.providers.*.models[].route.location": "Whether this model executes locally or remotely.",
+  "models.providers.*.models[].route.billing":
+    "Whether this model uses included capacity or creates metered usage.",
   "models.providers.*.models[].mediaInput":
     "Optional model media capability metadata used by tools to choose conservative image compression defaults.",
   "models.providers.*.models[].mediaInput.image":

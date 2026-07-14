@@ -97,6 +97,10 @@ const BASE_RELOAD_RULES: ReloadRule[] = [
     kind: "restart",
   },
   {
+    prefix: "models.catalogRefresh",
+    kind: "restart",
+  },
+  {
     prefix: "models",
     kind: "hot",
     actions: ["restart-heartbeat"],
