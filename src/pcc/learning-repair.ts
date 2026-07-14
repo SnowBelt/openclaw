@@ -59,19 +59,20 @@ export function repairPccLearningCandidatesMetadata(
     }
     repairedCount += 1;
     const requiresRetrial = candidateSource.status === "promoted";
-    return {
-      ...candidateSource,
-      ...(baselineMetrics ? { baselineMetrics } : {}),
-      ...(afterMetrics ? { afterMetrics } : {}),
-      ...(requiresRetrial ? { status: "trial" } : {}),
-      ...(requiresRetrial
-        ? {
-            statusReason:
-              "Legacy promotion requires QA revalidation under the 93/100 quality contract.",
-          }
-        : {}),
-      updatedAt: now,
-    };
+    const repaired = Object.assign({}, candidateSource);
+    if (baselineMetrics) {
+      repaired.baselineMetrics = baselineMetrics;
+    }
+    if (afterMetrics) {
+      repaired.afterMetrics = afterMetrics;
+    }
+    if (requiresRetrial) {
+      repaired.status = "trial";
+      repaired.statusReason =
+        "Legacy promotion requires QA revalidation under the 93/100 quality contract.";
+    }
+    repaired.updatedAt = now;
+    return repaired;
   });
   if (repairedCount === 0) {
     return { metadata: { ...source }, repairedCount: 0 };
