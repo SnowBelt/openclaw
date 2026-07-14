@@ -7,8 +7,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const roots: string[] = [];
 
+function createRuntimeFixtureRoot(prefix: string): string {
+  // The production launcher intentionally rejects /tmp releases. Linux exposes
+  // os.tmpdir() as /tmp, while macOS uses a per-user /private/var directory.
+  const base = process.platform === "linux" ? os.homedir() : os.tmpdir();
+  return mkdtempSync(path.join(base, prefix));
+}
+
 function fixture(requiredSurfaces: string[], requiredCapabilities: string[] = ["dashboard:pcc"]) {
-  const home = mkdtempSync(path.join(os.tmpdir(), "openclaw-custom-runtime-launcher-"));
+  const home = createRuntimeFixtureRoot("openclaw-custom-runtime-launcher-");
   roots.push(home);
   const release = path.join(home, ".openclaw-runtime-releases", "release-1");
   const controlUi = path.join(release, "dist", "control-ui");

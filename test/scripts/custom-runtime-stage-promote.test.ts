@@ -15,13 +15,20 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const roots: string[] = [];
 
+function createRuntimeFixtureRoot(prefix: string): string {
+  // The production launcher intentionally rejects /tmp releases. Linux exposes
+  // os.tmpdir() as /tmp, while macOS uses a per-user /private/var directory.
+  const base = process.platform === "linux" ? os.homedir() : os.tmpdir();
+  return mkdtempSync(path.join(base, prefix));
+}
+
 function executable(filePath: string, content: string): void {
   writeFileSync(filePath, content);
   chmodSync(filePath, 0o755);
 }
 
 function fixture() {
-  const home = mkdtempSync(path.join(os.tmpdir(), "openclaw-custom-runtime-update-"));
+  const home = createRuntimeFixtureRoot("openclaw-custom-runtime-update-");
   roots.push(home);
   const runtimeHome = path.join(home, ".openclaw-custom-runtime");
   const releasesDir = path.join(home, ".openclaw-runtime-releases");
