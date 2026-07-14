@@ -78,5 +78,3 @@ if (errors.length > 0) {
     ),
   );
 }
-import fs from "node:fs";
-import path from "node:path";

@@ -109,14 +109,24 @@ function normalizeLedger(value: unknown): AutomaticDailySpendLedger {
           const candidates =
             Array.isArray(rawCandidates) &&
             rawCandidates.every(
-              (candidate): candidate is string => typeof candidate === "string" && !!candidate,
+              (candidate): candidate is string =>
+                typeof candidate === "string" && candidate.length > 0,
             )
               ? rawCandidates
               : null;
           if (at === undefined || amountUsd === undefined || !agentId || !candidates) {
             throw new Error(`automatic model spend reservation fields are invalid: ${scopeId}`);
           }
-          return { at, amountUsd, agentId, ...(projectId ? { projectId } : {}), candidates };
+          const reservation: AutomaticDailySpendReservation = {
+            at,
+            amountUsd,
+            agentId,
+            candidates,
+          };
+          if (projectId) {
+            reservation.projectId = projectId;
+          }
+          return reservation;
         });
         const reservationTotal = reservations.reduce(
           (total, reservation) => total + reservation.amountUsd,
