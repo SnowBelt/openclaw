@@ -44,14 +44,14 @@ const customManifest = parseCustomRuntimeCapabilityManifest(
 if (!customManifest) {
   errors.push("PCC capability standards could not parse the custom runtime manifest.");
 } else {
-  const manifestIds = customManifest.capabilities.map((capability) => capability.id);
+  const manifestIds = new Set(customManifest.capabilities.map((capability) => capability.id));
   for (const capability of customManifest.capabilities) {
     if (!PCC_CUSTOM_RUNTIME_ADDITION_STANDARD_IDS.includes(capability.id)) {
       errors.push(`Custom runtime capability ${capability.id} has no PCC addition standard.`);
     }
   }
   for (const standardId of PCC_CUSTOM_RUNTIME_ADDITION_STANDARD_IDS) {
-    if (!manifestIds.includes(standardId)) {
+    if (!manifestIds.has(standardId)) {
       errors.push(`PCC addition standard ${standardId} has no custom runtime capability.`);
     }
   }
