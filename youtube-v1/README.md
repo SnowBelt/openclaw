@@ -17,6 +17,13 @@ inspect the exact stages. The production command validates skill deployment, sou
 artifact hashes, storage, media, independent 93+ QA, release registration, and
 review handoff. Leaf scripts are debugging tools and cannot prove completion.
 
+Scheduled selection is profile- and lock-aware. If no topic has a current
+hash-bound production lock for `full_package`, the command records
+`local-output/operations/canonical-production-idle.json` and exits cleanly
+without generating media, calling a provider, sending review, or touching
+YouTube. Waiting for research or owner approval is a healthy idle state, not a
+runtime failure.
+
 Every episode is city-generic but never city-implicit. Its package must own one
 explicit city, hidden-history question, proof object, source trail, visual
 payoff, five thumbnail hypotheses, and 3-5 standalone Shorts. No prior city's

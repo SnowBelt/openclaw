@@ -28,6 +28,11 @@ never call production leaf scripts ad hoc.
    object, source trail, visual payoff, five thumbnail hypotheses, and 3-5
    Shorts blueprints. Never derive a new city from a title, video id, prior
    package, or renderer default.
+   For `--next-scheduled`, require the candidate's production-lock profile to
+   match the requested contract profile. No compatible approval lock is a
+   healthy idle state recorded in
+   `local-output/operations/canonical-production-idle.json`; do not substitute
+   another profile or treat the wait as a failed production run.
 3. Run a dry run and inspect the exact stage list.
 4. Execute the selected profile. Use `--render` only for approved local media
    work and `--send-review` only when the owner requested Discord review.
