@@ -19,6 +19,7 @@ const targets = [
   "security",
   "test",
   "skills",
+  "youtube-v1",
   "openclaw.mjs",
   "config/knip.config.ts",
   "tsdown.config.ts",
