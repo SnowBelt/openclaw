@@ -17,6 +17,18 @@ from patternlab_topic_qualification_queue import build_topic_qualification_queue
 REPO = BASE.parent
 
 
+class NoProductionCandidate(RuntimeError):
+    """Expected scheduler idle state when no topic matches the requested profile."""
+
+    def __init__(self, *, profile: str, candidates: list[dict[str, str]]) -> None:
+        self.profile = profile
+        self.candidates = candidates
+        super().__init__(
+            f"No Pattern Lab topic has a production lock compatible with profile {profile}. "
+            "Research and owner approval may continue, but media production must remain idle."
+        )
+
+
 def env_with_paths() -> dict[str, str]:
     env = os.environ.copy()
     env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + env.get("PATH", "")
@@ -116,11 +128,49 @@ def paid_voice_approval(video_id: str) -> tuple[bool, str]:
     return True, "approved"
 
 
-def next_incomplete_video() -> str:
+def production_lock(video_id: str) -> dict[str, Any]:
+    return read_json(BASE / "launch" / f"video-{video_id}" / "production-lock.json")
+
+
+def next_incomplete_video(*, profile: str | None = None) -> str:
     queue, _json_path, _md_path = build_topic_qualification_queue()
     candidate = queue.get("next_candidate") or {}
     video_id = str(candidate.get("video_id") or "").strip()
     status = str(candidate.get("topic_status") or "").strip()
+    if profile is not None:
+        if profile not in {"long_form_rebuild", "full_package"}:
+            raise ValueError(f"Unsupported Pattern Lab production profile: {profile}")
+        allowed_statuses = (
+            {"active_rebuild"}
+            if profile == "long_form_rebuild"
+            else {"active_rebuild", "production_ready"}
+        )
+        rows = [row for row in queue.get("rows", []) if isinstance(row, dict)]
+        # Prefer the queue's canonical candidate, then retain deterministic
+        # queue order for compatible resumptions or newly approved packages.
+        ordered = ([candidate] if candidate else []) + [row for row in rows if row is not candidate]
+        seen: set[str] = set()
+        diagnostics: list[dict[str, str]] = []
+        for row in ordered:
+            raw_video_id = str(row.get("video_id") or "").strip()
+            row_status = str(row.get("topic_status") or "").strip()
+            if not raw_video_id:
+                continue
+            row_video_id = raw_video_id.zfill(2)
+            if row_video_id in seen:
+                continue
+            seen.add(row_video_id)
+            lock_profile = str(production_lock(row_video_id).get("profile") or "missing")
+            diagnostics.append(
+                {
+                    "video_id": row_video_id,
+                    "topic_status": row_status or "missing",
+                    "production_lock_profile": lock_profile,
+                }
+            )
+            if row_status in allowed_statuses and lock_profile == profile:
+                return row_video_id
+        raise NoProductionCandidate(profile=profile, candidates=diagnostics)
     if status not in {"active_rebuild", "production_ready"} or not video_id:
         raise SystemExit(
             "No production-eligible Pattern Lab topic exists. "

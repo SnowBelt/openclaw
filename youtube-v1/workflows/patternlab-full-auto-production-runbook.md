@@ -12,6 +12,10 @@ youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_productio
 
 1. Load and validate the typed production contract, hash-check the active Codex/OpenClaw Pattern Lab skills, and verify the scheduler runtime matches the deployed source manifest.
 2. Select the next incomplete scheduled episode and bind every approved input to its current hash.
+   Selection must match the requested production profile to the episode's
+   production lock. When no compatible lock exists, write the canonical idle
+   receipt and stop successfully; never run a different profile or turn an
+   expected owner-approval wait into an operational failure.
 3. Resolve one explicit city, hidden-history question, proof object, source trail,
    visual payoff, and five episode-owned thumbnail hypotheses. Never inherit a
    prior city's title, prompt, route, or asset.

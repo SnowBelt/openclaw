@@ -15,6 +15,7 @@ import patternlab_rendered_media_quality as rendered_media_quality
 import patternlab_skill_deployment as skill_deployment
 import patternlab_runtime_source_deploy as runtime_deploy
 import patternlab_workflow_integrity as workflow_integrity
+import patternlab_production as production_entrypoint
 
 
 def write_contract(path: Path, stages: list[dict], *, requires_lock: bool = False) -> None:
@@ -39,6 +40,39 @@ def write_contract(path: Path, stages: list[dict], *, requires_lock: bool = Fals
 
 
 class PatternLabProductionContractTests(unittest.TestCase):
+    def test_next_scheduled_without_compatible_lock_is_a_safe_idle_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            youtube_root = Path(temp) / "youtube-v1"
+            with (
+                patch.object(production_entrypoint, "YOUTUBE_ROOT", youtube_root),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["patternlab_production.py", "--next-scheduled", "--profile", "full_package", "--dry-run"],
+                ),
+                patch(
+                    "patternlab_full_auto_production.next_incomplete_video",
+                    side_effect=__import__("patternlab_full_auto_production").NoProductionCandidate(
+                        profile="full_package",
+                        candidates=[
+                            {
+                                "video_id": "04",
+                                "topic_status": "active_rebuild",
+                                "production_lock_profile": "long_form_rebuild",
+                            }
+                        ],
+                    ),
+                ),
+            ):
+                production_entrypoint.main()
+            payload = json.loads(
+                (youtube_root / "local-output" / "operations" / "canonical-production-idle.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        self.assertEqual(payload["status"], "idle_waiting_for_profile_compatible_approval")
+        self.assertEqual(payload["youtube_mutation"], "not_performed")
+
     def test_current_workflow_integrity_enforces_future_addition_standard(self):
         payload, _report = workflow_integrity.build_report()
         self.assertEqual(payload["status"], "pass", payload["blockers"])

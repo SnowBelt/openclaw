@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import sys
 from pathlib import Path
@@ -26,6 +27,28 @@ def read_json(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def write_idle_receipt(*, profile: str, candidates: list[dict[str, str]]) -> dict:
+    operations = YOUTUBE_ROOT / "local-output" / "operations"
+    operations.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "status": "idle_waiting_for_profile_compatible_approval",
+        "profile": profile,
+        "reason": "no_profile_compatible_production_candidate",
+        "candidate_diagnostics": candidates,
+        "paid_provider_call": "not_performed",
+        "media_generation": "not_performed",
+        "discord_review": "not_performed",
+        "youtube_mutation": "not_performed",
+    }
+    path = operations / "canonical-production-idle.json"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    payload["receipt"] = str(path)
+    return payload
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Pattern Lab through its canonical fail-closed production contract.")
     target = parser.add_mutually_exclusive_group(required=True)
@@ -40,9 +63,13 @@ def main() -> None:
     parser.add_argument("--contract", default=str(YOUTUBE_ROOT / "resources" / "patternlab-production-contract.json"))
     args = parser.parse_args()
     if args.next_scheduled:
-        from patternlab_full_auto_production import next_incomplete_video
+        from patternlab_full_auto_production import NoProductionCandidate, next_incomplete_video
 
-        video_id = next_incomplete_video()
+        try:
+            video_id = next_incomplete_video(profile=args.profile)
+        except NoProductionCandidate as exc:
+            print(json.dumps(write_idle_receipt(profile=exc.profile, candidates=exc.candidates), indent=2))
+            return
     else:
         video_id = str(args.video_id).removeprefix("video-").zfill(2)
     if args.send_review and not args.render:

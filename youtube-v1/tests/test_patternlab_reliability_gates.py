@@ -688,6 +688,51 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 full_auto.next_incomplete_video()
 
+    def test_full_auto_next_scheduled_selects_profile_compatible_lock(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            for video_id, profile in (("04", "long_form_rebuild"), ("05", "full_package")):
+                lock = base / "launch" / f"video-{video_id}" / "production-lock.json"
+                lock.parent.mkdir(parents=True)
+                lock.write_text(json.dumps({"video_id": video_id, "profile": profile}), encoding="utf-8")
+            queue = {
+                "next_candidate": {"video_id": "04", "topic_status": "active_rebuild"},
+                "rows": [
+                    {"video_id": "04", "topic_status": "active_rebuild"},
+                    {"video_id": "05", "topic_status": "production_ready"},
+                ],
+            }
+            with (
+                patch.object(full_auto, "BASE", base),
+                patch.object(full_auto, "build_topic_qualification_queue", return_value=(queue, Path("queue.json"), Path("queue.md"))),
+            ):
+                self.assertEqual(full_auto.next_incomplete_video(profile="long_form_rebuild"), "04")
+                self.assertEqual(full_auto.next_incomplete_video(profile="full_package"), "05")
+
+    def test_full_auto_next_scheduled_idles_without_compatible_lock(self):
+        queue = {
+            "next_candidate": {"video_id": "04", "topic_status": "active_rebuild"},
+            "rows": [
+                {"video_id": "04", "topic_status": "active_rebuild"},
+                {"video_id": "05", "topic_status": "research_queue"},
+            ],
+        }
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(full_auto, "BASE", Path(temp)),
+            patch.object(full_auto, "build_topic_qualification_queue", return_value=(queue, Path("queue.json"), Path("queue.md"))),
+        ):
+            with self.assertRaises(full_auto.NoProductionCandidate) as raised:
+                full_auto.next_incomplete_video(profile="full_package")
+        self.assertEqual(raised.exception.profile, "full_package")
+        self.assertEqual(
+            raised.exception.candidates,
+            [
+                {"video_id": "04", "topic_status": "active_rebuild", "production_lock_profile": "missing"},
+                {"video_id": "05", "topic_status": "research_queue", "production_lock_profile": "missing"},
+            ],
+        )
+
     def test_topic_queue_sends_generic_survey_to_research_not_production(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
