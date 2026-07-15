@@ -239,6 +239,10 @@ case "$1" in
 esac
 `,
     );
+    // Keep rollback verification deterministic. Without a fake health response,
+    // this test can accidentally pass against a developer's live Gateway while
+    // timing out on an isolated CI runner.
+    executable(path.join(fakeBin, "curl"), "#!/bin/sh\nprintf '%s\\n' '{\"ok\":true}'\n");
 
     const result = spawnSync(
       "sh",
