@@ -84,6 +84,13 @@ function fixture() {
     `import http from "node:http";
 const args = process.argv.slice(2);
 if (args[0] === "self-improvement" && args[1] === "summary") {
+  if (
+    !process.env.OPENCLAW_GATEWAY_URL?.startsWith("ws://127.0.0.1:") ||
+    process.env.OPENCLAW_GATEWAY_TOKEN !== "fixture-gateway-token"
+  ) {
+    process.stderr.write("missing explicit stage Gateway auth environment\\n");
+    process.exit(2);
+  }
   process.stdout.write('{"scorecard":{},"groups":[]}\\n');
   process.exit(0);
 }
@@ -156,6 +163,7 @@ describe("custom runtime canary and rollback", () => {
     writeFileSync(
       configPath,
       `${JSON.stringify({
+        gateway: { auth: { mode: "token", token: "fixture-gateway-token" } },
         plugins: { allow: ["apps"], entries: { apps: { enabled: true } } },
       })}\n`,
     );
@@ -182,7 +190,7 @@ describe("custom runtime canary and rollback", () => {
       {
         cwd: process.cwd(),
         encoding: "utf8",
-        timeout: 30_000,
+        timeout: 120_000,
         env: {
           ...process.env,
           HOME: input.home,

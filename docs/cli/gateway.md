@@ -67,47 +67,52 @@ openclaw gateway run
 <ParamField path="--password <password>" type="string">
   Password override.
 </ParamField>
+
+Commands that override the Gateway URL must also provide explicit credentials.
+For unattended local verification, prefer `OPENCLAW_GATEWAY_URL` together with
+`OPENCLAW_GATEWAY_TOKEN` or `OPENCLAW_GATEWAY_PASSWORD` so the credential does
+not appear in process arguments.
 <ParamField path="--password-file <path>" type="string">
-  Read the gateway password from a file.
+Read the gateway password from a file.
 </ParamField>
 <ParamField path="--tailscale <off|serve|funnel>" type="string">
-  Expose the Gateway via Tailscale.
+Expose the Gateway via Tailscale.
 </ParamField>
 <ParamField path="--tailscale-reset-on-exit" type="boolean">
-  Reset Tailscale serve/funnel config on shutdown.
+Reset Tailscale serve/funnel config on shutdown.
 </ParamField>
 <ParamField path="--bind custom + gateway.customBindHost" type="string">
-  Expects an IPv4 address today. For IPv6-only BYOH, place an IPv4 sidecar or proxy in front of the Gateway and point OpenClaw at that IPv4 endpoint.
+Expects an IPv4 address today. For IPv6-only BYOH, place an IPv4 sidecar or proxy in front of the Gateway and point OpenClaw at that IPv4 endpoint.
 </ParamField>
 <ParamField path="--allow-unconfigured" type="boolean">
-  Allow gateway start without `gateway.mode=local` in config. Bypasses the startup guard for ad-hoc/dev bootstrap only; does not write or repair the config file.
+Allow gateway start without `gateway.mode=local` in config. Bypasses the startup guard for ad-hoc/dev bootstrap only; does not write or repair the config file.
 </ParamField>
 <ParamField path="--dev" type="boolean">
-  Create a dev config + workspace if missing (skips BOOTSTRAP.md).
+Create a dev config + workspace if missing (skips BOOTSTRAP.md).
 </ParamField>
 <ParamField path="--reset" type="boolean">
-  Reset dev config + credentials + sessions + workspace (requires `--dev`).
+Reset dev config + credentials + sessions + workspace (requires `--dev`).
 </ParamField>
 <ParamField path="--force" type="boolean">
-  Kill any existing listener on the selected port before starting.
+Kill any existing listener on the selected port before starting.
 </ParamField>
 <ParamField path="--verbose" type="boolean">
-  Verbose logs.
+Verbose logs.
 </ParamField>
 <ParamField path="--cli-backend-logs" type="boolean">
-  Only show CLI backend logs in the console (and enable stdout/stderr).
+Only show CLI backend logs in the console (and enable stdout/stderr).
 </ParamField>
 <ParamField path="--ws-log <auto|full|compact>" type="string" default="auto">
-  Websocket log style.
+Websocket log style.
 </ParamField>
 <ParamField path="--compact" type="boolean">
-  Alias for `--ws-log compact`.
+Alias for `--ws-log compact`.
 </ParamField>
 <ParamField path="--raw-stream" type="boolean">
-  Log raw model stream events to jsonl.
+Log raw model stream events to jsonl.
 </ParamField>
 <ParamField path="--raw-stream-path <path>" type="string">
-  Raw stream jsonl path.
+Raw stream jsonl path.
 </ParamField>
 
 ## Restart the Gateway

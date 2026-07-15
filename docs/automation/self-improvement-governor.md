@@ -895,6 +895,12 @@ package-local native snapshot pointer. Managed soak restarts use the selected
 custom-runtime service without reinstalling it. Lifecycle commands remove any
 inherited downgrade override and never restart or roll back an unknown runtime.
 
+Custom-runtime stage, promotion, restart, and rollback probes pin the exact
+loopback Gateway through `OPENCLAW_GATEWAY_URL`. They export the configured
+token or password only in the verifier process environment, never in command
+arguments, and fail closed when an explicit verification credential cannot be
+resolved.
+
 ## Safety Model
 
 The governor only produces records. It cannot:

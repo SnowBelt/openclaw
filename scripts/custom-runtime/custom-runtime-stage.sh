@@ -7,6 +7,9 @@ config_source=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 state_source=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
 launcher=${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-"$runtime_home/bin/custom-runtime-launcher.sh"}
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'candidate Gateway auth helper is missing' >&2; exit 64; }
+. "$auth_helper"
 
 usage() { printf '%s\n' 'usage: custom-runtime-stage.sh --release PATH --source-sha SHA [--port 18790]' >&2; exit 64; }
 release= source_sha= port=18790
@@ -218,14 +221,19 @@ PY
       printf '%s\n' 'candidate stage WebSocket upgrade failed' >&2
       exit 1
     }
+    if ! custom_runtime_export_gateway_auth "$stage/openclaw.director.json"; then
+      printf '%s\n' 'candidate stage Gateway verification credential is unavailable' >&2
+      exit 1
+    fi
     if ! OPENAI_API_KEY= AZURE_OPENAI_API_KEY= OPENAI_BASE_URL= \
+      OPENCLAW_GATEWAY_URL="ws://127.0.0.1:$port" \
       OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" \
       OPENCLAW_STATE_DIR="$stage/state" \
       OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
       OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
       OPENCLAW_CUSTOM_RUNTIME_POINTER="$stage/pointer.json" \
       "$launcher" self-improvement summary \
-      --url "ws://127.0.0.1:$port" --timeout 10000 --limit 1 --json \
+      --timeout 10000 --limit 1 --json \
       > "$stage/self-improvement-summary.json" 2>> "$stage/gateway.log"; then
       printf '%s\n' 'candidate stage Self-Improvement RPC failed' >&2
       exit 1

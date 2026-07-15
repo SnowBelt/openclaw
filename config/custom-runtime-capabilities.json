@@ -204,6 +204,7 @@
         "src/self-improvement/production-readiness.ts",
         "src/gateway/server-methods/self-improvement.ts",
         "scripts/custom-runtime/custom-runtime-activate.sh",
+        "scripts/custom-runtime/custom-runtime-auth.sh",
         "scripts/custom-runtime/custom-runtime-guard.sh",
         "scripts/custom-runtime/custom-runtime-promote.sh",
         "scripts/custom-runtime/custom-runtime-restart.sh",

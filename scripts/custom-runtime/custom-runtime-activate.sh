@@ -7,7 +7,7 @@ releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releas
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
-managed_files='custom-runtime-activate.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-stage.sh custom-runtime-updater.sh copy_stage_state.py'
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-stage.sh custom-runtime-updater.sh copy_stage_state.py'
 
 usage() {
   printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2

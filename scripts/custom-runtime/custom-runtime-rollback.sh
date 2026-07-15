@@ -14,6 +14,9 @@ launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 pointer="$runtime_home/active-runtime.json"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 registration="$runtime_home/active-rollback.json"
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
+. "$auth_helper"
 
 usage() {
   printf '%s\n' 'usage: custom-runtime-rollback.sh --candidate-runtime-release ID --rollback-release ID [--port 18789] [--verify-only]' >&2
@@ -224,12 +227,14 @@ PY
     [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" = 200 ] || return 1
   done
   summary="$runtime_home/self-improvement-rollback.$$.json"
+  custom_runtime_export_gateway_auth "$config_path" || return 1
   if ! OPENAI_API_KEY= AZURE_OPENAI_API_KEY= OPENAI_BASE_URL= \
+    OPENCLAW_GATEWAY_URL="ws://127.0.0.1:$port" \
     OPENCLAW_CONFIG_PATH="$config_path" OPENCLAW_STATE_DIR="$state_dir" \
     OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
     OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
     OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer" \
-    "$launcher" self-improvement summary --url "ws://127.0.0.1:$port" \
+    "$launcher" self-improvement summary \
     --timeout 10000 --limit 1 --json > "$summary"; then
     rm -f "$summary"
     return 1

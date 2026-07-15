@@ -10,6 +10,9 @@ port=${OPENCLAW_GATEWAY_PORT:-18789}
 uid=$(id -u)
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 pointer="$runtime_home/active-runtime.json"
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
+. "$auth_helper"
 
 usage() {
   printf '%s\n' 'usage: custom-runtime-restart.sh [--port 18789]' >&2
@@ -147,12 +150,17 @@ done
 summary="$runtime_home/self-improvement-restart.$$.json"
 cleanup_summary() { rm -f "$summary"; }
 trap 'cleanup_summary; cleanup_restart_lock' EXIT
+if ! custom_runtime_export_gateway_auth "$config_path"; then
+  write_receipt restart_sig_auth_failed
+  exit 1
+fi
 if ! OPENAI_API_KEY= AZURE_OPENAI_API_KEY= OPENAI_BASE_URL= \
+  OPENCLAW_GATEWAY_URL="ws://127.0.0.1:$port" \
   OPENCLAW_CONFIG_PATH="$config_path" OPENCLAW_STATE_DIR="$state_dir" \
   OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
   OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
   OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer" \
-  "$launcher" self-improvement summary --url "ws://127.0.0.1:$port" \
+  "$launcher" self-improvement summary \
   --timeout 10000 --limit 1 --json > "$summary"; then
   write_receipt restart_sig_rpc_failed
   exit 1

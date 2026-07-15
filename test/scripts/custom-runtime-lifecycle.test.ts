@@ -13,6 +13,7 @@ const restartScript = path.resolve("scripts/custom-runtime/custom-runtime-restar
 const rollbackScript = path.resolve("scripts/custom-runtime/custom-runtime-rollback.sh");
 const controlPlaneFiles = [
   "custom-runtime-activate.sh",
+  "custom-runtime-auth.sh",
   "custom-runtime-guard.sh",
   "custom-runtime-launcher.sh",
   "custom-runtime-promote.sh",
@@ -139,6 +140,7 @@ describe("custom runtime lifecycle", () => {
     const fakeBin = path.join(root, "bin");
     const gatewayMarker = path.join(root, "gateway-marker.json");
     const rpcArgsMarker = path.join(root, "rpc-args.txt");
+    const rpcUrlMarker = path.join(root, "rpc-url.txt");
     const sourceSha = "9".repeat(64);
 
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
@@ -184,6 +186,7 @@ describe("custom runtime lifecycle", () => {
         "fi",
         'if [ "${1:-}" = self-improvement ] && [ "${2:-}" = summary ]; then',
         `  printf '%s\\n' "$@" > ${JSON.stringify(rpcArgsMarker)}`,
+        `  printf '%s\\n' "\${OPENCLAW_GATEWAY_URL:-}" > ${JSON.stringify(rpcUrlMarker)}`,
         "  python3 - \"$OPENCLAW_CONFIG_PATH\" <<'PY'",
         "import json, sys",
         "with open(sys.argv[1], encoding='utf-8') as f: config = json.load(f)",
@@ -253,9 +256,8 @@ describe("custom runtime lifecycle", () => {
       skipCron: "1",
       tailscaleMode: "off",
     });
-    expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).toEqual(
-      expect.arrayContaining(["--url", "ws://127.0.0.1:18790"]),
-    );
+    expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
+    expect(fs.readFileSync(rpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18790");
     expect(JSON.parse(fs.readFileSync(config, "utf8"))).toMatchObject({
       channels: { discord: { enabled: true } },
       gateway: { port: 18789, tailscale: { mode: "serve" } },
@@ -326,6 +328,7 @@ describe("custom runtime lifecycle", () => {
     const sigRpcMarker = path.join(root, "sig-rpc-called");
     const sigRpcArgsMarker = path.join(root, "sig-rpc-args");
     const sigRpcEnvMarker = path.join(root, "sig-rpc-env");
+    const sigRpcUrlMarker = path.join(root, "sig-rpc-url");
     const sourceSha = "c".repeat(64);
     const previousRelease = path.join(releases, "previous");
     const previousPointer = {
@@ -343,6 +346,7 @@ describe("custom runtime lifecycle", () => {
         'if [ "${1:-}" = self-improvement ] && [ "${2:-}" = summary ]; then',
         `  : > ${JSON.stringify(sigRpcMarker)}`,
         `  printf '%s\\n' "$@" > ${JSON.stringify(sigRpcArgsMarker)}`,
+        `  printf '%s\\n' "\${OPENCLAW_GATEWAY_URL:-}" > ${JSON.stringify(sigRpcUrlMarker)}`,
         `  printf '%s|%s|%s\\n' "\${OPENAI_API_KEY-}" "\${AZURE_OPENAI_API_KEY-}" "\${OPENAI_BASE_URL-}" > ${JSON.stringify(sigRpcEnvMarker)}`,
         "  printf '%s\\n' '{\"scorecard\":{},\"groups\":[]}'",
         "  exit 0",
@@ -412,6 +416,7 @@ describe("custom runtime lifecycle", () => {
         env: {
           ...process.env,
           HOME: home,
+          OPENCLAW_GATEWAY_TOKEN: "fixture-gateway-token",
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
@@ -432,9 +437,8 @@ describe("custom runtime lifecycle", () => {
     ).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_PROMOTED release=candidate");
     expect(fs.existsSync(sigRpcMarker)).toBe(true);
-    expect(fs.readFileSync(sigRpcArgsMarker, "utf8").split("\n")).toEqual(
-      expect.arrayContaining(["--url", "ws://127.0.0.1:18789"]),
-    );
+    expect(fs.readFileSync(sigRpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
+    expect(fs.readFileSync(sigRpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18789");
     expect(fs.readFileSync(sigRpcEnvMarker, "utf8")).toBe("||\n");
     const serviceEnv = fs.readFileSync(envFile, "utf8");
     expect(serviceEnv).toContain("OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1");
@@ -551,6 +555,7 @@ describe("custom runtime lifecycle", () => {
         env: {
           ...process.env,
           HOME: home,
+          OPENCLAW_GATEWAY_TOKEN: "fixture-gateway-token",
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
           OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER: rollbackLauncher,
@@ -713,6 +718,7 @@ describe("custom runtime lifecycle", () => {
         env: {
           ...process.env,
           HOME: home,
+          OPENCLAW_GATEWAY_TOKEN: "fixture-gateway-token",
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
@@ -748,6 +754,7 @@ describe("custom runtime lifecycle", () => {
     const fakeBin = path.join(root, "bin");
     const restarted = path.join(root, "restarted");
     const rpcArgsMarker = path.join(root, "restart-rpc-args");
+    const rpcUrlMarker = path.join(root, "restart-rpc-url");
     const manifestPath = path.join(runtimeRoot, "dist", "control-ui", "dashboard-surfaces.json");
     writeFile(path.join(runtimeRoot, "snapshot.json"), '{"releaseId":"native-candidate"}\n');
     writeFile(manifestPath, '{"surfaces":[{"id":"pcc","path":"/pcc"}]}\n');
@@ -762,6 +769,7 @@ describe("custom runtime lifecycle", () => {
         'if [ "${1:-}" = --verify ]; then exit 0; fi',
         'if [ "${1:-}" = self-improvement ]; then',
         `  printf '%s\\n' "$@" > ${JSON.stringify(rpcArgsMarker)}`,
+        `  printf '%s\\n' "\${OPENCLAW_GATEWAY_URL:-}" > ${JSON.stringify(rpcUrlMarker)}`,
         "  printf '%s\\n' '{\"scorecard\":{},\"groups\":[]}'",
         "  exit 0",
         "fi",
@@ -798,6 +806,7 @@ describe("custom runtime lifecycle", () => {
       encoding: "utf8",
       env: {
         ...process.env,
+        OPENCLAW_GATEWAY_TOKEN: "fixture-gateway-token",
         OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
       },
@@ -805,9 +814,8 @@ describe("custom runtime lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_RESTARTED release=native-candidate");
-    expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).toEqual(
-      expect.arrayContaining(["--url", "ws://127.0.0.1:18789"]),
-    );
+    expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
+    expect(fs.readFileSync(rpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18789");
     const receipt = fs
       .readdirSync(path.join(runtimeHome, "receipts"))
       .find((entry) => entry.startsWith("restart-"));
