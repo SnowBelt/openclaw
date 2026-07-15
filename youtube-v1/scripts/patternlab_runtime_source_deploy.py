@@ -66,6 +66,7 @@ FORBIDDEN_NAME_MARKERS = ("client_secret", "oauth-token", "credential", "discord
 SAFE_SOURCE_SUFFIXES = frozenset({".js", ".md", ".mjs", ".py", ".sh", ".swift", ".ts"})
 MANIFEST_NAME = "runtime-source-manifest.json"
 MUTABLE_RUNTIME_PREFIXES = ("local-output/", "state/")
+VERIFY_ONLY_MUTABLE_EXTRA_PREFIXES = ("launch/",)
 
 
 def selected_paths(root: Path) -> tuple[Path, ...]:
@@ -119,6 +120,47 @@ def source_manifest(root: Path, paths: tuple[Path, ...]) -> dict[str, str]:
 def manifest_digest(files: dict[str, str]) -> str:
     payload = json.dumps(files, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def validated_manifest_files(payload: dict[str, Any]) -> dict[str, str] | None:
+    raw = payload.get("files")
+    if not isinstance(raw, dict) or not raw:
+        return None
+    files: dict[str, str] = {}
+    for relative, digest in raw.items():
+        if not isinstance(relative, str) or not isinstance(digest, str):
+            return None
+        path = Path(relative)
+        if path.is_absolute() or ".." in path.parts or len(digest) != 64:
+            return None
+        try:
+            int(digest, 16)
+        except ValueError:
+            return None
+        files[path.as_posix()] = digest.lower()
+    return files
+
+
+def verification_files(
+    source: Path,
+    target: Path,
+    current_files: dict[str, str],
+    deployed_manifest: dict[str, Any],
+) -> tuple[dict[str, str], list[str], list[str]]:
+    if source != target:
+        return current_files, [], []
+    deployed_files = validated_manifest_files(deployed_manifest)
+    if deployed_files is None:
+        return current_files, [], ["runtime_source_deployment_manifest_invalid"]
+    extra = sorted(set(current_files) - set(deployed_files))
+    ignored = [
+        relative
+        for relative in extra
+        if relative.startswith(VERIFY_ONLY_MUTABLE_EXTRA_PREFIXES)
+    ]
+    unexpected = sorted(set(extra) - set(ignored))
+    blockers = [f"runtime_source_unmanaged_file:{relative}" for relative in unexpected]
+    return deployed_files, ignored, blockers
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -261,6 +303,16 @@ def build_report(video_id: str, target: Path, *, apply: bool) -> tuple[dict[str,
     paths = selected_paths(source)
     blockers = validate_selection(source, paths)
     files = source_manifest(source, paths)
+    deployed_manifest = read_json(target / MANIFEST_NAME)
+    ignored_mutable_runtime_files: list[str] = []
+    if not apply and deployed_manifest:
+        files, ignored_mutable_runtime_files, verification_blockers = verification_files(
+            source,
+            target,
+            files,
+            deployed_manifest,
+        )
+        blockers.extend(verification_blockers)
     backup: Path | None = None
     rollback_performed = False
     rollback_blockers: list[str] = []
@@ -303,6 +355,7 @@ def build_report(video_id: str, target: Path, *, apply: bool) -> tuple[dict[str,
         "rollback_blockers": rollback_blockers,
         "missing_files": missing,
         "mismatched_files": mismatched,
+        "ignored_mutable_runtime_files": ignored_mutable_runtime_files,
         "blockers": sorted(set(blockers)),
         "paid_provider_calls": "not_performed",
         "youtube_mutation": "not_performed",

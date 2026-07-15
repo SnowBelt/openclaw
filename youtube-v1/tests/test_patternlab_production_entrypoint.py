@@ -107,6 +107,38 @@ class PatternLabProductionContractTests(unittest.TestCase):
             self.assertIn(current_test, paths)
             self.assertNotIn(stale_cache, paths)
 
+    def test_runtime_source_verify_uses_manifest_and_allows_mutable_launch_extras(self):
+        deployed = {"scripts/worker.py": "a" * 64}
+        current = {
+            **deployed,
+            "launch/video-05/package.json": "b" * 64,
+            "launch/video-05/research-brief.md": "c" * 64,
+        }
+        files, ignored, blockers = runtime_deploy.verification_files(
+            Path("/runtime"),
+            Path("/runtime"),
+            current,
+            {"files": deployed},
+        )
+        self.assertEqual(files, deployed)
+        self.assertEqual(
+            ignored,
+            ["launch/video-05/package.json", "launch/video-05/research-brief.md"],
+        )
+        self.assertEqual(blockers, [])
+
+    def test_runtime_source_verify_rejects_unmanaged_source_file(self):
+        deployed = {"scripts/worker.py": "a" * 64}
+        files, ignored, blockers = runtime_deploy.verification_files(
+            Path("/runtime"),
+            Path("/runtime"),
+            {**deployed, "scripts/unmanaged.py": "b" * 64},
+            {"files": deployed},
+        )
+        self.assertEqual(files, deployed)
+        self.assertEqual(ignored, [])
+        self.assertEqual(blockers, ["runtime_source_unmanaged_file:scripts/unmanaged.py"])
+
     def test_runtime_source_rollback_restores_old_files_and_removes_new_files(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "source"
