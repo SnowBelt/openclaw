@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "purpose": "Preserve active OpenClaw and Pattern Lab functionality while bounding recoverable local storage.",
+  "codex_repair_backups": {
+    "roots": [
+      "/Users/openclaw/codex-repair-backups",
+      "/Users/openclaw/.codex/repair-backups"
+    ],
+    "keep_newest_per_root": 2,
+    "delete_requires_apply": true,
+    "receipt_required_before_delete": true
+  },
+  "operations_memory_backups": {
+    "root": "/Users/openclaw/.openclaw/workspace/operations-memory-backups",
+    "keep_newest_raw": 3,
+    "archive_codec": "zstd",
+    "archive_level": 6,
+    "archive_each_older_database_in_place": true,
+    "verify_original_sha256_after_decompression": true,
+    "delete_raw_database_only_after_verification": true,
+    "preserve_directory_and_sidecar_files": true
+  },
+  "runtime_retention": {
+    "dashboard_previous_glob": "/Users/openclaw/OpenClaw-dashboard-production-runtime.previous.*",
+    "keep_dashboard_previous": 2,
+    "custom_release_root": "/Users/openclaw/.openclaw-runtime-releases",
+    "custom_active_pointer": "/Users/openclaw/.openclaw-custom-runtime/active-runtime.json",
+    "keep_custom_active_and_previous": true,
+    "legacy_service_release_root": "/Users/openclaw/.openclaw/service-runtime/releases",
+    "keep_legacy_service_releases": 1,
+    "open_file_check_required": true,
+    "delete_requires_apply": true
+  },
+  "kalshi": {
+    "preserve_all_data": true,
+    "active_logs_must_not_be_compressed_or_deleted": true,
+    "immutable_snapshot_compression": "transparent_apfs_lzfse_only",
+    "checksum_verification_required_before_and_after": true
+  },
+  "pattern_lab_posted_episodes": {
+    "preserve_exact_approved_bytes": true,
+    "lossy_recompression_for_archive": false,
+    "zip_mp4_files": false,
+    "required_capsule_classes": [
+      "long_form_master",
+      "shorts",
+      "thumbnail",
+      "script",
+      "narration",
+      "source_media",
+      "rights_receipts",
+      "approval_receipts",
+      "upload_receipts",
+      "release_manifests"
+    ],
+    "external_apfs_root": "/Volumes/PatternLabMedia",
+    "source_retirement_requires_separate_verified_action": true
+  },
+  "never_delete": [
+    "active runtime files",
+    "Kalshi data",
+    "active model blobs",
+    "Pattern Lab source media",
+    "Pattern Lab rights and approval history",
+    "Pattern Lab approved masters and upload receipts",
+    "credentials"
+  ],
+  "youtube_mutation": "not_performed"
+}

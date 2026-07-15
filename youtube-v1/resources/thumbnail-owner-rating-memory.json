@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "status": "active",
   "owner_rules": [
     "city name required on every thumbnail",
@@ -13,7 +13,10 @@
     "bare redaction bars with barely any readable words are a hard block",
     "public-facing filler labels like SOURCE PHOTO, RECEIPT, and SOURCE FILE are hard blocks unless they are the actual curiosity hook and visually worth clicking",
     "blue/cyan overlays must not look generic or bland; use vivid color systems with clear contrast and topic purpose",
-    "bland thumbnails fail even when technically source-backed; click desire is a required gate"
+    "bland thumbnails fail even when technically source-backed; click desire is a required gate",
+    "the owner rated the recent Cleveland vivid city-and-proof examples 98/100; preserve their bright blue and warm-gold energy, clean poster depth, strong negative space, and premium text hierarchy as an approved reference direction",
+    "for a time-contrast story, use an actual old photo beside a current/source-safe city image; do not use a map as the old-photo substitute",
+    "a city name should be the largest or co-largest element whenever city recognition is the main search-shelf hook"
   ],
   "liked_formats": [
     {
@@ -61,6 +64,24 @@
       ],
       "required_proof_object": "real map/route/source image with exactly one purpose-labeled highlight",
       "allowed_variation_range": "highlight only a real route, cut, boundary, or changed area"
+    },
+    {
+      "id": "vivid_city_proof_poster",
+      "owner_basis": "Owner rated the recent Cleveland city-and-proof examples 98/100.",
+      "best_use_cases": [
+        "a verified city-history contradiction",
+        "a dated historic photo",
+        "an industrial or waterfront mystery",
+        "a citywide local-history promise"
+      ],
+      "do_not_use_cases": [
+        "AI support presented as archival evidence",
+        "a dim or gloomy hero when a bright poster-grade grade is possible",
+        "map/photo THEN/NOW mismatch",
+        "generic text cards or small city labels"
+      ],
+      "required_proof_object": "one large, source-led historic photo or document frame tied directly to the promise; AI is only the vivid non-proof environment behind it",
+      "allowed_variation_range": "vary hierarchy, palette, city scene, and proof-photo crop per hypothesis; preserve bright focal light, cobalt/azure plus warm-gold energy, dimensional premium type, and simple evidence-first composition"
     }
   ],
   "hard_reject_reasons": [

@@ -2,8 +2,16 @@
 import crypto from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
-import sharp from "sharp";
+
+// The runtime worktree intentionally does not carry the full OpenClaw
+// node_modules tree.  Resolve Sharp from the configured canonical install,
+// exactly as the Chrome renderer does, so chat-safe delivery does not fail in
+// an otherwise healthy sparse/worktree environment.
+const require = createRequire(import.meta.url);
+const nodeModules = process.env.PATTERNLAB_NODE_MODULES;
+const sharp = nodeModules ? require(path.join(nodeModules, "sharp")) : require("sharp");
 
 const CHAT_WIDTH = 1280;
 const CHAT_HEIGHT = 720;

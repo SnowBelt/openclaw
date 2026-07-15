@@ -38,6 +38,8 @@ from patternlab_transcript_watchtime_score import build_score as build_transcrip
 from patternlab_transcript_editorial_quality import build_report as build_transcript_editorial_quality_report
 from patternlab_visual_quality import build_visual_quality_report
 from patternlab_visual_variety import build_visual_variety_report
+from patternlab_visual_contract import validate_contract as build_visual_contract_report
+from patternlab_context_media_library import build_report as build_context_media_library_report
 
 REQUIRED_FULL_APPROVAL_TYPES = ["image", "voiceover", "proof_footage", "video", "short"]
 
@@ -152,10 +154,17 @@ def main():
     source_rights, source_rights_json_report, source_rights_md_report = build_source_rights_report(args.video_id)
     visual_quality, visual_quality_json_report, visual_quality_md_report = build_visual_quality_report(args.video_id)
     visual_variety, visual_variety_json_report, visual_variety_md_report = build_visual_variety_report(args.video_id)
+    visual_contract, visual_contract_json_report, visual_contract_md_report = build_visual_contract_report(args.video_id)
+    context_media_library, context_media_library_json_report, context_media_library_md_report = build_context_media_library_report(args.video_id)
     motion_polish, motion_polish_json_report, motion_polish_md_report = build_motion_polish_report(args.video_id)
     benchmark_growth, benchmark_growth_json_report, benchmark_growth_md_report = build_benchmark_growth_report(args.video_id)
     guru_growth, guru_growth_json_report, guru_growth_md_report = build_guru_growth_report(args.video_id)
     quality_gates, quality_gates_json_report, quality_gates_md_report = build_quality_gates_report(args.video_id)
+    # The aggregate quality gate refreshes strict final-pixel/audio receipts.
+    # Re-read dependent reports so readiness never evaluates stale pre-QA data.
+    shorts_quality = read_json(approval / "shorts-quality-report.json") or shorts_quality
+    media_qa = read_json(approval / "media-qa-report.json") or {}
+    media_qa_md_report = approval / "media-qa-report.md"
     transcript_viral, transcript_viral_json_report, transcript_viral_md_report = build_transcript_viral_report(args.video_id)
     comment_quality, comment_quality_json_report, comment_quality_md_report = build_comment_quality_report(args.video_id)
     transcript_watchtime, transcript_watchtime_json_report, transcript_watchtime_md_report = build_transcript_watchtime_score(args.video_id)
@@ -291,6 +300,8 @@ def main():
         blockers.append(f"Shorts render readiness is blocked: {display_path(shorts_render_readiness_md_report)}.")
     if shorts_quality.get("status") != "pass":
         blockers.append(f"Shorts quality gates are blocked: {display_path(shorts_quality_report)}.")
+    if media_qa.get("status") != "pass" or int(media_qa.get("minimum_asset_score", 0) or 0) < 93:
+        blockers.append(f"Strict final visual/audio QA is blocked: {display_path(media_qa_md_report)}.")
     if thumbnail_quality.get("status") != "pass":
         blockers.append(f"Thumbnail quality gates are blocked: {display_path(thumbnail_quality_report)}.")
     if thumbnail_factory.get("status") != "pass":
@@ -302,6 +313,10 @@ def main():
         blockers.append(f"Synthetic disclosure gates are blocked: {display_path(synthetic_disclosure_md_report)}.")
     if visual_quality.get("status") != "pass":
         blockers.append(f"Visual quality gates are blocked: {display_path(visual_quality_md_report)}.")
+    if visual_contract.get("status") != "pass":
+        blockers.append(f"Narration-to-visual contract is blocked: {display_path(visual_contract_md_report)}.")
+    if context_media_library.get("status") != "pass":
+        blockers.append(f"Generic context-media library is blocked: {display_path(context_media_library_md_report)}.")
     if visual_variety.get("status") != "pass":
         blockers.append(f"Visual variety gates are blocked: {display_path(visual_variety_md_report)}.")
     if motion_polish.get("status") != "pass":
@@ -406,6 +421,7 @@ def main():
         f"- Shorts free-first toolchain handoff: {shorts_toolchain_handoff.get('status')} ({display_path(shorts_toolchain_handoff_md_report)})",
         f"- Shorts render readiness: {shorts_render_readiness.get('status')} ({display_path(shorts_render_readiness_md_report)})",
         f"- Shorts quality gates: {shorts_quality.get('status')} ({display_path(shorts_quality_report)})",
+        f"- Strict final visual/audio QA: {media_qa.get('status', 'missing')} (minimum asset score={media_qa.get('minimum_asset_score', 'missing')}; {display_path(media_qa_md_report)})",
         f"- Thumbnail factory: {thumbnail_factory.get('status', 'missing')} ({display_path(thumbnail_factory_report)})",
         f"- Active city: {thumbnail_factory.get('active_city', 'missing')}",
         f"- City-agnostic templates: {thumbnail_factory.get('city_agnostic_status', 'missing')}",

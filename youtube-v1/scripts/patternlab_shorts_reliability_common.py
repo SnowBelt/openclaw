@@ -24,15 +24,6 @@ SOURCE_LEAD_TERMS = (
     "neighborhood",
     "family story",
 )
-LOCAL_TERMS = (
-    "detroit",
-    "black bottom",
-    "paradise valley",
-    "hastings",
-    "st. antoine",
-    "i-375",
-    "lafayette park",
-)
 PROOF_TERMS = (
     "map",
     "source",
@@ -125,6 +116,12 @@ def short_ref(item: dict[str, Any]) -> str:
 
 def script_items(package: dict[str, Any]) -> list[dict[str, Any]]:
     return list(package.get("shorts") or [])
+
+
+def package_local_terms(package: dict[str, Any]) -> tuple[str, ...]:
+    values = [str(package.get("city") or "").strip()]
+    values.extend(str(item).strip() for item in package.get("local_terms", []) if str(item).strip())
+    return tuple(dict.fromkeys(item.casefold() for item in values if item))
 
 
 def overlay_exists(root: Path, video_id: str, index: int, kind: str = "first") -> Path:

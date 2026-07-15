@@ -79,18 +79,36 @@ def readiness_status(root):
 
 def write_pipeline_report(root, video_id, steps, state):
     report = ensure_dir(root / "approval") / "pipeline-run-report.md"
+    blockers = [f"step_failed:{step['name']}" for step in steps if not step.get("ok") and not step.get("skipped")]
+    required_media = {
+        "images_ready": state.get("images_ready") is True,
+        "audio_ready": state.get("audio_ready") is True,
+        "proof_ready": state.get("proof_ready") is True,
+        "long_form_ready": state.get("long_form_ready") is True,
+        "shorts_ready": state.get("shorts_ready") is True,
+        "long_form_quality": state.get("long_form_quality") == "pass",
+        "quality_gates": state.get("quality_gates") == "pass",
+    }
+    blockers.extend(f"media_not_ready:{name}" for name, ready in required_media.items() if not ready)
+    private_readiness = readiness_status(root)
+    if private_readiness != "private-upload-ready":
+        blockers.append(f"private_upload_readiness:{private_readiness}")
     payload = {
         "generated_at": utc_now(),
         "video_id": video_id,
+        "status": "pass" if not blockers else "blocked",
+        "blockers": sorted(set(blockers)),
         "steps": steps,
         "media_state": state,
-        "private_upload_readiness": readiness_status(root),
+        "private_upload_readiness": private_readiness,
+        "youtube_mutation": "not_performed",
     }
     (root / "approval" / "pipeline-run-report.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     lines = [
         f"# Pattern Lab Pipeline Run: Video {video_id}",
         "",
         f"Generated: {payload['generated_at']}",
+        f"Status: {payload['status']}",
         f"Private upload readiness: {payload['private_upload_readiness']}",
         "",
         "## Media State",
@@ -105,6 +123,9 @@ def write_pipeline_report(root, video_id, steps, state):
         else:
             label = "pass" if step["ok"] else "failed"
         lines.append(f"- {step['name']}: {label} ({step['exit_code']})")
+    lines.extend(["", "## Blockers", ""])
+    lines.extend([f"- {item}" for item in payload["blockers"]] or ["- none"])
+    lines.extend(["", "YouTube mutation: not performed", ""])
     report.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Pipeline report: {display_path(report)}")
     return payload
@@ -118,6 +139,11 @@ def main():
     parser.add_argument("--live-voice", action="store_true")
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
+    if os.environ.get("PATTERNLAB_CANONICAL_RUN") != "1":
+        raise SystemExit(
+            "Direct media-pipeline execution is unsupported. Use "
+            "youtube-v1/scripts/patternlab_production.py so source, render, QA, and review gates cannot be skipped."
+        )
     load_dotenv()
     root = output_root(args.video_id)
     steps = []
@@ -129,6 +155,68 @@ def main():
     run([sys.executable, "youtube-v1/scripts/patternlab_preflight.py", "--video-id", args.video_id], check=False, steps=steps, name="preflight_before")
     run([sys.executable, "youtube-v1/scripts/generate_upload_metadata.py", "--video-id", args.video_id], steps=steps, name="upload_metadata")
     run([sys.executable, "youtube-v1/scripts/patternlab_retention_ladder.py", "--video-id", args.video_id], check=False, steps=steps, name="retention_ladder")
+    run([sys.executable, "youtube-v1/scripts/patternlab_visual_contract.py", "--video-id", args.video_id], check=False, steps=steps, name="visual_contract")
+    prompt_plan = run(
+        [sys.executable, "youtube-v1/scripts/patternlab_visual_prompt_compiler.py", "--video-id", args.video_id],
+        check=False,
+        steps=steps,
+        name="local_visual_prompt_plan",
+    )
+    retention_plan = run(
+        [sys.executable, "youtube-v1/scripts/patternlab_visual_retention_quality.py", "--video-id", args.video_id, "--plan-only"],
+        check=False,
+        steps=steps,
+        name="visual_retention_plan",
+    )
+    storage = run(
+        [sys.executable, "youtube-v1/scripts/patternlab_storage_lifecycle.py", "--video-id", args.video_id, "--require-operation", "long_form_render"],
+        check=False,
+        steps=steps,
+        name="long_form_storage_reserve",
+    )
+    prompt_data = {}
+    try:
+        prompt_data = json.loads((root / "approval" / "local-visual-prompt-plan.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pass
+    base_premedia_failures = [result for result in [prompt_plan, retention_plan, storage] if result.returncode != 0]
+    if base_premedia_failures:
+        print("Production media blocked: visual planning or long-form storage reserve is not ready.")
+        write_pipeline_report(root, args.video_id, steps, media_state(root, args.video_id))
+        if args.require_complete:
+            raise SystemExit("Pipeline incomplete: visual planning and storage reserve must pass before generation.")
+        return
+    local_still = None
+    if prompt_data.get("generation_beat_count", 0):
+        canary = run(
+            [sys.executable, "youtube-v1/scripts/patternlab_thumbnail_local_model_benchmark.py", "--video-id", args.video_id],
+            check=False,
+            steps=steps,
+            name="native_local_generation_canary",
+        )
+        run(
+            [sys.executable, "youtube-v1/scripts/patternlab_local_generation_router.py", "--video-id", args.video_id],
+            check=False,
+            steps=steps,
+            name="local_generation_router",
+        )
+        local_still = (
+            run(
+                [sys.executable, "youtube-v1/scripts/patternlab_local_still_tournament.py", "--video-id", args.video_id, "--live"],
+                check=False,
+                steps=steps,
+                name="local_still_tournament",
+            )
+            if canary.returncode == 0
+            else canary
+        )
+    premedia_failures = [result for result in [local_still] if result is not None and result.returncode != 0]
+    if premedia_failures:
+        print("Production media blocked: visual-generation, retention, or storage preflight is not ready.")
+        payload = write_pipeline_report(root, args.video_id, steps, media_state(root, args.video_id))
+        if args.require_complete:
+            raise SystemExit("Pipeline incomplete: premedia visual/storage gates must pass before rendering.")
+        return
     # Production media may only be assembled from the explicit immutable
     # evidence manifest.  Do not let the legacy generic-image path create a
     # new draft when a source trail is absent or invalid.
@@ -192,19 +280,61 @@ def main():
     )
     alignment_status = json_status(root / "approval" / "word-alignment-report.json")
     if alignment_status == "pass":
-        canonical_render = run(
-            [sys.executable, "youtube-v1/scripts/patternlab_canonical_renderer.py", "--video-id", args.video_id, "--render"],
+        canonical_plan = run(
+            [sys.executable, "youtube-v1/scripts/patternlab_canonical_renderer.py", "--video-id", args.video_id],
             check=False,
             steps=steps,
-            name="canonical_evidence_render",
+            name="canonical_evidence_render_plan",
+        )
+        motion_plan = run(
+            [sys.executable, "youtube-v1/scripts/patternlab_canonical_motion_plan.py", "--video-id", args.video_id],
+            check=False,
+            steps=steps,
+            name="canonical_motion_plan",
+        )
+        canonical_render = (
+            run(
+                [sys.executable, "youtube-v1/scripts/patternlab_canonical_renderer.py", "--video-id", args.video_id, "--render"],
+                check=False,
+                steps=steps,
+                name="canonical_evidence_render",
+            )
+            if canonical_plan.returncode == 0 and motion_plan.returncode == 0
+            else (canonical_plan if canonical_plan.returncode != 0 else motion_plan)
         )
         if canonical_render.returncode == 0:
-            run(
+            render_quality = run(
                 [sys.executable, "youtube-v1/scripts/patternlab_render_quality.py", "--video-id", args.video_id, "--run"],
                 check=False,
                 steps=steps,
                 name="canonical_render_quality",
             )
+            if render_quality.returncode == 0:
+                benchmark_run = run(
+                    [sys.executable, "youtube-v1/scripts/patternlab_local_visual_judge_runner.py", "--video-id", args.video_id, "--benchmark"],
+                    check=False,
+                    steps=steps,
+                    name="local_visual_model_benchmark",
+                )
+                benchmark_verify = run(
+                    [sys.executable, "youtube-v1/scripts/patternlab_local_visual_model_benchmark.py", "--video-id", args.video_id],
+                    check=False,
+                    steps=steps,
+                    name="local_visual_model_benchmark_verify",
+                )
+                if benchmark_run.returncode == 0 and benchmark_verify.returncode == 0:
+                    run(
+                        [sys.executable, "youtube-v1/scripts/patternlab_local_visual_judge_runner.py", "--video-id", args.video_id, "--judge-final"],
+                        check=False,
+                        steps=steps,
+                        name="local_visual_final_judge",
+                    )
+                    run(
+                        [sys.executable, "youtube-v1/scripts/patternlab_visual_judge.py", "--video-id", args.video_id],
+                        check=False,
+                        steps=steps,
+                        name="local_visual_final_judge_verify",
+                    )
     else:
         steps.append(
             {
@@ -323,6 +453,7 @@ def main():
             name="shorts_plan",
         )
     run([sys.executable, "youtube-v1/scripts/monetization_gates.py", "--video-id", args.video_id], check=False, steps=steps, name="monetization_gates")
+    run([sys.executable, "youtube-v1/scripts/patternlab_media_qa.py", "--video-id", args.video_id], check=False, steps=steps, name="strict_media_qa")
     run([sys.executable, "youtube-v1/scripts/patternlab_quality_gates.py", "--video-id", args.video_id], check=False, steps=steps, name="quality_gates")
     run([sys.executable, "youtube-v1/scripts/private_upload_readiness.py", "--video-id", args.video_id], check=False, steps=steps, name="private_readiness")
     run([sys.executable, "youtube-v1/scripts/public_publish_readiness.py", "--video-id", args.video_id], check=False, steps=steps, name="public_readiness")

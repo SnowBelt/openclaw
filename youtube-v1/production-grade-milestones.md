@@ -23,7 +23,7 @@ Status: complete.
 
 Status: complete.
 
-- Enforce the autonomous production sequence: `OpenClaw strategy/source safety → Canva plugin render → OpenClaw validation → owner review / YouTube test`.
+- Enforce the autonomous production sequence: `OpenClaw strategy/source safety → rights-cleared acquisition → optional Codex/local non-proof support → deterministic render → strict hash-bound 93+ media QA → owner review → separately approved YouTube action/test`.
 - Add `youtube-v1/workflows/autonomous-production-architecture.md` as the canonical OpenClaw/Canva/owner handoff contract.
 - Enforce the machine-readable thumbnail click policy at `youtube-v1/resources/thumbnail-click-policy.json`.
 - Add the thumbnail production workflow at `youtube-v1/workflows/thumbnail-production-workflow.md` to the active Pattern Lab package flow.
@@ -31,7 +31,7 @@ Status: complete.
 - Generate graphics from map/photo/city visuals without source-board clutter in thumbnail packaging.
 - Generate exactly three distinct candidate types for every long-form video: emotional mystery, map/system proof, and contrarian history angle.
 - Build thumbnails from the formula: one dominant real photo/map/document + one emotional mystery + one city anchor + one proof object + 2-4 words.
-- Default creation path: OpenClaw controls strategy/source safety, then uses the Canva plugin as the preferred autonomous renderer when connected, with local generation as fallback.
+- Default creation path: OpenClaw controls strategy/source safety, Codex is the primary approved non-proof thumbnail support generator, local generation is the routine secondary/fallback, and the deterministic renderer plus strict media QA remain authoritative. Canva is optional when connected.
 - Canva is a rendering engine only. OpenClaw must own strategy, source safety, rights ledger checks, title-thumbnail promise matching, validation, owner review packet, and YouTube testing notes.
 - Canva Free is allowed only when it produces clean watermark-free exports from user-uploaded assets and free elements; Canva Pro is recommended when background removal, brand templates, premium elements, or resize workflows materially improve quality.
 - Store Canva design URL/id in the review packet and export final files to `youtube-v1/local-output/video-XX/images/`.
@@ -139,7 +139,7 @@ Status: complete.
 
 Status: complete.
 
-- Preserve the sequence: `OpenClaw strategy/source safety → Canva plugin render → OpenClaw validation → owner review / YouTube test`.
+- Preserve the sequence: `OpenClaw strategy/source safety → rights-cleared acquisition → optional Codex/local non-proof support → deterministic render → strict hash-bound 93+ media QA → owner review → separately approved YouTube action/test`.
 - Keep Canva as the preferred renderer and polish tool, not the strategist or source-of-truth.
 - Add repo-local photo-first thumbnail rendering before any optional live Canva polish.
 - Require three source-backed candidates: emotional mystery, map/system proof, and contrarian history angle.
@@ -156,11 +156,15 @@ Status: complete.
 
 ## Milestone 34 — Local Text/Image-To-Video Lab
 
-Status: complete.
+Status: engineering complete; current production activation blocked.
 
 - Add local ComfyUI video generation as an optional, gated enhancement, not the default proof layer.
-- Use LTX as the first local smoke-test candidate; Wan2.2-TI2V-5B remains the production candidate after local proof, and Wan2.2-I2V-A14B remains research/premium only with manual approval.
-- Verified local LTXV draft text-to-video and image-to-video smoke outputs with ComfyUI bound to `127.0.0.1:8188`.
+- Use Draw Things LTX-2.3 distilled as the first current local smoke-test
+  candidate; Wan2.2-TI2V-5B remains research/premium until local proof.
+- Historical LTXV/ComfyUI smoke artifacts do not prove current readiness. The
+  current ComfyUI endpoint is unavailable and no current hash-bound LTX-2.3
+  image-to-video benchmark receipt exists, so generative motion remains
+  fail-closed while deterministic FFmpeg motion stays ready.
 - Keep all AI video output ledgered as `AI-generated video illustration — not archival footage`, `non_proof_motion_illustration`, and `blocked_until_owner_review`.
 - Do not add generated video to a public package, replace YouTube content, or publish without fresh explicit owner approval.
 
@@ -2284,11 +2288,19 @@ Status: complete locally.
 
 ## Milestone 316 — Free Stock Video Provider Registry + Rights Ledger
 
-Status: complete local contract; live downloads remain key/network/license dependent.
+Status: hardened local contract complete; live API acquisition remains optional and key/network/license dependent.
 
-- Added a stock-video provider policy covering Pexels, Pixabay, Mixkit, Coverr, Unsplash video where available, and selectively cleared Videvo/Videezy.
-- Stock requires rights-ledger proof before public use.
-- Completion proof: `resources/stock-video-provider-policy.json`.
+- Added an automation-first stock-video policy: Pexels API, Pixabay API,
+  exact-item Mixkit/Coverr fallback, and manual-exception Videvo/Videezy.
+- Added `scripts/patternlab_free_stock_acquisition.py` for plan-only or live API
+  candidate collection with provider-aware caching and local candidate receipts.
+- Search/category URLs, unknown creators, hotlinks, and frame-inflated diversity
+  are blocked. Downloaded media remains a candidate until exact-hash human
+  editorial/rights review promotes it.
+- Stock requires exact-item rights and local file proof before public use.
+- Completion proof: `resources/stock-video-provider-policy.json`,
+  `resources/visual-acquisition-routing-policy.json`, and
+  `local-output/<video-id>/approval/free-stock-acquisition-report.json`.
 
 ## Milestone 317 — Stock-Is-Context-Not-Proof Gate
 
@@ -2567,3 +2579,230 @@ Status: complete locally; live owner events remain pending.
 
 - OAuth live health is verified with the full-automation scope profile. Public Analytics remains pending only until public videos and reporting windows exist.
 - Video 04 rendered media, thumbnails, and owner review remain blocked whenever their package hash is stale or frame-level visual review is not passing.
+
+## Thumbnail World-Class Milestones T1-T19
+
+### 2026-07-11 Owner-feedback thumbnail hardening addendum
+
+- Codex image generation is now the primary approved non-proof support source;
+  local Apple Metal generation remains the resilient secondary path. AI can
+  supply atmosphere, relighting, and composition support but cannot stand in
+  for archival evidence, a factual map, or final public text.
+- The canonical final compositor is the local Chrome/HTML/CSS renderer with
+  bundled OFL Google display fonts (`Anton` and `Bebas Neue`), rather than a
+  raster/Pillow text treatment. Each thumbnail receives deterministic
+  320x180 and 160x90 shelf previews, font-ledger verification, OCR-supporting
+  metadata, and a fresh-screenshot guarantee so an old render cannot silently
+  survive a type/layout revision.
+- A new semantic gate blocks a map/photo pair from being labeled `THEN/NOW`, a
+  map from substituting for a historic photograph, dim/flat heroes, generic
+  text cards, and AI support without a visible real proof object. If a
+  rights-cleared historic photograph is unavailable, the correct behavior is
+  to omit `THEN/NOW`, not to fake it.
+- Video 04 now has three hash-bound **review-only** hypotheses: city/proof,
+  mystery/proof, and map/system. They deliberately use a bright Codex
+  non-proof support layer plus a visible Library of Congress map proof object;
+  all still require source acceptance and a new owner rating before promotion.
+
+- **T1 Benchmark corpus:** engineering complete; six private owner references validate locally.
+- **T2 100-point rubric:** engineering complete; rubric totals 100 and hard blocks override scores.
+- **T3 Free local environment:** engineering complete; Draw Things CLI/app, GIMP, Upscayl, FFmpeg, Tesseract, and the deterministic renderer are health-checked.
+- **T4 Local model bake-off:** the installed, hash-locked Draw Things FLUX.2
+  Klein 4B Q6 route passes a bounded local Apple Metal generation benchmark
+  outside the restricted Codex sandbox. Codex image generation remains primary
+  for important thumbnail support; Draw Things is ready for routine local
+  non-proof support.
+- **T4-R1 Local route separation:** complete locally. Generation health is now
+  separate from PyTorch/SigLIP judge health. The router reports FFmpeg
+  deterministic motion and Draw Things routine still generation as ready.
+  Local image-to-video remains blocked until an exact model/workflow benchmark
+  passes. Z-Image-Turbo is registered
+  as a second Apache-2.0 local still candidate, not a silent fallback.
+- **T5 Story-first brief:** engineering complete; schema and Video 04 brief validate.
+- **T6 Premium template families:** engineering complete; six distinct families are registered.
+- **T7 Typography engine:** engineering complete; four open-font roles, mobile OCR, and deterministic text rendering are enforced.
+- **T8 Hero/source pipeline:** engineering complete; exact-source adequacy remains blocked until Black Bottom-specific assets are accepted.
+- **T9 Vivid-color pipeline:** engineering complete; contrast, luminance, saturation, and shelf checks are enforced.
+- **T10 AI support:** engineering complete under the explicit owner authority:
+  Codex image generation is primary for important thumbnail support, while the
+  verified local Draw Things route handles routine non-proof still support.
+  Support can never be promoted to proof.
+- **T10-R1 AI motion boundary:** complete locally. Deterministic motion is
+  first; Draw Things LTX-2.3 distilled and Wan2.2-TI2V-5B require local
+  benchmark receipts;
+  generated/support motion is capped at 8% of long-form runtime and 15% of a
+  Short; realistic synthetic scenes require reconstruction and altered-content
+  decisions.
+- **T11 Honest presenter policy:** engineering complete; presenter is optional and may not be represented as a historical witness.
+- **T12 20-to-8-to-5-to-3 tournament:** engineering complete; Video 04 has a deterministic provisional tournament pending Terra/source review.
+- **T13 Automated visual QA:** engineering complete; dimensions, OCR recall, contrast, saturation, duplicate, and hash checks are active.
+- **T14 Terra review contract:** engineering complete; GPT-5.6 Terra is limited to three high-value review checkpoints.
+- **T15 Sol Ultra reset:** engineering complete as an objective two-failed-cycle conditional; not triggered.
+- **T16 Hash-bound owner review:** engineering complete; final completion requires a current exact-hash owner rating of at least 9/10.
+- **T17 Video 04 rebuild:** incomplete; provisional renders exist, but exact Black Bottom source adequacy, 90+ review scores, and current owner approval are missing.
+- **T18 Reliability:** engineering complete; corruption, duplicate, backup, restore, and tournament-contract tests pass.
+- **T19 Post-publication learning:** engineering complete as a fail-closed contract; empirical completion requires future native YouTube test data and separate mutation approval.
+
+### 2026-07-11 Free-media acquisition and local-motion hardening addendum
+
+- Exact-item acquisition contract: complete locally. Search/category URLs are
+  leads, not assets; selected media requires exact item/download URLs, creator,
+  license, local hash, retrieval time, source role, and either deterministic
+  machine acceptance or explicit human acceptance. Final package approval is
+  still hash-bound to the owner.
+- Free stock automation: complete as plan/query/download-candidate tooling for
+  Pexels and Pixabay. Live collection remains optional and blocked until free
+  API keys are configured. Mixkit/Coverr and local archives remain exact-item
+  manual/permission lanes.
+- Source-depth gate: complete locally. Production now requires 20 historical or
+  proof assets, 10 modern context assets, 6 actual modern context video assets,
+  at least two selected providers, and 90% unique source URLs.
+- Canonical video-asset rendering: complete locally. `film` and `modern_video`
+  evidence-manifest assets now use deterministic native-video trim/loop,
+  scale/crop, source labels, muted source audio, and role-specific motion
+  profiles instead of the still-image `-loop 1` path.
+- Full media filter runtime: complete on the current Mac Studio. Installed the
+  keg-only `ffmpeg-full` build and made Pattern Lab prefer its explicit path.
+  Environment health now requires `drawtext`, `overlay`, and `subtitles`;
+  an actual video-plus-source-label-plus-SRT-plus-audio smoke rendered 1.2
+  seconds successfully with clean stderr.
+- Thumbnail visual-energy gate: complete locally. Modern heroes and major
+  insets are measured from source pixels. Video 04 `THE MAP CHANGED` is
+  correctly blocked because the GM/Renaissance Center inset is below the
+  saturation floor; filters cannot override the failure.
+- Visual source/motion skill: complete in the repository and installed in the
+  shared Codex skills directory. Both the new skill and the shared thumbnail
+  skill were validated/diff-checked after deployment.
+- Routine local still support: ready. Draw Things FLUX.2 Klein 4B Q6 and its
+  split Qwen encoder files are hash-verified, and the current local benchmark
+  produced a valid output. The earlier Metal failure was isolated to the
+  restricted execution context rather than treated as a machine-wide failure.
+- Local generative motion: engineering route complete but production activation
+  blocked. A fail-closed Draw Things LTX-2.3 benchmark command and hash/license
+  registry now exist; the model is not auto-downloaded or accepted until exact
+  hashes, license boundary, runtime, and output all pass.
+
+### 2026-07-11 Strict 93+ final-media QA hardening
+
+- The old 80/100 visual pass floor is retired. Every final thumbnail,
+  long-form video, and Short must independently score at least 93/100; hard
+  failures and warnings cannot be averaged away.
+- Final thumbnail QA now measures the actual current PNG hash, dimensions and
+  aspect ratio, luma, dark-pixel share, saturation, contrast, sharpness,
+  clipping, 320x180/160x90 OCR recall, unexpected large text/boxes, and text
+  margins. Source semantics and font hierarchy remain separate hard gates.
+- Final audio QA measures stream presence, sample rate, channels, integrated
+  loudness, true peak, loudness range, internal silence/dropout, and A/V sync
+  for the long-form file and every Short.
+- Rendered-media QA detects black/frozen segments, dim or flat frame share,
+  persistent unexpected text, unsafe caption boxes, and excessive visual-event
+  gaps from the exported MP4s.
+- Local visual-judge receipts require an allowlisted benchmarked model, current
+  video/frame hashes, timestamps, dense coverage, per-dimension scores, and a
+  worst-frame score of at least 93. The official Qwen3-VL 8B Q4_K_M GGUF plus
+  Q8_0 projector is installed and hash-bound. Its 20-case hybrid benchmark
+  passes at 100%, its semantic-only VLM subset passes at 100%, and median Metal
+  inference is 3.426 seconds per frame. Deterministic brightness/OCR detectors
+  remain authoritative because the VLM alone missed measurable dim/text cases.
+- A hash-bound adversarial harness proves the QA rejects dim/flat images,
+  unexpected text, stale hashes, black/frozen video, missing audio, poor
+  loudness, dropouts, desync, and any hard failure that would otherwise reach 93.
+- Owner-review packets and Discord media delivery are blocked unless the strict
+  aggregate media QA passes. This gate never mutates YouTube.
+- Video 04 is correctly blocked before owner review: the final long-form video
+  and rendered Shorts are absent, two current thumbnail variants fail mobile
+  OCR, one thumbnail is missing, and `THE MAP CHANGED` uses a dim/flat modern
+  source. The benchmark pass proves the judge is available; it does not approve
+  missing or defective package media.
+
+### 2026-07-12 Local visual generation, storage, and historical-motion hardening
+
+- Local still generation is now native-runtime-only, serialized, retry-bounded,
+  atomic, hash-bound, resumable, candidate-tournamented, and independently
+  judged. Full narration remains in the receipt/judge while the image model gets
+  one concise visible action and explicit period/camera/composition constraints.
+- Draft generation uses eight candidates and at most two prompt-repair rounds.
+  Only a >=93 no-hard-failure candidate can win; only that winner receives one
+  low-strength native-size local img2img refinement, deterministic 1536x1024
+  enlargement, and final-pixel rejudgment.
+- Video 04 exercised the full tournament against a difficult period-human
+  reconstruction. The best promoted final scored 87/100 because clothing,
+  vehicles, lighting, and the digital look were not sufficiently historical.
+  The asset was moved to the failed-candidate quarantine and never entered the
+  selected source packet. This proves the gate fails closed: the current FLUX.2
+  Klein route is ready for routine generic non-proof support, but it is not a
+  guaranteed substitute for exact historical media or a stronger future local
+  model that wins the same benchmark.
+- Restricted Codex Seatbelt Metal failures are classified as environment
+  failures and cannot poison a fresh trusted native canary. The native Draw
+  Things canary and JSON-constrained Qwen3-VL response path are verified.
+- Historical stills can use deterministic two-plane documentary parallax with
+  Apple Vision or a reviewed manual mask. Source, mask, preset, and output are
+  hash-bound; frames stream directly to FFmpeg. The live canary passes expected
+  frame PSNR/SSIM and local Qwen3-VL source/cutout/motion QA at 93/100. A second
+  canary on the rights-ledgered 1926 Edith Wilson historical photograph passes
+  at 95/100, proving the actual historical-photo workflow rather than only a
+  synthetic fixture. The local-judge parser also normalizes exact benign
+  sentinels such as `none` while preserving every substantive hard failure.
+- Generative motion is optional and fail-closed. Its gate now requires source
+  similarity, 12 sampled frames, temporal/luma/edge/OCR stability, no semantic
+  identity/geometry/object drift, proper disclosure, and >=93 local Qwen3-VL.
+- Storage lifecycle is operation-budgeted and protects source media, rights,
+  approvals, masters, manifests, and upload receipts. Only classified aged
+  transients can be deleted, and only with explicit apply mode. External APFS
+  migration copies and SHA-verifies before activation and never deletes source.
+- The current internal SSD reserve is below the long-form-render and local-I2V
+  floors, so those operations remain correctly blocked until space is freed or
+  a verified external media store is activated. Routine local still generation
+  remains within its reserve.
+- Operation-specific CLI status is authoritative: an overall runtime-reserve
+  warning no longer falsely blocks routine still generation when its own 50 GiB
+  and 5% reserve passes. Long render, image-to-video, and model download retain
+  their larger independent fail-closed reserves.
+- Visual contracts now carry explicit retention functions, motion intents, and
+  event policy. Target meaningful reveals <=2.5 seconds in the first 30 seconds
+  and <=5 seconds afterward; decorative motion cannot satisfy the gate.
+
+### 2026-07-14 City-generic production closure
+
+- City portability: engineering complete. Every canonical episode surface now
+  requires one explicit, matching city plus a question, proof object, visual
+  payoff, five episode-owned thumbnail hypotheses, and standalone Shorts. A
+  new city cannot inherit a prior city's silent defaults.
+- Machine rights acceptance: engineering complete. Exact item, download, and
+  license URLs; an allowlisted commercial/modifiable license code; a
+  timezone-aware retrieval timestamp; local bytes/hash; and a deterministic
+  receipt are required. Search pages, ambiguous rights, NC/ND/editorial-only,
+  and unknown terms fail closed. Explicit human acceptance remains a separate
+  auditable route.
+- Local AI still integration: engineering complete. The canonical contract now
+  compiles narration-bound prompts, checks local routes, runs a resumable local
+  candidate tournament when a reconstruction is explicitly requested, and
+  promotes only the canonical hash-bound >=93 winner into the source pool. A
+  no-AI episode records `not_applicable`; a requested but unavailable route
+  blocks instead of silently falling back.
+- AI final-pixel boundary: engineering complete. Any AI asset in the rendered
+  route must be generic, non-proof, disclosed, <=5 seconds, within the 8%
+  runtime cap, and backed by the exact still-tournament or AI-motion QA receipt.
+- Full-package completeness: engineering complete. The typed contract requires
+  all long-form, Shorts, thumbnail, strict-media-QA, hash, release, and Discord
+  owner-review gates in order. The canonical launch agent now runs local render
+  plus hash-bound Discord review delivery; no YouTube mutation is included.
+- Cross-city regression proof: engineering complete through deterministic
+  Detroit and Cleveland fixtures covering city isolation, prompt truth
+  boundaries, rights acceptance, no-op local generation, bounded AI support,
+  contract order, and episode-owned thumbnail briefs.
+- Bounded context-media automation: engineering complete. When free Pexels or
+  Pixabay keys are configured, the canonical contract queries them, selects at
+  most one item per provider/context action, downloads exact local bytes, and
+  verifies the provider license and SHA-256 before the generic context library
+  or source pool can use the asset. Missing keys remain visible plan state and
+  never cause an unlicensed or AI substitution.
+- Entrypoint and resume durability: engineering complete. Every contract script
+  can import the typed Pattern Lab package when launched from the repository
+  root. Content-addressed reuse now binds shared package/helper code, episode
+  package/evidence/route inputs, and JSON production policies so a shared logic
+  or policy change cannot silently reuse stale media.
+- Media quality remains artifact-bound. Engineering completion does not claim
+  that an unrendered or owner-rejected episode is >=93; the current final pixels
+  must independently pass every gate before review.

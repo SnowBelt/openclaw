@@ -1,0 +1,163 @@
+{
+  "version": 3,
+  "channel": "Pattern Lab",
+  "purpose": "Fail-closed, source-first thumbnail production using Codex image generation as the approved primary non-proof support layer and local AI as resilient secondary tooling.",
+  "score_threshold": 94,
+  "owner_threshold": 9,
+  "rubric": {
+    "hero_image_and_emotion": 20,
+    "curiosity_and_promise": 15,
+    "promise_truth_and_first_30_seconds": 15,
+    "typography_and_shelf_readability": 18,
+    "composition_and_hierarchy": 12,
+    "city_recognition": 7,
+    "color_and_focal_luminance": 8,
+    "rights_and_historical_trust": 5
+  },
+  "hard_blocks": [
+    "unknown_rights",
+    "misleading_promise",
+    "fake_archival_evidence",
+    "generic_unrelated_imagery",
+    "headline_over_four_words",
+    "mobile_ocr_failure",
+    "source_board_clutter",
+    "severe_crop_or_distortion",
+    "ai_support_presented_as_proof",
+    "competitor_layout_copy",
+    "then_now_modality_mismatch",
+    "map_cannot_substitute_for_then_photo",
+    "dim_or_flat_hero_image",
+    "generic_text_card",
+    "ai_support_without_visible_real_proof"
+  ],
+  "template_families": [
+    "presenter_place",
+    "landmark_story",
+    "then_now",
+    "map_photo",
+    "proof_object_context",
+    "archival_modern_composite"
+  ],
+  "typography_families": {
+    "documentary_impact": ["Anton", "League Spartan"],
+    "editorial_condensed": ["Archivo Black", "Bebas Neue"],
+    "local_personality": ["Bowlby One SC", "Bungee", "Bangers"],
+    "supporting_labels": ["Barlow Condensed", "Montserrat"]
+  },
+  "typography_system": {
+    "final_renderer": "headless_chrome_fontsource_html_css",
+    "roles": {
+      "city": "Tall condensed city lockup; largest only in the city-search hypothesis.",
+      "hook": "Expressive display face with custom fit, restrained outline, directional shadow, and no generic black card.",
+      "support": "Optional. Omit it when the hook already answers the visual question."
+    },
+    "required_tests": [
+      "160x90 shelf screenshot",
+      "320x180 shelf screenshot",
+      "OCR text recall",
+      "duration-safe-zone check",
+      "no generic text-card check"
+    ],
+    "owner_feedback_baseline": {
+      "overall_score": 85,
+      "typography_score": 63,
+      "blocked_patterns": [
+        "oversized rounded black text card",
+        "one-font-for-all-public-text",
+        "map label treated as a second headline",
+        "small slogan that fails at mobile shelf size"
+      ]
+    }
+  },
+  "hero_asset_rules": {
+    "priority": [
+      "rights-cleared historical street-life or people photograph tied to the claim",
+      "rights-cleared exact present-day place photograph",
+      "source-rich map or document only when the map itself is the mystery",
+      "AI non-proof support layer behind a visible real proof object"
+    ],
+    "then_now": "Use photo/photo or map/map only. Do not use a map as the THEN image opposite a modern photograph.",
+    "ai_support": "AI may restore, relight, extend, or add atmosphere, but it cannot create historical proof or be the only visible factual object.",
+    "preflight": "Do not render a final then/now candidate until both rights-cleared panels are available and accepted."
+  },
+  "color_system": {
+    "focal_accents": ["electric_blue", "warm_yellow", "signal_red", "white"],
+    "outline": "near_black",
+    "archival_texture_role": "secondary_only",
+    "uniform_saturation": "blocked"
+  },
+  "generation_stack": {
+    "primary_generation": "Codex built-in image generation, owner-approved for non-proof support assets",
+    "secondary_interactive_generation": "Draw Things",
+    "secondary_repeatable_generation": "ComfyUI",
+    "generation_models": ["Qwen Image", "FLUX license-approved local model"],
+    "cutout": ["rembg", "SAM2", "BiRefNet"],
+    "upscale": ["Real-ESRGAN", "Upscayl"],
+    "retrieval": "SigLIP 2",
+    "ocr": "Tesseract",
+    "final_composite": "deterministic SVG/HTML/Sharp or existing local renderer",
+    "fallback_rule": "If Codex image generation is unavailable, use a verified local model. Do not silently replace source proof with generated imagery."
+  },
+  "ai_boundaries": {
+    "allowed": [
+      "background extension",
+      "atmospheric support",
+      "relighting",
+      "texture generation",
+      "map edge treatment",
+      "presenter pose variation",
+      "inpainting distractions",
+      "internally labeled reconstruction"
+    ],
+    "blocked": [
+      "archival evidence",
+      "historical document",
+      "invented person presented as real",
+      "factual map",
+      "final headline text"
+    ]
+  },
+  "model_routing": {
+    "routine_art_direction": "gpt-5.6-terra",
+    "terra_checkpoints": ["20_to_8", "8_to_5", "5_to_3_adversarial_pairwise"],
+    "sol_ultra_trigger": {
+      "minimum_failed_full_cycles": 2,
+      "maximum_best_score": 89,
+      "purpose": "one creative-system reset only"
+    },
+    "codex_image_generation_primary": true,
+    "paid_openai_api_default": "owner-approved standing authority for Pattern Lab thumbnail non-proof support assets only",
+    "local_ai_role": "secondary resilient fallback and batch support generation"
+  },
+  "tournament": {
+    "rough_count": 20,
+    "shortlist_count": 8,
+    "production_count": 5,
+    "owner_finalist_count": 3,
+    "minimum_distinct_template_families": 3,
+    "minor_recolor_is_distinct": false
+  },
+  "hypothesis_families": {
+    "required": [
+      "city_dominant",
+      "mystery_dominant",
+      "proof_or_transformation_dominant"
+    ],
+    "rule": "Three finalists must differ in information hierarchy and viewer reason to click, not merely colors or crops."
+  },
+  "mobile_checks": {
+    "shelf_sizes": [[320, 180], [160, 90]],
+    "expected_ocr_exact": true,
+    "timestamp_safe_zone": true,
+    "minimum_subject_area_ratio": 0.2,
+    "minimum_luminance_separation": 18,
+    "minimum_contrast_stddev": 35,
+    "minimum_mean_saturation": 55
+  },
+  "completion_contract": {
+    "prepublication_100": "All deterministic gates pass, all finalists score at least 94, exact candidate hash is owner-approved at 9/10 or better, and no public mutation occurs.",
+    "empirical_winner": "After separate publication approval, native YouTube testing selects by watch-time quality; CTR alone is insufficient.",
+    "owner_approval_is_not_transferable": true
+  }
+}

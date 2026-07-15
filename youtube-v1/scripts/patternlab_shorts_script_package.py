@@ -9,18 +9,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, require_city
 from patternlab_comment_prompts import city_source_lead_comment
 from patternlab_common import BASE, display_path, ensure_dir, launch_root, output_root, read_text, strip_markdown_for_voiceover, utc_now
 
-MIN_SCORE = 90
+MIN_SCORE = 93
 MIN_SECONDS = 25
 MAX_SECONDS = 45
 WORDS_PER_SECOND = 2.55
 TARGET_SHORT_COUNT = 5
+MAX_VISUAL_EVENT_SECONDS = 2.25
+ENDING_BRIDGE_SECONDS = 2.4
 CONTEXT_DEPENDENT_STARTS = (
     "that ",
     "this ",
@@ -50,61 +56,19 @@ TRAILER_ONLY_TERMS = (
     "maps, archives, photographs",
 )
 PROOF_TERMS = ("map", "proof", "source", "ledger", "evidence", "archive", "photo", "document", "street", "business")
-LOCAL_TERMS = ("detroit", "black bottom", "paradise valley", "hastings", "st. antoine", "i-375", "lafayette park")
 PAYOFF_TERMS = ("shows", "means", "matters", "changed", "proves", "because", "not just", "never just")
-
-SHORT_TEMPLATES = [
-    {
-        "id_suffix": "short-01",
-        "title": "Black Bottom Was Not Empty",
-        "viewer_psychology": "curiosity",
-        "first_frame_text": "DETROIT WAS NOT EMPTY",
-        "hook": "Black Bottom was not empty. Detroit erased a living district.",
-        "proof_visual": "Detroit map plus source ledger for Black Bottom and Paradise Valley",
-        "payoff": "The map changes the story from empty land to a lived neighborhood.",
-        "source_keywords": ["black bottom", "empty", "living district", "map", "paradise valley"],
-    },
-    {
-        "id_suffix": "short-02",
-        "title": "Black Bottom Name Myth",
-        "viewer_psychology": "utility",
-        "first_frame_text": "BLACK BOTTOM MYTH",
-        "hook": "Black Bottom was not named because it became a Black neighborhood.",
-        "proof_visual": "Black Bottom name-origin source card plus Detroit map label",
-        "payoff": "The name points to older bottomland soil history, while the later Black neighborhood story reveals a different layer.",
-        "source_keywords": ["not named", "dark", "bottomland", "soil", "river savoyard"],
-    },
-    {
-        "id_suffix": "short-03",
-        "title": "300 Black-Owned Businesses",
-        "viewer_psychology": "identity",
-        "first_frame_text": "DETROIT 300 BUSINESSES",
-        "hook": "Paradise Valley had more than 300 Black-owned businesses.",
-        "proof_visual": "Detroit Paradise Valley business source board with count highlighted",
-        "payoff": "That number turns the story from clearance zone into commercial ecosystem.",
-        "source_keywords": ["300", "black-owned", "business", "paradise valley", "commercial ecosystem"],
-    },
-    {
-        "id_suffix": "short-04",
-        "title": "A Freeway Is Never Just A Line",
-        "viewer_psychology": "system",
-        "first_frame_text": "FREEWAY CUT DETROIT",
-        "hook": "A freeway is never just a line on a map.",
-        "proof_visual": "Detroit I-375 route trace over the old neighborhood footprint",
-        "payoff": "At street level, that line means addresses, businesses, and routes disappear.",
-        "source_keywords": ["freeway", "never just a line", "addresses disappear", "street level", "i-375"],
-    },
-    {
-        "id_suffix": "short-05",
-        "title": "What Detroit Lost",
-        "viewer_psychology": "emotion",
-        "first_frame_text": "WHAT DETROIT LOST",
-        "hook": "Detroit did not just lose buildings here.",
-        "proof_visual": "Detroit then-now map board of businesses, churches, clubs, housing, and neighborhood footprint",
-        "payoff": "The larger loss was a network of Black business, music, housing, churches, workers, and memory.",
-        "source_keywords": ["vanished", "not only architecture", "network", "businesses", "memory"],
-    },
-]
+REQUIRED_BLUEPRINT_FIELDS = (
+    "title",
+    "viewer_psychology",
+    "first_frame_text",
+    "hook",
+    "proof_visual",
+    "payoff",
+    "source_keywords",
+    "narration_sentences",
+    "source_assets",
+    "proof_label",
+)
 
 
 def clean_script(video_id: str) -> str:
@@ -112,16 +76,67 @@ def clean_script(video_id: str) -> str:
     return strip_markdown_for_voiceover(read_text(path)) if path.exists() else ""
 
 
-def infer_city(video_id: str) -> str:
+def episode_package(video_id: str) -> dict[str, Any]:
     package_path = launch_root(video_id) / "package.json"
-    if package_path.exists():
-        try:
-            data = json.loads(package_path.read_text(encoding="utf-8"))
-            metadata = data.get("upload_metadata") or {}
-            return str(metadata.get("city") or metadata.get("active_city") or data.get("city") or "Detroit")
-        except json.JSONDecodeError:
-            return "Detroit"
-    return "Detroit"
+    try:
+        value = json.loads(package_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def infer_city(video_id: str) -> str:
+    package = episode_package(video_id)
+    metadata = package.get("upload_metadata") if isinstance(package.get("upload_metadata"), dict) else {}
+    return require_city(
+        package.get("city") or metadata.get("city") or metadata.get("active_city"),
+        source=f"video_{video_id}_package",
+    )
+
+
+def episode_local_terms(video_id: str, package: dict[str, Any], city: str) -> tuple[str, ...]:
+    evidence_path = launch_root(video_id) / "evidence-queries.json"
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        evidence = {}
+    values = [city]
+    for source in (package.get("local_terms", []), evidence.get("required_entity_terms", [])):
+        if isinstance(source, list):
+            values.extend(str(item).strip() for item in source if str(item).strip())
+    return tuple(dict.fromkeys(item.casefold() for item in values if item))
+
+
+def short_blueprints(package: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    rows = package.get("shorts_blueprints")
+    blockers: list[str] = []
+    if not isinstance(rows, list):
+        return [], ["episode_shorts_blueprints_missing"]
+    blueprints: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            blockers.append(f"short_blueprint_{index}:not_object")
+            continue
+        normalized = dict(row)
+        normalized.setdefault("id_suffix", f"short-{index:02d}")
+        missing = [field for field in REQUIRED_BLUEPRINT_FIELDS if not normalized.get(field)]
+        if missing:
+            blockers.extend(f"short_blueprint_{index}:missing_{field}" for field in missing)
+        if not isinstance(normalized.get("source_keywords"), list) or len(normalized.get("source_keywords", [])) < 2:
+            blockers.append(f"short_blueprint_{index}:source_keywords_below_two")
+        if not isinstance(normalized.get("narration_sentences"), list) or len(normalized.get("narration_sentences", [])) < 2:
+            blockers.append(f"short_blueprint_{index}:narration_sentences_below_two")
+        duration = estimate_duration([str(item) for item in normalized.get("narration_sentences", [])])
+        minimum_assets = max(4, math.ceil((duration + ENDING_BRIDGE_SECONDS) / MAX_VISUAL_EVENT_SECONDS))
+        if not isinstance(normalized.get("source_assets"), list) or len(set(normalized.get("source_assets", []))) < minimum_assets:
+            blockers.append(
+                f"short_blueprint_{index}:distinct_source_assets_below_visual_event_floor:"
+                f"{len(set(normalized.get('source_assets', [])))}/{minimum_assets}"
+            )
+        blueprints.append(normalized)
+    if not 3 <= len(blueprints) <= 5:
+        blockers.append(f"episode_shorts_blueprint_count_outside_3_5:{len(blueprints)}")
+    return blueprints, blockers
 
 
 def sentence_rows(text: str) -> list[dict[str, Any]]:
@@ -178,7 +193,7 @@ def context_dependent_opening(text: str) -> bool:
     return lower.startswith(CONTEXT_DEPENDENT_STARTS)
 
 
-def score_short(item: dict[str, Any]) -> tuple[int, dict[str, int], list[str]]:
+def score_short(item: dict[str, Any], local_terms: tuple[str, ...]) -> tuple[int, dict[str, int], list[str]]:
     text = " ".join(item.get(key, "") for key in ["hook", "script", "payoff", "proof_visual", "bridge_to_long_form", "comment_prompt"]).lower()
     blockers = []
     breakdown = {
@@ -206,7 +221,7 @@ def score_short(item: dict[str, Any]) -> tuple[int, dict[str, int], list[str]]:
     if not any(term in text for term in PAYOFF_TERMS):
         breakdown["payoff_strength"] = 5
         blockers.append("payoff is weak or missing")
-    if not any(term in text for term in LOCAL_TERMS):
+    if not any(term in text for term in local_terms):
         breakdown["local_specificity"] = 3
         blockers.append("local specificity is weak")
     if len(item.get("first_frame_text", "").split()) > 4:
@@ -226,21 +241,18 @@ def score_short(item: dict[str, Any]) -> tuple[int, dict[str, int], list[str]]:
     return score, breakdown, blockers
 
 
-def build_short_item(video_id: str, city: str, template: dict[str, Any], rows: list[dict[str, Any]], index: int) -> dict[str, Any]:
+def build_short_item(
+    video_id: str,
+    city: str,
+    template: dict[str, Any],
+    rows: list[dict[str, Any]],
+    index: int,
+    local_terms: tuple[str, ...],
+) -> dict[str, Any]:
     anchor = find_anchor(rows, list(template["source_keywords"]))
-    lines = [template["hook"]]
-    hook_lower = template["hook"].lower()
-    for sentence in supporting_sentences(rows, anchor):
-        lower_sentence = sentence.lower()
-        if lower_sentence == hook_lower or hook_lower in lower_sentence or lower_sentence in hook_lower:
-            continue
-        lines.append(sentence)
-    lines.append(template["payoff"])
-    # Keep the transcript focused and within duration by trimming middle evidence if needed.
-    while estimate_duration(lines) > MAX_SECONDS and len(lines) > 3:
-        lines.pop(-2)
-    if estimate_duration(lines) < MIN_SECONDS:
-        lines.insert(-1, f"For {city}, the source trail matters because it shows the place before the simplified story took over.")
+    lines = [str(item).strip() for item in template.get("narration_sentences", []) if str(item).strip()]
+    normalized_script_sentences = {" ".join(norm.lower().split()) for norm in (row["text"] for row in rows)}
+    missing_sentences = [line for line in lines if " ".join(line.lower().split()) not in normalized_script_sentences]
     comment_prompt = city_source_lead_comment(city)
     item = {
         "id": f"{video_id}-{template['id_suffix']}",
@@ -251,19 +263,34 @@ def build_short_item(video_id: str, city: str, template: dict[str, Any], rows: l
         "hook": template["hook"],
         "script": " ".join(lines),
         "script_lines": lines,
+        "narration_sentences": lines,
+        "source_assets": list(template.get("source_assets", [])),
+        "proof_label": template.get("proof_label", ""),
         "proof_visual": template["proof_visual"],
         "payoff": template["payoff"],
         "comment_prompt": comment_prompt,
         "bridge_to_long_form": "Full city file on Pattern Lab: the long-form video shows the complete source trail.",
         "related_video_promise": "The full video shows the map, sources, and hidden system behind the story.",
-        "start_boundary": "scripted_short_no_long_form_cut",
-        "end_boundary": "scripted_short_no_long_form_cut",
+        "start_boundary": "word_aligned_complete_sentence",
+        "end_boundary": "word_aligned_complete_sentence",
         "duration_seconds": round(estimate_duration(lines), 1),
         "source_sentence_index": anchor.get("index") if anchor else None,
         "source_excerpt": anchor.get("text") if anchor else "",
-        "render_mode": "scripted_short_preferred",
+        "render_mode": "word_aligned_complete_sentences",
     }
-    score, breakdown, blockers = score_short(item)
+    item["minimum_distinct_visual_assets"] = max(
+        4,
+        math.ceil((float(item["duration_seconds"]) + ENDING_BRIDGE_SECONDS) / MAX_VISUAL_EVENT_SECONDS),
+    )
+    score, breakdown, blockers = score_short(item, local_terms)
+    blockers.extend(f"approved_script_sentence_missing:{sentence}" for sentence in missing_sentences)
+    if lines and " ".join(template["hook"].lower().split()) != " ".join(lines[0].lower().split()):
+        blockers.append("hook_must_equal_first_approved_narration_sentence")
+    if len(set(item["source_assets"])) < item["minimum_distinct_visual_assets"]:
+        blockers.append(
+            "distinct_source_assets_below_visual_event_floor:"
+            f"{len(set(item['source_assets']))}/{item['minimum_distinct_visual_assets']}"
+        )
     item["score"] = score
     item["score_breakdown"] = breakdown
     item["blockers"] = blockers
@@ -274,20 +301,33 @@ def build_short_item(video_id: str, city: str, template: dict[str, Any], rows: l
 def build_shorts_script_package(video_id: str, target_count: int = TARGET_SHORT_COUNT) -> tuple[dict[str, Any], Path, Path]:
     root = output_root(video_id)
     approval = ensure_dir(root / "approval")
-    city = infer_city(video_id)
+    package = episode_package(video_id)
+    package_blockers: list[str] = []
+    try:
+        city = infer_city(video_id)
+    except CityContractError as exc:
+        city = ""
+        package_blockers.append(str(exc))
+    templates, blueprint_blockers = short_blueprints(package)
+    package_blockers.extend(blueprint_blockers)
+    local_terms = episode_local_terms(video_id, package, city) if city else ()
     rows = sentence_rows(clean_script(video_id))
-    shorts = [build_short_item(video_id, city, template, rows, index) for index, template in enumerate(SHORT_TEMPLATES[:target_count], start=1)]
+    shorts = [
+        build_short_item(video_id, city, template, rows, index, local_terms)
+        for index, template in enumerate(templates[:target_count], start=1)
+    ]
     blockers = [f"{item['id']}: {blocker}" for item in shorts for blocker in item.get("blockers", [])]
     low_scores = [f"{item['id']}: score {item['score']}/100" for item in shorts if item.get("score", 0) < MIN_SCORE]
     payload = {
         "generated_at": utc_now(),
         "video_id": video_id,
         "city": city,
-        "status": "pass" if not blockers and not low_scores and len(shorts) >= 3 else "blocked",
+        "local_terms": list(local_terms),
+        "status": "pass" if not package_blockers and not blockers and not low_scores and len(shorts) >= 3 else "blocked",
         "minimum_score": MIN_SCORE,
         "shorts_count": len(shorts),
         "shorts": shorts,
-        "blockers": blockers + low_scores,
+        "blockers": package_blockers + blockers + low_scores,
         "public_youtube_mutation": "not_performed",
         "render_policy": "scripted Shorts are preferred; long-form cuts require sentence-boundary validation",
     }

@@ -14,12 +14,24 @@ if str(YOUTUBE_ROOT) not in sys.path:
 from patternlab.evidence import EvidenceError, load_manifest, verify_manifest_assets
 from patternlab.models import Artifact, EpisodeState
 from patternlab.release import artifact_from_path, create_release_candidate
-from patternlab.state import PatternLabState
+from patternlab.state import PatternLabState, sha256_file
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
 
 
 def state_path() -> Path:
     return Path(__import__("os").environ.get("PATTERNLAB_STATE_DB", BASE / "local-output" / "patternlab.sqlite3"))
+
+
+def artifact_base(path: Path, output: Path) -> Path:
+    """Choose a stable relative namespace for repo files and external media stores."""
+    resolved = path.resolve()
+    for candidate in (output.resolve(), BASE.resolve()):
+        try:
+            resolved.relative_to(candidate)
+            return candidate
+        except ValueError:
+            continue
+    return resolved.parent
 
 
 def report(video_id: str) -> tuple[dict, Path, Path]:
@@ -28,6 +40,10 @@ def report(video_id: str) -> tuple[dict, Path, Path]:
     package_report = approval / "package-hash-report.json"
     evidence_path = approval / "evidence-manifest.json"
     preflight_report = approval / "canonical-preflight-report.json"
+    required_gate_paths = {
+        "media_qa": approval / "media-qa-report.json",
+        "package_completeness": approval / "package-completeness-report.json",
+    }
     blockers: list[str] = []
     package: dict = {}
     if not package_report.exists():
@@ -47,6 +63,23 @@ def report(video_id: str) -> tuple[dict, Path, Path]:
                 blockers.append("canonical_preflight_not_pass")
         except json.JSONDecodeError:
             blockers.append("canonical_preflight_report_invalid_json")
+    gate_hashes: dict[str, str] = {}
+    for gate_name, gate_path in required_gate_paths.items():
+        if not gate_path.is_file():
+            blockers.append(f"release_gate_missing:{gate_name}")
+            continue
+        try:
+            gate_payload = json.loads(gate_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            blockers.append(f"release_gate_invalid_json:{gate_name}")
+            continue
+        if (
+            gate_payload.get("status") != "pass"
+            or gate_payload.get("blockers")
+            or gate_payload.get("warnings")
+        ):
+            blockers.append(f"release_gate_not_clean_pass:{gate_name}")
+        gate_hashes[gate_name] = sha256_file(gate_path)
     manifest = None
     try:
         manifest = load_manifest(evidence_path)
@@ -58,14 +91,19 @@ def report(video_id: str) -> tuple[dict, Path, Path]:
         artifacts: list[Artifact] = []
         for asset in manifest.assets:
             artifacts.append(artifact_from_path(root, root / asset.relative_path, asset.asset_id, "evidence_asset", role=asset.evidence_fit, source_ids=[asset.source_id]))
+        seen_package_paths: set[Path] = set()
         for entry in package.get("final_package_manifest", {}).get("entries", []):
             entry_path = Path(entry["path"])
             path = entry_path if entry_path.is_absolute() else BASE / entry_path
             if not path.exists():
                 blockers.append(f"package_artifact_missing:{entry['path']}")
                 continue
+            resolved_path = path.resolve()
+            if resolved_path in seen_package_paths:
+                continue
+            seen_package_paths.add(resolved_path)
             artifact_id = f"package-{entry['role'].replace(':', '-') }"
-            artifacts.append(artifact_from_path(BASE, path, artifact_id, "package_asset", role=entry["role"]))
+            artifacts.append(artifact_from_path(artifact_base(path, root), path, artifact_id, "package_asset", role=entry["role"]))
         if not blockers:
             release_candidate = create_release_candidate(video_id, artifacts, tool_versions={"canonical_state": "1", "otio": "0.18.1"})
             store = PatternLabState(state_path())
@@ -73,17 +111,30 @@ def report(video_id: str) -> tuple[dict, Path, Path]:
             store.ensure_episode(video_id)
             current = store.episode(video_id)["state"]
             sequence = [EpisodeState.EVIDENCE_LOCKED, EpisodeState.SCRIPT_LOCKED, EpisodeState.TIMELINE_LOCKED, EpisodeState.RENDER_VERIFIED, EpisodeState.AWAITING_OWNER_REVIEW]
-            for target in sequence:
+            if current == EpisodeState.AWAITING_OWNER_REVIEW.value:
+                remaining: list[EpisodeState] = []
+            else:
+                state_values = [target.value for target in sequence]
+                if current == EpisodeState.TOPIC_QUALIFIED.value:
+                    remaining = sequence
+                elif current in state_values:
+                    remaining = sequence[state_values.index(current) + 1 :]
+                else:
+                    blockers.append(f"episode_state_not_reopenable_for_owner_review:{current}")
+                    remaining = []
+            for target in remaining:
                 if current == target.value:
                     continue
                 store.transition(video_id, target)
                 current = target.value
-            store.register_release(release_candidate)
+            if not blockers:
+                store.register_release(release_candidate)
     payload = {
         "generated_at": utc_now(), "video_id": video_id,
         "status": "pass" if release_candidate and not blockers else "blocked",
         "release_candidate_id": release_candidate.release_candidate_id if release_candidate else "",
         "package_sha256": release_candidate.package_sha256 if release_candidate else "",
+        "required_gate_sha256": gate_hashes,
         "state_db": str(state_path()), "blockers": blockers,
         "youtube_mutation": "not_performed",
     }

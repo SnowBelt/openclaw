@@ -6,6 +6,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import require_city
 from patternlab_comment_prompts import city_source_lead_comment
 from patternlab_shorts_boundary_quality import build_boundary_quality_report
 from patternlab_shorts_script_package import load_package
@@ -30,7 +33,7 @@ DEFAULT_SEGMENTS = [
         "title": "The Map Keeps Receipts",
         "viewer_psychology": "curiosity",
         "first_frame_text": "THE MAP CHANGED",
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full city file shows the map, sources, and hidden system.",
         "start": 0,
         "duration": 42,
@@ -40,7 +43,7 @@ DEFAULT_SEGMENTS = [
         "title": "Old Photos Are Evidence",
         "viewer_psychology": "utility",
         "first_frame_text": "NOT JUST OLD PHOTOS",
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full video walks through the source ledger and what changed afterward.",
         "start": 180,
         "duration": 42,
@@ -50,7 +53,7 @@ DEFAULT_SEGMENTS = [
         "title": "No Source, No Story",
         "viewer_psychology": "identity",
         "first_frame_text": "NO SOURCE, NO STORY",
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full video shows the evidence-backed version of the story.",
         "start": 510,
         "duration": 42,
@@ -60,7 +63,7 @@ DEFAULT_SEGMENTS = [
         "title": "The Mechanism Was Hidden",
         "viewer_psychology": "system",
         "first_frame_text": "THE SYSTEM DID IT",
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full city file connects the visible clue to the hidden system.",
         "start": 360,
         "duration": 42,
@@ -70,7 +73,7 @@ DEFAULT_SEGMENTS = [
         "title": "This Place Vanished",
         "viewer_psychology": "emotion",
         "first_frame_text": "THIS VANISHED",
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full video shows what vanished, why, and what source proves it.",
         "start": 600,
         "duration": 42,
@@ -82,7 +85,7 @@ PSYCHOLOGY_RULES = [
         "title": "The Map Keeps Receipts",
         "first_frame_text": "THE MAP CHANGED",
         "keywords": ["map", "changed", "vanished", "cut", "rewired", "hidden", "surprising", "receipt"],
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full city file shows the map, sources, and hidden system.",
     },
     {
@@ -90,7 +93,7 @@ PSYCHOLOGY_RULES = [
         "title": "Old Photos Are Evidence",
         "first_frame_text": "NOT JUST OLD PHOTOS",
         "keywords": ["source", "archive", "photo", "map", "evidence", "clue", "table", "timeline", "rights"],
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full video walks through the source ledger and what changed afterward.",
     },
     {
@@ -98,7 +101,7 @@ PSYCHOLOGY_RULES = [
         "title": "No Source, No Story",
         "first_frame_text": "NO SOURCE, NO STORY",
         "keywords": ["no source", "myth", "story", "city file", "subscribe", "system", "do not fake", "evidence-backed"],
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full video shows the evidence-backed version of the story.",
     },
     {
@@ -106,7 +109,7 @@ PSYCHOLOGY_RULES = [
         "title": "The Mechanism Was Hidden",
         "first_frame_text": "THE SYSTEM DID IT",
         "keywords": ["system", "mechanism", "policy", "decision", "route", "freeway", "street", "cut", "hidden"],
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full city file connects the visible clue to the hidden system.",
     },
     {
@@ -114,7 +117,7 @@ PSYCHOLOGY_RULES = [
         "title": "This Place Vanished",
         "first_frame_text": "THIS VANISHED",
         "keywords": ["vanished", "erased", "lost", "neighborhood", "home", "people", "block", "street", "memory"],
-        "pinned_comment": city_source_lead_comment("Detroit"),
+        "pinned_comment": "",
         "related_video_promise": "The full video shows what vanished, why, and what source proves it.",
     },
 ]
@@ -291,9 +294,14 @@ def clamp_segments(segments, target_count):
     return selected
 
 
-def parse_shorts_package(path, target_count=5):
+def city_segments(rows, city):
+    prompt = city_source_lead_comment(city)
+    return [{**row, "pinned_comment": row.get("pinned_comment") or prompt} for row in rows]
+
+
+def parse_shorts_package(path, city, target_count=5):
     if not Path(path).exists():
-        return clamp_segments(DEFAULT_SEGMENTS, target_count), "needs-timestamp-review"
+        return clamp_segments(city_segments(DEFAULT_SEGMENTS, city), target_count), "needs-timestamp-review"
     text = read_text(path)
     blocks = re.split(r"\n(?=## Short|\### Short)", text)
     segments = []
@@ -311,11 +319,11 @@ def parse_shorts_package(path, target_count=5):
             data["start"] = parse_seconds(data["start_time"])
             data["duration"] = parse_seconds(data["duration"])
         except Exception:
-            return clamp_segments(DEFAULT_SEGMENTS, target_count), "needs-timestamp-review"
+            return clamp_segments(city_segments(DEFAULT_SEGMENTS, city), target_count), "needs-timestamp-review"
         segments.append(data)
     if len(segments) < 3:
-        return clamp_segments(DEFAULT_SEGMENTS, target_count), "needs-timestamp-review"
-    return clamp_segments(segments, target_count), "structured"
+        return clamp_segments(city_segments(DEFAULT_SEGMENTS, city), target_count), "needs-timestamp-review"
+    return clamp_segments(city_segments(segments, city), target_count), "structured"
 
 
 def merge_package_fields(segments, package_segments):
@@ -352,10 +360,13 @@ def infer_city(video_id):
         try:
             data = json.loads(package_path.read_text(encoding="utf-8"))
             metadata = data.get("upload_metadata") or {}
-            return metadata.get("city") or metadata.get("active_city") or data.get("city") or "Detroit"
-        except json.JSONDecodeError:
-            return "Detroit"
-    return "Detroit"
+            return require_city(
+                data.get("city") or metadata.get("city") or metadata.get("active_city"),
+                source=f"video_{video_id}_package",
+            )
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Shorts generation blocked: invalid package JSON for Video {video_id}.") from exc
+    raise SystemExit(f"Shorts generation blocked: package.json is missing for Video {video_id}.")
 
 def script_paragraphs(video_id):
     script = BASE / "launch" / f"video-{video_id}" / "final-script.md"
@@ -428,7 +439,7 @@ def script_moment_segments(video_id, source_duration=None, target_count=5):
                     "payoff": item.get("payoff", ""),
                     "bridge_to_long_form": item.get("bridge_to_long_form", ""),
                     "related_video_promise": item.get("related_video_promise", ""),
-                    "pinned_comment": item.get("comment_prompt") or city_source_lead_comment(package.get("city", "Detroit")),
+                    "pinned_comment": item.get("comment_prompt") or city_source_lead_comment(require_city(package.get("city"), source="shorts_script_package")),
                     "start": start,
                     "duration": duration,
                     "moment_score": item.get("score", "scripted"),
@@ -561,8 +572,9 @@ def main():
     source_video = Path(args.source_video) if args.source_video else root / "video" / f"pattern-lab-video-{args.video_id}-draft.mp4"
     package = BASE / "launch" / f"video-{args.video_id}" / "shorts-package.md"
     source_duration = media_duration_seconds(source_video) if source_video.exists() else None
+    city = infer_city(args.video_id)
     segments, status = script_moment_segments(args.video_id, source_duration, args.shorts_target)
-    package_segments, package_status = parse_shorts_package(package, args.shorts_target)
+    package_segments, package_status = parse_shorts_package(package, city, args.shorts_target)
     if not segments:
         segments, status = package_segments, package_status
     elif status != "scripted-short-package":
@@ -575,77 +587,18 @@ def main():
     if args.dry_run:
         print("Dry run only. No Shorts rendered.")
         return
-    if not source_video.exists():
-        raise SystemExit(f"Missing source video: {display_path(source_video)}")
-    duration = media_duration_seconds(source_video)
-    if duration < 8 * 60:
-        raise SystemExit(f"Shorts generation blocked: source long-form is below 8 minutes ({duration:.1f}s).")
-    if status != "scripted-short-package" or any(segment.get("render_mode") == "legacy_cut_fallback" for segment in segments):
-        raise SystemExit("Shorts generation blocked: only standalone script-package Shorts may render; legacy long-form clipping is forbidden.")
-    ensure_dir(root / "shorts")
-    overlay_spec = write_overlay_spec(root, args.video_id, segments, infer_city(args.video_id))
-    print(f"Shorts overlay spec: {display_path(overlay_spec)}")
-    build_overlay_images(overlay_spec)
-    for segment in segments:
-        if segment["duration"] < 25 or segment["duration"] > 45:
-            raise SystemExit(f"Short {segment['index']} duration is outside 25-45 seconds.")
-        if segment["start"] + segment["duration"] > duration + 0.5:
-            raise SystemExit(f"Short {segment['index']} extends past source video duration.")
-        output = root / "shorts" / f"pattern-lab-video-{args.video_id}-short-{segment['index']:02d}.mp4"
-        overlays = segment_overlay_paths(root, args.video_id, segment)
-        missing_overlays = [path for path in overlays if not path.exists() or path.stat().st_size == 0]
-        if missing_overlays:
-            raise SystemExit(f"Missing overlay PNGs for Short {segment['index']}: {', '.join(display_path(path) for path in missing_overlays)}")
-        command = [
-            ffmpeg_cmd(),
-            "-y",
-            "-ss",
-            str(segment["start"]),
-            "-t",
-            str(segment["duration"]),
-            "-i",
-            str(source_video),
-        ]
-        for overlay in overlays:
-            command.extend(["-loop", "1", "-t", str(segment["duration"]), "-i", str(overlay)])
-        command.extend(
-            [
-                "-filter_complex",
-                shorts_filter_complex(segment["duration"]),
-                "-map",
-                "[vout]",
-                "-map",
-                "0:a?",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "160k",
-                str(output),
-            ]
-        )
-        subprocess.run(command, check=True)
-        append_ledger(
-            root,
-            {
-                "asset_id": f"video-{args.video_id}-short-{segment['index']:02d}",
-                "asset_type": "short",
-                "filename": str(output.relative_to(root)),
-                "tool": "FFmpeg",
-                "model_or_service": "local vertical crop with Shorts-native PNG overlays",
-                "source_prompt_or_source_file": str(source_video.relative_to(root)),
-                "license_status": "derived from original long-form draft",
-                "created_at": utc_now(),
-                "notes": f"{segment.get('title', '')} | overlay={','.join(str(path.relative_to(root)) for path in overlays)} | related video required",
-                "human_review_required": "yes",
-                "human_review_status": "pending",
-            },
-        )
+    # Compatibility surface only. The old implementation clipped guessed
+    # long-form timestamps even when a standalone script package existed.
+    # Delegate to the exact complete-sentence renderer so direct callers cannot
+    # silently reintroduce mid-sentence or context-free Shorts.
+    from patternlab_shorts_renderer import build as render_exact_shorts
+
+    try:
+        payload, report = render_exact_shorts(args.video_id.zfill(2))
+    except (RuntimeError, ValueError) as exc:
+        raise SystemExit(f"Shorts generation blocked: {exc}") from exc
+    print(f"Exact aligned Shorts rendered: {len(payload['shorts'])}")
+    print(f"Render report: {display_path(report)}")
 
 
 if __name__ == "__main__":

@@ -8,9 +8,9 @@ Canonical autonomous architecture: `youtube-v1/workflows/autonomous-production-a
 
 Required autonomous sequence:
 
-`OpenClaw strategy/source safety → Canva no-AI template render/export when available → local backup renderer when Canva export is unavailable → OpenClaw validation → chat-safe owner delivery → owner review / YouTube test`
+`OpenClaw packaging brief → source and rights preflight → Codex non-proof support generation when useful → Chrome typography composite → semantic/shelf validation → chat-safe owner delivery → owner review / YouTube test`
 
-OpenClaw owns the strategy, source safety, rights ledger, thumbnail brief, renderer fallback, chat-safe delivery, and validation. Canva is the preferred rendering engine only when no-AI template export is available.
+OpenClaw owns the strategy, source safety, rights ledger, thumbnail brief, deterministic typography, chat-safe delivery, and validation. Codex image generation is the primary approved tool for non-proof support assets; local generation is the resilient fallback. Canva remains optional manual polish only when it can improve an already source-safe composition.
 
 ## Goal
 
@@ -84,6 +84,37 @@ Composition rules:
 
 If the best available source image is visually flat, find a stronger rights-safe image before rendering. Do not compensate with more boxes or labels.
 
+### 2A.1 Hero Asset and Then/Now Contract
+
+The hero asset must create an emotional reason to stop scrolling: people, street
+life, an unmistakable place, a dramatic demolition/route scar, or a concrete
+source mystery. A map is a strong proof object only when the map itself is the
+mystery; it is not a substitute for a historic street photograph.
+
+- A true `THEN / NOW` treatment requires photo/photo or map/map panels. Keep
+  `THEN` fully left and `NOW` fully right.
+- Do not pair a map with a photograph under `THEN / NOW`.
+- Do not render a final then/now candidate until both source panels have a
+  rights-ledger row and an owner-accepted source binding.
+- AI may restore, relight, extend, and add atmosphere to a real asset. It may
+  not create the historical proof, a fake historic resident, or the factual map.
+- If no compelling historic photo is available, omit then/now from the final
+  set and use a proof/context or map-system hypothesis instead.
+
+### 2A.2 Typography Contract
+
+Final public type is rendered in the Chrome/Fontsource compositor, never by an
+image generator. Use a city lockup, a hook, and an optional support line as
+separate typographic roles.
+
+- Use two lines for the hook whenever possible and four non-city words maximum.
+- Use custom text fit, restrained outline, directional shadow, and image-aware
+  negative space; do not solve readability with a generic rounded black card.
+- Run 160x90 and 320x180 shelf screenshots, OCR, crop-safe-zone, and
+  generic-text-card checks before owner review.
+- Create a city-dominant, mystery-dominant, and proof/transformation-dominant
+  hypothesis. Recolors or alternate crops are not separate hypotheses.
+
 ### 2B. Active-City Recognition Rule
 
 The factory must resolve the active city before generating thumbnail text, source searches, or validation reports. Resolution order:
@@ -112,8 +143,9 @@ Manual polish path:
 
 Recommended generator path:
 
-- current final renderer: OpenClaw Swift/AppKit deterministic photo-backed composite, not an AI image generator
-- free-first AI support: ComfyUI local workflow with FLUX.1-schnell/SDXL-class models for non-proof support graphics when local hardware permits
+- current final renderer: headless Chrome plus the local open-license Fontsource pack; it owns all visible text and final layout
+- primary AI support: Codex image generation for high-instruction-following non-proof support graphics and source-safe edits
+- resilient AI support fallback: ComfyUI or Draw Things with license-approved local models when Codex image generation is unavailable
 - premium support upgrade if owner approves or a configured route already exists: OpenAI `gpt-image-2` via OpenClaw `image_generate` for high-instruction-following support graphics/reference edits
 - transparent cutout upgrade if owner approves: OpenAI `gpt-image-1.5` transparent-background output; otherwise use rembg/SAM2/Photopea/GIMP first
 - LLM art director: GPT-5.5-class vision/reasoning critique before a low-reasoning executor renders
@@ -192,6 +224,7 @@ Block any candidate that fails one of these checks:
 - one secondary proof cue
 - 2-4 words of text
 - one dominant real photo/map/document
+- a bright, emotionally compelling hero image; reject dim or flat crops before layout
 - no source-board clutter or tiny unreadable labels
 - strong thumbnail contrast
 - at least one human/action/strong-place-interest candidate when available
@@ -206,6 +239,7 @@ Block any candidate that fails one of these checks:
 - chat-safe delivery surface passes for the exact files sent to the owner
 - no owner-visible full-size PNG is sent directly when a `_chat.jpg` preview exists
 - first 30 seconds of the video pays off the thumbnail promise
+- semantic thumbnail report passes: no fake archival proof, no map/photo then-now mismatch, and AI support never substitutes for the visible proof object
 
 ### 5. Selection And Testing
 
@@ -274,3 +308,63 @@ Required V4 corrections before owner review:
 - Lost-streets thumbnails must use streets, maps, road grids, blocks, demolition/voids, or old street imagery; rail/track-only photos fail.
 - Then/now thumbnails must keep THEN entirely left and NOW entirely right, with no image crossing the median, no distortion, and a bright/current skyline or modern city image on NOW.
 - AI support assets must be ledgered as non-proof and must never be presented as source proof, archival evidence, or a city-specific hero image unless source rights and city specificity are verified.
+
+# World-Class Local-First Gate
+
+Before owner review, run the world-class pipeline in this order:
+
+1. Validate the private owner-reference corpus and anatomy report.
+2. Validate `thumbnail-worldclass-brief.json` against the source-first brief contract.
+3. Confirm free local tool health and a current local-model benchmark receipt. A failed Apple Metal benchmark must block AI support generation; it must not silently call a paid provider.
+4. Produce 20 structurally distinct roughs, shortlist 8, render 5, and select 3 genuinely different finalists.
+5. Run 160x90 OCR, dimensions, contrast, saturation, rights, promise, duplicate, and hard-block checks.
+6. Use GPT-5.6 Terra only for the 20-to-8, 8-to-5, and final adversarial pairwise checkpoints. Sol Ultra is a one-time creative reset only after two complete failed cycles.
+7. Require deterministic final-pixel QA of at least 93/100 for every candidate,
+   then require the stricter world-class score receipt threshold (currently
+   94/100) with no hard block. No package-average pass is allowed.
+8. Send the exact-hash finalists to Discord. Approval must bind to the current release-candidate hash and an owner rating of at least 9/10.
+
+Adversarial reviewers must write exact-hash receipts with
+`scripts/patternlab_thumbnail_review_receipt.py`; scores in prose or attached
+to stale bytes do not count. Source proposals are written to
+`thumbnail-source-acceptance-proposal.json`, but the workflow never promotes a
+proposal to accepted evidence automatically.
+
+Engineering readiness, owner approval, and post-publication YouTube testing are separate truth surfaces. Public YouTube changes always require a separate exact approval.
+
+## Proven 89/100 Pattern Lab Treatment
+
+Use this baseline when the episode is a city-history mystery:
+
+- Start with a real proof object full-frame or as the dominant left-side layer:
+  a map, document, archival photograph, or current verified place.
+- Put the claim/question in large locally rendered yellow/white display type
+  with near-black outline; use a red city badge as secondary orientation.
+- Add a single vivid blue/gold support layer only to give depth, contrast, and
+  visual energy. It may be AI-generated only when ledgered as non-proof.
+- Use a torn-paper, split, or map-versus-modern composition only when it makes
+  the system change visually obvious. Keep the center seam clean and never
+  allow text to clip at either edge.
+- Make city name largest only for city-search or broad travel packaging. For a
+  neighborhood or erased-place episode, the actual mystery must be largest.
+- Prefer a rights-cleared person/street-life or recognizable historical place
+  over an additional skyline. A skyline is context, not evidence or emotion.
+
+## Generator Routing
+
+Codex built-in image generation is the approved primary generator for Pattern
+Lab non-proof thumbnail support assets. It is used after the proof object and
+composition are locked, never to invent historical evidence, maps, documents,
+or public headline text. Draw Things and ComfyUI remain the secondary local
+fallbacks for resilience, batch work, and cases where Codex generation is
+unavailable. Every generated support layer receives a prompt, hash, generator,
+and `non_proof_support_only` ledger row before review.
+
+## Strict Final QA Cutover
+
+The plan, renderer metadata, and reviewer score cannot certify the final PNG.
+Run `patternlab_thumbnail_pixel_quality.py` and then `patternlab_media_qa.py`.
+Both 320x180 and 160x90 OCR passes must recover every intended public word;
+dim/flat regions, blur, clipping, unsafe margins, unknown large text/boxes,
+generic fonts, stale hashes, warnings, or any candidate score below 93 block
+owner review. Use the `patternlab-media-qa-director` skill for final judgment.

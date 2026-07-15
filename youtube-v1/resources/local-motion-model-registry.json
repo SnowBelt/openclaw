@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "model_root": "local-output/models/draw-things",
+  "preferred_model": {
+    "id": "ltx_2.3_22b_distilled_1.1_q6p.ckpt",
+    "role": "local_nonproof_image_to_video_support",
+    "source": "Lightricks/LTX-2.3 through the Draw Things official model mapping",
+    "license": "LTX-2 Community License Agreement",
+    "license_url": "https://github.com/Lightricks/LTX-2/blob/main/LICENSE",
+    "commercial_boundary": "royalty-free direct use below USD 10,000,000 annual entity revenue; separate paid commercial license required at or above that threshold",
+    "sha256": "f7c804dd0e4ae14af2ff200fc96b2848b2967f7595bac830bf270ea39b47a611",
+    "companion_files": [
+      {
+        "id": "gemma_3_12b_it_qat_q8p.ckpt",
+        "sha256": "9292a7107d30b6eef8282654c9746ac2e868a6d00704bdb9cfdadf45d4c325af"
+      },
+      {
+        "id": "ltx_2.3_audio_video_vae_f16.ckpt",
+        "sha256": "72e4c23b34e631599773b05beb7e355c00d36feb983fe9746d351b58a4be4f02"
+      },
+      {
+        "id": "ltx_2.3_spatial_upscaler_x1.5_f16.ckpt",
+        "sha256": "249f5bd521472a952775e0cb9729836d2fc9ab488ca64e08329e19dd07060157"
+      },
+      {
+        "id": "ltx_2.3_spatial_upscaler_x2_1.1_f16.ckpt",
+        "sha256": "30f695c0b24a59a6490f1552c025124d713f61d4e6a90da6b0def038c8caa845"
+      }
+    ],
+    "production_status": "installed_hash_locked_live_benchmark_verified",
+    "must_not_generate_proof": true,
+    "maximum_clip_seconds": 5
+  },
+  "no_automatic_download": true,
+  "no_silent_fallback": true,
+  "model_files_must_remain_outside_git": true
+}

@@ -27,8 +27,10 @@ GENERIC_COMMENT_PROMPTS = (
 )
 
 
-def city_source_lead_comment(city="Detroit", places=None):
-    city = str(city or "Detroit").strip() or "Detroit"
+def city_source_lead_comment(city, places=None):
+    city = str(city or "").strip()
+    if not city:
+        raise ValueError("comment_prompt_city_missing")
     places = [str(place).strip() for place in (places or []) if str(place).strip()]
     place_text = ", ".join(places[:4])
     if place_text:

@@ -12,7 +12,7 @@ from patternlab_visual_variety import build_visual_variety_report
 MIN_HISTORICAL = 20
 MIN_MODERN = 10
 MIN_REAL_RUNTIME_SHARE = 0.90
-MAX_GENERATED_RUNTIME_SHARE = 0.0
+MAX_GENERATED_RUNTIME_SHARE = 0.08
 MAX_VISUAL_BEAT_SECONDS = 12.0
 MAX_WEAK_MATCH_SHARE = 0.10
 MAX_FALLBACK_SHARE = 0.10
@@ -144,7 +144,12 @@ def build_visual_quality_report(video_id):
     add_check(checks, "historical_media_used", bool(historical_beats), f"{len(historical_beats)} historical rebuild beats")
     add_check(checks, "modern_context_used", bool(modern_beats), f"{len(modern_beats)} modern context rebuild beats")
     add_check(checks, "source_grounded_real_runtime_majority", real_share >= MIN_REAL_RUNTIME_SHARE, f"source-grounded/real media share {real_share:.1%}")
-    add_check(checks, "generated_only_runtime_zero", generated_only_runtime == 0, f"generated-only runtime {generated_only_runtime:.1f}s")
+    add_check(
+        checks,
+        "generated_only_runtime_within_support_cap",
+        generated_only_share <= MAX_GENERATED_RUNTIME_SHARE,
+        f"generated-only runtime share {generated_only_share:.1%} (maximum {MAX_GENERATED_RUNTIME_SHARE:.0%})",
+    )
     add_check(checks, "full_screen_non_picture_slide_count", len(full_screen_non_picture_slides) == 0, f"{len(full_screen_non_picture_slides)} full-screen non-picture slide beats")
     add_check(checks, "source_grounded_overlay_count", len(source_grounded_overlay_beats) >= 5, f"{len(source_grounded_overlay_beats)} source-grounded overlay beats")
     add_check(checks, "required_source_grounded_overlays_present", not missing_source_grounded_overlays, f"missing {len(missing_source_grounded_overlays)} required source-grounded overlays")

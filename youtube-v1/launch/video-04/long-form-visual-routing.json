@@ -1,0 +1,1276 @@
+{
+  "version": 9,
+  "video_id": "04",
+  "city": "Detroit",
+  "purpose": "Owner-rejected long-form visual rebuild with explicit narration binding and no silent claim reassignment.",
+  "claims": [
+    {
+      "claim_id": "black-bottom-neighborhood",
+      "text": "Black Bottom was a living Detroit neighborhood, not empty land.",
+      "required_entity_terms": [
+        "black bottom",
+        "detroit"
+      ],
+      "role": "source_proof",
+      "start": 0,
+      "end": 60
+    },
+    {
+      "claim_id": "hastings-st-antoine-network",
+      "text": "Hastings Street and St. Antoine connected the neighborhood's daily and cultural life.",
+      "required_entity_terms": [
+        "hastings street",
+        "st antoine",
+        "detroit"
+      ],
+      "role": "source_proof",
+      "start": 60,
+      "end": 90
+    },
+    {
+      "claim_id": "housing-restrictions",
+      "text": "Housing restrictions shaped where Black Detroiters could live and build community.",
+      "required_entity_terms": [
+        "detroit",
+        "housing"
+      ],
+      "role": "document_detail",
+      "start": 90,
+      "end": 140
+    },
+    {
+      "claim_id": "paradise-valley-businesses",
+      "text": "Paradise Valley held a dense network of Black-owned businesses and cultural life.",
+      "required_entity_terms": [
+        "paradise valley",
+        "detroit"
+      ],
+      "role": "source_proof",
+      "start": 140,
+      "end": 220
+    },
+    {
+      "claim_id": "clearance-redevelopment",
+      "text": "Clearance and redevelopment displaced Black Bottom and changed the land beneath it.",
+      "required_entity_terms": [
+        "black bottom",
+        "detroit",
+        "redevelopment"
+      ],
+      "role": "map_system",
+      "start": 220,
+      "end": 270
+    },
+    {
+      "claim_id": "i-375-route",
+      "text": "The I-375 route cut through Paradise Valley and its surrounding street network.",
+      "required_entity_terms": [
+        "i-375",
+        "paradise valley",
+        "detroit"
+      ],
+      "role": "map_system",
+      "start": 270,
+      "end": 300
+    },
+    {
+      "claim_id": "relocation-consequence",
+      "text": "The change was a human relocation with consequences beyond a line on a map.",
+      "required_entity_terms": [
+        "black bottom",
+        "paradise valley",
+        "detroit"
+      ],
+      "role": "source_proof",
+      "start": 300,
+      "end": 350
+    },
+    {
+      "claim_id": "then-now-footprint",
+      "text": "The present-day footprint still shows the pattern created by those decisions.",
+      "required_entity_terms": [
+        "i-375",
+        "black bottom",
+        "detroit"
+      ],
+      "role": "then_now",
+      "start": 350,
+      "end": 499.322
+    }
+  ],
+  "chapter_labels": {
+    "black-bottom-neighborhood": [
+      "DETROIT",
+      "THE NEIGHBORHOOD ERASED"
+    ],
+    "hastings-st-antoine-network": [
+      "THE STREET GRID",
+      "HASTINGS + ST. ANTOINE"
+    ],
+    "housing-restrictions": [
+      "THE HIDDEN SYSTEM",
+      "HOUSING RESTRICTIONS"
+    ],
+    "paradise-valley-businesses": [
+      "PARADISE VALLEY",
+      "300+ BLACK-OWNED BUSINESSES"
+    ],
+    "clearance-redevelopment": [
+      "THE CLEARANCE",
+      "BLOCKS MARKED FOR REMOVAL"
+    ],
+    "i-375-route": [
+      "THE ROUTE",
+      "I-375 CHANGED THE MAP"
+    ],
+    "relocation-consequence": [
+      "THE HUMAN COST",
+      "A COMMUNITY DISPLACED"
+    ],
+    "then-now-footprint": [
+      "THE PATTERN REMAINS",
+      "THE MAP KEEPS RECEIPTS"
+    ]
+  },
+  "requirements": {
+    "minimum_unique_assets": 52,
+    "minimum_unique_asset_ratio": 0.8,
+    "maximum_uses_per_asset": 2,
+    "maximum_runtime_share_per_asset": 0.06,
+    "maximum_adjacent_same_asset": 0,
+    "maximum_same_source_family_run": 2,
+    "caption_mode": "closed_captions_plus_selective_editorial_text",
+    "split_screen_allowed": false,
+    "ai_visuals_allowed": true,
+    "maximum_ai_support_share": 0.15,
+    "maximum_uses_per_static_asset": 1,
+    "maximum_uses_per_proof_static_asset": 2,
+    "minimum_static_asset_reuse_gap_seconds": 180.0,
+    "minimum_proof_reprise_gap_seconds": 180.0,
+    "maximum_map_document_share": 0.2,
+    "minimum_moving_image_share": 0.2,
+    "minimum_unique_presentation_ratio": 0.8,
+    "minimum_historical_motion_assets": 3,
+    "target_historical_motion_assets": 4,
+    "strict_claim_binding": true,
+    "cross_claim_rationale_required": true
+  },
+  "segments": [
+    {
+      "start": 0,
+      "end": 10,
+      "claim_id": "black-bottom-neighborhood",
+      "narration_intent": "Proof hook: neighborhood, Black businesses, cultural life, and the freeway promise",
+      "entries": [
+        {
+          "asset_id": "sanborn-1950-sheet-13",
+          "role": "source_proof",
+          "callout": "BLACK BOTTOM WAS NOT EMPTY"
+        },
+        {
+          "asset_id": "neh-black-bottom-business-relocation-document",
+          "role": "source_proof",
+          "callout": "300+ BLACK-OWNED BUSINESSES",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The hook explicitly introduces the documented Paradise Valley business count."
+        },
+        {
+          "asset_id": "loc-zoot-suit-1942",
+          "role": "context_only",
+          "callout": "A LIVING BUSINESS DISTRICT",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The Detroit business-district photograph supports the narrated public life beside Black Bottom."
+        },
+        {
+          "asset_id": "loc-duke-ellington-1943",
+          "role": "context_only",
+          "callout": "AMERICAN LEGENDS PLAYED HERE",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The hook names American music legends associated with Paradise Theater-era culture."
+        }
+      ]
+    },
+    {
+      "start": 10,
+      "end": 20,
+      "claim_id": "black-bottom-neighborhood",
+      "narration_intent": "The I-375 footprint and replacement landscape preview the map change",
+      "entries": [
+        {
+          "asset_id": "fhwa-i375-official-route-map",
+          "role": "map_system",
+          "callout": "THE FREEWAY FOOTPRINT",
+          "claim_id": "i-375-route",
+          "narration_fit": "The hook explicitly promises the freeway footprint."
+        },
+        {
+          "asset_id": "commons-i375-current-view-2023",
+          "role": "context_only",
+          "callout": "I-375 TODAY",
+          "claim_id": "i-375-route",
+          "narration_fit": "The present-day corridor shows the visible freeway footprint named in narration."
+        },
+        {
+          "asset_id": "commons-lafayette-over-black-bottom",
+          "role": "then_now",
+          "callout": "THE REPLACEMENT FOOTPRINT",
+          "claim_id": "clearance-redevelopment",
+          "narration_fit": "The narration promises the clearance and replacement footprint."
+        },
+        {
+          "asset_id": "commons-detroit-river-cobo-film",
+          "role": "context_only",
+          "callout": "DETROIT AFTER REDEVELOPMENT",
+          "clip_start": 0.0
+        }
+      ]
+    },
+    {
+      "start": 20,
+      "end": 30,
+      "claim_id": "black-bottom-neighborhood",
+      "narration_intent": "Lived neighborhood to replacement city and Pattern Lab source-first identity",
+      "entries": [
+        {
+          "asset_id": "commons-detroit-views-film",
+          "role": "context_only",
+          "callout": "THE DISTRICT LOOKED ERASED",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "Modern Detroit context supports the narrated appearance that the district vanished.",
+          "clip_start": 10.0
+        },
+        {
+          "asset_id": "openverse-bethel-ame-st-antoine",
+          "role": "context_only",
+          "callout": "A LIVED COMMUNITY",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "The surviving St. Antoine church site represents the community institutions named in the hook."
+        },
+        {
+          "asset_id": "video-04-visual-rebuild-loc-mi0175",
+          "role": "context_only",
+          "callout": "THE FISHER BUILDING \u2022 DETROIT",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "The verified Detroit Fisher Building establishes the city while the narration pivots into James's source-first introduction."
+        },
+        {
+          "asset_id": "ia-detroit-home-movies-1955",
+          "role": "context_only",
+          "callout": "ARCHIVES BEFORE LEGENDS",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "Verified Detroit home-movie footage directly introduces Pattern Lab's source-first archive method instead of adding another generic city-establishing shot.",
+          "clip_start": 0.0
+        }
+      ]
+    },
+    {
+      "start": 30,
+      "end": 40,
+      "claim_id": "black-bottom-neighborhood",
+      "narration_intent": "Archives and the near-east-side map open the source trail",
+      "entries": [
+        {
+          "asset_id": "ia-detroit-news-1917",
+          "role": "context_only",
+          "callout": "DETROIT ON FILM \u2022 1917",
+          "narration_fit": "Verified early Detroit film continues James's spoken archive-and-photograph method before the map appears.",
+          "clip_start": 30.0
+        },
+        {
+          "asset_id": "sanborn-1950-sheet-17",
+          "role": "context_only",
+          "callout": "HASTINGS \u2022 ST. ANTOINE ON THE MAP",
+          "narration_fit": "The period Sanborn sheet visibly identifies Hastings and St. Antoine inside the mapped Black Bottom source trail."
+        }
+      ]
+    },
+    {
+      "start": 40,
+      "end": 50,
+      "claim_id": "black-bottom-neighborhood",
+      "narration_intent": "Downtown proximity, streets, homes, churches, stores, and rail lines",
+      "entries": [
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2017826075",
+          "role": "context_only",
+          "callout": "CLOSE TO DOWNTOWN",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "The rights-clear period Detroit street scene provides honest city-scale context for the spoken downtown proximity; the adjacent Sanborn map and railroad photograph carry the neighborhood and rail evidence."
+        },
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2016816220",
+          "role": "context_only",
+          "callout": "DETROIT'S OLD RAIL LINES",
+          "claim_id": "i-375-route",
+          "narration_fit": "The verified Detroit railroad-tunnel photograph matches the spoken reference to the old rail lines beside the mapped neighborhood."
+        }
+      ]
+    },
+    {
+      "start": 50,
+      "end": 60,
+      "claim_id": "black-bottom-neighborhood",
+      "narration_intent": "Clubs, churches, stores, music, memory, and the episode question",
+      "entries": [
+        {
+          "asset_id": "commons-generic-public-square",
+          "role": "context_only",
+          "callout": "ILLUSTRATIVE PUBLIC LIFE",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The narration names clubs, stores, music, and public life; this rights-cleared generic public-square clip is disclosed context while the adjacent church carries Detroit place evidence.",
+          "clip_start": 0.0
+        },
+        {
+          "asset_id": "openverse-bethel-ame-st-antoine",
+          "role": "context_only",
+          "callout": "CHURCH \u2022 BUSINESS \u2022 MEMORY",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "Bethel AME on St. Antoine supports the narrated church and neighborhood-memory network."
+        }
+      ]
+    },
+    {
+      "start": 60,
+      "end": 70,
+      "claim_id": "hastings-st-antoine-network",
+      "narration_intent": "The Black Bottom name predates the Black neighborhood",
+      "entries": [
+        {
+          "asset_id": "sanborn-1950-sheet-08",
+          "role": "source_proof",
+          "callout": "HASTINGS \u2022 ST. ANTOINE"
+        },
+        {
+          "asset_id": "loc-detroit-black-church-1942",
+          "role": "context_only",
+          "callout": "A BLACK DETROIT NEIGHBORHOOD"
+        }
+      ]
+    },
+    {
+      "start": 70,
+      "end": 80,
+      "claim_id": "hastings-st-antoine-network",
+      "narration_intent": "Bottomland and river history add an earlier geographic layer",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-downtown-from-black-neighborhood-1942",
+          "role": "context_only",
+          "callout": "IT BECAME A BLACK NEIGHBORHOOD",
+          "claim_id": "black-bottom-neighborhood",
+          "narration_fit": "The Detroit Black-neighborhood photograph matches the exact sentence about the neighborhood's later Black identity."
+        },
+        {
+          "asset_id": "commons-detroit-river-cobo-film",
+          "role": "context_only",
+          "callout": "DETROIT RIVER GEOGRAPHY",
+          "claim_id": "black-bottom-neighborhood",
+          "narration_fit": "Verified Detroit river motion supports the river and bottomland geography without claiming River Savoyard proof.",
+          "clip_start": 15.0
+        }
+      ]
+    },
+    {
+      "start": 80,
+      "end": 90,
+      "claim_id": "hastings-st-antoine-network",
+      "narration_intent": "St. Antoine, earlier settlement, and rapid city change",
+      "entries": [
+        {
+          "asset_id": "openverse-st-antoine-marker-a",
+          "role": "context_only",
+          "callout": "ST. ANTOINE STREET"
+        },
+        {
+          "asset_id": "ia-detroit-news-1917",
+          "role": "context_only",
+          "callout": "DETROIT CHANGED FAST",
+          "claim_id": "black-bottom-neighborhood",
+          "narration_fit": "The Detroit 1917 film supports the early-century city-change transition.",
+          "clip_start": 100.0
+        }
+      ]
+    },
+    {
+      "start": 90,
+      "end": 100,
+      "claim_id": "housing-restrictions",
+      "narration_intent": "Black migration, industrial work, and restrictive housing",
+      "entries": [
+        {
+          "asset_id": "loc-black-residential-fronts-1942",
+          "role": "context_only",
+          "callout": "HOUSING CHOICE WAS RESTRICTED"
+        },
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2017813226",
+          "role": "context_only",
+          "callout": "DETROIT NEEDED WORKERS",
+          "narration_fit": "The rights-clear Detroit-area defense-plant pay line makes the industrial demand for workers visible beside the housing constraints described by James."
+        }
+      ]
+    },
+    {
+      "start": 100,
+      "end": 110,
+      "claim_id": "housing-restrictions",
+      "narration_intent": "A Black Detroit neighborhood grows near the industrial city",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-family-sojourner-truth-1942",
+          "role": "context_only",
+          "callout": "A PLACE TO BUILD A LIFE",
+          "narration_fit": "The rights-clear Detroit family portrait makes the neighborhood's human purpose visible between the industrial-work and housing-policy beats."
+        },
+        {
+          "asset_id": "commons-c1940-metro-detroit-film",
+          "role": "context_only",
+          "callout": "COMMUNITY NEAR INDUSTRY",
+          "claim_id": "black-bottom-neighborhood",
+          "narration_fit": "Verified period Detroit motion supplies city context while the surrounding Black-neighborhood photographs carry the housing proof.",
+          "clip_start": 510.0
+        }
+      ]
+    },
+    {
+      "start": 110,
+      "end": 120,
+      "claim_id": "housing-restrictions",
+      "narration_intent": "Workers, families, and the contradiction between labor demand and housing exclusion",
+      "entries": [
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2017858657",
+          "role": "context_only",
+          "callout": "THE CITY NEEDED WORKERS",
+          "narration_fit": "The rights-clear Parke-Davis worker photograph shows Detroit's labor demand while the following mother-and-child image carries the housing exclusion consequence."
+        },
+        {
+          "asset_id": "loc-detroit-mother-child-sojourner-truth-1942",
+          "role": "context_only",
+          "callout": "THE SYSTEM LIMITED THEM"
+        }
+      ]
+    },
+    {
+      "start": 120,
+      "end": 130,
+      "claim_id": "housing-restrictions",
+      "narration_intent": "Overcrowding and aging blocks become an institutional accusation",
+      "entries": [
+        {
+          "asset_id": "commons-city-of-neighbors-film",
+          "role": "context_only",
+          "callout": "A LIVED COMMUNITY",
+          "clip_start": 180.0
+        },
+        {
+          "asset_id": "loc-sojourner-truth-multiple-unit-1942",
+          "role": "context_only",
+          "callout": "SOJOURNER TRUTH HOMES \u2022 1942",
+          "narration_fit": "The rights-clear Detroit federal-housing-project exterior turns the institutional housing system into visible evidence without substituting another map for the people and buildings affected."
+        }
+      ]
+    },
+    {
+      "start": 130,
+      "end": 140,
+      "claim_id": "housing-restrictions",
+      "narration_intent": "Housing systems require evidence, not a confident internet vibe",
+      "entries": [
+        {
+          "asset_id": "nps-housing-discrimination-document",
+          "role": "document_detail",
+          "callout": "HOUSING WAS A SYSTEM"
+        },
+        {
+          "asset_id": "loc-sojourner-truth-homes-1942",
+          "role": "context_only",
+          "callout": "DETROIT FEDERAL HOUSING \u2022 1942",
+          "narration_fit": "The rights-clear Sojourner Truth Homes exterior continues the housing-policy evidence with a visible Detroit residential system rather than generic filler."
+        }
+      ]
+    },
+    {
+      "start": 140,
+      "end": 150,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Residential Black Bottom and overlapping business-centered Paradise Valley",
+      "entries": [
+        {
+          "asset_id": "loc-black-residential-fronts-1942",
+          "role": "context_only",
+          "callout": "BLACK BOTTOM: HOME",
+          "claim_id": "housing-restrictions",
+          "narration_fit": "The narration explicitly contrasts residential Black Bottom with nearby Paradise Valley."
+        },
+        {
+          "asset_id": "openverse-virgil-carr-cultural-center",
+          "role": "context_only",
+          "callout": "PARADISE VALLEY: PUBLIC LIFE"
+        }
+      ]
+    },
+    {
+      "start": 150,
+      "end": 160,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Restaurants, clubs, theaters, stores, and visible public life",
+      "entries": [
+        {
+          "asset_id": "loc-zoot-suit-1942",
+          "role": "context_only",
+          "callout": "A VISIBLE BLACK ECONOMY"
+        },
+        {
+          "asset_id": "commons-c1940-metro-detroit-film",
+          "role": "context_only",
+          "callout": "DETROIT PUBLIC LIFE",
+          "clip_start": 360.0
+        }
+      ]
+    },
+    {
+      "start": 160,
+      "end": 167.5,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Visible Black commerce, culture, and public life",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-black-church-1942",
+          "role": "context_only",
+          "callout": "BUSINESS \u2022 CULTURE \u2022 COMMUNITY"
+        },
+        {
+          "asset_id": "commons-generic-public-square",
+          "role": "context_only",
+          "callout": "ILLUSTRATIVE PUBLIC LIFE",
+          "clip_start": 10.0
+        }
+      ]
+    },
+    {
+      "start": 167.5,
+      "end": 175,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "The documented scale of more than 300 Black-owned businesses",
+      "entries": [
+        {
+          "asset_id": "neh-black-bottom-business-relocation-document",
+          "role": "source_proof",
+          "callout": "300+ BLACK-OWNED BUSINESSES"
+        },
+        {
+          "asset_id": "loc-detroit-grocery-black-district-1942",
+          "role": "context_only",
+          "callout": "BLACK DETROIT BUSINESS LIFE",
+          "narration_fit": "The rights-clear Black Detroit storefront supplies truthful business context immediately after the documented count."
+        }
+      ]
+    },
+    {
+      "start": 175,
+      "end": 180,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "A commercial ecosystem rather than an empty district",
+      "entries": [
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2017702476",
+          "role": "context_only",
+          "callout": "A LIVING COMMERCIAL ECOSYSTEM",
+          "narration_fit": "A rights-clear period Detroit storefront makes the spoken commercial ecosystem visible without claiming that this individual storefront stood inside Paradise Valley."
+        }
+      ]
+    },
+    {
+      "start": 180,
+      "end": 190,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Named venues and a source-grounded district network",
+      "entries": [
+        {
+          "asset_id": "sanborn-1950-sheet-13",
+          "role": "source_proof",
+          "callout": "FLAME \u2022 HORSESHOE \u2022 CLUB HARLEM",
+          "narration_fit": "The narration explicitly asks for the sourced venue names on screen while the district map keeps the geography visible."
+        },
+        {
+          "asset_id": "sanborn-1950-sheet-08",
+          "role": "source_proof",
+          "callout": "PARADISE THEATER",
+          "narration_fit": "The narration explicitly names Paradise Theater while the second district map reveals the surrounding business network."
+        }
+      ]
+    },
+    {
+      "start": 190,
+      "end": 200,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Duke Ellington and Billie Holiday in the Paradise Theater-era music network",
+      "entries": [
+        {
+          "asset_id": "loc-duke-ellington-1943",
+          "role": "context_only",
+          "callout": "DUKE ELLINGTON"
+        },
+        {
+          "asset_id": "loc-billie-holiday-carnegie-1946",
+          "role": "context_only",
+          "callout": "BILLIE HOLIDAY"
+        }
+      ]
+    },
+    {
+      "start": 200,
+      "end": 203,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Louis Armstrong and Dizzy Gillespie in American music history",
+      "entries": [
+        {
+          "asset_id": "commons-louis-armstrong-gottlieb",
+          "role": "context_only",
+          "callout": "LOUIS ARMSTRONG"
+        },
+        {
+          "asset_id": "loc-dizzy-gillespie-1955",
+          "role": "context_only",
+          "callout": "DIZZY GILLESPIE"
+        }
+      ]
+    },
+    {
+      "start": 203,
+      "end": 210,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "A generic skyline is not evidence of Paradise Valley",
+      "entries": [
+        {
+          "asset_id": "commons-detroit-skyline-cc0",
+          "role": "context_only",
+          "callout": "A SKYLINE IS NOT DISTRICT PROOF",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "The narration explicitly presents a generic Detroit skyline as the wrong kind of evidence."
+        },
+        {
+          "asset_id": "openverse-st-antoine-marker-b",
+          "role": "context_only",
+          "callout": "PUT THE DISTRICT EVIDENCE ON SCREEN",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "The narration explicitly asks for a street marker or district-specific source instead of a generic skyline."
+        }
+      ]
+    },
+    {
+      "start": 210,
+      "end": 220,
+      "claim_id": "paradise-valley-businesses",
+      "narration_intent": "Paradise Valley needs district evidence, not a generic skyline",
+      "entries": [
+        {
+          "asset_id": "openverse-st-antoine-marker-a",
+          "role": "context_only",
+          "callout": "ST. ANTOINE STREET",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "The narration asks for a street view or marker that points to the district."
+        },
+        {
+          "asset_id": "openverse-bethel-ame-st-antoine",
+          "role": "context_only",
+          "callout": "A ST. ANTOINE COMMUNITY LANDMARK",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "The narration asks for a district street view, listing, or photograph rather than a skyline."
+        }
+      ]
+    },
+    {
+      "start": 220,
+      "end": 230,
+      "claim_id": "clearance-redevelopment",
+      "narration_intent": "The hidden chain from classification to demolition",
+      "entries": [
+        {
+          "asset_id": "sanborn-1950-sheet-18",
+          "role": "source_proof",
+          "callout": "VACANT BLOCKS ON THE MAP"
+        },
+        {
+          "asset_id": "sanborn-1950-sheet-11",
+          "role": "source_proof",
+          "callout": "BLOCKS MARKED FOR REMOVAL"
+        }
+      ]
+    },
+    {
+      "start": 230,
+      "end": 240,
+      "claim_id": "clearance-redevelopment",
+      "narration_intent": "Segregation, aging housing, decline labels, and clearance language",
+      "entries": [
+        {
+          "asset_id": "nps-housing-discrimination-document",
+          "role": "document_detail",
+          "callout": "SEGREGATION LIMITED CHOICE",
+          "claim_id": "housing-restrictions",
+          "narration_fit": "The narration explicitly recaps housing segregation as the first link in the clearance chain."
+        },
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2017813174",
+          "role": "context_only",
+          "callout": "DEFENSE-WORKER HOUSING CONDITIONS",
+          "claim_id": "housing-restrictions",
+          "narration_fit": "The rights-clear Detroit-area trailer-park laundry photograph shows lived wartime housing conditions; the adjacent document carries the system proof."
+        }
+      ]
+    },
+    {
+      "start": 240,
+      "end": 250,
+      "claim_id": "clearance-redevelopment",
+      "narration_intent": "Federal authority and the map change",
+      "entries": [
+        {
+          "asset_id": "fhwa-i375-workshop-page-06",
+          "role": "source_proof",
+          "callout": "FEDERAL TOOLS CHANGED THE MAP"
+        },
+        {
+          "asset_id": "video-04-visual-rebuild-loc-2017702476",
+          "role": "context_only",
+          "callout": "THE BUILT CITY BEFORE CLEARANCE",
+          "claim_id": "housing-restrictions",
+          "narration_fit": "A rights-clear Detroit storefront supports the built-city context while the federal source carries the clearance proof."
+        }
+      ]
+    },
+    {
+      "start": 250,
+      "end": 260,
+      "claim_id": "clearance-redevelopment",
+      "narration_intent": "Urban-renewal and highway funding turn plans into demolition",
+      "entries": [
+        {
+          "asset_id": "federal-acts-1949-1956-source-card",
+          "role": "source_proof",
+          "callout": "1949 \u2022 1956 \u2022 FEDERAL TOOLS",
+          "narration_fit": "The source-cited card directly names the two federal laws in the narration; the following 1964 Detroit construction photograph carries the local physical consequence."
+        },
+        {
+          "asset_id": "fhwa-detroit-chrysler-freeway-1964",
+          "role": "context_only",
+          "callout": "DETROIT FREEWAY CONSTRUCTION \u2022 1964"
+        }
+      ]
+    },
+    {
+      "start": 260,
+      "end": 270,
+      "claim_id": "clearance-redevelopment",
+      "narration_intent": "Lafayette Park and freeway-era redevelopment replace the neighborhood",
+      "entries": [
+        {
+          "asset_id": "commons-lafayette-over-black-bottom",
+          "role": "then_now",
+          "callout": "LAFAYETTE PARK OVER BLACK BOTTOM"
+        },
+        {
+          "asset_id": "commons-lafayette-park-modern",
+          "role": "then_now",
+          "callout": "THE REPLACEMENT LANDSCAPE",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "Present-day Lafayette Park shows the replacement footprint named in narration."
+        }
+      ]
+    },
+    {
+      "start": 270,
+      "end": 280,
+      "claim_id": "i-375-route",
+      "narration_intent": "I-375 in plan view and at street level",
+      "entries": [
+        {
+          "asset_id": "fhwa-i375-official-route-map",
+          "role": "map_system",
+          "callout": "THE I-375 CORRIDOR"
+        },
+        {
+          "asset_id": "commons-i375-current-view-2023",
+          "role": "then_now",
+          "callout": "AT STREET LEVEL"
+        }
+      ]
+    },
+    {
+      "start": 280,
+      "end": 290,
+      "claim_id": "i-375-route",
+      "narration_intent": "The source trail before the freeway and the surviving street reference",
+      "entries": [
+        {
+          "asset_id": "sanborn-1950-sheet-11",
+          "role": "source_proof",
+          "callout": "THE STREET GRID BEFORE THE LINE",
+          "claim_id": "clearance-redevelopment",
+          "narration_fit": "The narration recaps the pre-freeway restriction and clearance trail."
+        },
+        {
+          "asset_id": "openverse-st-antoine-street-view",
+          "role": "then_now",
+          "callout": "ST. ANTOINE TODAY"
+        }
+      ]
+    },
+    {
+      "start": 290,
+      "end": 300,
+      "claim_id": "i-375-route",
+      "narration_intent": "Freeway construction and the addresses erased beneath the line",
+      "entries": [
+        {
+          "asset_id": "fhwa-detroit-chrysler-freeway-1964",
+          "role": "context_only",
+          "callout": "A FREEWAY IS NEVER JUST A LINE"
+        },
+        {
+          "asset_id": "loc-detroit-family-sojourner-truth-1942",
+          "role": "context_only",
+          "callout": "ADDRESSES BECOME DISPLACEMENT",
+          "claim_id": "relocation-consequence",
+          "narration_fit": "The family portrait gives the narrated erased addresses a truthful human consequence without claiming I-375 location proof."
+        }
+      ]
+    },
+    {
+      "start": 300,
+      "end": 310,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "Families receive notice and businesses lose walk-by customers",
+      "entries": [
+        {
+          "asset_id": "loc-sojourner-truth-moving-1942",
+          "role": "context_only",
+          "callout": "A FAMILY IS TOLD TO MOVE"
+        },
+        {
+          "asset_id": "video-04-local-ai-beat-18",
+          "role": "labeled_reconstruction",
+          "callout": "DRAMATIC RECONSTRUCTION \u2014 NOT ARCHIVAL FOOTAGE",
+          "claim_id": "relocation-consequence",
+          "narration_fit": "A disclosed generic reconstruction illustrates the human consequence of relocation without claiming to depict a documented Detroit family or event."
+        },
+        {
+          "asset_id": "commons-generic-foot-traffic",
+          "role": "context_only",
+          "callout": "ILLUSTRATIVE CUSTOMER FOOT TRAFFIC",
+          "clip_start": 7.0
+        }
+      ]
+    },
+    {
+      "start": 310,
+      "end": 311.3,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "Clearance creates a new geography",
+      "entries": [
+        {
+          "asset_id": "fhwa-i375-workshop-page-06",
+          "role": "map_system",
+          "callout": "A NEW GEOGRAPHY",
+          "claim_id": "i-375-route",
+          "narration_fit": "The official corridor source matches the new geography created by clearance."
+        }
+      ]
+    },
+    {
+      "start": 311.3,
+      "end": 315,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "A musician's club-to-club route changes",
+      "entries": [
+        {
+          "asset_id": "loc-dizzy-gillespie-1955",
+          "role": "context_only",
+          "callout": "THE CLUB-TO-CLUB ROUTE CHANGES",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The narration explicitly describes a musician's changed route through the club district."
+        }
+      ]
+    },
+    {
+      "start": 315,
+      "end": 320,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "A child must learn a different part of the city",
+      "entries": [
+        {
+          "asset_id": "commons-city-of-neighbors-film",
+          "role": "context_only",
+          "callout": "A CHILD'S FAMILIAR CITY CHANGES",
+          "clip_start": 570.0
+        }
+      ]
+    },
+    {
+      "start": 320,
+      "end": 330,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "The next generation must prove the place and the relocation record",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-grocery-black-district-1942",
+          "role": "context_only",
+          "callout": "THE CORNER STORE BECOMES A MEMORY"
+        },
+        {
+          "asset_id": "neh-black-bottom-business-relocation-document",
+          "role": "source_proof",
+          "callout": "THE RELOCATION RECORD",
+          "claim_id": "relocation-consequence",
+          "narration_fit": "The federal source directly documents the relocation consequence and preserves the erased place in the record."
+        }
+      ]
+    },
+    {
+      "start": 330,
+      "end": 340,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "Minimal assistance and relocation into public housing",
+      "entries": [
+        {
+          "asset_id": "commons-frederick-douglass-towers-2010",
+          "role": "context_only",
+          "callout": "BREWSTER-DOUGLASS"
+        },
+        {
+          "asset_id": "commons-frederick-douglass-homes",
+          "role": "context_only",
+          "callout": "PUBLIC-HOUSING RELOCATION"
+        }
+      ]
+    },
+    {
+      "start": 340,
+      "end": 350,
+      "claim_id": "relocation-consequence",
+      "narration_intent": "Family consequence and the community network that clearance disrupted",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-mother-child-sojourner-truth-1942",
+          "role": "context_only",
+          "callout": "THE HUMAN COST"
+        },
+        {
+          "asset_id": "loc-detroit-black-church-1942",
+          "role": "context_only",
+          "callout": "A COMMUNITY NETWORK STRETCHED APART"
+        }
+      ]
+    },
+    {
+      "start": 350,
+      "end": 360,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "The explicit payoff begins with the old map and named streets",
+      "entries": [
+        {
+          "asset_id": "sanborn-1950-sheet-08",
+          "role": "source_proof",
+          "callout": "THE OLD DISTRICT MAP",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "The narration explicitly instructs the edit to show the old district map and this reviewed sheet carries Hastings and St. Antoine geography."
+        },
+        {
+          "asset_id": "openverse-st-antoine-street-view",
+          "role": "context_only",
+          "callout": "HASTINGS \u2022 ST. ANTOINE \u2022 PARADISE",
+          "narration_fit": "The narration explicitly asks for a street view after the old map; this reviewed St. Antoine view supplies honest present-day context without claiming a matched historical viewpoint."
+        }
+      ]
+    },
+    {
+      "start": 360,
+      "end": 370,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "The official freeway map crosses the later redevelopment footprint",
+      "entries": [
+        {
+          "asset_id": "fhwa-i375-official-route-map",
+          "role": "map_system",
+          "callout": "THE OFFICIAL MAP"
+        },
+        {
+          "asset_id": "commons-lafayette-over-black-bottom",
+          "role": "then_now",
+          "callout": "THE REPLACEMENT MAP"
+        }
+      ]
+    },
+    {
+      "start": 370,
+      "end": 380,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Real material conditions existed in the neighborhood",
+      "entries": [
+        {
+          "asset_id": "loc-black-residential-fronts-1942",
+          "role": "context_only",
+          "callout": "REAL HOUSING CONDITIONS"
+        },
+        {
+          "asset_id": "loc-detroit-black-neighborhood-houses-1942",
+          "role": "context_only",
+          "callout": "OVERCROWDING \u2022 POVERTY \u2022 AGING HOMES",
+          "claim_id": "housing-restrictions",
+          "narration_fit": "The rights-clear period Black Detroit housing photograph matches the exact list of material housing conditions."
+        }
+      ]
+    },
+    {
+      "start": 380,
+      "end": 390,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Two truths: material hardship and irreplaceable cultural value",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-downtown-from-black-neighborhood-1942",
+          "role": "context_only",
+          "callout": "TWO TRUTHS AT ONCE"
+        },
+        {
+          "asset_id": "openverse-virgil-carr-cultural-center",
+          "role": "then_now",
+          "callout": "A CULTURAL AND BUSINESS DISTRICT"
+        }
+      ]
+    },
+    {
+      "start": 390,
+      "end": 400,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Lafayette Park and traffic are the simple version, not the whole story",
+      "entries": [
+        {
+          "asset_id": "commons-lafayette-park-modern",
+          "role": "then_now",
+          "callout": "THE REPLACEMENT LANDSCAPE"
+        },
+        {
+          "asset_id": "commons-generic-street-traffic",
+          "role": "context_only",
+          "callout": "ILLUSTRATIVE TRAFFIC CONTEXT",
+          "clip_start": 10.0
+        }
+      ]
+    },
+    {
+      "start": 400,
+      "end": 410,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Who defined the neighborhood, benefited, and was forced to move",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-family-sojourner-truth-1942",
+          "role": "context_only",
+          "callout": "WHO WAS FORCED TO MOVE?"
+        },
+        {
+          "asset_id": "commons-generic-foot-traffic",
+          "role": "context_only",
+          "callout": "ILLUSTRATIVE STREET-LIFE CONTEXT",
+          "clip_start": 13.0
+        }
+      ]
+    },
+    {
+      "start": 410,
+      "end": 420,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Present-day landmarks and Lafayette Park cover parts of the old geography",
+      "entries": [
+        {
+          "asset_id": "commons-detroit-views-film",
+          "role": "context_only",
+          "callout": "DETROIT TODAY",
+          "clip_start": 80.0
+        },
+        {
+          "asset_id": "commons-renaissance-center-flags-film",
+          "role": "context_only",
+          "callout": "PRESENT-DAY LANDMARKS",
+          "clip_start": 0.0
+        },
+        {
+          "asset_id": "commons-mies-residential-district",
+          "role": "then_now",
+          "callout": "LAFAYETTE PARK"
+        }
+      ]
+    },
+    {
+      "start": 420,
+      "end": 430,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Ford Field and the surviving Orchestra Hall landmark",
+      "entries": [
+        {
+          "asset_id": "loc-ford-field-aerial-2020",
+          "role": "then_now",
+          "callout": "FORD FIELD FOOTPRINT \u2022 2020"
+        },
+        {
+          "asset_id": "wikimedia-orchestra-hall-c1970",
+          "role": "then_now",
+          "callout": "ORCHESTRA HALL SURVIVES"
+        }
+      ]
+    },
+    {
+      "start": 430,
+      "end": 440,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "One surviving building is not a surviving neighborhood network",
+      "entries": [
+        {
+          "asset_id": "commons-ford-field-comerica-public-domain",
+          "role": "then_now",
+          "callout": "ONE LANDMARK IS NOT A NEIGHBORHOOD"
+        },
+        {
+          "asset_id": "loc-sojourner-truth-moving-1942",
+          "role": "context_only",
+          "callout": "A DENSE HUMAN NETWORK VANISHED",
+          "claim_id": "relocation-consequence",
+          "narration_fit": "The moving-family photograph represents the people and relationships lost beyond architecture."
+        }
+      ]
+    },
+    {
+      "start": 440,
+      "end": 450,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Businesses, housing, churches, customers, workers, and memory",
+      "entries": [
+        {
+          "asset_id": "loc-detroit-grocery-black-district-1942",
+          "role": "context_only",
+          "callout": "BUSINESS \u2022 HOUSING \u2022 CHURCH \u2022 MEMORY",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The rights-clear Black Detroit storefront directly matches the first part of the closing neighborhood-network list."
+        },
+        {
+          "asset_id": "commons-c1940-metro-detroit-film",
+          "role": "context_only",
+          "callout": "DETROIT ARCHIVE FILM",
+          "clip_start": 200.0
+        }
+      ]
+    },
+    {
+      "start": 450,
+      "end": 460,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "The archive holds the longer story behind the shortened map",
+      "entries": [
+        {
+          "asset_id": "ia-detroit-news-1917",
+          "role": "context_only",
+          "callout": "THE ARCHIVE HOLDS THE LONGER STORY",
+          "claim_id": "black-bottom-neighborhood",
+          "narration_fit": "The Detroit News title card visibly identifies the archive source behind the longer story.",
+          "clip_start": 0.0
+        },
+        {
+          "asset_id": "commons-renaissance-center-flags-film",
+          "role": "context_only",
+          "callout": "THE SHORT VERSION LEFT THIS OUT",
+          "claim_id": "then-now-footprint",
+          "narration_fit": "Modern Detroit motion carries the reflective transition without being presented as historical proof.",
+          "clip_start": 15.0
+        }
+      ]
+    },
+    {
+      "start": 460,
+      "end": 470,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "The districts were part of Detroit's cultural engine",
+      "entries": [
+        {
+          "asset_id": "loc-zoot-suit-1942",
+          "role": "context_only",
+          "callout": "THE DISTRICTS WERE NOT EMPTY",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The Detroit Black-business-district photograph directly supports the statement that the districts were living places, not empty obstacles."
+        },
+        {
+          "asset_id": "openverse-virgil-carr-cultural-center",
+          "role": "context_only",
+          "callout": "DETROIT'S CULTURAL ENGINE",
+          "claim_id": "paradise-valley-businesses",
+          "narration_fit": "The reviewed Paradise Valley-area cultural institution supports the closing cultural-engine conclusion while Orchestra Hall remains reserved for the earlier line that names it explicitly."
+        }
+      ]
+    },
+    {
+      "start": 470,
+      "end": 480,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "Local memories become leads for the next source trail",
+      "entries": [
+        {
+          "asset_id": "commons-city-of-neighbors-film",
+          "role": "context_only",
+          "callout": "DETROIT LOCAL MEMORY",
+          "claim_id": "relocation-consequence",
+          "narration_fit": "Historic Detroit community footage supports the local-memory invitation without claiming Black Bottom location proof.",
+          "clip_start": 400.0
+        },
+        {
+          "asset_id": "openverse-st-antoine-marker-b",
+          "role": "context_only",
+          "callout": "WHAT DOES YOUR FAMILY REMEMBER?",
+          "claim_id": "hastings-st-antoine-network",
+          "narration_fit": "The St. Antoine marker matches the local-memory invitation naming Hastings Street and Paradise Valley."
+        }
+      ]
+    },
+    {
+      "start": 480,
+      "end": 490,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "The earned subscribe ask returns to modern Detroit and the visible footprint",
+      "entries": [
+        {
+          "asset_id": "commons-detroit-views-film",
+          "role": "context_only",
+          "callout": "THE NEXT CITY FILE",
+          "clip_start": 140.0
+        },
+        {
+          "asset_id": "commons-i375-current-view-2023",
+          "role": "then_now",
+          "callout": "THE MAP KEEPS RECEIPTS"
+        }
+      ]
+    },
+    {
+      "start": 490,
+      "end": 499.322,
+      "claim_id": "then-now-footprint",
+      "narration_intent": "City, source, and system close on archive footage and the official map",
+      "entries": [
+        {
+          "asset_id": "ia-detroit-home-movies-1955",
+          "role": "context_only",
+          "callout": "SHOW THE PLACE \u2022 SHOW THE SOURCE",
+          "claim_id": "relocation-consequence",
+          "narration_fit": "A distinct later excerpt from the verified Detroit family archive film supports the closing source-first method and the remembered human place.",
+          "clip_start": 300.0
+        },
+        {
+          "asset_id": "fhwa-i375-workshop-page-06",
+          "role": "map_system",
+          "callout": "CITY \u2022 SOURCE \u2022 SYSTEM"
+        }
+      ]
+    }
+  ]
+}

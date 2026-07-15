@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -216,45 +217,98 @@ def load_font_pack() -> dict[str, Any]:
     return read_json(FONT_PACK_PATH)
 
 
+def node_modules_root() -> Path:
+    configured = os.environ.get("PATTERNLAB_NODE_MODULES", "").strip()
+    candidates = [
+        Path(configured) if configured else None,
+        BASE.parent / "node_modules",
+        Path.cwd() / "node_modules",
+        Path.home() / "PatternLabRuntime" / "node_modules",
+        Path.home() / "OpenClaw" / "node_modules",
+    ]
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate is not None
+            and (candidate / "sharp").exists()
+        ),
+        BASE.parent / "node_modules",
+    )
+
+
 def font_entries() -> list[dict[str, Any]]:
     pack = load_font_pack()
     entries = []
+    seen_families: set[str] = set()
+    modules = node_modules_root()
     for item in pack.get("font_files", []):
         if not isinstance(item, dict):
             continue
-        absolute = BASE.parent / str(item.get("path", "")) if str(item.get("path", "")).startswith("youtube-v1/") else BASE.parent / str(item.get("path", ""))
-        # BASE is youtube-v1, so repo-root relative paths resolve from BASE.parent.
+        relative = str(item.get("path", ""))
+        absolute = modules / relative.removeprefix("node_modules/") if relative.startswith("node_modules/") else BASE.parent / relative
+        family = str(item.get("family", "")).strip()
+        if family in seen_families:
+            continue
+        seen_families.add(family)
         entries.append({**item, "absolute_path": str(absolute)})
     return entries
 
 
-def validate_font_ledger() -> dict[str, Any]:
+def validate_font_ledger(required_families: set[str] | None = None) -> dict[str, Any]:
     pack = load_font_pack()
     allowed = set(pack.get("license_policy", {}).get("allowed_licenses", ["OFL-1.1", "Apache-2.0"]))
     entries = font_entries()
-    missing = [entry for entry in entries if not Path(entry["absolute_path"]).exists()]
-    bad_license = [entry for entry in entries if entry.get("license") not in allowed]
+    required = required_families or {
+        str(entry.get("family", ""))
+        for entry in entries
+        if str(entry.get("path", "")).startswith("youtube-v1/resources/fonts/external/")
+    }
+    active_entries = [entry for entry in entries if str(entry.get("family", "")) in required]
+    missing = [entry for entry in active_entries if not Path(entry["absolute_path"]).exists()]
+    bad_license = [entry for entry in active_entries if entry.get("license") not in allowed]
+    checksum_mismatches = []
+    for entry in active_entries:
+        expected = str(entry.get("sha256", "")).strip().lower()
+        path = Path(str(entry.get("absolute_path", "")))
+        if expected and path.exists():
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            if actual != expected:
+                checksum_mismatches.append({
+                    "family": entry.get("family"),
+                    "path": display_path(path),
+                    "expected_sha256": expected,
+                    "actual_sha256": actual,
+                })
     package_versions = {}
-    for entry in entries:
+    modules = node_modules_root()
+    for entry in active_entries:
         package = str(entry.get("package", ""))
-        pkg_path = BASE.parent / "node_modules" / package / "package.json"
+        pkg_path = modules / package / "package.json"
         pkg = read_json(pkg_path)
         package_versions[package] = {"version": pkg.get("version", "missing"), "license": pkg.get("license", "missing")}
     return {
-        "status": "pass" if entries and not missing and not bad_license else "blocked",
+        "status": "pass" if active_entries and not missing and not bad_license and not checksum_mismatches else "blocked",
         "font_pack_status": pack.get("status", "missing"),
-        "font_count": len(entries),
-        "font_families": [entry.get("family") for entry in entries],
+        "font_count": len(active_entries),
+        "font_families": [entry.get("family") for entry in active_entries],
         "missing_font_files": [display_path(Path(entry["absolute_path"])) for entry in missing],
         "disallowed_license_fonts": [entry.get("family") for entry in bad_license],
+        "checksum_mismatches": checksum_mismatches,
         "package_versions": package_versions,
-        "font_files": [{**entry, "absolute_path": display_path(Path(entry["absolute_path"]))} for entry in entries],
+        "font_files": [{**entry, "absolute_path": display_path(Path(entry["absolute_path"]))} for entry in active_entries],
     }
 
 
 def image_dimensions(path: Path) -> tuple[int | None, int | None]:
+    if not path.is_file():
+        return None, None
     try:
-        out = subprocess.check_output(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)], text=True)
+        out = subprocess.check_output(
+            ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception:
         return None, None
     width = height = None
@@ -268,7 +322,20 @@ def image_dimensions(path: Path) -> tuple[int | None, int | None]:
 
 
 def run_chrome_renderer(spec_path: Path, report_path: Path) -> dict[str, Any]:
-    result = subprocess.run(["node", str(CHROME_HELPER), str(spec_path), str(report_path)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    env = dict(os.environ)
+    if not env.get("PATTERNLAB_NODE_MODULES"):
+        resolved = node_modules_root()
+        resolved = resolved if (resolved / "sharp").exists() else None
+        if resolved is not None:
+            env["PATTERNLAB_NODE_MODULES"] = str(resolved)
+    result = subprocess.run(
+        ["node", str(CHROME_HELPER), str(spec_path), str(report_path)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=env,
+    )
     report = read_json(report_path)
     if result.returncode != 0:
         blockers = report.get("blockers", []) if isinstance(report.get("blockers"), list) else []
@@ -500,13 +567,33 @@ def export_chat_delivery(root: Path, entries: list[dict[str, Any]], contact_shee
         "entries": [
             {
                 "variant_id": entry.get("variant_id", ""),
-                "path": entry.get("path", ""),
+                # Reports use repo-relative display paths, but the Node helper
+                # runs from an arbitrary LaunchAgent/worktree cwd.  Give it a
+                # real absolute file path so valid artifacts are never marked
+                # missing solely because of the caller's working directory.
+                "path": str(
+                    Path(str(entry.get("path", "")))
+                    if Path(str(entry.get("path", ""))).is_absolute()
+                    else BASE / str(entry.get("path", ""))
+                ),
             }
             for entry in entries
         ],
     }
     write_json(spec_path, spec)
-    result = subprocess.run(["node", str(CHAT_DELIVERY_HELPER), str(spec_path), str(report_path)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    env = dict(os.environ)
+    if not env.get("PATTERNLAB_NODE_MODULES"):
+        resolved = node_modules_root()
+        if (resolved / "sharp").exists():
+            env["PATTERNLAB_NODE_MODULES"] = str(resolved)
+    result = subprocess.run(
+        ["node", str(CHAT_DELIVERY_HELPER), str(spec_path), str(report_path)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=env,
+    )
     report = read_json(report_path)
     blockers = report.get("blockers", []) if isinstance(report.get("blockers"), list) else []
     if result.returncode != 0:
@@ -532,7 +619,13 @@ def export_chat_delivery(root: Path, entries: list[dict[str, Any]], contact_shee
 
 def chrome_render(specs: list[dict[str, Any]], root: Path, report_name: str, contact_name: str, preview_dir_name: str) -> dict[str, Any]:
     approval = ensure_dir(root / "approval")
-    ledger = validate_font_ledger()
+    used_families = {
+        str(spec.get(key, ""))
+        for spec in specs
+        for key in ("city_font_family", "main_font_family", "support_font_family")
+        if str(spec.get(key, "")).strip()
+    }
+    ledger = validate_font_ledger(used_families)
     report_path = approval / report_name
     spec_path = approval / report_name.replace(".json", "-spec.json")
     helper_report = approval / report_name.replace(".json", "-helper-report.json")

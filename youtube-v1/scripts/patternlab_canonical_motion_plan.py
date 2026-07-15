@@ -19,11 +19,19 @@ MOTION_BY_ROLE = {
     "archive_evidence": ("ken_burns_push", "Move to the relevant person, storefront, or street detail."),
     "document_detail": ("document_closeup", "Guide attention across the named clause or boundary."),
     "map_system": ("map_zoom_trace", "Trace the system route or boundary through the historical map."),
-    "then_now": ("then_now_split", "Compare the historic footprint with the present-day geography."),
+    "then_now": ("then_now_single_source", "Show one hash-bound historic or present-day source at a time; comparison happens across cuts, never by split-screen compositing."),
     "context_only": ("slow_context_pan", "Add modern context without presenting it as proof."),
-    "labeled_reconstruction": ("subtle_parallax", "Keep the reconstruction clearly labeled as explanatory support."),
+    "labeled_reconstruction": ("reconstruction_slow_push", "Keep the reconstruction clearly labeled as explanatory support; a flat push is never described as parallax."),
     "city_file_cta": ("cta_push", "End with a short source-first city-file invitation."),
 }
+
+
+def motion_profile(role: str, asset_kind: str) -> tuple[str, str] | None:
+    if asset_kind in {"film", "modern_video", "source_motion"}:
+        if role in {"source_proof", "archive_evidence"}:
+            return "native_video_source", "Use the verified archival clip itself and preserve its evidentiary meaning."
+        return "native_video_context", "Use the verified context clip itself without presenting it as historical proof."
+    return MOTION_BY_ROLE.get(role)
 
 
 def read_json(path: Path) -> dict:
@@ -48,7 +56,7 @@ def build_report(video_id: str) -> tuple[dict, Path, Path]:
     motion_beats = []
     for beat in beats:
         role = beat.get("role")
-        profile = MOTION_BY_ROLE.get(role)
+        profile = motion_profile(str(role), str(beat.get("asset_kind") or ""))
         if not profile:
             blockers.append(f"visual_role_has_no_motion_profile:{role}")
             continue

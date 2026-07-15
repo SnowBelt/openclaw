@@ -14,6 +14,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, topic_city
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
 
 
@@ -50,6 +53,10 @@ def narrow_topic_issues(topic: dict[str, Any]) -> list[str]:
     public_angle = str(topic.get("public_angle", "")).strip()
     artifact = str(topic.get("artifact_type", "")).strip()
     issues: list[str] = []
+    try:
+        topic_city(topic)
+    except CityContractError as exc:
+        issues.append(str(exc))
     if not title:
         issues.append("missing_working_title")
     elif any(pattern.search(title) for pattern in GENERIC_TITLE_PATTERNS):
@@ -58,6 +65,16 @@ def narrow_topic_issues(topic: dict[str, Any]) -> list[str]:
         issues.append("title_too_short_to_express_a_specific_question")
     if not artifact:
         issues.append("missing_proof_object")
+    for field in ("hidden_history_question", "proof_object", "visual_payoff"):
+        if not str(topic.get(field) or "").strip():
+            issues.append(f"missing_{field}")
+    blueprints = topic.get("shorts_blueprints")
+    if not isinstance(blueprints, list) or not 3 <= len(blueprints) <= 5:
+        issues.append("shorts_blueprints_outside_3_5")
+    if topic.get("source_dossier_status") != "pass":
+        issues.append("source_dossier_not_pass")
+    if topic.get("script_status") not in {"fact_checked", "approved_locked"}:
+        issues.append("script_not_fact_checked")
     if not public_angle:
         issues.append("missing_public_angle")
     # A wide list of city systems signals a survey rather than one evidence
@@ -96,7 +113,7 @@ def source_pack_status(video_id: str) -> tuple[str, list[str]]:
     # A source-first rebuild creates a claim-to-visual contract. Its stale
     # generic-media manifest is not enough: the linked visuals must pass the
     # stricter claim-fidelity audit before autonomous production selection.
-    dossier = root / "source-packet" / "rebuild-v2" / "video-04-evidence-dossier.json"
+    dossier = root / "source-packet" / "rebuild-v2" / f"video-{video_id}-evidence-dossier.json"
     if dossier.exists():
         fidelity = read_json(root / "approval" / "claim-visual-fidelity-report.json")
         if fidelity.get("status") != "pass":
@@ -124,7 +141,7 @@ def build_topic_qualification_queue() -> tuple[dict[str, Any], Path, Path]:
         score = score_topic(strategy, topic)
         topic_issues = narrow_topic_issues(topic)
         source_status, source_issues = source_pack_status(video_id)
-        rebuild_in_progress = (output_root(video_id) / "source-packet" / "rebuild-v2" / "video-04-evidence-dossier.json").exists()
+        rebuild_in_progress = (output_root(video_id) / "source-packet" / "rebuild-v2" / f"video-{video_id}-evidence-dossier.json").exists()
         already_uploaded = prior_upload_exists(video_id)
         if rebuild_in_progress:
             status = "active_rebuild"
@@ -136,6 +153,7 @@ def build_topic_qualification_queue() -> tuple[dict[str, Any], Path, Path]:
             status = "research_queue"
         rows.append({
             "video_id": video_id,
+            "city": topic.get("city", ""),
             "working_title": topic.get("working_title", ""),
             "artifact_type": topic.get("artifact_type", ""),
             "topic_score": score,

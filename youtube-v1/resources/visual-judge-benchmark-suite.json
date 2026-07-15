@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "purpose": "Adversarial local-VLM acceptance suite for Pattern Lab final frame judgment. A receipt must contain one result per fixture and bind to this file hash.",
+  "fixtures": [
+    {"id": "wrong-city-01", "category": "wrong_city", "expected": "reject", "narration": "Black Bottom was a Detroit neighborhood erased by redevelopment.", "role": "historical_evidence", "fixture": "cleveland_label"},
+    {"id": "wrong-city-02", "category": "wrong_city", "expected": "reject", "narration": "This map shows Detroit before the freeway cut through the neighborhood.", "role": "map_evidence", "fixture": "chicago_label"},
+    {"id": "wrong-entity-01", "category": "wrong_entity", "expected": "reject", "narration": "This is Ford's Piquette Avenue Plant.", "role": "historical_evidence", "fixture": "general_motors_label"},
+    {"id": "wrong-entity-02", "category": "wrong_entity", "expected": "reject", "narration": "Hastings Street was the spine of Black Bottom.", "role": "historical_evidence", "fixture": "woodward_label"},
+    {"id": "dim-frame-01", "category": "dim_frame", "expected": "reject", "narration": "Detroit's neighborhood businesses filled this street.", "role": "historical_context", "fixture": "dim_street"},
+    {"id": "dim-frame-02", "category": "dim_frame", "expected": "reject", "narration": "This Detroit skyline establishes the modern city.", "role": "modern_context", "fixture": "dim_skyline"},
+    {"id": "unreadable-text-01", "category": "unreadable_text", "expected": "reject", "narration": "The source label identifies the 1951 Detroit planning map.", "role": "source_proof", "fixture": "tiny_source_label", "required_visible_text": ["source", "1951"]},
+    {"id": "unreadable-text-02", "category": "unreadable_text", "expected": "reject", "narration": "The caption names Hastings Street.", "role": "historical_context", "fixture": "low_contrast_caption", "required_visible_text": ["hastings", "street"]},
+    {"id": "random-box-01", "category": "random_text_box", "expected": "reject", "narration": "Black Bottom supported hundreds of businesses.", "role": "historical_context", "fixture": "random_box_red"},
+    {"id": "random-box-02", "category": "random_text_box", "expected": "reject", "narration": "This route shows where I-375 was built.", "role": "map_evidence", "fixture": "random_box_blue"},
+    {"id": "fake-archive-01", "category": "fake_archival", "expected": "reject", "narration": "This archival photograph proves what Hastings Street looked like.", "role": "historical_evidence", "fixture": "ai_reconstruction_photo"},
+    {"id": "fake-archive-02", "category": "fake_archival", "expected": "reject", "narration": "This original city map proves the neighborhood boundary.", "role": "map_evidence", "fixture": "ai_reconstruction_map"},
+    {"id": "narration-mismatch-01", "category": "visual_narration_mismatch", "expected": "reject", "narration": "The neighborhood church became a center of community life.", "role": "historical_context", "fixture": "auto_factory"},
+    {"id": "narration-mismatch-02", "category": "visual_narration_mismatch", "expected": "reject", "narration": "The freeway trench divided these residential blocks.", "role": "map_evidence", "fixture": "jazz_club"},
+    {"id": "subtitle-rescue-01", "category": "subtitle_rescued_wrong_visual", "expected": "reject", "narration": "Hastings Street businesses made Paradise Valley a commercial ecosystem.", "role": "historical_evidence", "fixture": "unrelated_factory_with_matching_caption"},
+    {"id": "caption-clip-01", "category": "caption_clip", "expected": "reject", "narration": "The label identifies Black Bottom.", "role": "historical_context", "fixture": "caption_clipped_bottom", "required_visible_text": ["black", "bottom"]},
+    {"id": "caption-clip-02", "category": "caption_clip", "expected": "reject", "narration": "The title identifies Detroit in 1951.", "role": "map_evidence", "fixture": "caption_clipped_left", "required_visible_text": ["detroit", "1951"]},
+    {"id": "source-proof-good-01", "category": "valid_source_proof", "expected": "accept", "narration": "The 1951 Detroit planning map labels Black Bottom and Hastings Street.", "role": "source_proof", "fixture": "good_planning_map", "required_visible_text": ["detroit", "1951", "black", "bottom"]},
+    {"id": "source-proof-good-02", "category": "valid_source_proof", "expected": "accept", "narration": "This city directory lists a Hastings Street business in Detroit.", "role": "source_proof", "fixture": "good_directory", "required_visible_text": ["detroit", "1948", "hastings"]},
+    {"id": "context-good-01", "category": "valid_context", "expected": "accept", "narration": "Modern Detroit grew around the freeway interchange.", "role": "modern_context", "fixture": "good_modern_detroit"},
+    {"id": "context-good-02", "category": "valid_context", "expected": "accept", "narration": "This labeled then-and-now comparison shows the same Detroit street corridor.", "role": "then_now", "fixture": "good_then_now"}
+  ]
+}

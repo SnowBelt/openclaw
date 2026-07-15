@@ -1,12 +1,12 @@
 {
-  "version": 4,
-  "status": "pass_open_license_bundled_external_fonts_and_approved_mac_system_fallbacks_v5",
+  "version": 5,
+  "status": "pass_open_license_bundled_google_display_fonts_and_external_foundry_fonts_v6",
   "purpose": "Repo-local open-license Fontsource manifest for Pattern Lab premium thumbnail typography. Canva remains primary when available; these fonts power the approved free automated fallback.",
   "scope": "fontsource_open_license_bundled_fonts_and_approved_mac_system_fonts_for_local_fallback_only",
   "public_mutation": "not_authorized",
   "canva": "not_used_by_local_fallback",
   "paid_fonts": "not_authorized_without_owner_approval",
-  "network_downloads": "approved_for_fontsource_install_only",
+  "network_downloads": "approved_for_open_license_google_and_fontsource_font_install_only",
   "license_policy": {
     "allowed_licenses": [
       "OFL-1.1",
@@ -146,6 +146,51 @@
     }
   },
   "font_files": [
+    {
+      "family": "Anton",
+      "package": "google-fonts-bundled",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/anton-google-regular.ttf",
+      "source_foundry": "Google Fonts",
+      "source_url": "https://fonts.google.com/specimen/Anton",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/anton/OFL.txt",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/anton-OFL.txt",
+      "sha256": "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    },
+    {
+      "family": "Bebas Neue",
+      "package": "google-fonts-bundled",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/bebas-neue-google-regular.ttf",
+      "source_foundry": "Google Fonts",
+      "source_url": "https://fonts.google.com/specimen/Bebas+Neue",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/bebasneue/OFL.txt",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/bebas-neue-OFL.txt",
+      "sha256": "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    },
+    {
+      "family": "Bowlby One SC",
+      "package": "google-fonts-bundled",
+      "license": "OFL-1.1",
+      "weight": 400,
+      "style": "normal",
+      "path": "youtube-v1/resources/fonts/external/bowlby-one-sc-google-regular.ttf",
+      "source_foundry": "Google Fonts",
+      "source_url": "https://fonts.google.com/specimen/Bowlby+One+SC",
+      "license_url": "https://raw.githubusercontent.com/google/fonts/main/ofl/bowlbyonesc/OFL.txt",
+      "license_file": "youtube-v1/resources/fonts/external/licenses/bowlby-one-sc-OFL.txt",
+      "sha256": "dc9f2325fb6bab327c26619a752b274b8f0f4022756d896450911e885609f071",
+      "commercial_use_verified": "yes",
+      "modification_use_verified": "yes"
+    },
     {
       "family": "Anton",
       "package": "@fontsource/anton",

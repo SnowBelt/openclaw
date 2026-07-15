@@ -4,16 +4,25 @@
 <dict>
   <key>Label</key>
   <string>com.openclaw.patternlab-v2.full-auto-production</string>
-  <key>ProgramArguments</key>
+	<key>ProgramArguments</key>
   <array>
     <string>/Users/openclaw/PatternLabRuntime/youtube-v1/.venv-youtube-3.12/bin/python</string>
-    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/scripts/patternlab_full_auto_production.py</string>
+    <string>/Users/openclaw/PatternLabRuntime/youtube-v1/scripts/patternlab_production.py</string>
+    <string>--profile</string>
+    <string>full_package</string>
     <string>--next-scheduled</string>
+    <string>--render</string>
+    <string>--send-review</string>
     <string>--live-voice</string>
     <string>never</string>
     <string>--shorts-target</string>
     <string>5</string>
-  </array>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATTERNLAB_MODEL_ROOT</key>
+		<string>/Users/openclaw/PatternLabRuntime/youtube-v1/local-output/models/draw-things</string>
+	</dict>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>

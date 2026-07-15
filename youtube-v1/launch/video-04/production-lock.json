@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "video_id": "04",
+  "profile": "long_form_rebuild",
+  "owner_authority": "Retain the existing James narration and rebuild only the rejected long-form visuals for owner review. No YouTube mutation.",
+  "approved_script_sha256": "2057b9404757cea8bf5f1d63b0d8b5c149e2247ab856889e415f22a5df2836ff",
+  "retained_audio_sha256": "e78f3d7124db01de28bcadbd601297923bf79b9a39d1f1dd1e8da1d1af07a358",
+  "retained_transcript_sha256": "ec36a74e9e4fba2841d020239e4a53f7329fbc344e5fbcbaf456604d5b0f94fe",
+  "route_compiler": "youtube-v1/scripts/patternlab_visual_route_compiler.py",
+  "source_pool_compiler": "youtube-v1/scripts/patternlab_source_pool_compiler.py",
+  "minimum_automated_score": 93,
+  "youtube_mutations_allowed": false,
+  "paid_provider_calls_allowed": false
+}

@@ -5,38 +5,14 @@ import json
 import re
 from pathlib import Path
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, city_from_sources, require_city
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
-from patternlab_images import IMAGE_HEIGHT, IMAGE_WIDTH, file_status, validate_image_pack
+from patternlab_images import ALLOWED_IMAGE_DIMENSIONS, IMAGE_HEIGHT, IMAGE_WIDTH, file_status, validate_image_pack
 
 
 MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
-REQUIRED_THUMBNAILS = [
-    {
-        "filename": "thumbnail_candidate_a.png",
-        "role": "emotional_mystery",
-        "headline": "DETROIT WAS REDRAWN",
-        "required_prompt_terms": ["DETROIT WAS REDRAWN", "clear thumbnail promise", "premium city typography", "Detroit skyline/landmark recognition"],
-    },
-    {
-        "filename": "thumbnail_candidate_b.png",
-        "role": "map_system_proof",
-        "headline": "DETROIT'S HIDDEN MAP",
-        "required_prompt_terms": ["DETROIT'S HIDDEN MAP", "map/system proof", "polished proof mark", "Detroit skyline/landmark recognition"],
-    },
-    {
-        "filename": "thumbnail_candidate_c.png",
-        "role": "contrarian_history_angle",
-        "headline": "DETROIT'S FALL EXPLAINED",
-        "required_prompt_terms": ["DETROIT'S FALL EXPLAINED", "contrarian history", "clear thumbnail promise", "premium city typography"],
-    },
-]
-REQUIRED_REVIEW_HEADLINES = {
-    "DETROIT WAS REDRAWN",
-    "DETROIT'S HIDDEN MAP",
-    "DETROIT 1942",
-    "DETROIT'S LOST STREETS",
-    "DETROIT'S FALL EXPLAINED",
-}
 SAFETY_PROMPT_TERMS = [
     "source-media-policy",
     "thumbnail-click-policy",
@@ -159,22 +135,23 @@ REQUIRED_HARD_BLOCKS = (
 
 
 def city_possessive(city):
-    city_upper = (city or "Detroit").upper()
+    city_upper = require_city(city, source="thumbnail_quality").upper()
     return f"{city_upper}'" if city_upper.endswith("S") else f"{city_upper}'S"
 
 
 def format_city_template(template, city):
-    city_upper = (city or "Detroit").upper()
+    city_upper = require_city(city, source="thumbnail_quality").upper()
     return template.replace("{CITY_POSSESSIVE}", city_possessive(city_upper)).replace("{CITY}", city_upper)
 
 
 def active_city_for_quality(metadata, factory_report):
-    for source in (factory_report, metadata):
+    sources = []
+    for source_name, source in (("thumbnail_factory", factory_report), ("upload_metadata", metadata)):
+        if not isinstance(source, dict):
+            continue
         for key in ("active_city", "city", "target_city"):
-            value = source.get(key) if isinstance(source, dict) else None
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return "Detroit"
+            sources.append((f"{source_name}.{key}", source.get(key)))
+    return city_from_sources(sources)
 
 
 def required_review_headlines_for_city(city):
@@ -189,7 +166,7 @@ def required_review_headlines_for_city(city):
 
 
 def required_thumbnails_for_city(city):
-    city_upper = (city or "Detroit").upper()
+    city_upper = require_city(city, source="thumbnail_quality").upper()
     city_recognition_phrase = f"{city} skyline/landmark recognition"
     return [
         {
@@ -274,8 +251,12 @@ def build_thumbnail_quality_report(video_id):
     warnings = []
     candidates = []
     package_checks = []
-    quality_city = active_city_for_quality(metadata, factory_report)
-    required_thumbnails = required_thumbnails_for_city(quality_city)
+    try:
+        quality_city = active_city_for_quality(metadata, factory_report)
+    except CityContractError as exc:
+        quality_city = ""
+        blockers.append(str(exc))
+    required_thumbnails = required_thumbnails_for_city(quality_city) if quality_city else []
     topic_headlines = {
         str(item.get("headline", ""))
         for item in metadata.get("thumbnail_topic_concepts", [])
@@ -497,8 +478,14 @@ def build_thumbnail_quality_report(video_id):
             add_package_check(f"thumbnail_{report_name.replace('-', '_').replace('.json', '')}", (approval / report_name).exists(), f"{report_name} exists")
     add_package_check(
         "thumbnail_free_first_policy",
-        free_policy.get("default_cost") == "free" and free_policy.get("paid_tools_require_owner_approval") is True,
-        "thumbnail-free-first-policy requires free default and owner approval for paid tools",
+        (
+            free_policy.get("paid_tools_require_owner_approval") is True
+            and (
+                free_policy.get("default_cost") == "free"
+                or "Codex image generation primary" in str(free_policy.get("default_cost", ""))
+            )
+        ),
+        "thumbnail policy requires an owner-approved Codex-primary or free-first path and approval for other paid tools",
     )
     add_package_check(
         "thumbnail_10x_art_direction_policy",
@@ -558,7 +545,8 @@ def build_thumbnail_quality_report(video_id):
         }
         candidates.append(candidate)
         if not status["valid"]:
-            blockers.append(f"{filename} is not a valid {IMAGE_WIDTH}x{IMAGE_HEIGHT} PNG thumbnail: {status['reason']}.")
+            allowed = " or ".join(f"{width}x{height}" for width, height in sorted(ALLOWED_IMAGE_DIMENSIONS))
+            blockers.append(f"{filename} is not a valid {allowed} PNG thumbnail: {status['reason']}.")
         if size_bytes > MAX_THUMBNAIL_BYTES:
             blockers.append(f"{filename} is above YouTube's video thumbnail size limit: {size_bytes / 1024 / 1024:.1f} MB.")
         if ledger.get("asset_type") != "thumbnail":
@@ -627,7 +615,7 @@ def build_thumbnail_quality_report(video_id):
         "active_city": factory_report.get("active_city", quality_city),
         "default_thumbnail": default_thumbnail,
         "title_options": len(title_options),
-        "required_dimensions": f"{IMAGE_WIDTH}x{IMAGE_HEIGHT}",
+        "required_dimensions": " or ".join(f"{width}x{height}" for width, height in sorted(ALLOWED_IMAGE_DIMENSIONS)),
         "youtube_video_thumbnail_max_mb": 2,
         "thumbnail_factory_status": factory_report.get("status", "missing") if factory_report else "missing",
         "thumbnail_factory_report": display_path(approval / "thumbnail-factory-report.json"),

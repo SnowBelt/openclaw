@@ -130,8 +130,14 @@ def run_swift(source: str, args: list[str]) -> None:
 
 
 def image_dimensions(path: Path) -> tuple[int, int] | tuple[None, None]:
+    if not path.is_file():
+        return None, None
     try:
-        out = subprocess.check_output(["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)], text=True)
+        out = subprocess.check_output(
+            ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(path)],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
     except Exception:
         return None, None
     width = height = None

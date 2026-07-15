@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "channel": "Pattern Lab",
+  "purpose": "Use local visual AI where it improves attention without weakening source truth, while reserving Codex generation for important support assets.",
+  "global_rule": "AI can illustrate, relight, extend, or reconstruct. It cannot prove. Deterministic motion on real evidence is preferred to generative motion.",
+  "routes": {
+    "thumbnail_key_art": [
+      {
+        "priority": 1,
+        "engine": "Codex image generation",
+        "use": "important non-proof hero support, relighting, background extension, atmosphere, cutouts, and composition support",
+        "gate": "owner-approved scope and exact source-truth boundary"
+      },
+      {
+        "priority": 2,
+        "engine": "Draw Things",
+        "use": "local non-proof support variations and edits",
+        "gate": "model and companion-file hashes plus a current local benchmark must pass"
+      },
+      {
+        "priority": 3,
+        "engine": "ComfyUI",
+        "use": "repeatable local support workflow fallback",
+        "gate": "local endpoint, model identity, workflow hash, and benchmark must pass"
+      }
+    ],
+    "routine_nonproof_stills": [
+      {
+        "priority": 1,
+        "engine": "Draw Things FLUX.2 Klein 4B",
+        "license": "Apache-2.0",
+        "strength": "fast text-to-image and image editing",
+        "status": "ready_only_when_current_hash_bound_local_benchmark_receipt_passes"
+      },
+      {
+        "priority": 2,
+        "engine": "Draw Things or ComfyUI Z-Image-Turbo",
+        "license": "Apache-2.0",
+        "strength": "fast local concept and atmosphere generation",
+        "status": "benchmark_candidate_not_installed"
+      },
+      {
+        "priority": 3,
+        "engine": "Codex image generation",
+        "strength": "important fallback only",
+        "status": "requires_bounded_owner_approval"
+      }
+    ],
+    "source_still_motion": [
+      {
+        "priority": 1,
+        "engine": "FFmpeg deterministic motion",
+        "use": "Ken Burns, focus crop, source highlight, map trace, document closeup, split comparison, and subtle 2.5D parallax",
+        "status": "default"
+      },
+      {
+        "priority": 2,
+        "engine": "Draw Things LTX-2.3 distilled image-to-video",
+        "use": "short restrained atmospheric movement when deterministic motion is insufficient",
+        "license": "LTX-2 Community License Agreement",
+        "commercial_boundary": "royalty-free direct use below USD 10,000,000 annual entity revenue; a separate paid commercial license is required at or above that threshold",
+        "status": "benchmark_required"
+      },
+      {
+        "priority": 3,
+        "engine": "ComfyUI Wan2.2-TI2V-5B",
+        "use": "premium local 3-5 second image-to-video support clip",
+        "status": "research_candidate_until_apple_silicon_quality_and_runtime_benchmark_passes"
+      }
+    ]
+  },
+  "historical_photo_motion_rules": {
+    "allowed_without_reconstruction_label": [
+      "camera pan or push",
+      "depth-separated parallax that preserves people and architecture",
+      "dust, film grain, light, and restrained atmospheric particles",
+      "source highlights, arrows, labels, and map paths",
+      "restoration, stabilization, denoise, and upscale that do not change meaning"
+    ],
+    "requires_reconstruction_label_and_owner_review": [
+      "generated human body movement",
+      "generated facial expression, blinking, lip motion, or speech",
+      "invented vehicle or crowd motion",
+      "new camera angle or geometry that did not exist in the source",
+      "realistic footage of a real place or event that was never captured"
+    ],
+    "blocked": [
+      "fake archival footage",
+      "fake quotes or lip-sync",
+      "motion that changes the source meaning",
+      "unlogged AI generation",
+      "AI output used as historical evidence"
+    ]
+  },
+  "clip_limits": {
+    "routine_ai_motion_seconds": 3,
+    "maximum_single_ai_support_clip_seconds": 5,
+    "maximum_ai_motion_share_of_long_form_runtime": 0.08,
+    "maximum_ai_motion_share_of_short_runtime": 0.15
+  },
+  "failover": {
+    "no_silent_paid_fallback": true,
+    "no_silent_model_fallback": true,
+    "deterministic_motion_is_safe_fallback": true,
+    "block_when_truth_or_identity_cannot_be_preserved": true
+  },
+  "disclosure": {
+    "reconstruction_label": "Dramatic reconstruction — not archival footage",
+    "youtube_altered_content_decision_required": true,
+    "thumbnail_generation_alone_normally_does_not_require_disclosure": true
+  },
+  "youtube_mutation": "not_performed"
+}

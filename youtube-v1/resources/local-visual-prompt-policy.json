@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "purpose": "Compile narration-bound, non-proof local image prompts that are reproducible, historically constrained, and safe for Pattern Lab.",
+  "generation_roles": ["context", "reconstruction"],
+  "blocked_generation_roles": ["proof", "system"],
+  "candidate_tournament": {
+    "draft_candidate_count": 8,
+    "minimum_passing_candidates": 1,
+    "maximum_repair_rounds": 2,
+    "draft_width": 768,
+    "draft_height": 512,
+    "winner_width": 1536,
+    "winner_height": 1024,
+    "refine_width": 768,
+    "refine_height": 512,
+    "seed_base": 40400,
+    "generate_sequentially": true,
+    "upscale_winner_only": true
+  },
+  "required_prompt_fields": [
+    "asset_role",
+    "narration",
+    "story_function",
+    "visible_action",
+    "setting",
+    "subject",
+    "camera",
+    "composition",
+    "light_and_color",
+    "historical_constraints",
+    "preserve",
+    "avoid",
+    "disclosure"
+  ],
+  "default_negative_prompt": "words, letters, captions, logo, watermark, signature, famous person, identifiable modern landmark, fake map, fake document, malformed hands, extra fingers, duplicate people, distorted face, warped architecture, impossible perspective, muddy shadows, gray haze, low contrast, low saturation, oversharpening, plastic skin, AI artifacts",
+  "quality_rules": {
+    "minimum_mean_luma": 0.24,
+    "maximum_mean_luma": 0.88,
+    "minimum_luma_standard_deviation": 0.12,
+    "minimum_mean_saturation": 0.18,
+    "minimum_sharpness_variance": 45.0,
+    "maximum_detected_text_tokens": 0,
+    "minimum_local_visual_judge_score": 93,
+    "minimum_local_visual_judge_dimension_score": 93,
+    "all_hard_failures_block": true
+  },
+  "model_order": [
+    "Draw Things FLUX.2 Klein 4B",
+    "Draw Things Z-Image-Turbo after hash-bound benchmark",
+    "bounded Codex support only after explicit approval"
+  ],
+  "winner_promotion_note": "Attempt Draw Things FLUX.2 Klein img2img only at native draft dimensions. If the verified CLI/model reports its known concat-shape failure, use an explicitly receipted deterministic Lanczos enlargement to 1536x1024. Rejudge the exact final pixels either way.",
+  "no_final_text_from_image_model": true,
+  "no_proof_from_image_model": true,
+  "no_silent_paid_fallback": true,
+  "youtube_mutation": "not_performed"
+}

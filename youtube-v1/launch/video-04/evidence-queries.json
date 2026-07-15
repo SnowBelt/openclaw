@@ -1,4 +1,5 @@
 {
+  "city": "Detroit",
   "episode_id": "04",
   "historical_max_year": 1965,
   "historical_queries": [
@@ -14,6 +15,20 @@
     "Hastings Street Detroit",
     "Black Bottom Detroit historical marker",
     "Paradise Valley Detroit"
+  ],
+  "generic_context_needs": [
+    {
+      "action": "relocation",
+      "emotion": "human consequence of displacement"
+    },
+    {
+      "action": "foot_traffic",
+      "emotion": "street-level economic life"
+    },
+    {
+      "action": "commuting_traffic",
+      "emotion": "system-scale mobility and access"
+    }
   ],
   "required_entity_terms": [
     "black bottom",

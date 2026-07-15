@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "model_root": "local-output/models/draw-things",
+  "models": [
+    {
+      "id": "flux_2_klein_4b_q6p.ckpt",
+      "role": "non_proof_support_generation_and_editing",
+      "source": "black-forest-labs/FLUX.2-klein-4B",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+      "sha256": "ba42005a6d4e6c48430787db98ae8913aced4654682b59d0d0f1d9ccf820fe30",
+      "production_status": "blocked_until_local_benchmark_passes",
+      "must_not_generate_proof": true,
+      "must_not_generate_final_headline_text": true
+    },
+    {
+      "id": "flux_2_vae_f16.ckpt",
+      "role": "flux_decoder",
+      "source": "Draw Things official model dependency",
+      "sha256": "48369d4b1495aec3df0579591f4bf9c199a73cc288130df2359c4a173c5ae864",
+      "production_status": "blocked_with_parent_model"
+    },
+    {
+      "id": "qwen_3_4b_q8p.ckpt",
+      "role": "flux_text_encoder_dependency",
+      "source": "Draw Things official model dependency",
+      "sha256": "29b6bc6a9d09d062c68040efbe9c48f3d41883b3eff67c78e1090870bd54efbc",
+      "companion_files": [
+        {
+          "suffix": "-tensordata",
+          "sha256": "8786ca3526c135aa2334eeb1ce20259bb0b6cd611f84de1b437b0bc3125bee39"
+        }
+      ],
+      "production_status": "blocked_with_parent_model"
+    }
+  ],
+  "benchmark_candidates": [
+    {
+      "id": "z_image_turbo_q6_or_better.ckpt",
+      "source": "Tongyi-MAI/Z-Image-Turbo through a verified Draw Things model mapping",
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
+      "intended_role": "higher-fidelity local non-proof people, period atmosphere, and support stills",
+      "status": "not_installed; storage gate and separate hash-bound quality/runtime tournament required",
+      "selection_rule": "may replace FLUX.2 Klein for a visual class only after winning >=93 quality, prompt adherence, runtime, and failure-rate benchmarks",
+      "no_automatic_download": true
+    }
+  ],
+  "no_silent_fallback": true,
+  "model_files_must_remain_outside_git": true
+}

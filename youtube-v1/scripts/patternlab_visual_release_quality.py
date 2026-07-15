@@ -12,6 +12,7 @@ if str(YOUTUBE_ROOT) not in sys.path:
     sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import display_path, ensure_dir, output_root, utc_now
+from patternlab.state import sha256_file
 
 
 REQUIRED = {
@@ -23,6 +24,7 @@ REQUIRED = {
     "local_visual_ai_health": "local-visual-ai-health-report.json",
     "evidence_binding": "evidence-manifest-binding.json",
     "source_asset_preparation": "source-asset-preparation-report.json",
+    "strict_media_qa": "media-qa-report.json",
 }
 
 
@@ -42,7 +44,20 @@ def build_report(video_id: str) -> tuple[dict, Path, Path]:
         payload = read_json(approval / filename)
         expected = "pass"
         actual = payload.get("status", "missing")
-        checks.append({"name": name, "path": display_path(approval / filename), "status": actual, "passed": actual == expected})
+        report_path = approval / filename
+        strict_score_ok = name != "strict_media_qa" or int(payload.get("minimum_asset_score", 0) or 0) >= 93
+        hash_proof_ok = name != "strict_media_qa" or all(
+            row.get("exists") and row.get("sha256") for row in payload.get("artifacts", [])
+        )
+        checks.append({
+            "name": name,
+            "path": display_path(report_path),
+            "report_sha256": sha256_file(report_path) if report_path.exists() else "",
+            "status": actual,
+            "passed": actual == expected and strict_score_ok and hash_proof_ok,
+            "strict_score_ok": strict_score_ok,
+            "artifact_hash_proof_ok": hash_proof_ok,
+        })
     blockers = [f"{item['name']}:{item['status']}" for item in checks if not item["passed"]]
     payload = {
         "generated_at": utc_now(), "video_id": video_id, "status": "pass" if not blockers else "blocked",

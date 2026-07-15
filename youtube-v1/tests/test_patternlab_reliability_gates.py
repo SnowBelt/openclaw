@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import patternlab_package_hashes as package_hashes
@@ -35,17 +37,252 @@ import patternlab_local_visual_ai_health as local_visual_ai_health
 import patternlab_local_visual_model_benchmark as visual_model_benchmark
 import generate_shorts_ffmpeg as shorts_renderer
 import patternlab_source_asset_preparation as asset_preparation
+import patternlab_thumbnail_worldclass as thumbnail_worldclass
+import patternlab_thumbnail_reliability as thumbnail_reliability
+import patternlab_thumbnail_source_adequacy as thumbnail_source_adequacy
+import patternlab_thumbnail_semantic_quality as thumbnail_semantic_quality
+import patternlab_thumbnail_review_receipt as thumbnail_review_receipt
+import patternlab_video04_codex_primary_thumbnails as codex_primary_thumbnails
+import patternlab_premium_font_common as premium_font_common
+import patternlab_quality_gates as quality_gates
+import patternlab_register_release as register_release
 
 
 class PatternLabReliabilityGateTests(unittest.TestCase):
+    def test_release_registration_supports_external_media_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "media" / "video-04"
+            artifact = output / "approval" / "binding.json"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text("{}")
+            self.assertEqual(register_release.artifact_base(artifact, output), output.resolve())
+
+    def test_worldclass_thumbnail_policy_scores_exactly_100(self):
+        policy = json.loads((Path(__file__).resolve().parents[1] / "resources" / "thumbnail-worldclass-policy.json").read_text())
+        self.assertEqual(sum(policy["rubric"].values()), 100)
+        self.assertEqual(policy["model_routing"]["routine_art_direction"], "gpt-5.6-terra")
+        self.assertEqual(policy["tournament"]["rough_count"], 20)
+        self.assertEqual(policy["tournament"]["owner_finalist_count"], 3)
+
+    def test_worldclass_thumbnail_brief_is_source_first_and_valid(self):
+        policy = json.loads((Path(__file__).resolve().parents[1] / "resources" / "thumbnail-worldclass-policy.json").read_text())
+        brief = thumbnail_worldclass.default_video04_brief()
+        self.assertEqual(thumbnail_worldclass.validate_brief(brief, policy), [])
+        self.assertEqual(brief["ai_support_policy"], "non_proof_support_only")
+        self.assertIn("DETROIT WAS REDRAWN", brief["headline_options"])
+
+    def test_worldclass_thumbnail_brief_blocks_long_headline(self):
+        policy = json.loads((Path(__file__).resolve().parents[1] / "resources" / "thumbnail-worldclass-policy.json").read_text())
+        brief = thumbnail_worldclass.default_video04_brief()
+        brief["headline_options"][0] = "THIS HEADLINE HAS FAR TOO MANY WORDS"
+        blockers = thumbnail_worldclass.validate_brief(brief, policy)
+        self.assertTrue(any(item.startswith("headline_over_four_words") for item in blockers))
+
+    def test_worldclass_tournament_requires_true_diversity(self):
+        policy = json.loads((Path(__file__).resolve().parents[1] / "resources" / "thumbnail-worldclass-policy.json").read_text())
+        manifest = {
+            "roughs": [{}] * 20,
+            "shortlist": [{}] * 8,
+            "production": [{}] * 5,
+            "finalists": [
+                {"template_family": "then_now", "sha256": "a"},
+                {"template_family": "then_now", "sha256": "b"},
+                {"template_family": "then_now", "sha256": "c"},
+            ],
+        }
+        self.assertIn("finalists_not_structurally_diverse", thumbnail_worldclass.validate_tournament(manifest, policy))
+
+    def test_worldclass_score_is_fail_closed(self):
+        policy = json.loads((Path(__file__).resolve().parents[1] / "resources" / "thumbnail-worldclass-policy.json").read_text())
+        receipt = {"scores": {key: maximum for key, maximum in policy["rubric"].items()}, "hard_blocks": ["unknown_rights"], "candidate_sha256": "abc"}
+        score, blockers = thumbnail_worldclass.score_receipt(receipt, policy)
+        self.assertEqual(score, 100)
+        self.assertIn("unknown_rights", blockers)
+
+    def test_thumbnail_review_receipt_binds_current_finalist_hash(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            approval = root / "approval"
+            candidate = root / "review" / "candidate.png"
+            candidate.parent.mkdir(parents=True)
+            approval.mkdir(parents=True)
+            candidate.write_bytes(b"candidate-bytes")
+            digest = thumbnail_worldclass.sha256(candidate)
+            (approval / "thumbnail-worldclass-tournament.json").write_text(json.dumps({
+                "finalists": [{"id": "concept-01", "path": str(candidate), "sha256": digest}],
+            }), encoding="utf-8")
+            for filename in ["thumbnail-pixel-quality-report.json", "thumbnail-semantic-quality-report.json", "thumbnail-font-quality-report.json"]:
+                (approval / filename).write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+            policy = json.loads((Path(__file__).resolve().parents[1] / "resources" / "thumbnail-worldclass-policy.json").read_text())
+            scores = {key: maximum for key, maximum in policy["rubric"].items()}
+            with patch.object(thumbnail_review_receipt, "output_root", lambda _: root):
+                receipt, _ = thumbnail_review_receipt.build_receipt(
+                    "04", "concept-01", scores, reviewer="gpt-5.6-terra", rationale="Clear promise and source proof.", write=False,
+                )
+            self.assertEqual(receipt["status"], "pass")
+            self.assertEqual(receipt["candidate_sha256"], digest)
+
+    def test_thumbnail_review_receipt_rejects_nonfinalist(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            approval = root / "approval"
+            approval.mkdir(parents=True)
+            (approval / "thumbnail-worldclass-tournament.json").write_text(json.dumps({"finalists": []}), encoding="utf-8")
+            with patch.object(thumbnail_review_receipt, "output_root", lambda _: root):
+                with self.assertRaisesRegex(ValueError, "not a current finalist"):
+                    thumbnail_review_receipt.build_receipt("04", "concept-99", {}, reviewer="gpt-5.6-terra", rationale="n/a", write=False)
+
+    def test_worldclass_thumbnail_cutover_supersedes_only_legacy_thumbnail_checks(self):
+        checks, blockers = [], []
+        with patch.object(quality_gates, "WORLDCLASS_THUMBNAIL_ACTIVE", True):
+            quality_gates.add_check(checks, blockers, "thumbnail_factory_pass", False, "legacy failure")
+            quality_gates.add_check(checks, blockers, "thumbnail_worldclass_prepublication_pass", False, "current failure")
+            quality_gates.add_check(checks, blockers, "source_rights_pass", False, "rights failure")
+        self.assertEqual(checks[0]["status"], "superseded")
+        self.assertTrue(any(item.startswith("thumbnail_worldclass_prepublication_pass") for item in blockers))
+        self.assertTrue(any(item.startswith("source_rights_pass") for item in blockers))
+
+    def test_thumbnail_reliability_drill_passes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            with patch.object(thumbnail_reliability, "output_root", lambda _: root):
+                payload, _, _ = thumbnail_reliability.build_report("04")
+            self.assertEqual(payload["status"], "pass")
+            self.assertTrue(all(item["passed"] for item in payload["checks"]))
+
+    def test_thumbnail_source_adequacy_fails_closed_without_accepted_exact_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            approval = root / "approval"
+            approval.mkdir(parents=True)
+            (approval / "thumbnail-worldclass-brief.json").write_text(json.dumps({"source_asset_ids": ["exact-map"]}))
+            with patch.object(thumbnail_source_adequacy, "output_root", lambda _: root):
+                payload, _, _ = thumbnail_source_adequacy.build_report("04")
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("thumbnail_source_not_human_accepted:exact-map", payload["blockers"])
+
+    def test_thumbnail_source_adequacy_proposes_but_never_auto_accepts_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            approval = root / "approval"
+            approval.mkdir(parents=True)
+            (approval / "thumbnail-worldclass-brief.json").write_text(json.dumps({"source_asset_ids": ["exact-map"]}))
+            (approval / "thumbnail-worldclass-tournament.json").write_text(json.dumps({
+                "source_assets": [{"asset_id": "exact-map", "path": "map.png", "sha256": "abc", "source_url": "https://example.test/map", "rights": "public domain", "role": "proof"}],
+            }))
+            with patch.object(thumbnail_source_adequacy, "output_root", lambda _: root):
+                payload, _, _ = thumbnail_source_adequacy.build_report("04")
+            proposal = json.loads((approval / "thumbnail-source-acceptance-proposal.json").read_text())
+            self.assertEqual(payload["status"], "blocked")
+            self.assertFalse(proposal["assets"][0]["human_accepted"])
+            self.assertEqual(proposal["assets"][0]["asset_id"], "exact-map")
+
+    def test_thumbnail_semantics_reject_map_photo_then_now(self):
+        row = thumbnail_semantic_quality.validate_candidate({
+            "id": "bad-then-now",
+            "composition_mode": "then_now",
+            "visual_objects": [
+                {"role": "proof", "kind": "map", "slot": "then", "source_url": "https://example.test/map"},
+                {"role": "context", "kind": "modern_photo", "slot": "now", "source_url": "https://example.test/now"},
+            ],
+            "visible_proof_area_ratio": 0.4,
+            "hero_luminance": "bright",
+            "generic_text_card": False,
+            "public_text": ["THEN", "NOW"],
+            "non_city_word_count": 2,
+        })
+        self.assertEqual(row["status"], "blocked")
+        self.assertIn("then_now_modality_mismatch", row["blockers"])
+        self.assertIn("map_cannot_substitute_for_then_photo", row["blockers"])
+
+    def test_thumbnail_semantics_accepts_proof_context_with_ai_support(self):
+        row = thumbnail_semantic_quality.validate_candidate({
+            "id": "proof-context",
+            "composition_mode": "proof_context",
+            "visual_objects": [
+                {"role": "support", "kind": "ai_support", "slot": "background", "source_url": ""},
+                {"role": "proof", "kind": "map", "slot": "inset", "source_url": "https://example.test/map"},
+            ],
+            "visible_proof_area_ratio": 0.28,
+            "hero_luminance": "bright",
+            "generic_text_card": False,
+            "public_text": ["DETROIT", "ERASED THIS"],
+            "non_city_word_count": 2,
+        })
+        self.assertEqual(row["status"], "pass")
+
+    def test_video04_codex_primary_v2_omits_then_now_without_historical_photo(self):
+        specs = codex_primary_thumbnails.thumbnail_specs(Path("/source"), Path("/review"))
+        self.assertEqual(len(specs), 3)
+        self.assertNotIn("then_now", {spec["composition_mode"] for spec in specs})
+        self.assertTrue(all(any(item["role"] == "proof" for item in spec["visual_objects"]) for spec in specs))
+        self.assertTrue(all(spec["generic_text_card"] is False for spec in specs))
+
+    def test_font_ledger_rejects_a_tampered_bundled_font(self):
+        with tempfile.TemporaryDirectory() as temp:
+            font_path = Path(temp) / "font.ttf"
+            font_path.write_bytes(b"expected-font-bytes")
+            entry = {
+                "family": "Fixture Font",
+                "license": "OFL-1.1",
+                "package": "fixture-font",
+                "absolute_path": str(font_path),
+                "sha256": "0" * 64,
+            }
+            with patch.object(premium_font_common, "font_entries", return_value=[entry]), patch.object(
+                premium_font_common, "load_font_pack", return_value={"license_policy": {"allowed_licenses": ["OFL-1.1"]}}
+            ):
+                payload = premium_font_common.validate_font_ledger({"Fixture Font"})
+            self.assertEqual(payload["status"], "blocked")
+            self.assertEqual(len(payload["checksum_mismatches"]), 1)
+
     def test_canonical_renderer_escapes_source_labels_for_ffmpeg_drawtext(self):
-        escaped = canonical_renderer.escape_drawtext("Source: Black Bottom 50%")
+        escaped = canonical_renderer.escape_drawtext("Detroit's Source: Black Bottom 50%")
         self.assertIn(r"\:", escaped)
         self.assertIn(r"\%", escaped)
+        self.assertIn("Detroit’s", escaped)
+        self.assertNotIn("'", escaped)
+
+    def test_canonical_renderer_never_uses_newline_escape_for_provenance(self):
+        disclosure_only = canonical_renderer.provenance_drawtext_filters(
+            "",
+            "Detroit context; not location proof",
+        )
+        both = canonical_renderer.provenance_drawtext_filters(
+            "Library of Congress",
+            "Detroit context; not location proof",
+        )
+        self.assertNotIn(r"\n", disclosure_only)
+        self.assertNotIn("text='nDetroit", disclosure_only)
+        self.assertEqual(disclosure_only.count("drawtext="), 1)
+        self.assertEqual(both.count("drawtext="), 2)
+        self.assertIn("y=64", both)
+        self.assertIn("y=98", both)
 
     def test_canonical_renderer_uses_distinct_map_motion_profile(self):
-        profile = canonical_renderer.motion_filter(300, 1, "map_zoom_trace")
-        self.assertIn("0.15", profile)
+        profile = canonical_renderer.motion_filter(
+            300,
+            {"focus_x": 0.5, "focus_y": 0.5, "zoom_start": 1.02, "zoom_end": 1.10},
+            "map_zoom_trace",
+        )
+        self.assertIn("1.1600", profile)
+
+    def test_canonical_renderer_supports_slow_context_pan_for_stills(self):
+        profile = canonical_renderer.motion_filter(
+            300,
+            {"focus_x": 0.5, "focus_y": 0.5, "zoom_start": 1.02, "zoom_end": 1.08},
+            "slow_context_pan",
+        )
+        self.assertIn("zoompan", profile)
+
+    def test_canonical_renderer_supports_native_video_without_still_zoompan(self):
+        profile = canonical_renderer.video_filter("native_video_context")
+        self.assertIn("fps=30", profile)
+        self.assertNotIn("zoompan", profile)
+
+    def test_canonical_motion_uses_native_profile_for_context_video(self):
+        style, _ = canonical_motion.motion_profile("context_only", "modern_video")
+        self.assertEqual(style, "native_video_context")
 
     def test_visual_judge_blocks_missing_local_hash_bound_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -61,7 +298,10 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             approval = root / "approval"
             approval.mkdir(parents=True)
             for filename in visual_release_quality.REQUIRED.values():
-                (approval / filename).write_text(json.dumps({"status": "pass"}), encoding="utf-8")
+                payload = {"status": "pass"}
+                if filename == "media-qa-report.json":
+                    payload.update({"minimum_asset_score": 93, "artifacts": [{"exists": True, "sha256": "abc"}]})
+                (approval / filename).write_text(json.dumps(payload), encoding="utf-8")
             with patch.object(visual_release_quality, "output_root", lambda _: root):
                 payload, _, _ = visual_release_quality.build_report("04")
             self.assertEqual(payload["status"], "pass")
@@ -99,20 +339,46 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             self.assertEqual(payload["status"], "blocked")
             self.assertIn("local_visual_model_benchmark_receipt_missing", payload["blockers"])
 
+    def test_visual_model_benchmark_rejects_claimed_accuracy_without_fixture_receipts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "output" / "video-04"
+            receipt_path = Path(temp) / "receipt.json"
+            receipt_path.write_text(json.dumps({
+                "video_id": "04",
+                "local_only": True,
+                "fixture_accuracy": 1.0,
+                "median_seconds_per_frame": 1,
+                "fallback_model_used": False,
+                "model_role": "final_local_judge",
+                "model_id": "qwen3-vl-8b-instruct",
+                "model_sha256": "abc",
+                "benchmark_suite_sha256": "stale",
+                "fixture_results": [],
+            }))
+            with patch.object(visual_model_benchmark, "output_root", lambda _: root):
+                payload, _, _ = visual_model_benchmark.build_report("04", receipt_path)
+            self.assertEqual(payload["status"], "blocked")
+            self.assertIn("local_visual_model_benchmark_suite_missing_or_stale", payload["blockers"])
+            self.assertIn("local_visual_model_benchmark_fixture_coverage_incomplete", payload["blockers"])
+
     def test_shorts_overlay_brand_uses_city_not_psychology_label(self):
         items = shorts_renderer.overlay_items(Path("/tmp"), "04", [{"index": 1, "title": "Test", "first_frame_text": "MAP CHANGED", "hook": "Hook", "proof_visual": "map", "payoff": "Payoff", "related_video_promise": "Full video"}], "Detroit")
         self.assertTrue(all(item["brand"] == "Pattern Lab • Detroit" for item in items))
 
-    def test_source_asset_preparation_requires_human_focus_box(self):
+    def test_source_asset_preparation_uses_non_destructive_full_frame_default(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "output" / "video-04"
             intake = root / "source-packet" / "evidence-intake.json"
             intake.parent.mkdir(parents=True)
+            source = root / "evidence" / "map.jpg"
+            source.parent.mkdir(parents=True)
+            Image.new("RGB", (32, 24), "white").save(source)
             intake.write_text(json.dumps({"assets": [{"asset_id": "map", "relative_path": "evidence/map.jpg", "human_accepted": True}]}), encoding="utf-8")
             with patch.object(asset_preparation, "output_root", lambda _: root):
                 payload, _, _ = asset_preparation.build_report("04")
-            self.assertEqual(payload["status"], "blocked")
-            self.assertIn("map:focus_box_missing_or_invalid", payload["blockers"])
+            self.assertEqual(payload["status"], "pass")
+            self.assertEqual(payload["assets"][0]["focus_box"], [0.0, 0.0, 1.0, 1.0])
+            self.assertEqual(payload["assets"][0]["focus_box_mode"], "full_frame_default")
 
     def test_word_alignment_caption_cards_are_short_and_timestamped(self):
         words = [
@@ -207,6 +473,52 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
             self.assertNotIn("missing_dependency:brand_kit", payload["blockers"])
             self.assertNotIn("missing_dependency:source_manifest", payload["blockers"])
             self.assertEqual(len(payload["final_package_hash"]), 64)
+
+    def test_package_hash_accepts_exact_retained_narration_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            script = root / "script.md"
+            transcript = root / "voice.txt"
+            voice = root / "voice.mp3"
+            binding = root / "binding.json"
+            script.write_text("approved script", encoding="utf-8")
+            transcript.write_text("retained narration", encoding="utf-8")
+            voice.write_bytes(b"retained voice")
+            binding.write_text(
+                json.dumps(
+                    {
+                        "status": "pass",
+                        "authorization": "owner_retained_existing_narration",
+                        "approved_script": {"sha256": package_hashes.sha256(script)},
+                        "retained_narration_transcript": {"sha256": package_hashes.sha256(transcript)},
+                        "retained_normalized_audio": {"sha256": package_hashes.sha256(voice)},
+                        "new_voice_generation_performed": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(package_hashes.valid_retained_narration_binding(binding, script, transcript, voice))
+            voice.write_bytes(b"changed")
+            self.assertFalse(package_hashes.valid_retained_narration_binding(binding, script, transcript, voice))
+
+    def test_package_hash_accepts_only_exact_shorts_render_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            short = root / "short-01.mp4"
+            receipt = root / "receipt.json"
+            short.write_bytes(b"short")
+            receipt.write_text(
+                json.dumps(
+                    {
+                        "status": "pass",
+                        "shorts": [{"path": str(short), "sha256": package_hashes.sha256(short)}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(package_hashes.valid_shorts_render_receipt(receipt, [short]))
+            short.write_bytes(b"changed")
+            self.assertFalse(package_hashes.valid_shorts_render_receipt(receipt, [short]))
 
     def test_registry_quality_blocks_duplicate_ids(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -320,7 +632,7 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
                 self.assertEqual(full_auto.paid_voice_approval("04"), (True, "approved"))
 
     def test_full_auto_adds_credit_preflight_before_live_voice_generation(self):
-        with patch.object(full_auto, "paid_voice_approval", return_value=(True, "approved")), patch.object(full_auto, "run_steps_fail_fast", return_value=[]), patch.object(full_auto, "build_full_auto_report", return_value=({"status": "pass"}, Path("x"), Path("x"))), patch.object(full_auto, "load_dotenv"):
+        with patch.object(full_auto, "paid_voice_approval", return_value=(True, "approved")), patch.object(full_auto, "run_steps_fail_fast", return_value=[]), patch.object(full_auto, "build_full_auto_report", return_value=({"status": "pass"}, Path("x"), Path("x"))), patch.object(full_auto, "load_dotenv"), patch.dict("os.environ", {"PATTERNLAB_CANONICAL_RUN": "1"}):
             with patch.object(sys, "argv", ["program", "--video-id", "04", "--live-voice", "when-approved"]):
                 with patch.object(full_auto, "run_step"):
                     # Main delegates definitions to run_steps_fail_fast; capture the command list.
@@ -333,7 +645,7 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
                     self.assertIn("elevenlabs_credit_preflight", [item[0] for item in captured["definitions"]])
 
     def test_full_auto_requires_canonical_evidence_and_release_before_owner_packet(self):
-        with patch.object(full_auto, "paid_voice_approval", return_value=(False, "missing")), patch.object(full_auto, "build_full_auto_report", return_value=({"status": "pass"}, Path("x"), Path("x"))), patch.object(full_auto, "load_dotenv"):
+        with patch.object(full_auto, "paid_voice_approval", return_value=(False, "missing")), patch.object(full_auto, "build_full_auto_report", return_value=({"status": "pass"}, Path("x"), Path("x"))), patch.object(full_auto, "load_dotenv"), patch.dict("os.environ", {"PATTERNLAB_CANONICAL_RUN": "1"}):
             with patch.object(sys, "argv", ["program", "--video-id", "04"]):
                 captured = {}
 
@@ -437,7 +749,20 @@ class PatternLabReliabilityGateTests(unittest.TestCase):
 
     def test_factory_rejects_generic_topic_from_production_script_lane(self):
         self.assertFalse(daily_factory.production_script_available({"working_title": "How Detroit Became the Motor City"}))
-        self.assertTrue(daily_factory.production_script_available({"working_title": "What Detroit Erased: Black Bottom"}))
+        self.assertTrue(
+            daily_factory.production_script_available(
+                {
+                    "city": "Detroit",
+                    "working_title": "What Detroit Erased: Black Bottom",
+                    "hidden_history_question": "What occupied the I-375 footprint before the freeway?",
+                    "proof_object": "the pre-clearance Black Bottom street grid",
+                    "visual_payoff": "a source-backed then/now footprint comparison",
+                    "source_dossier_status": "pass",
+                    "script_status": "fact_checked",
+                    "shorts_blueprints": [{"id": "one"}, {"id": "two"}, {"id": "three"}],
+                }
+            )
+        )
 
     def test_factory_preserves_hash_bound_script_when_template_differs(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -264,6 +264,7 @@ def validate_package(checks, video_id):
     readiness_json = root / "approval" / "private-upload-readiness.json"
     shorts_plan = root / "approval" / "shorts-upload-plan.md"
     shorts_quality = root / "approval" / "shorts-quality-report.json"
+    media_qa = root / "approval" / "media-qa-report.json"
     add(checks, "upload_metadata", "pass" if metadata.exists() else "fail", f"{display_path(metadata)} {'exists' if metadata.exists() else 'is missing'}.")
     gate_payload = read_json(gates)
     add(
@@ -304,6 +305,18 @@ def validate_package(checks, video_id):
         "shorts_quality",
         "pass" if shorts_quality_payload and shorts_quality_payload.get("status") == "pass" else "fail",
         f"Shorts quality status is {shorts_quality_payload.get('status') if shorts_quality_payload else 'missing'}.",
+    )
+    media_qa_payload = read_json(media_qa)
+    media_qa_pass = bool(
+        media_qa_payload
+        and media_qa_payload.get("status") == "pass"
+        and int(media_qa_payload.get("minimum_asset_score", 0) or 0) >= 93
+    )
+    add(
+        checks,
+        "strict_media_qa",
+        "pass" if media_qa_pass else "fail",
+        f"Strict media QA status is {media_qa_payload.get('status') if media_qa_payload else 'missing'}; every asset must score at least 93.",
     )
 
 

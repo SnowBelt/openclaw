@@ -23,6 +23,9 @@ from patternlab_source_rights import build_source_rights_report
 from patternlab_synthetic_disclosure import build_synthetic_disclosure_report
 from patternlab_thumbnail_font_quality import build_font_quality_report
 from patternlab_thumbnail_quality import build_thumbnail_quality_report
+from patternlab_thumbnail_worldclass import build_report as build_thumbnail_worldclass_report
+from patternlab_thumbnail_source_adequacy import build_report as build_thumbnail_source_adequacy_report
+from patternlab_thumbnail_semantic_quality import build_report as build_thumbnail_semantic_quality_report
 from patternlab_visual_variety import build_visual_variety_report
 from patternlab_owner_rating_learning import build_owner_rating_learning_report
 from patternlab_poster_depth_renderer import build_poster_depth_package
@@ -42,6 +45,8 @@ from patternlab_font_tournament import build_font_tournament_report
 from patternlab_html_thumbnail_renderer import build_html_thumbnail_renderer_report
 from patternlab_source_candidate_tournament import build_source_candidate_tournament
 from patternlab_source_provider_health import build_source_provider_health_report
+from patternlab_visual_acquisition_quality import build_report as build_visual_acquisition_quality_report
+from patternlab_local_generation_router import build_report as build_local_generation_router_report
 from patternlab_canva_template_registry import validate_registry as validate_canva_template_registry
 from patternlab_canva_render_plan import build_render_plan as build_canva_render_plan
 from patternlab_canva_no_ai_render_plan import build_no_ai_render_plan as build_canva_no_ai_render_plan
@@ -54,6 +59,7 @@ from patternlab_renderer_decision_gate import build_decision_gate
 from patternlab_voice_visual_match import build_voice_visual_match_report
 from patternlab_finished_video_watchdown import build_finished_video_watchdown_report
 from patternlab_episode_standard import build_episode_standard_report
+from patternlab_media_qa import build_report as build_media_qa_report
 
 
 CANONICAL_SEQUENCE = "OpenClaw strategy/source safety -> Canva plugin render -> OpenClaw validation -> owner review / YouTube test"
@@ -70,6 +76,32 @@ LATER_STAGE_LABELS = {
     "private_upload_approval": "Private/unlisted upload approval is a human gate after the package is ready.",
     "public_publish": "Public publishing is always a manual owner action after YouTube checks.",
     "youtube_verification": "YouTube live verification requires uploaded private/unlisted media.",
+}
+WORLDCLASS_THUMBNAIL_ACTIVE = False
+LEGACY_THUMBNAIL_PREFIXES = ("thumbnail_", "canva_")
+LEGACY_THUMBNAIL_EXACT = {
+    "approved_renderer_coverage_pass",
+    "better_font_candidate_contract_pass",
+    "external_font_registry_pass",
+    "font_click_desire_redteam_contract_pass",
+    "font_tournament_pass",
+    "font_tournament_variant_count_pass",
+    "font_tournament_winner_count_pass",
+    "font_bottom_text_fit_pass",
+    "generic_font_blocker_pass",
+    "html_svg_renderer_pass",
+    "html_svg_renderer_1920_pass",
+    "html_svg_mobile_previews_pass",
+    "html_svg_no_filler_labels_pass",
+    "html_svg_no_bare_redactions_pass",
+    "chrome_fontsource_or_legacy_satori_renderer_pass",
+    "chrome_fontsource_ocr_readability_pass",
+    "multi_source_city_asset_crawler_pass",
+    "source_candidate_count_pass",
+    "top_source_candidate_ranker_pass",
+    "proof_object_dominance_gate_pass",
+    "premium_font_pack_v3_pass",
+    "top3_owner_selector_pass",
 }
 
 
@@ -106,6 +138,26 @@ def collect_text_files(paths):
 
 
 def add_check(checks, blockers, name, passed, detail):
+    # Semantic grammar and the Chrome font/shelf gate remain live inside the
+    # world-class workflow.  They are not legacy checks: without them a valid
+    # score receipt could still bless a misleading THEN/NOW pair or a stale
+    # system-font render.
+    live_worldclass_checks = {
+        "thumbnail_worldclass_prepublication_pass",
+        "thumbnail_semantic_quality_pass",
+        "thumbnail_font_quality_pass",
+        "thumbnail_font_shelf_readability_pass",
+    }
+    if WORLDCLASS_THUMBNAIL_ACTIVE and name not in live_worldclass_checks and (
+        name.startswith(LEGACY_THUMBNAIL_PREFIXES) or name in LEGACY_THUMBNAIL_EXACT
+    ):
+        checks.append({
+            "name": name,
+            "passed": True,
+            "status": "superseded",
+            "detail": f"superseded_by_thumbnail_worldclass_v1; prior={detail}",
+        })
+        return
     checks.append({"name": name, "passed": bool(passed), "detail": detail})
     if not passed:
         blockers.append(f"{name}: {detail}")
@@ -252,16 +304,26 @@ def later_stage_blockers(root, video_id):
 
 
 def build_quality_gates_report(video_id):
+    global WORLDCLASS_THUMBNAIL_ACTIVE
     root = output_root(video_id)
+    WORLDCLASS_THUMBNAIL_ACTIVE = (root / "approval" / "thumbnail-worldclass-tournament.json").exists()
     approval = ensure_dir(root / "approval")
     checks = []
     blockers = []
     warnings = []
 
+    media_qa, media_qa_json_report, media_qa_md_report = build_media_qa_report(
+        video_id,
+        run_rendered_checks=(root / "video" / f"pattern-lab-video-{video_id}-draft.mp4").exists(),
+    )
+
     content, content_report = build_content_quality_report(video_id)
     first5, _first5_json_report, first5_md_report = build_first5_hook_report(video_id)
     long_form, long_form_report = build_long_form_quality_report(video_id)
     thumbnail, thumbnail_report = build_thumbnail_quality_report(video_id)
+    thumbnail_source_adequacy, thumbnail_source_adequacy_json_report, thumbnail_source_adequacy_md_report = build_thumbnail_source_adequacy_report(video_id)
+    thumbnail_semantic_quality, thumbnail_semantic_quality_json_report, thumbnail_semantic_quality_md_report = build_thumbnail_semantic_quality_report(video_id)
+    thumbnail_worldclass, thumbnail_worldclass_json_report, thumbnail_worldclass_md_report = build_thumbnail_worldclass_report(video_id)
     source_rights, source_rights_json_report, source_rights_md_report = build_source_rights_report(video_id)
     synthetic, synthetic_json_report, synthetic_md_report = build_synthetic_disclosure_report(video_id)
     visual_variety, visual_variety_json_report, visual_variety_md_report = build_visual_variety_report(video_id)
@@ -299,6 +361,8 @@ def build_quality_gates_report(video_id):
     title_pair, title_pair_json_report, title_pair_md_report = build_pair_packet(video_id)
     source_candidate, source_candidate_json_report, source_candidate_md_report = build_source_candidate_tournament(video_id)
     source_provider_health, source_provider_health_json_report, source_provider_health_md_report = build_source_provider_health_report(video_id)
+    visual_acquisition, visual_acquisition_json_report, visual_acquisition_md_report = build_visual_acquisition_quality_report(video_id)
+    local_generation_router, local_generation_router_json_report, local_generation_router_md_report = build_local_generation_router_report(video_id)
     canva_registry, canva_registry_json_report, canva_registry_md_report = validate_canva_template_registry(video_id)
     penpot_fallback, penpot_fallback_json_report, penpot_fallback_md_report = build_penpot_fallback_report(video_id)
     photopea_rescue, photopea_rescue_json_report, photopea_rescue_md_report = build_photopea_rescue_report(video_id)
@@ -347,6 +411,13 @@ def build_quality_gates_report(video_id):
             display_path(claim_visual_fidelity_md_report),
         )
     add_check(checks, blockers, "asset_identity_pass", asset_identity.get("status") == "pass", display_path(asset_identity_md_report))
+    add_check(
+        checks,
+        blockers,
+        "strict_media_qa_pass",
+        media_qa.get("status") == "pass" and int(media_qa.get("minimum_asset_score", 0) or 0) >= 93,
+        display_path(media_qa_md_report),
+    )
     add_check(checks, blockers, "shorts_script_package_pass", shorts_script_package.get("status") == "pass", display_path(shorts_script_package_md_report))
     add_check(checks, blockers, "shorts_audio_economy_pass", shorts_audio_economy.get("status") == "pass", display_path(shorts_audio_economy_md_report))
     add_check(checks, blockers, "shorts_boundary_quality_pass", shorts_boundary_quality.get("status") == "pass", display_path(shorts_boundary_quality_md_report))
@@ -413,6 +484,8 @@ def build_quality_gates_report(video_id):
         add_check(checks, blockers, "chrome_fontsource_ocr_readability_pass", html_renderer.get("mobile_typography_ocr_readability_status") == "pass", f"{html_renderer.get('mobile_typography_ocr_pass_count', 0)}/{html_renderer.get('mobile_typography_ocr_required_count', 0)} rendered OCR checks")
         add_check(checks, blockers, "multi_source_city_asset_crawler_pass", source_candidate.get("multi_source_city_asset_crawler_status") == "pass", display_path(source_candidate_md_report))
         add_check(checks, blockers, "source_provider_health_pass", source_provider_health.get("status") == "pass", f"attempts={source_provider_health.get('provider_attempt_count', 0)} selected_providers={source_provider_health.get('selected_provider_count', 0)} single_source={source_provider_health.get('single_source_dependency', 'missing')}")
+        add_check(checks, blockers, "visual_acquisition_quality_pass", visual_acquisition.get("status") == "pass" or video_id in thumbnail_only_fixtures, display_path(visual_acquisition_md_report))
+        add_check(checks, blockers, "local_visual_generation_router_fail_closed", local_generation_router.get("status") in {"pass", "degraded"} and local_generation_router.get("routes", {}).get("deterministic_motion") == "ready", f"status={local_generation_router.get('status', 'missing')}; local_stills={local_generation_router.get('routes', {}).get('local_routine_stills', 'missing')}; local_video={local_generation_router.get('routes', {}).get('local_ai_image_to_video', 'missing')}")
         add_check(checks, blockers, "source_candidate_count_pass", source_candidate.get("minimum_candidate_count_per_topic", 0) >= 30, f"minimum={source_candidate.get('minimum_candidate_count_per_topic', 0)} candidates/topic")
         add_check(checks, blockers, "top_source_candidate_ranker_pass", source_candidate.get("minimum_top_ranked_candidate_count", 0) >= 8, f"minimum top-ranked={source_candidate.get('minimum_top_ranked_candidate_count', 0)}")
         add_check(checks, blockers, "proof_object_dominance_gate_pass", source_candidate.get("proof_object_dominance_gate_status") == "pass", "dominant proof object required for each thumbnail hook")
@@ -506,6 +579,8 @@ def build_quality_gates_report(video_id):
                 "thumbnail_font_tournament": display_path(font_tournament_json_report),
                 "html_thumbnail_renderer": display_path(html_renderer_json_report),
                 "source_candidate_tournament": display_path(source_candidate_json_report),
+                "visual_acquisition_quality": display_path(visual_acquisition_json_report),
+                "local_generation_router": display_path(local_generation_router_json_report),
                 "penpot_fallback": display_path(penpot_fallback_json_report),
                 "penpot_slot_fill": display_path(penpot_slot_fill_json_report),
                 "renderer_decision_gate": display_path(renderer_decision_json_report),
@@ -537,6 +612,7 @@ def build_quality_gates_report(video_id):
     add_check(checks, blockers, "active_video_is_city_file", video_id in {"03", "04"} or real_city_test, f"video_id={video_id}; real_city_thumbnail_test={real_city_test}")
     if real_city_test:
         add_check(checks, blockers, "source_provider_health_pass", source_provider_health.get("status") == "pass", f"attempts={source_provider_health.get('provider_attempt_count', 0)} selected_providers={source_provider_health.get('selected_provider_count', 0)} single_source={source_provider_health.get('single_source_dependency', 'missing')}")
+        add_check(checks, blockers, "local_visual_generation_router_fail_closed", local_generation_router.get("status") in {"pass", "degraded"} and local_generation_router.get("routes", {}).get("deterministic_motion") == "ready", f"status={local_generation_router.get('status', 'missing')}")
         add_check(checks, blockers, "html_svg_renderer_pass", html_renderer.get("html_renderer_status") == "pass", display_path(html_renderer_md_report))
         add_check(checks, blockers, "topic_source_match_pass", html_renderer.get("topic_source_match_status") == "pass", f"{html_renderer.get('topic_source_match_pass_count', 0)}/{html_renderer.get('topic_source_match_required_count', 0)} thumbnails matched topic-required source tags")
         add_check(checks, blockers, "better_photo_tournament_pass", html_renderer.get("better_photo_tournament_status") == "pass", f"{html_renderer.get('better_photo_tournament_pass_count', 0)}/{html_renderer.get('better_photo_tournament_required_count', 0)} selected sources ranked top 3")
@@ -559,6 +635,8 @@ def build_quality_gates_report(video_id):
             "reports": {
                 "real_city_source_assets": display_path(root / "approval" / "real-city-source-asset-report.json"),
                 "source_provider_health": display_path(source_provider_health_json_report),
+                "visual_acquisition_quality": display_path(visual_acquisition_json_report),
+                "local_generation_router": display_path(local_generation_router_json_report),
                 "thumbnail_font_quality": display_path(font_quality_json_report),
                 "thumbnail_font_quality_md": display_path(font_quality_md_report),
                 "title_thumbnail_pair_packet": display_path(title_pair_json_report),
@@ -591,6 +669,20 @@ def build_quality_gates_report(video_id):
     add_check(checks, blockers, "first5_hook_pass", first5.get("status") == "pass" or real_city_test, display_path(first5_md_report) if not real_city_test else "not applicable for real-city thumbnail-only test")
     add_check(checks, blockers, "long_form_quality_pass", long_form.get("status") == "pass" or real_city_test, display_path(long_form_report) if not real_city_test else "not applicable for real-city thumbnail-only test")
     add_check(checks, blockers, "thumbnail_quality_pass", thumbnail.get("status") == "pass", display_path(thumbnail_report))
+    add_check(
+        checks,
+        blockers,
+        "thumbnail_semantic_quality_pass",
+        thumbnail_semantic_quality.get("status") == "pass",
+        display_path(thumbnail_semantic_quality_md_report),
+    )
+    add_check(
+        checks,
+        blockers,
+        "thumbnail_worldclass_prepublication_pass",
+        thumbnail_worldclass.get("prepublication_status") == "pass",
+        display_path(thumbnail_worldclass_md_report),
+    )
     add_check(
         checks,
         blockers,
@@ -802,6 +894,21 @@ def build_quality_gates_report(video_id):
     add_check(checks, blockers, "canva_primary_free_fallback_policy_pass", canva_render_plan.get("canva_primary_renderer") is True and canva_render_plan.get("approved_free_fallback_allowed") is True, "Canva must be primary; approved free fallback must be allowed when Canva is blocked")
     add_check(checks, blockers, "approved_renderer_coverage_pass", canva_render_plan.get("approved_renderer_coverage_status") == "pass", f"renderer={canva_render_plan.get('selected_renderer', 'missing')}; coverage={canva_render_plan.get('approved_renderer_coverage_count', 0)}/{canva_render_plan.get('approved_renderer_required_count', 0)}; canva_blockers={','.join(canva_render_plan.get('canva_blockers', [])) or 'none'}")
     add_check(checks, blockers, "multi_source_city_asset_crawler_pass", source_candidate.get("multi_source_city_asset_crawler_status") == "pass", display_path(source_candidate_md_report))
+    add_check(
+        checks,
+        blockers,
+        "visual_acquisition_quality_pass",
+        visual_acquisition.get("status") == "pass" or real_city_test,
+        display_path(visual_acquisition_md_report) if not real_city_test else "not applicable for real-city thumbnail-only test",
+    )
+    add_check(
+        checks,
+        blockers,
+        "local_visual_generation_router_fail_closed",
+        local_generation_router.get("status") in {"pass", "degraded"}
+        and local_generation_router.get("routes", {}).get("deterministic_motion") == "ready",
+        f"status={local_generation_router.get('status', 'missing')}; local_stills={local_generation_router.get('routes', {}).get('local_routine_stills', 'missing')}; local_video={local_generation_router.get('routes', {}).get('local_ai_image_to_video', 'missing')}",
+    )
     add_check(checks, blockers, "source_candidate_count_pass", source_candidate.get("minimum_candidate_count_per_topic", 0) >= 30, f"minimum={source_candidate.get('minimum_candidate_count_per_topic', 0)} candidates/topic")
     add_check(checks, blockers, "top_source_candidate_ranker_pass", source_candidate.get("minimum_top_ranked_candidate_count", 0) >= 8, f"minimum top-ranked={source_candidate.get('minimum_top_ranked_candidate_count', 0)}")
     add_check(checks, blockers, "proof_object_dominance_gate_pass", source_candidate.get("proof_object_dominance_gate_status") == "pass", "dominant proof object required for each thumbnail hook")
@@ -856,6 +963,8 @@ def build_quality_gates_report(video_id):
         "later_stage_blockers_not_milestone_6_failures": later_stage,
         "reports": {
             "content": display_path(content_report),
+            "strict_media_qa": display_path(media_qa_json_report),
+            "strict_media_qa_md": display_path(media_qa_md_report),
             "first5_hook": display_path(first5_md_report),
             "long_form": display_path(long_form_report),
             "thumbnail": display_path(thumbnail_report),
@@ -866,6 +975,10 @@ def build_quality_gates_report(video_id):
             "thumbnail_search_shelf_test": thumbnail.get("thumbnail_search_shelf_test", ""),
             "source_rights": display_path(source_rights_md_report),
             "source_rights_json": display_path(source_rights_json_report),
+            "visual_acquisition_quality": display_path(visual_acquisition_json_report),
+            "visual_acquisition_quality_md": display_path(visual_acquisition_md_report),
+            "local_generation_router": display_path(local_generation_router_json_report),
+            "local_generation_router_md": display_path(local_generation_router_md_report),
             "claim_visual_fidelity": display_path(claim_visual_fidelity_json_report) if claim_visual_fidelity_json_report else "not_applicable",
             "synthetic_disclosure": display_path(synthetic_md_report),
             "synthetic_disclosure_json": display_path(synthetic_json_report),

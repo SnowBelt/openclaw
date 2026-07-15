@@ -3,7 +3,12 @@ import argparse
 import json
 import os
 import tempfile
+import sys
 from pathlib import Path
+
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import display_path, ensure_dir, output_root, utc_now
 from patternlab_discord_feedback import parse_owner_note, summarize_events

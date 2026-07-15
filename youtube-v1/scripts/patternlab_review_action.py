@@ -230,7 +230,7 @@ def update_default_thumbnail(root, filename):
 
 def rerun_readiness(video_id):
     subprocess.run(
-        ["python3", "youtube-v1/scripts/private_upload_readiness.py", "--video-id", video_id],
+        [sys.executable, "youtube-v1/scripts/private_upload_readiness.py", "--video-id", video_id],
         cwd=Path(__file__).resolve().parents[2],
         check=False,
     )
@@ -239,7 +239,7 @@ def rerun_readiness(video_id):
 def run_auto_private_upload(video_id):
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "youtube-v1/scripts/upload_approved_package.py",
             "--video-id",
             video_id,

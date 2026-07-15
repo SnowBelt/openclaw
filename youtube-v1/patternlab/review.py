@@ -9,10 +9,13 @@ REQUIRED_OWNER_REVIEW_GATES = (
     "canonical_render",
     "render_quality",
     "visual_release_quality",
+    "media_qa",
     "long_form_quality",
     "shorts_quality",
     "thumbnail_quality",
     "episode_standard",
+    "visual_contract",
+    "context_media_library",
     "voice_visual_match",
     "finished_watchdown",
 )
@@ -23,7 +26,9 @@ def owner_review_gate_statuses(*, package_hash: str, canonical_preflight: str,
                                shorts_quality: str, thumbnail_quality: str,
                                episode_standard: str, voice_visual_match: str,
                                finished_watchdown: str, canonical_render: str = "missing",
-                               render_quality: str = "missing", visual_release_quality: str = "missing") -> dict[str, str]:
+                               render_quality: str = "missing", visual_release_quality: str = "missing",
+                               media_qa: str = "missing", visual_contract: str = "missing",
+                               context_media_library: str = "missing") -> dict[str, str]:
     """Return the complete, explicit gate set required before owner review."""
     return {
         "package_hash": package_hash or "missing",
@@ -32,10 +37,13 @@ def owner_review_gate_statuses(*, package_hash: str, canonical_preflight: str,
         "canonical_render": canonical_render or "missing",
         "render_quality": render_quality or "missing",
         "visual_release_quality": visual_release_quality or "missing",
+        "media_qa": media_qa or "missing",
         "long_form_quality": long_form_quality or "missing",
         "shorts_quality": shorts_quality or "missing",
         "thumbnail_quality": thumbnail_quality or "missing",
         "episode_standard": episode_standard or "missing",
+        "visual_contract": visual_contract or "missing",
+        "context_media_library": context_media_library or "missing",
         "voice_visual_match": voice_visual_match or "missing",
         "finished_watchdown": finished_watchdown or "missing",
     }

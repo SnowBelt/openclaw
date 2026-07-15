@@ -1,89 +1,37 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import json
 from pathlib import Path
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, city_from_sources, require_city
 from patternlab_common import BASE, display_path, ensure_dir, load_dotenv, output_root, utc_now
 
 
 def metadata_for_video(video_id):
     package = BASE / "launch" / f"video-{video_id}" / "package.json"
-    if package.exists():
+    if not package.is_file():
+        raise SystemExit(f"No deterministic episode package exists for video {video_id}.")
+    try:
         data = json.loads(package.read_text(encoding="utf-8"))
-        metadata = data["upload_metadata"]
-        metadata["generated_at"] = utc_now()
-        metadata["video_id"] = video_id
-        return metadata
-    if video_id != "01":
-        raise SystemExit(f"No deterministic metadata package exists for video {video_id}.")
-    description = """Pattern Lab studies American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.
-
-This episode uses a source-first city-history system: source, place, date, visible clue, historical meaning, and what changed afterward.
-
-Pattern Lab is built around one rule: no source, no story.
-
-Subscribe for the next evidence-backed city file."""
-    return {
-        "generated_at": utc_now(),
-        "video_id": video_id,
-        "title_options": [
-            "Detroit Did Not Just Decline. It Was Rewired.",
-            "The Hidden Map Behind Detroit's Story",
-            "What Detroit's Old Photos Reveal",
-            "Why Detroit Still Does Not Make Sense Without This",
-            "The City File That Explains Detroit"
-        ],
-        "default_title": "Detroit Did Not Just Decline. It Was Rewired.",
-        "default_thumbnail": "images/thumbnail_candidate_a.png",
-        "description": description,
-        "description_footer": "Subscribe for evidence-backed city history: one city, one source proof, one hidden pattern at a time.",
-        "tags": [
-            "Pattern Lab",
-            "Detroit history",
-            "American cities",
-            "US history",
-            "urban history",
-            "city history documentary",
-            "historical photos",
-            "urban planning history",
-            "Michigan history",
-            "Detroit documentary"
-        ],
-        "category_id": "27",
-        "made_for_kids": False,
-        "synthetic_disclosure_decision": "Owner must confirm in YouTube Studio. Historical photos must be rights-logged; AI visuals must be graphics/reconstructions, not fake archival proof.",
-        "pinned_comment": "What Detroit story should Pattern Lab check against the sources next? Subscribe for the next city file.",
-        "chapters": [
-            {"time": "0:00", "title": "The map keeps receipts"},
-            {"time": "0:20", "title": "The source proof"},
-            {"time": "1:00", "title": "Sources before myths"},
-            {"time": "2:00", "title": "The hidden city system"},
-            {"time": "3:00", "title": "What changed afterward"}
-        ],
-        "shorts": [
-            {
-                "id": "01-short-01",
-                "title": "The Map Keeps Receipts",
-                "pinned_comment": "Which city should get a Pattern Lab city file next?",
-                "related_video_promise": "The full city file shows the map, sources, and hidden system.",
-                "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
-            },
-            {
-                "id": "01-short-02",
-                "title": "Old Photos Are Evidence",
-                "pinned_comment": "Do you trust old photos more than modern summaries?",
-                "related_video_promise": "The full video walks through the source ledger and what changed afterward.",
-                "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
-            },
-            {
-                "id": "01-short-03",
-                "title": "No Source, No Story",
-                "pinned_comment": "What Detroit story should be checked against the sources?",
-                "related_video_promise": "The full video shows the evidence-backed version of the story.",
-                "related_video_checklist": "Add the long-form video as the Related Video in YouTube Studio after upload."
-            }
-        ]
-    }
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Episode package is not valid JSON: {display_path(package)}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("upload_metadata"), dict):
+        raise SystemExit(f"Episode package has no upload_metadata object: {display_path(package)}")
+    metadata = copy.deepcopy(data["upload_metadata"])
+    try:
+        city = city_from_sources(
+            (("package", data.get("city")), ("upload_metadata", metadata.get("city"))),
+            required=True,
+        )
+    except CityContractError as exc:
+        raise SystemExit(f"Upload metadata city contract blocked: {exc}") from exc
+    metadata["city"] = require_city(city, source="upload_metadata")
+    metadata["generated_at"] = utc_now()
+    metadata["video_id"] = video_id
+    return metadata
 
 
 def write_metadata(root, metadata):

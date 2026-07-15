@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import re
-import subprocess
+import time
 import urllib.parse
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from patternlab_common import append_ledger, display_path, ensure_dir, ffmpeg_cmd, launch_root, media_duration_seconds, output_root, utc_now
+from patternlab_common import BASE, append_ledger, display_path, ensure_dir, launch_root, output_root, utc_now
 from patternlab_visual_categories import classify_visual_category
 
 USER_AGENT = "PatternLab/1.0 visual rebuild research"
+CACHE_ROOT = BASE / "local-output" / "provider-cache" / "visual-rebuild-json"
+CACHE_TTL_SECONDS = 24 * 60 * 60
+MAX_RETRY_AFTER_SECONDS = 15
+PROVIDER_EVENTS = []
 MIN_HISTORICAL = 20
 MIN_MODERN = 10
 DEFAULT_HISTORICAL_MAX_YEAR = 1965
@@ -36,18 +41,80 @@ def provider_label(url):
     return host or "public_source"
 
 
+def record_provider_event(url, status, detail=""):
+    row = {
+        "provider": provider_label(url),
+        "status": status,
+        "detail": str(detail or ""),
+        "recorded_at": utc_now(),
+    }
+    if not any(
+        existing.get("provider") == row["provider"]
+        and existing.get("status") == row["status"]
+        and existing.get("detail") == row["detail"]
+        for existing in PROVIDER_EVENTS
+    ):
+        PROVIDER_EVENTS.append(row)
+
+
+def _json_cache_path(url):
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return CACHE_ROOT / f"{digest}.json"
+
+
+def _read_json_cache(path, *, allow_stale=False):
+    if not path.is_file():
+        return None
+    age = time.time() - path.stat().st_mtime
+    if not allow_stale and age > CACHE_TTL_SECONDS:
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, (dict, list)) else None
+
+
 def fetch_json(url):
+    cache_path = _json_cache_path(url)
+    cached = _read_json_cache(cache_path)
+    if cached is not None:
+        record_provider_event(url, "cache_hit")
+        return cached
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
-            return json.load(response)
+            payload = json.load(response)
+            ensure_dir(cache_path.parent)
+            cache_path.write_text(json.dumps(payload), encoding="utf-8")
+            record_provider_event(url, "queried")
+            return payload
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
+            stale = _read_json_cache(cache_path, allow_stale=True)
+            if stale is not None:
+                record_provider_event(url, "stale_cache_fallback", "http_429")
+                return stale
+            retry_after = str(exc.headers.get("Retry-After") or "").strip()
+            if retry_after.isdigit() and int(retry_after) <= MAX_RETRY_AFTER_SECONDS:
+                time.sleep(max(1, int(retry_after)))
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as response:
+                        payload = json.load(response)
+                        ensure_dir(cache_path.parent)
+                        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+                        record_provider_event(url, "queried_after_retry")
+                        return payload
+                except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+                    pass
+            record_provider_event(url, "rate_limited", "http_429")
             raise ProviderRateLimited(f"provider_rate_limited:{provider_label(url)}") from exc
         if exc.code >= 500:
+            record_provider_event(url, "unavailable", f"http_{exc.code}")
             raise ProviderUnavailable(f"provider_unavailable:{provider_label(url)}:http_{exc.code}") from exc
         raise
     except (urllib.error.URLError, TimeoutError) as exc:
+        record_provider_event(url, "unavailable", type(exc).__name__)
         raise ProviderUnavailable(f"provider_unavailable:{provider_label(url)}") from exc
 
 
@@ -500,69 +567,60 @@ def source_commons_historical_assets(root, video_id, out_dir, queries, existing=
 
 
 def source_pexels_frame_assets(root, video_id, out_dir):
-    modern_dir = ensure_dir(out_dir / "modern-context")
+    """Register an exact-item Pexels video; never inflate diversity with frames.
+
+    A local MP4 and a provider search URL are not enough. The adjacent source
+    receipt must preserve the exact item page and creator. Extracted frames are
+    derivatives of one source and therefore cannot count as ten source assets.
+    """
     source_video = root / "source-packet" / "media" / "pexels-970170-detroit-context.mp4"
     if not source_video.exists():
         return []
+    receipt_path = source_video.with_suffix(".source.json")
     try:
-        duration = max(media_duration_seconds(source_video), 10.0)
-    except Exception:
-        duration = 40.0
-    assets = []
-    for index in range(1, MIN_MODERN + 1):
-        timestamp = min(duration - 0.5, max(0.5, duration * index / (MIN_MODERN + 1)))
-        target = modern_dir / f"pexels-970170-detroit-context-frame-{index:02d}.jpg"
-        if not target.exists() or target.stat().st_size == 0:
-            subprocess.run(
-                [
-                    ffmpeg_cmd(),
-                    "-y",
-                    "-ss",
-                    f"{timestamp:.2f}",
-                    "-i",
-                    str(source_video),
-                    "-frames:v",
-                    "1",
-                    "-q:v",
-                    "2",
-                    str(target),
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        rel = target.relative_to(root)
-        asset = {
-            "asset_id": f"video-{video_id}-visual-rebuild-pexels-frame-{index:02d}",
-            "asset_type": "image",
-            "filename": str(rel),
-            "local_path": str(rel),
-            "tool": "FFmpeg frame extraction",
-            "model_or_service": "Pexels stock video still frame",
-            "source_prompt_or_source_file": str(source_video.relative_to(root)),
-            "source_title": f"Detroit modern context stock video still {index:02d}",
-            "source_url": "https://www.pexels.com/search/videos/detroit%20city/",
-            "creator": "Pexels contributor; item-level creator not exposed in local source packet",
-            "archive_or_platform": "Pexels",
-            "source_class": "modern_context",
-            "license_or_rights_basis": "Pexels License; free for commercial use and modification; https://www.pexels.com/license/",
-            "license_status": "Pexels License",
-            "attribution_required": "no",
-            "attribution_text": "Pexels stock video still; attribution not required by Pexels license.",
-            "commercial_use_ok": "yes",
-            "modification_ok": "yes",
-            "recognizable_people_property_trademark_risk": "low: city context frame; owner review still required",
-            "ai_reconstruction_disclosure": "not_ai_reconstruction",
-            "created_at": utc_now(),
-            "notes": "modern city context only; supports pacing and atmosphere",
-            "human_review_required": "yes",
-            "human_review_status": "pending",
-        }
-        asset.update(classify_visual_category(root, target, asset["source_title"], "modern_context", {str(rel): asset, target.name: asset}))
-        append_ledger(root, asset)
-        assets.append(asset)
-        print(f"modern {len(assets)}/{MIN_MODERN}: {target.name}", flush=True)
-    return assets
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print(f"Pexels video ignored: exact-item receipt missing: {display_path(receipt_path)}", flush=True)
+        return []
+    source_url = str(receipt.get("source_url") or "")
+    creator = str(receipt.get("creator") or "")
+    if "/video/" not in source_url or not creator:
+        print("Pexels video ignored: receipt requires exact /video/ item URL and creator", flush=True)
+        return []
+    rel = source_video.relative_to(root)
+    asset = {
+        "asset_id": f"video-{video_id}-visual-rebuild-pexels-video-01",
+        "asset_type": "video",
+        "filename": str(rel),
+        "local_path": str(rel),
+        "tool": "Pexels API or exact-item download",
+        "model_or_service": "Pexels stock video",
+        "source_prompt_or_source_file": receipt.get("download_url", str(rel)),
+        "download_url": receipt.get("download_url", ""),
+        "source_title": receipt.get("source_title", "Detroit modern context stock video"),
+        "source_url": source_url,
+        "creator": creator,
+        "archive_or_platform": "Pexels",
+        "source_class": "modern_context",
+        "license_or_rights_basis": receipt.get("license_or_rights_basis", "Pexels License; https://www.pexels.com/license/"),
+        "license_url": receipt.get("license_url", "https://www.pexels.com/license/"),
+        "license_status": "Pexels License",
+        "attribution_required": "no",
+        "attribution_text": receipt.get("attribution_text", f"Video by {creator} via Pexels; {source_url}"),
+        "commercial_use_ok": "yes",
+        "modification_ok": "yes",
+        "recognizable_people_property_trademark_risk": receipt.get("risk", "owner review required for visible people, property, and trademarks"),
+        "ai_reconstruction_disclosure": "not_ai_reconstruction",
+        "created_at": receipt.get("retrieved_at", utc_now()),
+        "retrieved_at": receipt.get("retrieved_at", utc_now()),
+        "notes": "modern city context only; supports pacing and atmosphere; exact item receipt preserved",
+        "human_review_required": "yes",
+        "human_review_status": "pending",
+    }
+    asset.update(classify_visual_category(root, source_video, asset["source_title"], "modern_context", {str(rel): asset, source_video.name: asset}))
+    append_ledger(root, asset)
+    print(f"modern video: {source_video.name}", flush=True)
+    return [asset]
 
 def annotate_asset_categories(root, assets):
     annotated = []
@@ -605,6 +663,7 @@ def write_reports(root, video_id, out_dir, historical, modern, queries):
         "required_entity_terms": queries["entities"],
         "required_city_terms": queries.get("city_terms", []),
         "visual_category_counts": category_counts,
+        "provider_events": PROVIDER_EVENTS,
         "superseded_private_uploads": old_uploads,
         "public_publish": "blocked_due_failed_visual_review",
     }
@@ -641,6 +700,7 @@ def main():
     parser.add_argument("--video-id", required=True)
     parser.add_argument("--reuse-if-ready", action="store_true", help="Skip network sourcing when the visual rebuild manifest already meets production floors.")
     args = parser.parse_args()
+    PROVIDER_EVENTS.clear()
     root = output_root(args.video_id)
     out_dir = ensure_dir(root / "source-packet" / "visual-rebuild")
     queries = load_evidence_queries(root, args.video_id)

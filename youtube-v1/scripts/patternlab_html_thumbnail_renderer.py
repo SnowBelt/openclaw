@@ -14,6 +14,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import require_city
 from patternlab_common import BASE, display_path, ensure_dir, ffmpeg_cmd, output_root, utc_now
 from patternlab_chrome_thumbnail_renderer import build_chrome_thumbnail_renderer_report
 
@@ -116,7 +119,7 @@ def build_factory_fallback_report(video_id: str, chrome_payload: dict[str, Any])
         selected_tags = tags_for_candidate(candidate)
         topic_match = {
             "status": "pass" if selected_tags else "blocked",
-            "city": candidate.get("active_city", factory.get("active_city", "Detroit")),
+            "city": require_city(candidate.get("active_city") or factory.get("active_city"), source="html_thumbnail"),
             "topic": candidate.get("concept_id", variant_id),
             "hook": candidate.get("headline", ""),
             "proof_object": candidate.get("proof_object", ""),
@@ -138,7 +141,7 @@ def build_factory_fallback_report(video_id: str, chrome_payload: dict[str, Any])
             "visual_integrity": {"status": "pass", "reason": "thumbnail_factory_visual_qa_pass"},
             "width": 1920,
             "height": 1080,
-            "city": candidate.get("active_city", factory.get("active_city", "Detroit")),
+            "city": require_city(candidate.get("active_city") or factory.get("active_city"), source="html_thumbnail"),
             "main_text": candidate.get("headline", ""),
             "support_text": candidate.get("role", ""),
             "city_font": candidate.get("font", {}).get("city_anchor", {}).get("family", "approved_factory_font"),
@@ -186,7 +189,7 @@ def build_factory_fallback_report(video_id: str, chrome_payload: dict[str, Any])
     payload: dict[str, Any] = {
         "generated_at": utc_now(),
         "video_id": video_id,
-        "city": factory.get("active_city", "Detroit"),
+        "city": require_city(factory.get("active_city"), source="html_thumbnail"),
         "status": status,
         "html_renderer_status": status,
         "chrome_fontsource_renderer_status": chrome_payload.get("chrome_fontsource_renderer_status", "blocked"),

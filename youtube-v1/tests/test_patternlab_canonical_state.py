@@ -1,11 +1,14 @@
 import tempfile
 import unittest
+import math
+from collections import Counter
 from pathlib import Path
 import sys
 import json
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab.models import Approval, ApprovalScope, Artifact, EpisodeState
 from patternlab.approvals import approval_binding, record_approval, resolve_artifact
@@ -15,11 +18,13 @@ from patternlab.state import PatternLabState, StateError, utc_now
 from patternlab.schemas import EpisodeManifest
 from patternlab.timeline import timeline_from_manifest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(YOUTUBE_ROOT / "scripts"))
 import source_visual_rebuild_assets as source_rebuild
 import patternlab_elevenlabs_credit_health as credit_health
 import patternlab_canonical_preflight as canonical_preflight
 import patternlab_evidence_manifest_builder as evidence_builder
+import patternlab_video04_long_form_source_pool as long_form_source_pool
+import patternlab_video04_visual_route as video04_visual_route
 from patternlab_discord_feedback import callback_value, parse_callback
 
 
@@ -35,6 +40,216 @@ class CanonicalStateTests(unittest.TestCase):
 
     def candidate(self, artifact_hash="a" * 64):
         return create_release_candidate("04", [Artifact("script", "script", "launch/video-04/final-script.md", artifact_hash)])
+
+    def write_builder_fixture(
+        self,
+        root: Path,
+        launch: Path,
+        *,
+        add_context_to_first_claim: bool = False,
+        omit_first_claim_direct_proof: bool = False,
+    ) -> list[dict]:
+        """Write a complete city-owned fixture with one unique visual per event."""
+        launch.mkdir(parents=True, exist_ok=True)
+        (launch / "final-script.md").write_text("approved script", encoding="utf-8")
+        (launch / "package.json").write_text(json.dumps({
+            "video_id": "04",
+            "city": "Detroit",
+            "hidden_history_question": "What did Detroit erase in Black Bottom?",
+            "proof_object": "A source-backed neighborhood map and clearance record",
+            "visual_payoff": "The old street grid and replacement footprint shown together",
+            "working_title": "The Neighborhood Detroit Erased",
+        }), encoding="utf-8")
+        (launch / "evidence-queries.json").write_text(json.dumps({
+            "required_city_terms": ["Detroit"],
+        }), encoding="utf-8")
+        claims = evidence_builder.planned_claims("04")
+        assets: list[dict] = []
+        segments: list[dict] = []
+        for claim_index, claim in enumerate(claims):
+            duration = 2.5 if float(claim["start"]) < 30 else 5.0
+            event_count = max(1, math.ceil((float(claim["end"]) - float(claim["start"])) / duration))
+            entries: list[dict] = []
+            for event_index in range(event_count):
+                asset_id = f"fixture-{claim['claim_id']}-{event_index + 1:03d}"
+                local = root / "evidence" / f"{asset_id}.jpg"
+                local.parent.mkdir(parents=True, exist_ok=True)
+                local.write_bytes(asset_id.encode("utf-8"))
+                direct = not (omit_first_claim_direct_proof and claim_index == 0)
+                kind = "photo"
+                if direct and event_index == 0 and claim["role"] in {"map_system", "then_now"}:
+                    kind = "map"
+                elif direct and event_index == 0 and claim["role"] == "document_detail":
+                    kind = "document"
+                assets.append({
+                    "asset_id": asset_id,
+                    "source_id": f"source-{asset_id}",
+                    "relative_path": str(local.relative_to(root)),
+                    "source_url": f"https://example.test/archive/{asset_id}",
+                    "source_title": " ".join(claim["entities"]),
+                    "creator": "Detroit archive",
+                    "rights_basis": "public domain",
+                    "human_accepted": True,
+                    "commercial_use_ok": True,
+                    "modification_ok": True,
+                    "source_class": "historical_evidence",
+                    "evidence_fit": "direct" if direct else "supporting",
+                    "entity_terms": claim["entities"],
+                    "claim_ids": [claim["claim_id"]],
+                    "asset_kind": kind,
+                    "editorial_role": "proof" if direct else "context_only",
+                    "geographic_scope": "city_specific",
+                })
+                role = claim["role"] if direct and event_index == 0 else "archive_evidence" if direct else "context_only"
+                entries.append({"asset_id": asset_id, "role": role})
+            if add_context_to_first_claim and claim_index == 0:
+                context_id = "fixture-generic-foot-traffic"
+                context = root / "context" / f"{context_id}.mp4"
+                context.parent.mkdir(parents=True, exist_ok=True)
+                context.write_bytes(b"generic context")
+                assets.append({
+                    "asset_id": context_id,
+                    "source_id": "source-generic-context",
+                    "relative_path": str(context.relative_to(root)),
+                    "source_url": "https://example.test/stock/foot-traffic",
+                    "source_title": "Generic urban foot traffic",
+                    "creator": "Example stock creator",
+                    "rights_basis": "commercial stock license",
+                    "human_accepted": True,
+                    "commercial_use_ok": True,
+                    "modification_ok": True,
+                    "source_class": "modern_context",
+                    "evidence_fit": "context_only",
+                    "entity_terms": [],
+                    "claim_ids": [claim["claim_id"]],
+                    "asset_kind": "modern_video",
+                    "editorial_role": "context_only",
+                    "geographic_scope": "generic",
+                    "may_imply_named_city": False,
+                    "context_action": "foot_traffic",
+                    "context_emotion": "street-level economic life",
+                })
+                entries.insert(1, {"asset_id": context_id, "role": "context_only"})
+            segments.append({
+                "start": claim["start"],
+                "end": claim["end"],
+                "claim_id": claim["claim_id"],
+                "entries": entries,
+            })
+        route = {
+            "version": 1,
+            "video_id": "04",
+            "city": "Detroit",
+            "claims": [
+                {
+                    "claim_id": claim["claim_id"],
+                    "text": claim["text"],
+                    "required_entity_terms": claim["entities"],
+                    "role": claim["role"],
+                    "start": claim["start"],
+                    "end": claim["end"],
+                }
+                for claim in claims
+            ],
+            "chapter_labels": [{"start": 0, "end": claims[-1]["end"], "label": "SOURCE TRAIL"}],
+            "requirements": {
+                "minimum_unique_assets": len({entry["asset_id"] for segment in segments for entry in segment["entries"]}),
+                "minimum_unique_asset_ratio": 1.0,
+                "maximum_uses_per_asset": 1,
+                "maximum_uses_per_static_asset": 1,
+                "minimum_static_asset_reuse_gap_seconds": 180.0,
+                "maximum_runtime_share_per_asset": 1.0,
+                "maximum_map_document_share": 1.0,
+                "minimum_moving_image_share": 0.0,
+                "maximum_same_source_family_run": 999,
+                "ai_visuals_allowed": False,
+            },
+            "segments": segments,
+        }
+        (launch / "long-form-visual-routing.json").write_text(json.dumps(route), encoding="utf-8")
+        return assets
+
+    def test_video_04_source_pool_has_production_diversity_floors(self):
+        self.assertEqual(long_form_source_pool.MINIMUM_ASSETS, 60)
+        self.assertEqual(long_form_source_pool.MINIMUM_HISTORICAL_ASSETS, 40)
+        self.assertEqual(long_form_source_pool.MINIMUM_MOVING_IMAGE_ASSETS, 10)
+        self.assertEqual(long_form_source_pool.MINIMUM_MODERN_VIDEO_ASSETS, 7)
+        self.assertEqual(long_form_source_pool.MINIMUM_DISTINCT_SOURCE_URLS, 52)
+
+    def test_video_04_federal_acts_card_is_deterministic_and_officially_sourced(self):
+        additions = json.loads(
+            (YOUTUBE_ROOT / "launch" / "video-04" / "long-form-source-additions.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        source = next(
+            row
+            for row in additions["assets"]
+            if row["asset_id"] == long_form_source_pool.FEDERAL_ACTS_CARD_ASSET_ID
+        )
+        self.assertEqual(
+            source["source_urls"],
+            [
+                "https://www.govinfo.gov/app/details/COMPS-10349",
+                "https://www.senate.gov/artandhistory/history/minute/Federal_Highway_Act.htm",
+            ],
+        )
+        self.assertEqual(source["editorial_role"], "proof")
+        self.assertEqual(source["geographic_scope"], "not_applicable")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "video-04"
+            first = long_form_source_pool.render_federal_acts_source_card(root)
+            first_sha = long_form_source_pool.sha256_file(first)
+            second = long_form_source_pool.render_federal_acts_source_card(root)
+            self.assertEqual(long_form_source_pool.sha256_file(second), first_sha)
+            self.assertEqual(first_sha, source["sha256"])
+
+    def test_video_04_federal_law_beat_uses_source_card_before_local_consequence(self):
+        route = video04_visual_route.build_route()
+        beat = next(segment for segment in route["segments"] if segment["start"] == 250)
+        self.assertEqual(
+            [entry["asset_id"] for entry in beat["entries"]],
+            [
+                long_form_source_pool.FEDERAL_ACTS_CARD_ASSET_ID,
+                "fhwa-detroit-chrysler-freeway-1964",
+            ],
+        )
+        self.assertEqual(beat["entries"][0]["role"], "source_proof")
+        self.assertIn("two federal laws", beat["entries"][0]["narration_fit"])
+
+    def test_video_04_route_has_no_asset_repeat_inside_review_sheet_window(self):
+        route = video04_visual_route.build_route()
+        entries = [entry for segment in route["segments"] for entry in segment["entries"]]
+        repeats = []
+        for offset in range(0, len(entries), 16):
+            counts = Counter(entry["asset_id"] for entry in entries[offset : offset + 16])
+            repeats.extend(
+                (offset // 16 + 1, asset_id, count)
+                for asset_id, count in counts.items()
+                if count > 1
+            )
+        self.assertEqual(repeats, [])
+
+    def test_video_04_route_excludes_sequence_judge_rejection_assets(self):
+        route = video04_visual_route.build_route()
+        by_start = {segment["start"]: segment for segment in route["segments"]}
+        self.assertEqual(by_start[20]["entries"][3]["asset_id"], "ia-detroit-home-movies-1955")
+        self.assertEqual(by_start[30]["entries"][0]["asset_id"], "ia-detroit-news-1917")
+        self.assertEqual(by_start[30]["entries"][1]["asset_id"], "sanborn-1950-sheet-17")
+        self.assertEqual(by_start[90]["entries"][1]["asset_id"], "video-04-visual-rebuild-loc-2017813226")
+        self.assertEqual(by_start[100]["entries"][0]["asset_id"], "loc-detroit-family-sojourner-truth-1942")
+        self.assertEqual(by_start[110]["entries"][0]["asset_id"], "video-04-visual-rebuild-loc-2017858657")
+        self.assertEqual(
+            by_start[120]["entries"][1]["asset_id"],
+            "loc-sojourner-truth-multiple-unit-1942",
+        )
+        self.assertEqual(by_start[130]["entries"][1]["asset_id"], "loc-sojourner-truth-homes-1942")
+        self.assertEqual(by_start[230]["entries"][1]["asset_id"], "video-04-visual-rebuild-loc-2017813174")
+        self.assertEqual(by_start[490]["entries"][0]["asset_id"], "ia-detroit-home-movies-1955")
+        self.assertNotIn(
+            "video-04-visual-rebuild-loc-2017844243",
+            [entry["asset_id"] for segment in route["segments"] for entry in segment["entries"]],
+        )
 
     def test_illegal_transition_fails_closed(self):
         with self.assertRaises(StateError):
@@ -122,6 +337,27 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertEqual(owner_review_status(gates), "blocked-before-owner-review")
         self.assertEqual(gates["visual_release_quality"], "missing")
 
+    def test_owner_review_requires_strict_media_qa_even_when_other_gates_pass(self):
+        values = {
+            "package_hash": "pass",
+            "canonical_preflight": "pass",
+            "canonical_release": "pass",
+            "canonical_render": "pass",
+            "render_quality": "pass",
+            "visual_release_quality": "pass",
+            "long_form_quality": "pass",
+            "shorts_quality": "pass",
+            "thumbnail_quality": "pass",
+            "episode_standard": "pass",
+            "visual_contract": "pass",
+            "context_media_library": "pass",
+            "voice_visual_match": "pass",
+            "finished_watchdown": "pass",
+        }
+        self.assertEqual(owner_review_status(owner_review_gate_statuses(**values)), "blocked-before-owner-review")
+        values["media_qa"] = "pass"
+        self.assertEqual(owner_review_status(owner_review_gate_statuses(**values)), "ready-for-owner-review")
+
     def test_discord_callback_rejects_missing_hash_binding(self):
         with self.assertRaises(ValueError):
             parse_callback('patternlab:{"action":"approve","videoId":"04","assetType":"short","assetId":"video-04-short-01","reason":"strong_short_loop"}')
@@ -155,6 +391,33 @@ class CanonicalStateTests(unittest.TestCase):
         }
         with self.assertRaises(ValueError):
             EpisodeManifest.model_validate(payload)
+
+    def test_manifest_rejects_reused_visual_with_same_presentation_variant(self):
+        payload = {
+            "episode_id": "04",
+            "title": "Black Bottom source proof",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "historical_evidence", "rights_status": "approved", "evidence_fit": "direct", "visual_fit": "approved", "relative_path": "source.jpg", "sha256": "a" * 64}],
+            "visual_beats": [
+                {"beat_id": "proof-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3, "presentation_variant": "same-crop"},
+                {"beat_id": "proof-2", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "archive_evidence", "start_seconds": 3, "end_seconds": 6, "reuse_reason": "new detail", "presentation_variant": "same-crop"},
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "new presentation_variant"):
+            EpisodeManifest.model_validate(payload)
+
+    def test_manifest_accepts_reused_visual_with_distinct_presentation_variant(self):
+        payload = {
+            "episode_id": "04",
+            "title": "Black Bottom source proof",
+            "claims": [{"claim_id": "claim-1", "text": "Black Bottom was a Detroit neighborhood.", "fact_checker_status": "verified", "source_ids": ["source-1"]}],
+            "assets": [{"asset_id": "asset-1", "source_id": "source-1", "source_class": "historical_evidence", "rights_status": "approved", "evidence_fit": "direct", "visual_fit": "approved", "relative_path": "source.jpg", "sha256": "a" * 64}],
+            "visual_beats": [
+                {"beat_id": "proof-1", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "source_proof", "start_seconds": 0, "end_seconds": 3, "presentation_variant": "wide-map"},
+                {"beat_id": "proof-2", "claim_ids": ["claim-1"], "asset_ids": ["asset-1"], "role": "archive_evidence", "start_seconds": 183, "end_seconds": 186, "reuse_reason": "new labeled detail", "presentation_variant": "hastings-closeup"},
+            ],
+        }
+        self.assertEqual(len(EpisodeManifest.model_validate(payload).visual_beats), 2)
 
     def test_source_rebuild_requires_explicit_claim_queries(self):
         root = Path(self.temp.name) / "video-04"
@@ -379,8 +642,7 @@ class CanonicalStateTests(unittest.TestCase):
     def test_evidence_builder_blocks_missing_human_accepted_direct_asset(self):
         root = Path(self.temp.name) / "output" / "video-04"
         launch = Path(self.temp.name) / "launch" / "video-04"
-        launch.mkdir(parents=True)
-        (launch / "final-script.md").write_text("approved script", encoding="utf-8")
+        self.write_builder_fixture(root, launch)
         intake = root / "source-packet" / "evidence-intake.json"
         intake.parent.mkdir(parents=True)
         intake.write_text(json.dumps({"video_id": "04", "assets": []}), encoding="utf-8")
@@ -392,27 +654,7 @@ class CanonicalStateTests(unittest.TestCase):
     def test_evidence_builder_writes_hash_bound_manifest_from_explicit_intake(self):
         root = Path(self.temp.name) / "output" / "video-04"
         launch = Path(self.temp.name) / "launch" / "video-04"
-        launch.mkdir(parents=True)
-        (launch / "final-script.md").write_text("approved script", encoding="utf-8")
-        assets = []
-        for claim in evidence_builder.planned_claims("04"):
-            asset_id = f"asset-{claim['claim_id']}"
-            local = root / "evidence" / f"{asset_id}.jpg"
-            local.parent.mkdir(parents=True, exist_ok=True)
-            local.write_bytes(asset_id.encode("utf-8"))
-            asset_kind = "photo"
-            if claim["role"] == "map_system" or claim["claim_id"] == "then-now-footprint":
-                asset_kind = "map"
-            elif claim["role"] == "document_detail":
-                asset_kind = "document"
-            assets.append({
-                "asset_id": asset_id, "source_id": f"source-{asset_id}", "relative_path": str(local.relative_to(root)),
-                "source_url": "https://example.test/archive", "source_title": " ".join(claim["entities"]),
-                "creator": "Detroit archive", "rights_basis": "public domain", "human_accepted": True,
-                "commercial_use_ok": True, "modification_ok": True, "source_class": "historical_evidence",
-                "evidence_fit": "direct", "entity_terms": claim["entities"], "claim_ids": [claim["claim_id"]],
-                "asset_kind": asset_kind,
-            })
+        assets = self.write_builder_fixture(root, launch)
         intake = root / "source-packet" / "evidence-intake.json"
         intake.parent.mkdir(parents=True)
         intake.write_text(json.dumps({"video_id": "04", "assets": assets}), encoding="utf-8")
@@ -421,3 +663,110 @@ class CanonicalStateTests(unittest.TestCase):
         self.assertEqual(payload["status"], "pass", payload["blockers"])
         self.assertTrue(manifest_path.exists())
         self.assertTrue((root / "approval" / "evidence-manifest-binding.json").exists())
+
+    def test_video_04_visual_plan_covers_full_retained_narration(self):
+        claims = evidence_builder.planned_claims("04")
+        self.assertEqual(claims[0]["start"], 0)
+        self.assertAlmostEqual(claims[-1]["end"], 499.322, places=3)
+        for previous, current in zip(claims, claims[1:]):
+            self.assertEqual(previous["end"], current["start"])
+
+    def test_explicit_visual_route_rejects_unsupported_claim_instead_of_reassigning(self):
+        claims = evidence_builder.planned_claims("04")
+        claims_by_id = {claim["claim_id"]: claim for claim in claims}
+        assets = {
+            "black-bottom-only": {
+                "asset_id": "black-bottom-only",
+                "claim_ids": ["black-bottom-neighborhood"],
+                "source_class": "historical_evidence",
+                "evidence_fit": "supporting",
+                "asset_kind": "photo",
+                "source_url": "https://example.test/black-bottom",
+                "source_id": "source-black-bottom",
+                "geographic_scope": "city_specific",
+            }
+        }
+        route = {
+            "segments": [
+                {
+                    "start": 0,
+                    "end": 499.322,
+                    "claim_id": "housing-restrictions",
+                    "entries": [{"asset_id": "black-bottom-only", "role": "context_only"}],
+                }
+            ]
+        }
+        blockers: list[str] = []
+        beats, _ = evidence_builder.explicit_route_beats(route, assets, claims_by_id, blockers)
+        self.assertEqual(beats, [])
+        self.assertIn(
+            "long_form_visual_route_claim_not_supported:black-bottom-only:housing-restrictions:black-bottom-neighborhood",
+            blockers,
+        )
+
+    def test_explicit_visual_route_requires_rationale_for_cross_claim_foreshadowing(self):
+        claims = evidence_builder.planned_claims("04")
+        claims_by_id = {claim["claim_id"]: claim for claim in claims}
+        assets = {
+            "business-proof": {
+                "asset_id": "business-proof",
+                "claim_ids": ["black-bottom-neighborhood", "paradise-valley-businesses"],
+                "source_class": "historical_evidence",
+                "evidence_fit": "supporting",
+                "asset_kind": "photo",
+                "source_url": "https://example.test/business",
+                "source_id": "source-business",
+                "geographic_scope": "city_specific",
+            }
+        }
+        route = {
+            "segments": [
+                {
+                    "start": 0,
+                    "end": 499.322,
+                    "claim_id": "black-bottom-neighborhood",
+                    "entries": [
+                        {
+                            "asset_id": "business-proof",
+                            "claim_id": "paradise-valley-businesses",
+                            "role": "context_only",
+                        }
+                    ],
+                }
+            ]
+        }
+        blockers: list[str] = []
+        beats, _ = evidence_builder.explicit_route_beats(route, assets, claims_by_id, blockers)
+        self.assertEqual(beats, [])
+        self.assertIn(
+            "long_form_visual_route_cross_claim_rationale_missing:business-proof:"
+            "black-bottom-neighborhood:paradise-valley-businesses",
+            blockers,
+        )
+
+    def test_evidence_builder_mixes_context_only_after_direct_proof(self):
+        root = Path(self.temp.name) / "context-output" / "video-04"
+        launch = Path(self.temp.name) / "context-launch" / "video-04"
+        assets = self.write_builder_fixture(root, launch, add_context_to_first_claim=True)
+        intake = root / "source-packet" / "evidence-intake.json"
+        intake.parent.mkdir(parents=True)
+        intake.write_text(json.dumps({"video_id": "04", "assets": assets}), encoding="utf-8")
+        with patch.object(evidence_builder, "output_root", lambda _: root), patch.object(evidence_builder, "launch_root", lambda _: launch):
+            payload, _, manifest_path = evidence_builder.build_manifest("04")
+        self.assertEqual(payload["status"], "pass", payload["blockers"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        first_claim_beats = [beat for beat in manifest["visual_beats"] if "black-bottom-neighborhood" in beat["claim_ids"]]
+        self.assertEqual(first_claim_beats[0]["role"], "source_proof")
+        self.assertTrue(any(beat["role"] == "context_only" for beat in first_claim_beats[1:]))
+
+    def test_evidence_builder_rejects_context_without_direct_proof(self):
+        root = Path(self.temp.name) / "context-only-output" / "video-04"
+        launch = Path(self.temp.name) / "context-only-launch" / "video-04"
+        assets = self.write_builder_fixture(root, launch, omit_first_claim_direct_proof=True)
+        intake = root / "source-packet" / "evidence-intake.json"
+        intake.parent.mkdir(parents=True)
+        intake.write_text(json.dumps({"video_id": "04", "assets": assets}), encoding="utf-8")
+        with patch.object(evidence_builder, "output_root", lambda _: root), patch.object(evidence_builder, "launch_root", lambda _: launch):
+            payload, _, _ = evidence_builder.build_manifest("04")
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("claim_missing_accepted_direct_visual:black-bottom-neighborhood", payload["blockers"])

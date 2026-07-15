@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "policy_id": "patternlab-city-generic-visual-system-v1",
+  "minimum_asset_score": 93,
+  "channel_premise": "Pattern Lab reveals the hidden systems, erased places, and source-backed contradictions that explain how American cities became what they are today.",
+  "episode_contract": {
+    "city_is_explicit": true,
+    "one_city": true,
+    "one_hidden_history_question": true,
+    "one_visible_proof_object": true,
+    "one_source_trail": true,
+    "one_visual_payoff": true,
+    "silent_city_fallback_forbidden": true
+  },
+  "truth_classes": {
+    "proof": {
+      "allowed_source_roles": ["historical_evidence"],
+      "ai_allowed": false,
+      "generic_stock_allowed": false
+    },
+    "system": {
+      "allowed_source_roles": ["original_graphic"],
+      "ai_allowed": false,
+      "generic_stock_allowed": false
+    },
+    "context": {
+      "allowed_source_roles": ["modern_context"],
+      "ai_allowed": false,
+      "generic_stock_allowed": true,
+      "may_imply_named_city": false
+    },
+    "reconstruction": {
+      "allowed_source_roles": ["ai_reconstruction"],
+      "ai_allowed": true,
+      "generic_stock_allowed": false,
+      "may_imply_named_city": false,
+      "required_disclosure": "Dramatic reconstruction — not archival footage"
+    }
+  },
+  "diversity": {
+    "minimum_unique_presentation_ratio": 0.8,
+    "maximum_static_uses": 1,
+    "maximum_proof_static_uses": 2,
+    "minimum_proof_reprise_gap_seconds": 180.0,
+    "maximum_native_video_source_uses": 2,
+    "minimum_native_video_clip_separation_seconds": 30.0,
+    "maximum_context_asset_uses": 1,
+    "maximum_ai_asset_uses": 1,
+    "maximum_same_source_family_run": 2,
+    "reprise_requires_reason": true,
+    "reprise_requires_new_presentation": true
+  },
+  "historical_motion": {
+    "default_minimum_production_selected_clips": 4,
+    "default_target_production_selected_clips": 6,
+    "maximum_production_selected_clips": 8,
+    "flat_pan_zoom_is_not_parallax": true,
+    "foreground_background_separation_required": true,
+    "source_identity_preservation_required": true,
+    "local_visual_judge_minimum": 93
+  },
+  "ai_support": {
+    "evaluate_every_beat": true,
+    "automatic_quota_forbidden": true,
+    "proof_replacement_forbidden": true,
+    "selected_asset_must_be_nonproof": true,
+    "still_primary_route": "local",
+    "important_thumbnail_route": "codex_image_generation",
+    "image_to_video_primary_route": "local",
+    "paid_fallback_requires_exact_approval": true,
+    "maximum_seconds_per_clip": 5.0,
+    "maximum_runtime_share_long_form": 0.08,
+    "maximum_runtime_share_short": 0.15
+  },
+  "stock_context": {
+    "preferred_api_providers": ["Pexels", "Pixabay"],
+    "manual_item_fallbacks": ["Mixkit", "Coverr", "Unsplash"],
+    "generic_context_only": true,
+    "illustrative_label_required_when_confusable": true,
+    "item_level_rights_receipt_required": true
+  },
+  "package": {
+    "full_package_required_assets": {
+      "long_form": 1,
+      "shorts": 3,
+      "shorts_maximum": 5,
+      "thumbnail_candidates": 3,
+      "closed_caption_files": 1
+    },
+    "thumbnail_packaging_precedes_script": true,
+    "owner_review_hash_binding_required": true,
+    "all_assets_independently_score_at_least": 93,
+    "warnings_block_release": true
+  }
+}

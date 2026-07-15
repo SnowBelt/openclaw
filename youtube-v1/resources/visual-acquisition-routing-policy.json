@@ -1,0 +1,134 @@
+{
+  "version": 2,
+  "channel": "Pattern Lab",
+  "purpose": "Acquire a deep, rights-safe, narration-matched pool of real images and video before assembly or AI support generation.",
+  "hard_rule": "A search result is a lead, not an asset. Only an exact item page, exact download, item-level rights basis, local file hash, and approved editorial role can enter a production source pool.",
+  "source_tiers": [
+    {
+      "tier": 1,
+      "id": "historical_open_evidence",
+      "role": "historical_evidence",
+      "providers": [
+        "Library of Congress Free to Use and Reuse and item-level rights-clear collections",
+        "National Archives item-level public-domain or compatible records",
+        "Wikimedia Commons commercial-and-derivatives-compatible files",
+        "Smithsonian Open Access CC0 items",
+        "Digital Public Library of America Unlimited Re-Use items",
+        "Openverse candidates after original-source license verification"
+      ],
+      "automation": "API or structured metadata preferred; item-level rights verification required"
+    },
+    {
+      "tier": 2,
+      "id": "local_archive_permission_leads",
+      "role": "candidate_lead_only_until_permission",
+      "providers": [
+        "Detroit Public Library Burton Historical Collection",
+        "Wayne State Walter P. Reuther Library and Digital Collections",
+        "University of Michigan Bentley Historical Library",
+        "Detroit Historical Society digital collections"
+      ],
+      "automation": "discover and preserve identifiers; never promote to production without explicit item reuse terms or written permission"
+    },
+    {
+      "tier": 3,
+      "id": "modern_context_api",
+      "role": "modern_context",
+      "providers": [
+        "Pexels API",
+        "Pixabay API"
+      ],
+      "automation": "cache API metadata, download the selected file locally, and preserve the exact item URL and creator"
+    },
+    {
+      "tier": 4,
+      "id": "modern_context_browser_fallback",
+      "role": "modern_context",
+      "providers": [
+        "Mixkit",
+        "Coverr"
+      ],
+      "automation": "manual or browser-assisted exact-item capture; verify the item-specific license and preserve attribution conservatively"
+    },
+    {
+      "tier": 5,
+      "id": "archival_motion",
+      "role": "historical_evidence_or_context_by_item",
+      "providers": [
+        "National Archives motion picture holdings",
+        "Library of Congress film collections",
+        "Internet Archive and Prelinger item-level compatible records",
+        "NASA image and video library when topically relevant"
+      ],
+      "automation": "availability never equals permission; exact item metadata decides the role"
+    }
+  ],
+  "production_pool_floors": {
+    "historical_or_proof_assets": 20,
+    "modern_context_assets": 10,
+    "modern_context_video_assets": 6,
+    "selected_provider_count": 2,
+    "candidate_options_per_narration_beat": 3,
+    "proof_option_per_historical_claim_beat": 1,
+    "unique_source_url_share": 0.9
+  },
+  "generic_context_workflow": {
+    "taxonomy": "resources/generic-context-taxonomy.json",
+    "required_contract": "source-packet/visual-contract.json",
+    "minimum_candidate_queries_per_beat": 3,
+    "rule": "Generic stock footage is appropriate only for generic actions and consequences. It must match the narration's action and emotional function, have no implied named-city claim, and remain context_only in every manifest and edit."
+  },
+  "required_item_receipt_fields": [
+    "asset_id",
+    "source_title",
+    "source_url",
+    "download_url",
+    "creator",
+    "archive_or_platform",
+    "license_or_rights_basis",
+    "license_url",
+    "commercial_use_ok",
+    "modification_ok",
+    "attribution_required",
+    "attribution_text",
+    "source_class",
+    "local_path",
+    "sha256",
+    "retrieved_at",
+    "human_review_status"
+  ],
+  "blocked_source_urls": [
+    "candidate-search://",
+    "/search/",
+    "/search?",
+    "google.com/search",
+    "bing.com/images"
+  ],
+  "modern_thumbnail_visual_energy": {
+    "minimum_mean_luma": 0.45,
+    "minimum_mean_saturation": 0.24,
+    "minimum_luma_standard_deviation": 0.16,
+    "rule": "A modern thumbnail hero or major inset must pass luma, saturation, and contrast checks, or carry an explicit approved monochrome-intent exception. Filters cannot turn a weak source into a pass."
+  },
+  "ranking_weights": {
+    "narration_entity_match": 0.28,
+    "city_specificity": 0.18,
+    "proof_value": 0.18,
+    "visual_energy": 0.14,
+    "cropability": 0.1,
+    "rights_confidence": 0.08,
+    "novelty_against_selected_assets": 0.04
+  },
+  "reliability": {
+    "pexels_default_request_limit_per_hour": 200,
+    "pexels_default_request_limit_per_month": 20000,
+    "pixabay_request_limit_per_60_seconds": 100,
+    "pixabay_cache_hours": 24,
+    "download_to_local_storage": true,
+    "hotlinking_blocked": true,
+    "provider_backoff_required": true,
+    "candidate_discovery_requires_original_source_verification": true,
+    "no_systematic_mass_downloads": true
+  },
+  "youtube_mutation": "not_performed"
+}

@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "purpose": "Exact-item, rights-aware discovery providers for Pattern Lab source-first city-history production.",
+  "default_rule": "Discovery is not acceptance. A candidate becomes production media only after exact item metadata, creator, rights basis, local download hash, claim relevance, and editorial role pass the existing evidence-intake gates.",
+  "providers": [
+    {
+      "id": "openverse",
+      "name": "Openverse",
+      "role": "openly licensed image discovery",
+      "access": "anonymous API with rate limits",
+      "eligible_licenses": ["cc0", "pdm", "by", "by-sa"],
+      "required_filters": ["license_type=commercial", "license_type=modification", "filter_dead=true"],
+      "exact_item_fields": ["foreign_landing_url", "url", "creator", "license", "license_url", "source"],
+      "promotion_rule": "Verify the original landing page before download; Openverse does not guarantee the source license metadata.",
+      "allowed_roles": ["historical_evidence_candidate", "modern_context_candidate", "map_candidate"]
+    },
+    {
+      "id": "library_of_congress",
+      "name": "Library of Congress",
+      "role": "historical photographs, maps, documents, and film discovery",
+      "access": "anonymous JSON API with rate limits",
+      "eligible_rights": ["public domain", "no known restrictions", "item-level commercial and modification compatible statement"],
+      "exact_item_fields": ["id", "title", "image_url", "rights", "contributor"],
+      "promotion_rule": "Verify the exact Rights & Access statement and downloaded file; presence in the catalog is not a blanket rights clearance.",
+      "allowed_roles": ["historical_evidence_candidate", "map_candidate", "document_candidate", "archival_motion_candidate"]
+    },
+    {
+      "id": "wikimedia_commons",
+      "name": "Wikimedia Commons",
+      "role": "commercial-and-derivatives-compatible historical and modern media",
+      "access": "anonymous MediaWiki API with rate limits",
+      "eligible_licenses": ["public domain", "CC0", "CC BY", "CC BY-SA"],
+      "exact_item_fields": ["descriptionurl", "url", "Artist", "LicenseShortName", "LicenseUrl"],
+      "promotion_rule": "Preserve exact file-page attribution and share-alike obligations; reject NC, ND, and unclear licenses.",
+      "allowed_roles": ["historical_evidence_candidate", "modern_context_candidate", "map_candidate", "archival_motion_candidate"]
+    },
+    {
+      "id": "flickr_commons",
+      "name": "Flickr Commons",
+      "role": "public-institution historical discovery",
+      "access": "browser or API discovery; exact institution item verification required",
+      "eligible_rights": ["no known copyright restrictions or independently compatible item license"],
+      "promotion_rule": "The Commons program is not itself a license. Verify the contributing institution, exact item statement, creator, and download before evidence intake.",
+      "allowed_roles": ["historical_evidence_candidate", "historical_context_candidate"]
+    },
+    {
+      "id": "internet_archive_prelinger",
+      "name": "Internet Archive / Prelinger",
+      "role": "archival motion and historical context discovery",
+      "access": "anonymous metadata API with rate limits",
+      "eligible_rights": ["public domain", "CC0", "CC BY", "CC BY-SA"],
+      "blocked_rights_markers": ["-nc", "-nd", "noncommercial", "restricted", "all rights reserved"],
+      "exact_item_fields": ["identifier", "title", "licenseurl_or_rights", "item_page"],
+      "promotion_rule": "Fetch item metadata and select a locally downloadable file only after the item-level license is compatible; Internet Archive availability alone is never sufficient.",
+      "allowed_roles": ["archival_motion_candidate", "historical_context_candidate"]
+    },
+    {
+      "id": "national_archives_catalog",
+      "name": "U.S. National Archives Catalog",
+      "role": "federal-record historical photos and motion",
+      "access": "API key required",
+      "eligible_rights": ["item-level public domain or compatible rights statement"],
+      "promotion_rule": "Federal-agency origin is a useful signal, not a blanket rights decision; Special Media and donated records require item-level review.",
+      "allowed_roles": ["historical_evidence_candidate", "archival_motion_candidate"]
+    },
+    {
+      "id": "smithsonian_open_access",
+      "name": "Smithsonian Open Access",
+      "role": "CC0 historical images, documents, and objects",
+      "access": "free API key required",
+      "eligible_rights": ["CC0 only"],
+      "promotion_rule": "Require an actual CC0 media asset; CC0 metadata without media is not a reusable image.",
+      "allowed_roles": ["historical_evidence_candidate", "document_candidate"]
+    },
+    {
+      "id": "dpla",
+      "name": "Digital Public Library of America",
+      "role": "cross-institution discovery",
+      "access": "API key required",
+      "eligible_rights": ["Unlimited Re-Use or independently verified compatible statement"],
+      "promotion_rule": "DPLA is a metadata broker. Verify the contributing institution's exact item and rights page before download.",
+      "allowed_roles": ["historical_evidence_candidate", "map_candidate"]
+    },
+    {
+      "id": "usgs_open_maps",
+      "name": "USGS and federal geospatial data",
+      "role": "source-grounded present-day map and terrain context",
+      "access": "public service or downloadable data",
+      "eligible_rights": ["U.S. government public-domain data unless the exact item says otherwise"],
+      "promotion_rule": "Use as map/context evidence only; preserve dataset/item URL, date, and transformation steps.",
+      "allowed_roles": ["map_candidate", "modern_context_candidate"]
+    }
+  ],
+  "hard_blocks": [
+    "candidate promoted from search results without original landing-page verification",
+    "CC BY-NC or CC BY-ND material used in a monetized Pattern Lab package",
+    "Internet Archive item accepted solely because it is downloadable",
+    "Openverse license metadata treated as final without original-source confirmation",
+    "provider search URL stored as an asset source URL",
+    "modern context footage presented as proof of a historical claim"
+  ],
+  "youtube_mutation": "not_performed"
+}

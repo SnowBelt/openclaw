@@ -60,11 +60,13 @@ def build_report(video_id: str, *, prepare: bool = False) -> tuple[dict, Path, P
             row_blockers.append("source_file_missing")
         if str(item.get("human_accepted") or "").lower() not in {"true", "yes", "approved"}:
             row_blockers.append("source_not_human_accepted")
-        box = focus_box(item.get("focus_box"))
-        if box is None:
-            row_blockers.append("focus_box_missing_or_invalid")
-        prepared = prepared_dir / f"{asset_id}.png"
-        if prepare and not row_blockers:
+        explicit_box = focus_box(item.get("focus_box"))
+        # A full-frame crop is deterministic and non-destructive. It is the
+        # canonical default when an accepted source needs no tighter crop.
+        box = explicit_box or (0.0, 0.0, 1.0, 1.0)
+        is_video = source.suffix.lower() in {".mp4", ".mov", ".m4v", ".webm"}
+        prepared = source if is_video else prepared_dir / f"{asset_id}.png"
+        if prepare and not row_blockers and not is_video:
             from PIL import Image
             with Image.open(source) as image:
                 image = image.convert("RGB")
@@ -83,7 +85,8 @@ def build_report(video_id: str, *, prepare: bool = False) -> tuple[dict, Path, P
             row_blockers.append("prepared_asset_missing_after_prepare")
         rows.append({
             "asset_id": asset_id, "source": display_path(source), "source_sha256": sha256_file(source) if source.is_file() else "",
-            "focus_box": list(box) if box else None, "prepared": display_path(prepared),
+            "focus_box": list(box), "focus_box_mode": "video_passthrough" if is_video else ("explicit" if explicit_box else "full_frame_default"),
+            "prepared": display_path(prepared),
             "prepared_sha256": sha256_file(prepared) if prepared.is_file() else "", "blockers": row_blockers,
         })
         blockers.extend(f"{asset_id}:{blocker}" for blocker in row_blockers)

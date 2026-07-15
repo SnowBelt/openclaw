@@ -1,7 +1,8 @@
 {
-  "version": 3,
+  "version": 7,
   "channel": "Pattern Lab",
   "purpose": "Safe, consistent image and video sourcing for source-first American city-history videos.",
+  "provider_registry": "resources/open-archive-provider-registry.json",
   "default_rule": "Use only sources in preferred_sources or item-level rights-cleared local archive sources. Every final media asset needs a rights-ledger row before owner review.",
   "required_rights_ledger_fields": [
     "asset_id",
@@ -23,7 +24,7 @@
   ],
   "source_roles": {
     "historical_evidence": "Can support a historical claim only when the item-level source and rights basis are logged.",
-    "modern_context": "Can support pacing, atmosphere, present-day comparison, or texture, but cannot carry a historical claim by itself.",
+    "modern_context": "Can support pacing, atmosphere, present-day comparison, generic human action, or texture, but cannot carry a historical claim by itself. A generic street, crowd, traffic, factory, or foot-traffic clip must be labeled context_only and must not imply that it depicts the named city, neighborhood, people, date, or event.",
     "original_graphic": "Can explain systems, maps, routes, timelines, source boards, and then/now layouts.",
     "ai_reconstruction": "Can illustrate a concept only when clearly treated as a graphic or reconstruction, never archival proof.",
     "original_audio": "Can be used for voiceover, music, or sound effects only when the creator/tool and commercial rights basis are logged.",
@@ -49,12 +50,34 @@
     "minimum_historical_or_real_photo_assets": 20,
     "minimum_modern_context_photo_or_video_assets": 10,
     "minimum_real_media_runtime_share_after_source_proof": 0.9,
-    "maximum_generated_or_support_runtime_share_after_source_proof": 0,
+    "minimum_modern_context_video_assets": 6,
+    "maximum_generated_or_support_runtime_share_after_source_proof": 0.08,
+    "maximum_generated_or_support_runtime_share_in_shorts": 0.15,
     "full_screen_non_picture_slide_count": 0,
     "maximum_non_proof_visual_beat_seconds": 12,
     "narration_alignment_rule": "Every visual beat should match the nearby narration using source title, filename, source role, or keyword relevance. If the pack cannot match the narration, source more rights-safe media before assembly.",
+    "generic_context_rule": "Generic rights-cleared footage or stills may illustrate a generic action or human consequence named in the narration, such as foot traffic, commuting, crowd movement, factory work, relocation, or street life. It must be logged as modern_context/context_only, must semantically match the action and emotional function, and must never be presented as evidence that the action occurred in the named city, neighborhood, date, or event.",
     "source_shortfall_rule": "If the source pack is short, OpenClaw must search approved sources for more rights-safe photos/video instead of filling the edit with generated graphics.",
     "generated_graphics_rule": "Generated graphics are support only when they are overlaid on real source media or photo-backed composites. Do not use full-screen non-picture slides."
+  },
+  "generic_context_asset_requirements": {
+    "taxonomy": "resources/generic-context-taxonomy.json",
+    "required_fields": [
+      "context_action",
+      "context_emotion",
+      "source_role",
+      "editorial_role",
+      "geographic_scope",
+      "may_imply_named_city"
+    ],
+    "required_values": {
+      "source_role": "modern_context",
+      "editorial_role": "context_only",
+      "geographic_scope": "generic",
+      "may_imply_named_city": false
+    },
+    "reuse_rule": "A generic asset may be reused across city episodes only after its exact local hash and item-level rights receipt pass review. It remains context only and may never be relabeled as evidence for a named city or event.",
+    "presentation_rule": "Use a subtle Illustrative footage label whenever a generic clip could reasonably be mistaken for the named city, neighborhood, date, or historical event."
   },
   "preferred_sources": {
     "historical_images": [
@@ -114,6 +137,26 @@
         "rule": "Use only no-known-copyright-restrictions or compatible item-level licenses; log collection/source page and creator."
       },
       {
+        "name": "Smithsonian Open Access",
+        "use_for": [
+          "CC0 historical images",
+          "objects",
+          "documents",
+          "IIIF assets"
+        ],
+        "rule": "Use only items explicitly marked CC0; preserve item URL and credit even when attribution is not required."
+      },
+      {
+        "name": "Digital Public Library of America",
+        "use_for": [
+          "historical discovery",
+          "city photographs",
+          "maps",
+          "documents"
+        ],
+        "rule": "Promote only exact items with an Unlimited Re-Use rights category or another independently compatible item statement."
+      },
+      {
         "name": "OpenStreetMap static map service",
         "use_for": [
           "street-grid map support",
@@ -121,6 +164,15 @@
           "map-background support"
         ],
         "rule": "Use as source-grounded map support with OpenStreetMap attribution; owner review required before public use."
+      },
+      {
+        "name": "Detroit and other local institutional collections",
+        "use_for": [
+          "city-specific photographs",
+          "neighborhood evidence",
+          "local film and oral history leads"
+        ],
+        "rule": "Burton, Reuther/Wayne State, Bentley, Detroit Historical, and comparable collections are discovery/permission leads unless the exact item provides compatible reuse terms or written permission is logged."
       }
     ],
     "modern_stock_photos": [
@@ -251,7 +303,9 @@
     "AI output derived as a near-duplicate of an unlicensed internet reference",
     "AI-generated support element used as historical/source proof"
   ],
-  "automation_instruction": "Before sourcing or approving Pattern Lab images or video, read this policy and prefer the matching source class. If no safe source exists, use an original Pattern Lab map, source board, timeline, or labeled reconstruction instead. For thumbnails, resolve the active city first; source recognizable city hero media before using AI support assets.",
+  "automation_instruction": "Before sourcing or approving Pattern Lab images or video, read this policy, resources/visual-acquisition-routing-policy.json, and resources/open-archive-provider-registry.json. Prefer the matching source class. Openverse and Internet Archive results are candidate-only until original-item verification, local download, and hashing complete. If no safe source exists, use an original Pattern Lab map, source board, timeline, or labeled reconstruction instead. For thumbnails, resolve the active city first; source recognizable city hero media before using AI support assets.",
+  "exact_item_receipt_rule": "A search URL, provider category page, or API query is not a production source. Preserve the exact item page, exact download URL, creator, license URL, local hash, retrieval time, and editorial role for every selected external asset.",
+  "ai_motion_runtime_rule": "AI motion is an optional support layer, capped by the visual density requirements. It cannot replace source-pack floors, historical proof, or narration matching.",
   "thumbnail_support_asset_rules": {
     "generic_ai_support_execution_quality": {
       "allowed": [

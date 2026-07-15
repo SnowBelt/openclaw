@@ -1,15 +1,13 @@
 {
-  "version": "2026-06-patternlab-stock-video-policy-v1",
+  "version": "2026-07-patternlab-stock-video-policy-v2",
   "status": "local_contract_ready",
   "rule": "Stock video is context, not proof. Historical claims require source photos, maps, documents, or archival footage with rights-ledger rows.",
   "providers": [
-    {"name": "Pexels", "enabled_when": "API key exists and license page/source URL is logged", "allowed_role": "modern context footage"},
-    {"name": "Pixabay", "enabled_when": "API key exists and license page/source URL is logged", "allowed_role": "modern context footage"},
-    {"name": "Mixkit", "enabled_when": "download page and license proof are logged", "allowed_role": "modern context footage"},
-    {"name": "Coverr", "enabled_when": "download page and license proof are logged", "allowed_role": "modern context footage"},
-    {"name": "Unsplash", "enabled_when": "video-capable source and license proof are logged", "allowed_role": "modern context only when video is available"},
-    {"name": "Videvo", "enabled_when": "item-specific license is commercial-use compatible", "allowed_role": "selective context footage only"},
-    {"name": "Videezy", "enabled_when": "item-specific license is commercial-use compatible and no attribution/watermark blocker exists", "allowed_role": "selective context footage only"}
+    {"name": "Pexels API", "priority": 1, "enabled_when": "API key exists; exact item URL, creator, local file, and license receipt are logged", "allowed_role": "modern context footage", "reliability": "respect response headers; default 200 requests/hour and 20,000/month"},
+    {"name": "Pixabay API", "priority": 2, "enabled_when": "API key exists; exact item page, creator, local file, and license receipt are logged", "allowed_role": "modern context footage", "reliability": "respect 100 requests/60 seconds, cache results for 24 hours, and do not systematically mass download"},
+    {"name": "Mixkit", "priority": 3, "enabled_when": "exact download page and the item's Free License proof are logged", "allowed_role": "modern context footage", "reliability": "Restricted License items are blocked"},
+    {"name": "Coverr", "priority": 4, "enabled_when": "exact download page, attribution text, and item terms are logged", "allowed_role": "modern context footage", "reliability": "record attribution conservatively because current license copy is inconsistent"},
+    {"name": "Videvo or Videezy", "priority": 5, "enabled_when": "item-specific license is commercial-use and derivative compatible with no editorial, watermark, or attribution blocker", "allowed_role": "manual exception only", "reliability": "not part of unattended default routing"}
   ],
   "hard_blocks": [
     "watermarked preview footage",
@@ -17,16 +15,23 @@
     "unclear license",
     "noncommercial-only footage",
     "stock footage used as historical proof",
-    "stock footage before source proof in the first 20 seconds"
+    "stock footage before source proof in the first 20 seconds",
+    "provider search URL used as an item receipt",
+    "unknown creator or item identifier",
+    "permanent hotlink instead of a local downloaded file"
   ],
   "required_ledger_fields": [
     "source_url",
+    "download_url",
     "source_title",
     "archive_or_platform",
     "license_or_rights_basis",
     "commercial_use_ok",
     "modification_ok",
     "source_class",
+    "license_url",
+    "sha256",
+    "retrieved_at",
     "notes"
   ],
   "public_youtube_mutation": "not_performed"

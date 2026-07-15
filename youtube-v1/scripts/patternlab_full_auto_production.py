@@ -218,6 +218,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
+    if os.environ.get("PATTERNLAB_CANONICAL_RUN") != "1" and not args.dry_run:
+        raise SystemExit(
+            "Direct full-auto production is unsupported. Use "
+            "youtube-v1/scripts/patternlab_production.py --profile full_package."
+        )
     load_dotenv()
     video_id = (args.video_id or next_incomplete_video()).zfill(2) if not str(args.video_id or "").startswith("video-") else str(args.video_id)
     py = sys.executable
@@ -233,6 +238,10 @@ def main() -> None:
     if live_voice:
         definitions.append(("elevenlabs_credit_preflight", [py, "youtube-v1/scripts/patternlab_elevenlabs_credit_health.py", "--video-id", video_id, "--live"], True))
     definitions.append(("package", [py, "youtube-v1/scripts/patternlab_daily_factory.py", "--video-id", video_id], True))
+    # Every narration beat must declare whether its visual is proof, generic
+    # context, reconstruction, or a source-grounded system graphic before the
+    # renderer can make a polished but misleading edit.
+    definitions.append(("visual_contract", [py, "youtube-v1/scripts/patternlab_visual_contract.py", "--video-id", video_id], True))
     definitions.append(("renderer_decision", [py, "youtube-v1/scripts/patternlab_renderer_decision_gate.py", "--video-id", video_id], True))
     media_cmd = [py, "youtube-v1/scripts/patternlab_media_pipeline.py", "--video-id", video_id]
     if live_voice:
@@ -245,7 +254,11 @@ def main() -> None:
     # inferring a source trail from filenames or generic B-roll.
     definitions.append(("canonical_evidence_preflight", [py, "youtube-v1/scripts/patternlab_canonical_preflight.py", "--video-id", video_id], True))
     definitions.append(("episode_standard", [py, "youtube-v1/scripts/patternlab_episode_standard.py", "--video-id", video_id], True))
+    definitions.append(("local_visual_model_benchmark", [py, "youtube-v1/scripts/patternlab_local_visual_judge_runner.py", "--video-id", video_id, "--benchmark"], True))
+    definitions.append(("local_visual_model_benchmark_verify", [py, "youtube-v1/scripts/patternlab_local_visual_model_benchmark.py", "--video-id", video_id], True))
+    definitions.append(("local_visual_final_judge", [py, "youtube-v1/scripts/patternlab_local_visual_judge_runner.py", "--video-id", video_id, "--judge-final"], True))
     definitions.append(("voice_visual_match", [py, "youtube-v1/scripts/patternlab_voice_visual_match.py", "--video-id", video_id], True))
+    definitions.append(("strict_media_qa", [py, "youtube-v1/scripts/patternlab_media_qa.py", "--video-id", video_id], True))
     definitions.append(("finished_watchdown", [py, "youtube-v1/scripts/patternlab_finished_video_watchdown.py", "--video-id", video_id], True))
     definitions.append(("shorts_followup", [py, "youtube-v1/scripts/patternlab_shorts_followup_packet.py", "--video-id", video_id], True))
     definitions.append(("package_hashes", [py, "youtube-v1/scripts/patternlab_package_hashes.py", "--video-id", video_id], True))
