@@ -184,6 +184,7 @@ describe("custom runtime canary and rollback", () => {
     const envWrapper = path.join(input.home, "gateway-wrapper.sh");
     const fakeBin = path.join(input.home, "bin");
     const launchctlState = path.join(input.home, "launchctl-count");
+    const promotedPlist = path.join(input.home, "promoted-gateway.plist");
     mkdirSync(fakeBin, { recursive: true });
     mkdirSync(input.runtimeHome, { recursive: true });
     writeFileSync(path.join(input.release, ".openclaw-production-sha"), `${input.sourceSha}\n`);
@@ -210,6 +211,7 @@ case "$1" in
     [ -f "$FAKE_LAUNCHCTL_STATE" ] && count=$(cat "$FAKE_LAUNCHCTL_STATE")
     count=$((count + 1))
     printf '%s\\n' "$count" > "$FAKE_LAUNCHCTL_STATE"
+    [ "$count" -ne 1 ] || cp "$OPENCLAW_GATEWAY_PLIST" "$FAKE_PROMOTED_PLIST"
     [ "$count" -gt 1 ]
     ;;
 esac
@@ -232,6 +234,7 @@ esac
         env: {
           ...process.env,
           FAKE_LAUNCHCTL_STATE: launchctlState,
+          FAKE_PROMOTED_PLIST: promotedPlist,
           HOME: input.home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
@@ -249,5 +252,8 @@ esac
     expect(readFileSync(envFile, "utf8")).toBe("export EXISTING_VALUE=1\n");
     expect(readFileSync(plist, "utf8")).toContain("/usr/bin/true");
     expect(readFileSync(launchctlState, "utf8").trim()).toBe("2");
+    const promotedPlistContents = readFileSync(promotedPlist, "utf8");
+    expect(promotedPlistContents).toContain(`<string>${envWrapper}</string>`);
+    expect(promotedPlistContents).not.toContain("<string>/bin/sh</string>");
   });
 });

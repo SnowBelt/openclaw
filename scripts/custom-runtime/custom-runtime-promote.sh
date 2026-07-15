@@ -154,7 +154,10 @@ python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" <<'PY'
 import plistlib, sys
 path, wrapper, env_file, launcher, port = sys.argv[1:]
 with open(path, "rb") as f: data = plistlib.load(f)
-data["ProgramArguments"] = ["/bin/sh", wrapper, env_file, launcher, "gateway", "--port", port]
+# Keep the generated environment wrapper as argv[0]. The launchd status audit
+# recognizes this canonical shape, unwraps the real launcher, and reads PATH
+# from the service environment file before checking runtime drift.
+data["ProgramArguments"] = [wrapper, env_file, launcher, "gateway", "--port", port]
 with open(path + ".tmp", "wb") as f: plistlib.dump(data, f, sort_keys=False)
 PY
 mv "$plist.tmp" "$plist"
