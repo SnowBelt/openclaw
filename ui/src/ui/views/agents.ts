@@ -110,6 +110,7 @@ export type SelfImprovementState = {
   lastProductionCheck: SelfImprovementProductionCheckResult | null;
   maintenanceLoading: boolean;
   lastMaintenance: SelfImprovementMaintenanceResult | null;
+  interventionLoading: boolean;
 };
 
 export type AgentsProps = {
@@ -156,6 +157,12 @@ export type AgentsProps = {
   onSelfImprovementModelPreflight: () => void;
   onSelfImprovementProductionCheck: () => void;
   onSelfImprovementMaintenanceDryRun: () => void;
+  onSelfImprovementDashboardIntervention: (input: {
+    title: string;
+    issue: string;
+    correctiveIntervention: string;
+    evidence?: string[];
+  }) => void;
   onSelfImprovementRecommendationUpdate: (input: {
     id: string;
     status: string;
@@ -423,6 +430,7 @@ export function renderAgents(props: AgentsProps) {
                     onModelPreflight: props.onSelfImprovementModelPreflight,
                     onProductionCheck: props.onSelfImprovementProductionCheck,
                     onMaintenanceDryRun: props.onSelfImprovementMaintenanceDryRun,
+                    onDashboardIntervention: props.onSelfImprovementDashboardIntervention,
                     onRecommendationUpdate: props.onSelfImprovementRecommendationUpdate,
                     onGroupUpdate: props.onSelfImprovementGroupUpdate,
                     onCuratorUpdate: props.onSelfImprovementCuratorUpdate,

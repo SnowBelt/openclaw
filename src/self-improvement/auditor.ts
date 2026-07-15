@@ -3,9 +3,11 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CronJob } from "../cron/types.js";
 import type { TaskRecord } from "../tasks/task-registry.types.js";
 import { listSelfImprovementAuditEvents } from "./audit-events.js";
+import { resolveSelfImprovementCapabilityRoutingDecision } from "./capability-routing.js";
 import { deriveSelfImprovementEvidenceKeys } from "./evidence.js";
 import { resolveSelfImprovementRoute } from "./routing.js";
 import { buildSelfImprovementSafety } from "./safety.js";
+import type { SelfImprovementSignal } from "./signals.js";
 import {
   readSkillWorkshopProposalSnapshots,
   type SkillWorkshopProposalSnapshot,
@@ -25,6 +27,7 @@ import type {
 } from "./types.js";
 
 const ACTIVE_STALE_MS = 60 * 60_000;
+const TERMINAL_TASK_LOOKBACK_MS = 24 * 60 * 60_000;
 const SKILL_WORKSHOP_PENDING_STALE_MS = 24 * 60 * 60_000;
 
 const SEVERITY_ORDER: Record<SelfImprovementRecommendationSeverity, number> = {
@@ -42,6 +45,7 @@ export type SelfImprovementAuditInput = {
   now?: number;
   auditEvents?: SelfImprovementAuditEvent[];
   skillWorkshopProposals?: SkillWorkshopProposalSnapshot[];
+  signals?: SelfImprovementSignal[];
 };
 
 export type SelfImprovementAuditResult = {
@@ -51,10 +55,11 @@ export type SelfImprovementAuditResult = {
     cronJobs: number;
     auditEvents: number;
     skillWorkshopProposals: number;
+    signals: number;
   };
 };
 
-type RecommendationDraft = {
+export type SelfImprovementRecommendationDraft = {
   category: SelfImprovementRecommendationCategory;
   severity: SelfImprovementRecommendationSeverity;
   priority?: SelfImprovementRecommendationSeverity;
@@ -69,7 +74,11 @@ type RecommendationDraft = {
   requiredEvidence: string[];
   evidence: string[];
   confidence?: number;
+  initialStatus?: "open" | "quarantined";
+  outcomeProofRequired?: boolean;
 };
+
+type RecommendationDraft = SelfImprovementRecommendationDraft;
 
 function taskUpdatedAt(task: TaskRecord): number {
   return task.lastEventAt ?? task.endedAt ?? task.startedAt ?? task.createdAt;
@@ -84,12 +93,13 @@ function buildFingerprint(params: {
   source: SelfImprovementRecommendationSource;
   title: string;
 }): string {
+  const taskRunIdentity =
+    params.source.kind === "task" ? [] : [params.source.taskId, params.source.runId];
   return hashRecommendation(
     [
       params.category,
       params.source.kind,
-      params.source.taskId,
-      params.source.runId,
+      ...taskRunIdentity,
       params.source.cronJobId,
       params.source.proposalId,
       params.source.agentId,
@@ -225,8 +235,8 @@ function buildDeterministicAnalysis(params: {
   };
 }
 
-function buildRecommendation(
-  draft: RecommendationDraft,
+export function buildSelfImprovementRecommendation(
+  draft: SelfImprovementRecommendationDraft,
   now: number,
 ): SelfImprovementRecommendation {
   const title = sanitizeRecommendationText(draft.title, 180);
@@ -253,7 +263,7 @@ function buildRecommendation(
     createdAt: now,
     updatedAt: now,
     lastSeenAt: now,
-    status: "open",
+    status: draft.initialStatus ?? "open",
     title,
     summary,
     category: draft.category,
@@ -268,6 +278,8 @@ function buildRecommendation(
     recurrenceCount: 1,
     source,
     route: draft.route,
+    assignedTargetAgentId: draft.route.targetAgentId,
+    lastRoutedAt: now,
     recommendedAction,
     requiredEvidence,
     safety,
@@ -293,9 +305,24 @@ function buildRecommendation(
       evidence,
     }),
     lastNovelEvidenceAt: now,
+    ...(draft.outcomeProofRequired ? { outcomeProofRequired: true } : {}),
   };
   recommendation.groupKey = deriveSelfImprovementGroupKey(recommendation);
   return recommendation;
+}
+
+function selectRecentTaskEvidence(tasks: TaskRecord[], now: number): TaskRecord[] {
+  return tasks
+    .filter((task) => {
+      if (task.status === "queued" || task.status === "running") {
+        return true;
+      }
+      return now - taskUpdatedAt(task) <= TERMINAL_TASK_LOOKBACK_MS;
+    })
+    .toSorted(
+      (left, right) =>
+        taskUpdatedAt(left) - taskUpdatedAt(right) || left.taskId.localeCompare(right.taskId),
+    );
 }
 
 function taskTitle(task: TaskRecord): string {
@@ -687,7 +714,17 @@ function auditContinuousImprovementThemes(
 ): RecommendationDraft[] {
   const drafts: RecommendationDraft[] = [];
   for (const theme of CONTINUOUS_IMPROVEMENT_THEMES) {
-    const matchingTasks = tasks.filter((task) => theme.pattern.test(taskText(task)));
+    const matchingTasks = tasks.filter((task) => {
+      const text = taskText(task);
+      const hasCausalEvidence =
+        task.status === "failed" ||
+        task.status === "timed_out" ||
+        task.status === "lost" ||
+        task.terminalOutcome === "blocked" ||
+        looksLikeUserCorrection(task) ||
+        /\b(missing|missed|gap|unsafe|uncontrolled|failed|blocked|without creating)\b/.test(text);
+      return hasCausalEvidence && theme.pattern.test(text);
+    });
     if (matchingTasks.length < theme.minimumMatches) {
       continue;
     }
@@ -714,6 +751,112 @@ function auditContinuousImprovementThemes(
     });
   }
   return drafts;
+}
+
+function signalCategory(signal: SelfImprovementSignal): SelfImprovementRecommendationCategory {
+  switch (signal.kind) {
+    case "regression":
+    case "security":
+      return "risk_prevention";
+    case "correction":
+      return "user_correction";
+    case "inefficiency":
+      return "efficiency_opportunity";
+    case "verification_gap":
+      return "verification_gap";
+    case "outcome":
+      return "outcome_measurement";
+    case "capability":
+      return "capability_evolution";
+    case "degraded":
+      return /\b(model|provider|inference|ollama|mlx)\b/i.test(
+        `${signal.source.component} ${signal.source.subsystem ?? ""}`,
+      )
+        ? "model_routing"
+        : "project_health";
+    default:
+      return "task_reliability";
+  }
+}
+
+function signalSeverity(
+  severity: SelfImprovementSignal["severity"],
+): SelfImprovementRecommendationSeverity {
+  return severity === "info" ? "low" : severity;
+}
+
+function auditTypedSignal(
+  signal: SelfImprovementSignal,
+  params: SelfImprovementAuditInput & { now: number },
+): RecommendationDraft {
+  const category = signalCategory(signal);
+  const requiredEvidence = [
+    ...safetyEvidence(category),
+    ...(signal.desiredState
+      ? [`Prove expected outcome: ${signal.desiredState.expectedOutcome}`]
+      : []),
+    ...(signal.desiredState?.sloMs
+      ? [`Show the outcome remains within the declared ${signal.desiredState.sloMs}ms SLO.`]
+      : []),
+    ...(signal.desiredState?.rollback
+      ? [`Preserve rollback path: ${signal.desiredState.rollback}`]
+      : []),
+  ];
+  const capabilityRouting = resolveSelfImprovementCapabilityRoutingDecision(
+    signal.capabilityRouting,
+  );
+  const evidence = sanitizeRecommendationTexts(
+    [
+      `Signal ${signal.id}: ${signal.summary}`,
+      `Latest occurrence: ${signal.lastSeenAt}`,
+      `Occurrences: ${signal.occurrences}`,
+      signal.errorCode ? `Error code: ${signal.errorCode}` : undefined,
+      signal.expected ? `Expected: ${signal.expected}` : undefined,
+      signal.observed ? `Observed: ${signal.observed}` : undefined,
+      signal.runId ? `Run: ${signal.runId}` : undefined,
+      signal.taskId ? `Task: ${signal.taskId}` : undefined,
+      signal.traceId ? `Trace: ${signal.traceId}` : undefined,
+      ...(capabilityRouting?.considered.length
+        ? [`Capabilities considered: ${capabilityRouting.considered.join(", ")}`]
+        : []),
+      ...(capabilityRouting?.selected.length
+        ? [`Capabilities selected: ${capabilityRouting.selected.join(", ")}`]
+        : []),
+      ...(capabilityRouting?.missed.length
+        ? [`Capabilities missed: ${capabilityRouting.missed.join(", ")}`]
+        : []),
+      ...(capabilityRouting?.fallback.length
+        ? [`Capability fallbacks: ${capabilityRouting.fallback.join(", ")}`]
+        : []),
+      ...(capabilityRouting?.recommended.length
+        ? [`Smallest recommended capability set: ${capabilityRouting.recommended.join(", ")}`]
+        : []),
+      ...signal.evidenceRefs,
+    ],
+    300,
+  );
+  return {
+    category,
+    severity: signalSeverity(signal.severity),
+    title: `Improvement signal needs owner review: ${signal.source.component} (${signal.kind})`,
+    groupTitle: `Improvement signal: ${signal.source.component} (${signal.kind})`,
+    summary:
+      "A versioned, sanitized component signal reported an outcome gap. The Governor records evidence-bound review work without changing the component.",
+    source: {
+      kind: "workflow",
+      label: `${signal.source.component} improvement signal`,
+      runId: `signal:${signal.id}`,
+    },
+    route: resolveSelfImprovementRoute({ cfg: params.cfg, category }),
+    recommendedAction: capabilityRouting?.recommended.length
+      ? `Reproduce the causal condition, try only ${capabilityRouting.recommended.join(", ")} first, and attach outcome proof over the required observation window before closure.`
+      : "Reproduce the causal condition, use the smallest relevant capability set, and attach outcome proof over the required observation window before closure.",
+    requiredEvidence,
+    evidence,
+    confidence: signal.trusted ? 0.92 : 0.68,
+    initialStatus: signal.trusted ? "open" : "quarantined",
+    outcomeProofRequired: Boolean(signal.desiredState),
+  };
 }
 
 function normalizeWorkflowFamily(task: TaskRecord): string {
@@ -1249,9 +1392,37 @@ function dedupeRecommendations(
   const byFingerprint = new Map<string, SelfImprovementRecommendation>();
   for (const recommendation of recommendations) {
     const existing = byFingerprint.get(recommendation.fingerprint);
-    if (!existing || SEVERITY_ORDER[recommendation.severity] > SEVERITY_ORDER[existing.severity]) {
+    if (!existing) {
       byFingerprint.set(recommendation.fingerprint, recommendation);
+      continue;
     }
+    const preferred =
+      SEVERITY_ORDER[recommendation.severity] > SEVERITY_ORDER[existing.severity]
+        ? recommendation
+        : existing;
+    const evidence = [...new Set([...existing.evidence, ...recommendation.evidence])];
+    const observedEvidenceKeys = [
+      ...new Set([
+        ...(existing.observedEvidenceKeys ?? []),
+        ...(recommendation.observedEvidenceKeys ?? []),
+      ]),
+    ];
+    byFingerprint.set(recommendation.fingerprint, {
+      ...preferred,
+      evidence,
+      observedEvidenceKeys,
+      recurrenceCount: existing.recurrenceCount + recommendation.recurrenceCount,
+      confidence: Math.max(existing.confidence, recommendation.confidence),
+      lastSeenAt: Math.max(existing.lastSeenAt, recommendation.lastSeenAt),
+      lastNovelEvidenceAt: Math.max(
+        existing.lastNovelEvidenceAt ?? existing.updatedAt,
+        recommendation.lastNovelEvidenceAt ?? recommendation.updatedAt,
+      ),
+      analysis: {
+        ...preferred.analysis,
+        evidenceCount: evidence.length,
+      },
+    });
   }
   return [...byFingerprint.values()].toSorted(
     (left, right) =>
@@ -1265,14 +1436,17 @@ export async function auditSelfImprovementOpportunities(
   input: SelfImprovementAuditInput,
 ): Promise<SelfImprovementAuditResult> {
   const now = input.now ?? Date.now();
-  const taskDrafts = input.tasks.flatMap((task) => auditTask(task, { ...input, now }));
-  const correctionDrafts = auditRepeatedCorrections(input.tasks, { ...input, now });
-  const continuousImprovementDrafts = auditContinuousImprovementThemes(input.tasks, {
+  const tasks = selectRecentTaskEvidence(input.tasks, now);
+  const taskDrafts = tasks.flatMap((task) => auditTask(task, { ...input, tasks, now }));
+  const correctionDrafts = auditRepeatedCorrections(tasks, { ...input, tasks, now });
+  const continuousImprovementDrafts = auditContinuousImprovementThemes(tasks, {
     ...input,
+    tasks,
     now,
   });
-  const repeatedWorkflowDrafts = auditRepeatedWorkflowFamilies(input.tasks, {
+  const repeatedWorkflowDrafts = auditRepeatedWorkflowFamilies(tasks, {
     ...input,
+    tasks,
     now,
   });
   const cronDrafts = (input.cronJobs ?? [])
@@ -1293,6 +1467,8 @@ export async function auditSelfImprovementOpportunities(
     auditSelfImprovementReviewEvents(auditEvents, { ...input, now }),
     auditControlDirectorReadinessEvents(auditEvents, { ...input, now }),
   ].filter((draft): draft is RecommendationDraft => Boolean(draft));
+  const signals = input.signals ?? [];
+  const signalDrafts = signals.map((signal) => auditTypedSignal(signal, { ...input, now }));
   const recommendations = dedupeRecommendations(
     [
       ...taskDrafts,
@@ -1302,17 +1478,19 @@ export async function auditSelfImprovementOpportunities(
       ...cronDrafts,
       ...skillWorkshopDrafts,
       ...auditEventDrafts,
+      ...signalDrafts,
     ]
       .filter((draft): draft is RecommendationDraft => Boolean(draft))
-      .map((draft) => buildRecommendation(draft, now)),
+      .map((draft) => buildSelfImprovementRecommendation(draft, now)),
   );
   return {
     recommendations,
     inspected: {
-      tasks: input.tasks.length,
+      tasks: tasks.length,
       cronJobs: input.cronJobs?.length ?? 0,
       auditEvents: auditEvents.length,
       skillWorkshopProposals: skillWorkshopProposals.length,
+      signals: signals.length,
     },
   };
 }

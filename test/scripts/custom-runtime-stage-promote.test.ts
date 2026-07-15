@@ -28,7 +28,7 @@ function executable(filePath: string, content: string): void {
 }
 
 function fixture() {
-  const home = createRuntimeFixtureRoot("openclaw-custom-runtime-update-");
+  const home = realpathSync(createRuntimeFixtureRoot("openclaw-custom-runtime-update-"));
   roots.push(home);
   const runtimeHome = path.join(home, ".openclaw-custom-runtime");
   const releasesDir = path.join(home, ".openclaw-runtime-releases");
@@ -50,6 +50,7 @@ function fixture() {
   writeFileSync(assetPath, "// pcc\n");
   writeFileSync(pluginManifestPath, "{}\n");
   writeFileSync(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
+  writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFileSync(
     manifestPath,
     `${JSON.stringify({
@@ -82,6 +83,10 @@ function fixture() {
     entrypoint,
     `import http from "node:http";
 const args = process.argv.slice(2);
+if (args[0] === "self-improvement" && args[1] === "summary") {
+  process.stdout.write('{"scorecard":{},"groups":[]}\\n');
+  process.exit(0);
+}
 const port = Number(args[args.indexOf("--port") + 1]);
 const server = http.createServer((req, res) => {
   res.statusCode = 200;
@@ -94,6 +99,27 @@ server.on("upgrade", (_req, socket) => {
 });
 server.listen(port, "127.0.0.1");
 `,
+  );
+  const bundledPlugins = path.join(release, "dist-runtime", "extensions");
+  mkdirSync(bundledPlugins, { recursive: true });
+  writeFileSync(
+    path.join(release, "snapshot.json"),
+    `${JSON.stringify({
+      version: 2,
+      releaseId: "release-new",
+      root: release,
+      createdAt: "2026-07-14T06:29:44.990Z",
+      packageVersion: "2026.6.11",
+      artifactHash: "a".repeat(64),
+      source: { commit: sourceSha },
+      schemas: {
+        runtimeSnapshot: 2,
+        selfImprovementLedger: 1,
+        selfImprovementRecommendationStore: 3,
+        selfImprovementSignal: 1,
+      },
+      paths: { entrypoint, controlUi: path.dirname(manifestPath), bundledPlugins },
+    })}\n`,
   );
   const launcher = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
   cpSync(
@@ -137,10 +163,8 @@ describe("custom runtime canary and rollback", () => {
       provider,
       '#!/bin/sh\nprintf \'%s\\n\' \'{"values":{"discord/bot-token":"present"}}\'\n',
     );
-    const originalPointer = `${JSON.stringify({
-      requiredSurfaces: ["pcc"],
-      requiredCapabilities: ["dashboard:pcc"],
-    })}\n`;
+    // Models the previously deployed SIG pointer before capability fields were added.
+    const originalPointer = `${JSON.stringify({ requiredSurfaces: ["pcc"] })}\n`;
     writeFileSync(activePointer, originalPointer);
     const port = 29_000 + Math.floor(Math.random() * 500);
 
@@ -187,9 +211,7 @@ describe("custom runtime canary and rollback", () => {
     const promotedPlist = path.join(input.home, "promoted-gateway.plist");
     mkdirSync(fakeBin, { recursive: true });
     mkdirSync(input.runtimeHome, { recursive: true });
-    writeFileSync(path.join(input.release, ".openclaw-production-sha"), `${input.sourceSha}\n`);
-    const originalPointer =
-      '{"releaseId":"release-old","requiredSurfaces":[],"requiredCapabilities":[]}\n';
+    const originalPointer = '{"releaseId":"release-old","requiredSurfaces":[]}\n';
     writeFileSync(activePointer, originalPointer);
     writeFileSync(
       plist,

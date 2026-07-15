@@ -11,6 +11,22 @@ provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-se
 port=${OPENCLAW_GATEWAY_PORT:-18789}
 uid=$(id -u)
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
+for operation in activation promotion; do
+  operation_lock="$runtime_home/locks/$operation.lock"
+  if [ -d "$operation_lock" ]; then
+    now=$(date +%s)
+    modified=$(stat -f %m "$operation_lock" 2>/dev/null || printf 0)
+    case "$modified" in *[!0-9]*|'') modified=0 ;; esac
+    age=$((now - modified))
+    if [ "$age" -ge 0 ] && [ "$age" -lt 900 ]; then
+      exit 0
+    fi
+    rmdir "$operation_lock" 2>/dev/null || exit 0
+    receipt_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    printf '{"at":"%s","result":"stale_%s_lock_removed"}\n' \
+      "$receipt_stamp" "$operation" > "$runtime_home/receipts/guard-stale-$operation-lock-$receipt_stamp.json"
+  fi
+done
 lock="$runtime_home/locks/guard.lock"
 if ! mkdir "$lock" 2>/dev/null; then exit 0; fi
 trap 'rmdir "$lock"' EXIT

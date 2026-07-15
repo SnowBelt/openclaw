@@ -92,6 +92,12 @@ export function mergeInstallInvocationEnv(params: {
   };
 }
 
+function omitInstallEnvKey(env: NodeJS.ProcessEnv, key: string): NodeJS.ProcessEnv {
+  const next = { ...env };
+  delete next[key];
+  return next;
+}
+
 /** Install or refresh the managed Gateway service. */
 export async function runDaemonInstall(opts: DaemonInstallOptions) {
   const { json, stdout, warnings, emit, fail } = createDaemonInstallActionContext(opts.json);
@@ -126,6 +132,10 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
     return;
   }
   let wrapperPath: string | undefined;
+  if (opts.clearWrapper && opts.wrapper !== undefined) {
+    fail("Invalid wrapper options: use either --wrapper or --clear-wrapper, not both.");
+    return;
+  }
   if (opts.wrapper !== undefined) {
     try {
       wrapperPath = await resolveOpenClawWrapperPath(opts.wrapper);
@@ -183,11 +193,14 @@ export async function runDaemonInstall(opts: DaemonInstallOptions) {
   const existingServiceCommand = await service.readCommand(process.env).catch(() => null);
   const existingServiceEnv: Record<string, string> | undefined =
     existingServiceCommand?.environment;
-  const installEnv = mergeInstallInvocationEnv({
+  const mergedInstallEnv = mergeInstallInvocationEnv({
     env: process.env,
     existingServiceEnv,
   });
-  if (!wrapperPath) {
+  const installEnv = opts.clearWrapper
+    ? omitInstallEnvKey(mergedInstallEnv, OPENCLAW_WRAPPER_ENV_KEY)
+    : mergedInstallEnv;
+  if (!wrapperPath && !opts.clearWrapper) {
     try {
       wrapperPath = await resolveOpenClawWrapperPath(installEnv[OPENCLAW_WRAPPER_ENV_KEY]);
     } catch (err) {

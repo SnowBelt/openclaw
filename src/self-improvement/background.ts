@@ -1,10 +1,16 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CronJob } from "../cron/types.js";
+import { onInternalDiagnosticEvent } from "../infra/diagnostic-events.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { runSelfImprovementAnalysis } from "./analysis.js";
 import { appendSelfImprovementAuditEvent } from "./audit-events.js";
 import { writeSelfImprovementOperationalHealthSnapshot } from "./operational-health.js";
 import { runSelfImprovementGovernorScan } from "./runner.js";
+import {
+  adaptDiagnosticEventToSelfImprovementSignal,
+  recordSelfImprovementSignal,
+} from "./signals.js";
+import type { SelfImprovementScanTrigger } from "./types.js";
 
 const DEFAULT_SELF_IMPROVEMENT_INTERVAL_MS = 6 * 60 * 60_000;
 const DEFAULT_SELF_IMPROVEMENT_INITIAL_DELAY_MS = 5 * 60_000;
@@ -12,6 +18,17 @@ const DEFAULT_SELF_IMPROVEMENT_ANALYSIS_LIMIT = 25;
 const MIN_SELF_IMPROVEMENT_INTERVAL_MS = 15 * 60_000;
 const DEFAULT_SELF_IMPROVEMENT_TIMEOUT_MS = 20 * 60_000;
 const DEFAULT_SELF_IMPROVEMENT_JITTER_RATIO = 0.1;
+const MAX_SELF_IMPROVEMENT_INTERVAL_MS = 24 * 60 * 60_000;
+const ACTIVE_SELF_IMPROVEMENT_INTERVAL_MS = 60 * 60_000;
+const FAILURE_SELF_IMPROVEMENT_INTERVAL_MS = 30 * 60_000;
+const DEFAULT_SIGNAL_WAKE_DELAY_MS = 1_000;
+export const SELF_IMPROVEMENT_BACKGROUND_ENABLED_ENV = "OPENCLAW_SELF_IMPROVEMENT_BACKGROUND";
+
+/** Gateway background mutation stays fail-closed until an operator explicitly opts in. */
+export function isSelfImprovementBackgroundEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env[SELF_IMPROVEMENT_BACKGROUND_ENABLED_ENV]?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
 
 type SelfImprovementBackgroundScan = typeof runSelfImprovementGovernorScan;
 type SelfImprovementBackgroundAnalysis = typeof runSelfImprovementAnalysis;
@@ -23,6 +40,7 @@ async function recordBackgroundCycleHealth(params: {
   error?: string;
   skipped?: boolean;
   skipReason?: string;
+  nextIntervalMs?: number;
 }) {
   const now = Date.now();
   try {
@@ -43,6 +61,7 @@ async function recordBackgroundCycleHealth(params: {
           ...(params.skipReason ? { skipReason: params.skipReason } : {}),
           ...(params.success ? { analysisLimit: params.analysisLimit } : {}),
           ...(params.error ? { error: params.error } : {}),
+          ...(params.nextIntervalMs ? { nextIntervalMs: params.nextIntervalMs } : {}),
         },
       },
     });
@@ -52,6 +71,29 @@ async function recordBackgroundCycleHealth(params: {
       `self-improvement operational health recording failed: ${formatErrorMessage(error)}`,
     );
   }
+}
+
+export function resolveAdaptiveSelfImprovementInterval(params: {
+  baseIntervalMs: number;
+  quietCycles: number;
+  producedNewWork: boolean;
+  failed: boolean;
+}): number {
+  const baseIntervalMs = Math.max(MIN_SELF_IMPROVEMENT_INTERVAL_MS, params.baseIntervalMs);
+  if (params.failed) {
+    return Math.max(
+      MIN_SELF_IMPROVEMENT_INTERVAL_MS,
+      Math.min(baseIntervalMs, FAILURE_SELF_IMPROVEMENT_INTERVAL_MS),
+    );
+  }
+  if (params.producedNewWork) {
+    return Math.max(
+      MIN_SELF_IMPROVEMENT_INTERVAL_MS,
+      Math.min(baseIntervalMs, ACTIVE_SELF_IMPROVEMENT_INTERVAL_MS),
+    );
+  }
+  const multiplier = 2 ** Math.min(2, Math.max(0, Math.floor(params.quietCycles)));
+  return Math.min(MAX_SELF_IMPROVEMENT_INTERVAL_MS, baseIntervalMs * multiplier);
 }
 
 function resolveIntervalMs(env: NodeJS.ProcessEnv): number {
@@ -123,14 +165,40 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
   runAnalysis?: SelfImprovementBackgroundAnalysis;
   env?: NodeJS.ProcessEnv;
   random?: () => number;
+  stateDir?: string;
+  signalBridgeEnabled?: boolean;
+  signalWakeDelayMs?: number;
+  subscribeDiagnosticEvents?: typeof onInternalDiagnosticEvent;
+  recordSignal?: typeof recordSelfImprovementSignal;
 }): {
   interval: ReturnType<typeof setInterval>;
   initial: ReturnType<typeof setTimeout>;
-  runNow: () => Promise<void>;
+  runNow: (trigger?: SelfImprovementScanTrigger) => Promise<void>;
+  stop: () => void;
 } {
   let inFlight: Promise<void> | null = null;
-  const runNow = async () => {
+  let quietCycles = 0;
+  let nextEligibleAt = 0;
+  let pendingSignalWake = false;
+  let signalWakeTimer: ReturnType<typeof setTimeout> | undefined;
+  const baseIntervalMs = params.intervalMs ?? resolveIntervalMs(params.env ?? process.env);
+  const random = params.random ?? Math.random;
+  const jitterRatio = params.jitterRatio ?? DEFAULT_SELF_IMPROVEMENT_JITTER_RATIO;
+  const scheduleSignalWake = (runNow: (trigger?: SelfImprovementScanTrigger) => Promise<void>) => {
+    if (signalWakeTimer) {
+      return;
+    }
+    signalWakeTimer = setTimeout(() => {
+      signalWakeTimer = undefined;
+      void runNow("signal");
+    }, params.signalWakeDelayMs ?? DEFAULT_SIGNAL_WAKE_DELAY_MS);
+    signalWakeTimer.unref?.();
+  };
+  const runNow = async (trigger: SelfImprovementScanTrigger = "background") => {
     if (inFlight) {
+      if (trigger === "signal") {
+        pendingSignalWake = true;
+      }
       if (params.recordOperationalHealth !== false) {
         await recordBackgroundCycleHealth({
           success: true,
@@ -147,11 +215,21 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
       await withTimeout(
         (async () => {
           const cfg = params.getRuntimeConfig();
-          await (params.runScan ?? runSelfImprovementGovernorScan)({
+          const scan = await (params.runScan ?? runSelfImprovementGovernorScan)({
             cfg,
-            trigger: "background",
+            trigger,
             listCronJobs: params.listCronJobs,
+            ...(params.stateDir ? { stateDir: params.stateDir } : {}),
           });
+          const producedNewWork = scan.scan.created + scan.scan.reopened > 0;
+          quietCycles = producedNewWork ? 0 : quietCycles + 1;
+          const nextIntervalMs = resolveAdaptiveSelfImprovementInterval({
+            baseIntervalMs,
+            quietCycles,
+            producedNewWork,
+            failed: false,
+          });
+          nextEligibleAt = Date.now() + nextIntervalMs;
           if (params.analyzeAfterScan === false) {
             return;
           }
@@ -165,6 +243,7 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
               success: true,
               analysisLimit: params.analysisLimit ?? DEFAULT_SELF_IMPROVEMENT_ANALYSIS_LIMIT,
               log: params.log,
+              nextIntervalMs,
             });
           }
         })(),
@@ -174,6 +253,13 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
       .then(() => undefined)
       .catch(async (error: unknown) => {
         const message = formatErrorMessage(error);
+        const nextIntervalMs = resolveAdaptiveSelfImprovementInterval({
+          baseIntervalMs,
+          quietCycles,
+          producedNewWork: false,
+          failed: true,
+        });
+        nextEligibleAt = Date.now() + nextIntervalMs;
         params.log?.error(`self-improvement background cycle failed: ${message}`);
         if (params.recordOperationalHealth !== false) {
           await recordBackgroundCycleHealth({
@@ -181,17 +267,19 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
             analysisLimit: params.analysisLimit ?? DEFAULT_SELF_IMPROVEMENT_ANALYSIS_LIMIT,
             log: params.log,
             error: message,
+            nextIntervalMs,
           });
         }
       })
       .finally(() => {
         inFlight = null;
+        if (pendingSignalWake) {
+          pendingSignalWake = false;
+          scheduleSignalWake(runNow);
+        }
       });
     return await inFlight;
   };
-  const intervalMs = params.intervalMs ?? resolveIntervalMs(params.env ?? process.env);
-  const jitterRatio = params.jitterRatio ?? DEFAULT_SELF_IMPROVEMENT_JITTER_RATIO;
-  const random = params.random ?? Math.random;
   const initialDelayMs =
     params.initialDelayMs ??
     jitterDelayMs({
@@ -200,17 +288,55 @@ export function startSelfImprovementGovernorBackgroundTask(params: {
       random,
     });
   const intervalDelayMs = jitterDelayMs({
-    baseMs: intervalMs,
+    baseMs: Math.min(baseIntervalMs, MIN_SELF_IMPROVEMENT_INTERVAL_MS),
     jitterRatio,
     random,
   });
   const interval = setInterval(() => {
-    void runNow();
+    if (Date.now() >= nextEligibleAt) {
+      void runNow();
+    }
   }, intervalDelayMs);
   const initial = setTimeout(() => {
     void runNow();
   }, initialDelayMs);
   interval.unref?.();
   initial.unref?.();
-  return { interval, initial, runNow };
+  const stopSignalListener =
+    params.signalBridgeEnabled === false
+      ? () => {}
+      : (params.subscribeDiagnosticEvents ?? onInternalDiagnosticEvent)((event, metadata) => {
+          const input = adaptDiagnosticEventToSelfImprovementSignal(event, metadata);
+          if (!input) {
+            return;
+          }
+          void (params.recordSignal ?? recordSelfImprovementSignal)({
+            input,
+            stateDir: params.stateDir,
+          })
+            .then((result) => {
+              if (
+                !result.duplicate &&
+                result.signal.trusted &&
+                (result.signal.severity === "critical" || result.signal.severity === "high")
+              ) {
+                scheduleSignalWake(runNow);
+              }
+            })
+            .catch((error: unknown) => {
+              params.log?.error(
+                `self-improvement signal ingestion failed: ${formatErrorMessage(error)}`,
+              );
+            });
+        });
+  const stop = () => {
+    clearInterval(interval);
+    clearTimeout(initial);
+    if (signalWakeTimer) {
+      clearTimeout(signalWakeTimer);
+      signalWakeTimer = undefined;
+    }
+    stopSignalListener();
+  };
+  return { interval, initial, runNow, stop };
 }

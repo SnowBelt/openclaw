@@ -62,8 +62,14 @@ function proofState(value: {
   requiresApproval: boolean;
   resolutionProof?: string;
   resolutionProofState?: "current" | "stale";
+  outcomeProofRequired?: boolean;
+  proofOutcomeState?: "pending" | "confirmed" | "failed" | "stale";
 }): SelfImprovementActionabilityProofState {
-  if (hasText(value.resolutionProof) && value.resolutionProofState !== "stale") {
+  if (
+    hasText(value.resolutionProof) &&
+    value.resolutionProofState !== "stale" &&
+    (!value.outcomeProofRequired || value.proofOutcomeState === "confirmed")
+  ) {
     return "attached";
   }
   return value.requiresTests || value.requiresApproval ? "missing" : "not_required";
@@ -156,6 +162,8 @@ function deriveActionability(params: {
   claimedBy?: string;
   resolutionProof?: string;
   resolutionProofState?: "current" | "stale";
+  outcomeProofRequired?: boolean;
+  proofOutcomeState?: "pending" | "confirmed" | "failed" | "stale";
 }): SelfImprovementActionability {
   const slaMs = SLA_MS_BY_PRIORITY[params.priority];
   const ageMs = Math.max(0, params.now - params.updatedAt);
@@ -225,6 +233,8 @@ export function deriveSelfImprovementRecommendationActionability(
     claimedBy: recommendation.claimedBy,
     resolutionProof: recommendation.resolutionProof,
     resolutionProofState: recommendation.resolutionProofState,
+    outcomeProofRequired: recommendation.outcomeProofRequired,
+    proofOutcomeState: recommendation.proofOutcomeState,
   });
 }
 
@@ -239,6 +249,10 @@ export function deriveSelfImprovementGroupActionability(
   const assigned = groupRecommendations.find((entry) => hasText(entry.assignedTargetAgentId));
   const claimed = groupRecommendations.find((entry) => hasText(entry.claimedBy));
   const proof = groupRecommendations.find((entry) => hasText(entry.resolutionProof));
+  const outcomeProofRequired = groupRecommendations.some((entry) => entry.outcomeProofRequired);
+  const confirmedOutcome = groupRecommendations.find(
+    (entry) => entry.proofOutcomeState === "confirmed",
+  );
   return deriveActionability({
     status: group.status,
     priority: group.priority,
@@ -250,6 +264,8 @@ export function deriveSelfImprovementGroupActionability(
     claimedBy: claimed?.claimedBy,
     resolutionProof: proof?.resolutionProof,
     resolutionProofState: proof?.resolutionProofState,
+    outcomeProofRequired,
+    proofOutcomeState: confirmedOutcome?.proofOutcomeState,
   });
 }
 

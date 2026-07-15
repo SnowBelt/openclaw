@@ -440,7 +440,22 @@ function mergeServicePath(
 const PRESERVED_OPENCLAW_OPERATOR_OPT_IN_ENV_KEYS = new Set([
   "OPENCLAW_CLI_CONTAINER_BYPASS",
   "OPENCLAW_CONTAINER_HINT",
+  "OPENCLAW_SELF_IMPROVEMENT_BACKGROUND",
 ]);
+
+/** Carry explicit operator opt-ins from the current install invocation into the service. */
+export function collectInvocationOperatorOptInServiceEnvVars(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const key of PRESERVED_OPENCLAW_OPERATOR_OPT_IN_ENV_KEYS) {
+    const value = env[key]?.trim();
+    if (value) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
 /** Preserve safe operator-owned env vars from an existing service definition. */
 export function collectPreservedExistingServiceEnvVars(
@@ -554,6 +569,7 @@ async function buildGatewayInstallEnvironment(params: {
     params.existingEnvironment,
     readManagedServiceEnvKeysFromEnvironment(params.existingEnvironment),
   );
+  const invocationOperatorOptIns = collectInvocationOperatorOptInServiceEnvVars(params.env);
   const plan = createMutableServiceEnvPlan();
   addServiceEnvPlanEntries(plan, preservedExistingEnvironment, {
     source: "existing-preserved",
@@ -562,6 +578,10 @@ async function buildGatewayInstallEnvironment(params: {
         existingEnvironmentValueSources: params.existingEnvironmentValueSources,
         normalizedKey,
       }) ?? "inline",
+  });
+  addServiceEnvPlanEntries(plan, invocationOperatorOptIns, {
+    source: "service-generated",
+    valueSource: "inline",
   });
   addServiceEnvPlanEntries(plan, stateDirDotEnvEnvironment, { source: "state-dotenv" });
   addServiceEnvPlanEntries(plan, configEnvironment, { source: "config-env" });

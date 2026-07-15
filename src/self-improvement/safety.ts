@@ -55,6 +55,7 @@ export function buildSelfImprovementSafety(params: {
   return {
     mode: "recommendation_only",
     mutationAllowed: false,
+    autonomyTier: "recommend",
     requiresApproval: routeRequiresApproval(params.route),
     requiresTests: categoryRequiresTests(params.category),
     blockedActions: BLOCKED_ACTIONS,

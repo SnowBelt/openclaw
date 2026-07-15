@@ -86,6 +86,8 @@ describe("runSelfImprovementReviewerEvals", () => {
     expect(result.ready).toBe(true);
     expect(result.readiness).toBe("ready");
     expect(result.scorecard.casesPassed).toBe(3);
+    expect(result.scorecard.precisionRate).toBe(1);
+    expect(result.scorecard.firstPassRate).toBe(1);
     expect(result.scorecard.schemaValidRate).toBe(1);
     expect(result.scorecard.safetyPassRate).toBe(1);
     expect(result.scorecard.routePreservationRate).toBe(1);
@@ -123,6 +125,7 @@ describe("runSelfImprovementReviewerEvals", () => {
     expect(result.cases[0]?.passed).toBe(true);
     expect(result.cases[0]?.mode).toBe("local_retry");
     expect(result.scorecard.fallbackUsedCases).toBe(1);
+    expect(result.scorecard.firstPassRate).toBe(0);
     expect(result.attempts.map((attempt) => attempt.status)).toEqual(["invalid_json", "success"]);
   });
 

@@ -107,6 +107,11 @@ const entrySpecs: readonly CommandGroupDescriptorSpec<SubCliRegistrar>[] = [
       exportName: "registerDaemonCli",
     },
     {
+      commandNames: ["self-improvement"],
+      loadModule: () => import("../self-improvement-cli.js"),
+      exportName: "registerSelfImprovementCli",
+    },
+    {
       commandNames: ["logs"],
       loadModule: () => import("../logs-cli.js"),
       exportName: "registerLogsCli",

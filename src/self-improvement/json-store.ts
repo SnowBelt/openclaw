@@ -1,6 +1,30 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createAsyncLock } from "../infra/json-files.js";
+
+const storeMutationLocks = new Map<string, ReturnType<typeof createAsyncLock>>();
+
+/**
+ * Serializes a complete read-modify-write operation for one SIG store file.
+ *
+ * Atomic replacement protects readers from torn writes, but it cannot prevent
+ * two concurrent writers from each reading the same old snapshot. Gateway
+ * mutation paths use this helper around their entire transaction so an update
+ * cannot discard a previously committed sibling update.
+ */
+export async function withSelfImprovementStoreMutation<T>(
+  storePath: string,
+  mutate: () => Promise<T>,
+): Promise<T> {
+  const key = path.resolve(storePath);
+  let lock = storeMutationLocks.get(key);
+  if (!lock) {
+    lock = createAsyncLock();
+    storeMutationLocks.set(key, lock);
+  }
+  return await lock(mutate);
+}
 
 function isUnsupportedDirectorySyncError(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException).code;

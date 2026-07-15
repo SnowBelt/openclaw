@@ -220,6 +220,17 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     tests: ["ui/src/ui/navigation.test.ts", "ui/src/ui/views/chat.test.ts"],
     proofSurfaces: ["pnpm ui:smoke:dashboard-codex-plus-apps"],
   },
+  {
+    id: "runtime:self-improvement-governor",
+    kind: "runtime",
+    owner: "Self-Improvement Governor",
+    tests: [
+      "src/self-improvement/production-readiness.test.ts",
+      "src/gateway/server-methods/self-improvement.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+    ],
+    proofSurfaces: ["pnpm ui:smoke:self-improvement", "Self-Improvement production soak"],
+  },
 ];
 
 export const PCC_CUSTOM_RUNTIME_ADDITION_STANDARD_IDS = CUSTOM_RUNTIME_ADDITIONS.map(

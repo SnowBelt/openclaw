@@ -735,6 +735,7 @@ describe("argv helpers", () => {
     { argv: ["node", "openclaw", "models", "list"], expected: true },
     { argv: ["node", "openclaw", "models", "status"], expected: true },
     { argv: ["node", "openclaw", "update", "status", "--json"], expected: false },
+    { argv: ["node", "openclaw", "self-improvement", "summary", "--json"], expected: false },
     { argv: ["node", "openclaw", "agent", "--message", "hi"], expected: true },
     { argv: ["node", "openclaw", "agents", "list"], expected: true },
     { argv: ["node", "openclaw", "message", "send"], expected: true },
@@ -750,6 +751,16 @@ describe("argv helpers", () => {
     { path: ["agent"], expected: true },
     { path: ["models", "status"], expected: true },
     { path: ["agents", "list"], expected: true },
+    { path: ["self-improvement", "list"], expected: false },
+    { path: ["self-improvement", "summary"], expected: false },
+    { path: ["self-improvement", "production-check"], expected: false },
+    { path: ["self-improvement", "models", "template"], expected: false },
+    { path: ["self-improvement", "models", "preflight"], expected: true },
+    { path: ["self-improvement", "proposals", "list"], expected: false },
+    { path: ["self-improvement", "proposals", "update"], expected: true },
+    { path: ["self-improvement", "curator", "show"], expected: false },
+    { path: ["self-improvement", "curator", "accept"], expected: true },
+    { path: ["self-improvement", "maintain"], expected: true },
   ])("reuses command path for migrate state decisions: $path", ({ path, expected }) => {
     expect(shouldMigrateStateFromPath(path)).toBe(expected);
   });

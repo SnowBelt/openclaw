@@ -24,6 +24,7 @@ export type DaemonInstallOptions = {
   runtime?: string;
   token?: string;
   wrapper?: string;
+  clearWrapper?: boolean;
   force?: boolean;
   json?: boolean;
 };

@@ -1,9 +1,9 @@
+import type { Api, Model } from "@mariozechner/pi-ai";
 import { isLoopbackIpAddress, isPrivateOrLoopbackIpAddress } from "@openclaw/net-policy/ip";
 import type { SimpleCompletionModelOptions } from "../agents/simple-completion-runtime.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizeSecretInputString } from "../config/types.secrets.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import type { Model } from "../llm/types.js";
 import {
   normalizeSelfImprovementModelId,
   selectSelfImprovementReviewModelPlan,
@@ -834,7 +834,7 @@ function reinforceClosureRequirements(params: {
 
 export function buildSelfImprovementLocalReviewerPayloadHint(params: {
   local?: boolean;
-  model: Pick<Model, "api">;
+  model: Pick<Model<Api>, "api">;
   topP?: number;
 }): SimpleCompletionModelOptions["onPayload"] | undefined {
   if (!params.local) {

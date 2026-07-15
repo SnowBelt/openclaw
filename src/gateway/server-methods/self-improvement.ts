@@ -2,15 +2,16 @@ import {
   ErrorCodes,
   errorShape,
   formatValidationErrors,
-  type SelfImprovementRecommendationsListParams,
-  type SelfImprovementRecommendationsSummaryParams,
   validateSelfImprovementAnalysisRunParams,
+  validateSelfImprovementDashboardInterventionParams,
   validateSelfImprovementAuditEventsListParams,
   validateSelfImprovementCuratorGetParams,
   validateSelfImprovementCuratorListParams,
   validateSelfImprovementCuratorUpdateParams,
   validateSelfImprovementHealthParams,
   validateSelfImprovementProductionCheckParams,
+  validateSelfImprovementProofReceiptRecordParams,
+  validateSelfImprovementProofReceiptsListParams,
   validateSelfImprovementMaintenanceRunParams,
   validateSelfImprovementModelPreflightParams,
   validateSelfImprovementReviewerEvalRunParams,
@@ -25,7 +26,12 @@ import {
   validateSelfImprovementScorecardParams,
   validateSelfImprovementScanParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import type {
+  SelfImprovementRecommendationsListParams,
+  SelfImprovementRecommendationsSummaryParams,
+} from "../../../packages/gateway-protocol/src/schema/self-improvement.js";
 import { resolveStateDir } from "../../config/paths.js";
+import { readGatewayRuntimeSnapshotProvenance } from "../../daemon/gateway-runtime-snapshot.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { deriveSelfImprovementRecommendationActionability } from "../../self-improvement/actionability.js";
 import { runSelfImprovementAnalysis } from "../../self-improvement/analysis.js";
@@ -34,10 +40,15 @@ import {
   appendSelfImprovementModelPreflightAuditEvent,
   listSelfImprovementAuditEvents,
 } from "../../self-improvement/audit-events.js";
+import { recordSelfImprovementDashboardIntervention } from "../../self-improvement/interventions.js";
 import { preflightSelfImprovementReviewModels } from "../../self-improvement/llm-reviewer.js";
 import { runSelfImprovementMaintenance } from "../../self-improvement/maintenance.js";
 import { loadSelfImprovementOperationalHealth } from "../../self-improvement/operational-health.js";
 import { runSelfImprovementProductionCheck } from "../../self-improvement/production-readiness.js";
+import {
+  listSelfImprovementProofReceipts,
+  recordSelfImprovementProofReceipt,
+} from "../../self-improvement/proof-receipts.js";
 import {
   getSelfImprovementProposal,
   listSelfImprovementProposals,
@@ -196,6 +207,77 @@ function invalidParams(method: string, errors: unknown) {
 }
 
 export const selfImprovementHandlers: GatewayRequestHandlers = {
+  "selfImprovement.proofReceipts.list": async ({ params, respond }) => {
+    if (!validateSelfImprovementProofReceiptsListParams(params)) {
+      respond(
+        false,
+        undefined,
+        invalidParams(
+          "selfImprovement.proofReceipts.list",
+          validateSelfImprovementProofReceiptsListParams.errors,
+        ),
+      );
+      return;
+    }
+    const receipts = await listSelfImprovementProofReceipts({
+      stateDir: resolveStateDir(),
+      ...(params.recommendationId ? { recommendationId: params.recommendationId } : {}),
+      ...(params.limit ? { limit: params.limit } : {}),
+    });
+    respond(true, { receipts, total: receipts.length });
+  },
+  "selfImprovement.proofReceipts.record": async ({ params, respond }) => {
+    if (!validateSelfImprovementProofReceiptRecordParams(params)) {
+      respond(
+        false,
+        undefined,
+        invalidParams(
+          "selfImprovement.proofReceipts.record",
+          validateSelfImprovementProofReceiptRecordParams.errors,
+        ),
+      );
+      return;
+    }
+    try {
+      const stateDir = resolveStateDir();
+      const receipt = await recordSelfImprovementProofReceipt({ input: params, stateDir });
+      const recommendation = await getSelfImprovementRecommendation({
+        id: receipt.recommendationId,
+        stateDir,
+      });
+      if (!recommendation) {
+        throw new Error(`Missing recommendation ${receipt.recommendationId} after proof write.`);
+      }
+      respond(true, { receipt, recommendation: withRecommendationActionability(recommendation) });
+    } catch (error) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, formatErrorMessage(error)));
+    }
+  },
+  "selfImprovement.dashboardInterventions.record": async ({ params, respond, context }) => {
+    if (!validateSelfImprovementDashboardInterventionParams(params)) {
+      respond(
+        false,
+        undefined,
+        invalidParams(
+          "selfImprovement.dashboardInterventions.record",
+          validateSelfImprovementDashboardInterventionParams.errors,
+        ),
+      );
+      return;
+    }
+    try {
+      respond(
+        true,
+        await recordSelfImprovementDashboardIntervention({
+          cfg: context.getRuntimeConfig(),
+          intervention: params,
+          stateDir: resolveStateDir(),
+        }),
+      );
+    } catch (error) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, formatErrorMessage(error)));
+    }
+  },
   "selfImprovement.scan": async ({ params, respond, context }) => {
     if (!validateSelfImprovementScanParams(params)) {
       respond(
@@ -326,6 +408,35 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    const gatewayProvenance = readGatewayRuntimeSnapshotProvenance({ env: process.env });
+    const runtimeProvenance = gatewayProvenance
+      ? {
+          releaseId: gatewayProvenance.releaseId,
+          builtAt: gatewayProvenance.createdAt,
+          ...(gatewayProvenance.packageVersion
+            ? { packageVersion: gatewayProvenance.packageVersion }
+            : {}),
+          ...(gatewayProvenance.sourceCommit
+            ? { sourceCommit: gatewayProvenance.sourceCommit }
+            : {}),
+          ...(gatewayProvenance.artifactHash
+            ? { artifactHash: gatewayProvenance.artifactHash }
+            : {}),
+          snapshotSchemaVersion: gatewayProvenance.manifestVersion,
+          ...(gatewayProvenance.schemas.selfImprovementLedger
+            ? { ledgerSchemaVersion: gatewayProvenance.schemas.selfImprovementLedger }
+            : {}),
+          ...(gatewayProvenance.schemas.selfImprovementRecommendationStore
+            ? {
+                recommendationSchemaVersion:
+                  gatewayProvenance.schemas.selfImprovementRecommendationStore,
+              }
+            : {}),
+          ...(gatewayProvenance.schemas.selfImprovementSignal
+            ? { signalSchemaVersion: gatewayProvenance.schemas.selfImprovementSignal }
+            : {}),
+        }
+      : undefined;
     const result = await runSelfImprovementProductionCheck({
       stateDir: resolveStateDir(),
       days: params.days,
@@ -335,6 +446,8 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
       requireModelReady: params.requireModelReady,
       requireEvalsReady: params.requireEvalsReady,
       env: process.env,
+      ...(runtimeProvenance ? { runtimeProvenance } : {}),
+      requireRuntimeProvenance: true,
     });
     respond(true, result);
   },

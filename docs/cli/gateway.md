@@ -474,6 +474,50 @@ openclaw gateway restart
 openclaw gateway uninstall
 ```
 
+### Source-checkout runtime snapshots
+
+For local source checkouts, `pnpm build` promotes the finished `dist`, Control
+UI, and bundled-plugin runtime into an immutable release under
+`.artifacts/openclaw-gateway-runtime/releases/`. A macOS LaunchAgent install or
+restart uses the newest complete package-local release instead of continuing to
+execute a mutable build directory. Set `OPENCLAW_GATEWAY_RUNTIME_SNAPSHOT=0` to
+disable local promotion; CI skips promotion unless it is explicitly enabled.
+
+Inspect or manage retained releases from the source checkout:
+
+```bash
+openclaw gateway snapshot status --json
+openclaw gateway snapshot prune --keep 8 --apply --json
+openclaw gateway snapshot rollback <releaseId> --apply --json
+```
+
+`status` is read-only. `prune` and `rollback` are previews unless `--apply` is
+present. Applied `prune` removes only older unprotected releases; the
+latest release and releases referenced by OpenClaw LaunchAgents remain
+protected. `rollback` validates the retained release and changes only the
+`latest` pointer; restart the Gateway separately to rewrite the managed service
+to that retained release and activate it. Snapshot plugin overrides are accepted
+only from the package-local promoted release tree.
+
+A wrapper that selects a different verified immutable release must set
+`OPENCLAW_RUNTIME_SNAPSHOT_ROOT` to that release before it starts the Gateway.
+The selected root must contain its canonical `snapshot.json`, with runtime paths
+rewritten to the selected release. This keeps Gateway status, SIG production
+acceptance, bundled-plugin loading, and the actual process executable on one
+runtime identity instead of inheriting stale service-environment provenance.
+
+Repository operators using `scripts/custom-runtime/` should activate releases
+through `custom-runtime-activate.sh`, not by replacing the installed launcher
+and invoking promotion separately. Activation stages with the candidate
+launcher first, backs up the installed control plane, and restores the previous
+launcher before a rollback restart. This preserves rollback compatibility when
+the previous release predates the current runtime-provenance contract. Both the
+staging and promotion gates require the dashboard routes, WebSocket upgrade,
+and a parseable read-only `selfImprovement.summary` response before accepting
+the candidate. Packaged uncommitted candidates also bind their source stamp to
+the SHA-256 digest of the packaged source-provenance ledger; commit-backed
+updates bind the stamp directly to the build commit.
+
 ### Install with a wrapper
 
 Use `--wrapper` when the managed service must start through another executable, for example a
@@ -502,17 +546,19 @@ OPENCLAW_WRAPPER="$HOME/.local/bin/openclaw-doppler" openclaw gateway install --
 openclaw doctor
 ```
 
-To remove a persisted wrapper, clear `OPENCLAW_WRAPPER` while reinstalling:
+To remove a persisted wrapper, use the explicit `--clear-wrapper` option. This
+also prevents the existing service definition from carrying the wrapper into
+the forced reinstall:
 
 ```bash
-OPENCLAW_WRAPPER= openclaw gateway install --force
+openclaw gateway install --clear-wrapper --force
 openclaw gateway restart
 ```
 
 <AccordionGroup>
   <Accordion title="Command options">
     - `gateway status`: `--url`, `--token`, `--password`, `--timeout`, `--no-probe`, `--require-rpc`, `--deep`, `--json`
-    - `gateway install`: `--port`, `--runtime <node|bun>`, `--token`, `--wrapper <path>`, `--force`, `--json`
+    - `gateway install`: `--port`, `--runtime <node|bun>` (default: `node`), `--token`, `--wrapper <path>`, `--clear-wrapper`, `--force`, `--json`
     - `gateway restart`: `--safe`, `--skip-deferral`, `--force`, `--wait <duration>`, `--json`
     - `gateway uninstall|start`: `--json`
     - `gateway stop`: `--disable`, `--json`

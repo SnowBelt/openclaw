@@ -102,12 +102,20 @@ function stopMaintenanceTimers(timers: {
   healthInterval: NodeJS.Timeout;
   dedupeCleanup: NodeJS.Timeout;
   mediaCleanup: NodeJS.Timeout | null;
+  selfImprovement?: {
+    interval: NodeJS.Timeout;
+    initial: NodeJS.Timeout;
+    stop: () => void;
+  } | null;
 }) {
   clearInterval(timers.tickInterval);
   clearInterval(timers.healthInterval);
   clearInterval(timers.dedupeCleanup);
   if (timers.mediaCleanup) {
     clearInterval(timers.mediaCleanup);
+  }
+  if (timers.selfImprovement) {
+    timers.selfImprovement.stop();
   }
 }
 
@@ -131,6 +139,31 @@ describe("startGatewayMaintenanceTimers", () => {
     stopMaintenanceTimers(timers);
   });
 
+  it("keeps Self-Improvement background mutation disabled by default", async () => {
+    vi.useFakeTimers();
+    const { startGatewayMaintenanceTimers } = await import("./server-maintenance.js");
+    const timers = startGatewayMaintenanceTimers({
+      ...createMaintenanceTimerDeps(),
+      getRuntimeConfig: () => ({}),
+      selfImprovementEnv: {},
+    });
+
+    expect(timers.selfImprovement).toBeNull();
+    stopMaintenanceTimers(timers);
+  });
+
+  it("schedules Self-Improvement only after explicit environment opt-in", async () => {
+    vi.useFakeTimers();
+    const { startGatewayMaintenanceTimers } = await import("./server-maintenance.js");
+    const timers = startGatewayMaintenanceTimers({
+      ...createMaintenanceTimerDeps(),
+      getRuntimeConfig: () => ({}),
+      selfImprovementEnv: { OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "1" },
+    });
+
+    expect(timers.selfImprovement).not.toBeNull();
+    stopMaintenanceTimers(timers);
+  });
   it("runs startup media cleanup and repeats it hourly", async () => {
     vi.useFakeTimers();
     const { startGatewayMaintenanceTimers } = await import("./server-maintenance.js");

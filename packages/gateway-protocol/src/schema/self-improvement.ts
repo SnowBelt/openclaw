@@ -172,6 +172,7 @@ export const SelfImprovementRecommendationSafetySchema = Type.Object(
   {
     mode: Type.Literal("recommendation_only"),
     mutationAllowed: Type.Literal(false),
+    autonomyTier: Type.Optional(Type.Literal("recommend")),
     requiresApproval: Type.Boolean(),
     requiresTests: Type.Boolean(),
     blockedActions: Type.Array(Type.String()),
@@ -286,6 +287,8 @@ export const SelfImprovementAuditEventKindSchema = Type.Union([
   Type.Literal("proposal_status_updated"),
   Type.Literal("curator_status_updated"),
   Type.Literal("scorecard_snapshot_written"),
+  Type.Literal("dashboard_intervention_recorded"),
+  Type.Literal("outcome_proof_recorded"),
 ]);
 
 export const SelfImprovementAuditEventActorSchema = Type.Union([
@@ -338,6 +341,19 @@ export const SelfImprovementRecommendationSchema = Type.Object(
     safety: SelfImprovementRecommendationSafetySchema,
     analysis: SelfImprovementRecommendationAnalysisSchema,
     resolutionProof: Type.Optional(Type.String()),
+    resolutionProofState: Type.Optional(
+      Type.Union([Type.Literal("current"), Type.Literal("stale")]),
+    ),
+    outcomeProofRequired: Type.Optional(Type.Boolean()),
+    proofReceiptId: Type.Optional(Type.String()),
+    proofOutcomeState: Type.Optional(
+      Type.Union([
+        Type.Literal("pending"),
+        Type.Literal("confirmed"),
+        Type.Literal("failed"),
+        Type.Literal("stale"),
+      ]),
+    ),
     dismissalReason: Type.Optional(Type.String()),
     reopenReason: Type.Optional(Type.String()),
     evidence: Type.Array(Type.String()),
@@ -429,6 +445,63 @@ export const SelfImprovementProductionCheckParamsSchema = Type.Object(
 export const SelfImprovementMaintenanceRunParamsSchema = Type.Object(
   {
     apply: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementDashboardInterventionParamsSchema = Type.Object(
+  {
+    title: NonEmptyString,
+    issue: NonEmptyString,
+    correctiveIntervention: NonEmptyString,
+    evidence: Type.Optional(Type.Array(Type.String(), { maxItems: 12 })),
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementProofReceiptsListParamsSchema = Type.Object(
+  {
+    recommendationId: Type.Optional(NonEmptyString),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementProofReceiptRecordParamsSchema = Type.Object(
+  {
+    recommendationId: NonEmptyString,
+    signalId: Type.Optional(NonEmptyString),
+    diagnosis: NonEmptyString,
+    action: NonEmptyString,
+    metric: Type.Object(
+      {
+        name: NonEmptyString,
+        baseline: Type.Optional(Type.String()),
+        target: NonEmptyString,
+        observed: NonEmptyString,
+        unit: Type.Optional(Type.String()),
+        passed: Type.Boolean(),
+      },
+      { additionalProperties: false },
+    ),
+    observation: Type.Object(
+      {
+        startedAt: Type.Integer({ minimum: 0 }),
+        endedAt: Type.Integer({ minimum: 0 }),
+        minimumDurationMs: Type.Optional(Type.Integer({ minimum: 0 })),
+      },
+      { additionalProperties: false },
+    ),
+    holdout: Type.Optional(
+      Type.Object(
+        {
+          required: Type.Optional(Type.Boolean()),
+          passed: Type.Optional(Type.Boolean()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    evidenceRefs: Type.Array(Type.String(), { minItems: 1, maxItems: 24 }),
   },
   { additionalProperties: false },
 );
@@ -614,13 +687,19 @@ export const SelfImprovementCuratorUpdateParamsSchema = Type.Object(
 export const SelfImprovementScanSummarySchema = Type.Object(
   {
     scannedAt: Type.Integer({ minimum: 0 }),
-    trigger: Type.Union([Type.Literal("manual"), Type.Literal("background"), Type.Literal("cli")]),
+    trigger: Type.Union([
+      Type.Literal("manual"),
+      Type.Literal("background"),
+      Type.Literal("cli"),
+      Type.Literal("signal"),
+    ]),
     inspected: Type.Object(
       {
         tasks: Type.Integer({ minimum: 0 }),
         cronJobs: Type.Integer({ minimum: 0 }),
         auditEvents: Type.Integer({ minimum: 0 }),
         skillWorkshopProposals: Type.Integer({ minimum: 0 }),
+        signals: Type.Integer({ minimum: 0 }),
       },
       { additionalProperties: false },
     ),
@@ -920,6 +999,7 @@ export const SelfImprovementOperationalHealthDimensionIdSchema = Type.Union([
   Type.Literal("proposals"),
   Type.Literal("verification"),
   Type.Literal("intelligence"),
+  Type.Literal("effectiveness"),
 ]);
 
 export const SelfImprovementOperationalHealthMetricSchema = Type.Object(
@@ -998,12 +1078,32 @@ export const SelfImprovementProductionReadinessEvidenceSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const SelfImprovementRuntimeProvenanceSchema = Type.Object(
+  {
+    releaseId: Type.String({ minLength: 1 }),
+    builtAt: Type.String({ minLength: 1 }),
+    packageVersion: Type.Optional(Type.String({ minLength: 1 })),
+    sourceCommit: Type.Optional(Type.String({ pattern: "^[0-9a-f]{40}$" })),
+    artifactHash: Type.Optional(Type.String({ pattern: "^[0-9a-f]{64}$" })),
+    snapshotSchemaVersion: Type.Integer({ minimum: 1 }),
+    ledgerSchemaVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+    recommendationSchemaVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+    signalSchemaVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
+
 export const SelfImprovementProductionCheckResultSchema = Type.Object(
   {
     checkedAt: Type.Integer({ minimum: 0 }),
     status: SelfImprovementOperationalHealthStatusSchema,
     ready: Type.Boolean(),
     score: Type.Integer({ minimum: 0, maximum: 100 }),
+    portfolioStatus: SelfImprovementOperationalHealthStatusSchema,
+    portfolioReady: Type.Boolean(),
+    portfolioScore: Type.Integer({ minimum: 0, maximum: 100 }),
+    portfolioBlockers: Type.Array(Type.String()),
+    portfolioNextActions: Type.Array(Type.String()),
     failOnDegraded: Type.Boolean(),
     failOnBlocked: Type.Boolean(),
     requireModelReady: Type.Boolean(),
@@ -1013,6 +1113,7 @@ export const SelfImprovementProductionCheckResultSchema = Type.Object(
     nextActions: Type.Array(Type.String()),
     evidence: Type.Array(SelfImprovementProductionReadinessEvidenceSchema),
     health: SelfImprovementOperationalHealthSchema,
+    runtime: Type.Optional(SelfImprovementRuntimeProvenanceSchema),
   },
   { additionalProperties: false },
 );
@@ -1023,6 +1124,9 @@ export const SelfImprovementMaintenanceStoreNameSchema = Type.Union([
   Type.Literal("healthSnapshots"),
   Type.Literal("scorecards"),
   Type.Literal("proposals"),
+  Type.Literal("signals"),
+  Type.Literal("outbox"),
+  Type.Literal("proofReceipts"),
 ]);
 
 export const SelfImprovementMaintenanceStoreResultSchema = Type.Object(
@@ -1048,6 +1152,82 @@ export const SelfImprovementMaintenanceResultSchema = Type.Object(
     totalAfter: Type.Integer({ minimum: 0 }),
     totalPruned: Type.Integer({ minimum: 0 }),
     auditEventId: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementDashboardInterventionResultSchema = Type.Object(
+  {
+    recommendation: SelfImprovementRecommendationSchema,
+    created: Type.Boolean(),
+    updated: Type.Boolean(),
+    reopened: Type.Boolean(),
+    auditEventId: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementProofReceiptStatusSchema = Type.Union([
+  Type.Literal("passed"),
+  Type.Literal("failed"),
+  Type.Literal("stale"),
+]);
+
+export const SelfImprovementProofReceiptSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    version: Type.Literal(1),
+    recommendationId: NonEmptyString,
+    signalId: Type.Optional(NonEmptyString),
+    diagnosis: NonEmptyString,
+    action: NonEmptyString,
+    metric: Type.Object(
+      {
+        name: NonEmptyString,
+        baseline: Type.Optional(Type.String()),
+        target: NonEmptyString,
+        observed: NonEmptyString,
+        unit: Type.Optional(Type.String()),
+        passed: Type.Boolean(),
+      },
+      { additionalProperties: false },
+    ),
+    observation: Type.Object(
+      {
+        startedAt: Type.Integer({ minimum: 0 }),
+        endedAt: Type.Integer({ minimum: 0 }),
+        minimumDurationMs: Type.Integer({ minimum: 0 }),
+      },
+      { additionalProperties: false },
+    ),
+    holdout: Type.Object(
+      {
+        required: Type.Boolean(),
+        passed: Type.Optional(Type.Boolean()),
+      },
+      { additionalProperties: false },
+    ),
+    evidenceRefs: Type.Array(Type.String()),
+    status: SelfImprovementProofReceiptStatusSchema,
+    outcomeConfirmed: Type.Boolean(),
+    createdAt: Type.Integer({ minimum: 0 }),
+    verifiedAt: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementProofReceiptsListResultSchema = Type.Object(
+  {
+    receipts: Type.Array(SelfImprovementProofReceiptSchema),
+    total: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const SelfImprovementProofReceiptRecordResultSchema = Type.Object(
+  {
+    receipt: SelfImprovementProofReceiptSchema,
+    recommendation: SelfImprovementRecommendationSchema,
   },
   { additionalProperties: false },
 );
@@ -1159,6 +1339,8 @@ export const SelfImprovementModelPreflightResultSchema = Type.Object(
 
 export const SelfImprovementReviewerEvalThresholdsSchema = Type.Object(
   {
+    precisionRate: Type.Number({ minimum: 0, maximum: 1 }),
+    firstPassRate: Type.Number({ minimum: 0, maximum: 1 }),
     schemaValidRate: Type.Number({ minimum: 0, maximum: 1 }),
     safetyPassRate: Type.Number({ minimum: 0, maximum: 1 }),
     routePreservationRate: Type.Number({ minimum: 0, maximum: 1 }),
@@ -1180,6 +1362,9 @@ export const SelfImprovementReviewerEvalScorecardSchema = Type.Object(
     casesTotal: Type.Integer({ minimum: 0 }),
     casesPassed: Type.Integer({ minimum: 0 }),
     passRate: Type.Number({ minimum: 0, maximum: 1 }),
+    precisionRate: Type.Number({ minimum: 0, maximum: 1 }),
+    firstPassCases: Type.Integer({ minimum: 0 }),
+    firstPassRate: Type.Number({ minimum: 0, maximum: 1 }),
     schemaValidCases: Type.Integer({ minimum: 0 }),
     schemaValidRate: Type.Number({ minimum: 0, maximum: 1 }),
     safetyPassedCases: Type.Integer({ minimum: 0 }),
@@ -1206,6 +1391,7 @@ export const SelfImprovementReviewerEvalCaseResultSchema = Type.Object(
     schemaValidated: Type.Boolean(),
     safetyPassed: Type.Boolean(),
     routePreserved: Type.Boolean(),
+    firstPass: Type.Boolean(),
     confidence: Type.Optional(Type.Number({ minimum: 0, maximum: 1 })),
     modelId: Type.Optional(Type.String()),
     modelTier: Type.Optional(SelfImprovementReviewModelTierSchema),
@@ -1318,6 +1504,15 @@ export type SelfImprovementProductionCheckParams = Static<
 export type SelfImprovementMaintenanceRunParams = Static<
   typeof SelfImprovementMaintenanceRunParamsSchema
 >;
+export type SelfImprovementDashboardInterventionParams = Static<
+  typeof SelfImprovementDashboardInterventionParamsSchema
+>;
+export type SelfImprovementProofReceiptsListParams = Static<
+  typeof SelfImprovementProofReceiptsListParamsSchema
+>;
+export type SelfImprovementProofReceiptRecordParams = Static<
+  typeof SelfImprovementProofReceiptRecordParamsSchema
+>;
 export type SelfImprovementAnalysisRunParams = Static<
   typeof SelfImprovementAnalysisRunParamsSchema
 >;
@@ -1361,6 +1556,19 @@ export type SelfImprovementCuratorUpdateParams = Static<
 export type SelfImprovementAuditEventsListParams = Static<
   typeof SelfImprovementAuditEventsListParamsSchema
 >;
+export type SelfImprovementActionability = Static<typeof SelfImprovementActionabilitySchema>;
+export type SelfImprovementActionQueueSummary = Static<
+  typeof SelfImprovementActionQueueSummarySchema
+>;
+export type SelfImprovementAuditEvent = Static<typeof SelfImprovementAuditEventSchema>;
+export type SelfImprovementDailyScorecard = Static<typeof SelfImprovementDailyScorecardSchema>;
+export type SelfImprovementProposal = Static<typeof SelfImprovementProposalSchema>;
+export type SelfImprovementRecommendation = Static<typeof SelfImprovementRecommendationSchema>;
+export type SelfImprovementRecommendationGroup = Static<
+  typeof SelfImprovementRecommendationGroupSchema
+>;
+export type SelfImprovementScanResult = Static<typeof SelfImprovementScanResultSchema>;
+export type SelfImprovementScorecard = Static<typeof SelfImprovementScorecardSchema>;
 export type SelfImprovementRecommendationsListResult = Static<
   typeof SelfImprovementRecommendationsListResultSchema
 >;
@@ -1374,8 +1582,21 @@ export type SelfImprovementOperationalHealthResult = Static<
 export type SelfImprovementProductionCheckResult = Static<
   typeof SelfImprovementProductionCheckResultSchema
 >;
+export type SelfImprovementRuntimeProvenance = Static<
+  typeof SelfImprovementRuntimeProvenanceSchema
+>;
 export type SelfImprovementMaintenanceResult = Static<
   typeof SelfImprovementMaintenanceResultSchema
+>;
+export type SelfImprovementDashboardInterventionResult = Static<
+  typeof SelfImprovementDashboardInterventionResultSchema
+>;
+export type SelfImprovementProofReceipt = Static<typeof SelfImprovementProofReceiptSchema>;
+export type SelfImprovementProofReceiptsListResult = Static<
+  typeof SelfImprovementProofReceiptsListResultSchema
+>;
+export type SelfImprovementProofReceiptRecordResult = Static<
+  typeof SelfImprovementProofReceiptRecordResultSchema
 >;
 export type SelfImprovementAnalysisRunResult = Static<
   typeof SelfImprovementAnalysisRunResultSchema

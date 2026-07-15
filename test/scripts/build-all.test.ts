@@ -247,6 +247,7 @@ describe("resolveBuildAllSteps", () => {
       "write-build-info",
       "write-cli-startup-metadata",
       "write-cli-compat",
+      "promote-gateway-runtime-snapshot",
     ]);
   });
 
@@ -386,6 +387,16 @@ describe("resolveBuildAllSteps", () => {
       // ui:build must run before write-build-info so the build manifest can
       // see the final dist/control-ui assets.
       expect(labels.indexOf("ui:build")).toBeLessThan(labels.indexOf("write-build-info"));
+    }
+  });
+
+  it("promotes immutable Gateway runtime snapshots only after all runtime artifacts exist", () => {
+    for (const profile of ["full", "ciArtifacts"]) {
+      const labels = resolveBuildAllSteps(profile).map((step) => step.label);
+      expect(labels.at(-1)).toBe("promote-gateway-runtime-snapshot");
+      expect(labels.indexOf("promote-gateway-runtime-snapshot")).toBeGreaterThan(
+        labels.indexOf("write-cli-compat"),
+      );
     }
   });
 

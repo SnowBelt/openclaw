@@ -2,7 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import { deriveSelfImprovementEvidenceKeys } from "./evidence.js";
-import { writeSelfImprovementJsonAtomically } from "./json-store.js";
+import {
+  withSelfImprovementStoreMutation,
+  writeSelfImprovementJsonAtomically,
+} from "./json-store.js";
+import { isSelfImprovementJsonToSqliteMigrationApplied } from "./ledger-migration.js";
+import { listSelfImprovementLedgerRows, replaceSelfImprovementLedgerRows } from "./ledger.js";
 import { deriveSelfImprovementGroupKey } from "./summary.js";
 import { sanitizeRecommendationText, sanitizeRecommendationTexts } from "./text.js";
 import type {
@@ -324,6 +329,16 @@ function parseRecommendation(value: unknown): SelfImprovementRecommendation | nu
             entry.resolutionProofState === "stale" ? ("stale" as const) : ("current" as const),
         }
       : {}),
+    ...(entry.outcomeProofRequired === true ? { outcomeProofRequired: true } : {}),
+    ...(typeof entry.proofReceiptId === "string" && entry.proofReceiptId.trim()
+      ? { proofReceiptId: sanitizeRecommendationText(entry.proofReceiptId, 120) }
+      : {}),
+    ...(entry.proofOutcomeState === "pending" ||
+    entry.proofOutcomeState === "confirmed" ||
+    entry.proofOutcomeState === "failed" ||
+    entry.proofOutcomeState === "stale"
+      ? { proofOutcomeState: entry.proofOutcomeState }
+      : {}),
     ...(typeof entry.dismissalReason === "string"
       ? { dismissalReason: sanitizeRecommendationText(entry.dismissalReason, 360) }
       : {}),
@@ -361,7 +376,22 @@ function normalizeStoreFile(value: unknown): SelfImprovementRecommendationStoreF
   };
 }
 
-async function readStoreFile(storePath: string): Promise<SelfImprovementRecommendationStoreFile> {
+async function readStoreFile(
+  storePath: string,
+  stateDir?: string,
+): Promise<SelfImprovementRecommendationStoreFile> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    const rows = await listSelfImprovementLedgerRows<SelfImprovementRecommendation>({
+      collection: "recommendations",
+      stateDir,
+    });
+    return {
+      version: STORE_VERSION,
+      recommendations: rows
+        .map((row) => parseRecommendation(row.value))
+        .filter((entry): entry is SelfImprovementRecommendation => Boolean(entry)),
+    };
+  }
   try {
     const raw = await fs.readFile(storePath, "utf8");
     return normalizeStoreFile(JSON.parse(raw));
@@ -376,7 +406,19 @@ async function readStoreFile(storePath: string): Promise<SelfImprovementRecommen
 async function writeStoreFile(
   storePath: string,
   file: SelfImprovementRecommendationStoreFile,
+  stateDir?: string,
 ): Promise<void> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    await replaceSelfImprovementLedgerRows({
+      collection: "recommendations",
+      stateDir,
+      rows: file.recommendations,
+      id: (entry) => entry.id,
+      createdAt: (entry) => entry.createdAt,
+      updatedAt: (entry) => entry.updatedAt,
+    });
+    return;
+  }
   await writeSelfImprovementJsonAtomically(storePath, file);
 }
 
@@ -390,9 +432,9 @@ export async function listSelfImprovementRecommendations(params?: {
   stateDir?: string;
   storePath?: string;
 }): Promise<SelfImprovementRecommendation[]> {
-  const storePath =
-    params?.storePath ?? resolveSelfImprovementRecommendationStorePath(params?.stateDir);
-  const file = await readStoreFile(storePath);
+  const stateDir = params?.storePath ? undefined : (params?.stateDir ?? resolveStateDir());
+  const storePath = params?.storePath ?? resolveSelfImprovementRecommendationStorePath(stateDir);
+  const file = await readStoreFile(storePath, stateDir);
   return file.recommendations.map(cloneRecommendation);
 }
 
@@ -419,89 +461,98 @@ export async function upsertSelfImprovementRecommendations(params: {
   updated: number;
   reopened: number;
 }> {
-  const storePath =
-    params.storePath ?? resolveSelfImprovementRecommendationStorePath(params.stateDir);
-  const file = await readStoreFile(storePath);
-  const incomingRecommendations = params.recommendations.map(normalizeRecommendationForStore);
-  const byFingerprint = new Map(
-    file.recommendations.map((entry) => [entry.fingerprint, cloneRecommendation(entry)]),
-  );
-  let created = 0;
-  let updated = 0;
-  let reopened = 0;
-  for (const recommendation of incomingRecommendations) {
-    const existing = byFingerprint.get(recommendation.fingerprint);
-    if (!existing) {
-      created += 1;
-      byFingerprint.set(recommendation.fingerprint, cloneRecommendation(recommendation));
-      continue;
-    }
-    const existingEvidenceKeys =
-      existing.observedEvidenceKeys ??
-      deriveSelfImprovementEvidenceKeys({
-        category: existing.category,
-        source: existing.source,
-        title: existing.title,
-        evidence: existing.evidence,
-      });
-    const incomingEvidenceKeys = recommendation.observedEvidenceKeys ?? [];
-    const existingEvidenceKeySet = new Set(existingEvidenceKeys);
-    const novelEvidenceKeys = incomingEvidenceKeys.filter(
-      (key) => !existingEvidenceKeySet.has(key),
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementRecommendationStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStoreFile(storePath, stateDir);
+    const incomingRecommendations = params.recommendations.map(normalizeRecommendationForStore);
+    const byFingerprint = new Map(
+      file.recommendations.map((entry) => [entry.fingerprint, cloneRecommendation(entry)]),
     );
-    const hasNovelEvidence = novelEvidenceKeys.length > 0;
-    const recurringResolved = existing.status === "resolved" || existing.status === "dismissed";
-    const next: SelfImprovementRecommendation = {
-      ...cloneRecommendation(recommendation),
-      id: existing.id,
-      createdAt: existing.createdAt,
-      updatedAt: hasNovelEvidence ? recommendation.updatedAt : existing.updatedAt,
-      lastSeenAt: recommendation.lastSeenAt,
-      lastNovelEvidenceAt: hasNovelEvidence
-        ? (recommendation.lastNovelEvidenceAt ?? recommendation.updatedAt)
-        : (existing.lastNovelEvidenceAt ?? existing.updatedAt),
-      observedEvidenceKeys: [...new Set([...existingEvidenceKeys, ...novelEvidenceKeys])].slice(
-        -512,
-      ),
-      recurrenceCount: Math.max(1, existing.recurrenceCount) + novelEvidenceKeys.length,
-      status: hasNovelEvidence && recurringResolved ? "reopened" : existing.status,
-      ...(existing.assignedTargetAgentId
-        ? { assignedTargetAgentId: existing.assignedTargetAgentId }
-        : {}),
-      ...(existing.claimedBy ? { claimedBy: existing.claimedBy } : {}),
-      ...(existing.lastRoutedAt ? { lastRoutedAt: existing.lastRoutedAt } : {}),
-      ...(existing.resolutionProof ? { resolutionProof: existing.resolutionProof } : {}),
-      ...(existing.resolutionProof
-        ? {
-            resolutionProofState: hasNovelEvidence
-              ? ("stale" as const)
-              : (existing.resolutionProofState ?? "current"),
-          }
-        : {}),
-      ...(existing.dismissalReason ? { dismissalReason: existing.dismissalReason } : {}),
-      ...(hasNovelEvidence && recurringResolved
-        ? { reopenReason: "Recurring evidence found by Self-Improvement Governor scan." }
-        : existing.reopenReason
-          ? { reopenReason: existing.reopenReason }
+    let created = 0;
+    let updated = 0;
+    let reopened = 0;
+    for (const recommendation of incomingRecommendations) {
+      const existing = byFingerprint.get(recommendation.fingerprint);
+      if (!existing) {
+        created += 1;
+        byFingerprint.set(recommendation.fingerprint, cloneRecommendation(recommendation));
+        continue;
+      }
+      const existingEvidenceKeys =
+        existing.observedEvidenceKeys ??
+        deriveSelfImprovementEvidenceKeys({
+          category: existing.category,
+          source: existing.source,
+          title: existing.title,
+          evidence: existing.evidence,
+        });
+      const incomingEvidenceKeys = recommendation.observedEvidenceKeys ?? [];
+      const existingEvidenceKeySet = new Set(existingEvidenceKeys);
+      const novelEvidenceKeys = incomingEvidenceKeys.filter(
+        (key) => !existingEvidenceKeySet.has(key),
+      );
+      const hasNovelEvidence = novelEvidenceKeys.length > 0;
+      const recurringResolved = existing.status === "resolved" || existing.status === "dismissed";
+      const next: SelfImprovementRecommendation = {
+        ...cloneRecommendation(recommendation),
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: hasNovelEvidence ? recommendation.updatedAt : existing.updatedAt,
+        lastSeenAt: recommendation.lastSeenAt,
+        lastNovelEvidenceAt: hasNovelEvidence
+          ? (recommendation.lastNovelEvidenceAt ?? recommendation.updatedAt)
+          : (existing.lastNovelEvidenceAt ?? existing.updatedAt),
+        observedEvidenceKeys: [...new Set([...existingEvidenceKeys, ...novelEvidenceKeys])].slice(
+          -512,
+        ),
+        recurrenceCount: Math.max(1, existing.recurrenceCount) + novelEvidenceKeys.length,
+        status: hasNovelEvidence && recurringResolved ? "reopened" : existing.status,
+        ...(existing.assignedTargetAgentId
+          ? { assignedTargetAgentId: existing.assignedTargetAgentId }
           : {}),
-    };
-    if (next.status === "reopened") {
-      reopened += 1;
+        ...(existing.claimedBy ? { claimedBy: existing.claimedBy } : {}),
+        ...(existing.lastRoutedAt ? { lastRoutedAt: existing.lastRoutedAt } : {}),
+        ...(existing.resolutionProof ? { resolutionProof: existing.resolutionProof } : {}),
+        ...(existing.resolutionProof
+          ? {
+              resolutionProofState: hasNovelEvidence
+                ? ("stale" as const)
+                : (existing.resolutionProofState ?? "current"),
+            }
+          : {}),
+        ...(existing.outcomeProofRequired ? { outcomeProofRequired: true } : {}),
+        ...(existing.proofReceiptId ? { proofReceiptId: existing.proofReceiptId } : {}),
+        ...(existing.proofOutcomeState
+          ? {
+              proofOutcomeState: hasNovelEvidence ? ("stale" as const) : existing.proofOutcomeState,
+            }
+          : {}),
+        ...(existing.dismissalReason ? { dismissalReason: existing.dismissalReason } : {}),
+        ...(hasNovelEvidence && recurringResolved
+          ? { reopenReason: "Recurring evidence found by Self-Improvement Governor scan." }
+          : existing.reopenReason
+            ? { reopenReason: existing.reopenReason }
+            : {}),
+      };
+      if (next.status === "reopened") {
+        reopened += 1;
+      }
+      updated += 1;
+      byFingerprint.set(next.fingerprint, next);
     }
-    updated += 1;
-    byFingerprint.set(next.fingerprint, next);
-  }
-  const recommendations = [...byFingerprint.values()].toSorted(
-    (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
-  );
-  const nextFile = cloneStore({ version: STORE_VERSION, recommendations });
-  await writeStoreFile(storePath, nextFile);
-  return {
-    recommendations: nextFile.recommendations.map(cloneRecommendation),
-    created,
-    updated,
-    reopened,
-  };
+    const recommendations = [...byFingerprint.values()].toSorted(
+      (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+    );
+    const nextFile = cloneStore({ version: STORE_VERSION, recommendations });
+    await writeStoreFile(storePath, nextFile, stateDir);
+    return {
+      recommendations: nextFile.recommendations.map(cloneRecommendation),
+      created,
+      updated,
+      reopened,
+    };
+  });
 }
 
 export async function updateSelfImprovementRecommendationStatus(params: {
@@ -516,36 +567,92 @@ export async function updateSelfImprovementRecommendationStatus(params: {
   storePath?: string;
   now?: number;
 }): Promise<SelfImprovementRecommendation | null> {
-  const storePath =
-    params.storePath ?? resolveSelfImprovementRecommendationStorePath(params.stateDir);
-  const file = await readStoreFile(storePath);
-  const id = params.id.trim();
-  const now = params.now ?? Date.now();
-  let updated: SelfImprovementRecommendation | null = null;
-  const recommendations = file.recommendations.map((entry) => {
-    if (entry.id !== id) {
-      return entry;
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementRecommendationStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStoreFile(storePath, stateDir);
+    const id = params.id.trim();
+    const now = params.now ?? Date.now();
+    const target = file.recommendations.find((entry) => entry.id === id);
+    if (
+      target &&
+      params.status === "resolved" &&
+      target.outcomeProofRequired &&
+      target.proofOutcomeState !== "confirmed"
+    ) {
+      throw new Error(
+        `Recommendation ${id} requires a confirmed outcome proof receipt before resolution.`,
+      );
     }
-    const assignedTargetAgentId = sanitizeRecommendationText(params.assignedTargetAgentId, 120);
-    const claimedBy = sanitizeRecommendationText(params.claimedBy, 120);
-    const resolutionProof = sanitizeRecommendationText(params.resolutionProof, 640);
-    const dismissalReason = sanitizeRecommendationText(params.dismissalReason, 360);
-    const note = sanitizeRecommendationText(params.note, 300);
-    updated = {
-      ...entry,
-      status: params.status,
-      updatedAt: now,
-      ...(assignedTargetAgentId ? { assignedTargetAgentId, lastRoutedAt: now } : {}),
-      ...(claimedBy ? { claimedBy } : {}),
-      ...(resolutionProof ? { resolutionProof, resolutionProofState: "current" as const } : {}),
-      ...(dismissalReason ? { dismissalReason } : {}),
-      evidence: note ? [...entry.evidence, note] : entry.evidence,
-    };
-    return updated;
+    let updated: SelfImprovementRecommendation | null = null;
+    const recommendations = file.recommendations.map((entry) => {
+      if (entry.id !== id) {
+        return entry;
+      }
+      const assignedTargetAgentId = sanitizeRecommendationText(params.assignedTargetAgentId, 120);
+      const claimedBy = sanitizeRecommendationText(params.claimedBy, 120);
+      const resolutionProof = sanitizeRecommendationText(params.resolutionProof, 640);
+      const dismissalReason = sanitizeRecommendationText(params.dismissalReason, 360);
+      const note = sanitizeRecommendationText(params.note, 300);
+      updated = {
+        ...entry,
+        status: params.status,
+        updatedAt: now,
+        ...(assignedTargetAgentId ? { assignedTargetAgentId, lastRoutedAt: now } : {}),
+        ...(claimedBy ? { claimedBy } : {}),
+        ...(resolutionProof ? { resolutionProof, resolutionProofState: "current" as const } : {}),
+        ...(dismissalReason ? { dismissalReason } : {}),
+        evidence: note ? [...entry.evidence, note] : entry.evidence,
+      };
+      return updated;
+    });
+    if (!updated) {
+      return null;
+    }
+    await writeStoreFile(storePath, { version: STORE_VERSION, recommendations }, stateDir);
+    return cloneRecommendation(updated);
   });
-  if (!updated) {
-    return null;
-  }
-  await writeStoreFile(storePath, { version: STORE_VERSION, recommendations });
-  return cloneRecommendation(updated);
+}
+
+export async function attachSelfImprovementOutcomeProof(params: {
+  id: string;
+  proofReceiptId: string;
+  outcomeState: "pending" | "confirmed" | "failed" | "stale";
+  proofSummary?: string;
+  stateDir?: string;
+  storePath?: string;
+  now?: number;
+}): Promise<SelfImprovementRecommendation | null> {
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementRecommendationStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStoreFile(storePath, stateDir);
+    const id = params.id.trim();
+    const proofReceiptId = sanitizeRecommendationText(params.proofReceiptId, 120);
+    const proofSummary = sanitizeRecommendationText(params.proofSummary, 640);
+    if (!proofReceiptId) {
+      throw new Error("Outcome proof attachment requires a proof receipt id.");
+    }
+    let updated: SelfImprovementRecommendation | null = null;
+    const recommendations = file.recommendations.map((entry) => {
+      if (entry.id !== id) {
+        return entry;
+      }
+      updated = {
+        ...entry,
+        updatedAt: params.now ?? Date.now(),
+        proofReceiptId,
+        proofOutcomeState: params.outcomeState,
+        ...(params.outcomeState === "confirmed" && proofSummary
+          ? { resolutionProof: proofSummary, resolutionProofState: "current" as const }
+          : {}),
+      };
+      return updated;
+    });
+    if (!updated) {
+      return null;
+    }
+    await writeStoreFile(storePath, { version: STORE_VERSION, recommendations }, stateDir);
+    return cloneRecommendation(updated);
+  });
 }

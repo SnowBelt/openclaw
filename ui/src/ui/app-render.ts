@@ -189,6 +189,7 @@ import {
 import { loadPresence } from "./controllers/presence.ts";
 import {
   loadSelfImprovementRecommendations,
+  recordSelfImprovementDashboardIntervention,
   runSelfImprovementAnalysis,
   runSelfImprovementMaintenanceDryRun,
   runSelfImprovementModelPreflight,
@@ -4018,6 +4019,7 @@ export function renderApp(state: AppViewState) {
                   lastProductionCheck: state.selfImprovementLastProductionCheck,
                   maintenanceLoading: state.selfImprovementMaintenanceLoading,
                   lastMaintenance: state.selfImprovementLastMaintenance,
+                  interventionLoading: state.selfImprovementInterventionLoading,
                 },
                 runtimeSessionKey: state.sessionKey,
                 runtimeSessionMatchesSelectedAgent: toolsPanelUsesActiveSession,
@@ -4167,6 +4169,9 @@ export function renderApp(state: AppViewState) {
                 },
                 onSelfImprovementMaintenanceDryRun: () => {
                   void runSelfImprovementMaintenanceDryRun(state);
+                },
+                onSelfImprovementDashboardIntervention: (input) => {
+                  void recordSelfImprovementDashboardIntervention(state, input);
                 },
                 onSelfImprovementRecommendationUpdate: (input) => {
                   if (input.status === "dismissed" && !input.dismissalReason) {

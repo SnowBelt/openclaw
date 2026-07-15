@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import {
   loadSelfImprovementRecommendations,
+  recordSelfImprovementDashboardIntervention,
   runSelfImprovementMaintenanceDryRun,
   runSelfImprovementProductionCheck,
   updateSelfImprovementCuratorProposal,
@@ -9,14 +10,11 @@ import {
   type SelfImprovementState,
 } from "./self-improvement.ts";
 
-type RequestMock = {
-  (method: string, ...args: unknown[]): Promise<unknown>;
-  mockImplementation(fn: (method: string) => Promise<unknown>): RequestMock;
-  mockResolvedValueOnce(value: unknown): RequestMock;
-};
+type RequestFn = (method: string, ...args: unknown[]) => Promise<unknown>;
+type RequestMock = Mock<RequestFn>;
 
 function createState(): { state: SelfImprovementState; request: RequestMock } {
-  const request = vi.fn() as unknown as RequestMock;
+  const request = vi.fn<RequestFn>();
   const state: SelfImprovementState = {
     client: {
       request,
@@ -42,6 +40,7 @@ function createState(): { state: SelfImprovementState; request: RequestMock } {
     selfImprovementLastProductionCheck: null,
     selfImprovementMaintenanceLoading: false,
     selfImprovementLastMaintenance: null,
+    selfImprovementInterventionLoading: false,
   };
   return { state, request };
 }
@@ -378,6 +377,11 @@ describe("loadSelfImprovementRecommendations", () => {
       status: "ready",
       ready: true,
       score: 100,
+      portfolioStatus: "ready",
+      portfolioReady: true,
+      portfolioScore: 100,
+      portfolioBlockers: [],
+      portfolioNextActions: [],
       evidence: [],
       blockers: [],
       warnings: [],
@@ -426,6 +430,54 @@ describe("loadSelfImprovementRecommendations", () => {
       { timeoutMs: 15_000 },
     );
     expect(state.selfImprovementLastMaintenance?.dryRun).toBe(true);
+    expect(state.selfImprovementError).toBeNull();
+  });
+
+  it("records explicit dashboard intervention evidence without changing record status", async () => {
+    const { state, request } = createState();
+    request.mockImplementation((method: string) => {
+      if (method === "selfImprovement.dashboardInterventions.record") {
+        return Promise.resolve({ recommendation: { id: "sir_dashboard" } });
+      }
+      if (method === "selfImprovement.summary") {
+        return Promise.resolve({ groups: [] });
+      }
+      if (method === "selfImprovement.recommendations.list") {
+        return Promise.resolve({ recommendations: [], total: 0 });
+      }
+      if (method === "selfImprovement.scorecard") {
+        return Promise.resolve({ current: null, scorecards: [] });
+      }
+      if (method === "selfImprovement.health") {
+        return Promise.resolve(undefined);
+      }
+      if (
+        method === "selfImprovement.proposals.list" ||
+        method === "selfImprovement.curator.list"
+      ) {
+        return Promise.resolve({ proposals: [], total: 0 });
+      }
+      if (method === "selfImprovement.auditEvents.list") {
+        return Promise.resolve({ events: [], total: 0 });
+      }
+      return Promise.reject(new Error(`unexpected method ${method}`));
+    });
+
+    await recordSelfImprovementDashboardIntervention(state, {
+      title: "Stale dashboard status",
+      issue: "Operator observed stale data.",
+      correctiveIntervention: "Operator refreshed and verified live data.",
+      evidence: ["session receipt", "dashboard screenshot"],
+    });
+
+    expect(request).toHaveBeenCalledWith("selfImprovement.dashboardInterventions.record", {
+      title: "Stale dashboard status",
+      issue: "Operator observed stale data.",
+      correctiveIntervention: "Operator refreshed and verified live data.",
+      evidence: ["session receipt", "dashboard screenshot"],
+    });
+    expect(request.mock.calls.some(([method]) => method.endsWith(".update"))).toBe(false);
+    expect(state.selfImprovementInterventionLoading).toBe(false);
     expect(state.selfImprovementError).toBeNull();
   });
 });

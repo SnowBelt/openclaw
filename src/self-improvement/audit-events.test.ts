@@ -8,6 +8,7 @@ import {
   listSelfImprovementAuditEvents,
   resolveSelfImprovementAuditEventStorePath,
 } from "./audit-events.js";
+import { runSelfImprovementJsonToSqliteMigration } from "./ledger-migration.js";
 
 let tmpDir: string;
 
@@ -61,6 +62,62 @@ describe("self-improvement audit events", () => {
       "Read [local-path]",
       "Retained [local-path] output",
     ]);
+  });
+
+  it("preserves every concurrent append to the same audit store", async () => {
+    await Promise.all(
+      Array.from({ length: 24 }, (_, index) =>
+        appendSelfImprovementAuditEvent({
+          stateDir: tmpDir,
+          event: {
+            id: `sie_concurrent_${index}`,
+            createdAt: Date.parse("2026-05-07T12:00:00.000Z") + index,
+            actor: "governor",
+            kind: "analysis_run",
+            targetId: `analysis-${index}`,
+            summary: `Concurrent analysis ${index}.`,
+          },
+        }),
+      ),
+    );
+
+    const events = await listSelfImprovementAuditEvents({ stateDir: tmpDir, limit: 30 });
+    expect(events).toHaveLength(24);
+    expect(events.map((event) => event.id).toSorted()).toEqual(
+      Array.from({ length: 24 }, (_, index) => `sie_concurrent_${index}`).toSorted(),
+    );
+  });
+
+  it("appends to SQLite after migration without rewriting the legacy audit file", async () => {
+    await appendSelfImprovementAuditEvent({
+      stateDir: tmpDir,
+      event: {
+        actor: "gateway",
+        kind: "analysis_run",
+        targetId: "before-migration",
+        summary: "Before migration.",
+      },
+    });
+    const storePath = resolveSelfImprovementAuditEventStorePath(tmpDir);
+    const legacyBefore = await fs.readFile(storePath, "utf8");
+    await runSelfImprovementJsonToSqliteMigration({
+      stateDir: tmpDir,
+      apply: true,
+      backupDirectory: path.join(tmpDir, "migration-backup"),
+      now: Date.parse("2026-07-10T12:00:00.000Z"),
+    });
+    await appendSelfImprovementAuditEvent({
+      stateDir: tmpDir,
+      event: {
+        actor: "gateway",
+        kind: "analysis_run",
+        targetId: "after-migration",
+        summary: "After migration.",
+      },
+    });
+
+    expect(await listSelfImprovementAuditEvents({ stateDir: tmpDir, limit: 10 })).toHaveLength(2);
+    expect(await fs.readFile(storePath, "utf8")).toBe(legacyBefore);
   });
 
   it("sanitizes old audit records on read without rewriting the store", async () => {

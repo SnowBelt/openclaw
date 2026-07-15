@@ -51,6 +51,26 @@ type SelfImprovementMaintenanceOpts = SelfImprovementOpts & {
   apply?: boolean;
   dryRun?: boolean;
 };
+type SelfImprovementProofReceiptListOpts = SelfImprovementOpts & {
+  recommendationId?: string;
+  limit?: string;
+};
+type SelfImprovementProofReceiptRecordOpts = SelfImprovementOpts & {
+  signalId?: string;
+  diagnosis?: string;
+  action?: string;
+  metricName?: string;
+  baseline?: string;
+  target?: string;
+  observed?: string;
+  unit?: string;
+  metricResult?: string;
+  startedAt?: string;
+  endedAt?: string;
+  minimumDurationMs?: string;
+  holdoutResult?: string;
+  evidence?: string;
+};
 type SelfImprovementAuditEventsListOpts = SelfImprovementOpts & {
   kind?: string;
   limit?: string;
@@ -157,7 +177,7 @@ function buildSelfImprovementModelTemplate() {
       providerRef: DEFAULT_SELF_IMPROVEMENT_PRIMARY_REVIEW_MODEL,
       backend: "Ollama",
       quantization: "Q8_0",
-      parameters: "27B",
+      parameters: "31B",
       contextWindow: 65_536,
       maxOutputTokens: 8_192,
       temperature: 0.2,
@@ -250,6 +270,43 @@ function parseBoundedInteger(
     throw new Error(`${flag} must be an integer from ${min} to ${max}`);
   }
   return parsed;
+}
+
+function parseRequiredTimestamp(value: string | undefined, flag: string): number {
+  if (!value?.trim()) {
+    throw new Error(`${flag} is required`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${flag} must be a non-negative integer timestamp in milliseconds`);
+  }
+  return parsed;
+}
+
+function parseProofResult(value: string | undefined): boolean {
+  if (value === "passed") {
+    return true;
+  }
+  if (value === "failed") {
+    return false;
+  }
+  throw new Error("--metric-result must be passed or failed");
+}
+
+function parseHoldoutResult(value: string | undefined): {
+  required: boolean;
+  passed?: boolean;
+} {
+  if (!value || value === "not-required") {
+    return { required: false };
+  }
+  if (value === "passed") {
+    return { required: true, passed: true };
+  }
+  if (value === "failed") {
+    return { required: true, passed: false };
+  }
+  throw new Error("--holdout-result must be not-required, passed, or failed");
 }
 
 function formatConfidencePercent(value: unknown): string | undefined {
@@ -482,7 +539,9 @@ function printProductionCheck(result: unknown) {
   defaultRuntime.log(
     `Production check ${formatCliValue(check.status ?? "blocked")} | ready ${formatCliValue(
       check.ready ?? false,
-    )} | score ${formatCliValue(check.score ?? 0)} | evidence ${formatCliValue(evidence.length)}`,
+    )} | effectiveness ${formatCliValue(check.score ?? 0)} | portfolio ${formatCliValue(
+      check.portfolioStatus ?? "unknown",
+    )} ${formatCliValue(check.portfolioScore ?? 0)} | evidence ${formatCliValue(evidence.length)}`,
   );
   const blockers = Array.isArray(check.blockers)
     ? check.blockers.filter((item): item is string => typeof item === "string").slice(0, 5)
@@ -495,6 +554,12 @@ function printProductionCheck(result: unknown) {
     : [];
   for (const warning of warnings) {
     defaultRuntime.log(`Warning: ${warning}`);
+  }
+  const portfolioBlockers = Array.isArray(check.portfolioBlockers)
+    ? check.portfolioBlockers.filter((item): item is string => typeof item === "string").slice(0, 5)
+    : [];
+  for (const blocker of portfolioBlockers) {
+    defaultRuntime.log(`Portfolio: ${blocker}`);
   }
   for (const item of evidence.slice(0, 8)) {
     defaultRuntime.log(
@@ -529,6 +594,40 @@ function printMaintenanceResult(result: unknown) {
   if (maintenance.auditEventId) {
     defaultRuntime.log(`Audit event: ${formatCliValue(maintenance.auditEventId)}`);
   }
+}
+
+function printProofReceipts(result: unknown) {
+  const receipts = (result as { receipts?: Array<Record<string, unknown>> }).receipts ?? [];
+  if (receipts.length === 0) {
+    defaultRuntime.log("No Self-Improvement outcome proof receipts.");
+    return;
+  }
+  for (const receipt of receipts) {
+    const metric = receipt.metric as Record<string, unknown> | undefined;
+    const holdout = receipt.holdout as Record<string, unknown> | undefined;
+    defaultRuntime.log(
+      `${formatCliValue(receipt.id)}  ${formatCliValue(receipt.status)}  ${formatCliValue(
+        receipt.recommendationId,
+      )}  ${formatCliValue(metric?.name)} ${formatCliValue(metric?.observed)} / ${formatCliValue(
+        metric?.target,
+      )}  holdout ${holdout?.required ? formatCliValue(holdout.passed ?? false) : "not-required"}`,
+    );
+  }
+}
+
+function printRecordedProofReceipt(result: unknown) {
+  const receipt = (result as { receipt?: Record<string, unknown> }).receipt;
+  if (!receipt) {
+    defaultRuntime.log("Outcome proof receipt was not returned.");
+    return;
+  }
+  defaultRuntime.log(
+    `Recorded outcome proof ${formatCliValue(receipt.id)} for ${formatCliValue(
+      receipt.recommendationId,
+    )} | status ${formatCliValue(receipt.status)} | confirmed ${formatCliValue(
+      receipt.outcomeConfirmed,
+    )}`,
+  );
 }
 
 function formatAuditEventDate(value: unknown): string {
@@ -909,6 +1008,48 @@ export function registerSelfImprovementCli(program: Command) {
 
   addGatewayClientOptions(
     selfImprovement
+      .command("record-dashboard-intervention")
+      .description("Record a real operator dashboard issue and corrective intervention")
+      .requiredOption("--title <title>", "Short issue title")
+      .requiredOption("--issue <issue>", "Observed dashboard issue")
+      .requiredOption("--correction <correction>", "Operator corrective intervention")
+      .option("--evidence <csv>", "Additional bounded evidence")
+      .option("--json", "Output JSON", false),
+  ).action(
+    async (
+      opts: SelfImprovementOpts & {
+        title: string;
+        issue: string;
+        correction: string;
+        evidence?: string;
+      },
+    ) => {
+      await runSelfImprovementCommand(
+        opts,
+        async () =>
+          await callGatewayFromCli(
+            "selfImprovement.dashboardInterventions.record",
+            opts,
+            {
+              title: opts.title,
+              issue: opts.issue,
+              correctiveIntervention: opts.correction,
+              evidence: parseCsv(opts.evidence),
+            },
+            { expectFinal: false },
+          ),
+        (result) => {
+          const value = result as { recommendation?: { id?: string }; auditEventId?: string };
+          defaultRuntime.log(
+            `Recorded dashboard intervention evidence for ${formatCliValue(value.recommendation?.id ?? "recommendation")}. Audit event: ${formatCliValue(value.auditEventId ?? "pending")}.`,
+          );
+        },
+      );
+    },
+  );
+
+  addGatewayClientOptions(
+    selfImprovement
       .command("list")
       .description("List Self-Improvement Governor recommendations")
       .option("--status <csv>", "Filter by status")
@@ -1159,6 +1300,99 @@ export function registerSelfImprovementCli(program: Command) {
           { expectFinal: false },
         ),
       printMaintenanceResult,
+    );
+  });
+
+  const proofReceipts = selfImprovement
+    .command("proof-receipts")
+    .description("Inspect and record bounded outcome proof receipts");
+
+  addGatewayClientOptions(
+    proofReceipts
+      .command("list")
+      .description("List immutable Self-Improvement outcome proof receipts")
+      .option("--recommendation-id <id>", "Filter by recommendation id")
+      .option("--limit <n>", "Maximum proof receipts to return", "100")
+      .option("--json", "Output JSON", false),
+  ).action(async (opts: SelfImprovementProofReceiptListOpts) => {
+    await runSelfImprovementCommand(
+      opts,
+      async () =>
+        await callGatewayFromCli(
+          "selfImprovement.proofReceipts.list",
+          opts,
+          {
+            recommendationId: opts.recommendationId,
+            limit: parseLimit(opts.limit),
+          },
+          { expectFinal: false },
+        ),
+      printProofReceipts,
+    );
+  });
+
+  addGatewayClientOptions(
+    proofReceipts
+      .command("record")
+      .description("Record measured outcome evidence without resolving the recommendation")
+      .argument("<recommendation-id>", "Recommendation id")
+      .option("--signal-id <id>", "Originating diagnostic signal id")
+      .requiredOption("--diagnosis <text>", "Bounded causal diagnosis")
+      .requiredOption("--action <text>", "Corrective action that was evaluated")
+      .requiredOption("--metric-name <name>", "Measured metric name")
+      .option("--baseline <value>", "Baseline metric value")
+      .requiredOption("--target <value>", "Target metric value")
+      .requiredOption("--observed <value>", "Observed metric value")
+      .option("--unit <unit>", "Metric unit")
+      .requiredOption("--metric-result <passed|failed>", "Whether the measured target passed")
+      .requiredOption("--started-at <ms>", "Observation start timestamp in milliseconds")
+      .requiredOption("--ended-at <ms>", "Observation end timestamp in milliseconds")
+      .option("--minimum-duration-ms <ms>", "Required observation duration", "0")
+      .option(
+        "--holdout-result <not-required|passed|failed>",
+        "Holdout requirement and result",
+        "not-required",
+      )
+      .requiredOption("--evidence <csv>", "One or more bounded evidence references")
+      .option("--json", "Output JSON", false),
+  ).action(async (recommendationId: string, opts: SelfImprovementProofReceiptRecordOpts) => {
+    const evidenceRefs = parseCsv(opts.evidence);
+    if (!evidenceRefs) {
+      throw new Error("--evidence must contain at least one evidence reference");
+    }
+    await runSelfImprovementCommand(
+      opts,
+      async () =>
+        await callGatewayFromCli(
+          "selfImprovement.proofReceipts.record",
+          opts,
+          {
+            recommendationId,
+            signalId: opts.signalId,
+            diagnosis: opts.diagnosis,
+            action: opts.action,
+            metric: {
+              name: opts.metricName,
+              baseline: opts.baseline,
+              target: opts.target,
+              observed: opts.observed,
+              unit: opts.unit,
+              passed: parseProofResult(opts.metricResult),
+            },
+            observation: {
+              startedAt: parseRequiredTimestamp(opts.startedAt, "--started-at"),
+              endedAt: parseRequiredTimestamp(opts.endedAt, "--ended-at"),
+              minimumDurationMs: parseRequiredTimestamp(
+                opts.minimumDurationMs,
+                "--minimum-duration-ms",
+              ),
+            },
+            holdout: parseHoldoutResult(opts.holdoutResult),
+            evidenceRefs,
+          },
+          { expectFinal: false },
+        ),
+      printRecordedProofReceipt,
     );
   });
 

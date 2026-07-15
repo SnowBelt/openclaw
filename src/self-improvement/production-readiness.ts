@@ -6,7 +6,10 @@ import type {
   SelfImprovementOperationalHealthStatus,
   SelfImprovementProductionCheckResult,
   SelfImprovementProductionReadinessEvidence,
+  SelfImprovementRuntimeProvenance,
 } from "./types.js";
+
+export const SELF_IMPROVEMENT_PRODUCTION_QUALITY_TARGET = 93;
 
 function statusRank(status: SelfImprovementOperationalHealthStatus): number {
   switch (status) {
@@ -105,6 +108,9 @@ export async function runSelfImprovementProductionCheck(params?: {
   requireEvalsReady?: boolean;
   env?: NodeJS.ProcessEnv;
   now?: number;
+  runtimeProvenance?: SelfImprovementRuntimeProvenance;
+  requireRuntimeProvenance?: boolean;
+  minimumQualityScore?: number;
 }): Promise<SelfImprovementProductionCheckResult> {
   const checkedAt = params?.now ?? Date.now();
   const healthResult = await loadSelfImprovementOperationalHealth({
@@ -122,10 +128,103 @@ export async function runSelfImprovementProductionCheck(params?: {
   const reviewerEval = health.dimensions.find((dimension) => dimension.id === "reviewer");
   const modelReadiness = health.dimensions.find((dimension) => dimension.id === "models");
   const background = health.dimensions.find((dimension) => dimension.id === "background");
+  const effectiveness = health.dimensions.find((dimension) => dimension.id === "effectiveness");
   const evidence = health.dimensions.map(dimensionEvidence);
-  const statuses: SelfImprovementOperationalHealthStatus[] = [health.status];
-  const blockers = [...health.blockers];
+  const statuses: SelfImprovementOperationalHealthStatus[] = [];
+  const blockers: string[] = [];
   const warnings: string[] = [];
+  const requiredServiceDimensions: SelfImprovementOperationalHealthDimension[] = [];
+  const minimumQualityScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.floor(params?.minimumQualityScore ?? SELF_IMPROVEMENT_PRODUCTION_QUALITY_TARGET),
+    ),
+  );
+  const qualityScore = effectiveness?.score ?? 0;
+
+  requireDimensionReady({
+    dimension: effectiveness,
+    label: "Outcome effectiveness",
+    source: "effectiveness",
+    missingBlocker: "Outcome effectiveness dimension is missing.",
+    evidence,
+    blockers,
+    statuses,
+  });
+  if (effectiveness) {
+    requiredServiceDimensions.push(effectiveness);
+  }
+  requireDimensionReady({
+    dimension: background,
+    label: "Background cadence",
+    source: "background",
+    missingBlocker: "Background cadence dimension is missing.",
+    evidence,
+    blockers,
+    statuses,
+  });
+  if (background) {
+    requiredServiceDimensions.push(background);
+  }
+
+  evidence.push({
+    key: "quality-target",
+    label: "Production quality target",
+    status: qualityScore >= minimumQualityScore ? "ready" : "degraded",
+    summary:
+      qualityScore >= minimumQualityScore
+        ? `SIG effectiveness score ${qualityScore} meets the ${minimumQualityScore} target.`
+        : `SIG effectiveness score ${qualityScore} is below the ${minimumQualityScore} target.`,
+    source: "operational-health:effectiveness",
+    generatedAt: health.generatedAt,
+  });
+  if (qualityScore < minimumQualityScore) {
+    statuses.push("degraded");
+    blockers.push(
+      `SIG effectiveness score ${qualityScore} is below the ${minimumQualityScore} target.`,
+    );
+  }
+  evidence.push({
+    key: "portfolio-health",
+    label: "Improvement portfolio health",
+    status: health.status,
+    summary:
+      health.status === "ready"
+        ? `The downstream improvement portfolio is controlled at score ${health.score}.`
+        : `The downstream improvement portfolio is ${health.status} at score ${health.score}; this does not by itself mean the SIG service is unhealthy.`,
+    source: "operational-health:portfolio",
+    generatedAt: health.generatedAt,
+  });
+
+  const runtime = params?.runtimeProvenance;
+  if (params?.requireRuntimeProvenance) {
+    const complete = Boolean(
+      runtime?.releaseId &&
+      runtime.packageVersion &&
+      runtime.sourceCommit &&
+      runtime.artifactHash &&
+      runtime.snapshotSchemaVersion >= 2 &&
+      runtime.ledgerSchemaVersion === 1 &&
+      runtime.recommendationSchemaVersion === 3 &&
+      runtime.signalSchemaVersion === 1,
+    );
+    const runtimeStatus: SelfImprovementOperationalHealthStatus = complete ? "ready" : "blocked";
+    statuses.push(runtimeStatus);
+    evidence.push({
+      key: "runtime-provenance",
+      label: "Managed runtime provenance",
+      status: runtimeStatus,
+      summary: complete
+        ? `Immutable runtime ${runtime!.releaseId} matches the expected SIG schemas.`
+        : "Managed runtime lacks complete immutable source, artifact, or SIG schema provenance.",
+      source: "gateway-runtime-snapshot:snapshot.json",
+      ...(runtime ? { generatedAt: Date.parse(runtime.builtAt) || checkedAt } : {}),
+    });
+    if (!complete) {
+      blockers.push("Managed runtime provenance is missing or does not match SIG schemas.");
+    }
+  }
 
   if (params?.requireModelReady) {
     if (!healthResult.latestModelPreflight) {
@@ -147,6 +246,9 @@ export async function runSelfImprovementProductionCheck(params?: {
       blockers,
       statuses,
     });
+    if (modelReadiness) {
+      requiredServiceDimensions.push(modelReadiness);
+    }
   } else if (modelReadiness?.status !== "ready") {
     warnings.push("Model readiness is not ready; require it with --require-model-ready.");
   }
@@ -171,13 +273,11 @@ export async function runSelfImprovementProductionCheck(params?: {
       blockers,
       statuses,
     });
+    if (reviewerEval) {
+      requiredServiceDimensions.push(reviewerEval);
+    }
   } else if (reviewerEval?.status !== "ready") {
     warnings.push("Reviewer evals are not ready; require them with --require-evals-ready.");
-  }
-
-  if (background?.status !== "ready") {
-    blockers.push("Background cadence is not ready.");
-    statuses.push(background?.status ?? "blocked");
   }
 
   const latestMaintenance = events.find((event) => event.kind === "retention_maintenance");
@@ -199,14 +299,24 @@ export async function runSelfImprovementProductionCheck(params?: {
   const sanitizedBlockers = sanitizeRecommendationTexts(blockers, 240);
   const sanitizedWarnings = sanitizeRecommendationTexts(warnings, 240);
   const nextActions = sanitizeRecommendationTexts(
-    [...health.nextActions, ...sanitizedWarnings].slice(0, 8),
+    [
+      ...requiredServiceDimensions
+        .filter((dimension) => dimension.status !== "ready")
+        .flatMap((dimension) => dimension.nextActions),
+      ...sanitizedWarnings,
+    ].slice(0, 8),
     240,
   );
   return {
     checkedAt,
     status,
     ready: status === "ready",
-    score: health.score,
+    score: qualityScore,
+    portfolioStatus: health.status,
+    portfolioReady: health.status === "ready",
+    portfolioScore: health.score,
+    portfolioBlockers: sanitizeRecommendationTexts(health.blockers, 240),
+    portfolioNextActions: sanitizeRecommendationTexts(health.nextActions, 240),
     failOnDegraded: Boolean(params?.failOnDegraded),
     failOnBlocked: Boolean(params?.failOnBlocked),
     requireModelReady: Boolean(params?.requireModelReady),
@@ -216,5 +326,6 @@ export async function runSelfImprovementProductionCheck(params?: {
     nextActions,
     evidence,
     health,
+    ...(runtime ? { runtime } : {}),
   };
 }

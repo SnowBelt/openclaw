@@ -7,9 +7,12 @@ releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releas
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 env_wrapper=${OPENCLAW_GATEWAY_ENV_WRAPPER:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway-env-wrapper.sh"}
 env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway.env"}
+config_path=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
+state_dir=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
+rollback_launcher=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}
 
 usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--port 18789]' >&2; exit 64; }
 release= source_sha= port=18789
@@ -28,6 +31,7 @@ releases_dir=$(cd "$releases_dir" && pwd -P)
 release=$(cd "$release" && pwd -P)
 case "$release" in "$releases_dir"/*) ;; *) printf '%s\n' 'release must be under the immutable releases root' >&2; exit 64 ;; esac
 [ -f "$release/dist/index.js" ] || { printf '%s\n' 'release entrypoint is missing' >&2; exit 64; }
+[ -f "$release/snapshot.json" ] || { printf '%s\n' 'release runtime provenance is missing' >&2; exit 64; }
 manifest="$release/dist/control-ui/dashboard-surfaces.json"
 [ -f "$manifest" ] || { printf '%s\n' 'release surface manifest is missing' >&2; exit 64; }
 capability_manifest="$release/config/custom-runtime-capabilities.json"
@@ -40,7 +44,16 @@ fi
 if [ ! -f "$stamp_file" ]; then
   (umask 077 && printf '%s\n' "$source_sha" > "$stamp_file")
 fi
-mkdir -p "$runtime_home/backups" "$runtime_home/receipts"
+mkdir -p "$runtime_home/backups" "$runtime_home/receipts" "$runtime_home/locks"
+promotion_lock="$runtime_home/locks/promotion.lock"
+if ! mkdir "$promotion_lock" 2>/dev/null; then
+  printf '%s\n' 'another custom-runtime promotion is already active' >&2
+  exit 75
+fi
+cleanup_promotion_lock() { rmdir "$promotion_lock" 2>/dev/null || true; }
+trap cleanup_promotion_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 previous_pointer="$runtime_home/active-runtime.json"
@@ -67,9 +80,15 @@ if os.path.exists(active):
     previous_required = previous_data.get("requiredSurfaces", [])
     if not isinstance(previous_required, list) or not all(isinstance(item, str) and item for item in previous_required):
         raise SystemExit("active runtime requiredSurfaces is invalid")
-    previous_capabilities = previous_data.get("requiredCapabilities", [])
-    if not isinstance(previous_capabilities, list) or not all(isinstance(item, str) and item for item in previous_capabilities):
-        raise SystemExit("active runtime requiredCapabilities is invalid")
+    has_capability_path = "capabilityManifestPath" in previous_data
+    has_capability_hash = "capabilityManifestSha256" in previous_data
+    has_required_capabilities = "requiredCapabilities" in previous_data
+    if any((has_capability_path, has_capability_hash, has_required_capabilities)) and not all((has_capability_path, has_capability_hash, has_required_capabilities)):
+        raise SystemExit("active runtime capability fields are partially populated")
+    if has_required_capabilities:
+        previous_capabilities = previous_data["requiredCapabilities"]
+        if not isinstance(previous_capabilities, list) or not all(isinstance(item, str) and item for item in previous_capabilities):
+            raise SystemExit("active runtime requiredCapabilities is invalid")
 with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
     version = json.load(f).get("version")
 if not isinstance(version, str) or not version:
@@ -124,27 +143,57 @@ restore() {
   [ -f "$pointer_backup" ] && cp -p "$pointer_backup" "$previous_pointer" || rm -f "$previous_pointer"
   cp -p "$plist_backup" "$plist"
   cp -p "$env_backup" "$env_file"
+  if [ -n "$rollback_launcher" ]; then
+    if [ ! -f "$rollback_launcher" ]; then
+      printf '{"at":"%s","result":"rollback_launcher_missing"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+      return 1
+    fi
+    install -m 700 "$rollback_launcher" "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$"
+    mv "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$" "$launcher"
+  fi
   launchctl bootout "gui/$uid/$label" 2>/dev/null || true
   for _ in $(seq 1 15); do
     launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
     sleep 1
   done
-  if launchctl bootstrap "gui/$uid" "$plist"; then
-    printf '{"at":"%s","result":"rolled_back"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
-  else
+  if ! launchctl bootstrap "gui/$uid" "$plist"; then
     printf '{"at":"%s","result":"rollback_bootstrap_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+    return 1
+  fi
+  rollback_ok=false
+  for _ in $(seq 1 45); do
+    if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+      rollback_ok=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$rollback_ok" = true ] && "$launcher" --verify >/dev/null 2>&1; then
+    printf '{"at":"%s","result":"rolled_back_verified"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+  else
+    printf '{"at":"%s","result":"rollback_health_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+    return 1
   fi
 }
 
 cp -p "$pointer_tmp" "$previous_pointer"
 rm -f "$pointer_tmp"
-python3 - "$env_file" "$launcher" <<'PY'
+python3 - "$env_file" "$launcher" "$release" <<'PY'
 import os, shlex, stat, sys
-path, launcher = sys.argv[1:]
+path, launcher, release = sys.argv[1:]
 mode = stat.S_IMODE(os.stat(path).st_mode)
 with open(path, encoding="utf-8") as f:
-    lines = [line for line in f.readlines() if not line.startswith("export OPENCLAW_WRAPPER=")]
+    replaced = (
+        "export OPENCLAW_WRAPPER=",
+        "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=",
+        "export OPENCLAW_BUNDLED_PLUGINS_DIR=",
+    )
+    lines = [line for line in f.readlines() if not line.startswith(replaced)]
 lines.append(f"export OPENCLAW_WRAPPER={shlex.quote(launcher)}\n")
+lines.append(f"export OPENCLAW_RUNTIME_SNAPSHOT_ROOT={shlex.quote(release)}\n")
+lines.append(
+    f"export OPENCLAW_BUNDLED_PLUGINS_DIR={shlex.quote(os.path.join(release, 'dist-runtime', 'extensions'))}\n"
+)
 with open(path + ".tmp", "w", encoding="utf-8") as f:
     f.writelines(lines)
 os.chmod(path + ".tmp", mode)
@@ -180,10 +229,69 @@ done
 if [ "$ok" != true ]; then restore; exit 1; fi
 if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! pgrep -f "$release/dist/index.js gateway --port $port" >/dev/null 2>&1 || \
-   ! grep -q '^export OPENCLAW_WRAPPER=' "$env_file"; then
+   ! grep -Fqx "export OPENCLAW_WRAPPER=$launcher" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=$release" "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file"; then
   restore
   exit 1
 fi
+routes=$(python3 - "$manifest" "$previous_pointer" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    manifest = json.load(f)
+with open(sys.argv[2], encoding="utf-8") as f:
+    pointer = json.load(f)
+by_id = {item.get("id"): item for item in manifest.get("surfaces", []) if isinstance(item, dict)}
+for surface_id in pointer["requiredSurfaces"]:
+    surface = by_id[surface_id]
+    values = [surface.get("path"), *surface.get("aliases", [])]
+    for value in values:
+        if isinstance(value, str) and value.startswith("/") and " " not in value:
+            print(value.lstrip("/"))
+PY
+)
+for route in $routes self-improvement; do
+  if [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" != 200 ]; then
+    restore
+    exit 1
+  fi
+done
+websocket_headers="$runtime_home/websocket-promotion.$$.headers"
+curl --silent --show-error --max-time 3 --dump-header "$websocket_headers" --output /dev/null \
+  --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  "http://127.0.0.1:$port/" >/dev/null 2>&1 || true
+if ! grep -q '^HTTP/1.1 101 ' "$websocket_headers"; then
+  rm -f "$websocket_headers"
+  restore
+  exit 1
+fi
+rm -f "$websocket_headers"
+self_improvement_summary="$runtime_home/self-improvement-promotion.$$.json"
+if ! OPENCLAW_CONFIG_PATH="$config_path" OPENCLAW_STATE_DIR="$state_dir" \
+  "$launcher" self-improvement summary \
+  --timeout 10000 --limit 1 --json \
+  > "$self_improvement_summary"; then
+  rm -f "$self_improvement_summary"
+  restore
+  exit 1
+fi
+if ! python3 - "$self_improvement_summary" <<'PY'
+import json, sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    summary = json.load(f)
+if not isinstance(summary, dict) or not isinstance(summary.get("scorecard"), dict):
+    raise SystemExit("Self-Improvement summary contract failed")
+if not isinstance(summary.get("groups"), list):
+    raise SystemExit("Self-Improvement groups contract failed")
+PY
+then
+  rm -f "$self_improvement_summary"
+  restore
+  exit 1
+fi
+rm -f "$self_improvement_summary"
 cp -p "$previous_pointer" "$runtime_home/last-known-good.json"
 printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s"}\n' "$timestamp" "$(basename "$release")" "$source_sha" > "$runtime_home/receipts/promotion-$timestamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"

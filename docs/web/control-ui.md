@@ -76,6 +76,17 @@ The same browser-local pattern applies to the assistant avatar override. Uploade
 
 The Control UI fetches its runtime settings from `/control-ui-config.json`, resolved relative to the gateway's Control UI base path (for example `/__openclaw__/control-ui-config.json` when the UI is served under `/__openclaw__/`). That endpoint is gated by the same gateway auth as the rest of the HTTP surface: unauthenticated browsers cannot fetch it, and a successful fetch requires either an already valid gateway token/password, Tailscale Serve identity, or a trusted-proxy identity.
 
+## Self-Improvement recommendations
+
+Open **Agents -> Self-Improvement** to inspect the recommendation-only
+Self-Improvement Governor scorecard, health, evidence, action queue, proposals,
+and sanitized audit events. Initial panel loading calls only read-scoped Gateway
+methods. Scans, analysis, model preflight, maintenance, and record updates are
+separate operator actions and are never triggered by opening the panel. The
+Gateway background loop is disabled unless the service environment explicitly
+sets `OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1`. See
+[Self-Improvement Governor](/automation/self-improvement-governor).
+
 ## Language support
 
 The Control UI can localize itself on first load based on your browser locale. To override it later, open **Overview -> Gateway Access -> Language**. The locale picker lives in the Gateway Access card, not under Appearance.

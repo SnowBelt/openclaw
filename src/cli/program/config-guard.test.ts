@@ -164,6 +164,26 @@ describe("ensureConfigReady", () => {
       expectedDoctorCalls: 0,
     },
     {
+      name: "skips doctor flow for plugin listing without legacy state",
+      commandPath: ["plugins", "list"],
+      expectedDoctorCalls: 0,
+    },
+    {
+      name: "skips doctor flow for read-only Self-Improvement summary",
+      commandPath: ["self-improvement", "summary"],
+      expectedDoctorCalls: 0,
+    },
+    {
+      name: "skips doctor flow for read-only Self-Improvement proposal listing",
+      commandPath: ["self-improvement", "proposals", "list"],
+      expectedDoctorCalls: 0,
+    },
+    {
+      name: "keeps doctor flow for mutating Self-Improvement proposal updates",
+      commandPath: ["self-improvement", "proposals", "update"],
+      expectedDoctorCalls: 1,
+    },
+    {
       name: "runs doctor flow for commands that may mutate state without legacy state",
       commandPath: ["message"],
       expectedDoctorCalls: 1,
