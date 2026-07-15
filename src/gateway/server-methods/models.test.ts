@@ -53,6 +53,43 @@ function requestModelsList(params: {
 }
 
 describe("models.list", () => {
+  it("returns safe route and capability metadata without an endpoint", async () => {
+    const { request, respond } = requestModelsList({
+      view: "all",
+      loadGatewayModelCatalog: vi.fn(async () => [
+        {
+          id: "local-vision",
+          name: "Local Vision",
+          provider: "self-hosted",
+          baseUrl: "http://127.0.0.1:11434",
+          route: "local",
+          certification: "certified",
+          input: ["text", "image"],
+        },
+      ]),
+    });
+
+    await request;
+
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      {
+        models: [
+          {
+            id: "local-vision",
+            name: "Local Vision",
+            provider: "self-hosted",
+            available: false,
+            route: "local",
+            certification: "certified",
+            input: ["text", "image"],
+          },
+        ],
+      },
+      undefined,
+    );
+  });
+
   it("passes an explicit user refresh through to the Gateway catalog", async () => {
     const loadGatewayModelCatalog = vi.fn(async () => []);
     const { request, respond } = requestModelsList({

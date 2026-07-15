@@ -55,6 +55,16 @@ describe("resolvePccProjectAction", () => {
       resolvePccProjectAction({
         project: project(),
         setupReady: true,
+        blockerLines: ["Capability preflight is blocked: missing-required-skill."],
+      }),
+    ).toMatchObject({
+      primaryActionId: "review_blocker",
+      topBlocker: "Capability preflight is blocked: missing-required-skill.",
+    });
+    expect(
+      resolvePccProjectAction({
+        project: project(),
+        setupReady: true,
         workLoop: { enabled: true, state: "working" },
       }).primaryActionId,
     ).toBe("pause");

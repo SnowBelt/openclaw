@@ -122,10 +122,14 @@ describe("chat work task loading", () => {
 describe("chat project actions", () => {
   it("loads projects without blocking chat", async () => {
     const request = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      ts: 1,
-      count: 1,
-      projects: [{ id: "project-1", name: "Project 1", resources: [] }],
+      projects: [
+        {
+          id: "project-1",
+          title: "Project 1",
+          status: "active",
+          updatedAt: "2026-07-13T12:00:00.000Z",
+        },
+      ],
     });
     const state = createState({
       client: { request } as unknown as ChatState["client"],
@@ -135,8 +139,9 @@ describe("chat project actions", () => {
 
     await loadChatProjects(state);
 
-    expect(request).toHaveBeenCalledWith("projects.list", { includeArchived: true });
+    expect(request).toHaveBeenCalledWith("pcc.projects.list", { includeArchived: true });
     expect(state.projectsList?.projects[0]?.id).toBe("project-1");
+    expect(state.projectsList?.projects[0]?.name).toBe("Project 1");
     expect(state.chatProjectError).toBeNull();
     expect(state.projectsLoading).toBe(false);
   });
@@ -145,18 +150,15 @@ describe("chat project actions", () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
-        ok: true,
         project: {
           id: "project-new",
-          name: "New Project",
-          memoryMode: "project_only",
-          createdAt: 1,
-          updatedAt: 1,
-          resources: [],
+          title: "New Project",
+          status: "active",
+          updatedAt: "2026-07-13T12:00:00.000Z",
         },
       })
       .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ ok: true, ts: 2, count: 1, projects: [] });
+      .mockResolvedValueOnce({ projects: [] });
     const state = createState({
       client: { request } as unknown as ChatState["client"],
       chatProjectCreateName: " New Project ",
@@ -167,15 +169,20 @@ describe("chat project actions", () => {
 
     await expect(createAndAttachChatProject(state)).resolves.toBe("project-new");
 
-    expect(request).toHaveBeenNthCalledWith(1, "projects.create", {
-      name: "New Project",
-      description: "Research",
-      instructions: "Be precise",
-      memoryMode: "project_only",
+    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
+      project: {
+        title: "New Project",
+        goal: "Research",
+        metadata: {
+          chatProjectMemoryMode: "project_only",
+          chatProjectDescription: "Research",
+          chatProjectInstructions: "Be precise",
+        },
+      },
     });
-    expect(request).toHaveBeenNthCalledWith(2, "projects.sessions.attach", {
-      projectId: "project-new",
+    expect(request).toHaveBeenNthCalledWith(2, "sessions.patch", {
       key: "main",
+      projectId: "project-new",
     });
     expect(state.chatProjectCreateName).toBe("");
     expect(state.chatProjectPickerOpen).toBe(false);
@@ -186,9 +193,9 @@ describe("chat project actions", () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ ok: true, ts: 1, count: 0, projects: [] })
+      .mockResolvedValueOnce({ projects: [] })
       .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ ok: true, ts: 2, count: 0, projects: [] });
+      .mockResolvedValueOnce({ projects: [] });
     const state = createState({
       client: { request } as unknown as ChatState["client"],
       chatProjectPickerOpen: true,
@@ -198,11 +205,14 @@ describe("chat project actions", () => {
     state.chatProjectPickerOpen = true;
     await expect(detachChatSessionFromProject(state)).resolves.toBe(true);
 
-    expect(request).toHaveBeenNthCalledWith(1, "projects.sessions.attach", {
-      projectId: "project-1",
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.patch", {
       key: "main",
+      projectId: "project-1",
     });
-    expect(request).toHaveBeenNthCalledWith(3, "projects.sessions.detach", { key: "main" });
+    expect(request).toHaveBeenNthCalledWith(3, "sessions.patch", {
+      key: "main",
+      projectId: null,
+    });
     expect(state.chatProjectPickerOpen).toBe(false);
   });
 
@@ -210,7 +220,7 @@ describe("chat project actions", () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, key: "project:project-1:chat" })
-      .mockResolvedValueOnce({ ok: true, ts: 1, count: 0, projects: [] });
+      .mockResolvedValueOnce({ projects: [] });
     const state = createState({
       client: { request } as unknown as ChatState["client"],
       chatProjectPickerOpen: true,

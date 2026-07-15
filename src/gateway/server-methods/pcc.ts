@@ -30,6 +30,7 @@ import {
 } from "../../../packages/gateway-protocol/src/index.js";
 import { resolveSubagentMaxConcurrent } from "../../config/agent-limits.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { evaluatePccCapabilityEvidence } from "../../pcc/capability-evidence.js";
 import { collectPccExecutionCapacitySnapshot } from "../../pcc/execution-capacity.js";
 import {
   closePccLedgerStorageForTest,
@@ -2266,6 +2267,16 @@ export const pccHandlers: GatewayRequestHandlers = {
           const failedEvidence = linkedEvidence.find((evidence) => evidence.status !== "passed");
           if (failedEvidence) {
             return { error: `proof evidence has not passed: ${failedEvidence.id}` };
+          }
+          const capabilityEvidence = evaluatePccCapabilityEvidence({
+            project,
+            milestone,
+            evidence: linkedEvidence,
+          });
+          if (!capabilityEvidence.passing) {
+            return {
+              error: `contracted completion evidence incomplete: ${capabilityEvidence.gaps.join(" ")}`,
+            };
           }
           const timestamp = nowIso();
           const receipt: PccCompletionReceipt = {

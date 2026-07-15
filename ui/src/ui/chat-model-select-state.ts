@@ -20,13 +20,60 @@ export type ChatModelSelectOption = {
   label: string;
 };
 
+export type ChatModelSelectOptionGroup = {
+  label: string;
+  options: ChatModelSelectOption[];
+};
+
 export type ChatModelSelectState = {
   currentOverride: string;
   defaultModel: string;
   defaultDisplay: string;
   defaultLabel: string;
   options: ChatModelSelectOption[];
+  optionGroups: ChatModelSelectOptionGroup[];
 };
+
+function resolveModelRouteGroup(route?: ModelCatalogEntry["route"]): string {
+  switch (route) {
+    case "local":
+      return "Local & self-hosted";
+    case "subscription":
+      return "Subscription";
+    case "metered":
+      return "Metered API";
+    default:
+      return "Other / unclassified";
+  }
+}
+
+function resolveModelCapabilityGroup(entry: ModelCatalogEntry): string {
+  const input = entry.input ?? ["text"];
+  if (input.includes("image")) {
+    return "Vision";
+  }
+  if (input.includes("document")) {
+    return "Documents";
+  }
+  if (input.includes("audio")) {
+    return "Audio";
+  }
+  if (input.includes("video")) {
+    return "Video";
+  }
+  return "Text & coding";
+}
+
+function resolveModelCertificationGroup(entry: ModelCatalogEntry): string {
+  switch (entry.certification) {
+    case "certified":
+      return "Certified";
+    case "candidate":
+      return "Manual review";
+    default:
+      return "Unverified";
+  }
+}
 
 function resolveActiveSessionRow(state: ChatModelSelectStateInput) {
   return state.sessionsResult?.sessions?.find((row) => row.key === state.sessionKey);
@@ -86,6 +133,42 @@ function buildChatModelOptions(
   return options;
 }
 
+function groupChatModelOptions(
+  catalog: ModelCatalogEntry[],
+  displayLookup: ReturnType<typeof buildCatalogDisplayLookup>,
+  options: ChatModelSelectOption[],
+): ChatModelSelectOptionGroup[] {
+  const groupsByValue = new Map<string, string>();
+  for (const entry of catalog) {
+    const option = buildChatModelOptionFromLookup(entry, displayLookup);
+    groupsByValue.set(
+      option.value.toLowerCase(),
+      `${resolveModelRouteGroup(entry.route)} · ${resolveModelCertificationGroup(entry)} · ${resolveModelCapabilityGroup(entry)}`,
+    );
+  }
+  const orderedLabels = [
+    "Local & self-hosted",
+    "Subscription",
+    "Metered API",
+    "Other / unclassified",
+  ].flatMap((route) =>
+    ["Certified", "Manual review", "Unverified"].flatMap((certification) =>
+      ["Text & coding", "Vision", "Documents", "Audio", "Video"].map(
+        (capability) => `${route} · ${certification} · ${capability}`,
+      ),
+    ),
+  );
+  const fallbackLabel = "Other / unclassified · Unverified · Text & coding";
+  return orderedLabels
+    .map((label) => ({
+      label,
+      options: options.filter(
+        (option) => (groupsByValue.get(option.value.toLowerCase()) ?? fallbackLabel) === label,
+      ),
+    }))
+    .filter((group) => group.options.length > 0);
+}
+
 export function resolveChatModelSelectState(
   state: ChatModelSelectStateInput,
 ): ChatModelSelectState {
@@ -94,12 +177,14 @@ export function resolveChatModelSelectState(
   const currentOverride = resolveChatModelOverrideValue(state);
   const defaultModel = resolveDefaultModelValue(state);
   const defaultDisplay = formatCatalogChatModelDisplayFromLookup(defaultModel, displayLookup);
+  const options = buildChatModelOptions(catalog, displayLookup, currentOverride, defaultModel);
 
   return {
     currentOverride,
     defaultModel,
     defaultDisplay,
     defaultLabel: defaultModel ? `Default (${defaultDisplay})` : "Default model",
-    options: buildChatModelOptions(catalog, displayLookup, currentOverride, defaultModel),
+    options,
+    optionGroups: groupChatModelOptions(catalog, displayLookup, options),
   };
 }

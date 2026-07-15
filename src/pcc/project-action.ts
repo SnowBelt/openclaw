@@ -129,7 +129,7 @@ export function resolvePccProjectAction(input: PccProjectActionInput): PccProjec
       hideWorkControls: false,
     };
   }
-  if (input.project.status === "blocked" || input.hasBlockedMilestone) {
+  if (input.project.status === "blocked" || input.hasBlockedMilestone || blockers.length > 0) {
     const topBlocker = blockers[0] ?? "A blocked milestone needs review.";
     return {
       primaryActionId: "review_blocker",

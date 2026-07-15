@@ -39,6 +39,7 @@ test("sessions.create stores dashboard session model and parent linkage, and cre
       providerOverride?: string;
       modelOverride?: string;
       parentSessionKey?: string;
+      projectId?: string;
       sessionFile?: string;
     };
   }>("sessions.create", {
@@ -46,6 +47,7 @@ test("sessions.create stores dashboard session model and parent linkage, and cre
     label: "Dashboard Chat",
     model: "openai/gpt-test-a",
     parentSessionKey: "main",
+    projectId: "project-pcc",
   });
 
   expect(created.ok).toBe(true);
@@ -54,6 +56,7 @@ test("sessions.create stores dashboard session model and parent linkage, and cre
   expect(created.payload?.entry?.providerOverride).toBe("openai");
   expect(created.payload?.entry?.modelOverride).toBe("gpt-test-a");
   expect(created.payload?.entry?.parentSessionKey).toBe("agent:main:main");
+  expect(created.payload?.entry?.projectId).toBe("project-pcc");
   const sessionFile = requireNonEmptyString(
     created.payload?.entry?.sessionFile,
     "created session file",
@@ -70,6 +73,7 @@ test("sessions.create stores dashboard session model and parent linkage, and cre
       providerOverride?: string;
       modelOverride?: string;
       parentSessionKey?: string;
+      projectId?: string;
       sessionFile?: string;
     }
   >;
@@ -79,6 +83,7 @@ test("sessions.create stores dashboard session model and parent linkage, and cre
   expect(rawStore[key]?.providerOverride).toBe("openai");
   expect(rawStore[key]?.modelOverride).toBe("gpt-test-a");
   expect(rawStore[key]?.parentSessionKey).toBe("agent:main:main");
+  expect(rawStore[key]?.projectId).toBe("project-pcc");
   expect(sessionFile).toBe(rawStore[key]?.sessionFile);
 
   const transcriptPath = path.join(dir, `${created.payload?.sessionId}.jsonl`);

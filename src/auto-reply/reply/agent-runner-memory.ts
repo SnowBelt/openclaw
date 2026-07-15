@@ -219,9 +219,14 @@ function resolveMemoryFlushModelFallbackOptions(
   configOverride: FollowupRun["run"]["config"] = run.config,
 ) {
   const options = resolveModelFallbackOptions(run, configOverride);
+  const automaticOptions = {
+    ...options,
+    automaticSelection: true,
+    automaticPurpose: "maintenance" as const,
+  };
   const override = normalizeOptionalString(model);
   if (!override) {
-    return options;
+    return automaticOptions;
   }
   // A memory-flush maintenance model is an exact override: do not let a failed
   // local flush silently fall through to the paid active conversation fallback.
@@ -231,7 +236,7 @@ function resolveMemoryFlushModelFallbackOptions(
     const overrideModel = override.slice(slashIdx + 1).trim();
     if (overrideProvider && overrideModel) {
       return {
-        ...options,
+        ...automaticOptions,
         provider: overrideProvider,
         model: overrideModel,
         fallbacksOverride: [],
@@ -239,7 +244,7 @@ function resolveMemoryFlushModelFallbackOptions(
     }
   }
   return {
-    ...options,
+    ...automaticOptions,
     model: override,
     fallbacksOverride: [],
   };
@@ -1314,6 +1319,8 @@ export async function runMemoryFlushIfNeeded(params: {
       ),
       runId: flushRunId,
       sessionId: activeSessionEntry?.sessionId ?? params.followupRun.run.sessionId,
+      agentId: params.followupRun.run.agentId,
+      projectId: activeSessionEntry?.projectId,
       lane: CommandLane.Main,
       abortSignal: params.replyOperation.abortSignal,
       resolveAgentHarnessRuntimeOverride: (provider) =>

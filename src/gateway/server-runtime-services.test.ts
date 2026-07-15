@@ -9,12 +9,15 @@ const hoisted = vi.hoisted(() => {
     updateConfig: vi.fn(),
   };
   const stopModelPricingRefresh = vi.fn();
+  const stopModelCatalogRefresh = vi.fn();
   return {
     heartbeatRunner,
     startHeartbeatRunner: vi.fn(() => heartbeatRunner),
     startChannelHealthMonitor: vi.fn(() => ({ stop: vi.fn() })),
     stopModelPricingRefresh,
     startGatewayModelPricingRefresh: vi.fn(() => stopModelPricingRefresh),
+    stopModelCatalogRefresh,
+    startGatewayModelCatalogPeriodicRefresh: vi.fn(() => stopModelCatalogRefresh),
     loadModelPricingCacheModule: vi.fn(),
     isVitestRuntimeEnv: vi.fn(() => false),
     recoverPendingDeliveries: vi.fn(async () => undefined),
@@ -56,6 +59,10 @@ vi.mock("./model-pricing-cache.js", () => ({
   startGatewayModelPricingRefresh: hoisted.startGatewayModelPricingRefresh,
 }));
 
+vi.mock("./server-model-catalog.js", () => ({
+  startGatewayModelCatalogPeriodicRefresh: hoisted.startGatewayModelCatalogPeriodicRefresh,
+}));
+
 const {
   activateGatewayScheduledServices,
   runGatewayPostReadyMaintenance,
@@ -72,6 +79,8 @@ describe("server-runtime-services", () => {
     hoisted.startChannelHealthMonitor.mockClear();
     hoisted.startGatewayModelPricingRefresh.mockClear();
     hoisted.stopModelPricingRefresh.mockClear();
+    hoisted.startGatewayModelCatalogPeriodicRefresh.mockClear();
+    hoisted.stopModelCatalogRefresh.mockClear();
     hoisted.loadModelPricingCacheModule.mockClear();
     hoisted.isVitestRuntimeEnv.mockReset().mockReturnValue(false);
     hoisted.recoverPendingDeliveries.mockClear();
@@ -98,6 +107,7 @@ describe("server-runtime-services", () => {
 
     expect(hoisted.loadModelPricingCacheModule).not.toHaveBeenCalled();
     expect(hoisted.startGatewayModelPricingRefresh).not.toHaveBeenCalled();
+    expect(hoisted.startGatewayModelCatalogPeriodicRefresh).not.toHaveBeenCalled();
   });
 
   it("keeps scheduled services and pricing refresh inert during initial runtime setup", async () => {
@@ -140,6 +150,25 @@ describe("server-runtime-services", () => {
     });
     services.stopModelPricingRefresh();
     expect(hoisted.stopModelPricingRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts an opt-in catalog refresher on the configured cadence", async () => {
+    const services = activateGatewayScheduledServices({
+      minimalTestGateway: false,
+      cfgAtStart: { models: { catalogRefresh: { enabled: true, intervalMinutes: 15 } } } as never,
+      deps: {} as never,
+      sessionDeliveryRecoveryMaxEnqueuedAt: 123,
+      cron: { start: vi.fn(async () => undefined) },
+      logCron: { error: vi.fn() },
+      log: createLog(),
+    });
+
+    await vi.dynamicImportSettled();
+    expect(hoisted.startGatewayModelCatalogPeriodicRefresh).toHaveBeenCalledWith({
+      intervalMs: 15 * 60_000,
+    });
+    services.stopModelCatalogRefresh();
+    expect(hoisted.stopModelCatalogRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("does not start model pricing refresh after scheduled services stop before import settles", async () => {

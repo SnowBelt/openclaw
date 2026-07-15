@@ -16,6 +16,10 @@ type LoadGatewayModelCatalogParams = {
   forceRefresh?: boolean;
 };
 
+export type GatewayModelCatalogRefreshParams = LoadGatewayModelCatalogParams & {
+  intervalMs: number;
+};
+
 type GatewayModelCatalogCache = {
   lastSuccessfulCatalog: GatewayModelChoice[] | null;
   inFlightRefresh: Promise<GatewayModelChoice[]> | null;
@@ -132,4 +136,37 @@ export async function loadGatewayModelCatalog(
     return await cache.inFlightRefresh;
   }
   return await startGatewayModelCatalogRefresh(params);
+}
+
+/**
+ * Periodically refresh the full provider catalog. The last known-good catalog
+ * remains available during refresh and failure. No timer exists unless the
+ * operator explicitly enables it.
+ */
+export function startGatewayModelCatalogPeriodicRefresh(
+  params: GatewayModelCatalogRefreshParams,
+): () => void {
+  if (!Number.isFinite(params.intervalMs) || params.intervalMs <= 0) {
+    return () => {};
+  }
+  let stopped = false;
+  const refresh = () => {
+    if (stopped) {
+      return;
+    }
+    markGatewayModelCatalogStaleForReload();
+    void loadGatewayModelCatalog({
+      ...(params.getConfig ? { getConfig: params.getConfig } : {}),
+      ...(params.loadModelCatalog ? { loadModelCatalog: params.loadModelCatalog } : {}),
+      readOnly: false,
+      forceRefresh: true,
+    }).catch(() => undefined);
+  };
+  refresh();
+  const timer = setInterval(refresh, params.intervalMs);
+  timer.unref?.();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }

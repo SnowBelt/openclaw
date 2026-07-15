@@ -174,6 +174,68 @@ describe("PCC guided work loop", () => {
     expect(prompt).toContain("Completion rule: do not mark this work item complete");
   });
 
+  it("carries the versioned capability and 93-point quality gates into the task prompt", () => {
+    const contractedProject: PccProject = {
+      ...project,
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccCapabilityContract: { schema: "openclaw.pcc.capability-contract.v1" },
+      },
+    };
+    const item = milestone({
+      phaseId: "mvp",
+      metadata: {
+        pccCapabilityContractSchema: "openclaw.pcc.capability-contract.v1",
+        pccCapabilityRequirementIds: ["targeted-proof"],
+      },
+    });
+    const prompt = buildMilestoneTaskPrompt(
+      { project: contractedProject, milestones: [item] },
+      item,
+    );
+
+    expect(prompt).toContain("Capability preflight:");
+    expect(prompt).toContain("Required proof: targeted-proof — planned");
+    expect(prompt).toContain("Minimum score: 93/100");
+    expect(prompt).toContain("first_pass_quality");
+    expect(prompt).toContain("recoverability");
+  });
+
+  it("fails closed when a required external capability is not proven available", () => {
+    const contractedProject: PccProject = {
+      ...project,
+      metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccRequiredSkills: ["required-review-skill"],
+        pccCapabilityContract: { schema: "openclaw.pcc.capability-contract.v1" },
+      },
+    };
+    const item = milestone({
+      phaseId: "tools-skills",
+      metadata: {
+        pccCapabilityContractSchema: "openclaw.pcc.capability-contract.v1",
+        pccCapabilityRequirementIds: ["capability-preflight", "required-review-skill"],
+      },
+    });
+
+    expect(
+      classifyMilestoneBlocker({ project: contractedProject, milestones: [item] }, item),
+    ).toMatchObject({
+      kind: "missing_capability",
+      message: "Capability preflight is blocked: required-review-skill.",
+    });
+    expect(
+      classifyMilestoneBlocker(
+        {
+          project: contractedProject,
+          milestones: [item],
+          capabilityInventory: [{ id: "required-review-skill", kind: "skill", status: "ready" }],
+        },
+        item,
+      ),
+    ).toBeNull();
+  });
+
   it("returns a next task when safe and unblocked", () => {
     const next = getPccWorkLoopNext({ project, milestones: [milestone()] });
 

@@ -588,6 +588,19 @@ export async function projectSessionsPatchEntry(params: {
     }
   }
 
+  if ("projectId" in patch) {
+    const raw = patch.projectId;
+    if (raw === null) {
+      delete next.projectId;
+    } else if (raw !== undefined) {
+      const normalized = normalizeOptionalString(raw);
+      if (!normalized) {
+        return invalid("invalid projectId: empty");
+      }
+      next.projectId = normalized;
+    }
+  }
+
   if (next.thinkingLevel) {
     const effectiveProvider = next.providerOverride ?? resolvedDefault.provider;
     const effectiveModel = next.modelOverride ?? resolvedDefault.model;

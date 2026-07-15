@@ -37,6 +37,7 @@ import {
   normalizeConfiguredProviderCatalogModelId,
   type ProviderModelIdNormalizationOptions,
 } from "./model-ref-shared.js";
+import { orderModelCatalogByRoutingPolicy } from "./model-routing-policy.js";
 import {
   buildConfiguredModelCatalog,
   hasConfiguredProviderModelRows,
@@ -190,6 +191,8 @@ function overlayCatalogMetadata(
   return {
     ...base,
     ...(overlay.api !== undefined ? { api: overlay.api } : {}),
+    ...(overlay.baseUrl !== undefined ? { baseUrl: overlay.baseUrl } : {}),
+    ...(overlay.routeConfig !== undefined ? { routeConfig: overlay.routeConfig } : {}),
     ...(overlay.contextWindow !== undefined ? { contextWindow: overlay.contextWindow } : {}),
     ...(overlay.contextTokens !== undefined ? { contextTokens: overlay.contextTokens } : {}),
     ...(overlay.reasoning !== undefined ? { reasoning: overlay.reasoning } : {}),
@@ -273,6 +276,9 @@ export function loadManifestModelCatalog(params: {
       provider: row.provider,
       api: row.api,
     };
+    if (row.baseUrl) {
+      entry.baseUrl = row.baseUrl;
+    }
     const contextWindow = row.contextWindow ?? row.contextTokens;
     if (contextWindow) {
       entry.contextWindow = contextWindow;
@@ -295,14 +301,18 @@ export function loadManifestModelCatalog(params: {
   return rows;
 }
 
-function sortModelCatalogEntries(entries: ModelCatalogEntry[]): ModelCatalogEntry[] {
-  return entries.map(normalizeCatalogEntryContract).toSorted((a, b) => {
+function sortModelCatalogEntries(
+  entries: ModelCatalogEntry[],
+  config?: OpenClawConfig,
+): ModelCatalogEntry[] {
+  const sorted = entries.map(normalizeCatalogEntryContract).toSorted((a, b) => {
     const p = a.provider.localeCompare(b.provider);
     if (p !== 0) {
       return p;
     }
     return a.name.localeCompare(b.name);
   });
+  return orderModelCatalogByRoutingPolicy({ cfg: config, entries: sorted });
 }
 
 function normalizePersistedModelCatalogEntry(
@@ -310,6 +320,8 @@ function normalizePersistedModelCatalogEntry(
   entry: Record<string, unknown>,
   defaults?: {
     api?: ModelCatalogEntry["api"];
+    baseUrl?: string;
+    routeConfig?: ModelCatalogEntry["routeConfig"];
     contextWindow?: number;
     contextTokens?: number;
   },
@@ -342,6 +354,24 @@ function normalizePersistedModelCatalogEntry(
   const reasoning = typeof entry?.reasoning === "boolean" ? entry.reasoning : false;
   const api =
     typeof entry?.api === "string" ? (entry.api as ModelCatalogEntry["api"]) : defaults?.api;
+  const baseUrl =
+    typeof entry?.baseUrl === "string" && entry.baseUrl.trim()
+      ? entry.baseUrl.trim()
+      : defaults?.baseUrl;
+  const rawRoute =
+    entry.route && typeof entry.route === "object" && !Array.isArray(entry.route)
+      ? (entry.route as Record<string, unknown>)
+      : undefined;
+  const routeConfig: ModelCatalogEntry["routeConfig"] = rawRoute
+    ? {
+        ...(rawRoute.location === "local" || rawRoute.location === "remote"
+          ? { location: rawRoute.location }
+          : {}),
+        ...(rawRoute.billing === "included" || rawRoute.billing === "metered"
+          ? { billing: rawRoute.billing }
+          : {}),
+      }
+    : defaults?.routeConfig;
   const parsedInput = Array.isArray(entry?.input)
     ? entry.input.filter((value): value is ModelInputType =>
         ["text", "image", "audio", "video", "document"].includes(String(value)),
@@ -361,6 +391,8 @@ function normalizePersistedModelCatalogEntry(
     name,
     provider,
     ...(api ? { api } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(routeConfig && Object.keys(routeConfig).length > 0 ? { routeConfig } : {}),
     contextWindow,
     ...(contextTokens !== undefined ? { contextTokens } : {}),
     reasoning,
@@ -451,12 +483,24 @@ async function loadReadOnlyPersistedModelCatalog(params?: {
       typeof providerConfig?.api === "string"
         ? (providerConfig.api as ModelCatalogEntry["api"])
         : undefined;
+    const providerBaseUrl =
+      typeof providerConfig?.baseUrl === "string" && providerConfig.baseUrl.trim()
+        ? providerConfig.baseUrl.trim()
+        : undefined;
+    const providerRoute =
+      providerConfig.route &&
+      typeof providerConfig.route === "object" &&
+      !Array.isArray(providerConfig.route)
+        ? (providerConfig.route as ModelCatalogEntry["routeConfig"])
+        : undefined;
     for (const entry of providerConfig.models as Record<string, unknown>[]) {
       const normalized = normalizePersistedModelCatalogEntry(
         providerRaw,
         entry,
         {
           api: providerApi,
+          baseUrl: providerBaseUrl,
+          routeConfig: providerRoute,
           contextWindow: providerContextWindow,
           contextTokens: providerContextTokens,
         },
@@ -490,7 +534,7 @@ async function loadReadOnlyPersistedModelCatalog(params?: {
   if (configuredModels.length > 0) {
     mergeCatalogEntries(models, configuredModels);
   }
-  return sortModelCatalogEntries(models);
+  return sortModelCatalogEntries(models, cfg);
 }
 
 function hasConfiguredProviderRowsNeedingManifestLookup(cfg: OpenClawConfig): boolean {
@@ -542,7 +586,7 @@ function loadReadOnlyStaticModelCatalog(params?: {
   if (configuredModels.length > 0) {
     mergeCatalogEntries(models, configuredModels);
   }
-  return sortModelCatalogEntries(models);
+  return sortModelCatalogEntries(models, cfg);
 }
 
 export async function loadModelCatalog(params?: {
@@ -587,7 +631,6 @@ export async function loadModelCatalog(params?: {
       const suffix = extra ? ` ${extra}` : "";
       log.info(`model-catalog stage=${stage} elapsedMs=${Date.now() - startMs}${suffix}`);
     };
-    const sortModels = sortModelCatalogEntries;
     try {
       const cfg = params?.config ?? getRuntimeConfig();
       const workspaceDir = resolveModelWorkspaceDir(cfg, undefined);
@@ -712,6 +755,7 @@ export async function loadModelCatalog(params?: {
           name,
           provider,
           ...(api ? { api } : {}),
+          ...(baseUrl ? { baseUrl } : {}),
           contextWindow,
           ...(contextTokens !== undefined ? { contextTokens } : {}),
           reasoning,
@@ -794,7 +838,7 @@ export async function loadModelCatalog(params?: {
         }
       }
 
-      const sorted = sortModels(models);
+      const sorted = sortModelCatalogEntries(models, cfg);
       if (!readOnly) {
         writeCachedAgentModelCatalog({
           agentDir,
@@ -814,7 +858,7 @@ export async function loadModelCatalog(params?: {
         modelCatalogPromise = null;
       }
       if (models.length > 0) {
-        return sortModels(models);
+        return sortModelCatalogEntries(models, params?.config);
       }
       return [];
     }

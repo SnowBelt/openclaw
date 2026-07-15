@@ -956,7 +956,9 @@ export type ModelCatalogEntry = {
   available?: boolean;
   contextWindow?: number;
   reasoning?: boolean;
-  input?: Array<"text" | "image" | "document">;
+  input?: Array<"text" | "image" | "audio" | "video" | "document">;
+  route?: "local" | "subscription" | "metered" | "unknown";
+  certification?: "candidate" | "certified" | "unlisted";
   agentRuntime?: GatewayAgentRuntime;
 };
 

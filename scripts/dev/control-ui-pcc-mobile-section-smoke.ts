@@ -181,7 +181,9 @@ async function main(): Promise<void> {
         chatSyncText: "",
         chatSyncProposals: [],
         chatSyncError: null,
-        viewMode: "simple",
+        // The full AI Loop section is intentionally loaded only in Detailed view;
+        // mobile Simple view opens this mode when the AI Loop tab is selected.
+        viewMode: "detailed",
         productFocusMode: "pcc_product",
         onSetViewMode: () => undefined,
         onRefresh: () => undefined,

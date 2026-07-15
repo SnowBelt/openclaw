@@ -555,6 +555,112 @@ const INSUFFICIENT_QUOTA_PAYLOAD =
   '{"type":"error","error":{"type":"insufficient_quota","message":"Your account has insufficient quota balance to run this request."}}';
 
 describe("runWithModelFallback", () => {
+  it("uses a local candidate before a configured metered default for automatic selection", async () => {
+    const cfg = makeCfg({
+      agents: {
+        defaults: {
+          model: {
+            primary: "paid/expensive",
+            fallbacks: ["local/small"],
+          },
+        },
+      },
+      models: {
+        routing: {
+          preference: "local-first",
+          automaticMetered: "deny",
+          automaticUnknown: "deny",
+        },
+        providers: {
+          local: {
+            baseUrl: "http://127.0.0.1:11434",
+            api: "ollama",
+            models: [
+              {
+                id: "small",
+                name: "Small",
+                reasoning: false,
+                input: ["text"],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 32_000,
+                maxTokens: 4_000,
+              },
+            ],
+          },
+          paid: {
+            baseUrl: "https://api.example.test",
+            route: { location: "remote", billing: "metered" },
+            models: [
+              {
+                id: "expensive",
+                name: "Expensive",
+                reasoning: false,
+                input: ["text"],
+                cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 32_000,
+                maxTokens: 4_000,
+              },
+            ],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValue("local result");
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "paid",
+      model: "expensive",
+      automaticSelection: true,
+      run,
+    });
+
+    expect(result.result).toBe("local result");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith("local", "small", {
+      isFinalFallbackAttempt: true,
+    });
+  });
+
+  it("keeps an explicitly selected metered model available", async () => {
+    const cfg = makeCfg({
+      models: {
+        routing: { automaticMetered: "deny" },
+        providers: {
+          paid: {
+            baseUrl: "https://api.example.test",
+            route: { location: "remote", billing: "metered" },
+            models: [
+              {
+                id: "expensive",
+                name: "Expensive",
+                reasoning: false,
+                input: ["text"],
+                cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 32_000,
+                maxTokens: 4_000,
+              },
+            ],
+          },
+        },
+      },
+    });
+    const run = vi.fn().mockResolvedValue("explicit result");
+
+    const result = await runWithModelFallback({
+      cfg,
+      provider: "paid",
+      model: "expensive",
+      automaticSelection: false,
+      run,
+    });
+
+    expect(result.result).toBe("explicit result");
+    expect(run).toHaveBeenCalledWith("paid", "expensive", {
+      isFinalFallbackAttempt: false,
+    });
+  });
+
   it("uses the opt-in auth skip cache on the second turn for the same session", async () => {
     const previous = process.env.OPENCLAW_FALLBACK_SKIP_TTL_MS;
     process.env.OPENCLAW_FALLBACK_SKIP_TTL_MS = "60000";

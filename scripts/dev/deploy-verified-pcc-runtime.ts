@@ -4,16 +4,13 @@ import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promis
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  parseCustomRuntimeCapabilityManifest,
+  validateCustomRuntimeCapabilityManifest,
+} from "../../src/pcc/custom-runtime-capabilities.ts";
+import { DASHBOARD_SURFACES } from "../../ui/config/dashboard-surfaces.ts";
 
-const REQUIRED_SURFACES = [
-  "pcc",
-  "app-studio",
-  "music-studio",
-  "snes-studio",
-  "book-writer",
-  "kalshi",
-  "pattern-lab",
-] as const;
+export const REQUIRED_PCC_DASHBOARD_SURFACES = DASHBOARD_SURFACES.map((surface) => surface.id);
 
 type SurfaceManifest = {
   buildId?: unknown;
@@ -64,22 +61,54 @@ export async function verifyPccDashboardSurfaceManifest(source: string): Promise
       )
       .map((surface) => [surface.id, surface]),
   );
-  const missing = REQUIRED_SURFACES.filter((id) => {
+  const missing = REQUIRED_PCC_DASHBOARD_SURFACES.filter((id) => {
     const surface = surfaces.get(id);
     return !surface || surface.assets.length === 0;
   });
   if (missing.length > 0) {
     throw new Error(`Dashboard surface manifest is incomplete: ${missing.join(", ")}.`);
   }
-  for (const id of REQUIRED_SURFACES) {
+  for (const id of REQUIRED_PCC_DASHBOARD_SURFACES) {
     for (const asset of surfaces.get(id)?.assets ?? []) {
       await stat(path.join(controlUiRoot, asset));
     }
   }
 }
 
+export async function verifyCustomRuntimeCapabilityManifest(source: string): Promise<void> {
+  const manifestPath = path.join(source, "config", "custom-runtime-capabilities.json");
+  const manifest = parseCustomRuntimeCapabilityManifest(
+    JSON.parse(await readFile(manifestPath, "utf8")) as unknown,
+  );
+  if (!manifest) {
+    throw new Error("Custom runtime capability manifest is invalid.");
+  }
+  const errors = validateCustomRuntimeCapabilityManifest({
+    manifest,
+    dashboardSurfaceIds: REQUIRED_PCC_DASHBOARD_SURFACES,
+  });
+  for (const capability of manifest.capabilities) {
+    for (const requiredPath of capability.requiredPaths) {
+      try {
+        const required = await stat(path.join(source, requiredPath));
+        if (!required.isFile()) {
+          errors.push(
+            `Custom capability ${capability.id} requires a non-file path: ${requiredPath}.`,
+          );
+        }
+      } catch {
+        errors.push(`Custom capability ${capability.id} is missing ${requiredPath}.`);
+      }
+    }
+  }
+  if (errors.length > 0) {
+    throw new Error(`Custom runtime capability manifest is incomplete: ${errors.join(" ")}`);
+  }
+}
+
 export async function copyVerifiedRuntime(deployment: VerifiedRuntimeDeployment): Promise<void> {
   await verifyPccDashboardSurfaceManifest(deployment.source);
+  await verifyCustomRuntimeCapabilityManifest(deployment.source);
   await verifySourceSha(deployment.source, deployment.sha);
   if (deployment.source === deployment.runtime || deployment.source === deployment.backup) {
     throw new Error("Source, runtime, and backup paths must be distinct.");
@@ -110,6 +139,7 @@ export async function copyVerifiedRuntime(deployment: VerifiedRuntimeDeployment)
       `${deployment.sha}\n`,
     );
     await verifyPccDashboardSurfaceManifest(deployment.runtime);
+    await verifyCustomRuntimeCapabilityManifest(deployment.runtime);
   } catch (error) {
     if (previousMoved) {
       await rm(deployment.runtime, { recursive: true, force: true });

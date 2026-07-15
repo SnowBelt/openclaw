@@ -209,6 +209,39 @@ function startGatewayModelPricingRefreshOnDemand(params: {
   };
 }
 
+function startGatewayModelCatalogRefreshOnDemand(params: {
+  config: OpenClawConfig;
+  log: GatewayRuntimeServiceLogger;
+}): () => void {
+  const catalogRefresh = params.config.models?.catalogRefresh;
+  if (catalogRefresh?.enabled !== true) {
+    return () => {};
+  }
+  const intervalMinutes = catalogRefresh.intervalMinutes ?? 60;
+  let stopped = false;
+  let stopRefresh: (() => void) | undefined;
+  void (async () => {
+    const { startGatewayModelCatalogPeriodicRefresh } = await import("./server-model-catalog.js");
+    if (stopped) {
+      return;
+    }
+    stopRefresh = startGatewayModelCatalogPeriodicRefresh({
+      intervalMs: intervalMinutes * 60_000,
+    });
+    if (stopped) {
+      stopRefresh();
+      stopRefresh = undefined;
+    }
+  })().catch((err: unknown) =>
+    params.log.error(`Model catalog refresh failed to start: ${String(err)}`),
+  );
+  return () => {
+    stopped = true;
+    stopRefresh?.();
+    stopRefresh = undefined;
+  };
+}
+
 /** Activates background gateway services after core runtime startup is ready. */
 export function activateGatewayScheduledServices(params: {
   minimalTestGateway: boolean;
@@ -220,11 +253,19 @@ export function activateGatewayScheduledServices(params: {
   logCron: { error: (message: string) => void };
   log: GatewayRuntimeServiceLogger;
   pluginLookUpTable?: PluginMetadataRegistryView;
-}): { heartbeatRunner: HeartbeatRunner; stopModelPricingRefresh: () => void } {
+}): {
+  heartbeatRunner: HeartbeatRunner;
+  stopModelPricingRefresh: () => void;
+  stopModelCatalogRefresh: () => void;
+} {
   if (params.minimalTestGateway) {
     // Minimal gateways keep handles callable but inert so tests can share shutdown paths with
     // production starts without launching background loops.
-    return { heartbeatRunner: createNoopHeartbeatRunner(), stopModelPricingRefresh: () => {} };
+    return {
+      heartbeatRunner: createNoopHeartbeatRunner(),
+      stopModelPricingRefresh: () => {},
+      stopModelCatalogRefresh: () => {},
+    };
   }
   const heartbeatRunner = startHeartbeatRunner({ cfg: params.cfgAtStart });
   if (params.startCron !== false) {
@@ -249,5 +290,8 @@ export function activateGatewayScheduledServices(params: {
         log: params.log,
       })
     : () => {};
-  return { heartbeatRunner, stopModelPricingRefresh };
+  const stopModelCatalogRefresh = !isVitestRuntimeEnv()
+    ? startGatewayModelCatalogRefreshOnDemand({ config: params.cfgAtStart, log: params.log })
+    : () => {};
+  return { heartbeatRunner, stopModelPricingRefresh, stopModelCatalogRefresh };
 }

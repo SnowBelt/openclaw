@@ -7,10 +7,7 @@ import type {
   SessionAcpIdentityState,
   SessionAcpMeta,
 } from "@openclaw/acp-core/types";
-import {
-  normalizeOptionalString,
-  type FastMode,
-} from "@openclaw/normalization-core/string-coerce";
+import { normalizeOptionalString, type FastMode } from "@openclaw/normalization-core/string-coerce";
 import type { ChatType } from "../../channels/chat-type.js";
 import type { ChannelId } from "../../channels/plugins/channel-id.types.js";
 import type { ChannelRouteRef } from "../../plugin-sdk/channel-route.js";
@@ -409,6 +406,8 @@ export type SessionEntry = {
   spawnedCwd?: string;
   /** Explicit parent session linkage for dashboard-created child sessions. */
   parentSessionKey?: string;
+  /** Project Command Center project associated with this session. */
+  projectId?: string;
   /** True after a thread/topic session has been forked from its parent transcript once. */
   forkedFromParent?: boolean;
   /** Subagent spawn depth (0 = main, 1 = sub-agent, 2 = sub-sub-agent). */

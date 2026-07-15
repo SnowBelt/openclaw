@@ -14,6 +14,15 @@ import {
   type PccAutopilotModeId,
   type PccAutopilotPromptSlot,
 } from "../../../../src/pcc/autopilot.js";
+import {
+  pccCapabilityInventoryFromSkillStatus,
+  pccCapabilityInventoryFromAgents,
+  pccCapabilityInventoryFromModelCatalog,
+  resolvePccProjectCapabilities,
+  withPccCapabilityPreflight,
+  type PccCapabilityInventoryEntry,
+} from "../../../../src/pcc/capability-contract.js";
+import { evaluatePccCapabilityEvidence } from "../../../../src/pcc/capability-evidence.js";
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
 import {
   createPccExecutionPlan,
@@ -447,6 +456,40 @@ function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function projectUsesPccCapabilityContract(project: PccProject): boolean {
+  return (
+    metadataObject(metadataObject(project.metadata).pccCapabilityContract).schema ===
+    "openclaw.pcc.capability-contract.v1"
+  );
+}
+
+async function loadPccCapabilityInventory(
+  state: PccDashboardState,
+  project: PccProject,
+): Promise<PccCapabilityInventoryEntry[]> {
+  if (!projectUsesPccCapabilityContract(project)) {
+    return [];
+  }
+  const inventory = [
+    ...pccCapabilityInventoryFromAgents(state.agentsList?.agents ?? []),
+    ...pccCapabilityInventoryFromModelCatalog(state.chatModelCatalog ?? []),
+  ];
+  if (!state.client) {
+    return inventory;
+  }
+  try {
+    const report = await state.client.request<SkillStatusReport | undefined>("skills.status", {});
+    if (report && Array.isArray(report.skills)) {
+      state.skillsReport = report;
+      inventory.push(...pccCapabilityInventoryFromSkillStatus(report.skills));
+    }
+  } catch {
+    // Missing optional inventory stays unknown. Required skills still fail
+    // closed later with a precise capability blocker instead of a generic RPC error.
+  }
+  return inventory;
 }
 
 function metadataWithoutLegacyExecutionRouting(value: unknown): Record<string, unknown> {
@@ -2907,6 +2950,16 @@ export async function addPccCompletionReceipt(
     state.requestUpdate?.();
     return;
   }
+  const capabilityEvidence = evaluatePccCapabilityEvidence({
+    project: detail.project,
+    milestone,
+    evidence: passedEvidence,
+  });
+  if (!capabilityEvidence.passing) {
+    state.pccActionError = `Completion proof is incomplete: ${capabilityEvidence.gaps[0]}`;
+    state.requestUpdate?.();
+    return;
+  }
   await withPccAction(state, async () => {
     if (!state.client) {
       return;
@@ -4380,15 +4433,36 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       milestones: detail.milestones,
       subMilestones: detail.subMilestones ?? [],
     });
+    const capabilityInventory = await loadPccCapabilityInventory(state, detail.project);
+    const projectForPreflight = projectUsesPccCapabilityContract(detail.project)
+      ? withPccCapabilityPreflight(
+          detail.project,
+          resolvePccProjectCapabilities({
+            project: detail.project,
+            inventory: capabilityInventory,
+          }),
+          new Date().toISOString(),
+        )
+      : detail.project;
+    const persistBlockedPreflight = async () => {
+      if (projectForPreflight === detail.project) {
+        return;
+      }
+      // Persist the truth surface even when preparation stops before work.
+      await state.client?.request("pcc.projects.upsert", {
+        project: projectUpsertPayload(projectForPreflight),
+      });
+    };
     const resolvedAction = resolvePccProjectAction({
-      project: detail.project,
+      project: projectForPreflight,
       setupReady: setupEvaluation.runnable,
       blockerLines: buildPccWorkStartBlockers({
-        project: detail.project,
+        project: projectForPreflight,
         milestones: detail.milestones,
         subMilestones: detail.subMilestones ?? [],
         permissions: detail.permissions,
         receipts: detail.receipts,
+        capabilityInventory,
       }),
       permissions: detail.permissions,
       hasBlockedMilestone: detail.summary.milestoneCounts.blocked > 0,
@@ -4398,27 +4472,31 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
       workLoop: getPccWorkLoopSettings(detail.project),
     });
     if (resolvedAction.primaryActionId === "fix_setup") {
+      await persistBlockedPreflight();
       state.pccAutofillPreview = buildPccSetupAutofillPreview(detail, false);
       state.pccActionError = setupRepairMessage(setupEvaluation, detail);
       return;
     }
     if (resolvedAction.primaryActionId === "resume") {
+      await persistBlockedPreflight();
       state.pccActionError =
         "Project is on hold. Use Resume Project before preparing the next safe task.";
       return;
     }
     if (resolvedAction.primaryActionId !== "work") {
+      await persistBlockedPreflight();
       state.pccActionError = `${resolvedAction.primaryLabel}: ${
         resolvedAction.topBlocker ?? resolvedAction.explanation
       }`;
       return;
     }
     const next = getPccWorkLoopNext({
-      project: detail.project,
+      project: projectForPreflight,
       milestones: detail.milestones,
       subMilestones: detail.subMilestones,
       permissions: detail.permissions,
       receipts: detail.receipts,
+      capabilityInventory,
     });
     const executionStandard = resolvePccExecutionStandardForDetail(
       detail,
@@ -4432,7 +4510,7 @@ export async function preparePccNextWorkItem(state: PccDashboardState): Promise<
     }
     const now = new Date().toISOString();
     const updatedProject = withPccWorkLoopSettings(
-      detail.project,
+      projectForPreflight,
       {
         enabled: true,
         state: next.state,

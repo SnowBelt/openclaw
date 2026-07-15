@@ -5078,6 +5078,87 @@
   }
 }
 
+.pcc-operational-metrics {
+  background: color-mix(in srgb, var(--surface-muted) 72%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.pcc-operational-metrics--meeting {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border));
+}
+
+.pcc-operational-metrics--at_risk,
+.pcc-operational-metrics--breached {
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border));
+}
+
+.pcc-operational-metrics > header,
+.pcc-operational-metrics > header > div,
+.pcc-operational-metrics__grid {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pcc-operational-metrics > header {
+  justify-content: space-between;
+}
+
+.pcc-operational-metrics > header > div {
+  align-items: baseline;
+}
+
+.pcc-operational-metrics > header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pcc-operational-metrics > header small,
+.pcc-operational-metrics > p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.pcc-operational-metrics__grid .pcc-today__compact-metric {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 14px;
+  min-width: 110px;
+  padding: 8px 10px;
+}
+
+.pcc-operational-metrics details ul {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding-left: 1.25rem;
+}
+
+.pcc-operational-metrics__ok {
+  color: var(--success) !important;
+  font-weight: 700;
+}
+
+@media (max-width: 680px) {
+  .pcc-operational-metrics__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pcc-operational-metrics__grid .pcc-today__compact-metric {
+    min-width: 0;
+  }
+}
+
 .pcc-autopilot__status-card dl,
 .pcc-autopilot__report dl {
   display: grid;

@@ -2,6 +2,7 @@
 
 import { html, render } from "lit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PCC_OPERATIONAL_QUALITY_DIMENSIONS } from "../../../../src/pcc/capability-contract.js";
 import { resolvePccExecutionProfilePreset } from "../../../../src/pcc/execution-profile.js";
 import {
   EMPTY_PCC_DECISION_FORM,
@@ -272,6 +273,60 @@ afterEach(() => {
 });
 
 describe("renderPccDashboard", () => {
+  it("renders operational SLOs from evidence without inferring missing data", () => {
+    const empty = renderView(createProps());
+    expect(
+      empty
+        .querySelector("[data-pcc-operational-metrics]")
+        ?.getAttribute("data-pcc-operational-health"),
+    ).toBe("no_data");
+    expect(empty.querySelector("[data-pcc-operational-metrics]")?.textContent).toContain(
+      "No evidence metadata has been recorded yet",
+    );
+
+    const scores = Object.fromEntries(
+      PCC_OPERATIONAL_QUALITY_DIMENSIONS.map((dimension) => [dimension, 93]),
+    );
+    const operationalEvidence = {
+      ...evidence,
+      metadata: {
+        pccFirstPass: {
+          attemptCount: 1,
+          defectCount: 0,
+          latencyMs: 400,
+          costClass: "local",
+          openAiApiUsed: false,
+        },
+        pccQualityAssessment: {
+          assessor: "independent-local-qa",
+          independent: true,
+          criticalRegression: false,
+          scores,
+        },
+      },
+    };
+    const container = renderView(
+      createProps({
+        projectDetail: {
+          project,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [permission],
+          evidence: [operationalEvidence],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        },
+      }),
+    );
+    const metrics = container.querySelector("[data-pcc-operational-metrics]");
+    expect(metrics?.getAttribute("data-pcc-operational-health")).toBe("meeting");
+    expect(metrics?.textContent).toContain("100%First pass");
+    expect(metrics?.textContent).toContain("100%Local first");
+    expect(metrics?.textContent).toContain("All measured gates meet policy");
+  });
+
   it("renders summary metrics, project cards, and detail", () => {
     const container = renderView(createProps());
     const text = container.textContent ?? "";

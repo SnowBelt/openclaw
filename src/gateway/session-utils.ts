@@ -2194,6 +2194,7 @@ export function buildGatewaySessionRow(params: {
     endedAt: subagentRun ? subagentEndedAt : entry?.endedAt,
     runtimeMs: subagentRun ? subagentRuntimeMs : entry?.runtimeMs,
     parentSessionKey: subagentOwner || entry?.parentSessionKey,
+    projectId: entry?.projectId,
     childSessions,
     responseUsage: entry?.responseUsage,
     modelProvider: rowModelProvider,

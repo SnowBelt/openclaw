@@ -363,6 +363,14 @@ const ThinkingLevelMapSchema = z
   })
   .strict();
 
+const ModelRouteConfigSchema = z
+  .object({
+    location: z.union([z.literal("local"), z.literal("remote")]).optional(),
+    billing: z.union([z.literal("included"), z.literal("metered")]).optional(),
+  })
+  .strict()
+  .optional();
+
 const ModelDefinitionSchema = z
   .object({
     id: z.string().min(1),
@@ -372,7 +380,13 @@ const ModelDefinitionSchema = z
     reasoning: z.boolean().optional(),
     input: z
       .array(
-        z.union([z.literal("text"), z.literal("image"), z.literal("video"), z.literal("audio")]),
+        z.union([
+          z.literal("text"),
+          z.literal("image"),
+          z.literal("video"),
+          z.literal("audio"),
+          z.literal("document"),
+        ]),
       )
       .optional(),
     cost: z
@@ -403,6 +417,7 @@ const ModelDefinitionSchema = z
     thinkingLevelMap: ThinkingLevelMapSchema.optional(),
     params: z.record(z.string(), z.unknown()).optional(),
     agentRuntime: ModelAgentRuntimePolicySchema,
+    route: ModelRouteConfigSchema,
     headers: z.record(z.string(), z.string()).optional(),
     compat: ModelCompatSchema,
     mediaInput: ModelMediaInputSchema.optional(),
@@ -419,6 +434,39 @@ const ModelProviderLocalServiceSchema = z
     healthUrl: z.string().min(1).optional(),
     readyTimeoutMs: z.number().int().positive().optional(),
     idleStopMs: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+  .optional();
+
+const ModelCertificationConfigSchema = z
+  .object({
+    state: z.union([z.literal("candidate"), z.literal("certified")]),
+    verifiedAt: z.string().datetime().optional(),
+    evidence: z.string().min(1).optional(),
+  })
+  .strict();
+
+const ModelRoutingPolicyConfigSchema = z
+  .object({
+    preference: z.union([z.literal("preserve"), z.literal("local-first")]).optional(),
+    automaticMetered: z.union([z.literal("allow"), z.literal("deny")]).optional(),
+    automaticUnknown: z.union([z.literal("allow"), z.literal("deny")]).optional(),
+    automaticMaxCostUsd: z.number().positive().finite().optional(),
+    automaticDailyMaxCostUsd: z.number().positive().finite().optional(),
+    automaticProjectDailyMaxCostUsd: z.number().positive().finite().optional(),
+    automaticProfiles: z
+      .object({
+        general: z.array(z.string().min(1)).optional(),
+        vision: z.array(z.string().min(1)).optional(),
+        coding: z.array(z.string().min(1)).optional(),
+        reasoning: z.array(z.string().min(1)).optional(),
+        scheduled: z.array(z.string().min(1)).optional(),
+        maintenance: z.array(z.string().min(1)).optional(),
+      })
+      .strict()
+      .optional(),
+    requireCertifiedForAutomatic: z.boolean().optional(),
+    certifications: z.record(z.string(), ModelCertificationConfigSchema).optional(),
   })
   .strict()
   .optional();
@@ -507,6 +555,7 @@ const ModelProviderSchema = z
     injectNumCtxForOpenAICompat: z.boolean().optional(),
     params: z.record(z.string(), z.unknown()).optional(),
     agentRuntime: ModelAgentRuntimePolicySchema,
+    route: ModelRouteConfigSchema,
     localService: ModelProviderLocalServiceSchema,
     headers: z.record(z.string(), SecretInputSchema.register(sensitive)).optional(),
     authHeader: z.boolean().optional(),
@@ -548,11 +597,21 @@ const ModelPricingConfigSchema = z
   .strict()
   .optional();
 
+const ModelCatalogRefreshConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    intervalMinutes: z.number().int().min(1).max(1440).optional(),
+  })
+  .strict()
+  .optional();
+
 export const ModelsConfigSchema = z
   .object({
     mode: z.union([z.literal("merge"), z.literal("replace")]).optional(),
     providers: ModelProvidersSchema.optional(),
     pricing: ModelPricingConfigSchema,
+    catalogRefresh: ModelCatalogRefreshConfigSchema,
+    routing: ModelRoutingPolicyConfigSchema,
   })
   .strict()
   .optional();

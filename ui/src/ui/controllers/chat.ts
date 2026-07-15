@@ -439,14 +439,45 @@ type ChatAgentsListSnapshot = Partial<Omit<AgentsListResult, "agents">> & {
 };
 
 type ChatProjectCreateResponse = {
-  ok: true;
-  project?: ProjectRecord;
+  project?: {
+    id?: string;
+    title?: string;
+    goal?: string;
+    status?: string;
+    updatedAt?: string;
+  };
 };
 
 type ChatProjectSessionCreateResponse = {
   ok: true;
   key?: string;
 };
+
+type ChatPccProjectSummary = {
+  id?: string;
+  title?: string;
+  status?: string;
+  updatedAt?: string;
+};
+
+type ChatPccProjectsListResponse = {
+  projects?: ChatPccProjectSummary[];
+};
+
+function projectRecordFromPccSummary(project: ChatPccProjectSummary): ProjectRecord | null {
+  const id = project.id?.trim();
+  const name = project.title?.trim();
+  if (!id || !name) {
+    return null;
+  }
+  const updatedAt = project.updatedAt ? Date.parse(project.updatedAt) : Number.NaN;
+  return {
+    id,
+    name,
+    archived: project.status === "archived",
+    ...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
+  };
+}
 
 export type ChatHistoryResult = {
   messages?: Array<unknown>;
@@ -511,10 +542,18 @@ export async function loadChatProjects(state: ChatState): Promise<void> {
   }
   state.projectsLoading = true;
   try {
-    const res = await state.client.request<ProjectsListResult>("projects.list", {
+    const res = await state.client.request<ChatPccProjectsListResponse>("pcc.projects.list", {
       includeArchived: true,
     });
-    state.projectsList = res ?? { ok: true, ts: Date.now(), count: 0, projects: [] };
+    const projects = (res.projects ?? [])
+      .map(projectRecordFromPccSummary)
+      .filter((project): project is ProjectRecord => project !== null);
+    state.projectsList = {
+      ok: true,
+      ts: Date.now(),
+      count: projects.length,
+      projects,
+    };
     state.chatProjectError = null;
   } catch (err) {
     setChatProjectError(state, err);
@@ -643,19 +682,26 @@ export async function createAndAttachChatProject(state: ChatState): Promise<stri
     if (!name) {
       throw new Error("Project name is required.");
     }
-    const response = await client.request<ChatProjectCreateResponse>("projects.create", {
-      name,
-      description: normalizeOptionalText(state.chatProjectCreateDescription),
-      instructions: normalizeOptionalText(state.chatProjectCreateInstructions),
-      memoryMode: "project_only",
+    const description = normalizeOptionalText(state.chatProjectCreateDescription);
+    const instructions = normalizeOptionalText(state.chatProjectCreateInstructions);
+    const response = await client.request<ChatProjectCreateResponse>("pcc.projects.upsert", {
+      project: {
+        title: name,
+        ...(description ? { goal: description } : {}),
+        metadata: {
+          chatProjectMemoryMode: "project_only",
+          ...(description ? { chatProjectDescription: description } : {}),
+          ...(instructions ? { chatProjectInstructions: instructions } : {}),
+        },
+      },
     });
     const projectId = response?.project?.id?.trim();
     if (!projectId) {
       throw new Error("Project was created without an id.");
     }
-    await client.request("projects.sessions.attach", {
-      projectId,
+    await client.request("sessions.patch", {
       key: currentChatSessionKey(state),
+      projectId,
     });
     clearChatProjectDraft(state);
     state.chatProjectPickerOpen = false;
@@ -681,9 +727,9 @@ export async function attachChatSessionToProject(
   state.chatProjectError = null;
   try {
     const client = requireConnectedChatClient(state);
-    await client.request("projects.sessions.attach", {
-      projectId: normalizedProjectId,
+    await client.request("sessions.patch", {
       key: currentChatSessionKey(state),
+      projectId: normalizedProjectId,
     });
     state.chatProjectPickerOpen = false;
     await loadChatProjects(state);
@@ -701,8 +747,9 @@ export async function detachChatSessionFromProject(state: ChatState): Promise<bo
   state.chatProjectError = null;
   try {
     const client = requireConnectedChatClient(state);
-    await client.request("projects.sessions.detach", {
+    await client.request("sessions.patch", {
       key: currentChatSessionKey(state),
+      projectId: null,
     });
     state.chatProjectPickerOpen = false;
     await loadChatProjects(state);

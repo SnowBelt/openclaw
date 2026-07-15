@@ -26,6 +26,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "spawnedWorkspaceDir",
   "spawnedCwd",
   "parentSessionKey",
+  "projectId",
   "forkedFromParent",
   "spawnDepth",
   "subagentRole",

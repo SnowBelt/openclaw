@@ -8,6 +8,12 @@ import type {
   PccStatus,
   PccSubMilestone,
 } from "../../packages/gateway-protocol/src/schema/types.js";
+import {
+  PCC_CAPABILITY_CONTRACT_SCHEMA,
+  type PccCapabilityInventoryEntry,
+  type PccCapabilityResolution,
+  resolvePccProjectCapabilities,
+} from "./capability-contract.js";
 import { evaluatePccProjectSetup } from "./intake-quality.js";
 import { pccMetadataObject, pccResponsibilityForItem } from "./metadata.js";
 
@@ -56,6 +62,7 @@ export type PccWorkLoopProject = {
   subMilestones?: readonly PccSubMilestone[];
   permissions?: readonly PccPermissionGrant[];
   receipts?: readonly PccCompletionReceipt[];
+  capabilityInventory?: readonly PccCapabilityInventoryEntry[];
 };
 
 export type PccWorkLoopBlockerKind =
@@ -70,6 +77,7 @@ export type PccWorkLoopBlockerKind =
   | "lane_disabled"
   | "workspace_locked"
   | "setup_not_ready"
+  | "missing_capability"
   | "missing_plan"
   | "missing_acceptance_criteria"
   | "proof_failed";
@@ -133,6 +141,7 @@ const HARD_STOP_BLOCKERS = new Set<PccWorkLoopBlockerKind>([
   "remote_proof_required",
   "destructive_action_required",
   "setup_not_ready",
+  "missing_capability",
   "proof_failed",
 ]);
 const WORK_LOOP_STATES: readonly PccWorkLoopState[] = [
@@ -305,6 +314,72 @@ function metadataFlag(item: WorkItem, key: string): boolean {
 function metadataString(item: WorkItem, key: string): string | null {
   const value = metadataObject(item.metadata)[key];
   return typeof value === "string" ? value : null;
+}
+
+function metadataStringArray(item: WorkItem, key: string): string[] {
+  const value = metadataObject(item.metadata)[key];
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const normalized = typeof entry === "string" ? entry.trim() : "";
+        return normalized ? [normalized] : [];
+      })
+    : [];
+}
+
+function projectUsesCapabilityContract(project: PccProject, item: WorkItem): boolean {
+  const projectMetadata = metadataObject(project.metadata);
+  const contract = metadataObject(projectMetadata.pccCapabilityContract);
+  const itemSchema = metadataString(item, "pccCapabilityContractSchema");
+  return (
+    contract.schema === PCC_CAPABILITY_CONTRACT_SCHEMA ||
+    itemSchema === PCC_CAPABILITY_CONTRACT_SCHEMA
+  );
+}
+
+function capabilityInventoryFromProject(project: PccProject): PccCapabilityInventoryEntry[] {
+  const preflight = metadataObject(metadataObject(project.metadata).pccCapabilityPreflight);
+  const entries = Array.isArray(preflight.entries) ? preflight.entries : [];
+  const allowedKinds = new Set(["process", "workflow", "skill", "tool", "agent", "model", "proof"]);
+  const allowedStatuses = new Set(["ready", "blocked", "missing", "unknown"]);
+  return entries.flatMap((entry): PccCapabilityInventoryEntry[] => {
+    const value = metadataObject(entry);
+    const id = typeof value.id === "string" ? value.id.trim() : "";
+    const kind = typeof value.kind === "string" ? value.kind : "";
+    const status = typeof value.status === "string" ? value.status : "";
+    if (!id || !allowedKinds.has(kind) || !allowedStatuses.has(status)) {
+      return [];
+    }
+    return [
+      {
+        id,
+        kind: kind as PccCapabilityInventoryEntry["kind"],
+        status: status as PccCapabilityInventoryEntry["status"],
+        ...(typeof value.reason === "string" && value.reason.trim()
+          ? { reason: value.reason.trim() }
+          : {}),
+      },
+    ];
+  });
+}
+
+function capabilityResolutionForItem(
+  input: PccWorkLoopProject,
+  item: WorkItem,
+): PccCapabilityResolution | null {
+  if (!projectUsesCapabilityContract(input.project, item)) {
+    return null;
+  }
+  const explicitInventory = input.capabilityInventory ?? [];
+  const inventory =
+    explicitInventory.length > 0
+      ? explicitInventory
+      : capabilityInventoryFromProject(input.project);
+  const requirementIds = metadataStringArray(item, "pccCapabilityRequirementIds");
+  return resolvePccProjectCapabilities({
+    project: input.project,
+    inventory,
+    ...(requirementIds.length > 0 ? { requirementIds } : {}),
+  });
 }
 
 function itemResponsibility(item: WorkItem): string {
@@ -491,6 +566,14 @@ export function classifyMilestoneBlocker(
       message: `Missing granted permission for ${item.title}.`,
     };
   }
+  const capabilityResolution = capabilityResolutionForItem(input, item);
+  if (capabilityResolution && !capabilityResolution.ready) {
+    return {
+      kind: "missing_capability",
+      ...itemBlockerIds(item),
+      message: `Capability preflight is blocked: ${capabilityResolution.blockingRequirementIds.join(", ")}.`,
+    };
+  }
   if (settings.stopBeforeCodex && itemRequiresCodex(permissions, item)) {
     return {
       kind: "codex_required",
@@ -553,6 +636,21 @@ export function buildMilestoneTaskPrompt(
         )
         .join("\n")
     : "- No work-item-specific permissions recorded.";
+  const capabilityResolution = capabilityResolutionForItem(input, item);
+  const capabilityLines = capabilityResolution
+    ? capabilityResolution.entries
+        .map(
+          (entry) =>
+            `- ${entry.requirement.required ? "Required" : "Preferred"} ${entry.requirement.kind}: ${entry.requirement.id} — ${entry.status}; ${entry.reason}`,
+        )
+        .join("\n")
+    : "- Legacy project: no versioned capability contract recorded. Repair setup before autonomous execution.";
+  const qualityLines = capabilityResolution
+    ? [
+        `- Minimum score: ${capabilityResolution.qualityThreshold}/100 on every applicable dimension; no averaging away a critical regression.`,
+        `- Dimensions: ${capabilityResolution.qualityDimensions.join(", ")}.`,
+      ]
+    : ["- Use the milestone acceptance criteria and attach exact proof without inferring success."];
   return [
     `Project: ${input.project.title}`,
     input.project.goal ? `Goal: ${input.project.goal}` : "Goal: Not recorded",
@@ -571,6 +669,25 @@ export function buildMilestoneTaskPrompt(
     "Permission scope:",
     permissionLines,
     "",
+    "Capability preflight:",
+    capabilityLines,
+    "",
+    "Quality gate:",
+    ...qualityLines,
+    "",
+    ...(capabilityResolution
+      ? [
+          "Evidence metadata contract:",
+          '- pccCapabilityUse: [{ id: "<required capability id>", status: "used" }] for every required capability. A fallback also needs note and approvedBy.',
+          "- pccFirstPass: { attemptCount, defectCount, latencyMs, costClass, openAiApiUsed }. If OpenAI API use was required, also record paidUseAuthorization: { permissionId, budgetId, reason }; otherwise openAiApiUsed=false.",
+          ...(milestone.phaseId === "production-proof"
+            ? [
+                `- pccQualityAssessment: an independent assessor, criticalRegression=false, and every quality dimension scored at least ${capabilityResolution.qualityThreshold}/100.`,
+              ]
+            : []),
+          "",
+        ]
+      : []),
     "Completion rule: do not mark this work item complete until every acceptance criterion has proof and a completion receipt is recorded on the parent milestone.",
   ].join("\n");
 }

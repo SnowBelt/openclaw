@@ -26,6 +26,46 @@ function createChatModelState(
 }
 
 describe("chat-model-select-state", () => {
+  it("groups local and remote models by route, certification, and capability", () => {
+    const state = createChatModelState({
+      chatModelCatalog: createModelCatalog(
+        {
+          id: "qwen3.6:latest",
+          name: "Qwen 3.6",
+          provider: "ollama",
+          route: "local",
+          certification: "certified",
+          input: ["text"],
+        },
+        {
+          id: "gpt-5.5",
+          name: "GPT-5.5",
+          provider: "openai",
+          route: "metered",
+          certification: "candidate",
+          input: ["text", "image"],
+        },
+      ),
+      sessionsResult: createSessionsListResult({
+        model: null,
+        modelProvider: null,
+        defaultsModel: null,
+        defaultsProvider: null,
+      }),
+    });
+
+    expect(resolveChatModelSelectState(state).optionGroups).toEqual([
+      {
+        label: "Local & self-hosted · Certified · Text & coding",
+        options: [{ value: "ollama/qwen3.6:latest", label: "Qwen 3.6" }],
+      },
+      {
+        label: "Metered API · Manual review · Vision",
+        options: [{ value: "openai/gpt-5.5", label: "GPT-5.5" }],
+      },
+    ]);
+  });
+
   it("uses the server-qualified value when the active session provider is present", () => {
     const state = createChatModelState({
       chatModelCatalog: createModelCatalog(DEEPSEEK_CHAT_MODEL),

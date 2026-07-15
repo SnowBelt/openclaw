@@ -57,6 +57,104 @@ public enum SessionFileRelevance: String, Codable, Sendable {
     case mixed = "mixed"
 }
 
+public enum TaskFlowStatus: String, Codable, Sendable {
+    case queued = "queued"
+    case running = "running"
+    case waiting = "waiting"
+    case blocked = "blocked"
+    case succeeded = "succeeded"
+    case failed = "failed"
+    case cancelled = "cancelled"
+    case lost = "lost"
+}
+
+public enum PccStatus: String, Codable, Sendable {
+    case notStarted = "not_started"
+    case active = "active"
+    case inProgress = "in_progress"
+    case blocked = "blocked"
+    case needsApproval = "needs_approval"
+    case deferred = "deferred"
+    case onHold = "on_hold"
+    case skipped = "skipped"
+    case proofPending = "proof_pending"
+    case localProofComplete = "local_proof_complete"
+    case remoteProofComplete = "remote_proof_complete"
+    case runtimeProofComplete = "runtime_proof_complete"
+    case persistenceProofComplete = "persistence_proof_complete"
+    case complete = "complete"
+    case completeWithMaintenance = "complete_with_maintenance"
+    case reopened = "reopened"
+    case archived = "archived"
+    case failed = "failed"
+}
+
+public enum PccProofLevel: String, Codable, Sendable {
+    case none = "none"
+    case planned = "planned"
+    case local = "local"
+    case remote = "remote"
+    case runtime = "runtime"
+    case persistence = "persistence"
+    case production = "production"
+}
+
+public enum PccPermissionStatus: String, Codable, Sendable {
+    case needed = "needed"
+    case granted = "granted"
+    case used = "used"
+    case expired = "expired"
+    case revoked = "revoked"
+    case denied = "denied"
+    case blocked = "blocked"
+}
+
+public enum PccPermissionType: String, Codable, Sendable {
+    case localProof = "local_proof"
+    case codexUsage = "codex_usage"
+    case highReasoningModel = "high_reasoning_model"
+    case remoteProof = "remote_proof"
+    case pushBackup = "push_backup"
+    case runtimeRestart = "runtime_restart"
+    case runtimeInstall = "runtime_install"
+    case reboot = "reboot"
+    case publish = "publish"
+    case tradingLiveMoney = "trading_live_money"
+    case destructiveAction = "destructive_action"
+    case externalWrite = "external_write"
+}
+
+public enum PccRiskLevel: String, Codable, Sendable {
+    case low = "low"
+    case medium = "medium"
+    case high = "high"
+    case critical = "critical"
+}
+
+public enum PccEvidenceKind: String, Codable, Sendable {
+    case localTest = "local_test"
+    case typecheck = "typecheck"
+    case changedGate = "changed_gate"
+    case remoteCi = "remote_ci"
+    case runtimeStatus = "runtime_status"
+    case browserProof = "browser_proof"
+    case screenshot = "screenshot"
+    case gitCommit = "git_commit"
+    case backup = "backup"
+    case receipt = "receipt"
+    case externalSource = "external_source"
+    case manualReview = "manual_review"
+    case other = "other"
+}
+
+public enum PccEvidenceStatus: String, Codable, Sendable {
+    case unknown = "unknown"
+    case passed = "passed"
+    case failed = "failed"
+    case blocked = "blocked"
+    case notApplicable = "not_applicable"
+}
+
 public struct ConnectParams: Codable, Sendable {
     public let minprotocol: Int
     public let maxprotocol: Int
@@ -2297,6 +2395,7 @@ public struct SessionsCreateParams: Codable, Sendable {
     public let label: String?
     public let model: String?
     public let parentsessionkey: String?
+    public let projectid: String?
     public let emitcommandhooks: Bool?
     public let task: String?
     public let message: String?
@@ -2307,6 +2406,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         label: String?,
         model: String?,
         parentsessionkey: String?,
+        projectid: String?,
         emitcommandhooks: Bool?,
         task: String?,
         message: String?)
@@ -2316,6 +2416,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         self.label = label
         self.model = model
         self.parentsessionkey = parentsessionkey
+        self.projectid = projectid
         self.emitcommandhooks = emitcommandhooks
         self.task = task
         self.message = message
@@ -2327,6 +2428,7 @@ public struct SessionsCreateParams: Codable, Sendable {
         case label
         case model
         case parentsessionkey = "parentSessionKey"
+        case projectid = "projectId"
         case emitcommandhooks = "emitCommandHooks"
         case task
         case message
@@ -2445,6 +2547,7 @@ public struct SessionsPatchParams: Codable, Sendable {
     public let execask: AnyCodable?
     public let execnode: AnyCodable?
     public let model: AnyCodable?
+    public let projectid: AnyCodable?
     public let spawnedby: AnyCodable?
     public let spawnedworkspacedir: AnyCodable?
     public let spawnedcwd: AnyCodable?
@@ -2472,6 +2575,7 @@ public struct SessionsPatchParams: Codable, Sendable {
         execask: AnyCodable?,
         execnode: AnyCodable?,
         model: AnyCodable?,
+        projectid: AnyCodable?,
         spawnedby: AnyCodable?,
         spawnedworkspacedir: AnyCodable?,
         spawnedcwd: AnyCodable?,
@@ -2498,6 +2602,7 @@ public struct SessionsPatchParams: Codable, Sendable {
         self.execask = execask
         self.execnode = execnode
         self.model = model
+        self.projectid = projectid
         self.spawnedby = spawnedby
         self.spawnedworkspacedir = spawnedworkspacedir
         self.spawnedcwd = spawnedcwd
@@ -2526,6 +2631,7 @@ public struct SessionsPatchParams: Codable, Sendable {
         case execask = "execAsk"
         case execnode = "execNode"
         case model
+        case projectid = "projectId"
         case spawnedby = "spawnedBy"
         case spawnedworkspacedir = "spawnedWorkspaceDir"
         case spawnedcwd = "spawnedCwd"
@@ -2716,6 +2822,236 @@ public struct SessionsUsageParams: Codable, Sendable {
         case utcoffset = "utcOffset"
         case limit
         case includecontextweight = "includeContextWeight"
+    }
+}
+
+public struct TaskFlowSummary: Codable, Sendable {
+    public let id: String
+    public let flowid: String
+    public let ownerkey: String
+    public let requesterorigin: AnyCodable?
+    public let status: TaskFlowStatus
+    public let notifypolicy: AnyCodable
+    public let goal: String
+    public let currentstep: String?
+    public let blockedtaskid: String?
+    public let blockedsummary: String?
+    public let cancelrequestedat: AnyCodable?
+    public let createdat: AnyCodable
+    public let updatedat: AnyCodable
+    public let endedat: AnyCodable?
+
+    public init(
+        id: String,
+        flowid: String,
+        ownerkey: String,
+        requesterorigin: AnyCodable?,
+        status: TaskFlowStatus,
+        notifypolicy: AnyCodable,
+        goal: String,
+        currentstep: String?,
+        blockedtaskid: String?,
+        blockedsummary: String?,
+        cancelrequestedat: AnyCodable?,
+        createdat: AnyCodable,
+        updatedat: AnyCodable,
+        endedat: AnyCodable?)
+    {
+        self.id = id
+        self.flowid = flowid
+        self.ownerkey = ownerkey
+        self.requesterorigin = requesterorigin
+        self.status = status
+        self.notifypolicy = notifypolicy
+        self.goal = goal
+        self.currentstep = currentstep
+        self.blockedtaskid = blockedtaskid
+        self.blockedsummary = blockedsummary
+        self.cancelrequestedat = cancelrequestedat
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.endedat = endedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case flowid = "flowId"
+        case ownerkey = "ownerKey"
+        case requesterorigin = "requesterOrigin"
+        case status
+        case notifypolicy = "notifyPolicy"
+        case goal
+        case currentstep = "currentStep"
+        case blockedtaskid = "blockedTaskId"
+        case blockedsummary = "blockedSummary"
+        case cancelrequestedat = "cancelRequestedAt"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case endedat = "endedAt"
+    }
+}
+
+public struct TaskFlowsListParams: Codable, Sendable {
+    public let sessionkey: String?
+    public let ownerkey: String?
+    public let status: AnyCodable?
+    public let limit: Int?
+    public let cursor: String?
+
+    public init(
+        sessionkey: String?,
+        ownerkey: String?,
+        status: AnyCodable?,
+        limit: Int?,
+        cursor: String?)
+    {
+        self.sessionkey = sessionkey
+        self.ownerkey = ownerkey
+        self.status = status
+        self.limit = limit
+        self.cursor = cursor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case ownerkey = "ownerKey"
+        case status
+        case limit
+        case cursor
+    }
+}
+
+public struct TaskFlowsListResult: Codable, Sendable {
+    public let flows: [TaskFlowSummary]
+    public let nextcursor: String?
+
+    public init(
+        flows: [TaskFlowSummary],
+        nextcursor: String?)
+    {
+        self.flows = flows
+        self.nextcursor = nextcursor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flows
+        case nextcursor = "nextCursor"
+    }
+}
+
+public struct TaskFlowsGetParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+    }
+}
+
+public struct TaskFlowsGetResult: Codable, Sendable {
+    public let flow: TaskFlowDetail
+
+    public init(
+        flow: TaskFlowDetail)
+    {
+        self.flow = flow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flow
+    }
+}
+
+public struct TaskFlowsCreateParams: Codable, Sendable {
+    public let sessionkey: String
+    public let goal: String
+    public let currentstep: String?
+
+    public init(
+        sessionkey: String,
+        goal: String,
+        currentstep: String?)
+    {
+        self.sessionkey = sessionkey
+        self.goal = goal
+        self.currentstep = currentstep
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case goal
+        case currentstep = "currentStep"
+    }
+}
+
+public struct TaskFlowsCreateResult: Codable, Sendable {
+    public let flow: TaskFlowDetail
+
+    public init(
+        flow: TaskFlowDetail)
+    {
+        self.flow = flow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flow
+    }
+}
+
+public struct TaskFlowsCancelParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let reason: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        reason: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.reason = reason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case reason
+    }
+}
+
+public struct TaskFlowsCancelResult: Codable, Sendable {
+    public let found: Bool
+    public let cancelled: Bool
+    public let reason: String?
+    public let flow: TaskFlowDetail?
+
+    public init(
+        found: Bool,
+        cancelled: Bool,
+        reason: String?,
+        flow: TaskFlowDetail?)
+    {
+        self.found = found
+        self.cancelled = cancelled
+        self.reason = reason
+        self.flow = flow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case found
+        case cancelled
+        case reason
+        case flow
     }
 }
 
@@ -2930,6 +3266,1128 @@ public struct TasksCancelResult: Codable, Sendable {
         case cancelled
         case reason
         case task
+    }
+}
+
+public struct PccPhase: Codable, Sendable {
+    public let id: String
+    public let title: String
+    public let status: PccStatus?
+    public let weight: Double?
+    public let percentcomplete: Double?
+    public let order: Int?
+
+    public init(
+        id: String,
+        title: String,
+        status: PccStatus?,
+        weight: Double?,
+        percentcomplete: Double?,
+        order: Int?)
+    {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.weight = weight
+        self.percentcomplete = percentcomplete
+        self.order = order
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case status
+        case weight
+        case percentcomplete = "percentComplete"
+        case order
+    }
+}
+
+public struct PccProject: Codable, Sendable {
+    public let id: String
+    public let title: String
+    public let goal: String?
+    public let status: PccStatus
+    public let owner: String?
+    public let priority: Int?
+    public let phases: [PccPhase]?
+    public let createdat: String
+    public let updatedat: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        id: String,
+        title: String,
+        goal: String?,
+        status: PccStatus,
+        owner: String?,
+        priority: Int?,
+        phases: [PccPhase]?,
+        createdat: String,
+        updatedat: String,
+        metadata: [String: AnyCodable]?)
+    {
+        self.id = id
+        self.title = title
+        self.goal = goal
+        self.status = status
+        self.owner = owner
+        self.priority = priority
+        self.phases = phases
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case goal
+        case status
+        case owner
+        case priority
+        case phases
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case metadata
+    }
+}
+
+public struct PccMilestone: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let title: String
+    public let status: PccStatus
+    public let phaseid: String?
+    public let owner: String?
+    public let order: Int?
+    public let percentcomplete: Double?
+    public let dependson: [String]?
+    public let requiredevidenceids: [String]?
+    public let receiptids: [String]?
+    public let permissiongrantids: [String]?
+    public let blocker: String?
+    public let implementationplan: String?
+    public let acceptancecriteria: [String]?
+    public let createdat: String
+    public let updatedat: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        id: String,
+        projectid: String,
+        title: String,
+        status: PccStatus,
+        phaseid: String?,
+        owner: String?,
+        order: Int?,
+        percentcomplete: Double?,
+        dependson: [String]?,
+        requiredevidenceids: [String]?,
+        receiptids: [String]?,
+        permissiongrantids: [String]?,
+        blocker: String?,
+        implementationplan: String?,
+        acceptancecriteria: [String]?,
+        createdat: String,
+        updatedat: String,
+        metadata: [String: AnyCodable]?)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.title = title
+        self.status = status
+        self.phaseid = phaseid
+        self.owner = owner
+        self.order = order
+        self.percentcomplete = percentcomplete
+        self.dependson = dependson
+        self.requiredevidenceids = requiredevidenceids
+        self.receiptids = receiptids
+        self.permissiongrantids = permissiongrantids
+        self.blocker = blocker
+        self.implementationplan = implementationplan
+        self.acceptancecriteria = acceptancecriteria
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case title
+        case status
+        case phaseid = "phaseId"
+        case owner
+        case order
+        case percentcomplete = "percentComplete"
+        case dependson = "dependsOn"
+        case requiredevidenceids = "requiredEvidenceIds"
+        case receiptids = "receiptIds"
+        case permissiongrantids = "permissionGrantIds"
+        case blocker
+        case implementationplan = "implementationPlan"
+        case acceptancecriteria = "acceptanceCriteria"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case metadata
+    }
+}
+
+public struct PccSubMilestone: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let milestoneid: String
+    public let title: String
+    public let status: PccStatus
+    public let order: Int?
+    public let owner: String?
+    public let percentcomplete: Double?
+    public let dependson: [String]?
+    public let requiredevidenceids: [String]?
+    public let receiptids: [String]?
+    public let permissiongrantids: [String]?
+    public let blocker: String?
+    public let implementationplan: String?
+    public let acceptancecriteria: [String]?
+    public let createdat: String
+    public let updatedat: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        id: String,
+        projectid: String,
+        milestoneid: String,
+        title: String,
+        status: PccStatus,
+        order: Int?,
+        owner: String?,
+        percentcomplete: Double?,
+        dependson: [String]?,
+        requiredevidenceids: [String]?,
+        receiptids: [String]?,
+        permissiongrantids: [String]?,
+        blocker: String?,
+        implementationplan: String?,
+        acceptancecriteria: [String]?,
+        createdat: String,
+        updatedat: String,
+        metadata: [String: AnyCodable]?)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.title = title
+        self.status = status
+        self.order = order
+        self.owner = owner
+        self.percentcomplete = percentcomplete
+        self.dependson = dependson
+        self.requiredevidenceids = requiredevidenceids
+        self.receiptids = receiptids
+        self.permissiongrantids = permissiongrantids
+        self.blocker = blocker
+        self.implementationplan = implementationplan
+        self.acceptancecriteria = acceptancecriteria
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case title
+        case status
+        case order
+        case owner
+        case percentcomplete = "percentComplete"
+        case dependson = "dependsOn"
+        case requiredevidenceids = "requiredEvidenceIds"
+        case receiptids = "receiptIds"
+        case permissiongrantids = "permissionGrantIds"
+        case blocker
+        case implementationplan = "implementationPlan"
+        case acceptancecriteria = "acceptanceCriteria"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case metadata
+    }
+}
+
+public struct PccPermissionGrant: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let milestoneid: String?
+    public let type: PccPermissionType
+    public let status: PccPermissionStatus
+    public let risklevel: PccRiskLevel
+    public let allowedactions: [String]
+    public let forbiddenactions: [String]?
+    public let target: String?
+    public let maxuses: Int?
+    public let usedcount: Int
+    public let expiresat: String?
+    public let tokenbudget: Int?
+    public let costbudget: Double?
+    public let grantedby: String?
+    public let grantedat: String?
+    public let auditlog: [[String: AnyCodable]]
+    public let createdat: String
+    public let updatedat: String
+
+    public init(
+        id: String,
+        projectid: String,
+        milestoneid: String?,
+        type: PccPermissionType,
+        status: PccPermissionStatus,
+        risklevel: PccRiskLevel,
+        allowedactions: [String],
+        forbiddenactions: [String]?,
+        target: String?,
+        maxuses: Int?,
+        usedcount: Int,
+        expiresat: String?,
+        tokenbudget: Int?,
+        costbudget: Double?,
+        grantedby: String?,
+        grantedat: String?,
+        auditlog: [[String: AnyCodable]],
+        createdat: String,
+        updatedat: String)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.type = type
+        self.status = status
+        self.risklevel = risklevel
+        self.allowedactions = allowedactions
+        self.forbiddenactions = forbiddenactions
+        self.target = target
+        self.maxuses = maxuses
+        self.usedcount = usedcount
+        self.expiresat = expiresat
+        self.tokenbudget = tokenbudget
+        self.costbudget = costbudget
+        self.grantedby = grantedby
+        self.grantedat = grantedat
+        self.auditlog = auditlog
+        self.createdat = createdat
+        self.updatedat = updatedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case type
+        case status
+        case risklevel = "riskLevel"
+        case allowedactions = "allowedActions"
+        case forbiddenactions = "forbiddenActions"
+        case target
+        case maxuses = "maxUses"
+        case usedcount = "usedCount"
+        case expiresat = "expiresAt"
+        case tokenbudget = "tokenBudget"
+        case costbudget = "costBudget"
+        case grantedby = "grantedBy"
+        case grantedat = "grantedAt"
+        case auditlog = "auditLog"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+    }
+}
+
+public struct PccEvidence: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let milestoneid: String?
+    public let kind: PccEvidenceKind
+    public let status: PccEvidenceStatus
+    public let summary: String?
+    public let source: String?
+    public let url: String?
+    public let path: String?
+    public let sha: String?
+    public let command: String?
+    public let exitcode: Int?
+    public let createdat: String
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        id: String,
+        projectid: String,
+        milestoneid: String?,
+        kind: PccEvidenceKind,
+        status: PccEvidenceStatus,
+        summary: String?,
+        source: String?,
+        url: String?,
+        path: String?,
+        sha: String?,
+        command: String?,
+        exitcode: Int?,
+        createdat: String,
+        metadata: [String: AnyCodable]?)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.kind = kind
+        self.status = status
+        self.summary = summary
+        self.source = source
+        self.url = url
+        self.path = path
+        self.sha = sha
+        self.command = command
+        self.exitcode = exitcode
+        self.createdat = createdat
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case kind
+        case status
+        case summary
+        case source
+        case url
+        case path
+        case sha
+        case command
+        case exitcode = "exitCode"
+        case createdat = "createdAt"
+        case metadata
+    }
+}
+
+public struct PccCompletionReceipt: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let milestoneid: String
+    public let summary: String
+    public let proofevidenceids: [String]
+    public let artifactrefs: [String]?
+    public let donotredo: [String]?
+    public let followupgaps: [String]?
+    public let prooflevel: PccProofLevel
+    public let completedby: String?
+    public let completedat: String
+
+    public init(
+        id: String,
+        projectid: String,
+        milestoneid: String,
+        summary: String,
+        proofevidenceids: [String],
+        artifactrefs: [String]?,
+        donotredo: [String]?,
+        followupgaps: [String]?,
+        prooflevel: PccProofLevel,
+        completedby: String?,
+        completedat: String)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.summary = summary
+        self.proofevidenceids = proofevidenceids
+        self.artifactrefs = artifactrefs
+        self.donotredo = donotredo
+        self.followupgaps = followupgaps
+        self.prooflevel = prooflevel
+        self.completedby = completedby
+        self.completedat = completedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case summary
+        case proofevidenceids = "proofEvidenceIds"
+        case artifactrefs = "artifactRefs"
+        case donotredo = "doNotRedo"
+        case followupgaps = "followUpGaps"
+        case prooflevel = "proofLevel"
+        case completedby = "completedBy"
+        case completedat = "completedAt"
+    }
+}
+
+public struct PccDecision: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let milestoneid: String?
+    public let submilestoneid: String?
+    public let title: String
+    public let summary: String
+    public let rationale: String?
+    public let alternatives: [String]?
+    public let impact: String?
+    public let decidedby: String?
+    public let decidedat: String
+    public let evidenceids: [String]?
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        id: String,
+        projectid: String,
+        milestoneid: String?,
+        submilestoneid: String?,
+        title: String,
+        summary: String,
+        rationale: String?,
+        alternatives: [String]?,
+        impact: String?,
+        decidedby: String?,
+        decidedat: String,
+        evidenceids: [String]?,
+        metadata: [String: AnyCodable]?)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.submilestoneid = submilestoneid
+        self.title = title
+        self.summary = summary
+        self.rationale = rationale
+        self.alternatives = alternatives
+        self.impact = impact
+        self.decidedby = decidedby
+        self.decidedat = decidedat
+        self.evidenceids = evidenceids
+        self.metadata = metadata
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case submilestoneid = "subMilestoneId"
+        case title
+        case summary
+        case rationale
+        case alternatives
+        case impact
+        case decidedby = "decidedBy"
+        case decidedat = "decidedAt"
+        case evidenceids = "evidenceIds"
+        case metadata
+    }
+}
+
+public struct PccDecisionsAddParams: Codable, Sendable {
+    public let decision: [String: AnyCodable]
+
+    public init(
+        decision: [String: AnyCodable])
+    {
+        self.decision = decision
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case decision
+    }
+}
+
+public struct PccDecisionsAddResult: Codable, Sendable {
+    public let decision: PccDecision
+    public let summary: PccProjectSummary
+
+    public init(
+        decision: PccDecision,
+        summary: PccProjectSummary)
+    {
+        self.decision = decision
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case decision
+        case summary
+    }
+}
+
+public struct PccLastKnownGood: Codable, Sendable {
+    public let id: String
+    public let projectid: String
+    public let subsystem: String
+    public let summary: String
+    public let evidenceids: [String]?
+    public let sha: String?
+    public let runtimepath: String?
+    public let screenshotpath: String?
+    public let verifiedat: String
+
+    public init(
+        id: String,
+        projectid: String,
+        subsystem: String,
+        summary: String,
+        evidenceids: [String]?,
+        sha: String?,
+        runtimepath: String?,
+        screenshotpath: String?,
+        verifiedat: String)
+    {
+        self.id = id
+        self.projectid = projectid
+        self.subsystem = subsystem
+        self.summary = summary
+        self.evidenceids = evidenceids
+        self.sha = sha
+        self.runtimepath = runtimepath
+        self.screenshotpath = screenshotpath
+        self.verifiedat = verifiedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectid = "projectId"
+        case subsystem
+        case summary
+        case evidenceids = "evidenceIds"
+        case sha
+        case runtimepath = "runtimePath"
+        case screenshotpath = "screenshotPath"
+        case verifiedat = "verifiedAt"
+    }
+}
+
+public struct PccLastKnownGoodUpsertParams: Codable, Sendable {
+    public let entry: [String: AnyCodable]
+
+    public init(
+        entry: [String: AnyCodable])
+    {
+        self.entry = entry
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case entry
+    }
+}
+
+public struct PccLastKnownGoodUpsertResult: Codable, Sendable {
+    public let lastknowngood: PccLastKnownGood
+    public let summary: PccProjectSummary
+
+    public init(
+        lastknowngood: PccLastKnownGood,
+        summary: PccProjectSummary)
+    {
+        self.lastknowngood = lastknowngood
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case lastknowngood = "lastKnownGood"
+        case summary
+    }
+}
+
+public struct PccProjectSummary: Codable, Sendable {
+    public let id: String
+    public let title: String
+    public let status: PccStatus
+    public let percentcomplete: Double
+    public let milestonecounts: [String: AnyCodable]
+    public let nextactions: [String]
+    public let proofgaps: [String]
+    public let health: String?
+    public let duedate: String?
+    public let excludedfrompccproductcompletion: Bool?
+    public let pccworkscope: AnyCodable?
+    public let pcccurrentscope: String?
+    public let pccproductscope: String?
+    public let workflowtemplateid: String?
+    public let recentactivity: String?
+    public let updatedat: String
+
+    public init(
+        id: String,
+        title: String,
+        status: PccStatus,
+        percentcomplete: Double,
+        milestonecounts: [String: AnyCodable],
+        nextactions: [String],
+        proofgaps: [String],
+        health: String?,
+        duedate: String?,
+        excludedfrompccproductcompletion: Bool?,
+        pccworkscope: AnyCodable?,
+        pcccurrentscope: String?,
+        pccproductscope: String?,
+        workflowtemplateid: String?,
+        recentactivity: String?,
+        updatedat: String)
+    {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.percentcomplete = percentcomplete
+        self.milestonecounts = milestonecounts
+        self.nextactions = nextactions
+        self.proofgaps = proofgaps
+        self.health = health
+        self.duedate = duedate
+        self.excludedfrompccproductcompletion = excludedfrompccproductcompletion
+        self.pccworkscope = pccworkscope
+        self.pcccurrentscope = pcccurrentscope
+        self.pccproductscope = pccproductscope
+        self.workflowtemplateid = workflowtemplateid
+        self.recentactivity = recentactivity
+        self.updatedat = updatedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case status
+        case percentcomplete = "percentComplete"
+        case milestonecounts = "milestoneCounts"
+        case nextactions = "nextActions"
+        case proofgaps = "proofGaps"
+        case health
+        case duedate = "dueDate"
+        case excludedfrompccproductcompletion = "excludedFromPccProductCompletion"
+        case pccworkscope = "pccWorkScope"
+        case pcccurrentscope = "pccCurrentScope"
+        case pccproductscope = "pccProductScope"
+        case workflowtemplateid = "workflowTemplateId"
+        case recentactivity = "recentActivity"
+        case updatedat = "updatedAt"
+    }
+}
+
+public struct PccPortfolioSummary: Codable, Sendable {
+    public let projectstotal: Int
+    public let active: Int
+    public let blocked: Int
+    public let needsapproval: Int
+    public let needsattention: Int?
+    public let proofgaps: Int?
+    public let overdue: Int?
+    public let stale: Int?
+    public let complete: Int
+    public let archived: Int
+    public let averagepercentcomplete: Double
+    public let nextactions: [String]
+
+    public init(
+        projectstotal: Int,
+        active: Int,
+        blocked: Int,
+        needsapproval: Int,
+        needsattention: Int?,
+        proofgaps: Int?,
+        overdue: Int?,
+        stale: Int?,
+        complete: Int,
+        archived: Int,
+        averagepercentcomplete: Double,
+        nextactions: [String])
+    {
+        self.projectstotal = projectstotal
+        self.active = active
+        self.blocked = blocked
+        self.needsapproval = needsapproval
+        self.needsattention = needsattention
+        self.proofgaps = proofgaps
+        self.overdue = overdue
+        self.stale = stale
+        self.complete = complete
+        self.archived = archived
+        self.averagepercentcomplete = averagepercentcomplete
+        self.nextactions = nextactions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectstotal = "projectsTotal"
+        case active
+        case blocked
+        case needsapproval = "needsApproval"
+        case needsattention = "needsAttention"
+        case proofgaps = "proofGaps"
+        case overdue
+        case stale
+        case complete
+        case archived
+        case averagepercentcomplete = "averagePercentComplete"
+        case nextactions = "nextActions"
+    }
+}
+
+public struct PccProjectsListParams: Codable, Sendable {
+    public let includearchived: Bool?
+
+    public init(
+        includearchived: Bool?)
+    {
+        self.includearchived = includearchived
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case includearchived = "includeArchived"
+    }
+}
+
+public struct PccProjectsListResult: Codable, Sendable {
+    public let projects: [PccProjectSummary]
+
+    public init(
+        projects: [PccProjectSummary])
+    {
+        self.projects = projects
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projects
+    }
+}
+
+public struct PccProjectsGetParams: Codable, Sendable {
+    public let projectid: String
+
+    public init(
+        projectid: String)
+    {
+        self.projectid = projectid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+    }
+}
+
+public struct PccProjectsGetResult: Codable, Sendable {
+    public let project: PccProject
+    public let milestones: [PccMilestone]
+    public let submilestones: [PccSubMilestone]?
+    public let permissions: [PccPermissionGrant]
+    public let evidence: [PccEvidence]
+    public let receipts: [PccCompletionReceipt]
+    public let decisions: [PccDecision]
+    public let lastknowngood: [PccLastKnownGood]
+    public let summary: PccProjectSummary
+
+    public init(
+        project: PccProject,
+        milestones: [PccMilestone],
+        submilestones: [PccSubMilestone]?,
+        permissions: [PccPermissionGrant],
+        evidence: [PccEvidence],
+        receipts: [PccCompletionReceipt],
+        decisions: [PccDecision],
+        lastknowngood: [PccLastKnownGood],
+        summary: PccProjectSummary)
+    {
+        self.project = project
+        self.milestones = milestones
+        self.submilestones = submilestones
+        self.permissions = permissions
+        self.evidence = evidence
+        self.receipts = receipts
+        self.decisions = decisions
+        self.lastknowngood = lastknowngood
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case project
+        case milestones
+        case submilestones = "subMilestones"
+        case permissions
+        case evidence
+        case receipts
+        case decisions
+        case lastknowngood = "lastKnownGood"
+        case summary
+    }
+}
+
+public struct PccProjectsUpsertParams: Codable, Sendable {
+    public let project: [String: AnyCodable]
+
+    public init(
+        project: [String: AnyCodable])
+    {
+        self.project = project
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case project
+    }
+}
+
+public struct PccProjectsUpsertResult: Codable, Sendable {
+    public let project: PccProject
+    public let summary: PccProjectSummary
+
+    public init(
+        project: PccProject,
+        summary: PccProjectSummary)
+    {
+        self.project = project
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case project
+        case summary
+    }
+}
+
+public struct PccMilestonesUpsertParams: Codable, Sendable {
+    public let milestone: [String: AnyCodable]
+
+    public init(
+        milestone: [String: AnyCodable])
+    {
+        self.milestone = milestone
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case milestone
+    }
+}
+
+public struct PccMilestonesUpsertResult: Codable, Sendable {
+    public let milestone: PccMilestone
+    public let summary: PccProjectSummary
+
+    public init(
+        milestone: PccMilestone,
+        summary: PccProjectSummary)
+    {
+        self.milestone = milestone
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case milestone
+        case summary
+    }
+}
+
+public struct PccSubMilestonesListParams: Codable, Sendable {
+    public let projectid: String
+    public let milestoneid: String?
+
+    public init(
+        projectid: String,
+        milestoneid: String?)
+    {
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+    }
+}
+
+public struct PccSubMilestonesListResult: Codable, Sendable {
+    public let submilestones: [PccSubMilestone]
+
+    public init(
+        submilestones: [PccSubMilestone])
+    {
+        self.submilestones = submilestones
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case submilestones = "subMilestones"
+    }
+}
+
+public struct PccSubMilestonesUpsertParams: Codable, Sendable {
+    public let submilestone: [String: AnyCodable]
+
+    public init(
+        submilestone: [String: AnyCodable])
+    {
+        self.submilestone = submilestone
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case submilestone = "subMilestone"
+    }
+}
+
+public struct PccSubMilestonesUpsertResult: Codable, Sendable {
+    public let submilestone: PccSubMilestone
+    public let milestone: PccMilestone
+    public let summary: PccProjectSummary
+
+    public init(
+        submilestone: PccSubMilestone,
+        milestone: PccMilestone,
+        summary: PccProjectSummary)
+    {
+        self.submilestone = submilestone
+        self.milestone = milestone
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case submilestone = "subMilestone"
+        case milestone
+        case summary
+    }
+}
+
+public struct PccPermissionsUpsertParams: Codable, Sendable {
+    public let permission: [String: AnyCodable]
+
+    public init(
+        permission: [String: AnyCodable])
+    {
+        self.permission = permission
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case permission
+    }
+}
+
+public struct PccPermissionsUpsertResult: Codable, Sendable {
+    public let permission: PccPermissionGrant
+    public let summary: PccProjectSummary
+
+    public init(
+        permission: PccPermissionGrant,
+        summary: PccProjectSummary)
+    {
+        self.permission = permission
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case permission
+        case summary
+    }
+}
+
+public struct PccEvidenceAddParams: Codable, Sendable {
+    public let evidence: [String: AnyCodable]
+
+    public init(
+        evidence: [String: AnyCodable])
+    {
+        self.evidence = evidence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case evidence
+    }
+}
+
+public struct PccEvidenceAddResult: Codable, Sendable {
+    public let evidence: PccEvidence
+    public let summary: PccProjectSummary
+
+    public init(
+        evidence: PccEvidence,
+        summary: PccProjectSummary)
+    {
+        self.evidence = evidence
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case evidence
+        case summary
+    }
+}
+
+public struct PccReceiptsAddParams: Codable, Sendable {
+    public let receipt: [String: AnyCodable]
+
+    public init(
+        receipt: [String: AnyCodable])
+    {
+        self.receipt = receipt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case receipt
+    }
+}
+
+public struct PccReceiptsAddResult: Codable, Sendable {
+    public let receipt: PccCompletionReceipt
+    public let milestone: PccMilestone
+    public let lastknowngood: PccLastKnownGood
+    public let summary: PccProjectSummary
+
+    public init(
+        receipt: PccCompletionReceipt,
+        milestone: PccMilestone,
+        lastknowngood: PccLastKnownGood,
+        summary: PccProjectSummary)
+    {
+        self.receipt = receipt
+        self.milestone = milestone
+        self.lastknowngood = lastknowngood
+        self.summary = summary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case receipt
+        case milestone
+        case lastknowngood = "lastKnownGood"
+        case summary
+    }
+}
+
+public struct PccSummaryGetParams: Codable, Sendable {
+    public let projectid: String?
+
+    public init(
+        projectid: String?)
+    {
+        self.projectid = projectid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+    }
+}
+
+public struct PccSummaryGetResult: Codable, Sendable {
+    public let project: PccProjectSummary?
+    public let portfolio: PccPortfolioSummary
+    public let executioncapacity: [String: AnyCodable]?
+    public let runtimeidentity: [String: AnyCodable]?
+
+    public init(
+        project: PccProjectSummary?,
+        portfolio: PccPortfolioSummary,
+        executioncapacity: [String: AnyCodable]?,
+        runtimeidentity: [String: AnyCodable]?)
+    {
+        self.project = project
+        self.portfolio = portfolio
+        self.executioncapacity = executioncapacity
+        self.runtimeidentity = runtimeidentity
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case project
+        case portfolio
+        case executioncapacity = "executionCapacity"
+        case runtimeidentity = "runtimeIdentity"
     }
 }
 
@@ -4921,6 +6379,10 @@ public struct ModelChoice: Codable, Sendable {
     public let available: Bool?
     public let contextwindow: Int?
     public let reasoning: Bool?
+    public let input: [AnyCodable]?
+    public let route: AnyCodable?
+    public let certification: AnyCodable?
+    public let agentruntime: [String: AnyCodable]?
 
     public init(
         id: String,
@@ -4929,7 +6391,11 @@ public struct ModelChoice: Codable, Sendable {
         alias: String?,
         available: Bool? = nil,
         contextwindow: Int?,
-        reasoning: Bool?)
+        reasoning: Bool?,
+        input: [AnyCodable]?,
+        route: AnyCodable?,
+        certification: AnyCodable?,
+        agentruntime: [String: AnyCodable]?)
     {
         self.id = id
         self.name = name
@@ -4938,6 +6404,10 @@ public struct ModelChoice: Codable, Sendable {
         self.available = available
         self.contextwindow = contextwindow
         self.reasoning = reasoning
+        self.input = input
+        self.route = route
+        self.certification = certification
+        self.agentruntime = agentruntime
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -4948,20 +6418,28 @@ public struct ModelChoice: Codable, Sendable {
         case available
         case contextwindow = "contextWindow"
         case reasoning
+        case input
+        case route
+        case certification
+        case agentruntime = "agentRuntime"
     }
 }
 
 public struct ModelsListParams: Codable, Sendable {
     public let view: AnyCodable?
+    public let refresh: Bool?
 
     public init(
-        view: AnyCodable?)
+        view: AnyCodable?,
+        refresh: Bool?)
     {
         self.view = view
+        self.refresh = refresh
     }
 
     private enum CodingKeys: String, CodingKey {
         case view
+        case refresh
     }
 }
 
@@ -7348,6 +8826,7 @@ public struct ChatSendParams: Codable, Sendable {
         originatingaccountid: String?,
         originatingthreadid: String?,
         attachments: [AnyCodable]?,
+        flowid: String?,
         timeoutms: Int?,
         systeminputprovenance: [String: AnyCodable]?,
         systemprovenancereceipt: String?,
@@ -7368,7 +8847,7 @@ public struct ChatSendParams: Codable, Sendable {
             originatingaccountid: originatingaccountid,
             originatingthreadid: originatingthreadid,
             attachments: attachments,
-            flowid: nil,
+            flowid: flowid,
             timeoutms: timeoutms,
             systeminputprovenance: systeminputprovenance,
             systemprovenancereceipt: systemprovenancereceipt,

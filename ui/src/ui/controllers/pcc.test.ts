@@ -623,6 +623,48 @@ describe("loadPccDashboard", () => {
     expect(state.pccActionError).toContain("Passed evidence");
   });
 
+  it("refuses contracted completion when capability-use telemetry is missing", async () => {
+    const request = vi.fn();
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project: {
+          ...project,
+          metadata: {
+            ...project.metadata,
+            pccCapabilityContract: { schema: "openclaw.pcc.capability-contract.v1" },
+          },
+        },
+        milestones: [
+          {
+            ...milestone,
+            phaseId: "production-proof",
+            metadata: {
+              ...milestone.metadata,
+              pccCapabilityRequirementIds: ["truth-gated-completion"],
+            },
+          },
+        ],
+        permissions: [],
+        evidence: [evidence],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await addPccCompletionReceipt(state, {
+      ...milestone,
+      phaseId: "production-proof",
+      metadata: {
+        ...milestone.metadata,
+        pccCapabilityRequirementIds: ["truth-gated-completion"],
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(state.pccActionError).toContain("Required capability-use evidence is missing");
+  });
+
   it("updates permission status and refreshes selected project", async () => {
     const request = vi
       .fn()
@@ -907,6 +949,219 @@ describe("loadPccDashboard", () => {
       milestone: expect.objectContaining({ id: "milestone-1", status: "in_progress" }),
     });
     expect(state.pccActionNotice?.text).toContain("Next safe task prepared");
+  });
+
+  it("refreshes skill inventory and persists capability preflight before contracted work", async () => {
+    const contractedProject = {
+      ...project,
+      metadata: {
+        ...project.metadata,
+        pccCapabilityContract: {
+          schema: "openclaw.pcc.capability-contract.v1",
+          workflowTemplateId: "software-product",
+          qualityThreshold: 93,
+        },
+      },
+    };
+    const contractedMilestone = {
+      ...milestone,
+      status: "not_started" as const,
+      phaseId: "mvp",
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        pccCapabilityContractSchema: "openclaw.pcc.capability-contract.v1",
+        pccCapabilityRequirementIds: ["targeted-proof", "openclaw-testing"],
+      },
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.status") {
+        return {
+          workspaceDir: "/tmp/workspace",
+          managedSkillsDir: "/tmp/skills",
+          skills: [
+            {
+              skillKey: "openclaw-testing",
+              name: "openclaw-testing",
+              eligible: true,
+              modelVisible: true,
+            },
+          ],
+        };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project: contractedProject,
+          milestones: [{ ...contractedMilestone, status: "in_progress" }],
+          subMilestones: [{ ...subMilestone, status: "complete", receiptIds: ["receipt-1"] }],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          summary,
+        };
+      }
+      return { project: contractedProject, milestone: contractedMilestone, summary };
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project: contractedProject,
+        milestones: [contractedMilestone],
+        subMilestones: [{ ...subMilestone, status: "complete", receiptIds: ["receipt-1"] }],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).toHaveBeenNthCalledWith(1, "skills.status", {});
+    expect(request).toHaveBeenCalledWith("pcc.projects.upsert", {
+      project: expect.objectContaining({
+        metadata: expect.objectContaining({
+          pccCapabilityPreflight: expect.objectContaining({
+            ready: true,
+            qualityThreshold: 93,
+            selectedCapabilityIds: expect.arrayContaining(["targeted-proof", "openclaw-testing"]),
+          }),
+        }),
+      }),
+    });
+    expect(state.skillsReport?.skills[0]?.skillKey).toBe("openclaw-testing");
+  });
+
+  it("persists a blocked capability preflight before refusing work", async () => {
+    const contractedProject = {
+      ...project,
+      metadata: {
+        ...project.metadata,
+        pccRequiredSkills: ["missing-required-skill"],
+        pccCapabilityContract: {
+          schema: "openclaw.pcc.capability-contract.v1",
+          workflowTemplateId: "software-product",
+          qualityThreshold: 93,
+        },
+      },
+    };
+    const contractedMilestone = {
+      ...milestone,
+      status: "not_started" as const,
+      percentComplete: 0,
+      phaseId: "tools-skills",
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        pccCapabilityContractSchema: "openclaw.pcc.capability-contract.v1",
+        pccCapabilityRequirementIds: ["missing-required-skill"],
+      },
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.status") {
+        return { workspaceDir: "/tmp/workspace", managedSkillsDir: "/tmp/skills", skills: [] };
+      }
+      return { project: contractedProject, summary };
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: {
+        project: contractedProject,
+        milestones: [contractedMilestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).toHaveBeenNthCalledWith(1, "skills.status", {});
+    expect(request).toHaveBeenNthCalledWith(2, "pcc.projects.upsert", {
+      project: expect.objectContaining({
+        metadata: expect.objectContaining({
+          pccCapabilityPreflight: expect.objectContaining({
+            ready: false,
+            blockingRequirementIds: expect.arrayContaining(["missing-required-skill"]),
+          }),
+        }),
+      }),
+    });
+    expect(state.pccActionError).toContain("missing-required-skill");
+  });
+
+  it("uses current agent and model inventory even when optional skill refresh fails", async () => {
+    const contractedProject = {
+      ...project,
+      metadata: {
+        ...project.metadata,
+        pccRequiredAgents: ["main"],
+        pccRequiredModels: ["ollama/gemma"],
+        pccCapabilityContract: {
+          schema: "openclaw.pcc.capability-contract.v1",
+          workflowTemplateId: "software-product",
+          qualityThreshold: 93,
+        },
+      },
+    };
+    const contractedMilestone = {
+      ...milestone,
+      status: "not_started" as const,
+      phaseId: "tools-skills",
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: "local",
+        pccCapabilityContractSchema: "openclaw.pcc.capability-contract.v1",
+        pccCapabilityRequirementIds: ["main", "ollama/gemma"],
+      },
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.status") {
+        throw new Error("skills refresh unavailable");
+      }
+      return { project: contractedProject, milestone: contractedMilestone, summary };
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      agentsList: {
+        defaultId: "main",
+        mainKey: "agent:main:main",
+        scope: "global",
+        agents: [{ id: "main", name: "Control Director" }],
+      },
+      chatModelCatalog: [{ provider: "ollama", id: "gemma", name: "Gemma", available: true }],
+      pccProjectDetail: {
+        project: contractedProject,
+        milestones: [contractedMilestone],
+        subMilestones: [{ ...subMilestone, status: "complete", receiptIds: ["receipt-1"] }],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      },
+    });
+
+    await preparePccNextWorkItem(state);
+
+    expect(request).toHaveBeenNthCalledWith(1, "skills.status", {});
+    expect(request).toHaveBeenCalledWith("pcc.projects.upsert", {
+      project: expect.objectContaining({
+        metadata: expect.objectContaining({
+          pccCapabilityPreflight: expect.objectContaining({
+            ready: true,
+            selectedCapabilityIds: expect.arrayContaining(["main", "ollama/gemma"]),
+          }),
+        }),
+      }),
+    });
   });
 
   it("prepares the next safe sub-milestone before parent milestone work", async () => {
