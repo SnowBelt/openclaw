@@ -4,6 +4,8 @@ import {
   buildPccCapabilityContract,
   pccCapabilityInventoryFromAgents,
   pccCapabilityInventoryFromModelCatalog,
+  pccCapabilityInventoryFromSkillSoftware,
+  pccCapabilityInventoryFromToolCatalog,
   PCC_OPERATIONAL_QUALITY_DIMENSIONS,
   PCC_OPERATIONAL_QUALITY_THRESHOLD,
   pccCapabilityContractMetadata,
@@ -139,6 +141,106 @@ describe("PCC capability contract", () => {
         reason: "The model is present in the catalog but currently unavailable.",
       },
     ]);
+  });
+
+  it("normalizes runtime tools, plugin owners, and skill software without a second registry", () => {
+    expect(
+      pccCapabilityInventoryFromToolCatalog({
+        groups: [
+          {
+            source: "core",
+            label: "Core tools",
+            tools: [{ id: "exec", label: "Exec", source: "core" }],
+          },
+          {
+            source: "plugin",
+            pluginId: "memory-core",
+            label: "Memory",
+            tools: [{ id: "memory_search", label: "Memory search", source: "plugin" }],
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        id: "exec",
+        kind: "tool",
+        status: "ready",
+        title: "Exec",
+        reason: "Present in the active runtime tool catalog.",
+      },
+      {
+        id: "memory-core",
+        kind: "plugin",
+        status: "ready",
+        title: "Memory",
+        reason: "Present in the active runtime tool catalog.",
+      },
+      {
+        id: "memory_search",
+        kind: "tool",
+        status: "ready",
+        title: "Memory search",
+        reason: "Present in the active runtime tool catalog.",
+      },
+    ]);
+
+    expect(
+      pccCapabilityInventoryFromSkillSoftware([
+        {
+          skillKey: "repo-work",
+          requirements: { bins: ["git"], anyBins: ["rg", "grep"] },
+          missing: { bins: ["rg"] },
+        },
+        {
+          skillKey: "search-fallback",
+          requirements: { bins: ["rg"] },
+          missing: { bins: [] },
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "git",
+        kind: "software",
+        status: "ready",
+        reason: "Available through skill repo-work.",
+      },
+      {
+        id: "rg",
+        kind: "software",
+        status: "ready",
+        reason: "Available through skill search-fallback.",
+      },
+      {
+        id: "grep",
+        kind: "software",
+        status: "ready",
+        reason: "Available through skill repo-work.",
+      },
+    ]);
+  });
+
+  it("fails closed on required plugin and software declarations until inventory proves them", () => {
+    const contract = buildPccCapabilityContract("software-product", {
+      pccRequiredPlugins: ["memory-core"],
+      pccRequiredSoftware: ["git"],
+    });
+
+    expect(pccCapabilityRequirementIdsForPhase(contract, "tools-skills")).toEqual(
+      expect.arrayContaining(["memory-core", "git"]),
+    );
+    expect(resolvePccCapabilityContract({ contract }).blockingRequirementIds).toEqual([
+      "memory-core",
+      "git",
+    ]);
+    expect(
+      resolvePccCapabilityContract({
+        contract,
+        inventory: [
+          { id: "memory-core", kind: "plugin", status: "ready" },
+          { id: "git", kind: "software", status: "ready" },
+        ],
+      }).ready,
+    ).toBe(true);
   });
 
   it("selects only phase-relevant requirements for task prompts", () => {

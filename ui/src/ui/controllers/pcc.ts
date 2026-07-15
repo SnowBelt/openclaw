@@ -15,9 +15,11 @@ import {
   type PccAutopilotPromptSlot,
 } from "../../../../src/pcc/autopilot.js";
 import {
-  pccCapabilityInventoryFromSkillStatus,
   pccCapabilityInventoryFromAgents,
   pccCapabilityInventoryFromModelCatalog,
+  pccCapabilityInventoryFromSkillSoftware,
+  pccCapabilityInventoryFromSkillStatus,
+  pccCapabilityInventoryFromToolCatalog,
   resolvePccProjectCapabilities,
   withPccCapabilityPreflight,
   type PccCapabilityInventoryEntry,
@@ -95,6 +97,7 @@ import type {
   AgentsListResult,
   ModelCatalogEntry,
   SkillStatusReport,
+  ToolsCatalogResult,
 } from "../types.ts";
 
 export type PccProjectDetail = {
@@ -475,10 +478,21 @@ async function loadPccCapabilityInventory(
     if (report && Array.isArray(report.skills)) {
       state.skillsReport = report;
       inventory.push(...pccCapabilityInventoryFromSkillStatus(report.skills));
+      inventory.push(...pccCapabilityInventoryFromSkillSoftware(report.skills));
     }
   } catch {
-    // Missing optional inventory stays unknown. Required skills still fail
-    // closed later with a precise capability blocker instead of a generic RPC error.
+    // Missing optional inventory stays unknown. Required skills and software
+    // still fail closed later with precise blockers instead of a generic RPC error.
+  }
+  try {
+    const catalog = await state.client.request<ToolsCatalogResult | undefined>("tools.catalog", {
+      includePlugins: true,
+    });
+    if (catalog) {
+      inventory.push(...pccCapabilityInventoryFromToolCatalog(catalog));
+    }
+  } catch {
+    // Required tools and plugins stay unknown and fail closed in resolution.
   }
   return inventory;
 }

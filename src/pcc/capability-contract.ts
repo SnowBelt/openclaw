@@ -33,6 +33,8 @@ export type PccCapabilityKind =
   | "workflow"
   | "skill"
   | "tool"
+  | "plugin"
+  | "software"
   | "agent"
   | "model"
   | "proof";
@@ -94,6 +96,13 @@ type SkillStatusLike = {
   blockedByAllowlist?: boolean;
   blockedByAgentFilter?: boolean;
   platformIncompatible?: boolean;
+  requirements?: {
+    bins?: readonly string[];
+    anyBins?: readonly string[];
+  };
+  missing?: {
+    bins?: readonly string[];
+  };
 };
 
 type AgentStatusLike = {
@@ -108,6 +117,20 @@ type ModelCatalogLike = {
   available?: boolean;
 };
 
+type ToolCatalogLike = {
+  groups?: readonly {
+    source?: "core" | "plugin";
+    pluginId?: string;
+    label?: string;
+    tools?: readonly {
+      id: string;
+      label?: string;
+      source?: "core" | "plugin";
+      pluginId?: string;
+    }[];
+  }[];
+};
+
 function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.flatMap((entry) => {
@@ -119,7 +142,10 @@ function stringArray(value: unknown): string[] {
 
 function explicitRequirement(
   id: string,
-  kind: Extract<PccCapabilityKind, "skill" | "tool" | "agent" | "model" | "process">,
+  kind: Extract<
+    PccCapabilityKind,
+    "skill" | "tool" | "plugin" | "software" | "agent" | "model" | "process"
+  >,
   required: boolean,
 ): PccCapabilityRequirement {
   const label = kind === "skill" ? "skill" : kind;
@@ -139,12 +165,23 @@ function explicitRequirement(
 function explicitRequirements(metadata: unknown): PccCapabilityRequirement[] {
   const source = pccMetadataObject(metadata);
   const groups: Array<
-    [string, Extract<PccCapabilityKind, "skill" | "tool" | "agent" | "model" | "process">, boolean]
+    [
+      string,
+      Extract<
+        PccCapabilityKind,
+        "skill" | "tool" | "plugin" | "software" | "agent" | "model" | "process"
+      >,
+      boolean,
+    ]
   > = [
     ["pccRequiredSkills", "skill", true],
     ["pccPreferredSkills", "skill", false],
     ["pccRequiredTools", "tool", true],
     ["pccPreferredTools", "tool", false],
+    ["pccRequiredPlugins", "plugin", true],
+    ["pccPreferredPlugins", "plugin", false],
+    ["pccRequiredSoftware", "software", true],
+    ["pccPreferredSoftware", "software", false],
     ["pccRequiredAgents", "agent", true],
     ["pccPreferredAgents", "agent", false],
     ["pccRequiredModels", "model", true],
@@ -196,7 +233,7 @@ export function pccCapabilityRequirementIdsForPhase(
     (requirement) =>
       phaseIds.has(requirement.id) ||
       (phaseId === "tools-skills" &&
-        ["skill", "tool", "agent", "model"].includes(requirement.kind)),
+        ["skill", "tool", "plugin", "software", "agent", "model"].includes(requirement.kind)),
   );
   return selected.map((requirement) => requirement.id);
 }
@@ -244,6 +281,88 @@ export function pccCapabilityInventoryFromSkillStatus(
       },
     ];
   });
+}
+
+function addPreferredInventoryEntry(
+  entries: Map<string, PccCapabilityInventoryEntry>,
+  entry: PccCapabilityInventoryEntry,
+): void {
+  const key = `${entry.kind}:${entry.id.toLowerCase()}`;
+  const existing = entries.get(key);
+  if (!existing || (existing.status !== "ready" && entry.status === "ready")) {
+    entries.set(key, entry);
+  }
+}
+
+export function pccCapabilityInventoryFromSkillSoftware(
+  skills: readonly SkillStatusLike[],
+): PccCapabilityInventoryEntry[] {
+  const inventory = new Map<string, PccCapabilityInventoryEntry>();
+  for (const skill of skills) {
+    const requiredBins = [
+      ...(skill.requirements?.bins ?? []),
+      ...(skill.requirements?.anyBins ?? []),
+    ];
+    const missingBins = new Set((skill.missing?.bins ?? []).map((bin) => bin.trim().toLowerCase()));
+    for (const rawBin of requiredBins) {
+      const id = rawBin.trim();
+      if (!id) {
+        continue;
+      }
+      const missing = missingBins.has(id.toLowerCase());
+      addPreferredInventoryEntry(inventory, {
+        id,
+        kind: "software",
+        status: missing ? "blocked" : "ready",
+        ...(missing
+          ? { reason: `Required software is missing for skill ${skill.skillKey}.` }
+          : { reason: `Available through skill ${skill.skillKey}.` }),
+      });
+    }
+  }
+  return [...inventory.values()];
+}
+
+export function pccCapabilityInventoryFromToolCatalog(
+  catalog: ToolCatalogLike,
+): PccCapabilityInventoryEntry[] {
+  const inventory = new Map<string, PccCapabilityInventoryEntry>();
+  for (const group of catalog.groups ?? []) {
+    const groupPluginId = group.pluginId?.trim();
+    if (group.source === "plugin" && groupPluginId) {
+      addPreferredInventoryEntry(inventory, {
+        id: groupPluginId,
+        kind: "plugin",
+        status: "ready",
+        ...(group.label?.trim() ? { title: group.label.trim() } : {}),
+        reason: "Present in the active runtime tool catalog.",
+      });
+    }
+    for (const tool of group.tools ?? []) {
+      const id = tool.id.trim();
+      if (!id) {
+        continue;
+      }
+      addPreferredInventoryEntry(inventory, {
+        id,
+        kind: "tool",
+        status: "ready",
+        ...(tool.label?.trim() ? { title: tool.label.trim() } : {}),
+        reason: "Present in the active runtime tool catalog.",
+      });
+      const pluginId = tool.pluginId?.trim() || groupPluginId;
+      if ((tool.source === "plugin" || group.source === "plugin") && pluginId) {
+        addPreferredInventoryEntry(inventory, {
+          id: pluginId,
+          kind: "plugin",
+          status: "ready",
+          ...(group.label?.trim() ? { title: group.label.trim() } : {}),
+          reason: "Present in the active runtime tool catalog.",
+        });
+      }
+    }
+  }
+  return [...inventory.values()];
 }
 
 export function pccCapabilityInventoryFromAgents(

@@ -883,6 +883,9 @@ describe("loadPccDashboard", () => {
       ...project,
       metadata: {
         ...project.metadata,
+        pccRequiredTools: ["memory_search"],
+        pccRequiredPlugins: ["memory-core"],
+        pccRequiredSoftware: ["git"],
         pccCapabilityContract: {
           schema: "openclaw.pcc.capability-contract.v1",
           workflowTemplateId: "software-product",
@@ -912,6 +915,32 @@ describe("loadPccDashboard", () => {
               name: "openclaw-testing",
               eligible: true,
               modelVisible: true,
+              requirements: { bins: ["git"], env: [], config: [], os: [] },
+              missing: { bins: [], env: [], config: [], os: [] },
+            },
+          ],
+        };
+      }
+      if (method === "tools.catalog") {
+        return {
+          agentId: "main",
+          profiles: [],
+          groups: [
+            {
+              id: "memory-core",
+              label: "Memory",
+              source: "plugin",
+              pluginId: "memory-core",
+              tools: [
+                {
+                  id: "memory_search",
+                  label: "Memory search",
+                  description: "Search memory",
+                  source: "plugin",
+                  pluginId: "memory-core",
+                  defaultProfiles: ["full"],
+                },
+              ],
             },
           ],
         };
@@ -951,13 +980,20 @@ describe("loadPccDashboard", () => {
     await preparePccNextWorkItem(state);
 
     expect(request).toHaveBeenNthCalledWith(1, "skills.status", {});
+    expect(request).toHaveBeenNthCalledWith(2, "tools.catalog", { includePlugins: true });
     expect(request).toHaveBeenCalledWith("pcc.projects.upsert", {
       project: expect.objectContaining({
         metadata: expect.objectContaining({
           pccCapabilityPreflight: expect.objectContaining({
             ready: true,
             qualityThreshold: 93,
-            selectedCapabilityIds: expect.arrayContaining(["targeted-proof", "openclaw-testing"]),
+            selectedCapabilityIds: expect.arrayContaining([
+              "targeted-proof",
+              "openclaw-testing",
+              "memory_search",
+              "memory-core",
+              "git",
+            ]),
           }),
         }),
       }),
@@ -1012,7 +1048,8 @@ describe("loadPccDashboard", () => {
     await preparePccNextWorkItem(state);
 
     expect(request).toHaveBeenNthCalledWith(1, "skills.status", {});
-    expect(request).toHaveBeenNthCalledWith(2, "pcc.projects.upsert", {
+    expect(request).toHaveBeenNthCalledWith(2, "tools.catalog", { includePlugins: true });
+    expect(request).toHaveBeenNthCalledWith(3, "pcc.projects.upsert", {
       project: expect.objectContaining({
         metadata: expect.objectContaining({
           pccCapabilityPreflight: expect.objectContaining({
@@ -1079,6 +1116,7 @@ describe("loadPccDashboard", () => {
     await preparePccNextWorkItem(state);
 
     expect(request).toHaveBeenNthCalledWith(1, "skills.status", {});
+    expect(request).toHaveBeenNthCalledWith(2, "tools.catalog", { includePlugins: true });
     expect(request).toHaveBeenCalledWith("pcc.projects.upsert", {
       project: expect.objectContaining({
         metadata: expect.objectContaining({

@@ -1,7 +1,7 @@
 ---
 summary: "Versioned capability routing, quality gates, and upgrade preservation for PCC work"
 read_when:
-  - You want PCC to select workflows, skills, tools, agents, models, permissions, and proof automatically
+  - You want PCC to select workflows, skills, software, tools, plugins, agents, models, permissions, and proof automatically
   - You are adding a PCC workflow or custom runtime surface
   - You need the operational-excellence milestone sequence and completion rules
 title: "PCC Operational Excellence"
@@ -18,7 +18,7 @@ The quality dimensions are speed, accuracy, efficiency, first-pass quality, QA c
 Every new standard workflow carries the `openclaw.pcc.capability-contract.v1` contract. Before work starts, PCC should resolve:
 
 1. workflow and owner,
-2. required and preferred processes, skills, tools, agents, and models,
+2. required and preferred processes, skills, software, tools, plugins, agents, and models,
 3. local-first route and paid-capacity escalation reason,
 4. permission scope and budget,
 5. exact proof surfaces,
@@ -26,6 +26,8 @@ Every new standard workflow carries the `openclaw.pcc.capability-contract.v1` co
 7. completion-receipt and learning requirements.
 
 Required external capabilities fail closed when current inventory cannot prove availability. Preferred capabilities may use an equivalent fallback only when the reason is recorded. Built-in process and proof requirements remain planned until a completion receipt proves they were used.
+
+PCC builds that inventory from the existing runtime truth surfaces rather than maintaining a second registry. Agent and model rows come from the loaded Control UI catalogs, skills and required command-line software come from `skills.status`, and core tools plus their owning plugins come from `tools.catalog`. Project metadata can declare `pccRequired*` or `pccPreferred*` entries for skills, software, tools, plugins, agents, models, and processes. Required entries remain blocked until the corresponding live catalog proves them available.
 
 OpenAI API use is not automatic. A project must have an explicit current permission and budget before PCC can select paid API capacity. Any required paid use must record its permission ID, budget receipt, and escalation reason in first-pass evidence. Local models and local agents remain the first route when they satisfy the task contract.
 

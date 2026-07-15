@@ -24,7 +24,7 @@ export const BASE_REQUIREMENTS: readonly PccCapabilityRequirement[] = [
     kind: "process",
     title: "Capability preflight",
     purpose:
-      "Find the required workflow, skill, tool, model, and proof surface before work starts.",
+      "Find the required workflow, skill, software, tool, plugin, model, and proof surface before work starts.",
     required: true,
     evidence: "A current capability resolution is attached to the project or task receipt.",
   },

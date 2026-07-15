@@ -30,7 +30,7 @@ export const PCC_OPERATIONAL_EXCELLENCE_MILESTONES: readonly PccOperationalExcel
     weight: 12,
     dependsOn: ["OE-00"],
     scope: [
-      "Define versioned workflow, process, skill, tool, agent, model, permission, proof, and quality requirements.",
+      "Define versioned workflow, process, skill, software, tool, plugin, agent, model, permission, proof, and quality requirements.",
       "Set the operational quality floor to 93/100 per applicable dimension without averaging away failures.",
     ],
     acceptance: [
@@ -45,11 +45,12 @@ export const PCC_OPERATIONAL_EXCELLENCE_MILESTONES: readonly PccOperationalExcel
     weight: 14,
     dependsOn: ["OE-01"],
     scope: [
-      "Resolve the current skill, tool, agent, and model inventory before a work item starts.",
+      "Resolve the current skill, software, tool, plugin, agent, and model inventory before a work item starts.",
       "Select local-first execution and stop before paid, remote, destructive, or unavailable work.",
     ],
     acceptance: [
       "PCC records a current redaction-safe preflight snapshot.",
+      "Declared tools, plugins, and software resolve from canonical runtime catalogs instead of a second inventory store.",
       "The generated task prompt names every required capability, selected worker, proof surface, and fallback.",
       "No OpenAI API call occurs without an explicit usable grant and budget.",
     ],
