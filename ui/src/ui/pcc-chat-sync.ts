@@ -1,6 +1,6 @@
 // Project Command Center chat sync turns chat plans into reviewable PCC diffs.
 import { parseProposedPlanSegments } from "./chat/proposed-plan.ts";
-import type { PccProjectDetail } from "./controllers/pcc.ts";
+import type { PccProjectDetail } from "./pcc/contracts.ts";
 import type { PccMilestone, PccPermissionGrant, PccStatus } from "./types.ts";
 
 export type PccChatSyncProposalKind =

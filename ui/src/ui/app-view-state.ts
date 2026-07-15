@@ -45,6 +45,17 @@ import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
+import type {
+  ClawHubSearchResult,
+  ClawHubSkillSecurityVerdict,
+  ClawHubSkillDetail,
+  SkillMessage,
+} from "./controllers/skills.ts";
+import type { EmbedSandboxMode } from "./embed-sandbox.ts";
+import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
+import type { Tab } from "./navigation.ts";
+import type { PccChatSyncProposal } from "./pcc-chat-sync.ts";
 import type {
   PccActionNotice,
   PccAutofillPreview,
@@ -57,18 +68,7 @@ import type {
   PccProjectFormState,
   PccUndoAction,
   PccViewMode,
-} from "./controllers/pcc.ts";
-import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
-import type {
-  ClawHubSearchResult,
-  ClawHubSkillSecurityVerdict,
-  ClawHubSkillDetail,
-  SkillMessage,
-} from "./controllers/skills.ts";
-import type { EmbedSandboxMode } from "./embed-sandbox.ts";
-import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
-import type { Tab } from "./navigation.ts";
-import type { PccChatSyncProposal } from "./pcc-chat-sync.ts";
+} from "./pcc/contracts.ts";
 import type { SidebarContent } from "./sidebar-content.ts";
 import type { UiSettings } from "./storage.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";

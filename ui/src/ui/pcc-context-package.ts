@@ -6,7 +6,7 @@ import {
 // Project Command Center context packages provide deterministic handoff text for agents.
 import { pccProofLevelForItem, pccResponsibilityForItem } from "../../../src/pcc/metadata.js";
 import { getPccWorkLoopNext } from "../../../src/pcc/work-loop.js";
-import type { PccProjectDetail } from "./controllers/pcc.ts";
+import type { PccProjectDetail } from "./pcc/contracts.ts";
 import type {
   PccCompletionReceipt,
   PccEvidence,

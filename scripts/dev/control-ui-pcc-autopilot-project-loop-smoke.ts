@@ -154,7 +154,7 @@ async function main() {
         chatSyncText: "",
         chatSyncProposals: [],
         chatSyncError: null,
-        viewMode: "simple",
+        viewMode: "detailed",
         onRefresh: () => calls.push("refresh"),
         onSelectProject: () => calls.push("select"),
         onOpenProjectEditor: () => calls.push("edit-project"),
@@ -198,17 +198,22 @@ async function main() {
       }
     }
     root.querySelector<HTMLButtonElement>("[data-pcc-autopilot-generate-prompts]")?.click();
-    root.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]")?.click();
+    const start = root.querySelector<HTMLButtonElement>("[data-pcc-autopilot-start]");
+    if (!start?.disabled) {
+      throw new Error("start action should stay disabled until medium-risk approval is granted");
+    }
+    root.querySelector<HTMLButtonElement>("[data-pcc-autopilot-allow-medium]")?.click();
     if (!calls.includes("generate-prompts")) {
       throw new Error("generate prompts action did not fire");
     }
-    if (!calls.includes("autopilot:start")) {
-      throw new Error("start action did not fire");
+    if (!calls.includes("autopilot:allow_medium_risk")) {
+      throw new Error("medium-risk approval action did not fire");
     }
     const text = root.textContent ?? "";
     for (const phrase of [
       "Autopilot Project Loop",
-      "Safe mode is active",
+      "Simulation mode is active",
+      "Permission needed before start",
       "Prompt slots",
       "Run history",
       "Final report",

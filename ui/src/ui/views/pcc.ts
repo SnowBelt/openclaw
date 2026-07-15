@@ -1,21 +1,11 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
-import {
-  autopilotStatusLabel,
-  buildPccAutopilotPermissionForecast,
-  getPccAutopilotState,
-  PCC_AUTOPILOT_MODES,
-  type PccAutopilotAction,
-  type PccAutopilotModeId,
-  type PccAutopilotPromptSlot,
-} from "../../../../src/pcc/autopilot.js";
-import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
+import { autopilotStatusLabel, getPccAutopilotState } from "../../../../src/pcc/autopilot.js";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
   normalizePccExecutionProfile,
   resolvePccEstimatedAgentCounts,
   resolvePccExecutionProfilePreset,
-  summarizePccExecutionProfile,
   type PccExecutionProfile,
   type PccExecutionProfilePresetId,
 } from "../../../../src/pcc/execution-profile.js";
@@ -55,36 +45,66 @@ import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
-import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
   type PccParallelWorkMode,
-  type PccWorkLoopSettings,
 } from "../../../../src/pcc/work-loop.js";
 import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
 import { buildQualifiedChatModelValue } from "../chat-model-ref.ts";
-import {
-  buildPccExecutionTeamReadiness,
-  resolvePccExecutionStandardForDetail,
-} from "../controllers/pcc.ts";
+import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
+import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
+import { buildPccExecutionTeamReadiness } from "../pcc/application/execution-team.ts";
 import type {
-  PccActionNotice,
   PccAiRegenerateSection,
-  PccAutofillPreview,
-  PccDecisionFormState,
-  PccEditorMode,
-  PccExecutionTeamAction,
-  PccMilestoneFormState,
+  PccDashboardProps,
   PccProjectDetail,
-  PccProjectEditMode,
   PccPlannerMode,
   PccProjectFilter,
   PccProjectFormState,
   PccViewMode,
-} from "../controllers/pcc.ts";
-import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
-import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
+} from "../pcc/contracts.ts";
+import { PCC_TERMINAL_STATUSES } from "../pcc/policies.ts";
+import { renderAutopilotProjectLoop } from "../pcc/presentation/autopilot-panel.ts";
+import {
+  beginPccDrag,
+  confirmPccAction,
+  confirmedRemoveNote,
+  confirmedSkipNote,
+  endPccDrag,
+  getPccDraggedId,
+  handlePccActionMenuKeydown,
+  runPccConfirmedButtonAction,
+  runPccConfirmedMenuAction,
+  runPccMenuAction,
+  setPccDropTarget,
+  togglePccActionMenu,
+} from "../pcc/presentation/interactions.ts";
+import {
+  PROJECT_FILTER_OPTIONS,
+  attentionKind,
+  currentMilestoneForDetail,
+  deferredAttentionProjects,
+  effectivePccFocusMode,
+  effectiveProjectFilter,
+  focusScopedProjectsForToday,
+  focusedAttentionProjects,
+  getAttentionProjects,
+  nextMilestoneForDetail,
+  projectActionLine,
+  projectAttentionLine,
+  projectBlockerLine,
+  projectCanBeNextBestAction,
+  projectFilterLabel,
+  projectIsOnHold,
+  projectIsTerminalForWork,
+  projectMatchesFilter,
+  projectMatchesSearch,
+  projectNeedsAttention,
+  runningProjectsForToday,
+  sortedMilestones,
+  workStateForProject,
+} from "../pcc/presentation/project-selectors.ts";
 import type {
   PccCompletionReceipt,
   PccDecision,
@@ -93,14 +113,10 @@ import type {
   PccMilestone,
   PccSubMilestone,
   PccPermissionGrant,
-  PccPermissionStatus,
-  PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
   PccStatus,
   ModelCatalogEntry,
-  AgentsListResult,
-  SkillStatusReport,
 } from "../types.ts";
 import {
   PCC_INTERACTION_CONTRACTS,
@@ -110,99 +126,7 @@ import {
   permissionSummary,
 } from "./pcc-operational-confidence.ts";
 
-export type PccDashboardProps = {
-  loading: boolean;
-  error: string | null;
-  connected?: boolean;
-  projects: PccProjectSummary[];
-  portfolio: PccPortfolioSummary | null;
-  updatedAt: number | null;
-  selectedProjectId: string | null;
-  projectDetail: PccProjectDetail | null;
-  projectDetails?: Record<string, PccProjectDetail>;
-  actionBusy: boolean;
-  actionError: string | null;
-  actionNotice?: PccActionNotice | null;
-  projectFilter?: PccProjectFilter;
-  projectSearchQuery?: string;
-  projectEditMode?: PccProjectEditMode;
-  editorMode: PccEditorMode;
-  projectForm: PccProjectFormState;
-  milestoneForm: PccMilestoneFormState;
-  decisionFormOpen?: boolean;
-  decisionForm: PccDecisionFormState;
-  autofillPreview?: PccAutofillPreview | null;
-  chatSyncText: string;
-  chatSyncProposals: PccChatSyncProposal[];
-  chatSyncError: string | null;
-  viewMode?: PccViewMode;
-  productFocusMode?: "pcc_product" | "project_work";
-  reorderMode?: boolean;
-  agentsList?: AgentsListResult | null;
-  modelCatalog?: ModelCatalogEntry[];
-  modelsLoading?: boolean;
-  modelsLastRefreshedAt?: number | null;
-  modelsFallback?: boolean;
-  runtimeIdentity?: PccRuntimeIdentity | null;
-  executionCapacity?: PccExecutionCapacitySnapshot | null;
-  skillsReport?: SkillStatusReport | null;
-  skillsError?: string | null;
-  onRefreshModelCatalog?: () => void;
-  onSetViewMode?: (mode: PccViewMode) => void;
-  onSetProductFocusMode?: (mode: "pcc_product" | "project_work") => void;
-  onSetReorderMode?: (enabled: boolean) => void;
-  onSetProjectEditMode?: (mode: PccProjectEditMode) => void;
-  onSetProjectFilter?: (filter: PccProjectFilter) => void;
-  onSetProjectSearchQuery?: (query: string) => void;
-  onDismissActionNotice?: () => void;
-  onUndoAction?: () => void;
-  onRefresh: () => void;
-  onSelectProject: (projectId: string) => void;
-  onOpenProjectEditor: (project?: PccProject) => void;
-  onOpenMilestoneEditor: (milestone?: PccMilestone) => void;
-  onProjectFormChange: (patch: Partial<PccProjectFormState>) => void;
-  onMilestoneFormChange: (patch: Partial<PccMilestoneFormState>) => void;
-  onSaveProject: () => void;
-  onSaveMilestone: () => void;
-  onOpenDecisionForm?: () => void;
-  onDecisionFormChange?: (patch: Partial<PccDecisionFormState>) => void;
-  onSaveDecision?: () => void;
-  onCancelDecisionForm?: () => void;
-  onCancelEditor: () => void;
-  onSetProjectStatus: (project: PccProject, status: PccStatus) => void;
-  onSetMilestoneStatus: (milestone: PccMilestone, status: PccStatus, note?: string) => void;
-  onSetMilestoneStopHere: (milestone: PccMilestone, stopHere: boolean) => void;
-  onMoveMilestoneBefore?: (source: PccMilestone, target: PccMilestone) => void;
-  onMoveSubMilestoneBefore?: (source: PccSubMilestone, target: PccSubMilestone) => void;
-  onNormalizeProjectSequence?: () => void;
-  onRemoveStaleDependencies?: () => void;
-  onRepairDuplicateTitles?: () => void;
-  onSetSubMilestoneStatus?: (
-    subMilestone: PccSubMilestone,
-    status: PccStatus,
-    note?: string,
-  ) => void;
-  onAddCompletionReceipt: (milestone: PccMilestone) => void;
-  onSetPermissionStatus: (permission: PccPermissionGrant, status: PccPermissionStatus) => void;
-  onUpdateWorkLoop: (patch: Partial<PccWorkLoopSettings>) => void;
-  onPrepareNextWorkItem: () => void;
-  onResumeProject?: () => void;
-  onPreviewSetupAutofill?: () => void;
-  onPreviewSectionAutofill?: (section: PccAiRegenerateSection) => void;
-  onApplySetupAutofill?: () => void;
-  onApproveSetupAutofill?: () => void;
-  onDismissSetupAutofill?: () => void;
-  onSetAutofillApproval?: (approved: boolean) => void;
-  onConfigureAutopilotMode?: (mode: PccAutopilotModeId) => void;
-  onGenerateAutopilotPrompts?: () => void;
-  onUpdateAutopilotPrompt?: (slotId: string, patch: Partial<PccAutopilotPromptSlot>) => void;
-  onRunAutopilotAction?: (action: PccAutopilotAction) => void;
-  onRunExecutionTeam?: (action: PccExecutionTeamAction) => void;
-  onChatSyncTextChange: (text: string) => void;
-  onPreviewChatSync: () => void;
-  onApplyChatSyncProposal: (proposal: PccChatSyncProposal) => void;
-  onDismissChatSync: () => void;
-};
+export type { PccDashboardProps } from "../pcc/contracts.ts";
 
 const PROJECT_STATUSES: PccStatus[] = [
   "active",
@@ -282,18 +206,6 @@ const EXECUTION_PROFILE_OPTIONS = [
   badge: string;
   usage: string;
 }>;
-
-const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
-  ["active", "Active"],
-  ["needs_you", "Needs You"],
-  ["on_hold", "On Hold"],
-  ["archived", "Archived"],
-  ["all", "All"],
-];
-
-function projectFilterLabel(filter: PccProjectFilter): string {
-  return PROJECT_FILTER_OPTIONS.find(([value]) => value === filter)?.[1] ?? formatStatus(filter);
-}
 
 function formatPlannerModelLabel(entry: ModelCatalogEntry): string {
   const display = entry.name || entry.id;
@@ -387,45 +299,6 @@ function projectPlannerSummary(props: PccDashboardProps): {
   };
 }
 
-let draggedPccMilestoneId: string | null = null;
-let draggedPccSubMilestoneId: string | null = null;
-
-function setPccDragData(event: DragEvent, kind: "milestone" | "submilestone", id: string): void {
-  event.stopPropagation();
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-openclaw-pcc-reorder", `${kind}:${id}`);
-    event.dataTransfer.setData("text/plain", id);
-  }
-}
-
-function getPccDraggedId(
-  event: DragEvent,
-  kind: "milestone" | "submilestone",
-  fallback: string | null,
-): string | null {
-  const encoded = event.dataTransfer?.getData("application/x-openclaw-pcc-reorder") ?? "";
-  const prefix = `${kind}:`;
-  if (encoded.startsWith(prefix)) {
-    return encoded.slice(prefix.length);
-  }
-  return event.dataTransfer?.getData("text/plain") || fallback;
-}
-
-function setPccDropTarget(event: DragEvent, active: boolean): void {
-  const target = event.currentTarget;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-  if (!active) {
-    const related = event.relatedTarget;
-    if (related instanceof Node && target.contains(related)) {
-      return;
-    }
-  }
-  target.classList.toggle("is-drop-target", active);
-}
-
 const LANE_LABELS = [
   ["user", "User"],
   ["localOpenClawAgent", "Local OpenClaw Agent"],
@@ -435,15 +308,8 @@ const LANE_LABELS = [
   ["remoteProof", "Remote Proof"],
 ] as const;
 
-const PROJECT_TERMINAL_STATUSES = new Set([
-  "complete",
-  "complete_with_maintenance",
-  "skipped",
-  "archived",
-]);
-
 function projectIsTerminal(project: Pick<PccProject, "status">): boolean {
-  return PROJECT_TERMINAL_STATUSES.has(project.status);
+  return PCC_TERMINAL_STATUSES.has(project.status);
 }
 
 const MILESTONE_STATUSES: PccStatus[] = [
@@ -491,271 +357,8 @@ function formatUpdatedAt(value: number | null): string {
   return `Updated ${new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-function confirmAction(message: string): boolean {
-  return globalThis.confirm?.(message) ?? true;
-}
-
-function confirmedSkipNote(): string {
-  return "Skipped from the PCC action menu.";
-}
-
-function confirmedRemoveNote(): string {
-  return "Removed from the active PCC plan from the action menu.";
-}
-
-function armPccConfirmationButton(button: HTMLButtonElement, label: string): void {
-  resetPccConfirmationButton(button);
-  button.dataset.pccConfirmArmed = "true";
-  button.dataset.pccConfirmOriginalLabel = button.textContent?.trim() ?? "";
-  button.textContent = label;
-  button.classList.add("is-confirming");
-  const popover = document.createElement("span");
-  popover.className = "pcc-confirm-popover";
-  popover.dataset.pccConfirmPopover = "true";
-  popover.textContent = `${label} to continue.`;
-  button.insertAdjacentElement("afterend", popover);
-}
-
-function resetPccConfirmationButton(button: HTMLButtonElement): void {
-  const popover = button.nextElementSibling;
-  if (popover instanceof HTMLElement && popover.dataset.pccConfirmPopover === "true") {
-    popover.remove();
-  }
-  const originalLabel = button.dataset.pccConfirmOriginalLabel;
-  if (originalLabel) {
-    button.textContent = originalLabel;
-  }
-  delete button.dataset.pccConfirmArmed;
-  delete button.dataset.pccConfirmOriginalLabel;
-  button.classList.remove("is-confirming");
-}
-
-function resetSiblingPccConfirmations(button: HTMLButtonElement): void {
-  const root = button.closest(".pcc-shell") ?? button.getRootNode();
-  if (!("querySelectorAll" in root)) {
-    return;
-  }
-  const queryRoot = root as ParentNode;
-  queryRoot
-    .querySelectorAll<HTMLButtonElement>("[data-pcc-confirm-armed='true']")
-    .forEach((armed: HTMLButtonElement) => {
-      if (armed !== button) {
-        resetPccConfirmationButton(armed);
-      }
-    });
-}
-
-function runPccConfirmedButtonAction(event: Event, confirmLabel: string, action: () => void): void {
-  event.preventDefault();
-  event.stopPropagation();
-  const button = event.currentTarget as HTMLButtonElement;
-  if (button.dataset.pccConfirmArmed === "true") {
-    resetPccConfirmationButton(button);
-    action();
-    return;
-  }
-  resetSiblingPccConfirmations(button);
-  armPccConfirmationButton(button, confirmLabel);
-}
-
-function togglePccActionMenu(event: Event): void {
-  event.stopPropagation();
-  const trigger = event.currentTarget as HTMLButtonElement;
-  const menu = trigger.closest<HTMLElement>(".pcc-action-menu");
-  if (!menu) {
-    return;
-  }
-  const root = menu.getRootNode() as ParentNode;
-  const nextOpen = !menu.classList.contains("is-open");
-  root.querySelectorAll<HTMLElement>(".pcc-action-menu.is-open").forEach((openMenu) => {
-    if (openMenu !== menu) {
-      openMenu.classList.remove("is-open");
-      openMenu
-        .querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
-        ?.setAttribute("aria-expanded", "false");
-      const items = openMenu.querySelector<HTMLElement>(".pcc-action-menu__items");
-      if (items) {
-        items.hidden = true;
-        items.setAttribute("aria-hidden", "true");
-        items.setAttribute("inert", "");
-      }
-    }
-  });
-  menu.classList.toggle("is-open", nextOpen);
-  trigger.setAttribute("aria-expanded", String(nextOpen));
-  const items = menu.querySelector<HTMLElement>(".pcc-action-menu__items");
-  if (items) {
-    items.hidden = !nextOpen;
-    items.setAttribute("aria-hidden", String(!nextOpen));
-    if (nextOpen) {
-      items.removeAttribute("inert");
-    } else {
-      items.setAttribute("inert", "");
-    }
-  }
-  if (nextOpen) {
-    menu
-      .querySelector<HTMLButtonElement>("[role='menuitem'], [role='menuitemcheckbox'] input")
-      ?.focus();
-  }
-}
-
-function closePccActionMenu(event: Event): void {
-  event.preventDefault();
-  event.stopPropagation();
-  const target = event.currentTarget as HTMLElement;
-  const menu = target.closest<HTMLElement>(".pcc-action-menu");
-  menu?.classList.remove("is-open");
-  menu
-    ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
-    ?.setAttribute("aria-expanded", "false");
-  const items = menu?.querySelector<HTMLElement>(".pcc-action-menu__items");
-  if (items) {
-    items.hidden = true;
-    items.setAttribute("aria-hidden", "true");
-    items.setAttribute("inert", "");
-  }
-}
-
-function runPccMenuAction(event: Event, action: () => void): void {
-  closePccActionMenu(event);
-  action();
-}
-
-function handlePccActionMenuKeydown(event: KeyboardEvent): void {
-  const menu = event.currentTarget as HTMLElement;
-  const root = menu.closest<HTMLElement>(".pcc-action-menu");
-  const focusable = [
-    ...menu.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
-      "button:not(:disabled), input:not(:disabled)",
-    ),
-  ];
-  const currentIndex = focusable.findIndex((item) => item === document.activeElement);
-  if (event.key === "Escape") {
-    event.preventDefault();
-    root?.classList.remove("is-open");
-    root
-      ?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")
-      ?.setAttribute("aria-expanded", "false");
-    menu.hidden = true;
-    menu.setAttribute("aria-hidden", "true");
-    menu.setAttribute("inert", "");
-    root?.querySelector<HTMLButtonElement>("[data-pcc-action-menu-trigger]")?.focus();
-    return;
-  }
-  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-    return;
-  }
-  event.preventDefault();
-  const direction = event.key === "ArrowDown" ? 1 : -1;
-  const nextIndex =
-    currentIndex < 0
-      ? 0
-      : (currentIndex + direction + focusable.length) % Math.max(focusable.length, 1);
-  focusable[nextIndex]?.focus();
-}
-
-function runPccConfirmedMenuAction(event: Event, confirmLabel: string, action: () => void): void {
-  const button = event.currentTarget as HTMLButtonElement;
-  if (button.dataset.pccConfirmArmed === "true") {
-    closePccActionMenu(event);
-    resetPccConfirmationButton(button);
-    action();
-    return;
-  }
-  event.preventDefault();
-  event.stopPropagation();
-  resetSiblingPccConfirmations(button);
-  armPccConfirmationButton(button, confirmLabel);
-}
-
-function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
-  return project.status === "on_hold" || project.status === "deferred";
-}
-
-function projectIsDeferredOutOfUrgent(
-  project: Pick<PccProject, "status"> | PccProjectSummary,
-): boolean {
-  return ["archived", "skipped", "on_hold", "deferred"].includes(project.status);
-}
-
-function projectIsTerminalForWork(
-  project: Pick<PccProject, "status"> | PccProjectSummary,
-): boolean {
-  return ["complete", "complete_with_maintenance", "archived", "skipped"].includes(project.status);
-}
-
-function projectCanBeNextBestAction(project: PccProjectSummary): boolean {
-  return !projectIsDeferredOutOfUrgent(project) && !projectIsTerminalForWork(project);
-}
-
-function projectIsExcludedFromTodayFocus(
-  project: PccProjectSummary,
-  detail?: PccProjectDetail,
-): boolean {
-  return pccWorkScopeForProject(detail?.project ?? project) === "project_work";
-}
-
-function projectDetailForSummary(
-  props: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
-  project: PccProjectSummary,
-): PccProjectDetail | undefined {
-  return (
-    props.projectDetails?.[project.id] ??
-    (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined)
-  );
-}
-
-function effectivePccFocusMode(
-  props: Pick<PccDashboardProps, "productFocusMode" | "projectDetail">,
-): "pcc_product" | "project_work" {
-  return (
-    props.productFocusMode ??
-    (props.projectDetail ? pccWorkScopeForProject(props.projectDetail.project) : "project_work")
-  );
-}
-
 function compactTodaySignal(value: string, max = 78): string {
   return compactSignalText(value, max);
-}
-
-function runningProjectsForToday(props: PccDashboardProps): PccProjectSummary[] {
-  return focusScopedProjectsForToday(props, props.projects).filter(
-    (project) => workStateForProject(project, props.projectDetails?.[project.id]) === "Working",
-  );
-}
-
-function focusedAttentionProjects(
-  projects: readonly PccProjectSummary[],
-  _props?: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
-): PccProjectSummary[] {
-  return getAttentionProjects(projects);
-}
-
-function focusScopedProjectsForToday(
-  props: Pick<PccDashboardProps, "projectDetails" | "projectDetail" | "productFocusMode">,
-  projects: readonly PccProjectSummary[],
-): PccProjectSummary[] {
-  const productMode = effectivePccFocusMode(props) === "pcc_product";
-  return projects.filter((project) => {
-    const excluded = projectIsExcludedFromTodayFocus(
-      project,
-      projectDetailForSummary(props, project),
-    );
-    return productMode ? !excluded : excluded || project.id !== "project-command-center";
-  });
-}
-
-function deferredAttentionProjects(
-  projects: readonly PccProjectSummary[],
-  props?: Pick<PccDashboardProps, "projectDetails" | "projectDetail">,
-): PccProjectSummary[] {
-  return getAttentionProjects(projects).filter((project) =>
-    projectIsExcludedFromTodayFocus(
-      project,
-      props ? projectDetailForSummary(props, project) : undefined,
-    ),
-  );
 }
 
 function compactSignalText(value: string, max = 130): string {
@@ -775,7 +378,7 @@ function editorHasDraft(form: PccProjectFormState): boolean {
 
 function confirmEditorClose(props: PccDashboardProps): void {
   if (props.editorMode === "create-project" && editorHasDraft(props.projectForm)) {
-    if (!confirmAction("Discard this project draft?")) {
+    if (!confirmPccAction("Discard this project draft?")) {
       return;
     }
   }
@@ -806,7 +409,7 @@ function nextSubMilestoneForMilestone(
   milestone: PccMilestone,
 ): PccSubMilestone | undefined {
   return subMilestonesForMilestone(detail, milestone).find(
-    (subMilestone) => !PROJECT_TERMINAL_STATUSES.has(subMilestone.status),
+    (subMilestone) => !PCC_TERMINAL_STATUSES.has(subMilestone.status),
   );
 }
 
@@ -820,7 +423,7 @@ function resolvePccProjectAction(detail: PccProjectDetail): PccProjectActionReso
     permissions: detail.permissions,
     hasBlockedMilestone: detail.summary.milestoneCounts.blocked > 0,
     hasIncompleteMilestone: detail.milestones.some(
-      (milestone) => !PROJECT_TERMINAL_STATUSES.has(milestone.status),
+      (milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status),
     ),
     workLoop: getPccWorkLoopSettings(detail.project),
   });
@@ -934,7 +537,7 @@ function blockerImpactForLine(line: string): string {
 }
 
 function blockerLinesForDetail(detail: PccProjectDetail): string[] {
-  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+  if (PCC_TERMINAL_STATUSES.has(detail.project.status)) {
     return [];
   }
   const setup = setupEvaluationForDetail(detail);
@@ -961,110 +564,6 @@ function renderMetric(label: string, value: string | number) {
 
 function pccViewMode(props: PccDashboardProps): PccViewMode {
   return props.viewMode ?? "simple";
-}
-
-function terminalStatus(status: PccStatus): boolean {
-  return ["complete", "complete_with_maintenance", "skipped", "archived"].includes(status);
-}
-
-const PCC_STALE_PROJECT_DAYS = 14;
-
-function projectIsOverdue(project: PccProjectSummary): boolean {
-  if (PROJECT_TERMINAL_STATUSES.has(project.status) || !project.dueDate) {
-    return false;
-  }
-  const parsed = Date.parse(project.dueDate);
-  return Number.isFinite(parsed) && parsed < Date.now();
-}
-
-function projectIsStale(project: PccProjectSummary): boolean {
-  if (PROJECT_TERMINAL_STATUSES.has(project.status)) {
-    return false;
-  }
-  const updatedAt = Date.parse(project.updatedAt);
-  if (!Number.isFinite(updatedAt)) {
-    return false;
-  }
-  return Date.now() - updatedAt > PCC_STALE_PROJECT_DAYS * 24 * 60 * 60 * 1_000;
-}
-
-function projectNeedsAttention(project: PccProjectSummary): boolean {
-  if (projectIsTerminalForWork(project)) {
-    return false;
-  }
-  if (projectIsDeferredOutOfUrgent(project)) {
-    return false;
-  }
-  return (
-    project.status === "needs_approval" ||
-    project.status === "blocked" ||
-    project.milestoneCounts.needsApproval > 0 ||
-    project.milestoneCounts.blocked > 0 ||
-    project.proofGaps.length > 0 ||
-    projectIsOverdue(project) ||
-    projectIsStale(project) ||
-    project.health === "Overdue" ||
-    project.health === "At risk"
-  );
-}
-
-function projectAttentionLine(project: PccProjectSummary): string {
-  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
-    return project.nextActions[0] ?? "Approval needed";
-  }
-  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
-    return project.nextActions[0] ?? "Blocked work needs review";
-  }
-  if (projectIsOverdue(project) || project.health === "Overdue") {
-    return `Overdue since ${formatProjectDate(project.dueDate)}`;
-  }
-  if (project.health === "At risk") {
-    return "At risk; review blockers, proof, and next action";
-  }
-  if (projectIsStale(project)) {
-    return `No recorded update since ${formatProjectDate(project.updatedAt)}`;
-  }
-  return project.nextActions[0] ?? "Needs review";
-}
-
-function workStateForProject(
-  project: PccProjectSummary,
-  detail?: PccProjectDetail,
-): "Working" | "Paused" | "Blocked" | "Waiting for you" | "Off" {
-  if (projectIsTerminalForWork(project)) {
-    return "Off";
-  }
-  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
-    return "Blocked";
-  }
-  if (project.proofGaps.length > 0) {
-    return "Blocked";
-  }
-  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
-    return "Waiting for you";
-  }
-  const settings = detail ? getPccWorkLoopSettings(detail.project) : undefined;
-  if (settings?.enabled) {
-    return settings.state === "paused" ? "Paused" : "Working";
-  }
-  return "Off";
-}
-
-function sortedMilestones(detail: PccProjectDetail): PccMilestone[] {
-  return detail.milestones.toSorted(
-    (a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER),
-  );
-}
-
-function currentMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefined {
-  return sortedMilestones(detail).find((milestone) => !terminalStatus(milestone.status));
-}
-
-function nextMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefined {
-  const current = currentMilestoneForDetail(detail);
-  return sortedMilestones(detail).find(
-    (milestone) => milestone.id !== current?.id && !terminalStatus(milestone.status),
-  );
 }
 
 function plannerModeToPlanningMode(mode: PccPlannerMode) {
@@ -3538,99 +3037,12 @@ function milestoneStopsHere(milestone: PccMilestone): boolean {
   return metadataObject(milestone.metadata).pccStopHere === true;
 }
 
-function projectActionLine(project: PccProjectSummary, detail?: PccProjectDetail): string {
-  const current = detail ? currentMilestoneForDetail(detail) : undefined;
-  return current?.title ?? project.nextActions[0] ?? formatStatus(project.status);
-}
-
-function attentionRank(project: PccProjectSummary): number {
-  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
-    return 0;
-  }
-  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
-    return 1;
-  }
-  if (projectIsOverdue(project) || project.health === "Overdue") {
-    return 2;
-  }
-  if (project.health === "At risk") {
-    return 3;
-  }
-  if (projectIsStale(project)) {
-    return 4;
-  }
-  return 5;
-}
-
-function attentionKind(project: PccProjectSummary): string {
-  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
-    return "Needs approval";
-  }
-  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
-    return "Blocked";
-  }
-  if (project.proofGaps.length > 0) {
-    return "Integrity/proof gap";
-  }
-  if (projectIsOverdue(project) || project.health === "Overdue") {
-    return "Overdue";
-  }
-  if (project.health === "At risk") {
-    return "At risk";
-  }
-  if (projectIsStale(project)) {
-    return "Stale";
-  }
-  return "Needs review";
-}
-
-function getAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
-  return projects.filter(projectNeedsAttention).toSorted((a, b) => {
-    const rank = attentionRank(a) - attentionRank(b);
-    if (rank !== 0) {
-      return rank;
-    }
-    return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
-  });
-}
-
 function projectPriorityLabel(props: PccDashboardProps, project: PccProjectSummary): string {
   const detail =
     props.projectDetails?.[project.id] ??
     (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined);
   const priority = detail?.project.priority;
   return typeof priority === "number" ? String(priority) : "—";
-}
-
-function projectBlockerLine(project: PccProjectSummary): string {
-  if (projectIsTerminalForWork(project)) {
-    return "None";
-  }
-  if (projectIsOnHold(project)) {
-    return "Project is on hold.";
-  }
-  const explicit = project.nextActions.find((action) =>
-    /block|missing|approval|overdue|risk|failed|proof/iu.test(action),
-  );
-  if (explicit) {
-    return compactSignalText(explicit);
-  }
-  if (project.proofGaps.length > 0) {
-    return compactSignalText(project.proofGaps[0] ?? "Proof gap recorded");
-  }
-  if (project.status === "blocked" || project.milestoneCounts.blocked > 0) {
-    return "Blocked milestone needs review.";
-  }
-  if (project.status === "needs_approval" || project.milestoneCounts.needsApproval > 0) {
-    return "Approval needed before work can continue.";
-  }
-  if (project.health === "Overdue") {
-    return "Due date is past target.";
-  }
-  if (project.health === "At risk") {
-    return "Project is marked at risk.";
-  }
-  return "No blocker recorded";
 }
 
 function renderNeedsAttentionNow(props: PccDashboardProps) {
@@ -3705,130 +3117,6 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
       )}
     </div>
   </section>`;
-}
-
-function projectMatchesFilter(project: PccProjectSummary, filter: PccProjectFilter): boolean {
-  if (filter === "all") {
-    return true;
-  }
-  if (filter === "archived") {
-    return project.status === "archived";
-  }
-  if (filter === "on_hold") {
-    return project.status === "on_hold" || project.status === "deferred";
-  }
-  if (filter === "needs_you") {
-    return projectNeedsAttention(project);
-  }
-  return ![
-    "archived",
-    "complete",
-    "complete_with_maintenance",
-    "skipped",
-    "on_hold",
-    "deferred",
-  ].includes(project.status);
-}
-
-function effectiveProjectFilter(
-  props: PccDashboardProps,
-  projects: readonly PccProjectSummary[],
-): PccProjectFilter {
-  const selected = props.projectFilter ?? "active";
-  if (props.projectFilter) {
-    return selected;
-  }
-  const selectedProjectId = props.projectDetail?.project.id ?? props.selectedProjectId;
-  const selectedProject = selectedProjectId
-    ? projects.find((project) => project.id === selectedProjectId)
-    : undefined;
-  if (selectedProject && !projectMatchesFilter(selectedProject, selected)) {
-    return "all";
-  }
-  const activeCount = projects.filter((project) => projectMatchesFilter(project, "active")).length;
-  const needsYouCount = projects.filter((project) =>
-    projectMatchesFilter(project, "needs_you"),
-  ).length;
-  return activeCount === 0 && needsYouCount > 0 ? "needs_you" : selected;
-}
-
-function normalizeProjectSearchQuery(query: string | undefined): string[] {
-  return (query ?? "")
-    .toLocaleLowerCase()
-    .split(/\s+/u)
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-const projectSearchTextCache = new WeakMap<
-  PccProjectSummary,
-  { detail?: PccProjectDetail; text: string }
->();
-
-function projectSearchText(project: PccProjectSummary, detail?: PccProjectDetail): string {
-  const cached = projectSearchTextCache.get(project);
-  if (cached && cached.detail === detail) {
-    return cached.text;
-  }
-  const parts = [
-    project.title,
-    ...projectOutcomeMetrics(project),
-    project.status,
-    project.health ?? "",
-    project.recentActivity ?? "",
-    ...(project.nextActions ?? []),
-    ...(project.proofGaps ?? []),
-  ];
-  if (detail) {
-    parts.push(detail.project.goal ?? "", detail.project.owner ?? "");
-    parts.push(...projectOutcomeMetrics(detail.project));
-    for (const milestone of detail.milestones) {
-      parts.push(
-        milestone.title,
-        milestone.status,
-        milestone.phaseId ?? "",
-        milestone.blocker ?? "",
-        milestone.implementationPlan ?? "",
-      );
-      parts.push(...(milestone.acceptanceCriteria ?? []));
-    }
-    for (const subMilestone of detail.subMilestones ?? []) {
-      parts.push(
-        subMilestone.title,
-        subMilestone.status,
-        subMilestone.owner ?? "",
-        subMilestone.blocker ?? "",
-        subMilestone.implementationPlan ?? "",
-      );
-      parts.push(...(subMilestone.acceptanceCriteria ?? []));
-    }
-    for (const permission of detail.permissions) {
-      parts.push(permission.type, permission.status, permission.target ?? "");
-      parts.push(...(permission.allowedActions ?? []), ...(permission.forbiddenActions ?? []));
-    }
-    for (const evidence of detail.evidence) {
-      parts.push(evidence.summary ?? "");
-    }
-    for (const receipt of detail.receipts) {
-      parts.push(receipt.summary ?? "");
-    }
-  }
-  const text = parts.join("\n").toLocaleLowerCase();
-  projectSearchTextCache.set(project, { detail, text });
-  return text;
-}
-
-function projectMatchesSearch(
-  project: PccProjectSummary,
-  query: string | undefined,
-  detail?: PccProjectDetail,
-): boolean {
-  const terms = normalizeProjectSearchQuery(query);
-  if (terms.length === 0) {
-    return true;
-  }
-  const text = projectSearchText(project, detail);
-  return terms.every((term) => text.includes(term));
 }
 
 function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly PccProjectSummary[]) {
@@ -4667,472 +3955,6 @@ function renderCurrentTruthAndReadyQueue(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderAutopilotPromptSlot(slot: PccAutopilotPromptSlot, props: PccDashboardProps) {
-  return html`<article
-    class="pcc-autopilot-prompt"
-    data-pcc-autopilot-prompt
-    data-pcc-autopilot-prompt-id=${slot.id}
-  >
-    <header>
-      <label>
-        <input
-          type="checkbox"
-          .checked=${slot.enabled}
-          ?disabled=${props.actionBusy}
-          @change=${(event: Event) =>
-            props.onUpdateAutopilotPrompt?.(slot.id, {
-              enabled: (event.target as HTMLInputElement).checked,
-            })}
-        />
-        Enabled
-      </label>
-      <span>${slot.title} · v${slot.version}</span>
-    </header>
-    <label>
-      <span>Prompt title</span>
-      <input
-        .value=${slot.title}
-        ?disabled=${props.actionBusy}
-        @change=${(event: Event) =>
-          props.onUpdateAutopilotPrompt?.(slot.id, {
-            title: (event.target as HTMLInputElement).value,
-          })}
-      />
-    </label>
-    <label>
-      <span>Prompt body</span>
-      <textarea
-        rows="5"
-        .value=${slot.promptBody}
-        ?disabled=${props.actionBusy}
-        @change=${(event: Event) =>
-          props.onUpdateAutopilotPrompt?.(slot.id, {
-            promptBody: (event.target as HTMLTextAreaElement).value,
-          })}
-      ></textarea>
-    </label>
-    <div class="pcc-autopilot-prompt__meta">
-      <span
-        >Executor:
-        ${slot.executor === "safe_stub" ? "Safe stub" : formatStatus(slot.executor)}</span
-      >
-      <span>Reasoning: ${slot.reasoningLevel ?? "standard"}</span>
-      <span>Approval: ${formatStatus(slot.approvalTier)}</span>
-      <span>Judge: ${formatStatus(slot.judge)}</span>
-    </div>
-    ${slot.lastRunResult
-      ? html`<p data-pcc-autopilot-last-run>${slot.lastRunResult}</p>`
-      : html`<p data-pcc-autopilot-last-run>Not run yet.</p>`}
-  </article>`;
-}
-
-function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboardProps) {
-  const executionStandard = resolvePccExecutionStandardForDetail(
-    detail,
-    props.skillsReport,
-    undefined,
-    props.skillsError,
-  );
-  const autopilot = getPccAutopilotState({
-    project: detail.project,
-    milestones: detail.milestones,
-    subMilestones: detail.subMilestones ?? [],
-    permissions: detail.permissions,
-    evidence: detail.evidence,
-    decisions: detail.decisions ?? [],
-    executionStandard,
-  });
-  const mode = pccViewMode(props);
-  const enabledPrompts = autopilot.promptSlots.filter((slot) => slot.enabled);
-  const permissionForecast = buildPccAutopilotPermissionForecast(autopilot);
-  const latestRun = autopilot.runHistory.at(-1);
-  const latestJudge = autopilot.latestJudgeResult;
-  const blocker = autopilot.currentBlocker;
-  const activeGrants = autopilot.permissionGrants.filter((grant) => grant.status === "active");
-  const pendingQueue = autopilot.permissionQueue.filter((item) => item.status === "pending");
-  const recentQueue = autopilot.permissionQueue.slice(-5).toReversed();
-  const repairPreview =
-    autopilot.permissionRepair?.status === "preview" ? autopilot.permissionRepair : undefined;
-  const executionProfile = normalizePccExecutionProfile(detail.project.metadata);
-  const executionOption = executionProfileOption(executionProfile.presetId);
-  return html`<section
-    class="pcc-autopilot"
-    data-pcc-autopilot-project-loop
-    data-pcc-mobile-section="autopilot"
-    data-pcc-autopilot-status=${autopilot.status}
-  >
-    <div class="pcc-section-heading">
-      <div>
-        <p class="pcc-kicker">Autopilot Project Loop</p>
-        <h4>Structured AI loop</h4>
-        <p>
-          Separate from milestones. Uses editable prompts, safe approvals, judge review, history,
-          and final reports.
-        </p>
-      </div>
-      <span class="pcc-status pcc-status--${autopilot.status}" data-pcc-autopilot-status-label>
-        ${autopilot.executionMode === "simulation" && autopilot.status === "completed"
-          ? "Simulation complete"
-          : autopilotStatusLabel(autopilot.status)}
-      </span>
-    </div>
-    <article class="pcc-autopilot__inherited-profile" data-pcc-autopilot-execution-profile>
-      <div>
-        <span>Project team</span>
-        <strong>${executionOption.title}</strong>
-        <small>${summarizePccExecutionProfile(executionProfile)}</small>
-      </div>
-      <p>
-        Autopilot inherits this project profile. Prompt slots may narrow a role, but cannot enable
-        Codex or exceed local capacity beyond this profile.
-      </p>
-    </article>
-    <article class="pcc-autopilot__inherited-profile" data-pcc-autopilot-execution-standard>
-      <div>
-        <span>Automatic workflow</span>
-        <strong>${executionStandard.status === "ready" ? "Ready" : "Needs attention"}</strong>
-        <small>
-          ${executionStandard.qualityTarget}/100 minimum ·
-          ${executionStandard.selectedSkillKeys.length
-            ? executionStandard.selectedSkillKeys.join(", ")
-            : "built-in workflow"}
-        </small>
-      </div>
-      <p>
-        ${executionStandard.status === "ready"
-          ? "PCC applies the same process, skills, QA, judge, and repair contract to every prompt."
-          : (executionStandard.blockers[0] ??
-            "PCC must resolve its live processes and skills before Autopilot can start.")}
-      </p>
-    </article>
-    <article class="pcc-autopilot__status-card" data-pcc-autopilot-status-card>
-      <dl>
-        ${renderTruthFact("Mode", autopilot.modeTitle)}
-        ${renderTruthFact(
-          "Active prompt",
-          autopilot.promptSlots.find((slot) => slot.id === autopilot.activePromptSlotId)?.title ??
-            enabledPrompts[0]?.title ??
-            "None",
-        )}
-        ${renderTruthFact("Current set", String(autopilot.currentSet))}
-        ${renderTruthFact("Completed sets", String(autopilot.completedSets))}
-        ${renderTruthFact("Prompt iterations", String(autopilot.totalPromptIterations))}
-        ${renderTruthFact(
-          "Executor",
-          autopilot.currentExecutor === "safe_stub"
-            ? "Safe stub (simulation)"
-            : formatStatus(autopilot.currentExecutor),
-        )}
-        ${renderTruthFact(
-          "Last output",
-          autopilot.lastOutputSummary ?? latestRun?.outputSummary ?? "No output yet",
-        )}
-        ${renderTruthFact(
-          "Blocker",
-          blocker?.whyBlocked ?? executionStandard.blockers[0] ?? "None",
-        )}
-        ${renderTruthFact(
-          "Next action",
-          blocker?.recommendedNextAction ??
-            (executionStandard.status === "blocked"
-              ? "Restore the live skill catalog or resolve the first required-skill blocker"
-              : autopilot.status === "off"
-                ? "Choose a mode and generate prompts"
-                : "Review prompts or start safe loop"),
-        )}
-        ${renderTruthFact("Judge", latestJudge?.summary ?? "Judge not run")}
-      </dl>
-      <p class="pcc-autopilot__safety" data-pcc-autopilot-safe-stub>
-        Simulation mode is active: PCC records prompts and review guidance only. It does not claim
-        live implementation, spend Codex/high-reasoning tokens, deploy, delete files, change
-        credentials, reboot, or perform external writes.
-      </p>
-    </article>
-    ${permissionForecast.required
-      ? html`<article class="pcc-autopilot__permission" data-pcc-autopilot-permission-request>
-          <div>
-            <p class="pcc-kicker">Permission needed before start</p>
-            <h5>${permissionForecast.reason}</h5>
-            <p>${permissionForecast.policySummary}</p>
-            <p>${permissionForecast.recommendedNextAction}</p>
-            <ul>
-              ${permissionForecast.promptTitles.map((title) => html`<li>${title}</li>`)}
-            </ul>
-          </div>
-          <div class="pcc-autopilot__permission-actions">
-            ${permissionForecast.requiredTier === "low"
-              ? html`<button
-                  class="btn"
-                  type="button"
-                  data-pcc-autopilot-allow-low
-                  ?disabled=${props.actionBusy}
-                  @click=${() => props.onRunAutopilotAction?.("allow_low_risk")}
-                >
-                  Allow low-risk loop
-                </button>`
-              : nothing}
-            ${permissionForecast.requiredTier === "medium"
-              ? html`<button
-                  class="btn"
-                  type="button"
-                  data-pcc-autopilot-allow-medium
-                  ?disabled=${props.actionBusy}
-                  @click=${() => props.onRunAutopilotAction?.("allow_medium_risk")}
-                >
-                  Allow medium-risk loop
-                </button>`
-              : nothing}
-            ${permissionForecast.requiredTier === "high"
-              ? html`<button
-                  class="btn"
-                  type="button"
-                  data-pcc-autopilot-allow-high
-                  ?disabled=${props.actionBusy}
-                  @click=${() => props.onRunAutopilotAction?.("allow_high_risk")}
-                >
-                  Allow high-risk loop
-                </button>`
-              : nothing}
-            <button
-              class="btn btn--subtle"
-              type="button"
-              data-pcc-autopilot-deny-permission
-              ?disabled=${props.actionBusy}
-              @click=${() => props.onRunAutopilotAction?.("deny_permission")}
-            >
-              Not now
-            </button>
-          </div>
-        </article>`
-      : html`<p class="pcc-autopilot__permission-ready" data-pcc-autopilot-permission-ready>
-          Permission preflight: ${permissionForecast.policySummary}.
-        </p>`}
-    <section class="pcc-autopilot__permission-ledger" data-pcc-autopilot-permission-ledger>
-      <article data-pcc-autopilot-permission-queue>
-        <p class="pcc-kicker">Permission queue</p>
-        ${pendingQueue.length
-          ? html`<ul>
-              ${pendingQueue.map(
-                (item) => html`<li>
-                  <strong>${formatStatus(item.riskTier)} approval waiting</strong>
-                  <p>${item.reason}</p>
-                  <small>Approve: ${item.approvalConsequence}</small>
-                  <small>Deny: ${item.denialConsequence}</small>
-                </li>`,
-              )}
-            </ul>`
-          : html`<p class="pcc-empty pcc-empty--small">No Autopilot permissions waiting.</p>`}
-        ${mode === "simple" || recentQueue.length === 0
-          ? nothing
-          : html`<details>
-              <summary>Recent queue history (${recentQueue.length})</summary>
-              <ul>
-                ${recentQueue.map(
-                  (item) => html`<li>
-                    ${formatStatus(item.riskTier)} · ${formatStatus(item.status)} · ${item.reason}
-                  </li>`,
-                )}
-              </ul>
-            </details>`}
-      </article>
-      <article data-pcc-autopilot-grant-history>
-        <p class="pcc-kicker">Autopilot grants</p>
-        ${activeGrants.length
-          ? html`<ul>
-                ${activeGrants.map(
-                  (grant) => html`<li>
-                    <strong>${formatStatus(grant.riskTier)} grant active</strong>
-                    <p>${grant.reason}</p>
-                    <small>${grant.allowedActions.join(", ")}</small>
-                  </li>`,
-                )}
-              </ul>
-              <button
-                class="btn btn--subtle"
-                type="button"
-                data-pcc-autopilot-revoke-grant
-                ?disabled=${props.actionBusy}
-                @click=${() => props.onRunAutopilotAction?.("revoke_permission_grant")}
-              >
-                Revoke latest grant
-              </button>`
-          : html`<p class="pcc-empty pcc-empty--small">No active Autopilot grants.</p>`}
-      </article>
-    </section>
-    ${repairPreview
-      ? html`<article class="pcc-autopilot__repair" data-pcc-autopilot-repair-preview>
-          <p class="pcc-kicker">Judge repair recommendation</p>
-          <h5>${repairPreview.title}</h5>
-          <p>${repairPreview.summary}</p>
-          <ul>
-            ${repairPreview.changes.map((change) => html`<li>${change}</li>`)}
-          </ul>
-          <button
-            class="btn"
-            type="button"
-            data-pcc-autopilot-apply-repair
-            ?disabled=${props.actionBusy}
-            @click=${() => props.onRunAutopilotAction?.("apply_permission_repair")}
-          >
-            Apply repair recommendation
-          </button>
-        </article>`
-      : nothing}
-    <div class="pcc-autopilot__controls" data-pcc-autopilot-controls>
-      <label>
-        <span>Loop mode</span>
-        <select
-          .value=${autopilot.mode}
-          ?disabled=${props.actionBusy}
-          data-pcc-autopilot-mode-picker
-          @change=${(event: Event) =>
-            props.onConfigureAutopilotMode?.(
-              (event.target as HTMLSelectElement).value as PccAutopilotModeId,
-            )}
-        >
-          ${PCC_AUTOPILOT_MODES.map(
-            (loopMode) => html`<option value=${loopMode.id}>${loopMode.title}</option>`,
-          )}
-        </select>
-      </label>
-      <button
-        class="btn"
-        type="button"
-        data-pcc-autopilot-generate-prompts
-        ?disabled=${props.actionBusy}
-        @click=${() => props.onGenerateAutopilotPrompts?.()}
-      >
-        Generate Loop Prompts
-      </button>
-      <button
-        class="btn"
-        type="button"
-        data-pcc-autopilot-start
-        ?disabled=${props.actionBusy ||
-        enabledPrompts.length === 0 ||
-        permissionForecast.required ||
-        executionStandard.status === "blocked"}
-        @click=${() => props.onRunAutopilotAction?.("start")}
-      >
-        Start Safe Loop
-      </button>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-autopilot-pause
-        ?disabled=${props.actionBusy}
-        @click=${() => props.onRunAutopilotAction?.("pause")}
-      >
-        Pause
-      </button>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-autopilot-resume
-        ?disabled=${props.actionBusy}
-        @click=${() => props.onRunAutopilotAction?.("resume")}
-      >
-        Resume
-      </button>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-autopilot-stop
-        ?disabled=${props.actionBusy}
-        @click=${() => props.onRunAutopilotAction?.("stop")}
-      >
-        Stop now
-      </button>
-      <button
-        class="btn btn--subtle"
-        type="button"
-        data-pcc-autopilot-block
-        ?disabled=${props.actionBusy}
-        @click=${() => props.onRunAutopilotAction?.("block")}
-      >
-        Mark blocked
-      </button>
-    </div>
-    <details class="pcc-autopilot__prompts" data-pcc-autopilot-prompts open>
-      <summary>Prompt slots (${enabledPrompts.length}/5 enabled)</summary>
-      ${mode === "simple"
-        ? html`<p class="pcc-empty pcc-empty--small">
-            Prompt editors are hidden in Simple view. Switch to Detailed to edit prompts.
-          </p>`
-        : html`<div class="pcc-autopilot__prompt-grid">
-            ${autopilot.promptSlots.map((slot) => renderAutopilotPromptSlot(slot, props))}
-          </div>`}
-    </details>
-    <details class="pcc-autopilot__history" data-pcc-autopilot-history>
-      <summary>Run history and judge review (${autopilot.runHistory.length})</summary>
-      ${mode === "simple"
-        ? html`<p class="pcc-empty pcc-empty--small">
-            Run history is lazy-loaded in Detailed view.
-          </p>`
-        : autopilot.runHistory.length
-          ? html`<ol>
-              ${autopilot.runHistory
-                .slice(-10)
-                .toReversed()
-                .map(
-                  (run) => html`<li data-pcc-autopilot-run>
-                    <strong>${run.promptTitle}</strong>
-                    <span>${run.executor} · ${formatUpdatedAt(Date.parse(run.timestamp))}</span>
-                    <p>${run.outputSummary}</p>
-                    <small data-pcc-autopilot-context-summary>
-                      Context: ${run.inputContextSummary || "No context summary recorded."}
-                    </small>
-                    <small data-pcc-autopilot-change-summary>
-                      Changes: ${run.changedFiles.length}
-                      file${run.changedFiles.length === 1 ? "" : "s"} · ${run.artifacts.length}
-                      artifact${run.artifacts.length === 1 ? "" : "s"} · ${run.checksRun.length}
-                      check${run.checksRun.length === 1 ? "" : "s"}
-                    </small>
-                    ${run.approvals.length
-                      ? html`<small data-pcc-autopilot-approval-summary
-                          >Approvals: ${run.approvals.join(", ")}</small
-                        >`
-                      : html`<small data-pcc-autopilot-approval-summary
-                          >Approvals: none used</small
-                        >`}
-                    ${run.judgeResult ? html`<em>Judge: ${run.judgeResult.summary}</em>` : nothing}
-                  </li>`,
-                )}
-            </ol>`
-          : html`<p class="pcc-empty pcc-empty--small">No Autopilot runs yet.</p>`}
-    </details>
-    <details
-      class="pcc-autopilot__report"
-      data-pcc-autopilot-final-report
-      ?open=${Boolean(autopilot.finalReport)}
-    >
-      <summary>Final report</summary>
-      ${mode === "simple"
-        ? html`<p class="pcc-empty pcc-empty--small">
-            Final report details are available in Detailed view.
-          </p>`
-        : autopilot.finalReport
-          ? html`<dl>
-                ${renderTruthFact("Project", autopilot.finalReport.projectName)}
-                ${renderTruthFact("Sets", String(autopilot.finalReport.setsCompleted))}
-                ${renderTruthFact("Prompt runs", String(autopilot.finalReport.totalPromptRuns))}
-                ${renderTruthFact("Judge", autopilot.finalReport.judgeResult)}
-                ${renderTruthFact(
-                  "Next loop",
-                  formatStatus(autopilot.finalReport.recommendedNextLoop),
-                )}
-              </dl>
-              <strong>Remaining risks</strong>
-              <ul>
-                ${autopilot.finalReport.remainingRisks
-                  .slice(0, 8)
-                  .map((risk) => html`<li>${risk}</li>`)}
-              </ul>`
-          : html`<p class="pcc-empty pcc-empty--small">Run a loop to generate a final report.</p>`}
-    </details>
-  </section>`;
-}
-
 function renderPccExecutionTeamCard(props: PccDashboardProps, detail: PccProjectDetail) {
   const readiness = buildPccExecutionTeamReadiness(
     detail,
@@ -5775,7 +4597,7 @@ function renderBlockerClarityCenter(
   setupEvaluation = setupEvaluationForDetail(detail),
 ) {
   const resolved = resolvePccProjectAction(detail);
-  if (PROJECT_TERMINAL_STATUSES.has(detail.project.status)) {
+  if (PCC_TERMINAL_STATUSES.has(detail.project.status)) {
     return html`<section
       class="pcc-blocker-center pcc-blocker-center--ready"
       data-pcc-blocker-center
@@ -6013,9 +4835,9 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
   const resolvedAction = resolvePccProjectAction(detail);
   const primaryAction = resolvedAction.primaryLabel;
   const needsSetupRepair = !setupEvaluation.runnable;
-  const terminal = PROJECT_TERMINAL_STATUSES.has(project.status);
+  const terminal = PCC_TERMINAL_STATUSES.has(project.status);
   const hasIncompleteMilestones = detail.milestones.some(
-    (milestone) => !PROJECT_TERMINAL_STATUSES.has(milestone.status),
+    (milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status),
   );
   const completionConflict =
     (project.status === "complete" || project.status === "complete_with_maintenance") &&
@@ -6403,18 +5225,18 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                   event.preventDefault();
                   setPccDropTarget(event, false);
                   if (!reorderMode || !canReorder) {
-                    draggedPccMilestoneId = null;
+                    endPccDrag("milestone");
                     return;
                   }
-                  const sourceId = getPccDraggedId(event, "milestone", draggedPccMilestoneId);
+                  const sourceId = getPccDraggedId(event, "milestone");
                   const source = milestones.find((item) => item.id === sourceId);
-                  draggedPccMilestoneId = null;
+                  endPccDrag("milestone");
                   if (source && source.id !== milestone.id) {
                     props.onMoveMilestoneBefore?.(source, milestone);
                   }
                 }}
                 @dragend=${() => {
-                  draggedPccMilestoneId = null;
+                  endPccDrag("milestone");
                   document
                     .querySelectorAll(".pcc-journey-step.is-drop-target")
                     .forEach((item) => item.classList.remove("is-drop-target"));
@@ -6436,11 +5258,10 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
                           draggable="true"
                           aria-label=${`Drag to reorder milestone ${milestone.title}`}
                           @dragstart=${(event: DragEvent) => {
-                            setPccDragData(event, "milestone", milestone.id);
-                            draggedPccMilestoneId = milestone.id;
+                            beginPccDrag(event, "milestone", milestone.id);
                           }}
                           @dragend=${() => {
-                            draggedPccMilestoneId = null;
+                            endPccDrag("milestone");
                           }}
                         >
                           ☰
@@ -6632,7 +5453,8 @@ function renderProjectDetail(props: PccDashboardProps) {
                   ${renderDecisionCapturePanel(detail, props)} ${renderDecisionList(detail, props)}
                 </section>
                 <section data-pcc-detail-tab-panel="automation" role="tabpanel" hidden>
-                  ${renderAutopilotProjectLoop(detail, props)} ${renderContextPackageCard(detail)}
+                  ${renderAutopilotProjectLoop(detail, props, renderTruthFact)}
+                  ${renderContextPackageCard(detail)}
                 </section>
                 <section data-pcc-detail-tab-panel="diagnostics" role="tabpanel" hidden>
                   ${renderInteractionContractMatrix()} ${renderImpactDetailCards(detail, props)}
@@ -7044,18 +5866,18 @@ function renderSubMilestoneList(
           event.preventDefault();
           setPccDropTarget(event, false);
           if (!reorderMode) {
-            draggedPccSubMilestoneId = null;
+            endPccDrag("submilestone");
             return;
           }
-          const sourceId = getPccDraggedId(event, "submilestone", draggedPccSubMilestoneId);
+          const sourceId = getPccDraggedId(event, "submilestone");
           const source = subMilestones.find((item) => item.id === sourceId);
-          draggedPccSubMilestoneId = null;
+          endPccDrag("submilestone");
           if (source && source.id !== subMilestone.id) {
             props.onMoveSubMilestoneBefore?.(source, subMilestone);
           }
         }}
         @dragend=${() => {
-          draggedPccSubMilestoneId = null;
+          endPccDrag("submilestone");
           document
             .querySelectorAll(".pcc-submilestone.is-drop-target")
             .forEach((item) => item.classList.remove("is-drop-target"));
@@ -7070,11 +5892,10 @@ function renderSubMilestoneList(
                   draggable="true"
                   aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
                   @dragstart=${(event: DragEvent) => {
-                    setPccDragData(event, "submilestone", subMilestone.id);
-                    draggedPccSubMilestoneId = subMilestone.id;
+                    beginPccDrag(event, "submilestone", subMilestone.id);
                   }}
                   @dragend=${() => {
-                    draggedPccSubMilestoneId = null;
+                    endPccDrag("submilestone");
                   }}
                 >
                   ☰
