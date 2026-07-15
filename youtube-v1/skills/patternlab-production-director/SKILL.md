@@ -68,6 +68,10 @@ never call production leaf scripts ad hoc.
   skill roots. A tracked skill that is not deployed is not production-ready.
 - `patternlab_runtime_source_deploy.py` must pass against the active
   `PatternLabRuntime` snapshot. Development-only source is not scheduler proof.
+- `patternlab_launchd_install.py` must pass in verify-only mode before a
+  production profile runs. Only its explicit `--apply` mode may replace jobs,
+  and that mode backs up matching files, rolls back on failure, and installs
+  only canonical user agents without manually triggering production.
 - Do not ask the owner to remember routine substeps. The selected contract
   profile owns ordering, preflight, rendering, QA, hashes, and review handoff.
 

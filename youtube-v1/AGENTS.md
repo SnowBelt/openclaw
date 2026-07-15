@@ -10,6 +10,10 @@
   change.
 - Keep tracked skills deployed to the active Codex and OpenClaw skill roots;
   `scripts/patternlab_skill_deployment.py` is the hash-verification gate.
+- Keep only the canonical `com.openclaw.patternlab-v2.*` user LaunchAgents
+  installed; `scripts/patternlab_launchd_install.py` is the backup, install,
+  rollback, and verification gate. Never load the root wake scheduler as a
+  user job.
 - Never ask the owner to remember routine production substeps. The selected
   canonical profile owns ordering, preflight, production, QA, receipts, and
   review handoff.

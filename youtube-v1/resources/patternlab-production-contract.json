@@ -33,8 +33,10 @@
       "youtube-v1/scripts/patternlab_workflow_integrity.py",
       "youtube-v1/scripts/patternlab_skill_deployment.py",
       "youtube-v1/scripts/patternlab_runtime_source_deploy.py",
+      "youtube-v1/scripts/patternlab_launchd_install.py",
       "youtube-v1/skills/patternlab-production-director/SKILL.md",
       "youtube-v1/tests/test_patternlab_production_entrypoint.py",
+      "youtube-v1/tests/test_patternlab_launchd_install.py",
       "youtube-v1/workflows/patternlab-full-auto-production-runbook.md",
       "youtube-v1/automation/pattern-lab-full-auto-production.plist",
       "youtube-v1/patternlab/rights.py",
@@ -116,6 +118,23 @@
           "outputs": [
             {
               "path": "output:approval/runtime-source-deployment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "launchd_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_launchd_install.py"
+          ],
+          "outputs": [
+            {
+              "path": "repo:youtube-v1/local-output/operations/launchd-install-report.json",
               "json_status": [
                 "pass"
               ]
@@ -1037,6 +1056,23 @@
           "outputs": [
             {
               "path": "output:approval/runtime-source-deployment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "launchd_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_launchd_install.py"
+          ],
+          "outputs": [
+            {
+              "path": "repo:youtube-v1/local-output/operations/launchd-install-report.json",
               "json_status": [
                 "pass"
               ]
