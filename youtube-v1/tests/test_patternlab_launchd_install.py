@@ -55,6 +55,7 @@ class PatternLabLaunchdInstallTests(unittest.TestCase):
                 launch_agents_dir=launch_agents,
                 uid=502,
                 automation_root=YOUTUBE_ROOT / "automation",
+                operations_root=root / "operations",
                 runner=runner,
             )
             self.assertEqual(payload["status"], "pass", payload["blockers"])
@@ -73,6 +74,7 @@ class PatternLabLaunchdInstallTests(unittest.TestCase):
                 launch_agents_dir=launch_agents,
                 uid=502,
                 automation_root=YOUTUBE_ROOT / "automation",
+                operations_root=root / "operations",
                 runner=runner,
             )
             self.assertEqual(verified["status"], "pass", verified["blockers"])
@@ -96,7 +98,9 @@ class PatternLabLaunchdInstallTests(unittest.TestCase):
 
     def test_apply_rolls_back_files_when_bootstrap_fails(self):
         with tempfile.TemporaryDirectory() as temp:
-            launch_agents = Path(temp)
+            root = Path(temp)
+            launch_agents = root / "LaunchAgents"
+            launch_agents.mkdir()
             legacy = launch_agents / "com.openclaw.pattern-lab.dashboard.plist"
             legacy.write_text('["legacy"]', encoding="utf-8")
 
@@ -109,11 +113,36 @@ class PatternLabLaunchdInstallTests(unittest.TestCase):
                 launch_agents_dir=launch_agents,
                 uid=502,
                 automation_root=YOUTUBE_ROOT / "automation",
+                operations_root=root / "operations",
                 runner=failing_runner,
             )
             self.assertEqual(payload["status"], "blocked")
             self.assertTrue(payload["rollback_performed"])
             self.assertEqual(legacy.read_text(encoding="utf-8"), '["legacy"]')
+
+    def test_fixture_report_does_not_touch_production_operations_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            launch_agents = root / "LaunchAgents"
+            launch_agents.mkdir()
+            operations = root / "operations"
+            production_report = launchd_install.OPERATIONS_ROOT / "launchd-install-report.json"
+            production_before = production_report.read_bytes() if production_report.is_file() else None
+
+            payload, report = launchd_install.build_report(
+                apply=True,
+                launch_agents_dir=launch_agents,
+                uid=502,
+                automation_root=YOUTUBE_ROOT / "automation",
+                operations_root=operations,
+                runner=FakeLaunchctl(),
+            )
+
+            self.assertEqual(payload["status"], "pass", payload["blockers"])
+            self.assertEqual(report, operations / "launchd-install-report.json")
+            self.assertTrue(report.is_file())
+            production_after = production_report.read_bytes() if production_report.is_file() else None
+            self.assertEqual(production_after, production_before)
 
     def test_preflight_targets_canonical_label_with_current_uid(self):
         checks = []

@@ -258,6 +258,7 @@ def build_report(
     launch_agents_dir: Path | None = None,
     uid: int | None = None,
     automation_root: Path = AUTOMATION_ROOT,
+    operations_root: Path = OPERATIONS_ROOT,
     runner: Callable[..., Any] = subprocess.run,
 ) -> tuple[dict[str, Any], Path]:
     launch_agents_dir = launch_agents_dir or (Path.home() / "Library" / "LaunchAgents")
@@ -298,7 +299,7 @@ def build_report(
         "paid_provider_calls": "not_performed",
         "youtube_mutation": "not_performed",
     }
-    report = ensure_dir(OPERATIONS_ROOT) / "launchd-install-report.json"
+    report = ensure_dir(operations_root) / "launchd-install-report.json"
     report.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return payload, report
 
