@@ -32,6 +32,7 @@ import { resolveSubagentMaxConcurrent } from "../../config/agent-limits.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { evaluatePccCapabilityEvidence } from "../../pcc/capability-evidence.js";
 import { collectPccExecutionCapacitySnapshot } from "../../pcc/execution-capacity.js";
+import { buildPccLedgerReadIndex, type PccLedgerReadIndex } from "../../pcc/ledger-read-index.js";
 import {
   closePccLedgerStorageForTest,
   pccLedgerJsonPath as ledgerPath,
@@ -150,8 +151,14 @@ function makeId(prefix: string, label?: string): string {
   return `${prefix}-${suffix}${randomUUID().slice(0, 12)}`;
 }
 
-function hasReceipt(ledger: PccLedger, milestoneId: string): boolean {
-  return ledger.receipts.some((receipt) => receipt.milestoneId === milestoneId);
+const EMPTY_INDEX_ITEMS: readonly never[] = [];
+
+function indexedItems<T>(groups: ReadonlyMap<string, readonly T[]>, key: string): readonly T[] {
+  return groups.get(key) ?? EMPTY_INDEX_ITEMS;
+}
+
+function hasReceipt(index: PccLedgerReadIndex, milestoneId: string): boolean {
+  return indexedItems(index.receiptsByMilestoneId, milestoneId).length > 0;
 }
 
 function evidenceIsPassed(ledger: PccLedger, evidenceId: string): boolean {
@@ -160,8 +167,11 @@ function evidenceIsPassed(ledger: PccLedger, evidenceId: string): boolean {
   );
 }
 
-function subMilestonesForMilestone(ledger: PccLedger, milestoneId: string): PccSubMilestone[] {
-  return ledger.subMilestones.filter((subMilestone) => subMilestone.milestoneId === milestoneId);
+function subMilestonesForMilestone(
+  index: PccLedgerReadIndex,
+  milestoneId: string,
+): readonly PccSubMilestone[] {
+  return indexedItems(index.subMilestonesByMilestoneId, milestoneId);
 }
 
 function subMilestonePercent(subMilestone: PccSubMilestone): number {
@@ -177,21 +187,24 @@ function subMilestonePercent(subMilestone: PccSubMilestone): number {
   return PARTIAL_STATUS_PERCENT[subMilestone.status] ?? 0;
 }
 
-function subMilestonesCompleteForMilestone(ledger: PccLedger, milestoneId: string): boolean {
-  const items = subMilestonesForMilestone(ledger, milestoneId).filter(
+function subMilestonesCompleteForMilestone(
+  index: PccLedgerReadIndex,
+  milestoneId: string,
+): boolean {
+  const items = subMilestonesForMilestone(index, milestoneId).filter(
     (subMilestone) => !SKIPPED_STATUSES.has(subMilestone.status),
   );
   return items.every((subMilestone) => COMPLETE_STATUSES.has(subMilestone.status));
 }
 
-function milestonePercent(ledger: PccLedger, milestone: PccMilestone): number {
+function milestonePercent(index: PccLedgerReadIndex, milestone: PccMilestone): number {
   if (SKIPPED_STATUSES.has(milestone.status)) {
     return 0;
   }
-  if (COMPLETE_STATUSES.has(milestone.status) && hasReceipt(ledger, milestone.id)) {
+  if (COMPLETE_STATUSES.has(milestone.status) && hasReceipt(index, milestone.id)) {
     return 100;
   }
-  const subMilestones = subMilestonesForMilestone(ledger, milestone.id);
+  const subMilestones = subMilestonesForMilestone(index, milestone.id);
   if (subMilestones.length > 0) {
     return Math.round(
       subMilestones.reduce((total, subMilestone) => total + subMilestonePercent(subMilestone), 0) /
@@ -205,35 +218,48 @@ function milestonePercent(ledger: PccLedger, milestone: PccMilestone): number {
 }
 
 function summarizePhasePercent(
-  ledger: PccLedger,
+  index: PccLedgerReadIndex,
   phase: NonNullable<PccProject["phases"]>[number],
-  milestones: PccMilestone[],
+  phaseMilestones: readonly PccMilestone[],
 ): number {
   if (typeof phase.percentComplete === "number") {
     return Math.max(0, Math.min(100, Math.round(phase.percentComplete)));
   }
-  const phaseMilestones = milestones.filter((milestone) => milestone.phaseId === phase.id);
   if (phaseMilestones.length === 0) {
     return COMPLETE_STATUSES.has(phase.status ?? "not_started") ? 100 : 0;
   }
   return Math.round(
-    phaseMilestones.reduce((total, milestone) => total + milestonePercent(ledger, milestone), 0) /
+    phaseMilestones.reduce((total, milestone) => total + milestonePercent(index, milestone), 0) /
       phaseMilestones.length,
   );
 }
 
 function summarizeWeightedProjectPercent(
-  ledger: PccLedger,
+  index: PccLedgerReadIndex,
   project: PccProject,
-  milestones: PccMilestone[],
+  milestones: readonly PccMilestone[],
 ): number {
   const phases = project.phases?.toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0)) ?? [];
   const phaseIds = new Set(phases.map((phase) => phase.id));
+  const milestonesByPhaseId = new Map<string, PccMilestone[]>();
+  const unassignedMilestones: PccMilestone[] = [];
+  for (const milestone of milestones) {
+    if (milestone.phaseId && phaseIds.has(milestone.phaseId)) {
+      const phaseMilestones = milestonesByPhaseId.get(milestone.phaseId);
+      if (phaseMilestones) {
+        phaseMilestones.push(milestone);
+      } else {
+        milestonesByPhaseId.set(milestone.phaseId, [milestone]);
+      }
+    } else {
+      unassignedMilestones.push(milestone);
+    }
+  }
   const hasPhaseProgress = phases.some(
     (phase) =>
       typeof phase.percentComplete === "number" ||
       COMPLETE_STATUSES.has(phase.status ?? "not_started") ||
-      milestones.some((milestone) => milestone.phaseId === phase.id),
+      (milestonesByPhaseId.get(phase.id)?.length ?? 0) > 0,
   );
   if (phases.length > 0 && hasPhaseProgress) {
     const totalWeight = phases.reduce((total, phase) => total + Math.max(0, phase.weight ?? 0), 0);
@@ -241,17 +267,22 @@ function summarizeWeightedProjectPercent(
     let denominator = totalWeight > 0 ? totalWeight : phases.length;
     let weighted = phases.reduce((total, phase) => {
       const weight = totalWeight > 0 ? Math.max(0, phase.weight ?? 0) : fallbackWeight;
-      return total + summarizePhasePercent(ledger, phase, milestones) * weight;
+      return (
+        total +
+        summarizePhasePercent(
+          index,
+          phase,
+          milestonesByPhaseId.get(phase.id) ?? EMPTY_INDEX_ITEMS,
+        ) *
+          weight
+      );
     }, 0);
-    const unassignedMilestones = milestones.filter(
-      (milestone) => !milestone.phaseId || !phaseIds.has(milestone.phaseId),
-    );
     if (unassignedMilestones.length > 0) {
       const unassignedWeight =
         totalWeight > 0 ? Math.max(1, Math.round(totalWeight / phases.length)) : 1;
       const unassignedPercent = Math.round(
         unassignedMilestones.reduce(
-          (total, milestone) => total + milestonePercent(ledger, milestone),
+          (total, milestone) => total + milestonePercent(index, milestone),
           0,
         ) / unassignedMilestones.length,
       );
@@ -264,7 +295,7 @@ function summarizeWeightedProjectPercent(
   }
   if (milestones.length > 0) {
     return Math.round(
-      milestones.reduce((total, milestone) => total + milestonePercent(ledger, milestone), 0) /
+      milestones.reduce((total, milestone) => total + milestonePercent(index, milestone), 0) /
         milestones.length,
     );
   }
@@ -401,56 +432,46 @@ function timestampStringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function addActivityCandidate(
-  candidates: Array<{ at: string; label: string; sequence: number }>,
-  at: unknown,
-  label: string,
-): void {
-  const timestamp = timestampStringValue(at);
-  if (timestamp) {
-    candidates.push({ at: timestamp, label, sequence: candidates.length });
+function latestProjectActivity(index: PccLedgerReadIndex, project: PccProject): string | undefined {
+  let latest: { at: string; label: string; sequence: number } | undefined;
+  let sequence = 0;
+  const addCandidate = (at: unknown, label: string): void => {
+    const timestamp = timestampStringValue(at);
+    if (!timestamp) {
+      return;
+    }
+    const candidate = { at: timestamp, label, sequence };
+    sequence += 1;
+    if (
+      !latest ||
+      candidate.at > latest.at ||
+      (candidate.at === latest.at && candidate.sequence > latest.sequence)
+    ) {
+      latest = candidate;
+    }
+  };
+  addCandidate(project.updatedAt, "Project updated");
+  for (const milestone of indexedItems(index.milestonesByProjectId, project.id)) {
+    addCandidate(milestone.updatedAt, `Milestone updated: ${milestone.title}`);
   }
-}
-
-function latestProjectActivity(ledger: PccLedger, project: PccProject): string | undefined {
-  const candidates: Array<{ at: string; label: string; sequence: number }> = [];
-  addActivityCandidate(candidates, project.updatedAt, "Project updated");
-  for (const milestone of ledger.milestones.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(candidates, milestone.updatedAt, `Milestone updated: ${milestone.title}`);
+  for (const subMilestone of indexedItems(index.subMilestonesByProjectId, project.id)) {
+    addCandidate(subMilestone.updatedAt, `Sub-milestone updated: ${subMilestone.title}`);
   }
-  for (const subMilestone of ledger.subMilestones.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(
-      candidates,
-      subMilestone.updatedAt,
-      `Sub-milestone updated: ${subMilestone.title}`,
-    );
+  for (const permission of indexedItems(index.permissionsByProjectId, project.id)) {
+    addCandidate(permission.updatedAt, `Permission ${permission.status}: ${permission.type}`);
   }
-  for (const permission of ledger.permissions.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(
-      candidates,
-      permission.updatedAt,
-      `Permission ${permission.status}: ${permission.type}`,
-    );
+  for (const evidence of indexedItems(index.evidenceByProjectId, project.id)) {
+    addCandidate(evidence.createdAt, `Evidence ${evidence.status}: ${evidence.kind}`);
   }
-  for (const evidence of ledger.evidence.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(
-      candidates,
-      evidence.createdAt,
-      `Evidence ${evidence.status}: ${evidence.kind}`,
-    );
+  for (const receipt of indexedItems(index.receiptsByProjectId, project.id)) {
+    addCandidate(receipt.completedAt, `Receipt added: ${receipt.summary}`);
   }
-  for (const receipt of ledger.receipts.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(candidates, receipt.completedAt, `Receipt added: ${receipt.summary}`);
+  for (const decision of indexedItems(index.decisionsByProjectId, project.id)) {
+    addCandidate(decision.decidedAt, `Decision: ${decision.title}`);
   }
-  for (const decision of ledger.decisions.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(candidates, decision.decidedAt, `Decision: ${decision.title}`);
+  for (const entry of indexedItems(index.lastKnownGoodByProjectId, project.id)) {
+    addCandidate(entry.verifiedAt, `Verified: ${entry.subsystem}`);
   }
-  for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
-    addActivityCandidate(candidates, entry.verifiedAt, `Verified: ${entry.subsystem}`);
-  }
-  const latest = candidates.toSorted(
-    (a, b) => b.at.localeCompare(a.at) || b.sequence - a.sequence,
-  )[0];
   return latest ? `${latest.label} · ${latest.at}` : undefined;
 }
 
@@ -539,14 +560,10 @@ function duplicateIntegrityKeys<T>(items: readonly T[], keyFor: (item: T) => str
   return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
 }
 
-function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] {
+function projectIntegrityGaps(index: PccLedgerReadIndex, project: PccProject): string[] {
   const gaps: string[] = [];
-  const projectMilestones = ledger.milestones.filter(
-    (milestone) => milestone.projectId === project.id,
-  );
-  const projectSubMilestones = ledger.subMilestones.filter(
-    (subMilestone) => subMilestone.projectId === project.id,
-  );
+  const projectMilestones = indexedItems(index.milestonesByProjectId, project.id);
+  const projectSubMilestones = indexedItems(index.subMilestonesByProjectId, project.id);
   const projectMilestoneIds = new Set(projectMilestones.map((milestone) => milestone.id));
   const projectSubMilestoneIds = new Set(
     projectSubMilestones.map((subMilestone) => subMilestone.id),
@@ -574,8 +591,9 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
     gaps.push(`Integrity issue: duplicate milestone order: ${order}`);
   }
 
-  for (const subMilestone of ledger.subMilestones.filter(
-    (item) => item.projectId !== project.id && projectMilestoneIds.has(item.milestoneId),
+  for (const subMilestone of indexedItems(
+    index.mismatchedSubMilestonesByParentProjectId,
+    project.id,
   )) {
     gaps.push(
       `Integrity issue: sub-milestone has mismatched project reference: ${subMilestone.title}`,
@@ -622,17 +640,17 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
       );
     }
   }
-  for (const permission of ledger.permissions.filter((item) => item.projectId === project.id)) {
+  for (const permission of indexedItems(index.permissionsByProjectId, project.id)) {
     if (permission.milestoneId && !projectMilestoneIds.has(permission.milestoneId)) {
       gaps.push(`Integrity issue: permission references missing milestone: ${permission.id}`);
     }
   }
-  for (const evidence of ledger.evidence.filter((item) => item.projectId === project.id)) {
+  for (const evidence of indexedItems(index.evidenceByProjectId, project.id)) {
     if (evidence.milestoneId && !projectMilestoneIds.has(evidence.milestoneId)) {
       gaps.push(`Integrity issue: evidence references missing milestone: ${evidence.id}`);
     }
   }
-  for (const receipt of ledger.receipts.filter((item) => item.projectId === project.id)) {
+  for (const receipt of indexedItems(index.receiptsByProjectId, project.id)) {
     if (!projectMilestoneIds.has(receipt.milestoneId)) {
       gaps.push(`Integrity issue: receipt references missing milestone: ${receipt.id}`);
     }
@@ -644,7 +662,7 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
       gaps.push(`Integrity issue: receipt has no proof evidence ids: ${receipt.id}`);
     }
     for (const evidenceId of proofEvidenceIds) {
-      const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+      const evidence = index.evidenceById.get(evidenceId);
       if (!evidence || evidence.projectId !== project.id) {
         gaps.push(`Integrity issue: receipt references missing proof evidence: ${evidenceId}`);
       } else if (evidence.status !== "passed") {
@@ -652,7 +670,7 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
       }
     }
   }
-  for (const decision of ledger.decisions.filter((item) => item.projectId === project.id)) {
+  for (const decision of indexedItems(index.decisionsByProjectId, project.id)) {
     if (decision.milestoneId && !projectMilestoneIds.has(decision.milestoneId)) {
       gaps.push(`Integrity issue: decision references missing milestone: ${decision.id}`);
     }
@@ -663,18 +681,18 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
       gaps.push(`Integrity issue: decision has malformed evidence ids: ${decision.id}`);
     }
     for (const evidenceId of stringArray(decision.evidenceIds)) {
-      const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+      const evidence = index.evidenceById.get(evidenceId);
       if (!evidence || evidence.projectId !== project.id) {
         gaps.push(`Integrity issue: decision references missing evidence: ${evidenceId}`);
       }
     }
   }
-  for (const entry of ledger.lastKnownGood.filter((item) => item.projectId === project.id)) {
+  for (const entry of indexedItems(index.lastKnownGoodByProjectId, project.id)) {
     if (entry.evidenceIds !== undefined && !Array.isArray(entry.evidenceIds)) {
       gaps.push(`Integrity issue: last-known-good has malformed evidence ids: ${entry.id}`);
     }
     for (const evidenceId of stringArray(entry.evidenceIds)) {
-      const evidence = ledger.evidence.find((item) => item.id === evidenceId);
+      const evidence = index.evidenceById.get(evidenceId);
       if (!evidence || evidence.projectId !== project.id) {
         gaps.push(`Integrity issue: last-known-good references missing evidence: ${evidenceId}`);
       } else if (evidence.status !== "passed") {
@@ -687,18 +705,39 @@ function projectIntegrityGaps(ledger: PccLedger, project: PccProject): string[] 
   return [...new Set(gaps)];
 }
 
-function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSummary {
-  const milestones = ledger.milestones.filter((milestone) => milestone.projectId === project.id);
-  const percentComplete = summarizeWeightedProjectPercent(ledger, project, milestones);
+function summarizeProject(
+  ledger: PccLedger,
+  project: PccProject,
+  index = buildPccLedgerReadIndex(ledger),
+): PccProjectSummary {
+  const milestones = indexedItems(index.milestonesByProjectId, project.id);
+  const percentComplete = summarizeWeightedProjectPercent(index, project, milestones);
   const metadata = metadataObjectValue(project.metadata);
   const counts: ProjectStatusCounts = {
     total: milestones.length,
-    complete: milestones.filter((milestone) => COMPLETE_STATUSES.has(milestone.status)).length,
-    blocked: milestones.filter((milestone) => BLOCKED_STATUSES.has(milestone.status)).length,
-    needsApproval: milestones.filter((milestone) => milestone.status === "needs_approval").length,
-    deferred: milestones.filter((milestone) => WAITING_STATUSES.has(milestone.status)).length,
-    skipped: milestones.filter((milestone) => SKIPPED_STATUSES.has(milestone.status)).length,
+    complete: 0,
+    blocked: 0,
+    needsApproval: 0,
+    deferred: 0,
+    skipped: 0,
   };
+  for (const milestone of milestones) {
+    if (COMPLETE_STATUSES.has(milestone.status)) {
+      counts.complete += 1;
+    }
+    if (BLOCKED_STATUSES.has(milestone.status)) {
+      counts.blocked += 1;
+    }
+    if (milestone.status === "needs_approval") {
+      counts.needsApproval += 1;
+    }
+    if (WAITING_STATUSES.has(milestone.status)) {
+      counts.deferred += 1;
+    }
+    if (SKIPPED_STATUSES.has(milestone.status)) {
+      counts.skipped += 1;
+    }
+  }
   const nextActions = milestones
     .filter(
       (milestone) =>
@@ -708,15 +747,15 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     .slice(0, 10)
     .map((milestone) => `${milestone.title}: ${milestone.blocker || milestone.status}`);
   const proofGaps = [
-    ...projectIntegrityGaps(ledger, project),
+    ...projectIntegrityGaps(index, project),
     ...milestones.flatMap((milestone) => {
       const gaps: string[] = [];
-      if (COMPLETE_STATUSES.has(milestone.status) && !hasReceipt(ledger, milestone.id)) {
+      if (COMPLETE_STATUSES.has(milestone.status) && !hasReceipt(index, milestone.id)) {
         gaps.push(`Completion receipt missing for ${milestone.title}`);
       }
       if (
         COMPLETE_STATUSES.has(milestone.status) &&
-        !subMilestonesCompleteForMilestone(ledger, milestone.id)
+        !subMilestonesCompleteForMilestone(index, milestone.id)
       ) {
         gaps.push(`Incomplete sub-milestones remain for ${milestone.title}`);
       }
@@ -747,34 +786,86 @@ function summarizeProject(ledger: PccLedger, project: PccProject): PccProjectSum
     ...(metadataStringValue(metadata.pccWorkflowTemplateId)
       ? { workflowTemplateId: metadataStringValue(metadata.pccWorkflowTemplateId) }
       : {}),
-    recentActivity: latestProjectActivity(ledger, project),
+    recentActivity: latestProjectActivity(index, project),
     updatedAt: project.updatedAt,
   };
 }
 
-function summarizePortfolio(ledger: PccLedger): PccPortfolioSummary {
-  const projectSummaries = ledger.projects.map((project) => summarizeProject(ledger, project));
+function summarizePortfolio(
+  ledger: PccLedger,
+  index = buildPccLedgerReadIndex(ledger),
+): PccPortfolioSummary {
+  const projectSummaries = ledger.projects.map((project) =>
+    summarizeProject(ledger, project, index),
+  );
+  let active = 0;
+  let blocked = 0;
+  let needsApproval = 0;
+  let needsAttention = 0;
+  let proofGaps = 0;
+  let overdue = 0;
+  let stale = 0;
+  let complete = 0;
+  let archived = 0;
+  let totalPercentComplete = 0;
+  const nextActions: string[] = [];
+  for (let projectIndex = 0; projectIndex < ledger.projects.length; projectIndex += 1) {
+    const project = ledger.projects[projectIndex];
+    const summary = projectSummaries[projectIndex];
+    if (!project || !summary) {
+      continue;
+    }
+    totalPercentComplete += summary.percentComplete;
+    if (["active", "in_progress", "reopened"].includes(project.status)) {
+      active += 1;
+    }
+    if (BLOCKED_STATUSES.has(project.status)) {
+      blocked += 1;
+    }
+    if (project.status === "needs_approval") {
+      needsApproval += 1;
+    }
+    if (projectSummaryNeedsAttention(summary)) {
+      needsAttention += 1;
+    }
+    if (summary.proofGaps.length > 0) {
+      proofGaps += 1;
+    }
+    if (projectSummaryIsOverdue(summary)) {
+      overdue += 1;
+    }
+    if (projectSummaryIsStale(summary)) {
+      stale += 1;
+    }
+    if (COMPLETE_STATUSES.has(project.status)) {
+      complete += 1;
+    }
+    if (project.status === "archived") {
+      archived += 1;
+    }
+    for (const action of summary.nextActions) {
+      if (nextActions.length >= 20) {
+        break;
+      }
+      nextActions.push(action);
+    }
+  }
   const averagePercentComplete = projectSummaries.length
-    ? Math.round(
-        projectSummaries.reduce((total, project) => total + project.percentComplete, 0) /
-          projectSummaries.length,
-      )
+    ? Math.round(totalPercentComplete / projectSummaries.length)
     : 0;
   return {
     projectsTotal: ledger.projects.length,
-    active: ledger.projects.filter((project) =>
-      ["active", "in_progress", "reopened"].includes(project.status),
-    ).length,
-    blocked: ledger.projects.filter((project) => BLOCKED_STATUSES.has(project.status)).length,
-    needsApproval: ledger.projects.filter((project) => project.status === "needs_approval").length,
-    needsAttention: projectSummaries.filter(projectSummaryNeedsAttention).length,
-    proofGaps: projectSummaries.filter((project) => project.proofGaps.length > 0).length,
-    overdue: projectSummaries.filter(projectSummaryIsOverdue).length,
-    stale: projectSummaries.filter(projectSummaryIsStale).length,
-    complete: ledger.projects.filter((project) => COMPLETE_STATUSES.has(project.status)).length,
-    archived: ledger.projects.filter((project) => project.status === "archived").length,
+    active,
+    blocked,
+    needsApproval,
+    needsAttention,
+    proofGaps,
+    overdue,
+    stale,
+    complete,
+    archived,
     averagePercentComplete,
-    nextActions: projectSummaries.flatMap((project) => project.nextActions).slice(0, 20),
+    nextActions,
   };
 }
 
@@ -1286,10 +1377,11 @@ function ensureMilestoneCanBeComplete(
   if (!COMPLETE_STATUSES.has(status)) {
     return null;
   }
-  if (!subMilestonesCompleteForMilestone(ledger, milestoneId)) {
+  const index = buildPccLedgerReadIndex(ledger);
+  if (!subMilestonesCompleteForMilestone(index, milestoneId)) {
     return "complete milestone status requires every non-skipped sub-milestone to be complete";
   }
-  if ((receiptIds && receiptIds.length > 0) || hasReceipt(ledger, milestoneId)) {
+  if ((receiptIds && receiptIds.length > 0) || hasReceipt(index, milestoneId)) {
     return null;
   }
   return "complete milestone status requires a completion receipt";
@@ -1791,18 +1883,17 @@ function lastKnownGoodFromReceipt(
 }
 
 function responseForProject(ledger: PccLedger, project: PccProject) {
+  const index = buildPccLedgerReadIndex(ledger);
   return {
     project,
-    milestones: ledger.milestones.filter((milestone) => milestone.projectId === project.id),
-    subMilestones: ledger.subMilestones.filter(
-      (subMilestone) => subMilestone.projectId === project.id,
-    ),
-    permissions: ledger.permissions.filter((permission) => permission.projectId === project.id),
-    evidence: ledger.evidence.filter((evidence) => evidence.projectId === project.id),
-    receipts: ledger.receipts.filter((receipt) => receipt.projectId === project.id),
-    decisions: ledger.decisions.filter((decision) => decision.projectId === project.id),
-    lastKnownGood: ledger.lastKnownGood.filter((entry) => entry.projectId === project.id),
-    summary: summarizeProject(ledger, project),
+    milestones: indexedItems(index.milestonesByProjectId, project.id),
+    subMilestones: indexedItems(index.subMilestonesByProjectId, project.id),
+    permissions: indexedItems(index.permissionsByProjectId, project.id),
+    evidence: indexedItems(index.evidenceByProjectId, project.id),
+    receipts: indexedItems(index.receiptsByProjectId, project.id),
+    decisions: indexedItems(index.decisionsByProjectId, project.id),
+    lastKnownGood: indexedItems(index.lastKnownGoodByProjectId, project.id),
+    summary: summarizeProject(ledger, project, index),
   };
 }
 
@@ -1814,9 +1905,10 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       const ledger = readLedger();
+      const index = buildPccLedgerReadIndex(ledger);
       const projects = ledger.projects
         .filter((project) => params.includeArchived || project.status !== "archived")
-        .map((project) => summarizeProject(ledger, project));
+        .map((project) => summarizeProject(ledger, project, index));
       respond(true, { projects });
     } catch (error) {
       respondUnhandled(respond, error);
@@ -2426,6 +2518,7 @@ export const pccHandlers: GatewayRequestHandlers = {
     }
     try {
       const ledger = readLedger();
+      const index = buildPccLedgerReadIndex(ledger);
       const executionCapacity = readPccExecutionCapacity(context.getRuntimeConfig());
       if (params.projectId) {
         const project = projectOrError(ledger, params.projectId);
@@ -2434,15 +2527,15 @@ export const pccHandlers: GatewayRequestHandlers = {
           return;
         }
         respond(true, {
-          project: summarizeProject(ledger, project),
-          portfolio: summarizePortfolio(ledger),
+          project: summarizeProject(ledger, project, index),
+          portfolio: summarizePortfolio(ledger, index),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
         });
         return;
       }
       respond(true, {
-        portfolio: summarizePortfolio(ledger),
+        portfolio: summarizePortfolio(ledger, index),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
       });

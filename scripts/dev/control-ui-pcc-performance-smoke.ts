@@ -7,6 +7,7 @@ const PROJECT_COUNT = 600;
 const CACHED_DETAIL_COUNT = 80;
 const MILESTONES_PER_DETAIL = 24;
 const PERFORMANCE_BUDGETS = {
+  gatewaySummaryP95Ms: 400,
   templateP95Ms: 40,
   initialDomMs: 900,
   rerenderP95Ms: 75,
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
 
   try {
     const { render } = await import("lit");
+    const { pccTesting } = await import("../../src/gateway/server-methods/pcc.ts");
     const { renderPccDashboard } = await import("../../ui/src/ui/views/pcc.ts");
     const root = dom.window.document.getElementById("root");
     if (!root) {
@@ -201,6 +203,48 @@ async function main(): Promise<void> {
       onDismissChatSync: () => undefined,
     };
 
+    const ledgerProjects = projects.map((summary) => ({
+      id: summary.id,
+      title: summary.title,
+      status: summary.status,
+      priority: 3,
+      metadata: { pccWorkScope: "project_work" },
+      createdAt: now,
+      updatedAt: now,
+    }));
+    const ledger = {
+      version: 1 as const,
+      projects: ledgerProjects,
+      milestones: ledgerProjects.flatMap((project, projectIndex) =>
+        Array.from({ length: MILESTONES_PER_DETAIL }, (_, milestoneIndex) => ({
+          id: `${project.id}-gateway-milestone-${milestoneIndex}`,
+          projectId: project.id,
+          title: `Gateway milestone ${projectIndex}-${milestoneIndex}`,
+          status: "not_started" as const,
+          order: milestoneIndex * 10,
+          percentComplete: 0,
+          implementationPlan: `Execute gateway milestone ${milestoneIndex}.`,
+          acceptanceCriteria: [`Gateway milestone ${milestoneIndex} is verified.`],
+          metadata: {
+            pccResponsibility: "local_openclaw_agent",
+            pccProofLevel: "local",
+          },
+          createdAt: now,
+          updatedAt: now,
+        })),
+      ),
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      decisions: [],
+      lastKnownGood: [],
+    };
+    const gatewaySummaryTimes = Array.from(
+      { length: 8 },
+      () => timed(() => pccTesting.summarizePortfolio(ledger)).elapsedMs,
+    );
+
     collectGarbageForStableHeapMeasurement();
     const heapBefore = process.memoryUsage().heapUsed;
     const templateTimes = Array.from(
@@ -227,6 +271,7 @@ async function main(): Promise<void> {
       projectCount: PROJECT_COUNT,
       cachedDetailCount: CACHED_DETAIL_COUNT,
       milestonesPerDetail: MILESTONES_PER_DETAIL,
+      gatewaySummaryP95Ms: Number(percentile(gatewaySummaryTimes, 0.95).toFixed(2)),
       templateP50Ms: Number(percentile(templateTimes, 0.5).toFixed(2)),
       templateP95Ms: Number(percentile(templateTimes, 0.95).toFixed(2)),
       initialDomMs: Number(initial.elapsedMs.toFixed(2)),

@@ -1959,6 +1959,7 @@ jobs:
           cat <<'EOF_COMMANDS'
           commands:
           - pnpm test src/pcc/execution-standard.test.ts src/pcc/execution-plan.test.ts src/pcc/execution-profile.test.ts src/pcc/learning-candidates.test.ts src/pcc/learning-store.test.ts src/pcc/autopilot.test.ts src/pcc/project-action.test.ts src/pcc/ledger-store.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app-settings.refresh-active-tab.node.test.ts ui/src/ui/pcc-context-package.test.ts src/gateway/server-methods/pcc.test.ts src/pcc/production-truth.test.ts src/flows/doctor-core-checks.test.ts src/commands/doctor/shared/legacy-config-migrate.test.ts
+          - pnpm test src/pcc/ledger-read-index.test.ts
           - pnpm tsgo:test:ui
           - node --import tsx scripts/dev/control-ui-pcc-project-agnostic-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-workflow-clarity-smoke.ts
@@ -1986,6 +1987,9 @@ jobs:
 
       - name: Run targeted PCC generic tests
         run: pnpm test src/pcc/execution-standard.test.ts src/pcc/execution-plan.test.ts src/pcc/execution-profile.test.ts src/pcc/learning-candidates.test.ts src/pcc/learning-store.test.ts src/pcc/autopilot.test.ts src/pcc/project-action.test.ts src/pcc/ledger-store.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts ui/src/ui/app-settings.refresh-active-tab.node.test.ts ui/src/ui/pcc-context-package.test.ts src/gateway/server-methods/pcc.test.ts src/pcc/production-truth.test.ts src/flows/doctor-core-checks.test.ts src/commands/doctor/shared/legacy-config-migrate.test.ts
+
+      - name: Run PCC ledger read-index tests
+        run: pnpm test src/pcc/ledger-read-index.test.ts
 
       - name: Run UI typecheck proof
         run: pnpm tsgo:test:ui
