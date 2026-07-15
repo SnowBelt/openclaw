@@ -508,6 +508,7 @@ export type AppViewState = {
   selfImprovementLastProductionCheck: SelfImprovementProductionCheckResult | null;
   selfImprovementMaintenanceLoading: boolean;
   selfImprovementLastMaintenance: SelfImprovementMaintenanceResult | null;
+  selfImprovementInterventionLoading: boolean;
   sessionsLoading: boolean;
   sessionsResult: SessionsListResult | null;
   sessionsError: string | null;

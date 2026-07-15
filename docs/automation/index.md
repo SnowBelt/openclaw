@@ -34,22 +34,23 @@ flowchart TD
     Q6 -->|Yes| COMMITMENTS[Inferred Commitments]
 ```
 
-| Use case                                       | Recommended            | Why                                                         |
-| ---------------------------------------------- | ---------------------- | ----------------------------------------------------------- |
-| Send daily report at 9 AM sharp                | Scheduled Tasks (Cron) | Exact timing, isolated execution                            |
-| Remind me in 20 minutes                        | Scheduled Tasks (Cron) | One-shot with precise timing (`--at`)                       |
-| Run weekly deep analysis                       | Scheduled Tasks (Cron) | Standalone task, can use different model                    |
-| Check inbox every 30 min                       | Heartbeat              | Batches with other checks, context-aware                    |
-| Monitor calendar for upcoming events           | Heartbeat              | Natural fit for periodic awareness                          |
-| Check in after a mentioned interview           | Inferred Commitments   | Memory-like follow-up, no exact reminder request            |
-| Gentle care check-in after user context        | Inferred Commitments   | Scoped to the same agent and channel                        |
-| Inspect status of a subagent or ACP run        | Background Tasks       | Tasks ledger tracks all detached work                       |
-| Audit what ran and when                        | Background Tasks       | `openclaw tasks list` and `openclaw tasks audit`            |
-| Multi-step research then summarize             | Task Flow              | Durable orchestration with revision tracking                |
-| Run a script on session reset                  | Hooks                  | Event-driven, fires on lifecycle events                     |
-| Execute code on every tool call                | Plugin hooks           | In-process hooks can intercept tool calls                   |
-| Always check compliance before replying        | Standing Orders        | Injected into every session automatically                   |
-| Run a PCC project with automatic skills and QA | PCC Execution Standard | Resolves process, skills, routing, proof, judge, and repair |
+| Use case                                       | Recommended               | Why                                                         |
+| ---------------------------------------------- | ------------------------- | ----------------------------------------------------------- |
+| Send daily report at 9 AM sharp                | Scheduled Tasks (Cron)    | Exact timing, isolated execution                            |
+| Remind me in 20 minutes                        | Scheduled Tasks (Cron)    | One-shot with precise timing (`--at`)                       |
+| Run weekly deep analysis                       | Scheduled Tasks (Cron)    | Standalone task, can use different model                    |
+| Check inbox every 30 min                       | Heartbeat                 | Batches with other checks, context-aware                    |
+| Monitor calendar for upcoming events           | Heartbeat                 | Natural fit for periodic awareness                          |
+| Check in after a mentioned interview           | Inferred Commitments      | Memory-like follow-up, no exact reminder request            |
+| Gentle care check-in after user context        | Inferred Commitments      | Scoped to the same agent and channel                        |
+| Inspect status of a subagent or ACP run        | Background Tasks          | Tasks ledger tracks all detached work                       |
+| Audit what ran and when                        | Background Tasks          | `openclaw tasks list` and `openclaw tasks audit`            |
+| Multi-step research then summarize             | Task Flow                 | Durable orchestration with revision tracking                |
+| Run a script on session reset                  | Hooks                     | Event-driven, fires on lifecycle events                     |
+| Execute code on every tool call                | Plugin hooks              | In-process hooks can intercept tool calls                   |
+| Always check compliance before replying        | Standing Orders           | Injected into every session automatically                   |
+| Run a PCC project with automatic skills and QA | PCC Execution Standard    | Resolves process, skills, routing, proof, judge, and repair |
+| Review recurring operating problems            | Self-Improvement Governor | Default-off, recommendation-only evidence and routing       |
 
 ### Scheduled Tasks (Cron) vs Heartbeat
 
@@ -103,6 +104,15 @@ See [Task Flow](/automation/taskflow).
 Standing orders grant the agent permanent operating authority for defined programs. They live in workspace files (typically `AGENTS.md`) and are injected into every session. Combine with cron for time-based enforcement.
 
 See [Standing Orders](/automation/standing-orders).
+
+### Self-Improvement Governor
+
+The default-off [Self-Improvement Governor](/automation/self-improvement-governor)
+turns task, cron, model-routing, verification, and project-health evidence into
+sanitized recommendations. It never applies code, config, skill, or release
+changes itself. Enable its bounded background loop only with the explicit
+`OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1` service environment opt-in; read-only
+CLI and Control UI inspection work while the loop is disabled.
 
 ### Hooks
 

@@ -6927,6 +6927,31 @@ details[open] > .ov-expandable-toggle::after {
   gap: 12px;
 }
 
+.agent-self-improvement-intervention {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.25fr) repeat(4, minmax(150px, 1fr)) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 10px;
+}
+
+.agent-self-improvement-intervention > div {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-self-improvement-intervention span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.agent-self-improvement-intervention input {
+  min-width: 0;
+}
+
 .agent-self-improvement-list,
 .agent-self-improvement-card {
   gap: 10px;
@@ -7081,6 +7106,10 @@ details[open] > .ov-expandable-toggle::after {
 }
 
 @media (max-width: 700px) {
+  .agent-self-improvement-intervention {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .agent-self-improvement-card__header {
     grid-template-columns: minmax(0, 1fr);
   }

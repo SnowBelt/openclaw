@@ -160,6 +160,7 @@ describe("self-improvement operational health", () => {
       "proposals",
       "verification",
       "intelligence",
+      "effectiveness",
     ]);
   });
 
@@ -505,5 +506,29 @@ describe("self-improvement operational health", () => {
 
     const raw = await fs.readFile(resolveSelfImprovementOperationalHealthStorePath(tmpDir), "utf8");
     expect(raw).not.toContain("/Users/openclaw");
+  });
+
+  it("preserves concurrent health snapshots", async () => {
+    await Promise.all([
+      writeSelfImprovementOperationalHealthSnapshot({
+        stateDir: tmpDir,
+        now,
+        env: { OPENCLAW_SELF_IMPROVEMENT_INTERVAL_MS: String(6 * 60 * 60_000) },
+      }),
+      writeSelfImprovementOperationalHealthSnapshot({
+        stateDir: tmpDir,
+        now: now + 1,
+        env: { OPENCLAW_SELF_IMPROVEMENT_INTERVAL_MS: String(6 * 60 * 60_000) },
+      }),
+    ]);
+
+    const snapshots = await listSelfImprovementOperationalHealthSnapshots({
+      stateDir: tmpDir,
+      limit: 5,
+    });
+    expect(snapshots).toHaveLength(2);
+    expect(new Set(snapshots.map((snapshot) => snapshot.createdAt))).toEqual(
+      new Set([now, now + 1]),
+    );
   });
 });

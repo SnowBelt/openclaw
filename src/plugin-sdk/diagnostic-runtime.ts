@@ -5,6 +5,9 @@ export type {
   DiagnosticEventMetadata,
   DiagnosticEventPayload,
   DiagnosticEventPrivateData,
+  DiagnosticImprovementSignalEvent,
+  DiagnosticImprovementSignalKind,
+  DiagnosticImprovementSignalSeverity,
   DiagnosticModelCallContent,
 } from "../infra/diagnostic-events.js";
 export type { DiagnosticModelContentCapturePolicy } from "../infra/diagnostic-llm-content.js";
@@ -33,3 +36,12 @@ export {
   isValidDiagnosticTraceId,
   parseDiagnosticTraceparent,
 } from "../infra/diagnostic-trace-context.js";
+export type {
+  SelfImprovementAdmissionContract,
+  SelfImprovementAdmissionState,
+  SelfImprovementAdmissionValidation,
+} from "../infra/self-improvement-admission.js";
+export {
+  evaluateSelfImprovementAdmissionTransition,
+  validateSelfImprovementAdmissionContract,
+} from "../infra/self-improvement-admission.js";

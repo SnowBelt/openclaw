@@ -14,12 +14,15 @@ without merging, pushing, releasing, deleting files, exposing secrets, or writin
 skills directly.
 
 See [Self-Improvement Governor](/automation/self-improvement-governor) for the
-background scanner, routing model, and safety constraints.
+background scanner, routing model, and safety constraints. The Gateway
+background loop is disabled by default; read commands do not require enabling
+it.
 
 ## Usage
 
 ```bash
 openclaw self-improvement scan
+openclaw self-improvement record-dashboard-intervention --title "Stale dashboard status" --issue "Observed stale status" --correction "Operator refreshed and verified live data"
 openclaw self-improvement preflight
 openclaw self-improvement models template
 openclaw self-improvement models template --json
@@ -40,6 +43,8 @@ openclaw self-improvement production-check
 openclaw self-improvement production-check --require-model-ready --require-evals-ready --fail-on-degraded --json
 openclaw self-improvement maintain --dry-run
 openclaw self-improvement maintain --apply
+openclaw self-improvement proof-receipts list --recommendation-id <recommendation-id>
+openclaw self-improvement proof-receipts record <recommendation-id> --diagnosis "..." --action "..." --metric-name first_pass_rate --target ">=0.93" --observed "0.95" --metric-result passed --started-at <ms> --ended-at <ms> --evidence "receipt.json,audit:event"
 openclaw self-improvement summary
 openclaw self-improvement summary --status open,reopened --limit 10
 openclaw self-improvement triage
@@ -82,6 +87,18 @@ new or recurring recommendations. The scan includes task, cron, Skill Workshop,
 project/agent health, and Governor audit-ledger evidence, including model-review
 fallback or invalid JSON events.
 
+### `record-dashboard-intervention`
+
+```bash
+openclaw self-improvement record-dashboard-intervention --title <title> --issue <issue> --correction <correction> [--evidence <csv>]
+```
+
+Records an explicit operator-reported Control UI/dashboard issue and corrective
+intervention. SIG creates or refreshes only evidence-bound `risk_prevention`
+work and requires a regression test, smoke, or equivalent prevention receipt
+before a closure request. Healthy Governor lifecycle events never create this
+evidence automatically.
+
 ### `models template`
 
 ```bash
@@ -89,8 +106,8 @@ openclaw self-improvement models template [--json]
 ```
 
 Prints the recommended local-first Governor model setup without calling the
-Gateway or mutating runtime config. The template includes the default Qwen
-primary, chatfix fallback, triage, strategic local model refs, optional
+Gateway or mutating runtime config. The template includes the default Gemma
+primary, Qwen chatfix fallback, triage, strategic local model refs, optional
 external-GPU Kimi guidance, verification commands, and safety notes. No config
 patch is required for the default local-only policy.
 
@@ -184,6 +201,8 @@ The eval runner measures:
 - schema-valid JSON rate
 - safety pass rate
 - route-preservation rate
+- precision rate
+- first-pass acceptance rate
 - invalid JSON and fallback usage
 - p95 completion time
 - quality diagnostics such as `unsafe_action`, `route_mismatch`, `missing_required_evidence`, `low_confidence`, `overbroad_recommendation`, and `invented_fact`
@@ -339,7 +358,9 @@ Shows current Self-Improvement Governor operational health plus recent durable
 health snapshots. The health result is deterministic and read-only. It derives
 overall `ready`, `degraded`, or `blocked` status, score, trend, blockers, next
 actions, and dimension cards for recommendations, reviewer evals, model
-readiness, background cadence, proposal queue, and verification proof.
+readiness, background cadence, proposal queue, verification proof, improvement
+intelligence, and outcome effectiveness. This combined health view includes
+downstream improvement-portfolio pressure.
 
 `--fail-on-degraded` exits nonzero unless the current status is `ready`.
 `--fail-on-blocked` exits nonzero only when the current status is `blocked`.
@@ -354,10 +375,12 @@ gated items.
 openclaw self-improvement production-check [--days <n>] [--limit <n>] [--fail-on-degraded] [--fail-on-blocked] [--require-model-ready] [--require-evals-ready] [--json]
 ```
 
-Runs the read-only production readiness gate. The check combines operational
-health with rollout evidence and returns status, score, blockers, warnings, next
-actions, and evidence records. It does not scan, analyze, call a model, prune
-stores, write audit events, or mutate Governor state.
+Runs the read-only production readiness gate. The check reports SIG service
+status and effectiveness score separately from downstream portfolio status,
+score, blockers, and next actions. It combines service health with rollout
+evidence and does not scan, analyze, call a model, prune stores, write audit
+events, or mutate Governor state. Portfolio debt stays visible without
+penalizing a healthy SIG merely for detecting real work.
 
 `--require-model-ready` blocks unless the latest model preflight evidence is
 ready. `--require-evals-ready` blocks unless the latest reviewer eval evidence
@@ -376,10 +399,25 @@ changing state. `--apply` is required before any pruning occurs. `--dry-run` and
 `--apply` cannot be combined.
 
 Maintenance preserves active recommendations, active proposals, pending curator
-work, proof gates, and safety metadata. Apply mode prunes only bounded
+work, proof gates, typed signals, pending outbox work, measured proof receipts,
+and safety metadata. Apply mode prunes only bounded
 historical records and appends a sanitized `retention_maintenance` audit event
 with counts and store names, not raw proof text, recommendation text, proposal
 text, secrets, local paths, or model output.
+
+### `proof-receipts`
+
+```bash
+openclaw self-improvement proof-receipts list [--recommendation-id <id>] [--limit <n>] [--json]
+openclaw self-improvement proof-receipts record <recommendation-id> --diagnosis <text> --action <text> --metric-name <name> [--baseline <value>] --target <value> --observed <value> [--unit <unit>] --metric-result <passed|failed> --started-at <ms> --ended-at <ms> [--minimum-duration-ms <ms>] [--holdout-result <not-required|passed|failed>] [--signal-id <id>] --evidence <csv> [--json]
+```
+
+Lists or records bounded measured-outcome receipts. Recording a receipt does not
+resolve a recommendation. A passed metric, valid observation duration, at least
+one evidence reference, and a passed required holdout are all required before
+the outcome is confirmed. Failed receipts remain in the ledger for audit and do
+not unlock closure. Recommendations derived from a typed signal reject a receipt
+whose `--signal-id` does not match the originating signal.
 
 ### `summary`
 
@@ -500,6 +538,11 @@ openclaw self-improvement proposals update <proposal-id> --status <pending|ackno
 
 Lists and updates pending Self-Improvement Governor proposals. Approval-required
 proposals need `--proof` before they can be marked `approved`.
+
+SIG's public diagnostic runtime also exposes a versioned typed improvement
+signal and admission contract for components/plugins. These are source-level
+plugin SDK contracts rather than additional CLI mutations. See
+[Self-Improvement Governor](/automation/self-improvement-governor#typed-improvement-signals).
 
 ## Related
 

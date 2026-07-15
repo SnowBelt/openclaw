@@ -2,8 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runSelfImprovementJsonToSqliteMigration } from "./ledger-migration.js";
 import {
   getSelfImprovementRecommendation,
+  listSelfImprovementRecommendations,
   resolveSelfImprovementRecommendationStorePath,
   updateSelfImprovementRecommendationStatus,
   upsertSelfImprovementRecommendations,
@@ -85,6 +87,102 @@ describe("self-improvement recommendation store", () => {
     await expect(
       fs.stat(resolveSelfImprovementRecommendationStorePath(tmpDir)),
     ).resolves.toBeTruthy();
+  });
+
+  it("preserves concurrent upserts with distinct fingerprints", async () => {
+    await Promise.all(
+      Array.from({ length: 16 }, (_, index) =>
+        upsertSelfImprovementRecommendations({
+          stateDir: tmpDir,
+          recommendations: [
+            recommendation({
+              id: `sir_concurrent_${index}`,
+              fingerprint: `fingerprint-concurrent-${index}`,
+              title: `Recommendation ${index}`,
+              groupKey: `task_reliability:task:task-${index}:recommendation`,
+              source: { kind: "task", label: `Task ${index}`, taskId: `task-${index}` },
+            }),
+          ],
+        }),
+      ),
+    );
+
+    const stored = await listSelfImprovementRecommendations({ stateDir: tmpDir });
+    expect(stored).toHaveLength(16);
+    expect(new Set(stored.map((entry) => entry.fingerprint)).size).toBe(16);
+  });
+
+  it("uses the canonical SQLite ledger after migration without changing legacy JSON", async () => {
+    await upsertSelfImprovementRecommendations({
+      stateDir: tmpDir,
+      recommendations: [recommendation()],
+    });
+    const storePath = resolveSelfImprovementRecommendationStorePath(tmpDir);
+    const legacyBefore = await fs.readFile(storePath, "utf8");
+    await runSelfImprovementJsonToSqliteMigration({
+      stateDir: tmpDir,
+      apply: true,
+      backupDirectory: path.join(tmpDir, "migration-backup"),
+      now: Date.parse("2026-07-10T12:00:00.000Z"),
+    });
+
+    await updateSelfImprovementRecommendationStatus({
+      stateDir: tmpDir,
+      id: "sir_test",
+      status: "acknowledged",
+      now: Date.parse("2026-07-10T12:01:00.000Z"),
+    });
+
+    expect((await listSelfImprovementRecommendations({ stateDir: tmpDir }))[0]?.status).toBe(
+      "acknowledged",
+    );
+    expect(await fs.readFile(storePath, "utf8")).toBe(legacyBefore);
+  });
+
+  it("preserves concurrent status updates for distinct recommendations", async () => {
+    await upsertSelfImprovementRecommendations({
+      stateDir: tmpDir,
+      recommendations: [
+        recommendation({
+          id: "sir_status_a",
+          fingerprint: "fingerprint-status-a",
+          groupKey: "task_reliability:task:status-a:recommendation",
+          source: { kind: "task", label: "Task A", taskId: "status-a" },
+        }),
+        recommendation({
+          id: "sir_status_b",
+          fingerprint: "fingerprint-status-b",
+          groupKey: "task_reliability:task:status-b:recommendation",
+          source: { kind: "task", label: "Task B", taskId: "status-b" },
+        }),
+      ],
+    });
+
+    await Promise.all([
+      updateSelfImprovementRecommendationStatus({
+        stateDir: tmpDir,
+        id: "sir_status_a",
+        status: "acknowledged",
+      }),
+      updateSelfImprovementRecommendationStatus({
+        stateDir: tmpDir,
+        id: "sir_status_b",
+        status: "assigned",
+        assignedTargetAgentId: "builder-agent",
+      }),
+    ]);
+
+    const byId = new Map(
+      (await listSelfImprovementRecommendations({ stateDir: tmpDir })).map((entry) => [
+        entry.id,
+        entry,
+      ]),
+    );
+    expect(byId.get("sir_status_a")?.status).toBe("acknowledged");
+    expect(byId.get("sir_status_b")).toMatchObject({
+      status: "assigned",
+      assignedTargetAgentId: "builder-agent",
+    });
   });
 
   it("redacts sensitive incoming records before durable writes", async () => {

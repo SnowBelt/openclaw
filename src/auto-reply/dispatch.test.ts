@@ -1,7 +1,11 @@
 /** Tests inbound dispatch hook composition, diagnostics, and dispatcher integration. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import { onDiagnosticEvent, resetDiagnosticEventsForTest } from "../infra/diagnostic-events.js";
+import {
+  onDiagnosticEvent,
+  resetDiagnosticEventsForTest,
+  type DiagnosticMessageReceivedEvent,
+} from "../infra/diagnostic-events.js";
 import { getReplyPayloadMetadata, setReplyPayloadMetadata } from "./reply-payload.js";
 import type { ReplyDispatchBeforeDeliver, ReplyDispatcher } from "./reply/reply-dispatcher.js";
 import { buildTestCtx } from "./reply/test-ctx.js";
@@ -164,9 +168,12 @@ describe("withReplyDispatcher", () => {
   });
 
   it("emits message.received diagnostics before dispatch", async () => {
-    const events: Array<{ type: string; channel?: string; sessionKey?: string; source?: string }> =
-      [];
-    const stop = onDiagnosticEvent((event) => events.push(event));
+    const events: DiagnosticMessageReceivedEvent[] = [];
+    const stop = onDiagnosticEvent((event) => {
+      if (event.type === "message.received") {
+        events.push(event);
+      }
+    });
     const dispatcher = createDispatcher([]);
     hoisted.dispatchReplyFromConfigMock.mockResolvedValueOnce({
       queuedFinal: false,

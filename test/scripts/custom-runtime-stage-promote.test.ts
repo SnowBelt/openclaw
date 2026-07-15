@@ -28,7 +28,7 @@ function executable(filePath: string, content: string): void {
 }
 
 function fixture() {
-  const home = createRuntimeFixtureRoot("openclaw-custom-runtime-update-");
+  const home = realpathSync(createRuntimeFixtureRoot("openclaw-custom-runtime-update-"));
   roots.push(home);
   const runtimeHome = path.join(home, ".openclaw-custom-runtime");
   const releasesDir = path.join(home, ".openclaw-runtime-releases");
@@ -49,7 +49,8 @@ function fixture() {
   }
   writeFileSync(assetPath, "// pcc\n");
   writeFileSync(pluginManifestPath, "{}\n");
-  writeFileSync(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
+  writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
+  writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFileSync(
     manifestPath,
     `${JSON.stringify({
@@ -82,6 +83,17 @@ function fixture() {
     entrypoint,
     `import http from "node:http";
 const args = process.argv.slice(2);
+if (args[0] === "self-improvement" && args[1] === "summary") {
+  if (
+    !process.env.OPENCLAW_GATEWAY_URL?.startsWith("ws://127.0.0.1:") ||
+    process.env.OPENCLAW_GATEWAY_TOKEN !== "fixture-gateway-token"
+  ) {
+    process.stderr.write("missing explicit stage Gateway auth environment\\n");
+    process.exit(2);
+  }
+  process.stdout.write('{"scorecard":{},"groups":[]}\\n');
+  process.exit(0);
+}
 const port = Number(args[args.indexOf("--port") + 1]);
 const server = http.createServer((req, res) => {
   res.statusCode = 200;
@@ -94,6 +106,27 @@ server.on("upgrade", (_req, socket) => {
 });
 server.listen(port, "127.0.0.1");
 `,
+  );
+  const bundledPlugins = path.join(release, "dist-runtime", "extensions");
+  mkdirSync(bundledPlugins, { recursive: true });
+  writeFileSync(
+    path.join(release, "snapshot.json"),
+    `${JSON.stringify({
+      version: 2,
+      releaseId: "release-new",
+      root: release,
+      createdAt: "2026-07-14T06:29:44.990Z",
+      packageVersion: "2026.6.11",
+      artifactHash: "a".repeat(64),
+      source: { commit: sourceSha },
+      schemas: {
+        runtimeSnapshot: 2,
+        selfImprovementLedger: 1,
+        selfImprovementRecommendationStore: 3,
+        selfImprovementSignal: 1,
+      },
+      paths: { entrypoint, controlUi: path.dirname(manifestPath), bundledPlugins },
+    })}\n`,
   );
   const launcher = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
   cpSync(
@@ -130,6 +163,7 @@ describe("custom runtime canary and rollback", () => {
     writeFileSync(
       configPath,
       `${JSON.stringify({
+        gateway: { auth: { mode: "token", token: "fixture-gateway-token" } },
         plugins: { allow: ["apps"], entries: { apps: { enabled: true } } },
       })}\n`,
     );
@@ -137,10 +171,8 @@ describe("custom runtime canary and rollback", () => {
       provider,
       '#!/bin/sh\nprintf \'%s\\n\' \'{"values":{"discord/bot-token":"present"}}\'\n',
     );
-    const originalPointer = `${JSON.stringify({
-      requiredSurfaces: ["pcc"],
-      requiredCapabilities: ["dashboard:pcc"],
-    })}\n`;
+    // Models the previously deployed SIG pointer before capability fields were added.
+    const originalPointer = `${JSON.stringify({ requiredSurfaces: ["pcc"] })}\n`;
     writeFileSync(activePointer, originalPointer);
     const port = 29_000 + Math.floor(Math.random() * 500);
 
@@ -158,7 +190,7 @@ describe("custom runtime canary and rollback", () => {
       {
         cwd: process.cwd(),
         encoding: "utf8",
-        timeout: 30_000,
+        timeout: 120_000,
         env: {
           ...process.env,
           HOME: input.home,
@@ -185,11 +217,15 @@ describe("custom runtime canary and rollback", () => {
     const fakeBin = path.join(input.home, "bin");
     const launchctlState = path.join(input.home, "launchctl-count");
     const promotedPlist = path.join(input.home, "promoted-gateway.plist");
+    const rollbackLauncher = path.join(input.home, "rollback-launcher.sh");
     mkdirSync(fakeBin, { recursive: true });
     mkdirSync(input.runtimeHome, { recursive: true });
-    writeFileSync(path.join(input.release, ".openclaw-production-sha"), `${input.sourceSha}\n`);
-    const originalPointer =
-      '{"releaseId":"release-old","requiredSurfaces":[],"requiredCapabilities":[]}\n';
+    const previousRuntimeRoot = path.join(input.releasesDir, "release-old");
+    const originalPointer = `${JSON.stringify({
+      releaseId: "release-old",
+      runtimeRoot: previousRuntimeRoot,
+      requiredSurfaces: [],
+    })}\n`;
     writeFileSync(activePointer, originalPointer);
     writeFileSync(
       plist,
@@ -200,6 +236,7 @@ describe("custom runtime canary and rollback", () => {
     );
     writeFileSync(envFile, "export EXISTING_VALUE=1\n");
     executable(envWrapper, '#!/bin/sh\nexec "$@"\n');
+    executable(rollbackLauncher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n');
     executable(
       path.join(fakeBin, "launchctl"),
       `#!/bin/sh
@@ -217,6 +254,10 @@ case "$1" in
 esac
 `,
     );
+    // Keep rollback verification deterministic. Without a fake health response,
+    // this test can accidentally pass against a developer's live Gateway while
+    // timing out on an isolated CI runner.
+    executable(path.join(fakeBin, "curl"), "#!/bin/sh\nprintf '%s\\n' '{\"ok\":true}'\n");
 
     const result = spawnSync(
       "sh",
@@ -238,6 +279,7 @@ esac
           HOME: input.home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER: rollbackLauncher,
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plist,

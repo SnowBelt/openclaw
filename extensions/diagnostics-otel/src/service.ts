@@ -3772,6 +3772,11 @@ export function createDiagnosticsOtelService(): OpenClawPluginService {
               return;
             case "model.failover":
               recordModelFailover(evt, metadata);
+              break;
+            case "improvement.signal":
+              // SIG consumes this typed event internally. Do not export its
+              // potentially sensitive evidence through the generic OTEL path.
+              break;
           }
         } catch (err) {
           ctx.logger.error(

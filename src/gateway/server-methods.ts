@@ -355,6 +355,9 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: [
       "selfImprovement.auditEvents.list",
+      "selfImprovement.dashboardInterventions.record",
+      "selfImprovement.proofReceipts.list",
+      "selfImprovement.proofReceipts.record",
       "selfImprovement.scan",
       "selfImprovement.summary",
       "selfImprovement.scorecard",

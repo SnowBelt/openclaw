@@ -42,6 +42,10 @@ describe("control-ui-self-improvement-smoke", () => {
         role: "qa",
         targetAgentId: "qa-test-agent",
       },
+      assignedTargetAgentId: "qa-test-agent",
+      outcomeProofRequired: true,
+      proofReceiptId: "sipr_self_improvement_dashboard_smoke",
+      proofOutcomeState: "confirmed",
       safety: {
         mode: "recommendation_only",
         mutationAllowed: false,
@@ -93,6 +97,7 @@ describe("control-ui-self-improvement-smoke", () => {
       metadata: {
         readiness: "degraded",
         readyTier: "crossCheck",
+        reviewModelId: "ollama/openclaw-control-gemma4-31b-q8:latest",
         preflightStatus: "missing_config",
       },
     });
@@ -152,7 +157,7 @@ describe("control-ui-self-improvement-smoke", () => {
       recommendations?: Array<{ id?: string; safety?: { mutationAllowed?: boolean } }>;
       version?: number;
     };
-    expect(parsed.version).toBe(2);
+    expect(parsed.version).toBe(3);
     expect(parsed.recommendations).toHaveLength(2);
     expect(parsed.recommendations?.[0]).toMatchObject({
       id: "sir_self_improvement_dashboard_smoke",

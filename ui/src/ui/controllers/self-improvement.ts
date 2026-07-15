@@ -45,6 +45,7 @@ export type SelfImprovementState = {
   selfImprovementLastProductionCheck: SelfImprovementProductionCheckResult | null;
   selfImprovementMaintenanceLoading: boolean;
   selfImprovementLastMaintenance: SelfImprovementMaintenanceResult | null;
+  selfImprovementInterventionLoading: boolean;
 };
 
 export type SelfImprovementRecommendationUpdateInput = {
@@ -67,6 +68,13 @@ export type SelfImprovementCuratorUpdateInput = {
   workshopProposalId?: string;
   workshopProposalStatus?: string;
   note?: string;
+};
+
+export type SelfImprovementDashboardInterventionInput = {
+  title: string;
+  issue: string;
+  correctiveIntervention: string;
+  evidence?: string[];
 };
 
 function formatSelfImprovementError(error: unknown): string {
@@ -288,6 +296,25 @@ export async function runSelfImprovementMaintenanceDryRun(state: SelfImprovement
     state.selfImprovementError = formatSelfImprovementError(error);
   } finally {
     state.selfImprovementMaintenanceLoading = false;
+  }
+}
+
+export async function recordSelfImprovementDashboardIntervention(
+  state: SelfImprovementState,
+  input: SelfImprovementDashboardInterventionInput,
+) {
+  if (!state.client || !state.connected || state.selfImprovementInterventionLoading) {
+    return;
+  }
+  state.selfImprovementInterventionLoading = true;
+  state.selfImprovementError = null;
+  try {
+    await state.client.request("selfImprovement.dashboardInterventions.record", input);
+    await loadSelfImprovementRecommendations(state);
+  } catch (error) {
+    state.selfImprovementError = formatSelfImprovementError(error);
+  } finally {
+    state.selfImprovementInterventionLoading = false;
   }
 }
 

@@ -152,7 +152,7 @@ describe("auditSelfImprovementOpportunities", () => {
           requesterSessionKey: "main",
           ownerKey: "main",
           scopeKind: "system",
-          task: "Add scorecard baseline to measure daily improvement",
+          task: "Missing outcome metric: add scorecard baseline to measure daily improvement",
           status: "succeeded",
           deliveryStatus: "not_applicable",
           notifyPolicy: "silent",
@@ -235,6 +235,97 @@ describe("auditSelfImprovementOpportunities", () => {
     expect(result.recommendations.every((entry) => !entry.safety.mutationAllowed)).toBe(true);
   });
 
+  it("bounds task history, collapses recurring runs, and assigns the routed owner", async () => {
+    const baseTask = {
+      runtime: "cli" as const,
+      requesterSessionKey: "main",
+      ownerKey: "system:scheduled-workflow",
+      scopeKind: "system" as const,
+      task: "Nightly dashboard verification",
+      label: "Nightly dashboard verification",
+      status: "failed" as const,
+      deliveryStatus: "not_applicable" as const,
+      notifyPolicy: "silent" as const,
+      error: "dashboard smoke failed",
+    };
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "qa-test-agent" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [
+        {
+          ...baseTask,
+          taskId: "task-old",
+          runId: "run-old",
+          createdAt: now - 7 * 24 * 60 * 60_000,
+        },
+        {
+          ...baseTask,
+          taskId: "task-recent-1",
+          runId: "run-recent-1",
+          createdAt: now - 60_000,
+        },
+        {
+          ...baseTask,
+          taskId: "task-recent-2",
+          runId: "run-recent-2",
+          createdAt: now - 30_000,
+        },
+      ],
+      auditEvents: [],
+      skillWorkshopProposals: [],
+    });
+
+    expect(result.inspected.tasks).toBe(2);
+    const direct = result.recommendations.filter((entry) =>
+      entry.title.startsWith("Failed smoke needs verification owner:"),
+    );
+    expect(direct).toHaveLength(1);
+    expect(direct[0]).toMatchObject({
+      recurrenceCount: 2,
+      assignedTargetAgentId: "qa-test-agent",
+      route: { targetAgentId: "qa-test-agent" },
+    });
+    expect(direct[0]?.evidence.join(" ")).toContain("task-recent-1");
+    expect(direct[0]?.evidence.join(" ")).toContain("task-recent-2");
+    expect(direct[0]?.evidence.join(" ")).not.toContain("task-old");
+  });
+
+  it("keeps old active tasks eligible for stale-work detection", async () => {
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "program-manager" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [
+        {
+          taskId: "task-still-running",
+          runtime: "subagent",
+          requesterSessionKey: "main",
+          ownerKey: "main",
+          scopeKind: "system",
+          task: "Long-running implementation",
+          status: "running",
+          deliveryStatus: "not_applicable",
+          notifyPolicy: "silent",
+          createdAt: now - 7 * 24 * 60 * 60_000,
+          lastEventAt: now - 2 * 60 * 60_000,
+        },
+      ],
+      auditEvents: [],
+      skillWorkshopProposals: [],
+    });
+
+    expect(result.inspected.tasks).toBe(1);
+    expect(result.recommendations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "stale_work",
+          assignedTargetAgentId: "program-manager",
+        }),
+      ]),
+    );
+  });
+
   it("ignores generic continuous-improvement keywords in SIG lifecycle events", async () => {
     const auditEvents: SelfImprovementAuditEvent[] = [
       {
@@ -258,6 +349,131 @@ describe("auditSelfImprovementOpportunities", () => {
       tasks: [],
       auditEvents,
       skillWorkshopProposals: [],
+    });
+
+    expect(result.recommendations).toHaveLength(0);
+  });
+
+  it("turns a typed causal signal into one stable evidence-bound recommendation", async () => {
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "qa-test-agent" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [],
+      auditEvents: [],
+      skillWorkshopProposals: [],
+      signals: [
+        {
+          id: "sis_dashboard",
+          version: 1,
+          idempotencyKey: "dashboard-regression",
+          source: { component: "control-ui", owner: "qa" },
+          kind: "regression",
+          severity: "high",
+          summary: "The dashboard failed its authenticated smoke.",
+          firstSeenAt: now - 1_000,
+          lastSeenAt: now,
+          occurrences: 2,
+          runId: "run-2",
+          traceId: "trace-2",
+          expected: "Authenticated dashboard renders current SIG state.",
+          observed: "The route returned a blank panel.",
+          evidenceRefs: ["artifact://dashboard-smoke"],
+          privacy: "internal",
+          desiredState: {
+            owner: "qa",
+            expectedOutcome: "Authenticated dashboard and RPC values agree.",
+            sloMs: 5_000,
+            rollback: "Restore the last verified UI bundle.",
+          },
+          capabilityRouting: {
+            considered: ["browser-smoke"],
+            selected: ["browser-smoke"],
+            missed: [],
+            fallback: [],
+          },
+          trusted: true,
+        },
+      ],
+    });
+
+    expect(result.inspected.signals).toBe(1);
+    expect(result.recommendations).toHaveLength(1);
+    expect(result.recommendations[0]).toMatchObject({
+      category: "risk_prevention",
+      severity: "high",
+      route: { role: "qa" },
+      source: { runId: "signal:sis_dashboard" },
+      safety: { mode: "recommendation_only", mutationAllowed: false },
+    });
+    expect(result.recommendations[0]?.requiredEvidence).toEqual(
+      expect.arrayContaining([
+        "Prove expected outcome: Authenticated dashboard and RPC values agree.",
+        "Show the outcome remains within the declared 5000ms SLO.",
+      ]),
+    );
+    expect(result.recommendations[0]?.evidence.join(" ")).toContain("artifact://dashboard-smoke");
+    expect(result.recommendations[0]?.evidence.join(" ")).toContain(
+      "Smallest recommended capability set: browser-smoke",
+    );
+    expect(result.recommendations[0]?.recommendedAction).toContain("browser-smoke first");
+  });
+
+  it("quarantines untrusted low-confidence signal recommendations", async () => {
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "qa-test-agent" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [],
+      auditEvents: [],
+      skillWorkshopProposals: [],
+      signals: [
+        {
+          id: "sis_untrusted",
+          version: 1,
+          idempotencyKey: "plugin-claim",
+          source: { component: "third-party-plugin" },
+          kind: "failure",
+          severity: "medium",
+          summary: "An untrusted plugin reported a failure.",
+          firstSeenAt: now,
+          lastSeenAt: now,
+          occurrences: 1,
+          evidenceRefs: [],
+          privacy: "internal",
+          trusted: false,
+        },
+      ],
+    });
+
+    expect(result.recommendations).toMatchObject([
+      { status: "quarantined", confidence: 0.68, source: { runId: "signal:sis_untrusted" } },
+    ]);
+  });
+
+  it("does not create generic recommendations from healthy keyword-only task text", async () => {
+    const result = await auditSelfImprovementOpportunities({
+      cfg: { agents: { list: [{ id: "program-manager" }] } },
+      stateDir: "/tmp/openclaw-test",
+      now,
+      tasks: [
+        {
+          taskId: "healthy-metrics",
+          runtime: "cli",
+          requesterSessionKey: "main",
+          ownerKey: "main",
+          scopeKind: "system",
+          task: "Metric scorecard workflow capability baseline",
+          status: "succeeded",
+          terminalOutcome: "succeeded",
+          deliveryStatus: "not_applicable",
+          notifyPolicy: "silent",
+          createdAt: now,
+        },
+      ],
+      auditEvents: [],
+      skillWorkshopProposals: [],
+      signals: [],
     });
 
     expect(result.recommendations).toHaveLength(0);

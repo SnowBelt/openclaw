@@ -450,7 +450,7 @@ describe("runSelfImprovementAnalysis", () => {
     });
   });
 
-  it("keeps model readiness blocked when chatfix JSON is invalid", async () => {
+  it("records degraded model readiness separately from invalid chatfix JSON", async () => {
     await upsertSelfImprovementRecommendations({
       stateDir: tmpDir,
       recommendations: [recommendation()],

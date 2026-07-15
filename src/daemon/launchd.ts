@@ -20,6 +20,7 @@ import {
   resolveLegacyGatewayLaunchAgentLabels,
 } from "./constants.js";
 import { execFileUtf8 } from "./exec-file.js";
+import { resolveGatewayRuntimeSnapshotServiceCommand } from "./gateway-runtime-snapshot.js";
 import { isCurrentProcessLaunchdServiceLabel } from "./launchd-current-service.js";
 import {
   buildLaunchAgentPlist as buildLaunchAgentPlistImpl,
@@ -954,17 +955,30 @@ async function writeLaunchAgentPlist({
   await ensureSecureDirectory(home);
   await ensureSecureDirectory(libraryDir);
   await ensureSecureDirectory(path.dirname(plistPath));
-  await ensureLaunchAgentEnvironmentDirectories(environment);
+  const runtimeSnapshotCommand = resolveGatewayRuntimeSnapshotServiceCommand({
+    programArguments,
+    environment,
+    cwd: workingDirectory,
+  });
+  const effectiveEnvironment = {
+    ...environment,
+    ...runtimeSnapshotCommand.environment,
+  };
+  await ensureLaunchAgentEnvironmentDirectories(effectiveEnvironment);
   const prepared = await prepareLaunchAgentProgramArguments({
     env,
     label,
-    programArguments,
-    environment,
+    programArguments: runtimeSnapshotCommand.programArguments,
+    environment: effectiveEnvironment,
     stdout,
     warn,
   });
 
-  const serviceDescription = resolveGatewayServiceDescription({ env, environment, description });
+  const serviceDescription = resolveGatewayServiceDescription({
+    env,
+    environment: effectiveEnvironment,
+    description,
+  });
   const plist = buildLaunchAgentPlist({
     label,
     comment: serviceDescription,
@@ -1053,15 +1067,24 @@ async function rewriteLaunchAgentPlistForRestart({
   const { logDir, stdoutPath } = resolveGatewaySupervisorLogPaths(env, { platform: "darwin" });
   await ensureSecureDirectory(logDir);
 
+  const runtimeSnapshotCommand = resolveGatewayRuntimeSnapshotServiceCommand({
+    programArguments: existing.programArguments,
+    environment: existing.environment,
+    cwd: existing.workingDirectory,
+  });
+  const effectiveEnvironment = {
+    ...existing.environment,
+    ...runtimeSnapshotCommand.environment,
+  };
   const serviceDescription = resolveGatewayServiceDescription({
     env,
-    environment: existing.environment,
+    environment: effectiveEnvironment,
   });
   const prepared = await prepareLaunchAgentProgramArguments({
     env,
     label,
-    programArguments: existing.programArguments,
-    environment: existing.environment,
+    programArguments: runtimeSnapshotCommand.programArguments,
+    environment: effectiveEnvironment,
     stdout,
     warn,
   });

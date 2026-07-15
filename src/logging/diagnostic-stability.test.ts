@@ -115,6 +115,38 @@ describe("diagnostic stability recorder", () => {
     expect(snapshot.events[2]).not.toHaveProperty("captureId");
   });
 
+  it("keeps only bounded routing metadata for typed improvement signals", async () => {
+    startDiagnosticStabilityRecorder();
+
+    emitDiagnosticEvent({
+      type: "improvement.signal",
+      version: 1,
+      idempotencyKey: "gateway:startup:error-1",
+      source: { component: "gateway", subsystem: "startup", owner: "runtime" },
+      kind: "failure",
+      severity: "high",
+      summary: "sensitive operator context that must not enter the stability bundle",
+      errorCode: "gateway_start_failed",
+      evidenceRefs: ["private-receipt.json"],
+      privacy: "sensitive",
+    });
+    await waitForDiagnosticEventsDrained();
+
+    const event = getDiagnosticStabilitySnapshot({ limit: 1 }).events[0];
+    expect(event).toMatchObject({
+      type: "improvement.signal",
+      source: "gateway",
+      target: "startup",
+      action: "failure",
+      level: "high",
+      reason: "gateway_start_failed",
+    });
+    expect(event).not.toHaveProperty("summary");
+    expect(event).not.toHaveProperty("evidenceRefs");
+    expect(JSON.stringify(event)).not.toContain("sensitive operator context");
+    expect(JSON.stringify(event)).not.toContain("private-receipt.json");
+  });
+
   it("keeps stable reason codes but drops free-form reason text", () => {
     startDiagnosticStabilityRecorder();
 

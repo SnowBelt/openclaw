@@ -14,6 +14,11 @@ const subCliCommandCatalog = defineCommandDescriptorCatalog([
     hasSubcommands: true,
   },
   {
+    name: "self-improvement",
+    description: "Inspect and manage Self-Improvement Governor recommendations",
+    hasSubcommands: true,
+  },
+  {
     name: "daemon",
     description: "Manage the Gateway service (legacy alias)",
     hasSubcommands: true,

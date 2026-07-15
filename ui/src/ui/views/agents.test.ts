@@ -134,6 +134,7 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
       lastProductionCheck: null,
       maintenanceLoading: false,
       lastMaintenance: null,
+      interventionLoading: false,
     },
     runtimeSessionKey: "main",
     runtimeSessionMatchesSelectedAgent: false,
@@ -161,6 +162,7 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
     onSelfImprovementModelPreflight: () => undefined,
     onSelfImprovementProductionCheck: () => undefined,
     onSelfImprovementMaintenanceDryRun: () => undefined,
+    onSelfImprovementDashboardIntervention: () => undefined,
     onSelfImprovementRecommendationUpdate: () => undefined,
     onSelfImprovementGroupUpdate: () => undefined,
     onSelfImprovementCuratorUpdate: () => undefined,
@@ -181,6 +183,82 @@ describe("renderAgents", () => {
 
     expectAgentTab(container, "Self-Improvement");
     expect(container.textContent).toContain("Self-Improvement Recommendations");
+  });
+
+  it("submits dashboard intervention evidence and renders measured proof receipts", () => {
+    const container = document.createElement("div");
+    const onDashboardIntervention = vi.fn();
+    const recommendation = {
+      id: "sir_outcome",
+      fingerprint: "fingerprint",
+      createdAt: 1,
+      updatedAt: 2,
+      lastSeenAt: 2,
+      status: "in_progress",
+      title: "Improve first-pass routing",
+      summary: "Prepared routing should reduce repeated discovery.",
+      category: "workflow_efficiency",
+      severity: "medium",
+      criticality: "medium",
+      priority: "medium",
+      impact: "medium",
+      effort: "small",
+      confidence: 0.95,
+      groupKey: "routing",
+      groupTitle: "Routing",
+      recurrenceCount: 1,
+      source: { kind: "diagnostic", runId: "signal:sis_1" },
+      route: { targetAgentId: "qa", targetAgentLabel: "QA", role: "qa" },
+      recommendedAction: "Carry the prepared route.",
+      requiredEvidence: ["Before/after first-pass rate"],
+      safety: { recommendationOnly: true, requiresTests: true, requiresApproval: true },
+      analysis: { mode: "deterministic", summary: "Route once.", confidence: 0.95 },
+      outcomeProofRequired: true,
+      proofReceiptId: "sipr_verified",
+      proofOutcomeState: "confirmed",
+      evidence: ["signal:sis_1"],
+    } as never;
+    const base = createProps({ activePanel: "self-improvement" });
+    render(
+      renderAgents({
+        ...base,
+        selfImprovement: {
+          ...base.selfImprovement,
+          recommendations: [recommendation],
+          total: 1,
+        },
+        onSelfImprovementDashboardIntervention: onDashboardIntervention,
+      }),
+      container,
+    );
+
+    expect(container.textContent).toContain("confirmed | receipt sipr_verified");
+    const form = container.querySelector<HTMLFormElement>(
+      "form.agent-self-improvement-intervention",
+    );
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    if (!form) {
+      throw new Error("dashboard intervention form is unavailable");
+    }
+    const setValue = (name: string, value: string) => {
+      const input = form.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+      if (!input) {
+        throw new Error(`missing ${name} input`);
+      }
+      input.value = value;
+    };
+    setValue("title", "Stale dashboard status");
+    setValue("issue", "Operator observed stale data.");
+    setValue("correction", "Operator refreshed and verified live data.");
+    setValue("evidence", "session receipt, dashboard screenshot");
+    form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+
+    expect(onDashboardIntervention).toHaveBeenCalledWith({
+      title: "Stale dashboard status",
+      issue: "Operator observed stale data.",
+      correctiveIntervention: "Operator refreshed and verified live data.",
+      evidence: ["session receipt", "dashboard screenshot"],
+    });
   });
 
   it("selects the configured primary model on initial render", async () => {

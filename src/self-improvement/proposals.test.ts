@@ -85,6 +85,63 @@ describe("self-improvement proposals", () => {
     });
   });
 
+  it("preserves concurrent proposal upserts for distinct groups", async () => {
+    await Promise.all(
+      Array.from({ length: 12 }, (_, index) => {
+        const proposals = buildSelfImprovementProposalsFromGroups({
+          groups: [
+            group({
+              id: `sig_concurrent_${index}`,
+              groupKey: `smoke_failure:task_group:dashboard-smoke-${index}`,
+              title: `Dashboard smoke failures ${index}`,
+              recommendationIds: [`sir_concurrent_${index}`],
+            }),
+          ],
+          now: now + index,
+        });
+        return upsertSelfImprovementProposals({ stateDir: tmpDir, proposals });
+      }),
+    );
+
+    const proposals = await listSelfImprovementProposals({ stateDir: tmpDir, limit: 20 });
+    expect(proposals).toHaveLength(12);
+    expect(new Set(proposals.map((proposal) => proposal.groupId)).size).toBe(12);
+  });
+
+  it("preserves concurrent status updates for distinct proposals", async () => {
+    const proposals = buildSelfImprovementProposalsFromGroups({
+      groups: [
+        group({
+          id: "sig_status_a",
+          groupKey: "smoke_failure:task_group:status-a",
+          recommendationIds: ["sir_status_a"],
+        }),
+        group({
+          id: "sig_status_b",
+          groupKey: "smoke_failure:task_group:status-b",
+          recommendationIds: ["sir_status_b"],
+        }),
+      ],
+      now,
+    });
+    await upsertSelfImprovementProposals({ stateDir: tmpDir, proposals });
+
+    await Promise.all(
+      proposals.map((proposal, index) =>
+        updateSelfImprovementProposalStatus({
+          stateDir: tmpDir,
+          id: proposal.id,
+          status: "acknowledged",
+          note: `Acknowledged proposal ${index}.`,
+        }),
+      ),
+    );
+
+    const stored = await listSelfImprovementProposals({ stateDir: tmpDir, limit: 10 });
+    expect(stored).toHaveLength(2);
+    expect(stored.every((proposal) => proposal.status === "acknowledged")).toBe(true);
+  });
+
   it("preserves operator status while refreshing proposal content", async () => {
     const [proposal] = buildSelfImprovementProposalsFromGroups({ groups: [group()], now });
     expect(proposal).toBeDefined();

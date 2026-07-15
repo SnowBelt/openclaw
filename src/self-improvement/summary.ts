@@ -167,8 +167,8 @@ function groupRecommendations(
     }
   }
   return [...byKey.entries()]
-    .map(([groupKey, groupItems]) => {
-      const sorted = groupItems.toSorted(
+    .map(([groupKey, recommendationsForGroup]) => {
+      const sorted = recommendationsForGroup.toSorted(
         (left, right) => right.lastSeenAt - left.lastSeenAt || left.id.localeCompare(right.id),
       );
       const lead = sorted.toSorted(

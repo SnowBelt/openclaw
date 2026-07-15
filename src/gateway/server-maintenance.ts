@@ -2,8 +2,13 @@
 // Starts periodic health, dedupe, abort, and media cleanup loops.
 import { isFutureDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import type { HealthSummary } from "../commands/health.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { sweepStaleRunContexts } from "../infra/agent-events.js";
 import { cleanOldMedia } from "../media/store.js";
+import {
+  isSelfImprovementBackgroundEnabled,
+  startSelfImprovementGovernorBackgroundTask,
+} from "../self-improvement/background.js";
 import {
   abortTrackedChatRunById,
   type ChatAbortControllerEntry,
@@ -63,11 +68,14 @@ export function startGatewayMaintenanceTimers(params: {
   agentRunSeq: Map<string, number>;
   nodeSendToSession: (sessionKey: string, event: string, payload: unknown) => void;
   mediaCleanupTtlMs?: number;
+  getRuntimeConfig?: () => OpenClawConfig;
+  selfImprovementEnv?: NodeJS.ProcessEnv;
 }): {
   tickInterval: ReturnType<typeof setInterval>;
   healthInterval: ReturnType<typeof setInterval>;
   dedupeCleanup: ReturnType<typeof setInterval>;
   mediaCleanup: ReturnType<typeof setInterval> | null;
+  selfImprovement: ReturnType<typeof startSelfImprovementGovernorBackgroundTask> | null;
 } {
   setBroadcastHealthUpdate((snap: HealthSummary) => {
     params.broadcast("health", snap, {
@@ -99,6 +107,14 @@ export function startGatewayMaintenanceTimers(params: {
     .refreshGatewayHealthSnapshot({ probe: false })
     .catch((err: unknown) => params.logHealth.error(`initial refresh failed: ${formatError(err)}`));
 
+  const selfImprovement =
+    params.getRuntimeConfig && isSelfImprovementBackgroundEnabled(params.selfImprovementEnv)
+      ? startSelfImprovementGovernorBackgroundTask({
+          getRuntimeConfig: params.getRuntimeConfig,
+          log: params.logHealth,
+          env: params.selfImprovementEnv,
+        })
+      : null;
   // dedupe cache cleanup
   const dedupeCleanup = setInterval(() => {
     const AGENT_RUN_SEQ_MAX = 10_000;
@@ -285,7 +301,13 @@ export function startGatewayMaintenanceTimers(params: {
   }, 60_000);
 
   if (typeof params.mediaCleanupTtlMs !== "number") {
-    return { tickInterval, healthInterval, dedupeCleanup, mediaCleanup: null };
+    return {
+      tickInterval,
+      healthInterval,
+      dedupeCleanup,
+      mediaCleanup: null,
+      selfImprovement,
+    };
   }
 
   let mediaCleanupInFlight: Promise<void> | null = null;
@@ -312,5 +334,11 @@ export function startGatewayMaintenanceTimers(params: {
 
   void runMediaCleanup();
 
-  return { tickInterval, healthInterval, dedupeCleanup, mediaCleanup };
+  return {
+    tickInterval,
+    healthInterval,
+    dedupeCleanup,
+    mediaCleanup,
+    selfImprovement,
+  };
 }

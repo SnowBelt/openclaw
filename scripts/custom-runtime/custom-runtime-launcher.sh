@@ -47,6 +47,7 @@ capability_manifest_sha=$(printf '%s\n' "$fields" | sed -n '7p')
 required_surfaces=$(printf '%s\n' "$fields" | sed -n '8p')
 required_capabilities=$(printf '%s\n' "$fields" | sed -n '9p')
 
+releases_dir=$(cd "$releases_dir" && pwd -P) || fail "immutable releases root is unavailable"
 case "$runtime_root" in
   "$releases_dir"/*) ;;
   *) fail "runtime root is not an immutable release" ;;
@@ -61,6 +62,13 @@ case "$runtime_root" in *'/tmp/'*|*'/private/tmp/'*|*'/.worktrees/'*|*'/.npm-glo
 [ -f "$capability_manifest" ] || fail "capability manifest missing"
 [ -f "$runtime_root/.openclaw-production-sha" ] || fail "release source stamp missing"
 [ "$(tr -d '[:space:]' < "$runtime_root/.openclaw-production-sha")" = "$source_sha" ] || fail "source stamp mismatch"
+source_provenance="$runtime_root/.openclaw-runtime-provenance.json"
+if [ -f "$source_provenance" ]; then
+  [ "$(shasum -a 256 "$source_provenance" | awk '{print $1}')" = "$source_sha" ] || \
+    fail "source provenance hash mismatch"
+elif [ "${#source_sha}" -ne 40 ]; then
+  fail "release without source provenance must use a Git commit source stamp"
+fi
 [ "$(shasum -a 256 "$manifest" | awk '{print $1}')" = "$manifest_sha" ] || fail "surface manifest hash mismatch"
 [ "$(shasum -a 256 "$capability_manifest" | awk '{print $1}')" = "$capability_manifest_sha" ] || fail "capability manifest hash mismatch"
 
@@ -107,6 +115,47 @@ PY
   fi
 done
 
+runtime_snapshot="$runtime_root/snapshot.json"
+[ -f "$runtime_snapshot" ] || fail "runtime provenance manifest missing"
+python3 - "$runtime_snapshot" "$runtime_root" "$source_sha" "$source_provenance" <<'PY'
+import json, os, re, sys
+
+snapshot_path, runtime_root, source_sha, source_provenance = sys.argv[1:]
+with open(snapshot_path, encoding="utf-8") as f:
+    snapshot = json.load(f)
+
+if snapshot.get("version") != 2:
+    raise SystemExit("unsupported runtime provenance schema")
+if snapshot.get("root") != runtime_root:
+    raise SystemExit("runtime provenance root mismatch")
+if not isinstance(snapshot.get("releaseId"), str) or not snapshot["releaseId"]:
+    raise SystemExit("runtime provenance release id missing")
+if not re.fullmatch(r"[0-9a-f]{64}", str(snapshot.get("artifactHash", ""))):
+    raise SystemExit("runtime provenance artifact hash invalid")
+source = snapshot.get("source")
+if not isinstance(source, dict) or not re.fullmatch(r"[0-9a-f]{40}", str(source.get("commit", ""))):
+    raise SystemExit("runtime provenance source commit invalid")
+if not os.path.isfile(source_provenance) and source.get("commit") != source_sha:
+    raise SystemExit("runtime provenance source commit mismatch")
+schemas = snapshot.get("schemas")
+required_schemas = {
+    "runtimeSnapshot": 2,
+    "selfImprovementLedger": 1,
+    "selfImprovementRecommendationStore": 3,
+    "selfImprovementSignal": 1,
+}
+if not isinstance(schemas, dict) or any(schemas.get(key) != value for key, value in required_schemas.items()):
+    raise SystemExit("runtime provenance SIG schema mismatch")
+paths = snapshot.get("paths")
+expected_paths = {
+    "entrypoint": os.path.join(runtime_root, "dist", "index.js"),
+    "controlUi": os.path.join(runtime_root, "dist", "control-ui"),
+    "bundledPlugins": os.path.join(runtime_root, "dist-runtime", "extensions"),
+}
+if not isinstance(paths, dict) or any(paths.get(key) != value for key, value in expected_paths.items()):
+    raise SystemExit("runtime provenance path mismatch")
+PY
+
 for surface in $required_surfaces; do
   if ! python3 - "$manifest" "$runtime_root/dist/control-ui" "$surface" <<'PY'
 import json, os, sys
@@ -126,8 +175,11 @@ PY
   fi
 done
 
+export OPENCLAW_RUNTIME_SNAPSHOT_ROOT="$runtime_root"
+export OPENCLAW_BUNDLED_PLUGINS_DIR="$runtime_root/dist-runtime/extensions"
+
 if [ "${1:-}" = "--verify" ]; then
-  printf '%s\n' "CUSTOM_RUNTIME_OK sha=$source_sha"
+  printf '%s\n' "CUSTOM_RUNTIME_OK sha=$source_sha release=$(basename "$runtime_root")"
   exit 0
 fi
 exec "$node_bin" "$entrypoint" "$@"

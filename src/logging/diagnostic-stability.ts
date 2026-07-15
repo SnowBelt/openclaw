@@ -548,6 +548,13 @@ function sanitizeDiagnosticEvent(event: DiagnosticEventPayload): DiagnosticStabi
       record.model = event.fromModel;
       assignReasonCode(record, event.reason);
       break;
+    case "improvement.signal":
+      record.source = event.source.component;
+      record.target = event.source.subsystem;
+      record.action = event.kind;
+      record.level = event.severity;
+      assignReasonCode(record, event.errorCode);
+      break;
   }
 
   return record;

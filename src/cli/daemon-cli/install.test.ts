@@ -255,6 +255,15 @@ describe("mergeInstallInvocationEnv", () => {
     expect(env.openai_api_key).toBeUndefined();
     expect(env.NODE_OPTIONS).toBeUndefined();
   });
+
+  it("lets an explicit empty wrapper override a persisted service wrapper", () => {
+    const env = mergeInstallInvocationEnv({
+      env: { OPENCLAW_WRAPPER: "" },
+      existingServiceEnv: { OPENCLAW_WRAPPER: "/usr/local/bin/stale-wrapper" },
+    });
+
+    expect(env.OPENCLAW_WRAPPER).toBe("");
+  });
 });
 
 describe("runDaemonInstall", () => {
@@ -618,6 +627,40 @@ describe("runDaemonInstall", () => {
       OPENCLAW_WRAPPER: "/usr/local/bin/openclaw-doppler",
     });
     expect(installDaemonServiceAndEmitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a persisted wrapper only when explicitly requested", async () => {
+    service.isLoaded.mockResolvedValue(true);
+    service.readCommand.mockResolvedValue({
+      programArguments: ["/usr/local/bin/openclaw-doppler", "gateway", "run"],
+      environment: {
+        OPENCLAW_WRAPPER: "/usr/local/bin/openclaw-doppler",
+      },
+    } as never);
+
+    await runDaemonInstall({ json: true, force: true, clearWrapper: true });
+
+    const installPlanArg = readFirstInstallPlanArg();
+    expect(installPlanArg.wrapperPath).toBeUndefined();
+    expectFields(installPlanArg.env, { OPENCLAW_WRAPPER: undefined });
+    expectFields(installPlanArg.existingEnvironment, {
+      OPENCLAW_WRAPPER: "/usr/local/bin/openclaw-doppler",
+    });
+    expect(installDaemonServiceAndEmitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects conflicting wrapper and clear-wrapper options", async () => {
+    await runDaemonInstall({
+      json: true,
+      wrapper: "/usr/local/bin/openclaw-doppler",
+      clearWrapper: true,
+    });
+
+    expect(actionState.failed).toContainEqual({
+      message: "Invalid wrapper options: use either --wrapper or --clear-wrapper, not both.",
+      hints: undefined,
+    });
+    expect(installDaemonServiceAndEmitMock).not.toHaveBeenCalled();
   });
 
   it("reinstalls when wrapper command matches but wrapper env is missing", async () => {

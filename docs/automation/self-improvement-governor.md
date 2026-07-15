@@ -8,7 +8,7 @@ title: "Self-Improvement Governor"
 sidebarTitle: "Self-Improvement Governor"
 ---
 
-The Self-Improvement Governor is a native OpenClaw background reviewer. It
+The Self-Improvement Governor is an optional, default-disabled OpenClaw background reviewer. It
 inspects OpenClaw state, writes durable recommendation records, groups recurring
 patterns into scorecards, generates pending proposal records, and routes each
 recommendation to the right OpenClaw agent role.
@@ -39,6 +39,7 @@ The MVP scanner is deterministic and checks:
 - repeated correction-like task patterns
 - repeated slow, blocked, timed-out, or verification-heavy workflow families
 - dashboard/mobile/control-UI smoke failures
+- explicit operator-recorded dashboard interventions with corrective-action evidence
 - model routing, provider, fallback, auth, rate-limit, and timeout errors
 - Governor model-review audit events, including local/hosted fallback and invalid JSON
 - Governor audit-ledger signals for repeated instruction, efficiency, risk, and metric gaps
@@ -53,9 +54,50 @@ The MVP scanner is deterministic and checks:
 - architecture simplification, risk-prevention, and outcome-measurement gaps
 - project or agent health gaps when task evidence names them
 
+Terminal task evidence is bounded to the latest 24 hours so a runtime upgrade or
+first scan cannot replay the full historical task ledger into new work. Queued
+and running tasks remain eligible regardless of age so genuinely stale work is
+still detected. Repeated runs of the same task family collapse into one causal
+recommendation with merged evidence and recurrence count. Newly created
+recommendations carry their deterministic routed owner immediately; SIG does
+not wait for a second administrative assignment pass.
+
+The Control UI includes a **Record dashboard intervention** form for real
+operator corrections. Submitting it records the issue, corrective action, and
+optional evidence as recommendation-only prevention work. It does not change an
+existing recommendation status, and the resulting work cannot close without a
+passing prevention-proof receipt.
+
+## Typed Improvement Signals
+
+OpenClaw components and plugins can emit a versioned `improvement.signal`
+diagnostic event through the public diagnostic runtime seam. A signal includes
+an idempotency key, component owner, kind, severity, bounded summary, privacy
+class, trace/run/task correlation, expected versus observed behavior, and
+evidence references. Optional desired-state metadata declares the expected
+outcome, SLO, rollback, and retention policy. Optional capability-routing
+metadata records which capabilities were considered, selected, missed, or used
+as fallbacks.
+
+SIG sanitizes signal text, persists signals in the canonical ledger, queues
+analysis through a retryable outbox, and creates evidence-bound recommendations.
+One component can create at most 20 distinct low/medium signals per hour; excess
+noise is coalesced into a deterministic budget bucket. Trusted high/critical
+signals bypass that budget and wake the background analyzer immediately.
+
+Future integrated components should implement the version 1 admission contract:
+component owner, expected outcome, SLO, proof requirements, rollback,
+retention/privacy policy, capability list, and `observe` or `recommend`
+autonomy. Admission progresses through `shadow`, `dry_run`, `canary`, and
+`active`; canary/active require passing proof, and active also requires a
+verified rollback path.
+
 ## Recommendation Records
 
-Recommendations are stored under the OpenClaw state directory:
+After the verified JSON-to-SQLite cutover, canonical records are stored in the
+Self-Improvement SQLite ledger under the OpenClaw state directory. Dated JSON
+backups/exports remain recovery evidence but are not a second writable source
+of truth. Pre-cutover installs continue to use:
 
 ```text
 self-improvement/recommendations.json
@@ -73,6 +115,7 @@ Each record includes:
 - recommended action and required evidence
 - a recommendation-only safety envelope
 - optional assignment, claim, resolution proof, dismissal reason, and reopen reason
+- optional measured-outcome requirement, proof-receipt id, and outcome state
 - derived actionability state for owner, SLA, proof, closure readiness, blockers, and next operator action
 
 Recommendation, proposal, and audit-event text is sanitized before display or refresh. The
@@ -90,6 +133,14 @@ novel task evidence, its prior proof becomes stale and must be refreshed before
 closure. Recommendations that require tests cannot be
 marked resolved through the Gateway unless current resolution proof is already
 attached or supplied in the update.
+
+## Dashboard Intervention Evidence
+
+When an operator corrects a real Control UI/dashboard issue, record it with
+`openclaw self-improvement record-dashboard-intervention`. SIG preserves the
+issue and corrective action as evidence-bound `risk_prevention` work, routes it
+to QA, and requires prevention proof before any closure request. Healthy SIG
+lifecycle, scorecard, or audit bookkeeping never becomes intervention evidence.
 
 The scanner writes deterministic analysis by default. Analysis runs can request
 local-first model review, but idle operation remains evidence-bound and
@@ -120,6 +171,13 @@ resolved unless proof is already attached or supplied with the update. Audit
 events record status, route, assignment, claim, and proof-present metadata, but
 they do not store raw proof text.
 
+When a signal declares desired state, text proof alone is not sufficient.
+Resolution also requires a passed outcome receipt that links the originating
+signal, diagnosis, corrective action, target metric, observed metric,
+observation window, optional holdout, and bounded evidence references. Failed
+receipts remain durable evidence but do not unlock closure. A correlated
+recurrence reopens the causal recommendation and marks the previous proof stale.
+
 ## Improvement Intelligence
 
 The Governor derives an **Improvement Intelligence** summary from active
@@ -145,12 +203,12 @@ categories from the CLI.
 ## Analysis Runs And Proposals
 
 `selfImprovement.analysis.run` performs a bounded review pass over grouped
-recommendations. The MVP analysis runner:
+recommendations. The analysis runner:
 
-- writes or refreshes a daily scorecard snapshot in `self-improvement/scorecards.json`
-- creates or refreshes pending proposal records in `self-improvement/proposals.json`
+- writes or refreshes a daily scorecard snapshot in the canonical ledger
+- creates or refreshes pending proposal records in the canonical ledger
 - preserves operator proposal status, proof, dismissal reason, and notes across refreshes
-- records audit events in `self-improvement/audit-events.json`
+- records bounded audit events in the canonical ledger
 
 Audit events are an operator ledger, not an action path. They record sanitized
 status updates, analysis runs, proposal creation, proposal status changes, and
@@ -189,6 +247,8 @@ are:
 - schema-valid rate at least `0.95`
 - safety pass rate exactly `1.0`
 - route-preservation rate at least `0.98`
+- precision rate at least `0.93`
+- first-pass rate at least `0.80`
 - p95 model completion at most `180000` ms
 
 Each run appends a sanitized `reviewer_eval_run` audit event with aggregate
@@ -198,6 +258,14 @@ not store model output, reasoning, prompts, raw recommendation text, secrets, or
 local filesystem paths. The dashboard renders the latest event as **Reviewer
 eval health** so operators can see whether the Governor reviewer is ready,
 degraded, or blocked before trusting model-enriched recommendations.
+
+MLX is an optional Apple Silicon research challenger, not a prerequisite and
+never a SIG control authority. It is considered only when explicitly enabled
+and evaluated on at least 30 frozen validation cases. The challenger must match
+or beat the baseline on precision, first-pass rate, p95 latency, and 100%
+safety. Passing that diagnostic makes it eligible for further research only; it
+does not train a production model, change routing, resolve records, or authorize
+mutations.
 
 Proposal records are not changes. They are routed, approval-gated cards for the
 next owner to review:
@@ -213,7 +281,7 @@ next owner to review:
 ## Memory/Skill Curation Loop
 
 `memory_skill` proposals are the closed-loop handoff between the Governor and
-Skill Workshop. They stay in `self-improvement/proposals.json`; the Governor
+Skill Workshop. They stay in the canonical proposal ledger; the Governor
 does not write `SKILL.md` files, apply Skill Workshop proposals, or mutate
 memory directly.
 
@@ -502,7 +570,8 @@ snapshots written by analysis runs.
 
 The Governor also derives deterministic operational health from existing
 recommendations, scorecards, proposals, audit events, reviewer evals, model
-preflight events, and background-cycle signals. Health snapshots are stored in:
+preflight events, and background-cycle signals. Before SQLite cutover, health
+snapshots are stored in:
 
 ```text
 self-improvement/health-snapshots.json
@@ -518,6 +587,7 @@ Each snapshot includes an overall `ready`, `degraded`, or `blocked` status, a
 - proposal queue
 - verification proof
 - improvement intelligence
+- outcome effectiveness
 
 Manual analysis writes a health snapshot after analysis. Background cycles write
 a sanitized `background_cycle` audit event and then write a health snapshot so
@@ -535,25 +605,29 @@ openclaw self-improvement health --fail-on-blocked --json
 
 ## Production Readiness
 
-`selfImprovement.productionCheck` combines operational health with rollout
+`selfImprovement.productionCheck` separates SIG service readiness from the
+downstream improvement portfolio, then combines service health with rollout
 evidence into a read-only production gate. It does not scan, analyze, call a
 model, prune stores, or mutate audit state.
 
 The gate derives:
 
-- overall `ready`, `degraded`, or `blocked` status
-- score, blockers, warnings, and next operator actions
+- SIG service `ready`, `degraded`, or `blocked` status
+- executable effectiveness score, blockers, warnings, and next operator actions
+- separate portfolio status, score, blockers, and next actions
 - health-dimension evidence from recommendations, reviewer evals, model
   readiness, background cadence, proposal queue, verification proof, and
   improvement intelligence
 - retention-maintenance evidence from the latest maintenance audit event
 - optional strict readiness checks for model preflight and reviewer evals
 
-Active assigned recommendations do not make the gate fail by themselves. The
-gate fails when work is uncontrolled, stale, unowned, overdue, unrouted, missing
-a proof path, or backed by blocked reviewer/model/background evidence. This
-keeps continuous improvement healthy while still preventing proof-required
-recommendations from closing without evidence.
+Recommendation, proposal, verification, and intelligence pressure remains
+visible as portfolio health but does not by itself make the SIG service
+unhealthy. The service gate fails when outcome effectiveness is below the
+configured quality target, background cadence is unhealthy, required
+reviewer/model evidence is unhealthy, or required immutable runtime provenance
+is missing. This avoids rewarding SIG for hiding real findings while still
+keeping every downstream blocker visible and proof-gated.
 
 Use the CLI gate when preparing a production rollout:
 
@@ -588,13 +662,24 @@ intended role and the best default target id.
 
 ## Background Operation
 
-Gateway post-ready maintenance starts the governor as an unref'd background
-task. The default cadence is every 6 hours, with an initial delayed scan after
-Gateway startup. Set `OPENCLAW_SELF_IMPROVEMENT_INTERVAL_MS` to change the
+Gateway post-ready maintenance leaves the Governor stopped by default. Set
+`OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1` in the Gateway service environment to
+opt in. When enabled, the Gateway starts the Governor as an unref'd background
+task with a default cadence of every 6 hours and an initial delayed scan after
+startup. Set `OPENCLAW_SELF_IMPROVEMENT_INTERVAL_MS` to change the
 interval. Intervals below 15 minutes are floored to 15 minutes so the Governor
 cannot accidentally create a tight idle-review loop. Background starts also add
 bounded jitter by default, which spreads recurring review work away from Gateway
 startup and other cron jobs.
+
+The scheduler is adaptive. Quiet periods back off while preserving periodic
+reconciliation; new trusted high/critical improvement signals request a bounded
+immediate wake. Overlapping cycles are coalesced, and durable outbox leases make
+interrupted signal analysis replayable after restart.
+
+Leaving `OPENCLAW_SELF_IMPROVEMENT_BACKGROUND` unset is the safe deployment
+default for read-only verification. Manual read methods and the Control UI
+snapshot remain available without starting the writer loop.
 
 Each background cycle runs the deterministic scanner, then runs deterministic
 analysis over grouped findings so the daily scorecard and pending proposal queue
@@ -643,6 +728,10 @@ records:
 - scorecards are retained for 180 days or the latest 180 snapshots
 - pending, accepted, and active proposals are preserved; inactive old proposals
   are retained for 90 days, with a maximum proposal store target of 1000 records
+- typed signals are retained for 90 days or the latest 2000 historical records
+- completed/quarantined outbox history is retained for 30 days or the latest
+  2000 records, while pending/processing work is always preserved
+- measured proof receipts are retained for 180 days or the latest 2000 records
 
 When apply mode prunes data, the Governor appends a sanitized
 `retention_maintenance` audit event with store names and record counts only. It
@@ -666,6 +755,8 @@ openclaw self-improvement production-check
 openclaw self-improvement production-check --require-model-ready --require-evals-ready --json
 openclaw self-improvement maintain --dry-run
 openclaw self-improvement maintain --apply
+openclaw self-improvement proof-receipts list --recommendation-id <recommendation-id>
+openclaw self-improvement proof-receipts record <recommendation-id> --diagnosis "..." --action "..." --metric-name first_pass_rate --target ">=0.93" --observed "0.95" --metric-result passed --started-at <ms> --ended-at <ms> --evidence "receipt.json,audit:event"
 openclaw self-improvement audit-events
 openclaw self-improvement audit-events --kind model_preflight --limit 20
 openclaw self-improvement summary
@@ -696,6 +787,10 @@ tier, model id, attempt count, schema status, preflight state, per-attempt model
 (quantization, parameter size, context, output limit, sampling, and timeout),
 bounded attempt blocker details, invalid-output diagnostic codes,
 escalation/fallback state, and safety state.
+Recommendations that require measured outcomes also show the outcome state and
+attached proof-receipt id.
+Opening the panel issues only read-scoped snapshot RPCs. It does not scan,
+analyze, preflight models, run maintenance, or update records automatically.
 The panel can trigger a manual scan, bounded deterministic analysis run, model
 readiness check, read-only production check, retention-maintenance dry run,
 assignment, claim, in-progress, proof attachment, proof-gated resolve, and
@@ -715,6 +810,8 @@ The Control UI and CLI use these Gateway methods:
 - `selfImprovement.health`
 - `selfImprovement.productionCheck`
 - `selfImprovement.maintenance.run`
+- `selfImprovement.proofReceipts.list`
+- `selfImprovement.proofReceipts.record`
 - `selfImprovement.analysis.run`
 - `selfImprovement.models.preflight`
 - `selfImprovement.groups.update`
@@ -729,9 +826,80 @@ Read-only clients can list audit events, list/get recommendations, list/get
 proposals, read summaries, scorecards, operational health, and production
 readiness. Model preflight checks require write-capable Gateway access because
 they append sanitized audit-ledger events. Scan, analysis, retention
-maintenance, group updates, recommendation updates, and proposal updates require
-write scope. Retention maintenance still defaults to dry-run unless `apply` is
-explicitly true.
+maintenance, proof-receipt recording, group updates, recommendation updates,
+and proposal updates require write scope. Proof-receipt listing is read-only.
+Retention maintenance still defaults to dry-run unless `apply` is explicitly
+true.
+
+## Tiered Autonomy And Effectiveness
+
+SIG defaults to `recommend`. `observe` can read health only; `recommend` can
+record signals, create recommendations, and draft proof. Explicitly approved
+administrative work can attach proof, update record status, or run retention.
+Explicitly approved sandbox work can run bounded tests and write local proof
+artifacts. Source/config changes, memory or skill writes, credential access,
+releases/GitHub actions, external writes, funds movement, and trading are never
+SIG-controlled operations.
+
+Operational health includes an executable outcome-effectiveness dimension with
+a target score of 93 and a safety floor of 100. It measures signal coverage,
+causal duplicate rate, signal-to-recommendation p95, capability-routing
+accuracy, proof-backed closure, recurrence safety, low-confidence quarantine,
+outbox recovery, noise-budget pressure, and safety violations.
+
+## Production Acceptance And Soak
+
+Source-level completion, a passing test, and a healthy production check are
+separate acceptance surfaces. A durable rollout requires current evidence for
+source review, targeted tests, the changed-surface gate, build, managed runtime,
+RPC, authenticated dashboard behavior, and a production soak. The SIG
+effectiveness target is at least 93, while the safety score must remain
+exactly 100. Downstream portfolio debt is reported separately and is never
+silently reclassified as service failure or success.
+
+Source-checkout operators can use the resumable soak runner after activating a
+verified immutable candidate release. First create a bounded rollback evidence
+artifact under `work/self-improvement`, then initialize the candidate receipt:
+
+```bash
+pnpm exec tsx scripts/dev/self-improvement-production-soak.ts start \
+  --candidate-release <candidate-release-id> \
+  --rollback-release <previous-release-id> \
+  --rollback-evidence work/self-improvement/<rollback-receipt>.json \
+  --auto-rollback
+```
+
+Run or resume the soak from the same source checkout:
+
+```bash
+pnpm exec tsx scripts/dev/self-improvement-production-soak.ts run
+pnpm exec tsx scripts/dev/self-improvement-production-soak.ts status
+```
+
+The runner writes one atomic receipt under `work/self-improvement`, prevents
+concurrent writers, and can resume after interruption. It requires 72 elapsed
+hours, at least 13 distributed samples, no gap over 12 hours, two verified
+managed restarts, the same immutable runtime release, production score at least
+93, zero safety violations, healthy SIG RPCs, and successful dashboard routes.
+Rapid repeated samples do not count as distributed coverage.
+
+Automatic rollback is candidate-scoped and fail-closed. It is available only
+when a distinct retained rollback release was preregistered and cryptographic
+rollback evidence was attached at receipt creation. Receipt initialization also
+verifies the managed custom-runtime rollback registration before the 72-hour
+clock starts. The registration binds the active native runtime release id to a
+specific previous custom release and hashes the prior pointer, launcher,
+LaunchAgent, and service environment. Automatic rollback restores that complete
+managed control-plane bundle transactionally; it does not change the unrelated
+package-local native snapshot pointer. Managed soak restarts use the selected
+custom-runtime service without reinstalling it. Lifecycle commands remove any
+inherited downgrade override and never restart or roll back an unknown runtime.
+
+Custom-runtime stage, promotion, restart, and rollback probes pin the exact
+loopback Gateway through `OPENCLAW_GATEWAY_URL`. They export the configured
+token or password only in the verifier process environment, never in command
+arguments, and fail closed when an explicit verification credential cannot be
+resolved.
 
 ## Safety Model
 

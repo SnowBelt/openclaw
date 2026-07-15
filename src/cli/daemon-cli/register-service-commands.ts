@@ -87,6 +87,7 @@ export function addGatewayServiceCommands(parent: Command, opts?: { statusDescri
     .option("--runtime <runtime>", "Daemon runtime (node|bun). Default: node")
     .option("--token <token>", "Gateway token (token auth)")
     .option("--wrapper <path>", "Executable wrapper for generated service ProgramArguments")
+    .option("--clear-wrapper", "Remove a persisted wrapper and install the direct runtime", false)
     .option("--force", "Reinstall/overwrite if already installed", false)
     .option("--json", "Output JSON", false)
     .action(async (cmdOpts, command) => {

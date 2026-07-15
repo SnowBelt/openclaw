@@ -2,7 +2,12 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
-import { writeSelfImprovementJsonAtomically } from "./json-store.js";
+import {
+  withSelfImprovementStoreMutation,
+  writeSelfImprovementJsonAtomically,
+} from "./json-store.js";
+import { isSelfImprovementJsonToSqliteMigrationApplied } from "./ledger-migration.js";
+import { listSelfImprovementLedgerRows, replaceSelfImprovementLedgerRows } from "./ledger.js";
 import { sanitizeRecommendationText, sanitizeRecommendationTexts } from "./text.js";
 import type {
   SelfImprovementCuratorStatus,
@@ -157,7 +162,22 @@ function normalizeStore(value: unknown): SelfImprovementProposalStoreFile {
   };
 }
 
-async function readStore(storePath: string): Promise<SelfImprovementProposalStoreFile> {
+async function readStore(
+  storePath: string,
+  stateDir?: string,
+): Promise<SelfImprovementProposalStoreFile> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    const rows = await listSelfImprovementLedgerRows<SelfImprovementProposal>({
+      collection: "proposals",
+      stateDir,
+    });
+    return {
+      version: STORE_VERSION,
+      proposals: rows
+        .map((row) => parseProposal(row.value))
+        .filter((entry): entry is SelfImprovementProposal => Boolean(entry)),
+    };
+  }
   try {
     return normalizeStore(JSON.parse(await fs.readFile(storePath, "utf8")));
   } catch (error) {
@@ -171,7 +191,19 @@ async function readStore(storePath: string): Promise<SelfImprovementProposalStor
 async function writeStore(
   storePath: string,
   file: SelfImprovementProposalStoreFile,
+  stateDir?: string,
 ): Promise<void> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    await replaceSelfImprovementLedgerRows({
+      collection: "proposals",
+      stateDir,
+      rows: file.proposals,
+      id: (proposal) => proposal.id,
+      createdAt: (proposal) => proposal.createdAt,
+      updatedAt: (proposal) => proposal.updatedAt,
+    });
+    return;
+  }
   await writeSelfImprovementJsonAtomically(storePath, file);
 }
 
@@ -290,8 +322,9 @@ export async function listSelfImprovementProposals(params?: {
   kind?: readonly SelfImprovementProposalKind[];
   limit?: number;
 }): Promise<SelfImprovementProposal[]> {
-  const storePath = params?.storePath ?? resolveSelfImprovementProposalStorePath(params?.stateDir);
-  const file = await readStore(storePath);
+  const stateDir = params?.storePath ? undefined : (params?.stateDir ?? resolveStateDir());
+  const storePath = params?.storePath ?? resolveSelfImprovementProposalStorePath(stateDir);
+  const file = await readStore(storePath, stateDir);
   const status = params?.status ? new Set(params.status) : null;
   const kind = params?.kind ? new Set(params.kind) : null;
   const limit = params?.limit && params.limit > 0 ? params.limit : file.proposals.length;
@@ -326,48 +359,53 @@ export async function upsertSelfImprovementProposals(params: {
   created: number;
   updated: number;
 }> {
-  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(params.stateDir);
-  const file = await readStore(storePath);
-  const incomingProposals = params.proposals.map(normalizeProposalForStore);
-  const byId = new Map(file.proposals.map((proposal) => [proposal.id, cloneProposal(proposal)]));
-  let created = 0;
-  let updated = 0;
-  for (const proposal of incomingProposals) {
-    const existing = byId.get(proposal.id);
-    if (!existing) {
-      created += 1;
-      byId.set(proposal.id, cloneProposal(proposal));
-      continue;
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const incomingProposals = params.proposals.map(normalizeProposalForStore);
+    const byId = new Map(file.proposals.map((proposal) => [proposal.id, cloneProposal(proposal)]));
+    let created = 0;
+    let updated = 0;
+    for (const proposal of incomingProposals) {
+      const existing = byId.get(proposal.id);
+      if (!existing) {
+        created += 1;
+        byId.set(proposal.id, cloneProposal(proposal));
+        continue;
+      }
+      updated += 1;
+      const safetyNotes = Array.from(new Set([...proposal.safetyNotes, ...existing.safetyNotes]));
+      byId.set(proposal.id, {
+        ...cloneProposal(proposal),
+        createdAt: existing.createdAt,
+        status: existing.status,
+        safetyNotes,
+        ...(existing.dismissalReason ? { dismissalReason: existing.dismissalReason } : {}),
+        ...(existing.approvalProof ? { approvalProof: existing.approvalProof } : {}),
+        ...(existing.curatorStatus ? { curatorStatus: existing.curatorStatus } : {}),
+        ...(existing.curatorProof ? { curatorProof: existing.curatorProof } : {}),
+        ...(existing.curatorReason ? { curatorReason: existing.curatorReason } : {}),
+        ...(existing.curatorUpdatedAt ? { curatorUpdatedAt: existing.curatorUpdatedAt } : {}),
+        ...(existing.workshopProposalId ? { workshopProposalId: existing.workshopProposalId } : {}),
+        ...(existing.workshopProposalStatus
+          ? { workshopProposalStatus: existing.workshopProposalStatus }
+          : {}),
+        ...(existing.promotionProof ? { promotionProof: existing.promotionProof } : {}),
+      });
     }
-    updated += 1;
-    const safetyNotes = Array.from(new Set([...proposal.safetyNotes, ...existing.safetyNotes]));
-    byId.set(proposal.id, {
-      ...cloneProposal(proposal),
-      createdAt: existing.createdAt,
-      status: existing.status,
-      safetyNotes,
-      ...(existing.dismissalReason ? { dismissalReason: existing.dismissalReason } : {}),
-      ...(existing.approvalProof ? { approvalProof: existing.approvalProof } : {}),
-      ...(existing.curatorStatus ? { curatorStatus: existing.curatorStatus } : {}),
-      ...(existing.curatorProof ? { curatorProof: existing.curatorProof } : {}),
-      ...(existing.curatorReason ? { curatorReason: existing.curatorReason } : {}),
-      ...(existing.curatorUpdatedAt ? { curatorUpdatedAt: existing.curatorUpdatedAt } : {}),
-      ...(existing.workshopProposalId ? { workshopProposalId: existing.workshopProposalId } : {}),
-      ...(existing.workshopProposalStatus
-        ? { workshopProposalStatus: existing.workshopProposalStatus }
-        : {}),
-      ...(existing.promotionProof ? { promotionProof: existing.promotionProof } : {}),
-    });
-  }
-  const proposals = [...byId.values()]
-    .toSorted((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
-    .slice(0, MAX_PROPOSALS);
-  await writeStore(storePath, { version: STORE_VERSION, proposals });
-  return {
-    proposals: proposals.map(cloneProposal),
-    created,
-    updated,
-  };
+    const proposals = [...byId.values()]
+      .toSorted(
+        (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+      )
+      .slice(0, MAX_PROPOSALS);
+    await writeStore(storePath, { version: STORE_VERSION, proposals }, stateDir);
+    return {
+      proposals: proposals.map(cloneProposal),
+      created,
+      updated,
+    };
+  });
 }
 
 export async function updateSelfImprovementProposalStatus(params: {
@@ -380,36 +418,39 @@ export async function updateSelfImprovementProposalStatus(params: {
   storePath?: string;
   now?: number;
 }): Promise<SelfImprovementProposal | null> {
-  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(params.stateDir);
-  const file = await readStore(storePath);
-  const now = params.now ?? Date.now();
-  let updated: SelfImprovementProposal | null = null;
-  const proposals = file.proposals.map((proposal) => {
-    if (proposal.id !== params.id.trim()) {
-      return proposal;
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const now = params.now ?? Date.now();
+    let updated: SelfImprovementProposal | null = null;
+    const proposals = file.proposals.map((proposal) => {
+      if (proposal.id !== params.id.trim()) {
+        return proposal;
+      }
+      const approvalProof = sanitizeRecommendationText(params.approvalProof, 640);
+      const dismissalReason = sanitizeRecommendationText(params.dismissalReason, 360);
+      const note = sanitizeRecommendationText(params.note, 220);
+      updated = {
+        ...proposal,
+        status: params.status,
+        updatedAt: now,
+        ...(approvalProof ? { approvalProof } : {}),
+        ...(dismissalReason ? { dismissalReason } : {}),
+        ...(note
+          ? {
+              safetyNotes: [...proposal.safetyNotes, note],
+            }
+          : {}),
+      };
+      return updated;
+    });
+    if (!updated) {
+      return null;
     }
-    const approvalProof = sanitizeRecommendationText(params.approvalProof, 640);
-    const dismissalReason = sanitizeRecommendationText(params.dismissalReason, 360);
-    const note = sanitizeRecommendationText(params.note, 220);
-    updated = {
-      ...proposal,
-      status: params.status,
-      updatedAt: now,
-      ...(approvalProof ? { approvalProof } : {}),
-      ...(dismissalReason ? { dismissalReason } : {}),
-      ...(note
-        ? {
-            safetyNotes: [...proposal.safetyNotes, note],
-          }
-        : {}),
-    };
-    return updated;
+    await writeStore(storePath, { version: STORE_VERSION, proposals }, stateDir);
+    return cloneProposal(updated);
   });
-  if (!updated) {
-    return null;
-  }
-  await writeStore(storePath, { version: STORE_VERSION, proposals });
-  return cloneProposal(updated);
 }
 
 export async function updateSelfImprovementCuratorStatus(params: {
@@ -424,40 +465,43 @@ export async function updateSelfImprovementCuratorStatus(params: {
   storePath?: string;
   now?: number;
 }): Promise<SelfImprovementProposal | null> {
-  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(params.stateDir);
-  const file = await readStore(storePath);
-  const now = params.now ?? Date.now();
-  let updated: SelfImprovementProposal | null = null;
-  const proposals = file.proposals.map((proposal) => {
-    if (proposal.id !== params.id.trim()) {
-      return proposal;
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementProposalStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const now = params.now ?? Date.now();
+    let updated: SelfImprovementProposal | null = null;
+    const proposals = file.proposals.map((proposal) => {
+      if (proposal.id !== params.id.trim()) {
+        return proposal;
+      }
+      if (proposal.kind !== "memory_skill") {
+        throw new Error("curator updates are only allowed for memory_skill proposals");
+      }
+      const proof = sanitizeRecommendationText(params.proof, 640);
+      const reason = sanitizeRecommendationText(params.reason, 360);
+      const workshopProposalId = sanitizeRecommendationText(params.workshopProposalId, 160);
+      const note = sanitizeRecommendationText(params.note, 220);
+      updated = {
+        ...proposal,
+        updatedAt: now,
+        curatorUpdatedAt: now,
+        curatorStatus: params.curatorStatus,
+        ...(proof && params.curatorStatus === "promoted" ? { promotionProof: proof } : {}),
+        ...(proof && params.curatorStatus !== "promoted" ? { curatorProof: proof } : {}),
+        ...(reason ? { curatorReason: reason } : {}),
+        ...(workshopProposalId ? { workshopProposalId } : {}),
+        ...(params.workshopProposalStatus
+          ? { workshopProposalStatus: params.workshopProposalStatus }
+          : {}),
+        ...(note ? { safetyNotes: [...proposal.safetyNotes, note] } : {}),
+      };
+      return updated;
+    });
+    if (!updated) {
+      return null;
     }
-    if (proposal.kind !== "memory_skill") {
-      throw new Error("curator updates are only allowed for memory_skill proposals");
-    }
-    const proof = sanitizeRecommendationText(params.proof, 640);
-    const reason = sanitizeRecommendationText(params.reason, 360);
-    const workshopProposalId = sanitizeRecommendationText(params.workshopProposalId, 160);
-    const note = sanitizeRecommendationText(params.note, 220);
-    updated = {
-      ...proposal,
-      updatedAt: now,
-      curatorUpdatedAt: now,
-      curatorStatus: params.curatorStatus,
-      ...(proof && params.curatorStatus === "promoted" ? { promotionProof: proof } : {}),
-      ...(proof && params.curatorStatus !== "promoted" ? { curatorProof: proof } : {}),
-      ...(reason ? { curatorReason: reason } : {}),
-      ...(workshopProposalId ? { workshopProposalId } : {}),
-      ...(params.workshopProposalStatus
-        ? { workshopProposalStatus: params.workshopProposalStatus }
-        : {}),
-      ...(note ? { safetyNotes: [...proposal.safetyNotes, note] } : {}),
-    };
-    return updated;
+    await writeStore(storePath, { version: STORE_VERSION, proposals }, stateDir);
+    return cloneProposal(updated);
   });
-  if (!updated) {
-    return null;
-  }
-  await writeStore(storePath, { version: STORE_VERSION, proposals });
-  return cloneProposal(updated);
 }

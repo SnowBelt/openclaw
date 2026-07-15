@@ -196,6 +196,22 @@
         "ui/src/ui/navigation.ts",
         "scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts"
       ]
+    },
+    {
+      "id": "runtime:self-improvement-governor",
+      "kind": "runtime",
+      "requiredPaths": [
+        "src/self-improvement/production-readiness.ts",
+        "src/gateway/server-methods/self-improvement.ts",
+        "scripts/custom-runtime/custom-runtime-activate.sh",
+        "scripts/custom-runtime/custom-runtime-auth.sh",
+        "scripts/custom-runtime/custom-runtime-guard.sh",
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-restart.sh",
+        "scripts/custom-runtime/custom-runtime-rollback.sh",
+        "scripts/custom-runtime/custom-runtime-stage.sh",
+        "scripts/dev/control-ui-self-improvement-smoke.ts"
+      ]
     }
   ]
 }

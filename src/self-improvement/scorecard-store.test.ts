@@ -61,4 +61,25 @@ describe("self-improvement scorecard store", () => {
       scorecard: { activeRecommendations: 3 },
     });
   });
+
+  it("preserves concurrent snapshots for different dates", async () => {
+    const first = Date.parse("2026-05-07T12:00:00.000Z");
+    const second = Date.parse("2026-05-08T12:00:00.000Z");
+
+    await Promise.all([
+      writeSelfImprovementDailyScorecardSnapshot({
+        stateDir: tmpDir,
+        scorecard: scorecard(first, 1),
+        now: first,
+      }),
+      writeSelfImprovementDailyScorecardSnapshot({
+        stateDir: tmpDir,
+        scorecard: scorecard(second, 2),
+        now: second,
+      }),
+    ]);
+
+    const scorecards = await listSelfImprovementDailyScorecards({ stateDir: tmpDir, limit: 10 });
+    expect(scorecards.map((entry) => entry.dateKey)).toEqual(["2026-05-08", "2026-05-07"]);
+  });
 });

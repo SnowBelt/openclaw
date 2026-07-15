@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { startSelfImprovementGovernorBackgroundTask } from "./background.js";
+import { onInternalDiagnosticEvent } from "../infra/diagnostic-events.js";
+import {
+  isSelfImprovementBackgroundEnabled,
+  resolveAdaptiveSelfImprovementInterval,
+  startSelfImprovementGovernorBackgroundTask,
+} from "./background.js";
+import type { SelfImprovementSignal } from "./signals.js";
 import type { SelfImprovementAnalysisRunResult, SelfImprovementScanResult } from "./types.js";
 
 const now = Date.parse("2026-05-07T12:00:00.000Z");
@@ -15,6 +21,7 @@ function scanResult(): SelfImprovementScanResult {
         cronJobs: 0,
         auditEvents: 0,
         skillWorkshopProposals: 0,
+        signals: 0,
       },
       produced: 0,
       created: 0,
@@ -72,6 +79,114 @@ describe("self-improvement background task", () => {
     vi.useRealTimers();
   });
 
+  it("keeps Gateway background mutation disabled unless explicitly enabled", () => {
+    expect(isSelfImprovementBackgroundEnabled({})).toBe(false);
+    expect(isSelfImprovementBackgroundEnabled({ OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "" })).toBe(
+      false,
+    );
+    expect(
+      isSelfImprovementBackgroundEnabled({ OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "invalid" }),
+    ).toBe(false);
+    expect(isSelfImprovementBackgroundEnabled({ OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "1" })).toBe(
+      true,
+    );
+    expect(
+      isSelfImprovementBackgroundEnabled({ OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "true" }),
+    ).toBe(true);
+  });
+
+  it("backs off during quiet periods and accelerates for failures or new work", () => {
+    const hour = 60 * 60_000;
+    expect(
+      resolveAdaptiveSelfImprovementInterval({
+        baseIntervalMs: 6 * hour,
+        quietCycles: 0,
+        producedNewWork: true,
+        failed: false,
+      }),
+    ).toBe(hour);
+    expect(
+      resolveAdaptiveSelfImprovementInterval({
+        baseIntervalMs: 6 * hour,
+        quietCycles: 2,
+        producedNewWork: false,
+        failed: false,
+      }),
+    ).toBe(24 * hour);
+    expect(
+      resolveAdaptiveSelfImprovementInterval({
+        baseIntervalMs: 6 * hour,
+        quietCycles: 2,
+        producedNewWork: false,
+        failed: true,
+      }),
+    ).toBe(30 * 60_000);
+  });
+
+  it("wakes promptly for a trusted high-severity typed signal", async () => {
+    vi.useFakeTimers();
+    let diagnosticListener: Parameters<typeof onInternalDiagnosticEvent>[0] | undefined;
+    const triggers: string[] = [];
+    const signal: SelfImprovementSignal = {
+      id: "sis_wake",
+      version: 1,
+      idempotencyKey: "wake",
+      source: { component: "test-component" },
+      kind: "failure",
+      severity: "high",
+      summary: "A trusted failure needs prompt analysis.",
+      firstSeenAt: 1,
+      lastSeenAt: 1,
+      occurrences: 1,
+      evidenceRefs: [],
+      privacy: "internal",
+      trusted: true,
+    };
+    const task = startSelfImprovementGovernorBackgroundTask({
+      getRuntimeConfig: () => ({}),
+      intervalMs: 6 * 60 * 60_000,
+      initialDelayMs: 6 * 60 * 60_000,
+      signalWakeDelayMs: 100,
+      recordOperationalHealth: false,
+      subscribeDiagnosticEvents: (listener) => {
+        diagnosticListener = listener;
+        return () => {
+          diagnosticListener = undefined;
+        };
+      },
+      recordSignal: async () => ({ signal, created: true, duplicate: false, budgeted: false }),
+      runScan: async ({ trigger }) => {
+        triggers.push(trigger);
+        return { ...scanResult(), scan: { ...scanResult().scan, trigger } };
+      },
+      runAnalysis: async () => analysisResult(),
+    });
+
+    try {
+      diagnosticListener?.(
+        {
+          type: "improvement.signal",
+          seq: 1,
+          ts: 1,
+          version: 1,
+          idempotencyKey: "wake",
+          source: { component: "test-component" },
+          kind: "failure",
+          severity: "high",
+          summary: "A trusted failure needs prompt analysis.",
+          privacy: "internal",
+        },
+        { trusted: true, internal: true },
+      );
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(100);
+    } finally {
+      task.stop();
+    }
+
+    expect(triggers).toEqual(["signal"]);
+  });
+
   it("runs deterministic analysis after each successful background scan", async () => {
     const cfg = {} as OpenClawConfig;
     const events: string[] = [];
@@ -107,8 +222,7 @@ describe("self-improvement background task", () => {
     try {
       await task.runNow();
     } finally {
-      clearInterval(task.interval);
-      clearTimeout(task.initial);
+      task.stop();
     }
 
     expect(events).toEqual(["scan", "analysis"]);
@@ -145,8 +259,7 @@ describe("self-improvement background task", () => {
       release();
       await Promise.all([first, second]);
     } finally {
-      clearInterval(task.interval);
-      clearTimeout(task.initial);
+      task.stop();
     }
 
     expect(events).toEqual(["scan", "analysis"]);
@@ -176,8 +289,7 @@ describe("self-improvement background task", () => {
       expect(events).toEqual([]);
       await vi.advanceTimersByTimeAsync(60_000);
     } finally {
-      clearInterval(task.interval);
-      clearTimeout(task.initial);
+      task.stop();
     }
 
     expect(events).toEqual(["scan", "analysis"]);
@@ -205,8 +317,7 @@ describe("self-improvement background task", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await run;
     } finally {
-      clearInterval(task.interval);
-      clearTimeout(task.initial);
+      task.stop();
     }
 
     expect(errors[0]).toContain("timed out after 1000ms");
@@ -233,8 +344,7 @@ describe("self-improvement background task", () => {
     try {
       await task.runNow();
     } finally {
-      clearInterval(task.interval);
-      clearTimeout(task.initial);
+      task.stop();
     }
 
     expect(events).toEqual(["scan"]);

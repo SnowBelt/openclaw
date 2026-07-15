@@ -66,6 +66,17 @@ describe("lazy protocol validators", () => {
     expect(formatValidationErrors(validateCommandsListParams.errors)).toContain("must be boolean");
   });
 
+  it("keeps erased public SIG result types runtime-exact", () => {
+    expect(protocol.validateSelfImprovementProductionCheckResult({})).toBe(false);
+    expect(
+      formatValidationErrors(protocol.validateSelfImprovementProductionCheckResult.errors),
+    ).toContain("must have required");
+    expect(protocol.validateSelfImprovementDashboardInterventionResult({})).toBe(false);
+    expect(
+      formatValidationErrors(protocol.validateSelfImprovementDashboardInterventionResult.errors),
+    ).toContain("must have required");
+  });
+
   it("keeps validation errors readable on the exported validator", () => {
     expect(validateConnectParams({})).toBe(false);
     expect(formatValidationErrors(validateConnectParams.errors)).toContain("must have required");

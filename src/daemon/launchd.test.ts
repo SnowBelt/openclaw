@@ -1,6 +1,9 @@
 // Launchd tests cover macOS service plist generation and command handling.
+import fsSync from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteTestEnvValue, setTestEnvValue } from "../test-utils/env.js";
 import { GATEWAY_SERVICE_KIND, GATEWAY_SERVICE_MARKER } from "./constants.js";
 import {
@@ -70,6 +73,7 @@ const probePortUsage = vi.hoisted(() =>
 );
 const formatPortDiagnostics = vi.hoisted(() => vi.fn(() => ["Port 18789 is already in use."]));
 const defaultProgramArguments = ["node", "-e", "process.exit(0)"];
+const runtimeSnapshotTempDirs: string[] = [];
 
 function countMatching<T>(items: readonly T[], predicate: (item: T) => boolean): number {
   let count = 0;
@@ -86,6 +90,96 @@ function createDefaultLaunchdEnv(): Record<string, string | undefined> {
     HOME: "/Users/test",
     OPENCLAW_PROFILE: "default",
   };
+}
+
+function writeRuntimeSnapshotFixtureFile(filePath: string, content = "") {
+  fsSync.mkdirSync(path.dirname(filePath), { recursive: true });
+  fsSync.writeFileSync(filePath, content, "utf8");
+}
+
+function createRuntimeSnapshotFixture() {
+  const root = fsSync.mkdtempSync(path.join(os.tmpdir(), "openclaw-launchd-snapshot-"));
+  runtimeSnapshotTempDirs.push(root);
+  writeRuntimeSnapshotFixtureFile(path.join(root, ".git"), "gitdir: /tmp/fake.git\n");
+  writeRuntimeSnapshotFixtureFile(
+    path.join(root, "package.json"),
+    `${JSON.stringify({ name: "openclaw" })}\n`,
+  );
+  writeRuntimeSnapshotFixtureFile(path.join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n");
+  fsSync.mkdirSync(path.join(root, "src"), { recursive: true });
+  fsSync.mkdirSync(path.join(root, "extensions"), { recursive: true });
+  const currentEntrypoint = path.join(
+    root,
+    ".artifacts",
+    "openclaw-gateway-runtime",
+    "releases",
+    "release-old",
+    "dist",
+    "index.js",
+  );
+  const releaseRoot = path.join(
+    root,
+    ".artifacts",
+    "openclaw-gateway-runtime",
+    "releases",
+    "release-new",
+  );
+  writeRuntimeSnapshotFixtureFile(currentEntrypoint, "console.log('old');\n");
+  writeRuntimeSnapshotFixtureFile(
+    path.join(releaseRoot, "dist", "index.js"),
+    "console.log('new');\n",
+  );
+  writeRuntimeSnapshotFixtureFile(
+    path.join(releaseRoot, "dist", "entry.js"),
+    "console.log('new');\n",
+  );
+  writeRuntimeSnapshotFixtureFile(
+    path.join(releaseRoot, "dist", "control-ui", "index.html"),
+    "<!doctype html>\n",
+  );
+  writeRuntimeSnapshotFixtureFile(
+    path.join(releaseRoot, "dist-runtime", "extensions", "discord", "package.json"),
+    "{}\n",
+  );
+  writeRuntimeSnapshotFixtureFile(
+    path.join(root, ".artifacts", "openclaw-gateway-runtime", "latest.json"),
+    `${JSON.stringify({ version: 1, root: releaseRoot })}\n`,
+  );
+  return { currentEntrypoint, releaseRoot };
+}
+
+function createTestLaunchAgentPlist(params: {
+  label: string;
+  programArguments: string[];
+  environment?: Record<string, string>;
+}): string {
+  const argsXml = params.programArguments.map((arg) => `      <string>${arg}</string>`).join("\n");
+  const envXml = params.environment
+    ? [
+        "    <key>EnvironmentVariables</key>",
+        "    <dict>",
+        ...Object.entries(params.environment).flatMap(([key, value]) => [
+          `      <key>${key}</key>`,
+          `      <string>${value}</string>`,
+        ]),
+        "    </dict>",
+      ].join("\n")
+    : "";
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<plist version="1.0">',
+    "  <dict>",
+    "    <key>Label</key>",
+    `    <string>${params.label}</string>`,
+    "    <key>ProgramArguments</key>",
+    "    <array>",
+    argsXml,
+    "    </array>",
+    envXml,
+    "  </dict>",
+    "</plist>",
+    "",
+  ].join("\n");
 }
 
 async function withProcessEnv<T>(
@@ -371,6 +465,12 @@ beforeEach(() => {
     pid: 7331,
   });
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  for (const dir of runtimeSnapshotTempDirs.splice(0)) {
+    fsSync.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe("launchd runtime parsing", () => {
@@ -1551,6 +1651,43 @@ describe("launchd install", () => {
     ]);
     expect(launchctlCommandNames()).not.toContain("bootout");
     expect(launchctlCommandNames()).not.toContain("bootstrap");
+  });
+
+  it("reloads a source-checkout LaunchAgent onto the newest promoted runtime snapshot", async () => {
+    const env = {
+      ...createDefaultLaunchdEnv(),
+      OPENCLAW_GATEWAY_PORT: "18789",
+    };
+    const { currentEntrypoint, releaseRoot } = createRuntimeSnapshotFixture();
+    const plistPath = resolveLaunchAgentPlistPath(env);
+    state.files.set(
+      plistPath,
+      createTestLaunchAgentPlist({
+        label: "ai.openclaw.gateway",
+        programArguments: ["node", currentEntrypoint, "gateway", "--port", "18789"],
+        environment: {
+          OPENCLAW_RUNTIME_SNAPSHOT_ROOT: path.dirname(path.dirname(currentEntrypoint)),
+        },
+      }),
+    );
+
+    const result = await restartLaunchAgent({
+      env,
+      stdout: new PassThrough(),
+    });
+
+    const plist = state.files.get(plistPath) ?? "";
+    const envFile =
+      state.files.get("/Users/test/.openclaw/service-env/ai.openclaw.gateway.env") ?? "";
+    expect(result).toEqual({ outcome: "completed" });
+    expect(plist).toContain(path.join(releaseRoot, "dist", "index.js"));
+    expect(envFile).toContain(`OPENCLAW_RUNTIME_SNAPSHOT_ROOT='${releaseRoot}'`);
+    expect(envFile).toContain(
+      `OPENCLAW_BUNDLED_PLUGINS_DIR='${path.join(releaseRoot, "dist-runtime", "extensions")}'`,
+    );
+    expect(launchctlCommandNames()).toContain("bootout");
+    expect(launchctlCommandNames()).toContain("bootstrap");
+    expect(launchctlCommandNames()).not.toContain("kickstart");
   });
 
   it("reloads launchd after rewriting an existing plist", async () => {

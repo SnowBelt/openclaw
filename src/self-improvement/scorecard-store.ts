@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
-import { writeSelfImprovementJsonAtomically } from "./json-store.js";
+import {
+  withSelfImprovementStoreMutation,
+  writeSelfImprovementJsonAtomically,
+} from "./json-store.js";
+import { isSelfImprovementJsonToSqliteMigrationApplied } from "./ledger-migration.js";
+import { listSelfImprovementLedgerRows, replaceSelfImprovementLedgerRows } from "./ledger.js";
 import type {
   SelfImprovementDailyScorecard,
   SelfImprovementDailyScorecardStoreFile,
@@ -44,7 +49,22 @@ function normalizeStore(value: unknown): SelfImprovementDailyScorecardStoreFile 
   };
 }
 
-async function readStore(storePath: string): Promise<SelfImprovementDailyScorecardStoreFile> {
+async function readStore(
+  storePath: string,
+  stateDir?: string,
+): Promise<SelfImprovementDailyScorecardStoreFile> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    const rows = await listSelfImprovementLedgerRows<SelfImprovementDailyScorecard>({
+      collection: "scorecards",
+      stateDir,
+    });
+    return {
+      version: STORE_VERSION,
+      scorecards: rows
+        .map((row) => parseScorecard(row.value))
+        .filter((entry): entry is SelfImprovementDailyScorecard => Boolean(entry)),
+    };
+  }
   try {
     return normalizeStore(JSON.parse(await fs.readFile(storePath, "utf8")));
   } catch (error) {
@@ -58,7 +78,19 @@ async function readStore(storePath: string): Promise<SelfImprovementDailyScoreca
 async function writeStore(
   storePath: string,
   file: SelfImprovementDailyScorecardStoreFile,
+  stateDir?: string,
 ): Promise<void> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    await replaceSelfImprovementLedgerRows({
+      collection: "scorecards",
+      stateDir,
+      rows: file.scorecards,
+      id: (scorecard) => scorecard.id,
+      createdAt: (scorecard) => scorecard.createdAt,
+      updatedAt: (scorecard) => scorecard.createdAt,
+    });
+    return;
+  }
   await writeSelfImprovementJsonAtomically(storePath, file);
 }
 
@@ -80,15 +112,18 @@ export async function writeSelfImprovementDailyScorecardSnapshot(params: {
     createdAt: now,
     scorecard: structuredClone(params.scorecard),
   };
-  const storePath = params.storePath ?? resolveSelfImprovementScorecardStorePath(params.stateDir);
-  const file = await readStore(storePath);
-  const byDate = new Map(file.scorecards.map((entry) => [entry.dateKey, cloneScorecard(entry)]));
-  byDate.set(dateKey, snapshot);
-  const scorecards = [...byDate.values()]
-    .toSorted((left, right) => right.dateKey.localeCompare(left.dateKey))
-    .slice(0, MAX_SCORECARDS);
-  await writeStore(storePath, { version: STORE_VERSION, scorecards });
-  return cloneScorecard(snapshot);
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementScorecardStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const byDate = new Map(file.scorecards.map((entry) => [entry.dateKey, cloneScorecard(entry)]));
+    byDate.set(dateKey, snapshot);
+    const scorecards = [...byDate.values()]
+      .toSorted((left, right) => right.dateKey.localeCompare(left.dateKey))
+      .slice(0, MAX_SCORECARDS);
+    await writeStore(storePath, { version: STORE_VERSION, scorecards }, stateDir);
+    return cloneScorecard(snapshot);
+  });
 }
 
 export async function listSelfImprovementDailyScorecards(params?: {
@@ -97,8 +132,9 @@ export async function listSelfImprovementDailyScorecards(params?: {
   days?: number;
   limit?: number;
 }): Promise<SelfImprovementDailyScorecard[]> {
-  const storePath = params?.storePath ?? resolveSelfImprovementScorecardStorePath(params?.stateDir);
-  const file = await readStore(storePath);
+  const stateDir = params?.storePath ? undefined : (params?.stateDir ?? resolveStateDir());
+  const storePath = params?.storePath ?? resolveSelfImprovementScorecardStorePath(stateDir);
+  const file = await readStore(storePath, stateDir);
   const limit = params?.limit && params.limit > 0 ? params.limit : 30;
   const minDate =
     params?.days && params.days > 0

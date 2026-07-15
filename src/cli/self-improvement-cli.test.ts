@@ -81,6 +81,36 @@ describe("self-improvement-cli", () => {
     expect(runtimeLogs).toEqual(["Produced 2 recommendation(s), 2 open."]);
   });
 
+  it("records explicit dashboard intervention evidence", async () => {
+    callGatewayFromCli.mockResolvedValueOnce({
+      recommendation: { id: "sir_dashboard" },
+      auditEventId: "sie_dashboard",
+    });
+    await runCli([
+      "self-improvement",
+      "record-dashboard-intervention",
+      "--title",
+      "Stale dashboard",
+      "--issue",
+      "Status was stale.",
+      "--correction",
+      "Operator refreshed and verified live status.",
+      "--evidence",
+      "operator-session,route-check",
+    ]);
+    expect(callGatewayFromCli).toHaveBeenCalledWith(
+      "selfImprovement.dashboardInterventions.record",
+      expect.any(Object),
+      {
+        title: "Stale dashboard",
+        issue: "Status was stale.",
+        correctiveIntervention: "Operator refreshed and verified live status.",
+        evidence: ["operator-session", "route-check"],
+      },
+      { expectFinal: false },
+    );
+  });
+
   it("routes summary to the summary RPC", async () => {
     callGatewayFromCli.mockResolvedValueOnce({
       scorecard: {
@@ -312,6 +342,11 @@ describe("self-improvement-cli", () => {
       status: "blocked",
       ready: false,
       score: 40,
+      portfolioStatus: "degraded",
+      portfolioReady: false,
+      portfolioScore: 62,
+      portfolioBlockers: ["One downstream group needs an owner."],
+      portfolioNextActions: ["Assign the downstream owner."],
       blockers: ["Model readiness proof is required."],
       warnings: ["No retention maintenance audit event is recorded yet."],
       evidence: [
@@ -350,7 +385,10 @@ describe("self-improvement-cli", () => {
       { expectFinal: false },
     );
     expect(runtimeLogs[0]).toContain("Production check blocked");
+    expect(runtimeLogs[0]).toContain("effectiveness 40");
+    expect(runtimeLogs[0]).toContain("portfolio degraded 62");
     expect(runtimeLogs[1]).toContain("Model readiness proof");
+    expect(runtimeLogs).toContain("Portfolio: One downstream group needs an owner.");
     expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
   });
 
@@ -407,6 +445,104 @@ describe("self-improvement-cli", () => {
     expect(runtimeLogs.join("\n")).toContain("Audit event: sie_maintenance");
   });
 
+  it("lists and records bounded outcome proof receipts", async () => {
+    callGatewayFromCli.mockResolvedValueOnce({
+      receipts: [
+        {
+          id: "sipr_1",
+          status: "passed",
+          recommendationId: "sir_1",
+          metric: { name: "first_pass_rate", observed: "0.95", target: ">=0.93" },
+          holdout: { required: true, passed: true },
+        },
+      ],
+      total: 1,
+    });
+    await runCli([
+      "self-improvement",
+      "proof-receipts",
+      "list",
+      "--recommendation-id",
+      "sir_1",
+      "--limit",
+      "5",
+    ]);
+    expect(callGatewayFromCli).toHaveBeenLastCalledWith(
+      "selfImprovement.proofReceipts.list",
+      expect.any(Object),
+      { recommendationId: "sir_1", limit: 5 },
+      { expectFinal: false },
+    );
+    expect(runtimeLogs[0]).toContain("sipr_1  passed  sir_1");
+
+    callGatewayFromCli.mockResolvedValueOnce({
+      receipt: {
+        id: "sipr_2",
+        recommendationId: "sir_1",
+        status: "passed",
+        outcomeConfirmed: true,
+      },
+    });
+    resetRuntimeCapture();
+    await runCli([
+      "self-improvement",
+      "proof-receipts",
+      "record",
+      "sir_1",
+      "--signal-id",
+      "sis_1",
+      "--diagnosis",
+      "Repeated lookup caused first-pass misses.",
+      "--action",
+      "Carry the prepared route.",
+      "--metric-name",
+      "first_pass_rate",
+      "--baseline",
+      "0.80",
+      "--target",
+      ">=0.93",
+      "--observed",
+      "0.95",
+      "--unit",
+      "ratio",
+      "--metric-result",
+      "passed",
+      "--started-at",
+      "1000",
+      "--ended-at",
+      "7000",
+      "--minimum-duration-ms",
+      "5000",
+      "--holdout-result",
+      "passed",
+      "--evidence",
+      "work/proof.json,audit:sie_1",
+    ]);
+    expect(callGatewayFromCli).toHaveBeenLastCalledWith(
+      "selfImprovement.proofReceipts.record",
+      expect.any(Object),
+      {
+        recommendationId: "sir_1",
+        signalId: "sis_1",
+        diagnosis: "Repeated lookup caused first-pass misses.",
+        action: "Carry the prepared route.",
+        metric: {
+          name: "first_pass_rate",
+          baseline: "0.80",
+          target: ">=0.93",
+          observed: "0.95",
+          unit: "ratio",
+          passed: true,
+        },
+        observation: { startedAt: 1000, endedAt: 7000, minimumDurationMs: 5000 },
+        holdout: { required: true, passed: true },
+        evidenceRefs: ["work/proof.json", "audit:sie_1"],
+      },
+      { expectFinal: false },
+    );
+    expect(runtimeLogs[0]).toContain("Recorded outcome proof sipr_2");
+  });
+
   it("routes audit event filters to the audit ledger RPC", async () => {
     callGatewayFromCli.mockResolvedValueOnce({
       events: [
@@ -454,13 +590,13 @@ describe("self-improvement-cli", () => {
     await runCli(["self-improvement", "models", "template"]);
 
     expect(callGatewayFromCli).not.toHaveBeenCalled();
-    expect(runtimeLogs[0]).toContain("ollama/qwen3.6:27b-q8_0");
-    expect(runtimeLogs.join("\n")).toContain("ollama/qwen3.6:27b-q8_0");
+    expect(runtimeLogs[0]).toContain("ollama/openclaw-control-gemma4-31b-q8:latest");
+    expect(runtimeLogs.join("\n")).toContain("31B, Q8_0");
     expect(runtimeLogs.join("\n")).toContain("ollama/openclaw-control-qwen3-30b-q6-chatfix:latest");
     expect(runtimeLogs.join("\n")).toContain("ollama/openclaw-strategic-qwen3-235b:latest");
     expect(runtimeLogs.join("\n")).toContain("kimi-local/moonshotai/Kimi-K2.6");
     expect(runtimeLogs.join("\n")).toContain(
-      "openclaw infer model run --model ollama/qwen3.6:27b-q8_0",
+      "openclaw infer model run --model ollama/openclaw-control-gemma4-31b-q8:latest",
     );
     expect(runtimeLogs.join("\n")).toContain(
       "Config patch: not required for the default local-only policy.",

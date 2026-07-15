@@ -443,11 +443,15 @@ export type DiagnosticToolParamsSummary =
   | { kind: "number" | "boolean" | "null" | "undefined" | "other" };
 
 export type DiagnosticToolSource = "channel" | "core" | "mcp" | "plugin";
+export type DiagnosticToolTerminalReason = "failed" | "cancelled" | "timed_out";
 
 type DiagnosticToolExecutionBaseEvent = DiagnosticBaseEvent & {
   runId?: string;
   sessionKey?: string;
   sessionId?: string;
+  agentId?: string;
+  /** Authoritative lifecycle time from the tool runtime, when it exposes one. */
+  sourceTimestampMs?: number;
   toolName: string;
   toolSource?: DiagnosticToolSource;
   toolOwner?: string;
@@ -469,6 +473,7 @@ export type DiagnosticToolExecutionErrorEvent = DiagnosticToolExecutionBaseEvent
   durationMs: number;
   errorCategory: string;
   errorCode?: string;
+  terminalReason?: DiagnosticToolTerminalReason;
 };
 
 export type DiagnosticToolExecutionBlockedEvent = DiagnosticToolExecutionBaseEvent & {
@@ -712,6 +717,56 @@ export type DiagnosticAsyncQueueDroppedEvent = DiagnosticBaseEvent & {
   drainBatchSize: number;
 };
 
+export type DiagnosticImprovementSignalSeverity = "info" | "low" | "medium" | "high" | "critical";
+
+export type DiagnosticImprovementSignalKind =
+  | "failure"
+  | "blocked"
+  | "degraded"
+  | "regression"
+  | "correction"
+  | "inefficiency"
+  | "verification_gap"
+  | "outcome"
+  | "capability"
+  | "security";
+
+export type DiagnosticImprovementSignalEvent = DiagnosticBaseEvent & {
+  type: "improvement.signal";
+  version: 1;
+  idempotencyKey: string;
+  source: {
+    component: string;
+    subsystem?: string;
+    version?: string;
+    owner?: string;
+  };
+  kind: DiagnosticImprovementSignalKind;
+  severity: DiagnosticImprovementSignalSeverity;
+  summary: string;
+  occurredAt?: number;
+  runId?: string;
+  taskId?: string;
+  errorCode?: string;
+  expected?: string;
+  observed?: string;
+  evidenceRefs?: string[];
+  privacy: "internal" | "sensitive";
+  desiredState?: {
+    owner: string;
+    expectedOutcome: string;
+    sloMs?: number;
+    rollback?: string;
+    retentionDays?: number;
+  };
+  capabilityRouting?: {
+    considered?: string[];
+    selected?: string[];
+    missed?: string[];
+    fallback?: string[];
+  };
+};
+
 export type DiagnosticEventPayload =
   | DiagnosticUsageEvent
   | DiagnosticWebhookReceivedEvent
@@ -763,6 +818,7 @@ export type DiagnosticEventPayload =
   | DiagnosticSecurityEvent
   | DiagnosticTelemetryExporterEvent
   | DiagnosticAsyncQueueDroppedEvent
+  | DiagnosticImprovementSignalEvent
   | DiagnosticFailoverEvent;
 
 type DiagnosticNonSecurityEventPayload = Exclude<DiagnosticEventPayload, DiagnosticSecurityEvent>;
@@ -853,11 +909,13 @@ const ASYNC_DIAGNOSTIC_EVENT_TYPES = new Set<DiagnosticEventPayload["type"]>([
   "harness.run.error",
   "context.assembled",
   "log.record",
+  "improvement.signal",
 ]);
 const PRIORITY_ASYNC_DIAGNOSTIC_EVENT_TYPES = new Set<DiagnosticEventPayload["type"]>([
   "tool.execution.completed",
   "tool.execution.error",
   "tool.execution.blocked",
+  "improvement.signal",
 ]);
 
 function createDiagnosticEventsState(): DiagnosticEventsGlobalState {

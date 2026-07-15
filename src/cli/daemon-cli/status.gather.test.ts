@@ -271,6 +271,7 @@ describe("gatherDaemonStatus", () => {
     findStaleOpenClawUpdateLaunchdJobs.mockResolvedValue([]);
     loadInstalledPluginIndexInstallRecords.mockClear();
     loadInstalledPluginIndexInstallRecords.mockResolvedValue({});
+    auditGatewayServiceConfig.mockClear();
     loadGatewayTlsRuntime.mockClear();
     inspectGatewayRestart.mockClear();
     inspectPortConnections.mockClear();
@@ -498,6 +499,44 @@ describe("gatherDaemonStatus", () => {
     ).toBe(true);
     expect(status.service.runtime?.status).toBe("running");
     expect((status.service.runtime as { detail?: string }).detail).toBe("19001");
+  });
+
+  it("audits wrapper-managed services against the configured wrapper command", async () => {
+    const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-status-wrapper-"));
+    const wrapperPath = path.join(temporaryDirectory, "wrapper.sh");
+    await fs.writeFile(wrapperPath, '#!/bin/sh\nexec "$@"\n', { mode: 0o700 });
+    serviceReadCommand.mockResolvedValueOnce({
+      programArguments: [wrapperPath, "gateway", "--port", "19001"],
+      environment: {
+        OPENCLAW_WRAPPER: wrapperPath,
+        OPENCLAW_GATEWAY_PORT: "19001",
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-daemon/openclaw.json",
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-daemon",
+        PATH: "/usr/bin:/bin",
+      },
+    });
+
+    try {
+      await gatherDaemonStatus({
+        rpc: {},
+        probe: false,
+        deep: false,
+      });
+
+      const auditInput = callArg(auditGatewayServiceConfig) as {
+        expectedEntrypoint?: string;
+        command?: { programArguments?: string[] };
+      };
+      expect(auditInput.expectedEntrypoint).toBeUndefined();
+      expect(auditInput.command?.programArguments).toEqual([
+        wrapperPath,
+        "gateway",
+        "--port",
+        "19001",
+      ]);
+    } finally {
+      await fs.rm(temporaryDirectory, { recursive: true, force: true });
+    }
   });
 
   it("keeps gateway status read-only when service management is unsupported", async () => {

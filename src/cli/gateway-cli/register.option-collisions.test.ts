@@ -9,6 +9,38 @@ const mocks = vi.hoisted(() => ({
   })),
   emitReachableGatewayAuthDiagnostic: vi.fn(async (_params: unknown) => false),
   gatewayStatusCommand: vi.fn(async (_opts: unknown, _runtime: unknown) => {}),
+  getGatewayRuntimeSnapshotStatus: vi.fn(() => ({
+    snapshotDir: "/repo/.artifacts/openclaw-gateway-runtime",
+    latestPath: "/repo/.artifacts/openclaw-gateway-runtime/latest.json",
+    latestReleaseId: "release-current",
+    latestRoot: "/repo/.artifacts/openclaw-gateway-runtime/releases/release-current",
+    protectedRoots: [],
+    releaseCount: 1,
+    totalBytes: 1024,
+    releases: [
+      {
+        releaseId: "release-current",
+        root: "/repo/.artifacts/openclaw-gateway-runtime/releases/release-current",
+        createdAtMs: 1,
+        sizeBytes: 1024,
+        latest: true,
+        protected: true,
+        usable: true,
+        active: true,
+      },
+    ],
+  })),
+  pruneGatewayRuntimeSnapshots: vi.fn(() => ({
+    keepCount: 3,
+    pruned: [{ releaseId: "release-old", root: "/repo/release-old" }],
+    retained: [{ releaseId: "release-current", root: "/repo/release-current", protected: true }],
+  })),
+  rollbackGatewayRuntimeSnapshot: vi.fn((params: { releaseId: string }) => ({
+    rolledBack: true as const,
+    releaseId: params.releaseId,
+    releaseRoot: `/repo/${params.releaseId}`,
+    latestPath: "/repo/latest.json",
+  })),
   defaultRuntime: {
     log: vi.fn(),
     error: vi.fn(),
@@ -74,6 +106,12 @@ vi.mock("../../commands/health.js", () => ({
   emitReachableGatewayAuthDiagnostic: (params: unknown) =>
     mocks.emitReachableGatewayAuthDiagnostic(params),
   formatHealthChannelLines: () => [],
+}));
+
+vi.mock("../../daemon/gateway-runtime-snapshot.js", () => ({
+  getGatewayRuntimeSnapshotStatus: mocks.getGatewayRuntimeSnapshotStatus,
+  pruneGatewayRuntimeSnapshots: mocks.pruneGatewayRuntimeSnapshots,
+  rollbackGatewayRuntimeSnapshot: mocks.rollbackGatewayRuntimeSnapshot,
 }));
 
 vi.mock("../../config/read-best-effort-config.runtime.js", () => ({
@@ -153,6 +191,9 @@ describe("gateway register option collisions", () => {
     defaultRuntime.writeStdout.mockClear();
     defaultRuntime.writeJson.mockClear();
     defaultRuntime.exit.mockClear();
+    mocks.getGatewayRuntimeSnapshotStatus.mockClear();
+    mocks.pruneGatewayRuntimeSnapshots.mockClear();
+    mocks.rollbackGatewayRuntimeSnapshot.mockClear();
   });
 
   it.each([
@@ -275,6 +316,54 @@ describe("gateway register option collisions", () => {
       password: undefined,
       localPortOverride: 19081,
       json: true,
+    });
+  });
+
+  it("supports read-only snapshot status and requires --apply for mutations", async () => {
+    await sharedProgram.parseAsync(["gateway", "snapshot", "status", "--json"], {
+      from: "user",
+    });
+    expect(mocks.getGatewayRuntimeSnapshotStatus).toHaveBeenCalledWith({
+      includeSize: true,
+      env: process.env,
+    });
+    expect(defaultRuntime.writeJson).toHaveBeenCalledWith(
+      expect.objectContaining({ latestReleaseId: "release-current" }),
+    );
+
+    await sharedProgram.parseAsync(["gateway", "snapshot", "prune", "--keep", "3", "--json"], {
+      from: "user",
+    });
+    expect(mocks.pruneGatewayRuntimeSnapshots).not.toHaveBeenCalled();
+    expect(defaultRuntime.writeJson).toHaveBeenLastCalledWith(
+      expect.objectContaining({ applied: false, keepCount: 3 }),
+    );
+
+    await sharedProgram.parseAsync(["gateway", "snapshot", "rollback", "release-old", "--json"], {
+      from: "user",
+    });
+    expect(mocks.rollbackGatewayRuntimeSnapshot).not.toHaveBeenCalled();
+    expect(defaultRuntime.writeJson).toHaveBeenLastCalledWith(
+      expect.objectContaining({ applied: false, releaseId: "release-old" }),
+    );
+  });
+
+  it("applies explicitly requested snapshot pruning and rollback", async () => {
+    await sharedProgram.parseAsync(
+      ["gateway", "snapshot", "prune", "--keep", "3", "--apply", "--json"],
+      { from: "user" },
+    );
+    expect(mocks.pruneGatewayRuntimeSnapshots).toHaveBeenCalledWith({
+      env: process.env,
+      keepCount: 3,
+    });
+
+    await sharedProgram.parseAsync(
+      ["gateway", "snapshot", "rollback", "release-old", "--apply", "--json"],
+      { from: "user" },
+    );
+    expect(mocks.rollbackGatewayRuntimeSnapshot).toHaveBeenCalledWith({
+      releaseId: "release-old",
     });
   });
 });

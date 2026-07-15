@@ -9,6 +9,8 @@ import {
 } from "../tasks/runtime-internal.js";
 import type { TaskRecord } from "../tasks/task-registry.types.js";
 import { auditSelfImprovementOpportunities } from "./auditor.js";
+import { replaySelfImprovementOutbox } from "./outbox.js";
+import { listSelfImprovementSignals } from "./signals.js";
 import {
   listSelfImprovementRecommendations,
   upsertSelfImprovementRecommendations,
@@ -59,11 +61,13 @@ export async function runSelfImprovementGovernorScan(params: {
         });
   try {
     const cronJobs = params.cronJobs ?? (params.listCronJobs ? await params.listCronJobs() : []);
+    const signals = await listSelfImprovementSignals({ stateDir });
     const audit = await auditSelfImprovementOpportunities({
       cfg: params.cfg,
       stateDir,
       tasks: filterSelfImprovementSystemTasks(params.tasks ?? listTaskRecords()),
       cronJobs,
+      signals,
       now,
     });
     const upsert = await upsertSelfImprovementRecommendations({
@@ -73,6 +77,17 @@ export async function runSelfImprovementGovernorScan(params: {
     const open = upsert.recommendations.filter((entry) =>
       isActiveSelfImprovementStatus(entry.status),
     ).length;
+    const signalIds = new Set(signals.map((signal) => signal.id));
+    await replaySelfImprovementOutbox({
+      stateDir,
+      kind: "signal_analysis",
+      now,
+      handler: async (item) => {
+        if (!signalIds.has(item.entityId)) {
+          throw new Error(`Signal ${item.entityId} is unavailable for analysis.`);
+        }
+      },
+    });
     const result: SelfImprovementScanResult = {
       scan: {
         scannedAt: now,

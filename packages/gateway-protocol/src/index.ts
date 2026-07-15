@@ -557,9 +557,7 @@ import {
   type WizardStep,
   WizardStepSchema,
 } from "./schema.js";
-import * as SelfImprovement from "./schema/self-improvement.js";
-
-export * from "./schema/self-improvement.js";
+import * as SelfImprovementProtocol from "./schema/self-improvement.js";
 
 /** Normalized validation error shape exposed by every protocol validator. */
 export type ValidationError = {
@@ -574,6 +572,8 @@ export type ValidationError = {
   /** Human-readable validation message. */
   message?: string;
 };
+
+export * from "./schema/self-improvement.js";
 
 /** Runtime validator shape shared by gateway clients and server handlers. */
 export type ProtocolValidator<T = unknown> = ((data: unknown) => data is T) & {
@@ -621,9 +621,160 @@ function lazyCompile<T = unknown>(schema: unknown): ProtocolValidator<T> {
   return validate;
 }
 
+function asPublicResultValidator<T>(validator: ProtocolValidator<T>): ProtocolValidator {
+  return validator as ProtocolValidator;
+}
+
 // Public per-method validators. Names intentionally mirror the exported schema
 // constants so call sites can pair validation with the wire contract directly.
 export const validateCommandsListParams = lazyCompile<CommandsListParams>(CommandsListParamsSchema);
+export const validateSelfImprovementScanParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementScanParams>(
+    SelfImprovementProtocol.SelfImprovementScanParamsSchema,
+  );
+export const validateSelfImprovementScorecardParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementScorecardParams>(
+    SelfImprovementProtocol.SelfImprovementScorecardParamsSchema,
+  );
+export const validateSelfImprovementHealthParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementHealthParams>(
+    SelfImprovementProtocol.SelfImprovementHealthParamsSchema,
+  );
+export const validateSelfImprovementProductionCheckParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProductionCheckParams>(
+    SelfImprovementProtocol.SelfImprovementProductionCheckParamsSchema,
+  );
+export const validateSelfImprovementProductionCheckResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProductionCheckResult>(
+    SelfImprovementProtocol.SelfImprovementProductionCheckResultSchema,
+  ),
+);
+export const validateSelfImprovementMaintenanceRunParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementMaintenanceRunParams>(
+    SelfImprovementProtocol.SelfImprovementMaintenanceRunParamsSchema,
+  );
+export const validateSelfImprovementMaintenanceResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementMaintenanceResult>(
+    SelfImprovementProtocol.SelfImprovementMaintenanceResultSchema,
+  ),
+);
+export const validateSelfImprovementDashboardInterventionParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementDashboardInterventionParams>(
+    SelfImprovementProtocol.SelfImprovementDashboardInterventionParamsSchema,
+  );
+export const validateSelfImprovementDashboardInterventionResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementDashboardInterventionResult>(
+    SelfImprovementProtocol.SelfImprovementDashboardInterventionResultSchema,
+  ),
+);
+export const validateSelfImprovementProofReceiptsListParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProofReceiptsListParams>(
+    SelfImprovementProtocol.SelfImprovementProofReceiptsListParamsSchema,
+  );
+export const validateSelfImprovementProofReceiptsListResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProofReceiptsListResult>(
+    SelfImprovementProtocol.SelfImprovementProofReceiptsListResultSchema,
+  ),
+);
+export const validateSelfImprovementProofReceiptRecordParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProofReceiptRecordParams>(
+    SelfImprovementProtocol.SelfImprovementProofReceiptRecordParamsSchema,
+  );
+export const validateSelfImprovementProofReceiptRecordResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProofReceiptRecordResult>(
+    SelfImprovementProtocol.SelfImprovementProofReceiptRecordResultSchema,
+  ),
+);
+export const validateSelfImprovementOperationalHealthResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementOperationalHealthResult>(
+    SelfImprovementProtocol.SelfImprovementOperationalHealthResultSchema,
+  ),
+);
+export const validateSelfImprovementAnalysisRunParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementAnalysisRunParams>(
+    SelfImprovementProtocol.SelfImprovementAnalysisRunParamsSchema,
+  );
+export const validateSelfImprovementAnalysisRunResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementAnalysisRunResult>(
+    SelfImprovementProtocol.SelfImprovementAnalysisRunResultSchema,
+  ),
+);
+export const validateSelfImprovementAuditEventsListParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementAuditEventsListParams>(
+    SelfImprovementProtocol.SelfImprovementAuditEventsListParamsSchema,
+  );
+export const validateSelfImprovementAuditEventsListResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementAuditEventsListResult>(
+    SelfImprovementProtocol.SelfImprovementAuditEventsListResultSchema,
+  ),
+);
+export const validateSelfImprovementModelPreflightParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementModelPreflightParams>(
+    SelfImprovementProtocol.SelfImprovementModelPreflightParamsSchema,
+  );
+export const validateSelfImprovementModelPreflightResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementModelPreflightResult>(
+    SelfImprovementProtocol.SelfImprovementModelPreflightResultSchema,
+  ),
+);
+export const validateSelfImprovementReviewerEvalRunParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementReviewerEvalRunParams>(
+    SelfImprovementProtocol.SelfImprovementReviewerEvalRunParamsSchema,
+  );
+export const validateSelfImprovementReviewerEvalRunResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementReviewerEvalRunResult>(
+    SelfImprovementProtocol.SelfImprovementReviewerEvalRunResultSchema,
+  ),
+);
+export const validateSelfImprovementRecommendationsListParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementRecommendationsListParams>(
+    SelfImprovementProtocol.SelfImprovementRecommendationsListParamsSchema,
+  );
+export const validateSelfImprovementRecommendationsSummaryParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementRecommendationsSummaryParams>(
+    SelfImprovementProtocol.SelfImprovementRecommendationsSummaryParamsSchema,
+  );
+export const validateSelfImprovementRecommendationsSummaryResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.SelfImprovementRecommendationsSummaryResult>(
+    SelfImprovementProtocol.SelfImprovementRecommendationsSummaryResultSchema,
+  ),
+);
+export const validateSelfImprovementRecommendationsGetParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementRecommendationsGetParams>(
+    SelfImprovementProtocol.SelfImprovementRecommendationsGetParamsSchema,
+  );
+export const validateSelfImprovementRecommendationsUpdateParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementRecommendationsUpdateParams>(
+    SelfImprovementProtocol.SelfImprovementRecommendationsUpdateParamsSchema,
+  );
+export const validateSelfImprovementGroupsUpdateParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementGroupsUpdateParams>(
+    SelfImprovementProtocol.SelfImprovementGroupsUpdateParamsSchema,
+  );
+export const validateSelfImprovementProposalsListParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProposalsListParams>(
+    SelfImprovementProtocol.SelfImprovementProposalsListParamsSchema,
+  );
+export const validateSelfImprovementProposalsGetParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProposalsGetParams>(
+    SelfImprovementProtocol.SelfImprovementProposalsGetParamsSchema,
+  );
+export const validateSelfImprovementProposalsUpdateParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementProposalsUpdateParams>(
+    SelfImprovementProtocol.SelfImprovementProposalsUpdateParamsSchema,
+  );
+export const validateSelfImprovementCuratorListParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementCuratorListParams>(
+    SelfImprovementProtocol.SelfImprovementCuratorListParamsSchema,
+  );
+export const validateSelfImprovementCuratorGetParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementCuratorGetParams>(
+    SelfImprovementProtocol.SelfImprovementCuratorGetParamsSchema,
+  );
+export const validateSelfImprovementCuratorUpdateParams =
+  lazyCompile<SelfImprovementProtocol.SelfImprovementCuratorUpdateParams>(
+    SelfImprovementProtocol.SelfImprovementCuratorUpdateParamsSchema,
+  );
 export const validateConnectParams = lazyCompile<ConnectParams>(ConnectParamsSchema);
 export const validateRequestFrame = lazyCompile<RequestFrame>(RequestFrameSchema);
 export const validateResponseFrame = lazyCompile<ResponseFrame>(ResponseFrameSchema);
@@ -821,87 +972,6 @@ export const validatePccLastKnownGoodUpsertParams = lazyCompile<PccLastKnownGood
 );
 export const validatePccSummaryGetParams =
   lazyCompile<PccSummaryGetParams>(PccSummaryGetParamsSchema);
-
-export const validateSelfImprovementAuditEventsListParams =
-  lazyCompile<SelfImprovement.SelfImprovementAuditEventsListParams>(
-    SelfImprovement.SelfImprovementAuditEventsListParamsSchema,
-  );
-export const validateSelfImprovementScanParams =
-  lazyCompile<SelfImprovement.SelfImprovementScanParams>(
-    SelfImprovement.SelfImprovementScanParamsSchema,
-  );
-export const validateSelfImprovementScorecardParams =
-  lazyCompile<SelfImprovement.SelfImprovementScorecardParams>(
-    SelfImprovement.SelfImprovementScorecardParamsSchema,
-  );
-export const validateSelfImprovementHealthParams =
-  lazyCompile<SelfImprovement.SelfImprovementHealthParams>(
-    SelfImprovement.SelfImprovementHealthParamsSchema,
-  );
-export const validateSelfImprovementProductionCheckParams =
-  lazyCompile<SelfImprovement.SelfImprovementProductionCheckParams>(
-    SelfImprovement.SelfImprovementProductionCheckParamsSchema,
-  );
-export const validateSelfImprovementMaintenanceRunParams =
-  lazyCompile<SelfImprovement.SelfImprovementMaintenanceRunParams>(
-    SelfImprovement.SelfImprovementMaintenanceRunParamsSchema,
-  );
-export const validateSelfImprovementAnalysisRunParams =
-  lazyCompile<SelfImprovement.SelfImprovementAnalysisRunParams>(
-    SelfImprovement.SelfImprovementAnalysisRunParamsSchema,
-  );
-export const validateSelfImprovementModelPreflightParams =
-  lazyCompile<SelfImprovement.SelfImprovementModelPreflightParams>(
-    SelfImprovement.SelfImprovementModelPreflightParamsSchema,
-  );
-export const validateSelfImprovementReviewerEvalRunParams =
-  lazyCompile<SelfImprovement.SelfImprovementReviewerEvalRunParams>(
-    SelfImprovement.SelfImprovementReviewerEvalRunParamsSchema,
-  );
-export const validateSelfImprovementRecommendationsListParams =
-  lazyCompile<SelfImprovement.SelfImprovementRecommendationsListParams>(
-    SelfImprovement.SelfImprovementRecommendationsListParamsSchema,
-  );
-export const validateSelfImprovementRecommendationsSummaryParams =
-  lazyCompile<SelfImprovement.SelfImprovementRecommendationsSummaryParams>(
-    SelfImprovement.SelfImprovementRecommendationsSummaryParamsSchema,
-  );
-export const validateSelfImprovementRecommendationsGetParams =
-  lazyCompile<SelfImprovement.SelfImprovementRecommendationsGetParams>(
-    SelfImprovement.SelfImprovementRecommendationsGetParamsSchema,
-  );
-export const validateSelfImprovementRecommendationsUpdateParams =
-  lazyCompile<SelfImprovement.SelfImprovementRecommendationsUpdateParams>(
-    SelfImprovement.SelfImprovementRecommendationsUpdateParamsSchema,
-  );
-export const validateSelfImprovementGroupsUpdateParams =
-  lazyCompile<SelfImprovement.SelfImprovementGroupsUpdateParams>(
-    SelfImprovement.SelfImprovementGroupsUpdateParamsSchema,
-  );
-export const validateSelfImprovementProposalsListParams =
-  lazyCompile<SelfImprovement.SelfImprovementProposalsListParams>(
-    SelfImprovement.SelfImprovementProposalsListParamsSchema,
-  );
-export const validateSelfImprovementProposalsGetParams =
-  lazyCompile<SelfImprovement.SelfImprovementProposalsGetParams>(
-    SelfImprovement.SelfImprovementProposalsGetParamsSchema,
-  );
-export const validateSelfImprovementProposalsUpdateParams =
-  lazyCompile<SelfImprovement.SelfImprovementProposalsUpdateParams>(
-    SelfImprovement.SelfImprovementProposalsUpdateParamsSchema,
-  );
-export const validateSelfImprovementCuratorListParams =
-  lazyCompile<SelfImprovement.SelfImprovementCuratorListParams>(
-    SelfImprovement.SelfImprovementCuratorListParamsSchema,
-  );
-export const validateSelfImprovementCuratorGetParams =
-  lazyCompile<SelfImprovement.SelfImprovementCuratorGetParams>(
-    SelfImprovement.SelfImprovementCuratorGetParamsSchema,
-  );
-export const validateSelfImprovementCuratorUpdateParams =
-  lazyCompile<SelfImprovement.SelfImprovementCuratorUpdateParams>(
-    SelfImprovement.SelfImprovementCuratorUpdateParamsSchema,
-  );
 
 export const validateConfigGetParams = lazyCompile<ConfigGetParams>(ConfigGetParamsSchema);
 export const validateConfigSetParams = lazyCompile<ConfigSetParams>(ConfigSetParamsSchema);

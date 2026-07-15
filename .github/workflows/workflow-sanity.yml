@@ -2072,7 +2072,7 @@ jobs:
 
   pcc-operational-excellence-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.pcc-project-agnostic-proof == 'true'
-    name: PCC Operational Excellence V1 proof
+    name: PCC Operational Excellence + Self-Improvement Governor proof
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -2102,7 +2102,7 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF_COMMANDS'
           commands:
-          - pnpm test src/agents/model-fallback.test.ts src/agents/model-routing-policy.test.ts src/agents/model-spend-budget.test.ts src/config/schema.test.ts src/gateway/server-methods/models.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-model-catalog.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server.sessions.create.test.ts src/gateway/session-utils.subagent.test.ts src/gateway/sessions-patch.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/capability-contract.test.ts src/pcc/capability-evidence.test.ts src/pcc/capability-standards.test.ts src/pcc/custom-runtime-capabilities.test.ts src/pcc/operational-excellence-roadmap.test.ts src/pcc/operational-metrics.test.ts src/pcc/project-action.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-stage-promote.test.ts ui/src/ui/chat-model-select-state.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts
+          - pnpm test src/agents/model-fallback.test.ts src/agents/model-routing-policy.test.ts src/agents/model-spend-budget.test.ts src/config/schema.test.ts src/gateway/server-methods/models.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-methods/self-improvement.test.ts src/gateway/server-maintenance.test.ts src/gateway/server-model-catalog.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server.sessions.create.test.ts src/gateway/session-utils.subagent.test.ts src/gateway/sessions-patch.test.ts src/infra/self-improvement-admission.test.ts src/logging/diagnostic-stability.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/capability-contract.test.ts src/pcc/capability-evidence.test.ts src/pcc/capability-standards.test.ts src/pcc/custom-runtime-capabilities.test.ts src/pcc/operational-excellence-roadmap.test.ts src/pcc/operational-metrics.test.ts src/pcc/project-action.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts src/self-improvement test/scripts/build-all.test.ts test/scripts/control-ui-self-improvement-smoke.test.ts test/scripts/control-ui-smoke-url.test.ts test/scripts/custom-runtime-copy-stage-state.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-lifecycle.test.ts test/scripts/custom-runtime-stage-promote.test.ts test/scripts/promote-gateway-runtime-snapshot.test.ts test/scripts/self-improvement-production-soak.test.ts ui/src/ui/chat-model-select-state.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/controllers/self-improvement.test.ts ui/src/ui/views/agents.test.ts ui/src/ui/views/pcc.test.ts
           - pnpm tsgo:all
           - pnpm tsgo:test:ui
           - pnpm build
@@ -2112,6 +2112,7 @@ jobs:
           - pnpm ui:smoke:chat-projects
           - pnpm ui:smoke:pcc-mobile
           - pnpm ui:smoke:dashboard-codex-plus-apps
+          - pnpm ui:smoke:self-improvement
           - pnpm check:workflows
           - pnpm check:changed -- $(git diff --name-only 4f9a4672b645a57f62fa04ce7339253dd4e5fa38...HEAD)
           EOF_COMMANDS
@@ -2125,11 +2126,15 @@ jobs:
           src/config/schema.test.ts
           src/gateway/server-methods/models.test.ts
           src/gateway/server-methods/pcc.test.ts
+          src/gateway/server-methods/self-improvement.test.ts
+          src/gateway/server-maintenance.test.ts
           src/gateway/server-model-catalog.test.ts
           src/gateway/server-runtime-services.test.ts
           src/gateway/server.sessions.create.test.ts
           src/gateway/session-utils.subagent.test.ts
           src/gateway/sessions-patch.test.ts
+          src/infra/self-improvement-admission.test.ts
+          src/logging/diagnostic-stability.test.ts
           src/pcc/capability-addition-registry.test.ts
           src/pcc/capability-contract.test.ts
           src/pcc/capability-evidence.test.ts
@@ -2141,11 +2146,21 @@ jobs:
           src/pcc/project-workflows.test.ts
           src/pcc/runtime-identity.test.ts
           src/pcc/work-loop.test.ts
+          src/self-improvement
+          test/scripts/build-all.test.ts
+          test/scripts/control-ui-self-improvement-smoke.test.ts
+          test/scripts/control-ui-smoke-url.test.ts
+          test/scripts/custom-runtime-copy-stage-state.test.ts
           test/scripts/custom-runtime-launcher.test.ts
+          test/scripts/custom-runtime-lifecycle.test.ts
           test/scripts/custom-runtime-stage-promote.test.ts
+          test/scripts/promote-gateway-runtime-snapshot.test.ts
+          test/scripts/self-improvement-production-soak.test.ts
           ui/src/ui/chat-model-select-state.test.ts
           ui/src/ui/controllers/chat.test.ts
           ui/src/ui/controllers/pcc.test.ts
+          ui/src/ui/controllers/self-improvement.test.ts
+          ui/src/ui/views/agents.test.ts
           ui/src/ui/views/pcc.test.ts
 
       - name: Run TypeScript proof
@@ -2167,6 +2182,7 @@ jobs:
           pnpm ui:smoke:chat-projects
           pnpm ui:smoke:pcc-mobile
           pnpm ui:smoke:dashboard-codex-plus-apps
+          pnpm ui:smoke:self-improvement
 
       - name: Run workflow syntax check
         run: pnpm check:workflows

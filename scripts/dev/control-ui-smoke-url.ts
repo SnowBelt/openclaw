@@ -4,6 +4,9 @@ import { resolveControlUiLinks } from "../../src/commands/onboard-helpers.js";
 import { readConfigFileSnapshot, resolveGatewayPort } from "../../src/config/config.js";
 import type { OpenClawConfig } from "../../src/config/types.openclaw.js";
 import { resolveGatewayAuthToken } from "../../src/gateway/auth-token-resolution.js";
+import { redactSensitiveText } from "../../src/logging/redact.js";
+
+const FRAGMENT_SECRET_RE = /([#&](?:token|password)=)([^&#\s]+)/giu;
 
 export type ControlUiSmokeAuthMode =
   | "explicit-url-auth"
@@ -106,11 +109,7 @@ export function appendControlUiTokenFragment(rawUrl: string, token: string): str
 }
 
 export function redactControlUiSmokeSecrets(value: string): string {
-  return value
-    .replace(/#(?:[^\s'"`)]*)/g, (hash) =>
-      /(?:^#|[&#])(?:token|password)=/i.test(hash) ? "#<redacted-auth>" : hash,
-    )
-    .replace(/([?&](?:token|password)=)[^&\s)]+/gi, "$1<redacted>");
+  return redactSensitiveText(value).replace(FRAGMENT_SECRET_RE, "$1***");
 }
 
 export function extractControlUiPairingRequestId(text: string): string | null {

@@ -243,6 +243,35 @@ function formatBytes(value: number | undefined): string {
   return `${amount.toFixed(digits)} ${units[unitIndex]}`;
 }
 
+function renderRuntimeSnapshotStatus(status: {
+  latestReleaseId: string | null;
+  releaseCount: number;
+  totalBytes: number;
+  releases: Array<{
+    releaseId: string;
+    active: boolean;
+    latest: boolean;
+    protected: boolean;
+    usable: boolean;
+    sizeBytes?: number;
+  }>;
+}): string[] {
+  const lines = [
+    `Gateway runtime snapshots: ${status.releaseCount} release(s), ${formatBytes(status.totalBytes)}`,
+    `Latest: ${status.latestReleaseId ?? "none"}`,
+  ];
+  for (const release of status.releases) {
+    const flags = [
+      release.active ? "active" : "",
+      release.latest ? "latest" : "",
+      release.protected ? "protected" : "",
+      release.usable ? "usable" : "incomplete",
+    ].filter(Boolean);
+    lines.push(`${release.releaseId}  ${flags.join(",")}  ${formatBytes(release.sizeBytes)}`);
+  }
+  return lines;
+}
+
 function formatStabilityEvent(record: DiagnosticStabilityEventRecord): string {
   const parts = [
     new Date(record.ts).toISOString(),
@@ -763,6 +792,100 @@ export function registerGatewayCli(program: Command) {
           rpc: rpcOpts,
         });
       }, "Gateway diagnostics export failed");
+    });
+
+  const snapshots = gateway
+    .command("snapshot")
+    .description("Inspect and manage immutable managed Gateway runtime snapshots");
+
+  snapshots
+    .command("status")
+    .description("Show immutable Gateway runtime snapshot status")
+    .option("--json", "Output JSON", false)
+    .action(async (opts: { json?: boolean }) => {
+      await runGatewayCommand(async () => {
+        const { getGatewayRuntimeSnapshotStatus } =
+          await import("../../daemon/gateway-runtime-snapshot.js");
+        const status = getGatewayRuntimeSnapshotStatus({ includeSize: true, env: process.env });
+        if (opts.json) {
+          defaultRuntime.writeJson(status);
+          return;
+        }
+        for (const line of renderRuntimeSnapshotStatus(status)) {
+          defaultRuntime.log(line);
+        }
+      }, "Gateway runtime snapshot status failed");
+    });
+
+  snapshots
+    .command("prune")
+    .description("Prune old unprotected Gateway runtime snapshots")
+    .option("--keep <count>", "Minimum newest releases to retain", "8")
+    .option("--apply", "Apply pruning; otherwise print a safety preview", false)
+    .option("--json", "Output JSON", false)
+    .action(async (opts: { apply?: boolean; json?: boolean; keep?: string }) => {
+      await runGatewayCommand(async () => {
+        if (!opts.apply) {
+          const preview = {
+            applied: false,
+            message: "No snapshots changed. Pass --apply to prune unprotected releases.",
+            keepCount: parseOptionalPositiveIntegerOption(opts.keep, "--keep") ?? 8,
+          };
+          if (opts.json) {
+            defaultRuntime.writeJson(preview);
+          } else {
+            defaultRuntime.log(preview.message);
+          }
+          return;
+        }
+        const { pruneGatewayRuntimeSnapshots } =
+          await import("../../daemon/gateway-runtime-snapshot.js");
+        const result = pruneGatewayRuntimeSnapshots({
+          env: process.env,
+          keepCount: parseOptionalPositiveIntegerOption(opts.keep, "--keep"),
+        });
+        if (opts.json) {
+          defaultRuntime.writeJson({ applied: true, ...result });
+        } else {
+          defaultRuntime.log(
+            `Pruned ${result.pruned.length} snapshot(s); retained ${result.retained.length}.`,
+          );
+        }
+      }, "Gateway runtime snapshot prune failed");
+    });
+
+  snapshots
+    .command("rollback")
+    .description("Select an existing complete snapshot as latest; restart separately")
+    .argument("<release-id>", "Immutable snapshot release id")
+    .option("--apply", "Update latest.json; otherwise print a safety preview", false)
+    .option("--json", "Output JSON", false)
+    .action(async (releaseId: string, opts: { apply?: boolean; json?: boolean }) => {
+      await runGatewayCommand(async () => {
+        if (!opts.apply) {
+          const preview = {
+            applied: false,
+            releaseId,
+            message: "No snapshot changed. Pass --apply to select this release as latest.",
+          };
+          if (opts.json) {
+            defaultRuntime.writeJson(preview);
+          } else {
+            defaultRuntime.log(preview.message);
+          }
+          return;
+        }
+        const { rollbackGatewayRuntimeSnapshot } =
+          await import("../../daemon/gateway-runtime-snapshot.js");
+        const result = rollbackGatewayRuntimeSnapshot({ releaseId });
+        if (opts.json) {
+          defaultRuntime.writeJson({ applied: true, ...result });
+        } else {
+          defaultRuntime.log(
+            `Selected Gateway runtime snapshot ${result.releaseId}. Restart the managed Gateway to activate it.`,
+          );
+        }
+      }, "Gateway runtime snapshot rollback failed");
     });
 
   gateway

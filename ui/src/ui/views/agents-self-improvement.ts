@@ -37,12 +37,19 @@ export type SelfImprovementPanelProps = {
   lastProductionCheck: SelfImprovementProductionCheckResult | null;
   maintenanceLoading: boolean;
   lastMaintenance: SelfImprovementMaintenanceResult | null;
+  interventionLoading: boolean;
   onRefresh: () => void;
   onScan: () => void;
   onAnalyze: () => void;
   onModelPreflight: () => void;
   onProductionCheck: () => void;
   onMaintenanceDryRun: () => void;
+  onDashboardIntervention: (input: {
+    title: string;
+    issue: string;
+    correctiveIntervention: string;
+    evidence?: string[];
+  }) => void;
   onRecommendationUpdate: (input: {
     id: string;
     status: string;
@@ -71,6 +78,11 @@ export type SelfImprovementPanelProps = {
     note?: string;
   }) => void;
 };
+
+function readFormText(values: FormData, key: string): string {
+  const value = values.get(key);
+  return typeof value === "string" ? value : "";
+}
 
 function formatLabel(value: string): string {
   return value.replace(/_/g, " ");
@@ -399,6 +411,20 @@ function renderRecommendationCard(
           ${recommendation.requiredEvidence.map((item) => html`<li>${item}</li>`)}
         </ul>
       </div>
+      ${recommendation.outcomeProofRequired
+        ? html`
+            <div class="agent-self-improvement-card__section">
+              <strong>Measured outcome proof</strong>
+              <span>
+                ${formatLabel(
+                  recommendation.proofOutcomeState ?? "pending",
+                )}${recommendation.proofReceiptId
+                  ? ` | receipt ${recommendation.proofReceiptId}`
+                  : " | no receipt attached"}
+              </span>
+            </div>
+          `
+        : nothing}
       <div class="agent-self-improvement-card__section">
         <strong>Safety</strong>
         <span>Recommendation-only | tests ${testsStatus} | approval ${approvalStatus}</span>
@@ -562,6 +588,34 @@ function renderActionQueue(actionQueue: SelfImprovementActionQueueSummary | unde
             </div>
           `
         : nothing}
+    </div>
+  `;
+}
+
+function renderMeasuredOutcomeProof(recommendations: SelfImprovementRecommendation[]) {
+  const measured = recommendations.filter((recommendation) => recommendation.outcomeProofRequired);
+  if (measured.length === 0) {
+    return nothing;
+  }
+  return html`
+    <div class="agent-self-improvement-subsection">
+      <h3>Measured outcome proof</h3>
+      <div class="agent-self-improvement-list agent-self-improvement-list--compact">
+        ${measured.slice(0, 10).map(
+          (recommendation) => html`
+            <div class="agent-self-improvement-group-strip">
+              <strong>${recommendation.title}</strong>
+              <span>
+                ${formatLabel(
+                  recommendation.proofOutcomeState ?? "pending",
+                )}${recommendation.proofReceiptId
+                  ? ` | receipt ${recommendation.proofReceiptId}`
+                  : " | no receipt attached"}
+              </span>
+            </div>
+          `,
+        )}
+      </div>
     </div>
   `;
 }
@@ -992,7 +1046,8 @@ function renderProductionCheck(check: SelfImprovementProductionCheckResult | nul
       <div class="agent-self-improvement-group-strip">
         <strong>Production readiness</strong>
         <span>
-          ${check.status} | ready ${String(check.ready)} | score ${check.score} | evidence
+          SIG service ${check.status} | ready ${String(check.ready)} | effectiveness ${check.score}
+          | portfolio ${check.portfolioStatus} ${check.portfolioScore} | evidence
           ${check.evidence.length} | ${formatTime(check.checkedAt)}
         </span>
         ${check.blockers.length > 0
@@ -1000,6 +1055,11 @@ function renderProductionCheck(check: SelfImprovementProductionCheckResult | nul
           : check.warnings.length > 0
             ? html`<small>${check.warnings.slice(0, 3).join(" | ")}</small>`
             : nothing}
+        ${check.portfolioBlockers.length > 0
+          ? html`<small
+              >Portfolio attention: ${check.portfolioBlockers.slice(0, 3).join(" | ")}</small
+            >`
+          : nothing}
       </div>
       <div class="agent-self-improvement-list agent-self-improvement-list--compact">
         ${check.evidence.slice(0, 6).map(
@@ -1306,8 +1366,65 @@ export function renderSelfImprovementPanel(props: SelfImprovementPanelProps) {
         </div>
       </div>
       ${props.error ? html`<div class="callout danger">${props.error}</div>` : nothing}
+      <form
+        class="agent-self-improvement-intervention"
+        @submit=${(event: SubmitEvent) => {
+          event.preventDefault();
+          const form = event.currentTarget as HTMLFormElement;
+          const values = new FormData(form);
+          props.onDashboardIntervention({
+            title: readFormText(values, "title"),
+            issue: readFormText(values, "issue"),
+            correctiveIntervention: readFormText(values, "correction"),
+            evidence: readFormText(values, "evidence")
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          });
+          form.reset();
+        }}
+      >
+        <div>
+          <strong>Record dashboard intervention</strong>
+          <span
+            >Capture a real operator correction so SIG can require recurrence-prevention
+            proof.</span
+          >
+        </div>
+        <input
+          name="title"
+          required
+          placeholder="Short issue title"
+          aria-label="Dashboard issue title"
+          ?disabled=${props.interventionLoading}
+        />
+        <input
+          name="issue"
+          required
+          placeholder="Observed issue"
+          aria-label="Observed dashboard issue"
+          ?disabled=${props.interventionLoading}
+        />
+        <input
+          name="correction"
+          required
+          placeholder="Corrective intervention"
+          aria-label="Corrective dashboard intervention"
+          ?disabled=${props.interventionLoading}
+        />
+        <input
+          name="evidence"
+          placeholder="Optional evidence, comma separated"
+          aria-label="Dashboard intervention evidence"
+          ?disabled=${props.interventionLoading}
+        />
+        <button class="btn btn--sm" type="submit" ?disabled=${props.interventionLoading}>
+          ${props.interventionLoading ? "Recording" : "Record prevention evidence"}
+        </button>
+      </form>
       ${renderOperationalHealth(props.health)} ${renderScorecard(props.scorecard, props.total)}
       ${renderActionQueue(props.scorecard?.actionQueue)}
+      ${renderMeasuredOutcomeProof(props.recommendations)}
       ${renderImprovementIntelligence(props.scorecard)} ${renderScorecardHistory(props.scorecards)}
       ${renderLastAnalysis(props.lastAnalysis)} ${renderModelPreflight(props.lastModelPreflight)}
       ${renderProductionCheck(props.lastProductionCheck)}

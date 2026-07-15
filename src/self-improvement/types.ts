@@ -15,6 +15,7 @@ export type SelfImprovementRecommendationImpact = "high" | "medium" | "low";
 export type SelfImprovementRecommendationEffort = "small" | "medium" | "large";
 
 export type SelfImprovementResolutionProofState = "current" | "stale";
+export type SelfImprovementOutcomeProofState = "pending" | "confirmed" | "failed" | "stale";
 
 export type SelfImprovementRecommendationCategory =
   | "task_reliability"
@@ -78,6 +79,7 @@ export type SelfImprovementRecommendationRoute = {
 export type SelfImprovementRecommendationSafety = {
   mode: "recommendation_only";
   mutationAllowed: false;
+  autonomyTier?: "recommend";
   requiresApproval: boolean;
   requiresTests: boolean;
   blockedActions: string[];
@@ -215,6 +217,9 @@ export type SelfImprovementRecommendation = {
   analysis: SelfImprovementRecommendationAnalysis;
   resolutionProof?: string;
   resolutionProofState?: SelfImprovementResolutionProofState;
+  outcomeProofRequired?: boolean;
+  proofReceiptId?: string;
+  proofOutcomeState?: SelfImprovementOutcomeProofState;
   dismissalReason?: string;
   reopenReason?: string;
   evidence: string[];
@@ -452,7 +457,9 @@ export type SelfImprovementAuditEventKind =
   | "proposal_created"
   | "proposal_status_updated"
   | "curator_status_updated"
-  | "scorecard_snapshot_written";
+  | "scorecard_snapshot_written"
+  | "dashboard_intervention_recorded"
+  | "outcome_proof_recorded";
 
 export type SelfImprovementAuditEvent = {
   id: string;
@@ -490,7 +497,8 @@ export type SelfImprovementOperationalHealthDimensionId =
   | "background"
   | "proposals"
   | "verification"
-  | "intelligence";
+  | "intelligence"
+  | "effectiveness";
 
 export type SelfImprovementOperationalHealthTrend =
   | "improving"
@@ -561,11 +569,28 @@ export type SelfImprovementProductionReadinessEvidence = {
   generatedAt?: number;
 };
 
+export type SelfImprovementRuntimeProvenance = {
+  releaseId: string;
+  builtAt: string;
+  packageVersion?: string;
+  sourceCommit?: string;
+  artifactHash?: string;
+  snapshotSchemaVersion: number;
+  ledgerSchemaVersion?: number;
+  recommendationSchemaVersion?: number;
+  signalSchemaVersion?: number;
+};
+
 export type SelfImprovementProductionCheckResult = {
   checkedAt: number;
   status: SelfImprovementOperationalHealthStatus;
   ready: boolean;
   score: number;
+  portfolioStatus: SelfImprovementOperationalHealthStatus;
+  portfolioReady: boolean;
+  portfolioScore: number;
+  portfolioBlockers: string[];
+  portfolioNextActions: string[];
   failOnDegraded: boolean;
   failOnBlocked: boolean;
   requireModelReady: boolean;
@@ -575,6 +600,7 @@ export type SelfImprovementProductionCheckResult = {
   nextActions: string[];
   evidence: SelfImprovementProductionReadinessEvidence[];
   health: SelfImprovementOperationalHealth;
+  runtime?: SelfImprovementRuntimeProvenance;
 };
 
 export type SelfImprovementMaintenanceStoreName =
@@ -582,7 +608,10 @@ export type SelfImprovementMaintenanceStoreName =
   | "auditEvents"
   | "healthSnapshots"
   | "scorecards"
-  | "proposals";
+  | "proposals"
+  | "signals"
+  | "outbox"
+  | "proofReceipts";
 
 export type SelfImprovementMaintenanceStoreResult = {
   store: SelfImprovementMaintenanceStoreName;
@@ -676,6 +705,8 @@ export type SelfImprovementReviewerEvalCategory =
   | "major_change";
 
 export type SelfImprovementReviewerEvalThresholds = {
+  precisionRate: number;
+  firstPassRate: number;
   schemaValidRate: number;
   safetyPassRate: number;
   routePreservationRate: number;
@@ -706,6 +737,7 @@ export type SelfImprovementReviewerEvalCaseResult = {
   schemaValidated: boolean;
   safetyPassed: boolean;
   routePreserved: boolean;
+  firstPass: boolean;
   confidence?: number;
   modelId?: string;
   modelTier?: SelfImprovementReviewModelTier;
@@ -718,6 +750,9 @@ export type SelfImprovementReviewerEvalScorecard = {
   casesTotal: number;
   casesPassed: number;
   passRate: number;
+  precisionRate: number;
+  firstPassCases: number;
+  firstPassRate: number;
   schemaValidCases: number;
   schemaValidRate: number;
   safetyPassedCases: number;
@@ -755,7 +790,7 @@ export type SelfImprovementReviewerEvalRunResult = {
   auditEventId?: string;
 };
 
-export type SelfImprovementScanTrigger = "manual" | "background" | "cli";
+export type SelfImprovementScanTrigger = "manual" | "background" | "cli" | "signal";
 
 export type SelfImprovementScanSummary = {
   scannedAt: number;
@@ -765,6 +800,7 @@ export type SelfImprovementScanSummary = {
     cronJobs: number;
     auditEvents: number;
     skillWorkshopProposals: number;
+    signals: number;
   };
   produced: number;
   created: number;

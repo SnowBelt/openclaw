@@ -334,6 +334,24 @@ describe("buildGatewayInstallPlan", () => {
     expect(plan.environment.OPENCLAW_WRAPPER).toBe(wrapperPath);
   });
 
+  it("persists an explicit Self-Improvement background opt-in from the install invocation", async () => {
+    mockNodeGatewayPlanFixture({
+      serviceEnvironment: {
+        OPENCLAW_PORT: "3000",
+      },
+    });
+
+    const plan = await buildGatewayInstallPlan({
+      env: isolatedPlanEnv({
+        OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "1",
+      }),
+      port: 3000,
+      runtime: "node",
+    });
+
+    expect(plan.environment.OPENCLAW_SELF_IMPROVEMENT_BACKGROUND).toBe("1");
+  });
+
   it("clears a Windows wrapper env that points at the generated gateway.cmd script", async () => {
     const selfWrapperPath = path.join(isolatedHome, ".openclaw", "gateway.cmd");
     const warn = vi.fn();
@@ -1585,16 +1603,18 @@ describe("collectPreservedExistingServiceEnvVars — operator opt-in allowlist",
     expect(result.OPENCLAW_ALLOW_ROOT).toBeUndefined();
   });
 
-  it("preserves OPENCLAW_CLI_CONTAINER_BYPASS and OPENCLAW_CONTAINER_HINT", () => {
+  it("preserves operator-owned OpenClaw service opt-ins", () => {
     const result = collectPreservedExistingServiceEnvVars(
       {
         OPENCLAW_CLI_CONTAINER_BYPASS: "1",
         OPENCLAW_CONTAINER_HINT: "ci",
+        OPENCLAW_SELF_IMPROVEMENT_BACKGROUND: "1",
       },
       managedKeys,
     );
     expect(result.OPENCLAW_CLI_CONTAINER_BYPASS).toBe("1");
     expect(result.OPENCLAW_CONTAINER_HINT).toBe("ci");
+    expect(result.OPENCLAW_SELF_IMPROVEMENT_BACKGROUND).toBe("1");
   });
 
   it("still drops arbitrary OPENCLAW_FOO", () => {

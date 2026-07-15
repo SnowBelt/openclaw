@@ -3,8 +3,18 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import { appendSelfImprovementAuditEvent, listSelfImprovementAuditEvents } from "./audit-events.js";
-import { writeSelfImprovementJsonAtomically } from "./json-store.js";
+import { buildSelfImprovementEffectivenessDimension } from "./effectiveness.js";
+import {
+  withSelfImprovementStoreMutation,
+  writeSelfImprovementJsonAtomically,
+} from "./json-store.js";
+import { isSelfImprovementJsonToSqliteMigrationApplied } from "./ledger-migration.js";
+import { listSelfImprovementLedgerRows, replaceSelfImprovementLedgerRows } from "./ledger.js";
+import { listSelfImprovementOutbox } from "./outbox.js";
+import type { SelfImprovementOutboxItem } from "./outbox.js";
 import { listSelfImprovementProposals } from "./proposals.js";
+import { listSelfImprovementSignals } from "./signals.js";
+import type { SelfImprovementSignal } from "./signals.js";
 import { listSelfImprovementRecommendations } from "./store.js";
 import { summarizeSelfImprovementRecommendations } from "./summary.js";
 import { sanitizeRecommendationText, sanitizeRecommendationTexts } from "./text.js";
@@ -237,7 +247,20 @@ function normalizeStore(value: unknown): SelfImprovementOperationalHealthSnapsho
 
 async function readStore(
   storePath: string,
+  stateDir?: string,
 ): Promise<SelfImprovementOperationalHealthSnapshotStoreFile> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    const rows = await listSelfImprovementLedgerRows<SelfImprovementOperationalHealthSnapshot>({
+      collection: "health_snapshots",
+      stateDir,
+    });
+    return {
+      version: STORE_VERSION,
+      snapshots: rows
+        .map((row) => parseSnapshot(row.value))
+        .filter((entry): entry is SelfImprovementOperationalHealthSnapshot => Boolean(entry)),
+    };
+  }
   try {
     return normalizeStore(JSON.parse(await fs.readFile(storePath, "utf8")));
   } catch (error) {
@@ -251,7 +274,19 @@ async function readStore(
 async function writeStore(
   storePath: string,
   file: SelfImprovementOperationalHealthSnapshotStoreFile,
+  stateDir?: string,
 ): Promise<void> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    await replaceSelfImprovementLedgerRows({
+      collection: "health_snapshots",
+      stateDir,
+      rows: file.snapshots,
+      id: (snapshot) => snapshot.id,
+      createdAt: (snapshot) => snapshot.createdAt,
+      updatedAt: (snapshot) => snapshot.createdAt,
+    });
+    return;
+  }
   await writeSelfImprovementJsonAtomically(storePath, file);
 }
 
@@ -267,9 +302,9 @@ export async function listSelfImprovementOperationalHealthSnapshots(params?: {
   days?: number;
   limit?: number;
 }): Promise<SelfImprovementOperationalHealthSnapshot[]> {
-  const storePath =
-    params?.storePath ?? resolveSelfImprovementOperationalHealthStorePath(params?.stateDir);
-  const file = await readStore(storePath);
+  const stateDir = params?.storePath ? undefined : (params?.stateDir ?? resolveStateDir());
+  const storePath = params?.storePath ?? resolveSelfImprovementOperationalHealthStorePath(stateDir);
+  const file = await readStore(storePath, stateDir);
   const limit = params?.limit && params.limit > 0 ? params.limit : 30;
   const minDate =
     params?.days && params.days > 0
@@ -834,6 +869,8 @@ export function buildSelfImprovementOperationalHealth(params: {
   scorecard: SelfImprovementScorecard;
   proposals: readonly SelfImprovementProposal[];
   auditEvents: readonly SelfImprovementAuditEvent[];
+  signals?: readonly SelfImprovementSignal[];
+  outbox?: readonly SelfImprovementOutboxItem[];
   previousSnapshot?: SelfImprovementOperationalHealthSnapshot;
   now?: number;
   env?: NodeJS.ProcessEnv;
@@ -880,6 +917,12 @@ export function buildSelfImprovementOperationalHealth(params: {
       now,
     }),
     buildIntelligenceDimension({ scorecard: params.scorecard }),
+    buildSelfImprovementEffectivenessDimension({
+      signals: params.signals ?? [],
+      recommendations: params.recommendations,
+      outbox: params.outbox ?? [],
+      now,
+    }),
   ];
   const status = worstStatus(dimensions.map((dimension) => dimension.status));
   const rawScore =
@@ -945,6 +988,8 @@ export async function loadSelfImprovementOperationalHealth(params?: {
   const summary = summarizeSelfImprovementRecommendations({ recommendations, now, limit: 50 });
   const proposals = await listSelfImprovementProposals({ stateDir, limit: 500 });
   const auditEvents = await listSelfImprovementAuditEvents({ stateDir, limit: 500 });
+  const signals = await listSelfImprovementSignals({ stateDir, limit: 2_000 });
+  const outbox = await listSelfImprovementOutbox({ stateDir, limit: 2_000 });
   const snapshots = await listSelfImprovementOperationalHealthSnapshots({
     stateDir,
     days: params?.days,
@@ -955,6 +1000,8 @@ export async function loadSelfImprovementOperationalHealth(params?: {
     scorecard: summary.scorecard,
     proposals,
     auditEvents,
+    signals,
+    outbox,
     previousSnapshot: snapshots[0],
     now,
     env: params?.env,
@@ -973,33 +1020,38 @@ export async function writeSelfImprovementOperationalHealthSnapshot(params?: {
   actor?: SelfImprovementAuditEvent["actor"];
 }): Promise<SelfImprovementOperationalHealthSnapshot> {
   const now = params?.now ?? Date.now();
-  const stateDir = params?.stateDir;
+  const stateDir = params?.storePath ? undefined : (params?.stateDir ?? resolveStateDir());
   const storePath = params?.storePath ?? resolveSelfImprovementOperationalHealthStorePath(stateDir);
-  const existing = await listSelfImprovementOperationalHealthSnapshots({
-    stateDir,
-    storePath,
-    limit: 1,
-  });
   const result = await loadSelfImprovementOperationalHealth({
     stateDir,
     now,
     limit: 1,
     env: params?.env,
   });
-  const health: SelfImprovementOperationalHealth = {
-    ...result.current,
-    ...(existing[0] ? { previousSnapshotId: existing[0].id } : {}),
-  };
-  const snapshot: SelfImprovementOperationalHealthSnapshot = {
-    id: snapshotId(`${now}:${health.status}:${health.score}:${health.trend}`),
-    createdAt: now,
-    health,
-  };
-  const file = await readStore(storePath);
-  const snapshots = [snapshot, ...file.snapshots]
-    .toSorted((left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id))
-    .slice(0, MAX_SNAPSHOTS);
-  await writeStore(storePath, { version: STORE_VERSION, snapshots });
+  const snapshot = await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const previous = file.snapshots
+      .toSorted(
+        (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
+      )
+      .at(0);
+    const health: SelfImprovementOperationalHealth = {
+      ...result.current,
+      ...(previous ? { previousSnapshotId: previous.id } : {}),
+    };
+    const nextSnapshot: SelfImprovementOperationalHealthSnapshot = {
+      id: snapshotId(`${now}:${health.status}:${health.score}:${health.trend}`),
+      createdAt: now,
+      health,
+    };
+    const snapshots = [nextSnapshot, ...file.snapshots]
+      .toSorted(
+        (left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id),
+      )
+      .slice(0, MAX_SNAPSHOTS);
+    await writeStore(storePath, { version: STORE_VERSION, snapshots }, stateDir);
+    return nextSnapshot;
+  });
   await appendSelfImprovementAuditEvent({
     stateDir,
     event: {
@@ -1007,16 +1059,16 @@ export async function writeSelfImprovementOperationalHealthSnapshot(params?: {
       actor: params?.actor ?? "governor",
       kind: "operational_health_snapshot",
       targetId: "self-improvement-health",
-      summary: `Wrote Self-Improvement operational health snapshot: ${health.status}.`,
+      summary: `Wrote Self-Improvement operational health snapshot: ${snapshot.health.status}.`,
       metadata: {
-        status: health.status,
-        score: health.score,
-        trend: health.trend,
-        blockerCount: health.blockers.length,
-        dimensions: health.dimensions.map(
+        status: snapshot.health.status,
+        score: snapshot.health.score,
+        trend: snapshot.health.trend,
+        blockerCount: snapshot.health.blockers.length,
+        dimensions: snapshot.health.dimensions.map(
           (dimension) => `${dimension.id}:${dimension.status}:${dimension.score}`,
         ),
-        blockers: health.blockers.slice(0, 6),
+        blockers: snapshot.health.blockers.slice(0, 6),
       },
     },
   });

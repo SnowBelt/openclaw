@@ -295,6 +295,7 @@ import {
   SecretsResolveParamsSchema,
   SecretsResolveResultSchema,
 } from "./secrets.js";
+import * as SelfImprovementProtocol from "./self-improvement.js";
 import {
   SessionsAbortParamsSchema,
   SessionsCompactParamsSchema,
@@ -365,8 +366,168 @@ import {
   WizardStepSchema,
 } from "./wizard.js";
 
+function asPublicSchema(schema: TSchema): TSchema {
+  return schema;
+}
+
 /** Public schema registry keyed by stable protocol schema name. */
 export const ProtocolSchemas = {
+  // Keep SIG's exact runtime validators while preventing their large TypeBox
+  // implementation types from expanding the public plugin-SDK declaration graph.
+  SelfImprovementRecommendation: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationSchema,
+  ),
+  SelfImprovementProposal: asPublicSchema(SelfImprovementProtocol.SelfImprovementProposalSchema),
+  SelfImprovementDailyScorecard: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementDailyScorecardSchema,
+  ),
+  SelfImprovementAuditEvent: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementAuditEventSchema,
+  ),
+  SelfImprovementScanSummary: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementScanSummarySchema,
+  ),
+  SelfImprovementScanParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementScanParamsSchema,
+  ),
+  SelfImprovementScanResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementScanResultSchema,
+  ),
+  SelfImprovementScorecardParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementScorecardParamsSchema,
+  ),
+  SelfImprovementScorecardResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementScorecardResultSchema,
+  ),
+  SelfImprovementHealthParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementHealthParamsSchema,
+  ),
+  SelfImprovementProductionCheckParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProductionCheckParamsSchema,
+  ),
+  SelfImprovementProductionCheckResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProductionCheckResultSchema,
+  ),
+  SelfImprovementMaintenanceRunParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementMaintenanceRunParamsSchema,
+  ),
+  SelfImprovementMaintenanceResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementMaintenanceResultSchema,
+  ),
+  SelfImprovementDashboardInterventionParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementDashboardInterventionParamsSchema,
+  ),
+  SelfImprovementDashboardInterventionResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementDashboardInterventionResultSchema,
+  ),
+  SelfImprovementProofReceipt: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProofReceiptSchema,
+  ),
+  SelfImprovementProofReceiptsListParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProofReceiptsListParamsSchema,
+  ),
+  SelfImprovementProofReceiptsListResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProofReceiptsListResultSchema,
+  ),
+  SelfImprovementProofReceiptRecordParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProofReceiptRecordParamsSchema,
+  ),
+  SelfImprovementProofReceiptRecordResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProofReceiptRecordResultSchema,
+  ),
+  SelfImprovementOperationalHealthResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementOperationalHealthResultSchema,
+  ),
+  SelfImprovementAnalysisRunParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementAnalysisRunParamsSchema,
+  ),
+  SelfImprovementAnalysisRunResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementAnalysisRunResultSchema,
+  ),
+  SelfImprovementAuditEventsListParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementAuditEventsListParamsSchema,
+  ),
+  SelfImprovementAuditEventsListResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementAuditEventsListResultSchema,
+  ),
+  SelfImprovementModelPreflightParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementModelPreflightParamsSchema,
+  ),
+  SelfImprovementModelPreflightResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementModelPreflightResultSchema,
+  ),
+  SelfImprovementReviewerEvalRunParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementReviewerEvalRunParamsSchema,
+  ),
+  SelfImprovementReviewerEvalRunResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementReviewerEvalRunResultSchema,
+  ),
+  SelfImprovementGroupsUpdateParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementGroupsUpdateParamsSchema,
+  ),
+  SelfImprovementGroupsUpdateResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementGroupsUpdateResultSchema,
+  ),
+  SelfImprovementRecommendationsListParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsListParamsSchema,
+  ),
+  SelfImprovementRecommendationsListResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsListResultSchema,
+  ),
+  SelfImprovementRecommendationsSummaryParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsSummaryParamsSchema,
+  ),
+  SelfImprovementRecommendationsSummaryResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsSummaryResultSchema,
+  ),
+  SelfImprovementRecommendationsGetParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsGetParamsSchema,
+  ),
+  SelfImprovementRecommendationsGetResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsGetResultSchema,
+  ),
+  SelfImprovementRecommendationsUpdateParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsUpdateParamsSchema,
+  ),
+  SelfImprovementRecommendationsUpdateResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementRecommendationsUpdateResultSchema,
+  ),
+  SelfImprovementProposalsListParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProposalsListParamsSchema,
+  ),
+  SelfImprovementProposalsListResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProposalsListResultSchema,
+  ),
+  SelfImprovementProposalsGetParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProposalsGetParamsSchema,
+  ),
+  SelfImprovementProposalsGetResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProposalsGetResultSchema,
+  ),
+  SelfImprovementProposalsUpdateParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProposalsUpdateParamsSchema,
+  ),
+  SelfImprovementProposalsUpdateResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementProposalsUpdateResultSchema,
+  ),
+  SelfImprovementCuratorListParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementCuratorListParamsSchema,
+  ),
+  SelfImprovementCuratorListResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementCuratorListResultSchema,
+  ),
+  SelfImprovementCuratorGetParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementCuratorGetParamsSchema,
+  ),
+  SelfImprovementCuratorGetResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementCuratorGetResultSchema,
+  ),
+  SelfImprovementCuratorUpdateParams: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementCuratorUpdateParamsSchema,
+  ),
+  SelfImprovementCuratorUpdateResult: asPublicSchema(
+    SelfImprovementProtocol.SelfImprovementCuratorUpdateResultSchema,
+  ),
   // Handshake, transport frames, state snapshots, and shared error envelopes.
   ConnectParams: ConnectParamsSchema,
   HelloOk: HelloOkSchema,

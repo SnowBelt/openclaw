@@ -3,7 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import { redactSensitiveFieldValue } from "../logging/redact.js";
-import { writeSelfImprovementJsonAtomically } from "./json-store.js";
+import {
+  withSelfImprovementStoreMutation,
+  writeSelfImprovementJsonAtomically,
+} from "./json-store.js";
+import { isSelfImprovementJsonToSqliteMigrationApplied } from "./ledger-migration.js";
+import { listSelfImprovementLedgerRows, replaceSelfImprovementLedgerRows } from "./ledger.js";
 import { sanitizeRecommendationText, sanitizeRecommendationTexts } from "./text.js";
 import type {
   SelfImprovementAuditEvent,
@@ -41,7 +46,9 @@ function isAuditEventKind(value: unknown): value is SelfImprovementAuditEvent["k
     value === "proposal_created" ||
     value === "proposal_status_updated" ||
     value === "curator_status_updated" ||
-    value === "scorecard_snapshot_written"
+    value === "scorecard_snapshot_written" ||
+    value === "dashboard_intervention_recorded" ||
+    value === "outcome_proof_recorded"
   );
 }
 
@@ -132,7 +139,22 @@ function normalizeStore(value: unknown): SelfImprovementAuditEventStoreFile {
   };
 }
 
-async function readStore(storePath: string): Promise<SelfImprovementAuditEventStoreFile> {
+async function readStore(
+  storePath: string,
+  stateDir?: string,
+): Promise<SelfImprovementAuditEventStoreFile> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    const rows = await listSelfImprovementLedgerRows<SelfImprovementAuditEvent>({
+      collection: "audit_events",
+      stateDir,
+    });
+    return {
+      version: STORE_VERSION,
+      events: rows
+        .map((row) => parseEvent(row.value))
+        .filter((entry): entry is SelfImprovementAuditEvent => Boolean(entry)),
+    };
+  }
   try {
     return normalizeStore(JSON.parse(await fs.readFile(storePath, "utf8")));
   } catch (error) {
@@ -146,7 +168,19 @@ async function readStore(storePath: string): Promise<SelfImprovementAuditEventSt
 async function writeStore(
   storePath: string,
   file: SelfImprovementAuditEventStoreFile,
+  stateDir?: string,
 ): Promise<void> {
+  if (stateDir && (await isSelfImprovementJsonToSqliteMigrationApplied({ stateDir }))) {
+    await replaceSelfImprovementLedgerRows({
+      collection: "audit_events",
+      stateDir,
+      rows: file.events,
+      id: (event) => event.id,
+      createdAt: (event) => event.createdAt,
+      updatedAt: (event) => event.createdAt,
+    });
+    return;
+  }
   await writeSelfImprovementJsonAtomically(storePath, file);
 }
 
@@ -162,24 +196,29 @@ export async function appendSelfImprovementAuditEvent(params: {
   stateDir?: string;
   storePath?: string;
 }): Promise<SelfImprovementAuditEvent> {
-  const storePath = params.storePath ?? resolveSelfImprovementAuditEventStorePath(params.stateDir);
-  const file = await readStore(storePath);
-  const createdAt = params.event.createdAt ?? Date.now();
-  const event = parseEvent({
-    ...params.event,
-    id:
-      params.event.id ??
-      eventId(`${createdAt}:${params.event.kind}:${params.event.targetId}:${params.event.summary}`),
-    createdAt,
+  const stateDir = params.storePath ? undefined : (params.stateDir ?? resolveStateDir());
+  const storePath = params.storePath ?? resolveSelfImprovementAuditEventStorePath(stateDir);
+  return await withSelfImprovementStoreMutation(storePath, async () => {
+    const file = await readStore(storePath, stateDir);
+    const createdAt = params.event.createdAt ?? Date.now();
+    const event = parseEvent({
+      ...params.event,
+      id:
+        params.event.id ??
+        eventId(
+          `${createdAt}:${params.event.kind}:${params.event.targetId}:${params.event.summary}`,
+        ),
+      createdAt,
+    });
+    if (!event) {
+      throw new Error("Invalid self-improvement audit event.");
+    }
+    const events = [...file.events, event]
+      .toSorted((left, right) => left.createdAt - right.createdAt)
+      .slice(-MAX_EVENTS);
+    await writeStore(storePath, { version: STORE_VERSION, events }, stateDir);
+    return structuredClone(event);
   });
-  if (!event) {
-    throw new Error("Invalid self-improvement audit event.");
-  }
-  const events = [...file.events, event]
-    .toSorted((left, right) => left.createdAt - right.createdAt)
-    .slice(-MAX_EVENTS);
-  await writeStore(storePath, { version: STORE_VERSION, events });
-  return structuredClone(event);
 }
 
 export function buildSelfImprovementModelAttemptAuditMetadata(
@@ -309,9 +348,9 @@ export async function listSelfImprovementAuditEvents(params?: {
   limit?: number;
   kind?: SelfImprovementAuditEvent["kind"] | SelfImprovementAuditEvent["kind"][];
 }): Promise<SelfImprovementAuditEvent[]> {
-  const storePath =
-    params?.storePath ?? resolveSelfImprovementAuditEventStorePath(params?.stateDir);
-  const file = await readStore(storePath);
+  const stateDir = params?.storePath ? undefined : (params?.stateDir ?? resolveStateDir());
+  const storePath = params?.storePath ?? resolveSelfImprovementAuditEventStorePath(stateDir);
+  const file = await readStore(storePath, stateDir);
   const limit = params?.limit && params.limit > 0 ? params.limit : 100;
   const kinds = params?.kind
     ? new Set(Array.isArray(params.kind) ? params.kind : [params.kind])

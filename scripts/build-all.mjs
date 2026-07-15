@@ -160,6 +160,11 @@ export const BUILD_ALL_STEPS = [
     kind: "node",
     args: ["--experimental-strip-types", "scripts/write-cli-compat.ts"],
   },
+  {
+    label: "promote-gateway-runtime-snapshot",
+    kind: "node",
+    args: ["scripts/promote-gateway-runtime-snapshot.mjs"],
+  },
 ];
 
 export const BUILD_ALL_PROFILES = {
@@ -181,6 +186,7 @@ export const BUILD_ALL_PROFILES = {
     "write-build-info",
     "write-cli-startup-metadata",
     "write-cli-compat",
+    "promote-gateway-runtime-snapshot",
   ],
   gatewayWatch: [
     "tsdown",

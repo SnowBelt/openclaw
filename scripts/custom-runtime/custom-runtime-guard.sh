@@ -11,6 +11,22 @@ provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-se
 port=${OPENCLAW_GATEWAY_PORT:-18789}
 uid=$(id -u)
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
+for operation in activation promotion restart rollback; do
+  operation_lock="$runtime_home/locks/$operation.lock"
+  if [ -d "$operation_lock" ]; then
+    now=$(date +%s)
+    modified=$(stat -f %m "$operation_lock" 2>/dev/null || printf 0)
+    case "$modified" in *[!0-9]*|'') modified=0 ;; esac
+    age=$((now - modified))
+    if [ "$age" -ge 0 ] && [ "$age" -lt 900 ]; then
+      exit 0
+    fi
+    rmdir "$operation_lock" 2>/dev/null || exit 0
+    receipt_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    printf '{"at":"%s","result":"stale_%s_lock_removed"}\n' \
+      "$receipt_stamp" "$operation" > "$runtime_home/receipts/guard-stale-$operation-lock-$receipt_stamp.json"
+  fi
+done
 lock="$runtime_home/locks/guard.lock"
 if ! mkdir "$lock" 2>/dev/null; then exit 0; fi
 trap 'rmdir "$lock"' EXIT
@@ -47,6 +63,38 @@ fi
 if ! printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("values",{}).get("discord/bot-token") else 1)' 2>/dev/null; then
   receipt repair_deferred_keychain
   exit 75
+fi
+registered_rollback="$runtime_home/active-rollback.json"
+rollback_script="$runtime_home/bin/custom-runtime-rollback.sh"
+if [ -f "$registered_rollback" ] && [ -x "$rollback_script" ]; then
+  rollback_identity=$(python3 - "$registered_rollback" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    registration = json.load(f)
+for key in ("candidateRuntimeReleaseId", "rollbackReleaseId"):
+    value = registration.get(key)
+    if not isinstance(value, str) or not value:
+        raise SystemExit("registered rollback identity is incomplete")
+    print(value)
+PY
+  ) || { receipt registered_rollback_invalid; exit 1; }
+  candidate_runtime_release=$(printf '%s\n' "$rollback_identity" | sed -n '1p')
+  rollback_release=$(printf '%s\n' "$rollback_identity" | sed -n '2p')
+  now=$(date +%s)
+  last=$(cat "$runtime_home/last-restart.epoch" 2>/dev/null || printf 0)
+  if [ $((now - last)) -lt 600 ]; then receipt repair_rate_limited; exit 75; fi
+  printf '%s\n' "$now" > "$runtime_home/last-restart.epoch"
+  if "$rollback_script" \
+    --candidate-runtime-release "$candidate_runtime_release" \
+    --rollback-release "$rollback_release" \
+    --port "$port"; then
+    receipt repaired_by_registered_rollback
+    exit 0
+  fi
+  receipt registered_rollback_failed
+  exit 1
 fi
 [ -f "$runtime_home/last-known-good.json" ] || { receipt repair_unavailable_no_last_good; exit 1; }
 [ -f "$desired_plist" ] || { receipt repair_unavailable_no_desired_plist; exit 1; }

@@ -605,6 +605,7 @@ export async function gatherDaemonStatus(
   const expectedEntrypoint = await resolveGatewayProgramArguments({
     port: daemonPort,
     runtime: "node",
+    wrapperPath: serviceEnv.OPENCLAW_WRAPPER,
   })
     .then((plan) =>
       plan.programArguments.find((argument) => /[/\\]dist[/\\].+\.(?:cjs|js|mjs)$/u.test(argument)),

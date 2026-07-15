@@ -777,6 +777,7 @@ export class OpenClawApp extends LitElement {
   @state() selfImprovementLastProductionCheck: SelfImprovementProductionCheckResult | null = null;
   @state() selfImprovementMaintenanceLoading = false;
   @state() selfImprovementLastMaintenance: SelfImprovementMaintenanceResult | null = null;
+  @state() selfImprovementInterventionLoading = false;
 
   @state() sessionsLoading = false;
   @state() sessionsResult: SessionsListResult | null = null;

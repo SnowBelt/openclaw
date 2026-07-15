@@ -119,7 +119,7 @@ async function callSelfImprovementHandler(method: string, params: Record<string,
     respond: (ok, payload, error) => {
       response = { ok, payload, error };
     },
-    context: {} as never,
+    context: { getRuntimeConfig: () => ({}) } as never,
   });
   if (!response) {
     throw new Error(`handler ${method} did not respond`);
@@ -142,6 +142,24 @@ describe("selfImprovement server methods", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
+  it("records only explicit dashboard interventions as proof-bound prevention work", async () => {
+    const response = await callSelfImprovementHandler(
+      "selfImprovement.dashboardInterventions.record",
+      {
+        title: "Stale dashboard indicator",
+        issue: "An operator observed stale dashboard status.",
+        correctiveIntervention: "The operator refreshed the dashboard and checked the live status.",
+        evidence: ["Operator session evidence."],
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.payload).toMatchObject({ created: true, reopened: false });
+    const events = await listSelfImprovementAuditEvents({ stateDir: tmpDir });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "dashboard_intervention_recorded" });
+  });
+
   it("blocks proof-required recommendation resolution without proof", async () => {
     await upsertSelfImprovementRecommendations({
       stateDir: tmpDir,
@@ -155,6 +173,53 @@ describe("selfImprovement server methods", () => {
 
     expect(response.ok).toBe(false);
     expect(response.error?.message).toContain("resolution proof is required");
+  });
+
+  it("records and lists outcome proof receipts through proof-gated RPC methods", async () => {
+    await upsertSelfImprovementRecommendations({
+      stateDir: tmpDir,
+      recommendations: [
+        recommendation({
+          source: { kind: "workflow", label: "signal", runId: "signal:sis_gateway" },
+          outcomeProofRequired: true,
+          assignedTargetAgentId: "qa-test-agent",
+        }),
+      ],
+    });
+
+    const recorded = await callSelfImprovementHandler("selfImprovement.proofReceipts.record", {
+      recommendationId: "sir_gateway",
+      signalId: "sis_gateway",
+      diagnosis: "The dashboard smoke failed before the correction.",
+      action: "Apply the correction and run a bounded holdout.",
+      metric: {
+        name: "dashboard smoke pass rate",
+        baseline: "0",
+        target: "1",
+        observed: "1",
+        unit: "ratio",
+        passed: true,
+      },
+      observation: { startedAt: now, endedAt: now + 60_000, minimumDurationMs: 60_000 },
+      holdout: { required: true, passed: true },
+      evidenceRefs: ["work/self-improvement/dashboard-smoke.json"],
+    });
+
+    expect(recorded.ok).toBe(true);
+    expect(recorded.payload).toMatchObject({
+      receipt: { outcomeConfirmed: true, status: "passed" },
+      recommendation: {
+        proofOutcomeState: "confirmed",
+        actionability: { proofState: "attached", closureState: "ready_to_resolve" },
+      },
+    });
+    const listed = await callSelfImprovementHandler("selfImprovement.proofReceipts.list", {
+      recommendationId: "sir_gateway",
+    });
+    expect(listed).toMatchObject({
+      ok: true,
+      payload: { total: 1, receipts: [{ recommendationId: "sir_gateway" }] },
+    });
   });
 
   it("requires dismissal reasons for recommendation closure", async () => {

@@ -64,6 +64,7 @@ type SelfImprovementSmokeSummary = {
   pageErrors: string[];
   responseErrors: string[];
   screenshots: string[];
+  dashboardInterventionRecommendationId: string;
   seededRecommendationId: string;
   snapshots: SelfImprovementSmokeSnapshot[];
   stateDir: string;
@@ -257,6 +258,8 @@ export function buildSeedRecommendation(now: number): SelfImprovementRecommendat
       targetAgentLabel: "QA Test Agent",
       reason: "Verification gap, smoke failure, or test-proof follow-up.",
     },
+    assignedTargetAgentId: "qa-test-agent",
+    lastRoutedAt: now,
     recommendedAction:
       "Confirm the Self-Improvement dashboard renders the recommendation card, scorecard, proposals, and deterministic analysis metadata.",
     requiredEvidence: [
@@ -294,6 +297,9 @@ export function buildSeedRecommendation(now: number): SelfImprovementRecommendat
       "Dashboard smoke fixture: analysis metadata should render.",
       "Dashboard smoke fixture: proposal queue should render.",
     ],
+    outcomeProofRequired: true,
+    proofReceiptId: "sipr_self_improvement_dashboard_smoke",
+    proofOutcomeState: "confirmed",
   };
 }
 
@@ -380,10 +386,11 @@ export function buildSeedAuditEvent(now: number): SelfImprovementAuditEvent {
       ready: true,
       readyTier: "crossCheck",
       readyModelId: "ollama/openclaw-control-qwen3-30b-q6-chatfix:latest",
-      reviewModelId: "ollama/qwen3.6:27b-q8_0",
+      reviewModelId: "ollama/openclaw-control-gemma4-31b-q8:latest",
       fallbackModelId: "ollama/openclaw-control-qwen3-30b-q6-chatfix:latest",
       preflightStatus: "missing_config",
-      blockedPrimaryReason: "Local model preflight could not find qwen3.6:27b-q8_0.",
+      blockedPrimaryReason:
+        "Local model preflight could not find openclaw-control-gemma4-31b-q8:latest.",
       primaryRemediationHint:
         "Verify Ollama is running and the selected local model appears in the local /api/tags catalog, then rerun openclaw self-improvement preflight.",
     },
@@ -446,7 +453,7 @@ export function buildSeedReviewerEvalAuditEvent(now: number): SelfImprovementAud
       safetyPassRate: 1,
       routePreservationRate: 1,
       p95CompletionMs: 4321,
-      modelId: "ollama/qwen3.6:27b-q8_0",
+      modelId: "ollama/openclaw-control-gemma4-31b-q8:latest",
       modelTier: "primaryReview",
       diagnostics: [],
     },
@@ -557,7 +564,7 @@ export async function seedSelfImprovementSmokeState(params: {
   await fs.writeFile(
     join(storeDir, "recommendations.json"),
     `${JSON.stringify(
-      { version: 2, recommendations: [recommendation, intelligenceRecommendation] },
+      { version: 3, recommendations: [recommendation, intelligenceRecommendation] },
       null,
       2,
     )}\n`,
@@ -803,6 +810,9 @@ async function runSelfImprovementFlow(page: Page, artifactDir: string) {
   await page.getByText("Audit Ledger", { exact: true }).waitFor({ timeout: 10_000 });
   await page.getByText("Reviewer eval health", { exact: true }).waitFor({ timeout: 10_000 });
   await page.getByText("pass 100%").waitFor({ timeout: 10_000 });
+  await page
+    .getByText("confirmed | receipt sipr_self_improvement_dashboard_smoke", { exact: true })
+    .waitFor({ timeout: 10_000 });
   await page.getByText("Improvement Intelligence", { exact: true }).waitFor({ timeout: 10_000 });
   await page
     .getByText("Self-Improvement dashboard workflow simplification signal")
@@ -855,6 +865,58 @@ async function runSelfImprovementFlow(page: Page, artifactDir: string) {
   await page.screenshot({ path: analysisScreenshot, fullPage: false });
   snapshots.push(await snapshotSelfImprovement(page, "analysis-complete"));
 
+  await page.getByLabel("Dashboard issue title").fill("Browser smoke correction");
+  await page.getByLabel("Observed dashboard issue").fill("The dashboard showed stale SIG data.");
+  await page
+    .getByLabel("Corrective dashboard intervention")
+    .fill("The operator refreshed and verified the live SIG snapshot.");
+  await page
+    .getByLabel("Dashboard intervention evidence")
+    .fill("browser smoke receipt, dashboard screenshot");
+  await page.getByRole("button", { name: "Record prevention evidence", exact: true }).click({
+    timeout: 20_000,
+  });
+  await page
+    .getByText("Prevent dashboard intervention recurrence: Browser smoke correction", {
+      exact: true,
+    })
+    .first()
+    .waitFor({ timeout: 30_000 });
+  const dashboardInterventionRecommendationId = await page.evaluate(() => {
+    const app = document.querySelector("openclaw-app") as
+      | (HTMLElement & {
+          selfImprovementRecommendations?: Array<{
+            id?: string;
+            requiredEvidence?: string[];
+            status?: string;
+            title?: string;
+          }>;
+        })
+      | null;
+    const recommendation = app?.selfImprovementRecommendations?.find(
+      (entry) =>
+        entry.title === "Prevent dashboard intervention recurrence: Browser smoke correction",
+    );
+    if (
+      !recommendation?.id ||
+      recommendation.status === "resolved" ||
+      recommendation.status === "dismissed" ||
+      !recommendation.requiredEvidence?.includes(
+        "Attach a passing prevention-proof receipt before resolution.",
+      )
+    ) {
+      return "";
+    }
+    return recommendation.id;
+  });
+  if (!dashboardInterventionRecommendationId) {
+    throw new Error("Dashboard intervention did not create active prevention work.");
+  }
+  const interventionScreenshot = join(artifactDir, "03-dashboard-intervention.png");
+  screenshots.push(interventionScreenshot);
+  await page.screenshot({ path: interventionScreenshot, fullPage: false });
+  snapshots.push(await snapshotSelfImprovement(page, "dashboard-intervention-recorded"));
+
   await page.getByRole("button", { name: "Check models", exact: true }).click({
     timeout: 20_000,
   });
@@ -902,7 +964,7 @@ async function runSelfImprovementFlow(page: Page, artifactDir: string) {
     .getByText(/passed|missing_config|unavailable/)
     .first()
     .waitFor({ timeout: 10_000 });
-  const modelPreflightScreenshot = join(artifactDir, "03-model-preflight.png");
+  const modelPreflightScreenshot = join(artifactDir, "04-model-preflight.png");
   screenshots.push(modelPreflightScreenshot);
   await page.screenshot({ path: modelPreflightScreenshot, fullPage: false });
   snapshots.push(await snapshotSelfImprovement(page, "model-preflight-complete"));
@@ -950,11 +1012,11 @@ async function runSelfImprovementFlow(page: Page, artifactDir: string) {
     { timeout: 30_000 },
   );
   await page.getByText("Retention maintenance", { exact: true }).waitFor({ timeout: 10_000 });
-  const productionScreenshot = join(artifactDir, "04-production-readiness.png");
+  const productionScreenshot = join(artifactDir, "05-production-readiness.png");
   screenshots.push(productionScreenshot);
   await page.screenshot({ path: productionScreenshot, fullPage: false });
   snapshots.push(await snapshotSelfImprovement(page, "production-readiness-complete"));
-  return { screenshots, snapshots };
+  return { dashboardInterventionRecommendationId, screenshots, snapshots };
 }
 
 async function main() {
@@ -1006,7 +1068,8 @@ async function main() {
     await page.goto(appendControlUiTokenFragment(gateway.url, gateway.token), {
       waitUntil: "domcontentloaded",
     });
-    const { screenshots, snapshots } = await runSelfImprovementFlow(page, artifactDir);
+    const { dashboardInterventionRecommendationId, screenshots, snapshots } =
+      await runSelfImprovementFlow(page, artifactDir);
     const authUrlClean = await page.evaluate(
       () => !/(?:[#?&])(?:token|password)=/i.test(window.location.href),
     );
@@ -1027,6 +1090,7 @@ async function main() {
       artifactDir,
       authUrlClean,
       consoleErrors,
+      dashboardInterventionRecommendationId,
       pageErrors,
       responseErrors,
       screenshots,

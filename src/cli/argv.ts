@@ -21,6 +21,17 @@ const ROOT_COMMANDS_WITH_SUBCOMMANDS: ReadonlySet<string> = new Set(
     (descriptor) => descriptor.name,
   ),
 );
+const SELF_IMPROVEMENT_READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  "list",
+  "summary",
+  "opportunities",
+  "triage",
+  "scorecard",
+  "health",
+  "production-check",
+  "audit-events",
+  "show",
+]);
 
 export function hasHelpOrVersion(argv: string[]): boolean {
   return (
@@ -609,6 +620,19 @@ export function shouldMigrateStateFromPath(path: string[]): boolean {
   }
   if (primary === "config" && (secondary === "get" || secondary === "unset")) {
     return false;
+  }
+  if (primary === "self-improvement") {
+    if (secondary && SELF_IMPROVEMENT_READ_ONLY_COMMANDS.has(secondary)) {
+      return false;
+    }
+    const tertiary = path[2];
+    if (
+      (secondary === "models" && tertiary === "template") ||
+      ((secondary === "proposals" || secondary === "curator") &&
+        (tertiary === "list" || tertiary === "show"))
+    ) {
+      return false;
+    }
   }
   return true;
 }
