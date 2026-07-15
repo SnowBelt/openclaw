@@ -433,6 +433,43 @@ describe("loadPccDashboard", () => {
     expect(state.pccUpdatedAt).toEqual(expect.any(Number));
   });
 
+  it("deduplicates concurrent dashboard refreshes", async () => {
+    let resolveProjects: (value: { projects: (typeof summary)[] }) => void = () => undefined;
+    let resolveSummary: (value: { portfolio: typeof portfolio }) => void = () => undefined;
+    const request = vi.fn((method: string) => {
+      if (method === "pcc.projects.list") {
+        return new Promise((resolve) => {
+          resolveProjects = resolve;
+        });
+      }
+      if (method === "pcc.summary.get") {
+        return new Promise((resolve) => {
+          resolveSummary = resolve;
+        });
+      }
+      return Promise.resolve({
+        project,
+        milestones: [milestone],
+        subMilestones: [],
+        permissions: [],
+        evidence: [],
+        receipts: [],
+        summary,
+      });
+    });
+    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+
+    const first = loadPccDashboard(state);
+    const second = loadPccDashboard(state);
+
+    expect(second).toBe(first);
+    expect(request).toHaveBeenCalledTimes(2);
+    resolveProjects({ projects: [summary] });
+    resolveSummary({ portfolio });
+    await first;
+    expect(state.pccLoading).toBe(false);
+  });
+
   it("preloads Project Command Center detail for the global production-truth surface", async () => {
     const pccSummary = {
       ...summary,
@@ -1340,6 +1377,43 @@ describe("PCC CRUD controller", () => {
       summary: { ...summary, id: "project-2", title: "Second Project" },
     });
     await pending;
+    expect(state.pccProjectDetail?.project.id).toBe("project-2");
+  });
+
+  it("ignores an out-of-order project response after the user selects a newer project", async () => {
+    const resolvers = new Map<string, (value: unknown) => void>();
+    const request = vi.fn((_method: string, params: unknown) => {
+      const projectId = (params as { projectId: string }).projectId;
+      return new Promise((resolve) => {
+        resolvers.set(projectId, resolve);
+      });
+    });
+    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+
+    const first = selectPccProject(state, "project-1");
+    const second = selectPccProject(state, "project-2");
+    resolvers.get("project-2")?.({
+      project: { ...project, id: "project-2", title: "Second Project" },
+      milestones: [],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary: { ...summary, id: "project-2", title: "Second Project" },
+    });
+    await second;
+    resolvers.get("project-1")?.({
+      project,
+      milestones: [milestone],
+      subMilestones: [],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      summary,
+    });
+    await first;
+
+    expect(state.pccSelectedProjectId).toBe("project-2");
     expect(state.pccProjectDetail?.project.id).toBe("project-2");
   });
 

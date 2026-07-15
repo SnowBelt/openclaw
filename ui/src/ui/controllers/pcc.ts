@@ -77,6 +77,7 @@ import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
 import { buildQualifiedChatModelValue } from "../chat-model-ref.ts";
 import { formatConnectError } from "../connect-error.ts";
 import { buildPccChatSyncProposals, type PccChatSyncProposal } from "../pcc-chat-sync.ts";
+import { rememberPccProjectDetailForState } from "../pcc/application/detail-cache.ts";
 import {
   buildPccExecutionTeamReadiness,
   executionPlansFromProject,
@@ -176,6 +177,40 @@ type PccSummaryGetResult = {
   executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
 };
+
+const dashboardLoadByState = new WeakMap<PccDashboardState, Promise<void>>();
+const projectDetailRequestsByState = new WeakMap<
+  PccDashboardState,
+  Map<string, Promise<PccProjectsGetResult>>
+>();
+const projectSelectionVersionByState = new WeakMap<PccDashboardState, number>();
+
+function requestPccProjectDetail(
+  state: PccDashboardState,
+  projectId: string,
+): Promise<PccProjectsGetResult> {
+  if (!state.client) {
+    return Promise.reject(new Error("Project Command Center is disconnected."));
+  }
+  let requests = projectDetailRequestsByState.get(state);
+  if (!requests) {
+    requests = new Map();
+    projectDetailRequestsByState.set(state, requests);
+  }
+  const existing = requests.get(projectId);
+  if (existing) {
+    return existing;
+  }
+  const request = state.client
+    .request<PccProjectsGetResult>("pcc.projects.get", { projectId })
+    .finally(() => {
+      if (requests?.get(projectId) === request) {
+        requests.delete(projectId);
+      }
+    });
+  requests.set(projectId, request);
+  return request;
+}
 
 type PccProjectsGetResult = {
   project: PccProject;
@@ -385,10 +420,7 @@ function applyPccProjectUpsertResult(
   };
   state.pccProjectDetail = nextDetail;
   state.pccSelectedProjectId = result.project.id;
-  state.pccProjectDetails = {
-    ...state.pccProjectDetails,
-    [result.project.id]: nextDetail,
-  };
+  rememberPccProjectDetailForState(state, nextDetail);
   state.pccProjects = state.pccProjects.some((item) => item.id === result.project.id)
     ? state.pccProjects.map((item) => (item.id === result.project.id ? normalizedSummary : item))
     : [...state.pccProjects, normalizedSummary];
@@ -1374,7 +1406,7 @@ async function withPccAction(
   }
 }
 
-export async function loadPccDashboard(state: PccDashboardState): Promise<void> {
+async function loadPccDashboardOnce(state: PccDashboardState): Promise<void> {
   if (!state.client || !state.connected) {
     return;
   }
@@ -1393,20 +1425,15 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
-    state.pccProjectDetails = state.pccProjectDetail
-      ? { ...state.pccProjectDetails, [state.pccProjectDetail.project.id]: state.pccProjectDetail }
-      : state.pccProjectDetails;
+    if (state.pccProjectDetail) {
+      rememberPccProjectDetailForState(state, state.pccProjectDetail);
+    }
     const pccProjectSummary = projects.find((project) => project.id === "project-command-center");
     if (pccProjectSummary && !state.pccProjectDetails[pccProjectSummary.id]) {
       try {
-        const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
-          projectId: pccProjectSummary.id,
-        });
+        const detail = await requestPccProjectDetail(state, pccProjectSummary.id);
         const normalized = normalizePccProjectDetail(detail);
-        state.pccProjectDetails = {
-          ...state.pccProjectDetails,
-          [normalized.project.id]: normalized,
-        };
+        rememberPccProjectDetailForState(state, normalized);
       } catch {
         // Keep the dashboard usable if the optional production-truth preload fails.
       }
@@ -1426,18 +1453,14 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
         if (cachedDetail) {
           state.pccSelectedProjectId = cachedDetail.project.id;
           state.pccProjectDetail = cachedDetail;
+          rememberPccProjectDetailForState(state, cachedDetail);
         } else {
           try {
-            const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
-              projectId: preferredSummary.id,
-            });
+            const detail = await requestPccProjectDetail(state, preferredSummary.id);
             const normalized = normalizePccProjectDetail(detail);
             state.pccSelectedProjectId = normalized.project.id;
             state.pccProjectDetail = normalized;
-            state.pccProjectDetails = {
-              ...state.pccProjectDetails,
-              [normalized.project.id]: normalized,
-            };
+            rememberPccProjectDetailForState(state, normalized);
           } catch {
             state.pccSelectedProjectId = null;
             state.pccProjectDetail = null;
@@ -1457,6 +1480,23 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
   }
 }
 
+export function loadPccDashboard(state: PccDashboardState): Promise<void> {
+  if (!state.client || !state.connected) {
+    return Promise.resolve();
+  }
+  const existing = dashboardLoadByState.get(state);
+  if (existing) {
+    return existing;
+  }
+  const load = loadPccDashboardOnce(state).finally(() => {
+    if (dashboardLoadByState.get(state) === load) {
+      dashboardLoadByState.delete(state);
+    }
+  });
+  dashboardLoadByState.set(state, load);
+  return load;
+}
+
 export async function selectPccProject(state: PccDashboardState, projectId: string): Promise<void> {
   if (!state.client) {
     state.pccActionError =
@@ -1464,32 +1504,40 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     state.requestUpdate?.();
     return;
   }
+  const selectionVersion = (projectSelectionVersionByState.get(state) ?? 0) + 1;
+  projectSelectionVersionByState.set(state, selectionVersion);
   state.pccActionError = null;
   state.pccSelectedProjectId = projectId;
   const cached = state.pccProjectDetails?.[projectId];
   if (cached) {
     state.pccProjectDetail = cached;
     state.pccProductFocusMode = pccWorkScopeForProject(cached.project);
+    rememberPccProjectDetailForState(state, cached);
   } else if (state.pccProjectDetail?.project.id !== projectId) {
     state.pccProjectDetail = null;
   }
   state.requestUpdate?.();
   try {
-    const detail = await state.client.request<PccProjectsGetResult>("pcc.projects.get", {
-      projectId,
-    });
+    const detail = await requestPccProjectDetail(state, projectId);
+    if (
+      projectSelectionVersionByState.get(state) !== selectionVersion ||
+      state.pccSelectedProjectId !== projectId
+    ) {
+      return;
+    }
     state.pccSelectedProjectId = detail.project.id;
     state.pccProjectDetail = normalizePccProjectDetail(detail);
     state.pccProductFocusMode = pccWorkScopeForProject(state.pccProjectDetail.project);
-    state.pccProjectDetails = {
-      ...state.pccProjectDetails,
-      [detail.project.id]: state.pccProjectDetail,
-    };
+    rememberPccProjectDetailForState(state, state.pccProjectDetail);
     refreshPccChatSyncProposals(state);
   } catch (err) {
-    setActionError(state, err);
+    if (projectSelectionVersionByState.get(state) === selectionVersion) {
+      setActionError(state, err);
+    }
   } finally {
-    state.requestUpdate?.();
+    if (projectSelectionVersionByState.get(state) === selectionVersion) {
+      state.requestUpdate?.();
+    }
   }
 }
 

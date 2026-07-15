@@ -42,6 +42,18 @@ describe("PCC clean architecture boundaries", () => {
       "application/",
       "infrastructure/",
     ]);
+    expectNoImports(join(PCC_ROOT, "presentation/dashboard-read-model.ts"), [
+      "controllers/",
+      "views/",
+      "application/",
+      "infrastructure/",
+    ]);
+    expectNoImports(join(PCC_ROOT, "presentation/formatters.ts"), [
+      "controllers/",
+      "views/",
+      "application/",
+      "infrastructure/",
+    ]);
     expectNoImports(join(PCC_ROOT, "presentation/autopilot-panel.ts"), [
       "controllers/",
       "views/",
@@ -51,6 +63,12 @@ describe("PCC clean architecture boundaries", () => {
 
   it("keeps application policy independent from UI rendering and infrastructure", () => {
     expectNoImports(join(PCC_ROOT, "application/execution-team.ts"), [
+      "controllers/",
+      "views/",
+      "presentation/",
+      "infrastructure/",
+    ]);
+    expectNoImports(join(PCC_ROOT, "application/detail-cache.ts"), [
       "controllers/",
       "views/",
       "presentation/",

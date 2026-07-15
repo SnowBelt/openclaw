@@ -12,12 +12,15 @@ ui/src/ui/
     ├── form-state.ts                  # canonical empty form factories
     ├── policies.ts                    # shared status policies
     ├── application/
-    │   ├── execution-team.ts          # pure execution readiness and model policy
+    │   ├── detail-cache.ts             # bounded project-detail working set
+    │   ├── execution-team.ts           # pure execution readiness and model policy
     │   └── state-transitions.ts       # synchronous UI state use cases
     ├── infrastructure/
     │   └── gateway-payloads.ts        # ledger-to-Gateway anti-corruption adapter
     └── presentation/
         ├── autopilot-panel.ts         # Autopilot project-loop presentation component
+        ├── dashboard-read-model.ts    # memoized dashboard-wide derived state
+        ├── formatters.ts              # shared bounded formatting caches
         ├── interactions.ts            # DOM drag, confirmation, and menu behavior
         └── project-selectors.ts       # project filtering, attention, and search read models
 ```
@@ -29,6 +32,11 @@ ui/src/ui/
 - Infrastructure adapters translate UI/domain records into strict Gateway payloads.
 - `controllers/pcc.ts` composes use cases and remains the public compatibility facade.
 - `views/pcc.ts` composes Lit sections and remains the lazy-loaded view compatibility facade.
+- Dashboard-wide selectors are calculated once per immutable state snapshot. Large repeated
+  collections use keyed rendering, while the controller keeps only a bounded working set of
+  project details.
+- Concurrent refreshes and duplicate detail reads are coalesced. Selection responses are
+  versioned so an older network response cannot replace the user's newer project selection.
 
 New PCC behavior should enter through the narrowest layer that owns it. Avoid adding
 new policy to the view, DOM behavior to the controller, or Gateway schema knowledge to

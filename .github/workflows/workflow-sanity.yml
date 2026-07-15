@@ -1975,6 +1975,7 @@ jobs:
           - node --import tsx scripts/dev/control-ui-pcc-final-functionality-closure-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-operational-confidence-smoke.ts
           - node --import tsx scripts/dev/control-ui-pcc-execution-standard-smoke.ts
+          - node --expose-gc --import tsx scripts/dev/control-ui-pcc-performance-smoke.ts
           - OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts
           - OPENCLAW_PCC_LIVE_E2E_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-live-disposable-browser-e2e.ts
           - OPENCLAW_PCC_LIVE_E2E_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-live-disposable-browser-e2e-isolated.ts
@@ -2033,6 +2034,9 @@ jobs:
 
       - name: Run PCC execution standard smoke
         run: node --import tsx scripts/dev/control-ui-pcc-execution-standard-smoke.ts
+
+      - name: Run PCC performance budget
+        run: node --expose-gc --import tsx scripts/dev/control-ui-pcc-performance-smoke.ts
 
       - name: Run PCC browser proof harness self-test
         run: OPENCLAW_PCC_AUTH_PROOF_SELF_TEST=1 node --import tsx scripts/dev/control-ui-pcc-production-runtime-auth-proof.ts

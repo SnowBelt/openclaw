@@ -1,5 +1,6 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import { autopilotStatusLabel, getPccAutopilotState } from "../../../../src/pcc/autopilot.js";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
@@ -31,10 +32,7 @@ import {
   pccWorkScopeForProject,
   pccWorkScopeLabel,
 } from "../../../../src/pcc/metadata.js";
-import {
-  buildPccOperationalMetrics,
-  type PccOperationalMetrics,
-} from "../../../../src/pcc/operational-metrics.js";
+import type { PccOperationalMetrics } from "../../../../src/pcc/operational-metrics.js";
 import { buildPccPortfolioSchedule } from "../../../../src/pcc/portfolio-scheduler.js";
 import { buildPccProductionTruth } from "../../../../src/pcc/production-truth.js";
 import {
@@ -67,6 +65,15 @@ import type {
 import { PCC_TERMINAL_STATUSES } from "../pcc/policies.ts";
 import { renderAutopilotProjectLoop } from "../pcc/presentation/autopilot-panel.ts";
 import {
+  buildPccDashboardReadModel,
+  type PccDashboardReadModel,
+} from "../pcc/presentation/dashboard-read-model.ts";
+import {
+  formatPccProjectDate as formatProjectDate,
+  formatPccStatus as formatStatus,
+  formatPccUpdatedAt as formatUpdatedAt,
+} from "../pcc/presentation/formatters.ts";
+import {
   beginPccDrag,
   confirmPccAction,
   confirmedRemoveNote,
@@ -84,25 +91,17 @@ import {
   PROJECT_FILTER_OPTIONS,
   attentionKind,
   currentMilestoneForDetail,
-  deferredAttentionProjects,
   effectivePccFocusMode,
-  effectiveProjectFilter,
-  focusScopedProjectsForToday,
-  focusedAttentionProjects,
-  getAttentionProjects,
   nextMilestoneForDetail,
   projectActionLine,
   projectAttentionLine,
   projectBlockerLine,
-  projectCanBeNextBestAction,
   projectFilterLabel,
   projectIsOnHold,
   projectIsTerminalForWork,
-  projectMatchesFilter,
-  projectMatchesSearch,
   projectNeedsAttention,
-  runningProjectsForToday,
   sortedMilestones,
+  subMilestonesForMilestoneId,
   workStateForProject,
 } from "../pcc/presentation/project-selectors.ts";
 import type {
@@ -336,25 +335,6 @@ function clampPercent(value: number): number {
     return 0;
   }
   return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function formatStatus(status: string | null | undefined): string {
-  const value = typeof status === "string" ? status.trim() : "";
-  if (!value) {
-    return "Not recorded";
-  }
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatUpdatedAt(value: number | null): string {
-  if (!value) {
-    return "Not loaded yet";
-  }
-  return `Updated ${new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function compactTodaySignal(value: string, max = 78): string {
@@ -726,16 +706,13 @@ function openPccMobileSection(
   scrollPccMobileSectionIntoView(section);
 }
 
-function renderPccMobileCommandRail(props: PccDashboardProps) {
+function renderPccMobileCommandRail(props: PccDashboardProps, readModel: PccDashboardReadModel) {
   const hasProject = Boolean(props.projectDetail);
   const detail = props.projectDetail;
   const resolver = detail ? resolvePccProjectAction(detail) : undefined;
-  const focusProjects = focusScopedProjectsForToday(props, props.projects);
-  const activeCount = focusProjects.filter((project) =>
-    ["active", "in_progress", "reopened"].includes(project.status),
-  ).length;
-  const needsYouCount = focusedAttentionProjects(focusProjects, props).length;
-  const runningCount = runningProjectsForToday(props).length;
+  const activeCount = readModel.activeCount;
+  const needsYouCount = readModel.attentionProjects.length;
+  const runningCount = readModel.runningProjects.length;
   const terminalProject = resolver?.primaryActionId === "no_action_required";
   if (terminalProject && pccViewMode(props) === "simple") {
     return nothing;
@@ -1006,19 +983,12 @@ function impactInputFromDetail(detail: PccProjectDetail): PccImpactDetailInput {
   };
 }
 
-function availableImpactDetails(props: PccDashboardProps): PccImpactDetailInput[] {
-  const details = Object.values(props.projectDetails ?? {});
-  if (
-    props.projectDetail &&
-    !details.some((detail) => detail.project.id === props.projectDetail?.project.id)
-  ) {
-    details.push(props.projectDetail);
-  }
+function availableImpactDetails(details: readonly PccProjectDetail[]): PccImpactDetailInput[] {
   return details.map(impactInputFromDetail);
 }
 
-function renderImpactAttentionInbox(props: PccDashboardProps) {
-  const inbox = buildPccAttentionInbox(availableImpactDetails(props));
+function renderImpactAttentionInbox(readModel: PccDashboardReadModel) {
+  const inbox = buildPccAttentionInbox(availableImpactDetails(readModel.details));
   return html`<section
     class="pcc-impact pcc-impact--inbox"
     data-pcc-impact-inbox
@@ -1285,21 +1255,6 @@ function metadataStringArray(value: unknown): string[] {
 
 function projectOutcomeMetrics(project: unknown): string[] {
   return metadataStringArray(metadataObject(metadataObject(project).metadata).pccOutcomeMetrics);
-}
-
-function formatProjectDate(value: string | undefined): string {
-  if (!value) {
-    return "No due date";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
 }
 
 function formatProjectActivity(value: string | undefined): string {
@@ -2921,13 +2876,7 @@ function subMilestonesForMilestone(
   detail: PccProjectDetail | null,
   milestone: PccMilestone,
 ): PccSubMilestone[] {
-  return (detail?.subMilestones ?? [])
-    .filter((subMilestone) => subMilestone.milestoneId === milestone.id)
-    .toSorted(
-      (a, b) =>
-        (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) ||
-        a.title.localeCompare(b.title),
-    );
+  return subMilestonesForMilestoneId(detail, milestone.id);
 }
 
 function subMilestoneDisplayPercent(subMilestone: PccSubMilestone): number {
@@ -2944,8 +2893,9 @@ function renderMilestoneReorderControls(
   milestones: readonly PccMilestone[],
   milestone: PccMilestone,
   props: PccDashboardProps,
+  knownIndex?: number,
 ) {
-  const index = milestones.findIndex((item) => item.id === milestone.id);
+  const index = knownIndex ?? milestones.findIndex((item) => item.id === milestone.id);
   const previous = index > 0 ? milestones[index - 1] : undefined;
   const next = index >= 0 && index < milestones.length - 1 ? milestones[index + 1] : undefined;
   return html`<span class="pcc-reorder-controls" data-pcc-milestone-reorder>
@@ -2986,8 +2936,9 @@ function renderSubMilestoneReorderControls(
   subMilestones: readonly PccSubMilestone[],
   subMilestone: PccSubMilestone,
   props: PccDashboardProps,
+  knownIndex?: number,
 ) {
-  const index = subMilestones.findIndex((item) => item.id === subMilestone.id);
+  const index = knownIndex ?? subMilestones.findIndex((item) => item.id === subMilestone.id);
   const previous = index > 0 ? subMilestones[index - 1] : undefined;
   const next =
     index >= 0 && index < subMilestones.length - 1 ? subMilestones[index + 1] : undefined;
@@ -3045,8 +2996,10 @@ function projectPriorityLabel(props: PccDashboardProps, project: PccProjectSumma
   return typeof priority === "number" ? String(priority) : "—";
 }
 
-function renderNeedsAttentionNow(props: PccDashboardProps) {
-  const attentionProjects = getAttentionProjects(props.projects);
+function renderNeedsAttentionNow(
+  props: PccDashboardProps,
+  attentionProjects: readonly PccProjectSummary[],
+) {
   if (attentionProjects.length === 0) {
     return html`<section
       class="pcc-needs-attention pcc-needs-attention--empty"
@@ -3119,18 +3072,20 @@ function renderNeedsAttentionNow(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderProjectFilterTabs(props: PccDashboardProps, projects: readonly PccProjectSummary[]) {
-  const selected = effectiveProjectFilter(props, projects);
+function renderProjectFilterTabs(
+  props: PccDashboardProps,
+  selected: PccProjectFilter,
+  counts: Readonly<Record<PccProjectFilter, number>>,
+) {
   return html`<nav class="pcc-project-tabs" data-pcc-project-tabs aria-label="Project filters">
     ${PROJECT_FILTER_OPTIONS.map(([filter, label]) => {
-      const count = projects.filter((project) => projectMatchesFilter(project, filter)).length;
       return html`<button
         type="button"
         class=${filter === selected ? "is-selected" : ""}
         aria-pressed=${filter === selected}
         @click=${() => props.onSetProjectFilter?.(filter)}
       >
-        ${label} <span>${count}</span>
+        ${label} <span>${counts[filter]}</span>
       </button>`;
     })}
   </nav>`;
@@ -3219,17 +3174,16 @@ function renderProjectSearch(
 
 function renderProjectFocusBar(
   props: PccDashboardProps,
-  allProjects: readonly PccProjectSummary[],
+  readModel: PccDashboardReadModel,
   visibleCount: number,
   filterCount: number,
-  selectedFilter: PccProjectFilter,
 ) {
   return html`<section class="pcc-project-focus-bar" data-pcc-project-focus-bar>
     <div class="pcc-project-focus-bar__top">
-      ${renderProjectFilterTabs(props, allProjects)}
+      ${renderProjectFilterTabs(props, readModel.selectedFilter, readModel.filterCounts)}
       <span data-pcc-project-focus-count>${visibleCount} shown</span>
     </div>
-    ${renderProjectSearch(props, visibleCount, filterCount, selectedFilter)}
+    ${renderProjectSearch(props, visibleCount, filterCount, readModel.selectedFilter)}
   </section>`;
 }
 
@@ -3292,14 +3246,10 @@ function renderRecentActivityFeed(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderTopPortfolioMetrics(
-  props: PccDashboardProps,
-  projects: readonly PccProjectSummary[],
-) {
+function renderTopPortfolioMetrics(props: PccDashboardProps, readModel: PccDashboardReadModel) {
   const portfolio = props.portfolio;
-  const needsAttentionCount =
-    portfolio?.needsAttention ?? focusedAttentionProjects(projects).length;
-  const runningCount = runningProjectsForToday(props).length;
+  const needsAttentionCount = portfolio?.needsAttention ?? readModel.attentionProjects.length;
+  const runningCount = readModel.runningProjects.length;
   return html`<section
     class="pcc-today__metrics"
     data-pcc-top-metrics
@@ -3311,7 +3261,10 @@ function renderTopPortfolioMetrics(
     <details class="pcc-today__metrics-more" data-pcc-top-metrics-more>
       <summary>More</summary>
       <div>
-        ${renderMetric("Total projects", portfolio?.projectsTotal ?? projects.length)}
+        ${renderMetric(
+          "Total projects",
+          portfolio?.projectsTotal ?? readModel.scopedProjects.length,
+        )}
         ${renderMetric("Blocked", portfolio?.blocked ?? 0)}
         ${renderMetric("Needs approval", portfolio?.needsApproval ?? 0)}
         ${renderMetric("Archived", portfolio?.archived ?? 0)}
@@ -3360,23 +3313,6 @@ function portfolioPlainSummary(params: {
 
 function renderCompactMetric(label: string, value: string | number) {
   return html`<span class="pcc-today__compact-metric"><strong>${value}</strong>${label}</span>`;
-}
-
-function pccOperationalEvidence(props: PccDashboardProps): PccEvidence[] {
-  const details = Object.values(props.projectDetails ?? {});
-  if (
-    props.projectDetail &&
-    !details.some((detail) => detail.project.id === props.projectDetail?.project.id)
-  ) {
-    details.push(props.projectDetail);
-  }
-  const byId = new Map<string, PccEvidence>();
-  for (const detail of details) {
-    for (const evidence of detail.evidence) {
-      byId.set(evidence.id, evidence);
-    }
-  }
-  return [...byId.values()];
 }
 
 function operationalHealthLabel(metrics: PccOperationalMetrics): string {
@@ -3504,42 +3440,23 @@ function renderPccFocusModeSwitch(props: PccDashboardProps) {
   </div>`;
 }
 
-function renderTodayView(props: PccDashboardProps) {
+function renderTodayView(props: PccDashboardProps, readModel: PccDashboardReadModel) {
   const portfolio = props.portfolio;
-  const focusProjects = focusScopedProjectsForToday(props, props.projects);
-  const runningProjects = runningProjectsForToday(props);
-  const attentionProjects = focusedAttentionProjects(focusProjects, props);
-  const deferredProjects =
-    effectivePccFocusMode(props) === "pcc_product"
-      ? deferredAttentionProjects(props.projects, props)
-      : [];
-  const blocked = focusProjects.find(
-    (project) =>
-      projectCanBeNextBestAction(project) &&
-      (project.status === "blocked" || project.milestoneCounts.blocked > 0),
-  );
-  const ready = focusProjects.find(
-    (project) =>
-      projectCanBeNextBestAction(project) &&
-      project.nextActions.length > 0 &&
-      project.status !== "blocked",
-  );
+  const runningProjects = readModel.runningProjects;
+  const attentionProjects = readModel.attentionProjects;
+  const deferredProjects = readModel.deferredProjects;
   const working = runningProjects[0];
   const needsYou = attentionProjects[0];
-  const nextBest = needsYou ?? blocked ?? ready ?? working;
+  const nextBest = readModel.nextBestProject;
   const nextLabel = nextBest
     ? `${nextBest.title}: ${compactTodaySignal(projectActionLine(nextBest, props.projectDetails?.[nextBest.id]), 70)}`
     : "No ready action";
   const average = clampPercent(portfolio?.averagePercentComplete ?? 0);
-  const activeCount = focusProjects.filter((project) =>
-    ["active", "in_progress", "reopened"].includes(project.status),
-  ).length;
-  const blockedCount = focusProjects.filter(
-    (project) => project.status === "blocked" || project.milestoneCounts.blocked > 0,
-  ).length;
+  const activeCount = readModel.activeCount;
+  const blockedCount = readModel.blockedCount;
   const portfolioNeedsAttention = attentionProjects.length;
-  const focusMode = effectivePccFocusMode(props);
-  const operationalMetrics = buildPccOperationalMetrics(pccOperationalEvidence(props));
+  const focusMode = readModel.focusMode;
+  const operationalMetrics = readModel.operationalMetrics;
   const plainSummary = portfolioPlainSummary({
     focusMode,
     activeCount,
@@ -3596,7 +3513,7 @@ function renderTodayView(props: PccDashboardProps) {
           </div>
           <span>${formatUpdatedAt(props.updatedAt)}</span>
         </div>
-        ${renderTopPortfolioMetrics(props, props.projects)}
+        ${renderTopPortfolioMetrics(props, readModel)}
         <div class="pcc-today__hero-grid">
           ${renderTodayProjectSignal(
             props,
@@ -3610,7 +3527,7 @@ function renderTodayView(props: PccDashboardProps) {
           ${renderTodayProjectSignal(
             props,
             "Needs You",
-            needsYou ?? blocked,
+            needsYou ?? readModel.blockedProject,
             "No approvals, blockers, or overdue projects need you.",
             needsYou ? projectAttentionLine(needsYou) : undefined,
           )}
@@ -3724,8 +3641,7 @@ function renderNextSafeActionCard(props: PccDashboardProps) {
   </section>`;
 }
 
-function renderPortfolioWorkConsole(props: PccDashboardProps) {
-  const details = Object.values(props.projectDetails ?? {});
+function renderPortfolioWorkConsole(details: readonly PccProjectDetail[]) {
   const schedule = buildPccPortfolioSchedule(
     details.map((detail) => ({
       project: detail.project,
@@ -5113,13 +5029,19 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
     ? "Completed projects are read-only. Create an improvement or reopen the project before reordering."
     : "";
   const phaseGroups: Array<{ title: string; milestones: PccMilestone[] }> = [];
+  const phaseGroupByTitle = new Map<string, { title: string; milestones: PccMilestone[] }>();
+  const milestonePositionById = new Map(
+    milestones.map((milestone, index) => [milestone.id, index + 1] as const),
+  );
   for (const milestone of milestones) {
     const title = phaseTitleForMilestone(detail, milestone);
-    const existing = phaseGroups.find((group) => group.title === title);
+    const existing = phaseGroupByTitle.get(title);
     if (existing) {
       existing.milestones.push(milestone);
     } else {
-      phaseGroups.push({ title, milestones: [milestone] });
+      const group = { title, milestones: [milestone] };
+      phaseGroups.push(group);
+      phaseGroupByTitle.set(title, group);
     }
   }
   return html`<section
@@ -5174,199 +5096,214 @@ function renderMilestoneJourney(detail: PccProjectDetail, props: PccDashboardPro
         </section>`
       : nothing}
     <div class="pcc-journey-phases" data-pcc-journey-phases>
-      ${phaseGroups.map((group) => {
-        const complete = group.milestones.filter((item) =>
-          ["complete", "complete_with_maintenance"].includes(item.status),
-        ).length;
-        const visibleMilestones = collapseCompletedHistory
-          ? group.milestones.slice(0, 3)
-          : group.milestones;
-        const hiddenCount = group.milestones.length - visibleMilestones.length;
-        return html`<section class="pcc-journey-phase" data-pcc-journey-phase>
-          <header>
-            <strong>${group.title}</strong>
-            <span>${complete}/${group.milestones.length} complete</span>
-          </header>
-          <ol>
-            ${visibleMilestones.map((milestone) => {
-              const globalIndex = milestones.findIndex((item) => item.id === milestone.id) + 1;
-              const journeyClass = milestoneJourneyClass(milestone, current?.id);
-              const subMilestones = subMilestonesForMilestone(detail, milestone);
-              const nextSub = nextSubMilestoneForMilestone(detail, milestone);
-              const blocker = milestone.blocker || nextSub?.blocker;
-              const milestoneMetadata = metadataObject(milestone.metadata);
-              const milestoneRisk = metadataString(milestoneMetadata.pccCostRisk, "low");
-              const milestoneWorker = responsibilityLabel(
-                pccResponsibilityForItem(milestone) || "local_openclaw_agent",
-              );
-              const showActionMenu =
-                !reorderMode &&
-                (!terminalProject ||
-                  mode !== "simple" ||
-                  !["complete", "complete_with_maintenance"].includes(milestone.status));
-              return html`<li
-                class="pcc-journey-step pcc-journey-step--${journeyClass}"
-                data-pcc-journey-step
-                data-pcc-milestone-id=${milestone.id}
-                @dragenter=${(event: DragEvent) => {
-                  event.preventDefault();
-                  if (reorderMode && canReorder) {
-                    setPccDropTarget(event, true);
-                  }
-                }}
-                @dragover=${(event: DragEvent) => {
-                  event.preventDefault();
-                  if (event.dataTransfer) {
-                    event.dataTransfer.dropEffect = "move";
-                  }
-                }}
-                @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
-                @drop=${(event: DragEvent) => {
-                  event.preventDefault();
-                  setPccDropTarget(event, false);
-                  if (!reorderMode || !canReorder) {
-                    endPccDrag("milestone");
-                    return;
-                  }
-                  const sourceId = getPccDraggedId(event, "milestone");
-                  const source = milestones.find((item) => item.id === sourceId);
-                  endPccDrag("milestone");
-                  if (source && source.id !== milestone.id) {
-                    props.onMoveMilestoneBefore?.(source, milestone);
-                  }
-                }}
-                @dragend=${() => {
-                  endPccDrag("milestone");
-                  document
-                    .querySelectorAll(".pcc-journey-step.is-drop-target")
-                    .forEach((item) => item.classList.remove("is-drop-target"));
-                }}
-              >
-                <div
-                  class="pcc-journey-step__marker"
-                  aria-label=${`Step ${globalIndex} of ${milestones.length}`}
-                >
-                  ${globalIndex}
-                </div>
-                <div class="pcc-journey-step__content">
-                  ${reorderMode && canReorder
-                    ? html`<div class="pcc-journey-step__toolbar" data-pcc-reorder-toolbar>
-                        <button
-                          class="pcc-drag-handle"
-                          type="button"
-                          data-pcc-drag-handle="milestone"
-                          draggable="true"
-                          aria-label=${`Drag to reorder milestone ${milestone.title}`}
-                          @dragstart=${(event: DragEvent) => {
-                            beginPccDrag(event, "milestone", milestone.id);
-                          }}
-                          @dragend=${() => {
-                            endPccDrag("milestone");
-                          }}
-                        >
-                          ☰
-                        </button>
-                        ${renderMilestoneReorderControls(milestones, milestone, props)}
-                        <span>Step ${globalIndex} · safe move controls</span>
-                      </div>`
-                    : nothing}
-                  <details ?open=${mode !== "simple" && journeyClass === "current"}>
-                    <summary>
-                      <span class="pcc-journey-step__summary-main">
-                        <em>Step ${globalIndex} of ${milestones.length}</em>
-                        <strong>${milestone.title}</strong>
-                        <small
-                          >${subMilestones.length} sub-step${subMilestones.length === 1 ? "" : "s"}
-                          · ${milestoneDisplayPercent(milestone)}%</small
-                        >
-                      </span>
-                      <span class="pcc-journey-step__summary-side">
-                        <span class="pcc-status pcc-status--${milestone.status}"
-                          >${formatStatus(milestone.status)}</span
-                        >
-                        ${blocker
-                          ? html`<span class="pcc-journey-step__blocker">Blocked</span>`
-                          : nothing}
-                        <span
-                          >${journeyClass === "current"
-                            ? "Current"
-                            : formatStatus(journeyClass)}</span
-                        >
-                      </span>
-                    </summary>
-                    <div class="pcc-journey-step__body">
-                      <div class="pcc-journey-step__skim">
-                        <span>Next: ${nextSub?.title ?? "No next sub-step"}</span>
-                        <span class="pcc-route-chip" data-pcc-route-chip="worker"
-                          ><b>Worker</b> ${milestoneWorker}</span
-                        >
-                        <span class="pcc-route-chip" data-pcc-route-chip="risk"
-                          ><b>Risk</b> ${formatStatus(milestoneRisk)}</span
-                        >
-                        ${blocker ? html`<strong>Blocked: ${blocker}</strong>` : nothing}
-                      </div>
-                      ${mode === "simple"
-                        ? renderSubMilestoneList(milestone, props, { compact: true })
-                        : html`
-                            <p>
-                              ${milestone.blocker ||
-                              milestone.implementationPlan ||
-                              "No implementation plan recorded."}
-                            </p>
-                            ${renderSubMilestoneList(milestone, props, {
-                              compact: mode !== "agent",
-                              showDrilldown: true,
-                            })}
-                            <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
-                              <summary>Proof, receipts, permissions, and actions</summary>
-                              ${mode === "agent"
-                                ? renderMilestoneReceipts(milestone, props)
-                                : nothing}
-                              ${permissionsForMilestone(props.projectDetail, milestone).length > 0
-                                ? renderPermissionList(
-                                    permissionsForMilestone(props.projectDetail, milestone),
-                                    props,
-                                  )
-                                : nothing}
-                              <div class="pcc-milestone__actions">
-                                <label class="pcc-stop-here" data-pcc-stop-here>
-                                  <input
-                                    type="checkbox"
-                                    .checked=${milestoneStopsHere(milestone)}
-                                    ?disabled=${props.actionBusy}
-                                    @change=${(event: Event) =>
-                                      props.onSetMilestoneStopHere(
-                                        milestone,
-                                        (event.target as HTMLInputElement).checked,
-                                      )}
-                                  />
-                                  Stop here
-                                </label>
-                                <button
-                                  class="btn btn--subtle"
-                                  type="button"
-                                  @click=${() => props.onOpenMilestoneEditor(milestone)}
-                                >
-                                  Edit
-                                </button>
-                              </div>
-                            </details>
-                          `}
+      ${repeat(
+        phaseGroups,
+        (group) => group.title,
+        (group) => {
+          const complete = group.milestones.filter((item) =>
+            ["complete", "complete_with_maintenance"].includes(item.status),
+          ).length;
+          const visibleMilestones = collapseCompletedHistory
+            ? group.milestones.slice(0, 3)
+            : group.milestones;
+          const hiddenCount = group.milestones.length - visibleMilestones.length;
+          return html`<section class="pcc-journey-phase" data-pcc-journey-phase>
+            <header>
+              <strong>${group.title}</strong>
+              <span>${complete}/${group.milestones.length} complete</span>
+            </header>
+            <ol>
+              ${repeat(
+                visibleMilestones,
+                (milestone) => milestone.id,
+                (milestone) => {
+                  const globalIndex = milestonePositionById.get(milestone.id) ?? 0;
+                  const journeyClass = milestoneJourneyClass(milestone, current?.id);
+                  const subMilestones = subMilestonesForMilestone(detail, milestone);
+                  const nextSub = nextSubMilestoneForMilestone(detail, milestone);
+                  const blocker = milestone.blocker || nextSub?.blocker;
+                  const milestoneMetadata = metadataObject(milestone.metadata);
+                  const milestoneRisk = metadataString(milestoneMetadata.pccCostRisk, "low");
+                  const milestoneWorker = responsibilityLabel(
+                    pccResponsibilityForItem(milestone) || "local_openclaw_agent",
+                  );
+                  const showActionMenu =
+                    !reorderMode &&
+                    (!terminalProject ||
+                      mode !== "simple" ||
+                      !["complete", "complete_with_maintenance"].includes(milestone.status));
+                  return html`<li
+                    class="pcc-journey-step pcc-journey-step--${journeyClass}"
+                    data-pcc-journey-step
+                    data-pcc-milestone-id=${milestone.id}
+                    @dragenter=${(event: DragEvent) => {
+                      event.preventDefault();
+                      if (reorderMode && canReorder) {
+                        setPccDropTarget(event, true);
+                      }
+                    }}
+                    @dragover=${(event: DragEvent) => {
+                      event.preventDefault();
+                      if (event.dataTransfer) {
+                        event.dataTransfer.dropEffect = "move";
+                      }
+                    }}
+                    @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
+                    @drop=${(event: DragEvent) => {
+                      event.preventDefault();
+                      setPccDropTarget(event, false);
+                      if (!reorderMode || !canReorder) {
+                        endPccDrag("milestone");
+                        return;
+                      }
+                      const sourceId = getPccDraggedId(event, "milestone");
+                      const source = milestones.find((item) => item.id === sourceId);
+                      endPccDrag("milestone");
+                      if (source && source.id !== milestone.id) {
+                        props.onMoveMilestoneBefore?.(source, milestone);
+                      }
+                    }}
+                    @dragend=${() => {
+                      endPccDrag("milestone");
+                      document
+                        .querySelectorAll(".pcc-journey-step.is-drop-target")
+                        .forEach((item) => item.classList.remove("is-drop-target"));
+                    }}
+                  >
+                    <div
+                      class="pcc-journey-step__marker"
+                      aria-label=${`Step ${globalIndex} of ${milestones.length}`}
+                    >
+                      ${globalIndex}
                     </div>
-                  </details>
-                  ${showActionMenu ? renderMilestoneActionMenu(milestone, props) : nothing}
-                </div>
-              </li>`;
-            })}
-          </ol>
-          ${hiddenCount > 0
-            ? html`<p class="pcc-completed-history-note" data-pcc-completed-history-collapsed>
-                ${hiddenCount} completed step${hiddenCount === 1 ? "" : "s"} hidden in Simple view.
-                Switch to Detailed to review the full history.
-              </p>`
-            : nothing}
-        </section>`;
-      })}
+                    <div class="pcc-journey-step__content">
+                      ${reorderMode && canReorder
+                        ? html`<div class="pcc-journey-step__toolbar" data-pcc-reorder-toolbar>
+                            <button
+                              class="pcc-drag-handle"
+                              type="button"
+                              data-pcc-drag-handle="milestone"
+                              draggable="true"
+                              aria-label=${`Drag to reorder milestone ${milestone.title}`}
+                              @dragstart=${(event: DragEvent) => {
+                                beginPccDrag(event, "milestone", milestone.id);
+                              }}
+                              @dragend=${() => {
+                                endPccDrag("milestone");
+                              }}
+                            >
+                              ☰
+                            </button>
+                            ${renderMilestoneReorderControls(
+                              milestones,
+                              milestone,
+                              props,
+                              globalIndex - 1,
+                            )}
+                            <span>Step ${globalIndex} · safe move controls</span>
+                          </div>`
+                        : nothing}
+                      <details ?open=${mode !== "simple" && journeyClass === "current"}>
+                        <summary>
+                          <span class="pcc-journey-step__summary-main">
+                            <em>Step ${globalIndex} of ${milestones.length}</em>
+                            <strong>${milestone.title}</strong>
+                            <small
+                              >${subMilestones.length}
+                              sub-step${subMilestones.length === 1 ? "" : "s"} ·
+                              ${milestoneDisplayPercent(milestone)}%</small
+                            >
+                          </span>
+                          <span class="pcc-journey-step__summary-side">
+                            <span class="pcc-status pcc-status--${milestone.status}"
+                              >${formatStatus(milestone.status)}</span
+                            >
+                            ${blocker
+                              ? html`<span class="pcc-journey-step__blocker">Blocked</span>`
+                              : nothing}
+                            <span
+                              >${journeyClass === "current"
+                                ? "Current"
+                                : formatStatus(journeyClass)}</span
+                            >
+                          </span>
+                        </summary>
+                        <div class="pcc-journey-step__body">
+                          <div class="pcc-journey-step__skim">
+                            <span>Next: ${nextSub?.title ?? "No next sub-step"}</span>
+                            <span class="pcc-route-chip" data-pcc-route-chip="worker"
+                              ><b>Worker</b> ${milestoneWorker}</span
+                            >
+                            <span class="pcc-route-chip" data-pcc-route-chip="risk"
+                              ><b>Risk</b> ${formatStatus(milestoneRisk)}</span
+                            >
+                            ${blocker ? html`<strong>Blocked: ${blocker}</strong>` : nothing}
+                          </div>
+                          ${mode === "simple"
+                            ? renderSubMilestoneList(milestone, props, { compact: true })
+                            : html`
+                                <p>
+                                  ${milestone.blocker ||
+                                  milestone.implementationPlan ||
+                                  "No implementation plan recorded."}
+                                </p>
+                                ${renderSubMilestoneList(milestone, props, {
+                                  compact: mode !== "agent",
+                                  showDrilldown: true,
+                                })}
+                                <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+                                  <summary>Proof, receipts, permissions, and actions</summary>
+                                  ${mode === "agent"
+                                    ? renderMilestoneReceipts(milestone, props)
+                                    : nothing}
+                                  ${permissionsForMilestone(props.projectDetail, milestone).length >
+                                  0
+                                    ? renderPermissionList(
+                                        permissionsForMilestone(props.projectDetail, milestone),
+                                        props,
+                                      )
+                                    : nothing}
+                                  <div class="pcc-milestone__actions">
+                                    <label class="pcc-stop-here" data-pcc-stop-here>
+                                      <input
+                                        type="checkbox"
+                                        .checked=${milestoneStopsHere(milestone)}
+                                        ?disabled=${props.actionBusy}
+                                        @change=${(event: Event) =>
+                                          props.onSetMilestoneStopHere(
+                                            milestone,
+                                            (event.target as HTMLInputElement).checked,
+                                          )}
+                                      />
+                                      Stop here
+                                    </label>
+                                    <button
+                                      class="btn btn--subtle"
+                                      type="button"
+                                      @click=${() => props.onOpenMilestoneEditor(milestone)}
+                                    >
+                                      Edit
+                                    </button>
+                                  </div>
+                                </details>
+                              `}
+                        </div>
+                      </details>
+                      ${showActionMenu ? renderMilestoneActionMenu(milestone, props) : nothing}
+                    </div>
+                  </li>`;
+                },
+              )}
+            </ol>
+            ${hiddenCount > 0
+              ? html`<p class="pcc-completed-history-note" data-pcc-completed-history-collapsed>
+                  ${hiddenCount} completed step${hiddenCount === 1 ? "" : "s"} hidden in Simple
+                  view. Switch to Detailed to review the full history.
+                </p>`
+              : nothing}
+          </section>`;
+        },
+      )}
     </div>
   </section>`;
 }
@@ -5841,101 +5778,110 @@ function renderSubMilestoneList(
     class="pcc-submilestones ${options.compact ? "pcc-submilestones--compact" : ""}"
     data-pcc-submilestones
   >
-    ${subMilestones.map((subMilestone) => {
-      const percent = subMilestoneDisplayPercent(subMilestone);
-      const complete =
-        subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance";
-      return html`<li
-        class="pcc-submilestone"
-        data-pcc-submilestone
-        data-pcc-submilestone-id=${subMilestone.id}
-        @dragenter=${(event: DragEvent) => {
-          event.preventDefault();
-          if (reorderMode) {
-            setPccDropTarget(event, true);
-          }
-        }}
-        @dragover=${(event: DragEvent) => {
-          event.preventDefault();
-          if (event.dataTransfer) {
-            event.dataTransfer.dropEffect = "move";
-          }
-        }}
-        @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
-        @drop=${(event: DragEvent) => {
-          event.preventDefault();
-          setPccDropTarget(event, false);
-          if (!reorderMode) {
+    ${repeat(
+      subMilestones,
+      (subMilestone) => subMilestone.id,
+      (subMilestone, subMilestoneIndex) => {
+        const percent = subMilestoneDisplayPercent(subMilestone);
+        const complete =
+          subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance";
+        return html`<li
+          class="pcc-submilestone"
+          data-pcc-submilestone
+          data-pcc-submilestone-id=${subMilestone.id}
+          @dragenter=${(event: DragEvent) => {
+            event.preventDefault();
+            if (reorderMode) {
+              setPccDropTarget(event, true);
+            }
+          }}
+          @dragover=${(event: DragEvent) => {
+            event.preventDefault();
+            if (event.dataTransfer) {
+              event.dataTransfer.dropEffect = "move";
+            }
+          }}
+          @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
+          @drop=${(event: DragEvent) => {
+            event.preventDefault();
+            setPccDropTarget(event, false);
+            if (!reorderMode) {
+              endPccDrag("submilestone");
+              return;
+            }
+            const sourceId = getPccDraggedId(event, "submilestone");
+            const source = subMilestones.find((item) => item.id === sourceId);
             endPccDrag("submilestone");
-            return;
-          }
-          const sourceId = getPccDraggedId(event, "submilestone");
-          const source = subMilestones.find((item) => item.id === sourceId);
-          endPccDrag("submilestone");
-          if (source && source.id !== subMilestone.id) {
-            props.onMoveSubMilestoneBefore?.(source, subMilestone);
-          }
-        }}
-        @dragend=${() => {
-          endPccDrag("submilestone");
-          document
-            .querySelectorAll(".pcc-submilestone.is-drop-target")
-            .forEach((item) => item.classList.remove("is-drop-target"));
-        }}
-      >
-        <div class="pcc-submilestone__main">
-          ${reorderMode
-            ? html`<button
-                  class="pcc-drag-handle"
-                  type="button"
-                  data-pcc-drag-handle="submilestone"
-                  draggable="true"
-                  aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
-                  @dragstart=${(event: DragEvent) => {
-                    beginPccDrag(event, "submilestone", subMilestone.id);
-                  }}
-                  @dragend=${() => {
-                    endPccDrag("submilestone");
-                  }}
-                >
-                  ☰
-                </button>
-                ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}`
-            : nothing}
-          <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
-          <div>
-            <strong>${subMilestone.title}</strong>
+            if (source && source.id !== subMilestone.id) {
+              props.onMoveSubMilestoneBefore?.(source, subMilestone);
+            }
+          }}
+          @dragend=${() => {
+            endPccDrag("submilestone");
+            document
+              .querySelectorAll(".pcc-submilestone.is-drop-target")
+              .forEach((item) => item.classList.remove("is-drop-target"));
+          }}
+        >
+          <div class="pcc-submilestone__main">
+            ${reorderMode
+              ? html`<button
+                    class="pcc-drag-handle"
+                    type="button"
+                    data-pcc-drag-handle="submilestone"
+                    draggable="true"
+                    aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
+                    @dragstart=${(event: DragEvent) => {
+                      beginPccDrag(event, "submilestone", subMilestone.id);
+                    }}
+                    @dragend=${() => {
+                      endPccDrag("submilestone");
+                    }}
+                  >
+                    ☰
+                  </button>
+                  ${renderSubMilestoneReorderControls(
+                    subMilestones,
+                    subMilestone,
+                    props,
+                    subMilestoneIndex,
+                  )}`
+              : nothing}
+            <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
+            <div>
+              <strong>${subMilestone.title}</strong>
+              ${options.compact
+                ? nothing
+                : html`<p>
+                    ${subMilestone.implementationPlan || "No implementation plan recorded."}
+                  </p>`}
+            </div>
+            <span class="pcc-status pcc-status--${subMilestone.status}"
+              >${formatStatus(subMilestone.status)}</span
+            >
+            ${reorderMode ? nothing : renderSubMilestoneActionMenu(subMilestone, props)}
+          </div>
+          <div class="pcc-project-card__meta">
+            <span>${percent}%</span>
             ${options.compact
               ? nothing
-              : html`<p>
-                  ${subMilestone.implementationPlan || "No implementation plan recorded."}
-                </p>`}
+              : html`
+                  <span class="pcc-route-chip" data-pcc-route-chip="worker"
+                    ><b>Worker</b> ${itemWorkerLabel(subMilestone)}</span
+                  >
+                  <span>${itemProofLabel(subMilestone)}</span>
+                  <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
+                `}
           </div>
-          <span class="pcc-status pcc-status--${subMilestone.status}"
-            >${formatStatus(subMilestone.status)}</span
-          >
-          ${reorderMode ? nothing : renderSubMilestoneActionMenu(subMilestone, props)}
-        </div>
-        <div class="pcc-project-card__meta">
-          <span>${percent}%</span>
-          ${options.compact
-            ? nothing
-            : html`
-                <span class="pcc-route-chip" data-pcc-route-chip="worker"
-                  ><b>Worker</b> ${itemWorkerLabel(subMilestone)}</span
-                >
-                <span>${itemProofLabel(subMilestone)}</span>
-                <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
-              `}
-        </div>
-        ${subMilestone.blocker
-          ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
-          : nothing}
-        ${options.showDrilldown || !options.compact
-          ? renderSubMilestoneDrilldown(subMilestone, props)
-          : nothing}
-      </li>`;
-    })}
+          ${subMilestone.blocker
+            ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
+            : nothing}
+          ${options.showDrilldown || !options.compact
+            ? renderSubMilestoneDrilldown(subMilestone, props)
+            : nothing}
+        </li>`;
+      },
+    )}
   </ol>`;
 }
 
@@ -7153,12 +7099,10 @@ function renderProjectListEmptyState(
   props: PccDashboardProps,
   allProjects: readonly PccProjectSummary[],
   filteredByTabCount: number,
+  needsYouCount: number,
 ) {
   const selected = props.projectFilter ?? "active";
   const searchActive = Boolean(props.projectSearchQuery?.trim());
-  const needsYouCount = allProjects.filter((project) =>
-    projectMatchesFilter(project, "needs_you"),
-  ).length;
   const allCount = allProjects.length;
   const canShowNeedsYou = !searchActive && selected !== "needs_you" && needsYouCount > 0;
   const canShowAll = !searchActive && selected !== "all" && allCount > 0;
@@ -7209,53 +7153,15 @@ function renderProjectListEmptyState(
 }
 
 export function renderPccDashboard(props: PccDashboardProps) {
-  const scopedProjects = focusScopedProjectsForToday(props, props.projects);
-  const selectedProjectSummary = props.projectDetail
-    ? props.projects.find((project) => project.id === props.projectDetail?.project.id)
-    : undefined;
-  const selectedOutsideScope = Boolean(
-    selectedProjectSummary &&
-    props.projectDetail &&
-    pccWorkScopeForProject(props.projectDetail.project) !== effectivePccFocusMode(props),
-  );
-  const allProjects =
-    selectedOutsideScope &&
-    selectedProjectSummary &&
-    !scopedProjects.some((project) => project.id === selectedProjectSummary.id)
-      ? [...scopedProjects, selectedProjectSummary]
-      : scopedProjects;
-  const selectedFilter = effectiveProjectFilter(props, allProjects);
-  const filteredByTab = allProjects.filter((project) =>
-    projectMatchesFilter(project, selectedFilter),
-  );
-  const filteredProjects = filteredByTab.filter((project) =>
-    projectMatchesSearch(
-      project,
-      props.projectSearchQuery,
-      props.projectDetails?.[project.id] ??
-        (props.projectDetail?.project.id === project.id ? props.projectDetail : undefined),
-    ),
-  );
-  const projects =
-    selectedOutsideScope &&
-    selectedProjectSummary &&
-    !filteredProjects.some((project) => project.id === selectedProjectSummary.id) &&
-    projectMatchesSearch(
-      selectedProjectSummary,
-      props.projectSearchQuery,
-      props.projectDetails?.[selectedProjectSummary.id] ?? props.projectDetail ?? undefined,
-    )
-      ? [...filteredProjects, selectedProjectSummary]
-      : filteredProjects;
+  const readModel = buildPccDashboardReadModel(props);
+  const allProjects = readModel.allProjects;
+  const filteredByTab = readModel.filteredByTab;
+  const projects = readModel.visibleProjects;
   const mode = pccViewMode(props);
   const deferTodayUntilAfterWorkspace = mode === "simple" && Boolean(props.projectDetail);
   const focusWorkspace = mode === "simple" && Boolean(props.projectDetail);
   return html`
-    <section
-      class="pcc-shell"
-      data-pcc-shell
-      data-pcc-product-focus=${effectivePccFocusMode(props)}
-    >
+    <section class="pcc-shell" data-pcc-shell data-pcc-product-focus=${readModel.focusMode}>
       <header class="pcc-hero pcc-hero--compact">
         <div>
           <p class="pcc-kicker">Projects</p>
@@ -7292,25 +7198,20 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)}
-      ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
-      ${renderPccMobileCommandRail(props)}
+      ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props, readModel)}
+      ${renderPccMobileCommandRail(props, readModel)}
 
       <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
         <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
-          ${renderProjectFocusBar(
-            props,
-            allProjects,
-            projects.length,
-            filteredByTab.length,
-            selectedFilter,
-          )}
+          ${renderProjectFocusBar(props, readModel, projects.length, filteredByTab.length)}
           ${props.loading && projects.length === 0
             ? renderPccLoadingState()
             : !props.loading && projects.length === 0
               ? renderProjectListEmptyState(
-                  { ...props, projectFilter: selectedFilter },
+                  { ...props, projectFilter: readModel.selectedFilter },
                   allProjects,
                   filteredByTab.length,
+                  readModel.filterCounts.needs_you,
                 )
               : html`<section class="pcc-project-grid" aria-label="Project cards">
                   ${projects.map((project) => renderProjectCard(project, props))}
@@ -7318,25 +7219,25 @@ export function renderPccDashboard(props: PccDashboardProps) {
         </section>
         <section class="pcc-workspace" data-pcc-selected-project-workspace>
           ${renderProjectDetail(props)}
-          ${mode === "simple" ? nothing : renderPortfolioWorkConsole(props)}
+          ${mode === "simple" ? nothing : renderPortfolioWorkConsole(readModel.details)}
         </section>
       </div>
       ${deferTodayUntilAfterWorkspace
         ? html`<div class="pcc-today-slot pcc-today-slot--after-workspace">
-            ${renderTodayView(props)}
+            ${renderTodayView(props, readModel)}
           </div>`
         : nothing}
       ${mode === "simple"
         ? nothing
         : html`<details class="pcc-detail-drawer pcc-needs-attention-drawer">
             <summary>Needs You list</summary>
-            ${renderNeedsAttentionNow(props)}
+            ${renderNeedsAttentionNow(props, readModel.globalAttentionProjects)}
           </details>`}
       ${mode === "simple"
         ? nothing
         : html`<details class="pcc-detail-drawer pcc-top-proof-drawer">
             <summary>Needs You details</summary>
-            ${renderImpactAttentionInbox(props)}
+            ${renderImpactAttentionInbox(readModel)}
           </details>`}
       ${mode === "simple"
         ? nothing

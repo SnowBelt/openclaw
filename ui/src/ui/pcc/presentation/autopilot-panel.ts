@@ -14,6 +14,10 @@ import {
 } from "../../../../../src/pcc/execution-profile.js";
 import { resolvePccExecutionStandardForDetail } from "../application/execution-team.ts";
 import type { PccDashboardProps, PccProjectDetail } from "../contracts.ts";
+import {
+  formatPccStatus as formatStatus,
+  formatPccUpdatedAt as formatUpdatedAt,
+} from "./formatters.ts";
 
 export type PccFactRenderer = (label: string, value: string) => unknown;
 
@@ -24,25 +28,6 @@ const EXECUTION_PROFILE_TITLES: Record<PccExecutionProfilePresetId, string> = {
   balanced: "Balanced team",
   ultra_hybrid: "Ultra + Codex",
 };
-
-function formatStatus(status: string | null | undefined): string {
-  const value = typeof status === "string" ? status.trim() : "";
-  if (!value) {
-    return "Not recorded";
-  }
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatUpdatedAt(value: number | null): string {
-  if (!value) {
-    return "Not loaded yet";
-  }
-  return `Updated ${new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
 
 function renderAutopilotPromptSlot(slot: PccAutopilotPromptSlot, props: PccDashboardProps) {
   return html`<article

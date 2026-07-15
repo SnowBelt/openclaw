@@ -158,6 +158,23 @@
   padding: 20px;
 }
 
+@supports (content-visibility: auto) {
+  .pcc-project-card {
+    contain-intrinsic-size: auto 260px;
+    content-visibility: auto;
+  }
+
+  .pcc-milestone-journey[data-pcc-reorder-mode="off"] .pcc-journey-step {
+    contain-intrinsic-size: auto 150px;
+    content-visibility: auto;
+  }
+
+  .pcc-submilestone {
+    contain-intrinsic-size: auto 96px;
+    content-visibility: auto;
+  }
+}
+
 .pcc-project-card__topline {
   align-items: flex-start;
   display: flex;

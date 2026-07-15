@@ -1,8 +1,15 @@
 import { pccWorkScopeForProject } from "../../../../../src/pcc/metadata.js";
 import { getPccWorkLoopSettings } from "../../../../../src/pcc/work-loop.js";
-import type { PccMilestone, PccProject, PccProjectSummary, PccStatus } from "../../types.ts";
+import type {
+  PccMilestone,
+  PccProject,
+  PccProjectSummary,
+  PccStatus,
+  PccSubMilestone,
+} from "../../types.ts";
 import type { PccDashboardProps, PccProjectDetail, PccProjectFilter } from "../contracts.ts";
 import { PCC_TERMINAL_STATUSES } from "../policies.ts";
+import { formatPccProjectDate, formatPccStatus } from "./formatters.ts";
 
 export const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["active", "Active"],
@@ -14,31 +21,33 @@ export const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
 
 const PCC_STALE_PROJECT_DAYS = 14;
 
-function formatStatus(status: string | null | undefined): string {
-  const value = typeof status === "string" ? status.trim() : "";
-  if (!value) {
-    return "Not recorded";
-  }
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
+const sortedMilestoneCache = new WeakMap<readonly PccMilestone[], PccMilestone[]>();
+const subMilestonesByMilestoneCache = new WeakMap<
+  readonly PccSubMilestone[],
+  ReadonlyMap<string, PccSubMilestone[]>
+>();
+const projectTimestampCache = new WeakMap<
+  PccProjectSummary,
+  { dueDate: string | undefined; dueAt: number; updatedAt: string; updatedAtMs: number }
+>();
 
-function formatProjectDate(value: string | undefined): string {
-  if (!value) {
-    return "No due date";
+let normalizedProjectSearchQueryCache:
+  | { query: string | undefined; terms: readonly string[] }
+  | undefined;
+
+function projectTimestamps(project: PccProjectSummary): { dueAt: number; updatedAtMs: number } {
+  const cached = projectTimestampCache.get(project);
+  if (cached && cached.dueDate === project.dueDate && cached.updatedAt === project.updatedAt) {
+    return cached;
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
+  const timestamps = {
+    dueDate: project.dueDate,
+    dueAt: project.dueDate ? Date.parse(project.dueDate) : Number.NaN,
+    updatedAt: project.updatedAt,
+    updatedAtMs: Date.parse(project.updatedAt),
+  };
+  projectTimestampCache.set(project, timestamps);
+  return timestamps;
 }
 
 function compactSignalText(value: string, max = 130): string {
@@ -64,7 +73,7 @@ function projectOutcomeMetrics(project: unknown): string[] {
 }
 
 export function projectFilterLabel(filter: PccProjectFilter): string {
-  return PROJECT_FILTER_OPTIONS.find(([value]) => value === filter)?.[1] ?? formatStatus(filter);
+  return PROJECT_FILTER_OPTIONS.find(([value]) => value === filter)?.[1] ?? formatPccStatus(filter);
 }
 
 export function projectIsOnHold(project: Pick<PccProject, "status"> | PccProjectSummary): boolean {
@@ -156,15 +165,15 @@ export function projectIsOverdue(project: PccProjectSummary): boolean {
   if (PCC_TERMINAL_STATUSES.has(project.status) || !project.dueDate) {
     return false;
   }
-  const parsed = Date.parse(project.dueDate);
-  return Number.isFinite(parsed) && parsed < Date.now();
+  const dueAt = projectTimestamps(project).dueAt;
+  return Number.isFinite(dueAt) && dueAt < Date.now();
 }
 
 export function projectIsStale(project: PccProjectSummary): boolean {
   if (PCC_TERMINAL_STATUSES.has(project.status)) {
     return false;
   }
-  const updatedAt = Date.parse(project.updatedAt);
+  const updatedAt = projectTimestamps(project).updatedAtMs;
   if (!Number.isFinite(updatedAt)) {
     return false;
   }
@@ -196,13 +205,13 @@ export function projectAttentionLine(project: PccProjectSummary): string {
     return project.nextActions[0] ?? "Blocked work needs review";
   }
   if (projectIsOverdue(project) || project.health === "Overdue") {
-    return `Overdue since ${formatProjectDate(project.dueDate)}`;
+    return `Overdue since ${formatPccProjectDate(project.dueDate)}`;
   }
   if (project.health === "At risk") {
     return "At risk; review blockers, proof, and next action";
   }
   if (projectIsStale(project)) {
-    return `No recorded update since ${formatProjectDate(project.updatedAt)}`;
+    return `No recorded update since ${formatPccProjectDate(project.updatedAt)}`;
   }
   return project.nextActions[0] ?? "Needs review";
 }
@@ -231,10 +240,48 @@ export function workStateForProject(
 }
 
 export function sortedMilestones(detail: PccProjectDetail): PccMilestone[] {
-  return detail.milestones.toSorted(
+  const cached = sortedMilestoneCache.get(detail.milestones);
+  if (cached) {
+    return cached;
+  }
+  const sorted = detail.milestones.toSorted(
     (left, right) =>
       (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER),
   );
+  sortedMilestoneCache.set(detail.milestones, sorted);
+  return sorted;
+}
+
+export function subMilestonesForMilestoneId(
+  detail: PccProjectDetail | null,
+  milestoneId: string,
+): PccSubMilestone[] {
+  const subMilestones = detail?.subMilestones;
+  if (!subMilestones || subMilestones.length === 0) {
+    return [];
+  }
+  let byMilestone = subMilestonesByMilestoneCache.get(subMilestones);
+  if (!byMilestone) {
+    const mutable = new Map<string, PccSubMilestone[]>();
+    for (const subMilestone of subMilestones) {
+      const items = mutable.get(subMilestone.milestoneId);
+      if (items) {
+        items.push(subMilestone);
+      } else {
+        mutable.set(subMilestone.milestoneId, [subMilestone]);
+      }
+    }
+    for (const items of mutable.values()) {
+      items.sort(
+        (left, right) =>
+          (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER) ||
+          left.title.localeCompare(right.title),
+      );
+    }
+    byMilestone = mutable;
+    subMilestonesByMilestoneCache.set(subMilestones, byMilestone);
+  }
+  return byMilestone.get(milestoneId) ?? [];
 }
 
 export function currentMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefined {
@@ -242,8 +289,9 @@ export function currentMilestoneForDetail(detail: PccProjectDetail): PccMileston
 }
 
 export function nextMilestoneForDetail(detail: PccProjectDetail): PccMilestone | undefined {
-  const current = currentMilestoneForDetail(detail);
-  return sortedMilestones(detail).find(
+  const milestones = sortedMilestones(detail);
+  const current = milestones.find((milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status));
+  return milestones.find(
     (milestone) => milestone.id !== current?.id && !PCC_TERMINAL_STATUSES.has(milestone.status),
   );
 }
@@ -292,13 +340,15 @@ export function attentionKind(project: PccProjectSummary): string {
 export function getAttentionProjects(projects: readonly PccProjectSummary[]): PccProjectSummary[] {
   return projects.filter(projectNeedsAttention).toSorted((left, right) => {
     const rank = attentionRank(left) - attentionRank(right);
-    return rank !== 0 ? rank : Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+    return rank !== 0
+      ? rank
+      : projectTimestamps(right).updatedAtMs - projectTimestamps(left).updatedAtMs;
   });
 }
 
 export function projectActionLine(project: PccProjectSummary, detail?: PccProjectDetail): string {
   const current = detail ? currentMilestoneForDetail(detail) : undefined;
-  return current?.title ?? project.nextActions[0] ?? formatStatus(project.status);
+  return current?.title ?? project.nextActions[0] ?? formatPccStatus(project.status);
 }
 
 export function projectBlockerLine(project: PccProjectSummary): string {
@@ -380,12 +430,18 @@ export function effectiveProjectFilter(
   return activeCount === 0 && needsYouCount > 0 ? "needs_you" : selected;
 }
 
-function normalizeProjectSearchQuery(query: string | undefined): string[] {
-  return (query ?? "")
+function normalizeProjectSearchQuery(query: string | undefined): readonly string[] {
+  const cached = normalizedProjectSearchQueryCache;
+  if (cached && cached.query === query) {
+    return cached.terms;
+  }
+  const terms = (query ?? "")
     .toLocaleLowerCase()
     .split(/\s+/u)
     .map((part) => part.trim())
     .filter(Boolean);
+  normalizedProjectSearchQueryCache = { query, terms };
+  return terms;
 }
 
 const projectSearchTextCache = new WeakMap<
