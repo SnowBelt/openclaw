@@ -120,4 +120,3 @@ def immutable_receipts(directory: Path) -> list[dict[str, Any]]:
             payload["_receipt_path"] = str(path)
             rows.append(payload)
     return rows
-

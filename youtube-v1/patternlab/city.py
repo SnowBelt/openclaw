@@ -47,4 +47,3 @@ def city_from_sources(
         details = ",".join(f"{name}={value}" for name, value in present)
         raise CityContractError(f"episode_city_mismatch:{details}")
     return present[0][1]
-
