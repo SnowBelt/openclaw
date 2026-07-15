@@ -114,6 +114,14 @@ def backup_installed_files(launch_agents_dir: Path, paths: tuple[Path, ...]) -> 
     return backup
 
 
+def latest_backup(launch_agents_dir: Path) -> Path | None:
+    root = launch_agents_dir / "PatternLabBackups"
+    if not root.is_dir():
+        return None
+    backups = sorted(path for path in root.iterdir() if path.is_dir())
+    return backups[-1] if backups else None
+
+
 def verify_installation(
     launch_agents_dir: Path,
     uid: int,
@@ -280,7 +288,7 @@ def build_report(
         "mode": "backup_apply_verify" if apply else "verify_only",
         "uid": uid,
         "launch_agents_dir": str(launch_agents_dir),
-        "backup": str(backup) if backup else "",
+        "backup": str(backup or latest_backup(launch_agents_dir) or ""),
         "canonical_labels": list(CANONICAL_LABELS),
         "agents": rows,
         "operations": operations,

@@ -68,6 +68,15 @@ class PatternLabLaunchdInstallTests(unittest.TestCase):
                 destination = launch_agents / f"{label}.plist"
                 self.assertTrue(destination.is_file())
                 self.assertEqual(launchd_install.read_plist(destination)["Label"], label)
+            verified, _report = launchd_install.build_report(
+                apply=False,
+                launch_agents_dir=launch_agents,
+                uid=502,
+                automation_root=YOUTUBE_ROOT / "automation",
+                runner=runner,
+            )
+            self.assertEqual(verified["status"], "pass", verified["blockers"])
+            self.assertEqual(verified["backup"], str(backup))
 
     def test_verify_rejects_missing_and_obsolete_launchagents(self):
         with tempfile.TemporaryDirectory() as temp:
