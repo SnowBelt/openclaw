@@ -2,6 +2,27 @@
 
 Local-first operating kit for producing Pattern Lab city-history videos and Shorts with approval-gated publishing, rights-safe historical visuals, monetization gates, structured review actions, performance learning, and production-grade public-channel positioning.
 
+## Start Here
+
+Do not assemble the workflow manually. Every Pattern Lab production, rebuild,
+QA repair, or owner-review package starts with the mandatory
+`patternlab-production-director` skill and the single canonical command:
+
+```bash
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_production.py --next-scheduled --profile full_package --render --send-review --live-voice never --shorts-target 5
+```
+
+Use the same command with `--dry-run` and without `--render --send-review` to
+inspect the exact stages. The production command validates skill deployment, source/evidence policy,
+artifact hashes, storage, media, independent 93+ QA, release registration, and
+review handoff. Leaf scripts are debugging tools and cannot prove completion.
+
+Every episode is city-generic but never city-implicit. Its package must own one
+explicit city, hidden-history question, proof object, source trail, visual
+payoff, five thumbnail hypotheses, and 3-5 standalone Shorts. No prior city's
+route, prompt, headline, or source asset may leak into a new episode. Reusable
+generic context remains context-only and keeps its exact rights receipt.
+
 ## Current Goal
 
 Run the next Pattern Lab private review package:
@@ -61,34 +82,29 @@ Run the next Pattern Lab private review package:
 - Machine-readable YouTube guru growth policy: `youtube-v1/resources/youtube-guru-growth-policy.json`
 - YouTube guru growth workflow: `youtube-v1/workflows/youtube-guru-growth-workflow.md`
 - Thumbnail production workflow: `youtube-v1/workflows/thumbnail-production-workflow.md`
-- Thumbnail renderer default: `OpenClaw strategy/source safety → Canva plugin render → OpenClaw validation → owner review / YouTube test`, with local generation fallback and no watermarked or Pro-locked Free-plan exports.
+- Thumbnail renderer default: `story/source brief → approved Codex support for high-value non-proof imagery or local generation fallback → deterministic Chrome/font compositor → shelf/OCR/semantic QA → hash-bound owner review`. AI never supplies archival proof or final text.
 
 ## Useful Commands
 
 ```bash
-python3 youtube-v1/scripts/generate_upload_metadata.py --video-id 03
-python3 youtube-v1/scripts/generate_canva_thumbnail_brief.py --video-id 03
-python3 youtube-v1/scripts/patternlab_thumbnail_quality.py --video-id 03
-python3 youtube-v1/scripts/patternlab_benchmark_growth.py --video-id 03
-python3 youtube-v1/scripts/patternlab_guru_growth_gates.py --video-id 03
-python3 youtube-v1/scripts/patternlab_source_rights.py --video-id 03
-python3 youtube-v1/scripts/monetization_gates.py --video-id 03
-python3 youtube-v1/scripts/generate_voiceover.py --video-id 03 --dry-run
-python3 youtube-v1/scripts/generate_voiceover.py --video-id 03 --live
-python3 youtube-v1/scripts/build_video_ffmpeg.py --video-id 03 --dry-run
-python3 youtube-v1/scripts/patternlab_long_form_quality.py --video-id 03
-python3 youtube-v1/scripts/generate_shorts_ffmpeg.py --video-id 03 --dry-run
-python3 youtube-v1/scripts/patternlab_shorts_quality.py --video-id 03
-python3 youtube-v1/scripts/private_upload_readiness.py --video-id 03
-python3 youtube-v1/scripts/public_publish_readiness.py --video-id 03
-python3 youtube-v1/scripts/patternlab_retention_ladder.py --video-id 03
-python3 youtube-v1/scripts/patternlab_monetization_tracker.py
-python3 youtube-v1/scripts/patternlab_content_calendar.py
-python3 youtube-v1/scripts/run_patternlab_pipeline.py --video-id 03
-python3 youtube-v1/scripts/send_daily_review_to_discord.py --video-id 03 --dry-run
-python3 youtube-v1/scripts/upload_private_youtube.py --video-id 03 --surface long-form --privacy private
-python3 youtube-v1/scripts/analyze_performance.py --video-id 03
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_production.py --next-scheduled --profile full_package --dry-run
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_production.py --next-scheduled --profile full_package --render --send-review --live-voice never --shorts-target 5
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_production.py --video-id 04 --profile long_form_rebuild --render
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_workflow_integrity.py
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_skill_deployment.py --video-id 04
 ```
+
+After a failed stage, repair that leaf in isolation and rerun the canonical
+command. Content-addressed receipts reuse unaffected stages automatically.
+Private upload, public publish, comments, pins, Related Video, title changes,
+and thumbnail changes remain separate exact approvals.
+
+Future production additions are fail-closed. They must extend the typed
+contract, mandatory skill, scoped rules, runbook, deterministic regression
+fixtures, workflow-integrity gate, shared-skill deployment, and active-runtime
+drift proof in one change. Until all surfaces agree, the addition is not an
+available Pattern Lab capability and the owner is never expected to invoke it
+manually.
 
 Generated media and secrets stay local and ignored under `youtube-v1/local-output/` and `youtube-v1/.env`.
 

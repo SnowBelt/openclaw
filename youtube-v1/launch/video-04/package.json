@@ -1,6 +1,10 @@
 {
   "generated_at": "2026-06-30T17:30:51Z",
   "video_id": "04",
+  "city": "Detroit",
+  "hidden_history_question": "What did Detroit erase in Black Bottom and Paradise Valley, and what proof still shows that the place existed before the clearance lines arrived?",
+  "proof_object": "A source-backed before-and-after neighborhood map tied to the relocation and freeway record",
+  "visual_payoff": "The old street grid, documented neighborhood life, clearance trail, and replacement footprint are shown together before the conclusion.",
   "topic_score": 90.8,
   "working_title": "The Neighborhood Detroit Erased: Black Bottom and Paradise Valley",
   "lane": "hidden systems behind American cities",
@@ -460,7 +464,49 @@
         "long_form_bridge": "Watch the full Pattern Lab city file for the complete source trail."
       }
     ],
-    "selected_title": "The Map That Cut Detroit's Black Bottom"
+    "selected_title": "The Map That Cut Detroit's Black Bottom",
+    "thumbnail_topic_concepts": [
+      {
+        "concept_id": "city_transformation",
+        "headline": "DETROIT WAS REDRAWN",
+        "visual_strategy": "A bright Detroit city anchor behind the exact old-street-grid proof object, with one clean route scar showing the transformation.",
+        "city_anchor": "Recognizable Detroit skyline or named street-grid source",
+        "proof_object": "Old Black Bottom street grid compared with the replacement footprint",
+        "click_interest_trigger": "What physically redrew Detroit?"
+      },
+      {
+        "concept_id": "hidden_system",
+        "headline": "DETROIT'S HIDDEN MAP",
+        "visual_strategy": "A vivid Detroit place anchor plus one source-grounded neighborhood map revealing streets hidden beneath the present footprint.",
+        "city_anchor": "Detroit name plus exact Black Bottom or I-375 footprint",
+        "proof_object": "Source-backed Black Bottom and Paradise Valley map",
+        "click_interest_trigger": "What does the modern map hide?"
+      },
+      {
+        "concept_id": "proof_object_mystery",
+        "headline": "DETROIT BEFORE I-375",
+        "visual_strategy": "One large bright historical Detroit street-life photograph paired with a restrained I-375 footprint cue; no fake document or generated proof.",
+        "city_anchor": "Detroit name plus exact period street or neighborhood image",
+        "proof_object": "Rights-cleared pre-clearance Detroit photograph",
+        "click_interest_trigger": "What occupied this land before the freeway?"
+      },
+      {
+        "concept_id": "vanished_place",
+        "headline": "DETROIT'S LOST STREETS",
+        "visual_strategy": "A bright historic Detroit street photograph with a simple present-day absence cue, not a rail image or research-board collage.",
+        "city_anchor": "Detroit name plus exact historic street context",
+        "proof_object": "Rights-cleared street photograph tied to the erased grid",
+        "click_interest_trigger": "Which streets disappeared?"
+      },
+      {
+        "concept_id": "then_now_contradiction",
+        "headline": "DETROIT THEN / NOW",
+        "visual_strategy": "Strict photo/photo comparison: vivid historical Detroit on the left and bright present-day Detroit on the right, with no map substituted for either panel.",
+        "city_anchor": "Historic and current Detroit photographs",
+        "proof_object": "Aspect-preserved then/now photo pair",
+        "click_interest_trigger": "What changed between the lived neighborhood and today's footprint?"
+      }
+    ]
   },
   "guru_growth_system": {
     "version": "2026-06-pattern-lab-youtube-guru-growth-v1",
@@ -755,5 +801,187 @@
       "long_form_bridge": "Watch the full Pattern Lab city file for the complete source trail."
     }
   ],
-  "selected_title": "The Map That Cut Detroit's Black Bottom"
+  "selected_title": "The Map That Cut Detroit's Black Bottom",
+  "local_terms": [
+    "Detroit",
+    "Black Bottom",
+    "Paradise Valley",
+    "Hastings Street",
+    "St. Antoine",
+    "I-375",
+    "Lafayette Park"
+  ],
+  "shorts_blueprints": [
+    {
+      "id_suffix": "short-01",
+      "title": "Black Bottom Was Not Empty",
+      "viewer_psychology": "curiosity",
+      "first_frame_text": "DETROIT WAS NOT EMPTY",
+      "hook": "Black Bottom was not empty.",
+      "proof_visual": "Detroit map plus source ledger for Black Bottom and Paradise Valley",
+      "payoff": "The map changes the story from empty land to a lived neighborhood.",
+      "source_keywords": [
+        "black bottom",
+        "empty",
+        "living district",
+        "map",
+        "paradise valley"
+      ],
+      "narration_sentences": [
+        "Black Bottom was not empty.",
+        "Detroit erased a living district.",
+        "Here's the proof.",
+        "A neighborhood map, more than 300 Black-owned businesses nearby in Paradise Valley, music venues that hosted American legends, and a freeway footprint that made the old street life harder to see.",
+        "The question today is simple: what did Detroit erase here, and what proof still shows that this place existed before the clearance lines arrived?"
+      ],
+      "source_assets": [
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0008-25pct.jpg",
+        "source-packet/candidates/loc-2017844869-detroit-black-residential-fronts-1942.jpg",
+        "source-packet/candidates/loc-2017844882-detroit-zoot-suit-business-district-1942.jpg",
+        "source-packet/candidates/shorts-film-stills/news3.jpg",
+        "source-packet/candidates/shorts-film-stills/home2.jpg",
+        "source-packet/candidates/fhwa/i375-official-route-map-crop.jpg"
+      ],
+      "proof_label": "MAP + ARCHIVE PROOF"
+    },
+    {
+      "id_suffix": "short-02",
+      "title": "Black Bottom Name Myth",
+      "viewer_psychology": "utility",
+      "first_frame_text": "BLACK BOTTOM MYTH",
+      "hook": "Black Bottom was not named because it became a Black neighborhood.",
+      "proof_visual": "Black Bottom name-origin source card plus Detroit map label",
+      "payoff": "The name points to older bottomland soil history, while the later Black neighborhood story reveals a different layer.",
+      "source_keywords": [
+        "not named",
+        "dark",
+        "bottomland",
+        "soil",
+        "river savoyard"
+      ],
+      "narration_sentences": [
+        "Black Bottom was not named because it became a Black neighborhood.",
+        "The name reaches back to the area's dark, rich bottomland soil, tied to the old River Savoyard.",
+        "That matters because it reminds us that a neighborhood can carry layers of history before the story most people know.",
+        "By the early 20th century, the area around Hastings Street had already been home to Eastern European Jewish settlement."
+      ],
+      "source_assets": [
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0011-25pct.jpg",
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0013-25pct.jpg",
+        "source-packet/candidates/loc-2017844470-sojourner-truth-family-moving-1942.jpg",
+        "source-packet/candidates/shorts-film-stills/home2.jpg"
+      ],
+      "proof_label": "THE MAP HOLDS THE NAME"
+    },
+    {
+      "id_suffix": "short-03",
+      "title": "300 Black-Owned Businesses",
+      "viewer_psychology": "identity",
+      "first_frame_text": "DETROIT 300 BUSINESSES",
+      "hook": "Black Bottom was residential.",
+      "proof_visual": "Detroit Paradise Valley business source board with count highlighted",
+      "payoff": "That number turns the story from clearance zone into commercial ecosystem.",
+      "source_keywords": [
+        "300",
+        "black-owned",
+        "business",
+        "paradise valley",
+        "commercial ecosystem"
+      ],
+      "narration_sentences": [
+        "Black Bottom was residential.",
+        "Paradise Valley, nearby and overlapping in Detroit memory, was the business and entertainment center.",
+        "If Black Bottom was where many people lived, Paradise Valley was where a lot of the public life happened: restaurants, clubs, theaters, drugstores, beauty salons, hotels, bowling alleys, and places where Detroit's Black economy and culture were visible.",
+        "Detroit Historical Society records describe more than 300 Black-owned businesses in Paradise Valley.",
+        "That number matters because it changes the emotional shape of the story.",
+        "This was not an empty district waiting for improvement.",
+        "It was a commercial ecosystem."
+      ],
+      "source_assets": [
+        "source-packet/candidates/loc-2017844882-detroit-zoot-suit-business-district-1942.jpg",
+        "source-packet/candidates/loc-2017844869-detroit-black-residential-fronts-1942.jpg",
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0017-25pct.jpg",
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0018-25pct.jpg",
+        "source-packet/candidates/shorts-film-stills/news3.jpg"
+      ],
+      "proof_label": "PARADISE VALLEY"
+    },
+    {
+      "id_suffix": "short-04",
+      "title": "A Freeway Is Never Just A Line",
+      "viewer_psychology": "system",
+      "first_frame_text": "FREEWAY CUT DETROIT",
+      "hook": "A freeway is never just a line.",
+      "proof_visual": "Detroit I-375 route trace over the old neighborhood footprint",
+      "payoff": "At street level, that line means addresses, businesses, and routes disappear.",
+      "source_keywords": [
+        "freeway",
+        "never just a line",
+        "addresses disappear",
+        "street level",
+        "i-375"
+      ],
+      "narration_sentences": [
+        "A freeway is never just a line.",
+        "At street level, that line means addresses disappear.",
+        "Think about what a cleared block really means.",
+        "It means a family gets notice to leave.",
+        "It means a business loses the customers who walked past every day.",
+        "It means a church network stretches across a new geography.",
+        "It means a musician's route from club to club changes.",
+        "It means a child who knew a corner store now has to learn another part of the city."
+      ],
+      "source_assets": [
+        "source-packet/candidates/fhwa/i375-official-route-map-crop.jpg",
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0018-25pct.jpg",
+        "source-packet/candidates/loc-2017844869-detroit-black-residential-fronts-1942.jpg",
+        "source-packet/candidates/loc-2017844470-sojourner-truth-family-moving-1942.jpg",
+        "source-packet/candidates/shorts-film-stills/home2.jpg"
+      ],
+      "proof_label": "I-375 CHANGED THE MAP"
+    },
+    {
+      "id_suffix": "short-05",
+      "title": "What Detroit Lost",
+      "viewer_psychology": "emotion",
+      "first_frame_text": "WHAT DETROIT LOST",
+      "hook": "The thing that vanished was not only architecture.",
+      "proof_visual": "Detroit then-now map board of businesses, churches, clubs, housing, and neighborhood footprint",
+      "payoff": "The larger loss was a network of Black business, music, housing, churches, workers, and memory.",
+      "source_keywords": [
+        "vanished",
+        "not only architecture",
+        "network",
+        "businesses",
+        "memory"
+      ],
+      "narration_sentences": [
+        "The thing that vanished was not only architecture.",
+        "It was a dense network of Black businesses, entertainment, housing, churches, customers, workers, and memory.",
+        "The map changed.",
+        "The story got shorter.",
+        "The archive is where the longer story waits.",
+        "If you grew up hearing only the shorthand version, this is the missing piece: Black Bottom and Paradise Valley were not empty.",
+        "They were not just an obstacle in the way of progress.",
+        "They were part of Detroit's cultural engine, and their removal changed more than traffic."
+      ],
+      "source_assets": [
+        "source-packet/candidates/loc-2017844882-detroit-zoot-suit-business-district-1942.jpg",
+        "source-packet/candidates/loc-2017844869-detroit-black-residential-fronts-1942.jpg",
+        "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0008-25pct.jpg",
+        "source-packet/candidates/fhwa/i375-official-route-map-crop.jpg",
+        "source-packet/candidates/shorts-film-stills/news3.jpg"
+      ],
+      "proof_label": "THE ARCHIVE REMEMBERS"
+    }
+  ],
+  "city_anchor": "Detroit plus the Black Bottom, Paradise Valley, Hastings Street, and I-375 footprint",
+  "thumbnail_emotion": "discovery, loss, and local recognition without sensationalism",
+  "thumbnail_hero_subject": "rights-cleared Black Bottom street life or a strict historic/current Detroit photo comparison",
+  "thumbnail_color_direction": "vivid electric blue, warm yellow, selective signal red, white type, and near-black edge contrast",
+  "thumbnail_source_asset_ids": [
+    "black-bottom-boundary-explanatory-map",
+    "detroit-sanborn-congested-district-map",
+    "commons-lafayette-over-black-bottom"
+  ]
 }

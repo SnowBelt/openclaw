@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.shorts_alignment import locate_all
 from patternlab_common import output_root, utc_now, display_path
 from patternlab_shorts_reliability_common import (
     complete_sentence,
@@ -24,12 +28,25 @@ def build_boundary_quality_report(video_id: str):
         root / "audio" / "voiceover_words.json",
         root / "audio" / "word-timestamps.json",
         root / "approval" / "word-timestamps.json",
+        root / "captions" / "word-alignment.json",
     ]
     timestamps_exist = any(path.exists() and path.stat().st_size > 0 for path in timestamp_paths)
     long_form = root / "video" / f"pattern-lab-video-{video_id}-draft.mp4"
-    rendered_alignment_pending = not (long_form.exists() and timestamps_exist)
+    words: list[dict] = []
+    for path in timestamp_paths:
+        if not path.is_file() or path.stat().st_size == 0:
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict) and isinstance(value.get("words"), list):
+            words = value["words"]
+            break
+    rendered_alignment_pending = not bool(words)
+    timestamps_exist = bool(words)
     if rendered_alignment_pending:
-        blockers.append("rendered_cut_word_alignment_pending")
+        blockers.append("exact_word_alignment_missing")
     rows = []
     for item in script_items(package):
         script = str(item.get("script") or "").strip()
@@ -43,6 +60,15 @@ def build_boundary_quality_report(video_id: str):
             row_blockers.append("script does not end as a complete sentence")
         if not complete_sentence(hook):
             row_blockers.append("hook does not end as a complete sentence")
+        sentences = [str(value) for value in item.get("narration_sentences", []) if str(value).strip()]
+        intervals: list[tuple[float, float]] = []
+        if not sentences:
+            row_blockers.append("approved narration sentence list is missing")
+        elif words:
+            try:
+                intervals = locate_all(words, sentences)
+            except ValueError as exc:
+                row_blockers.append(str(exc))
         blockers.extend(f"{short_ref(item)}: {blocker}." for blocker in row_blockers)
         rows.append(
             {
@@ -50,7 +76,10 @@ def build_boundary_quality_report(video_id: str):
                 "index": item.get("index"),
                 "title": item.get("title"),
                 "transcript_boundary_status": "pass" if not row_blockers else "blocked",
-                "rendered_cut_alignment_status": "pending" if rendered_alignment_pending else "ready-for-word-boundary-validation",
+                "rendered_cut_alignment_status": "pending" if rendered_alignment_pending else ("pass" if intervals and not row_blockers else "blocked"),
+                "sentence_intervals": [
+                    {"start": round(start, 3), "end": round(end, 3)} for start, end in intervals
+                ],
                 "blockers": row_blockers,
             }
         )
@@ -63,7 +92,7 @@ def build_boundary_quality_report(video_id: str):
         "word_timestamp_candidates": [display_path(path) for path in timestamp_paths],
         "word_timestamps_exist": timestamps_exist,
         "long_form_exists": long_form.exists(),
-        "rendered_cut_alignment_status": "pending" if rendered_alignment_pending else "ready-for-word-boundary-validation",
+        "rendered_cut_alignment_status": "pending" if rendered_alignment_pending else ("pass" if not blockers else "blocked"),
         "shorts": rows,
     }
     sections = [
@@ -74,7 +103,7 @@ def build_boundary_quality_report(video_id: str):
                 for row in rows
             ],
         ),
-        ("Render Alignment", ["- Rendered-cut word alignment remains pending until long-form draft and word timestamps exist."]),
+        ("Render Alignment", ["- Rendering uses only exact complete approved narration sentences with word-aligned intervals; placeholder long-form cuts are forbidden."]),
     ]
     return write_report(video_id, "shorts-boundary-quality-report", "Pattern Lab Shorts Boundary Quality Report", payload, sections)
 

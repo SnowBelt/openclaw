@@ -12,15 +12,15 @@ func color(_ hex: Int, _ alpha: CGFloat = 1.0) -> NSColor {
     return NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
 }
 
-let deepCharcoal = color(0x111315)
-let inkPanel = color(0x1B1A17, 0.90)
-let archivalPaper = color(0xE8DDC5)
-let oldMapBlue = color(0x2E5E73)
-let evidenceAmber = color(0xC88A2D)
-let copper = color(0x9B4F2F)
-let captionWhite = color(0xF4F0E8)
-let proofRed = color(0xB23A2E)
-let mutedArchive = color(0xAFA58F)
+let deepCharcoal = color(0x14181C)
+let inkPanel = color(0x14181C, 0.78)
+let archivalPaper = color(0xF4F0E8)
+let oldMapBlue = color(0x315A72)
+let evidenceAmber = color(0xD6923B)
+let copper = color(0x934A32)
+let captionWhite = color(0xFFFDF8)
+let proofRed = color(0xAE493A)
+let mutedArchive = color(0xD4D0C6)
 
 func rect(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ height: CGFloat) -> NSRect {
     return NSRect(x: x, y: canvasHeight - y - height, width: width, height: height)
@@ -80,22 +80,9 @@ func overlayText(_ item: [String: Any], _ key: String) -> String {
     return (item[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-func drawEvidenceGrid() {
-    for x in stride(from: CGFloat(90), through: CGFloat(990), by: CGFloat(150)) {
-        drawLine(x, 0, x, canvasHeight, color: oldMapBlue.withAlphaComponent(0.10), width: 1)
-    }
-    for y in stride(from: CGFloat(160), through: CGFloat(1760), by: CGFloat(160)) {
-        drawLine(0, y, canvasWidth, y, color: archivalPaper.withAlphaComponent(0.055), width: 1)
-    }
-    drawLine(118, 330, 940, 620, color: evidenceAmber.withAlphaComponent(0.20), width: 9)
-    drawLine(190, 1510, 900, 1320, color: oldMapBlue.withAlphaComponent(0.28), width: 7)
-}
-
-func drawBrandPill(_ brand: String, accent: NSColor) {
-    fillRounded(58, 58, 964, 88, 28, inkPanel, oldMapBlue.withAlphaComponent(0.88), lineWidth: 3)
-    fillRounded(78, 77, 140, 50, 16, archivalPaper.withAlphaComponent(0.95), nil)
-    drawText("SOURCE", x: 92, y: 92, width: 112, height: 24, size: 22, weight: .bold, textColor: deepCharcoal, align: .center, mono: true)
-    drawText(brand.uppercased(), x: 242, y: 84, width: 704, height: 34, size: 29, weight: .bold, textColor: accent, align: .center, mono: true)
+func drawSourceTag(_ brand: String, accent: NSColor) {
+    fillRounded(54, 56, 282, 54, 18, inkPanel, nil)
+    drawText(brand.uppercased(), x: 72, y: 72, width: 246, height: 22, size: 17, weight: .bold, textColor: accent, align: .left, mono: true)
 }
 
 func renderOverlay(item: [String: Any], output: String) throws {
@@ -109,22 +96,18 @@ func renderOverlay(item: [String: Any], output: String) throws {
     NSGraphicsContext.current?.shouldAntialias = true
     NSColor.clear.setFill()
     NSRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight).fill()
-    drawEvidenceGrid()
-    drawBrandPill(brand, accent: kind == "bridge" ? evidenceAmber : archivalPaper)
+    drawSourceTag(brand, accent: kind == "bridge" ? evidenceAmber : archivalPaper)
 
     if kind == "first" {
-        fillRounded(70, 430, 940, 500, 44, inkPanel, evidenceAmber, lineWidth: 5)
-        fillRounded(94, 456, 18, 448, 9, evidenceAmber, nil)
-        fillRounded(130, 486, 820, 82, 24, archivalPaper.withAlphaComponent(0.96), nil)
-        drawText("DETROIT CITY FILE", x: 156, y: 512, width: 768, height: 30, size: 27, weight: .bold, textColor: deepCharcoal, align: .center, mono: true)
-        drawText(text.uppercased(), x: 126, y: 600, width: 850, height: 172, size: 82, weight: .heavy, textColor: captionWhite, hook: true)
-        drawText(subtext, x: 150, y: 790, width: 802, height: 84, size: 34, weight: .bold, textColor: mutedArchive)
+        fillRounded(54, 1160, 972, 412, 36, inkPanel, nil)
+        fillRounded(82, 1192, 12, 300, 6, evidenceAmber, nil)
+        drawText(text.uppercased(), x: 122, y: 1214, width: 846, height: 172, size: 76, weight: .heavy, textColor: captionWhite, hook: true)
+        drawText(subtext, x: 126, y: 1410, width: 830, height: 88, size: 30, weight: .bold, textColor: mutedArchive, align: .left)
     } else {
-        fillRounded(74, 1306, 932, 352, 36, inkPanel, accent, lineWidth: 5)
-        fillRounded(106, 1338, 112, 44, 14, archivalPaper.withAlphaComponent(0.96), nil)
-        drawText(kind.uppercased(), x: 124, y: 1350, width: 76, height: 20, size: 18, weight: .bold, textColor: deepCharcoal, align: .center, mono: true)
-        drawText(text, x: 118, y: 1410, width: 846, height: 116, size: 50, weight: .heavy, textColor: captionWhite, hook: kind == "hook")
-        drawText(subtext, x: 128, y: 1536, width: 826, height: 82, size: 31, weight: .bold, textColor: kind == "bridge" ? evidenceAmber : mutedArchive)
+        fillRounded(54, 1424, 972, 300, 30, inkPanel, nil)
+        drawText(kind.uppercased(), x: 88, y: 1452, width: 210, height: 22, size: 18, weight: .bold, textColor: accent, align: .left, mono: true)
+        drawText(text, x: 88, y: 1492, width: 856, height: 96, size: 45, weight: .heavy, textColor: captionWhite, align: .left, hook: kind == "hook")
+        drawText(subtext, x: 88, y: 1602, width: 856, height: 62, size: 26, weight: .bold, textColor: kind == "bridge" ? evidenceAmber : mutedArchive, align: .left)
     }
 
     image.unlockFocus()

@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
+import tempfile
+import sys
+from pathlib import Path
+
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import display_path, ensure_dir, output_root, utc_now
 from patternlab_discord_feedback import parse_owner_note, summarize_events
 from patternlab_review_action import apply_review_action
+from patternlab.models import Artifact
+from patternlab.release import create_release_candidate
+from patternlab.state import PatternLabState
 
 
 SCENARIOS = [
@@ -40,30 +51,48 @@ def run_e2e(video_id, dry_run=True):
     scenario_results = []
     simulated_feedback = []
     blockers = []
-    for scenario in SCENARIOS:
-        kwargs = dict(scenario["kwargs"])
-        # Keep scenario asset ids aligned with the requested video id.
-        kwargs["asset_id"] = kwargs.get("asset_id", "").replace("video-04", f"video-{video_id}")
-        result = apply_review_action(video_id, dry_run=dry_run, auto_repair=False, auto_upload=False, **kwargs)
-        feedback = result.get("owner_feedback_event", {})
-        simulated_feedback.append(feedback)
-        ok = bool(result.get("ok")) and bool(feedback)
-        if not ok:
-            blockers.append(f"Scenario failed: {scenario['name']}")
-        scenario_results.append(
-            {
-                "scenario": scenario["name"],
-                "ok": ok,
-                "action": kwargs["action"],
-                "asset_type": kwargs["asset_type"],
-                "asset_id": kwargs.get("asset_id", ""),
-                "reason": kwargs["reason"],
-                "repair_scope": kwargs["repair_scope"],
-                "would_block_private_readiness": bool(scenario.get("would_block_private_readiness")),
-                "dry_run_event": result.get("event", {}),
-                "owner_feedback_event": feedback,
-            }
-        )
+    with tempfile.TemporaryDirectory() as temp:
+        previous_state = os.environ.get("PATTERNLAB_STATE_DB")
+        state_path = Path(temp) / "patternlab.sqlite3"
+        store = PatternLabState(state_path)
+        store.migrate()
+        store.ensure_episode(video_id)
+        artifacts = [
+            Artifact(f"video-{video_id}-long-form", "video", f"video/pattern-lab-video-{video_id}-draft.mp4", "a" * 64),
+            *[Artifact(f"video-{video_id}-short-{index:02d}", "short", f"shorts/pattern-lab-video-{video_id}-short-{index:02d}.mp4", chr(96 + index) * 64) for index in range(1, 4)],
+        ]
+        store.register_release(create_release_candidate(video_id, artifacts))
+        os.environ["PATTERNLAB_STATE_DB"] = str(state_path)
+        try:
+            for scenario in SCENARIOS:
+                kwargs = dict(scenario["kwargs"])
+                # Keep scenario asset ids aligned with the requested video id.
+                kwargs["asset_id"] = kwargs.get("asset_id", "").replace("video-04", f"video-{video_id}")
+                result = apply_review_action(video_id, dry_run=dry_run, auto_repair=False, auto_upload=False, **kwargs)
+                feedback = result.get("owner_feedback_event", {})
+                simulated_feedback.append(feedback)
+                ok = bool(result.get("ok")) and bool(feedback)
+                if not ok:
+                    blockers.append(f"Scenario failed: {scenario['name']}")
+                scenario_results.append(
+                    {
+                        "scenario": scenario["name"],
+                        "ok": ok,
+                        "action": kwargs["action"],
+                        "asset_type": kwargs["asset_type"],
+                        "asset_id": kwargs.get("asset_id", ""),
+                        "reason": kwargs["reason"],
+                        "repair_scope": kwargs["repair_scope"],
+                        "would_block_private_readiness": bool(scenario.get("would_block_private_readiness")),
+                        "dry_run_event": result.get("event", {}),
+                        "owner_feedback_event": feedback,
+                    }
+                )
+        finally:
+            if previous_state is None:
+                os.environ.pop("PATTERNLAB_STATE_DB", None)
+            else:
+                os.environ["PATTERNLAB_STATE_DB"] = previous_state
     note_event = parse_owner_note(video_id, "Short 2 — 0:11 — random box with text appears")
     simulated_feedback.append(note_event)
     scenario_results.append(

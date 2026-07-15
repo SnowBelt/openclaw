@@ -21,7 +21,17 @@
         "shorts_hook_potential": 9,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 9
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "What visible map trail shows that Detroit was reorganized rather than simply declining?",
+      "proof_object": "A source-backed overlay of industry, freeway, population, and policy changes",
+      "visual_payoff": "The four map layers converge to show who and what rewired Detroit.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "04",
@@ -41,7 +51,98 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 9
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "What did Detroit erase in Black Bottom and Paradise Valley, and what proof still shows the place before clearance?",
+      "proof_object": "A source-backed before-and-after neighborhood map tied to relocation and freeway records",
+      "visual_payoff": "The old street grid, documented neighborhood life, clearance trail, and replacement footprint appear together.",
+      "source_dossier_status": "pass",
+      "script_status": "approved_locked",
+      "shorts_blueprints": [
+        {
+          "id_suffix": "short-01",
+          "title": "Black Bottom Was Not Empty",
+          "viewer_psychology": "curiosity",
+          "first_frame_text": "DETROIT WAS NOT EMPTY",
+          "hook": "Black Bottom was not empty. Detroit erased a living district.",
+          "proof_visual": "Detroit map plus source ledger for Black Bottom and Paradise Valley",
+          "payoff": "The map changes the story from empty land to a lived neighborhood.",
+          "source_keywords": [
+            "black bottom",
+            "empty",
+            "living district",
+            "map",
+            "paradise valley"
+          ]
+        },
+        {
+          "id_suffix": "short-02",
+          "title": "Black Bottom Name Myth",
+          "viewer_psychology": "utility",
+          "first_frame_text": "BLACK BOTTOM MYTH",
+          "hook": "Black Bottom was not named because it became a Black neighborhood.",
+          "proof_visual": "Black Bottom name-origin source card plus Detroit map label",
+          "payoff": "The name points to older bottomland soil history, while the later Black neighborhood story reveals a different layer.",
+          "source_keywords": [
+            "not named",
+            "dark",
+            "bottomland",
+            "soil",
+            "river savoyard"
+          ]
+        },
+        {
+          "id_suffix": "short-03",
+          "title": "300 Black-Owned Businesses",
+          "viewer_psychology": "identity",
+          "first_frame_text": "DETROIT 300 BUSINESSES",
+          "hook": "Paradise Valley had more than 300 Black-owned businesses.",
+          "proof_visual": "Detroit Paradise Valley business source board with count highlighted",
+          "payoff": "That number turns the story from clearance zone into commercial ecosystem.",
+          "source_keywords": [
+            "300",
+            "black-owned",
+            "business",
+            "paradise valley",
+            "commercial ecosystem"
+          ]
+        },
+        {
+          "id_suffix": "short-04",
+          "title": "A Freeway Is Never Just A Line",
+          "viewer_psychology": "system",
+          "first_frame_text": "FREEWAY CUT DETROIT",
+          "hook": "A freeway is never just a line on a map.",
+          "proof_visual": "Detroit I-375 route trace over the old neighborhood footprint",
+          "payoff": "At street level, that line means addresses, businesses, and routes disappear.",
+          "source_keywords": [
+            "freeway",
+            "never just a line",
+            "addresses disappear",
+            "street level",
+            "i-375"
+          ]
+        },
+        {
+          "id_suffix": "short-05",
+          "title": "What Detroit Lost",
+          "viewer_psychology": "emotion",
+          "first_frame_text": "WHAT DETROIT LOST",
+          "hook": "Detroit did not just lose buildings here.",
+          "proof_visual": "Detroit then-now map board of businesses, churches, clubs, housing, and neighborhood footprint",
+          "payoff": "The larger loss was a network of Black business, music, housing, churches, workers, and memory.",
+          "source_keywords": [
+            "vanished",
+            "not only architecture",
+            "network",
+            "businesses",
+            "memory"
+          ]
+        }
+      ]
     },
     {
       "video_id": "05",
@@ -61,7 +162,17 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 8
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "Which geographic and industrial decisions turned Detroit into the Motor City?",
+      "proof_object": "A dated factory-and-transport timeline map",
+      "visual_payoff": "Factories, labor routes, roads, and entrepreneurs resolve into one visible growth system.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "06",
@@ -81,7 +192,17 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 10,
         "subscriber_conversion_fit": 8
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "What made Detroit strategically important before the automobile industry existed?",
+      "proof_object": "A pre-auto river, fort, fire, and trade-route timeline map",
+      "visual_payoff": "The river and border geography reveal why the city mattered before cars.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "07",
@@ -101,7 +222,17 @@
         "shorts_hook_potential": 9,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 9
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "Why could Motown emerge from this particular Detroit block and business system?",
+      "proof_object": "A source-backed Motown place-and-people network map",
+      "visual_payoff": "The studio, talent pipeline, distribution system, and neighborhood links assemble on one map.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "08",
@@ -121,7 +252,17 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 8
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "Which Detroit neighborhoods and memory routes were cut by freeway construction?",
+      "proof_object": "A before-and-after freeway impact map with addresses and corridors",
+      "visual_payoff": "The old street network and freeway footprint reveal the local human consequence.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "09",
@@ -141,7 +282,17 @@
         "shorts_hook_potential": 9,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 8
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "What does Michigan Central Station actually prove about Detroit's changing systems?",
+      "proof_object": "A rights-clear Michigan Central then-and-now source ledger",
+      "visual_payoff": "The building's uses, abandonment, and restoration connect to the city's larger transport and investment story.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "10",
@@ -161,7 +312,17 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 9
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "How did one industry both enrich Detroit and make it vulnerable?",
+      "proof_object": "A source-backed single-industry dependency scorecard",
+      "visual_payoff": "Jobs, tax base, politics, suppliers, and exposure resolve into one dependency system.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "11",
@@ -181,7 +342,17 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 8
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "Which longer city systems made Detroit's bankruptcy possible, beyond the headline?",
+      "proof_object": "A sourced taxes, population, services, debt, and regional-fragmentation timeline",
+      "visual_payoff": "The bankruptcy event appears as one point in a longer measurable system.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "12",
@@ -201,7 +372,17 @@
         "shorts_hook_potential": 8,
         "repeatability_without_template_feel": 10,
         "subscriber_conversion_fit": 8
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "Why did Detroit's river, border, and fort make the location strategically valuable?",
+      "proof_object": "A source-backed geography and trade-route artifact map",
+      "visual_payoff": "The river crossing, border, fort, and trade routes converge into one geographic explanation.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "13",
@@ -221,7 +402,17 @@
         "shorts_hook_potential": 9,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 9
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "What did Hudson's department store reveal about downtown Detroit's civic and commercial life?",
+      "proof_object": "A source-backed Hudson's downtown evidence ledger",
+      "visual_payoff": "Storefront, transit, crowds, advertising, and demolition evidence reconstruct the vanished retail system.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     },
     {
       "video_id": "14",
@@ -241,7 +432,17 @@
         "shorts_hook_potential": 9,
         "repeatability_without_template_feel": 9,
         "subscriber_conversion_fit": 10
-      }
+      },
+      "city": "Detroit",
+      "local_terms": [
+        "Detroit"
+      ],
+      "hidden_history_question": "Where is Detroit's comeback visible, and where does the evidence challenge the slogan?",
+      "proof_object": "A neighborhood-level recovery evidence scorecard",
+      "visual_payoff": "Investment, population, vacancy, services, and local change appear side by side instead of one citywide myth.",
+      "source_dossier_status": "research_required",
+      "script_status": "research_required",
+      "shorts_blueprints": []
     }
   ]
 }

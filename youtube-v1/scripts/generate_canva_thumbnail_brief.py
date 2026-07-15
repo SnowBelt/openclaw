@@ -4,6 +4,9 @@ import json
 import re
 from pathlib import Path
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, city_from_sources, require_city
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
 
 
@@ -32,30 +35,52 @@ def format_city_template(template, city):
     return template.replace("{CITY_POSSESSIVE}", city_possessive(city)).replace("{CITY}", city.upper())
 
 
-def infer_city_from_text(text):
-    match = re.match(r"^([A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){0,2})(?:\\b|')", (text or "").strip())
-    if not match:
-        return ""
-    city = match.group(1).strip()
-    return "" if city in {"The", "This", "What", "Why", "How", "Before", "After", "Not"} else city
+def active_city(metadata, package):
+    """Resolve only explicit episode identity; titles and global policies are not identity."""
+    try:
+        return city_from_sources(
+            (
+                ("package", package.get("city")),
+                ("upload_metadata", metadata.get("city")),
+            ),
+            required=True,
+        )
+    except CityContractError as exc:
+        raise ValueError(f"thumbnail_brief_city_contract_blocked:{exc}") from exc
 
 
-def active_city(metadata, policy):
-    for key in ("city", "active_city", "target_city"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    for value in [metadata.get("default_title", ""), *(metadata.get("title_options") or [])]:
-        inferred = infer_city_from_text(value)
-        if inferred:
-            return inferred
-    return policy.get("city_name_policy", {}).get("active_city", "Detroit")
+def topic_concept_overrides(metadata, policy, city):
+    """Return the five explicit episode concepts or fail closed.
+
+    Generic policy templates are documentation, not a safe creative fallback.
+    Requiring the episode package to own the text and visual promise prevents a
+    prior-episode template from silently leaking into the next city.
+    """
+    raw = metadata.get("thumbnail_topic_concepts")
+    expected = [str(item.get("concept_id") or "") for item in policy.get("review_concept_families", [])]
+    if not isinstance(raw, list) or len(raw) != len(expected):
+        raise ValueError("thumbnail_brief_requires_exactly_five_episode_topic_concepts")
+    by_id = {str(item.get("concept_id") or ""): item for item in raw if isinstance(item, dict)}
+    if set(by_id) != set(expected):
+        raise ValueError("thumbnail_brief_episode_topic_concept_ids_mismatch")
+    for concept_id, item in by_id.items():
+        headline = str(item.get("headline") or "").strip()
+        if not headline or len(re.findall(r"[A-Za-z0-9']+", headline)) > 4:
+            raise ValueError(f"thumbnail_brief_invalid_episode_headline:{concept_id}")
+        if city.casefold() not in headline.casefold():
+            raise ValueError(f"thumbnail_brief_city_missing_from_headline:{concept_id}")
+        for field in ("visual_strategy", "city_anchor", "proof_object", "click_interest_trigger"):
+            if not str(item.get(field) or "").strip():
+                raise ValueError(f"thumbnail_brief_topic_concept_field_missing:{concept_id}:{field}")
+    return by_id
 
 
-def build_review_concepts(policy, city):
+def build_review_concepts(policy, city, metadata):
+    overrides = topic_concept_overrides(metadata, policy, city)
     concepts = []
     for item in policy.get("review_concept_families", []):
-        headline = format_city_template(item.get("headline_template", item.get("headline", "")), city)
+        override = overrides[str(item.get("concept_id") or "")]
+        headline = str(override["headline"])
         concepts.append(
             {
                 "concept_id": item.get("concept_id", ""),
@@ -63,6 +88,10 @@ def build_review_concepts(policy, city):
                 "family": item.get("family", ""),
                 "city_name_requirement": "City name must be primary or co-primary text and readable in the local search shelf test.",
                 "required_elements": item.get("required_elements", []),
+                "visual_strategy": override["visual_strategy"],
+                "city_anchor": override["city_anchor"],
+                "proof_object": override["proof_object"],
+                "click_interest_trigger": override["click_interest_trigger"],
                 "composition_rules": [
                     "Make the active city name the largest or co-largest text element.",
                     "Every visible word must have viewer-facing intent; remove filler and internal terms.",
@@ -88,7 +117,7 @@ def build_review_concepts(policy, city):
 
 def candidate_text(filename, role, policy, metadata):
     selected = selected_headlines(policy).get(filename, {})
-    city = metadata.get("_active_city", "Detroit")
+    city = require_city(metadata.get("_active_city"), source="thumbnail_brief")
     if selected.get("headline_template"):
         return format_city_template(selected["headline_template"], city)
     if selected.get("headline"):
@@ -143,15 +172,16 @@ def build_brief(video_id):
     root = output_root(video_id)
     approval = ensure_dir(root / "approval")
     metadata = read_json(approval / "upload-metadata.json")
+    package = read_json(BASE / "launch" / f"video-{video_id}" / "package.json")
     thumbnail_policy = read_json(BASE / "resources" / "thumbnail-click-policy.json")
     source_policy = read_json(BASE / "resources" / "source-media-policy.json")
     art_policy = read_json(BASE / "resources" / "thumbnail-10x-art-direction-policy.json")
-    city = active_city(metadata, thumbnail_policy)
+    city = active_city(metadata, package)
     metadata["_active_city"] = city
     prompts_path = BASE / "launch" / f"video-{video_id}" / "image-prompts.md"
     prompts = read_text(prompts_path)
     candidates = build_candidates(thumbnail_policy, metadata)
-    review_concepts = build_review_concepts(thumbnail_policy, city)
+    review_concepts = build_review_concepts(thumbnail_policy, city, metadata)
     return {
         "generated_at": utc_now(),
         "video_id": video_id,

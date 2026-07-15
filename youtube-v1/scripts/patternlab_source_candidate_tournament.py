@@ -8,14 +8,21 @@ import re
 from pathlib import Path
 from typing import Any
 
-from patternlab_common import display_path, ensure_dir, output_root, utc_now
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, city_from_sources
+from patternlab_common import display_path, ensure_dir, launch_root, output_root, utc_now
 from patternlab_premium_font_common import font_entries, image_dimensions, source_images
+from patternlab_visual_acquisition_quality import image_metrics
 
 SOURCE_ADAPTERS = [
     {"id": "wikimedia_commons", "name": "Wikimedia Commons", "rights_mode": "item_license_must_allow_commercial_and_derivatives", "production_use": "allowed_after_item_license_check"},
     {"id": "library_of_congress", "name": "Library of Congress", "rights_mode": "prefer_no_known_restrictions_or_public_domain", "production_use": "allowed_after_item_rights_check"},
     {"id": "flickr_commons", "name": "Flickr Commons", "rights_mode": "prefer_no_known_copyright_restrictions", "production_use": "allowed_after_item_rights_check"},
     {"id": "dpla", "name": "Digital Public Library of America", "rights_mode": "item_rights_statement_required", "production_use": "allowed_after_item_rights_check"},
+    {"id": "smithsonian_open_access", "name": "Smithsonian Open Access", "rights_mode": "exact_item_must_be_cc0", "production_use": "allowed_after_cc0_item_check"},
+    {"id": "pexels_api", "name": "Pexels API", "rights_mode": "exact_item_and_creator_receipt_required", "production_use": "modern_context_only"},
+    {"id": "pixabay_api", "name": "Pixabay API", "rights_mode": "exact_item_and_creator_receipt_required", "production_use": "modern_context_only"},
     {"id": "local_archive_manual", "name": "Local archive/manual source rows", "rights_mode": "explicit_rights_ledger_required", "production_use": "allowed_after_rights_ledger_check"},
 ]
 
@@ -30,10 +37,13 @@ TOPICS = [
 SEARCH_TEMPLATES = [
     ("wikimedia_commons", "{city} {tag} photograph"),
     ("wikimedia_commons", "{city} {tag} historic image"),
-    ("library_of_congress", "{city} Ohio {tag} photograph"),
-    ("library_of_congress", "{city} Ohio historic {tag}"),
+    ("library_of_congress", "{city} {tag} photograph"),
+    ("library_of_congress", "{city} historic {tag}"),
     ("flickr_commons", "{city} {tag} archive"),
     ("dpla", "{city} {tag} digital collection"),
+    ("smithsonian_open_access", "{city} {tag} CC0"),
+    ("pexels_api", "{city} {tag} video"),
+    ("pixabay_api", "{city} {tag} video"),
     ("local_archive_manual", "{city} {tag} local archive rights review"),
 ]
 
@@ -82,13 +92,18 @@ def score_candidate(topic: dict[str, Any], candidate: dict[str, Any]) -> dict[st
     visual_drama = min(10.0, 6.4 + len(candidate_tags & drama_tags) * 0.75 + (1.0 if is_local else 0.0))
     proof_object = min(10.0, 6.2 + overlap * 1.2 + (1.0 if rights_ok else 0.0))
     phone_background = min(10.0, (cropability + visual_drama) / 2 + (0.5 if is_local else 0.0))
-    overall = round((relevance * 0.28 + visual_drama * 0.23 + cropability * 0.18 + phone_background * 0.14 + proof_object * 0.17), 2)
+    metrics = candidate.get("visual_metrics") if isinstance(candidate.get("visual_metrics"), dict) else {}
+    energy = 6.0
+    if metrics:
+        energy = min(10.0, 3.5 + float(metrics.get("mean_saturation", 0)) * 4 + float(metrics.get("luma_standard_deviation", 0)) * 5)
+    overall = round((relevance * 0.26 + visual_drama * 0.18 + cropability * 0.14 + phone_background * 0.12 + proof_object * 0.18 + energy * 0.12), 2)
     return {
         "topic_relevance_score": round(relevance, 2),
         "visual_drama_score": round(visual_drama, 2),
         "cropability_score": round(cropability, 2),
         "phone_background_score": round(phone_background, 2),
         "proof_object_score": round(proof_object, 2),
+        "visual_energy_score": round(energy, 2),
         "overall_score": overall,
     }
 
@@ -98,6 +113,7 @@ def local_candidates(root: Path) -> list[dict[str, Any]]:
     for index, path in enumerate(source_images(root, allow_bridge_composites=False), 1):
         width, height = image_dimensions(path)
         tags = visual_tags_for_path(path)
+        metrics = image_metrics(path) or {}
         out.append({
             "candidate_id": f"local_{index:02d}_{slug(path.stem)}",
             "adapter_id": "local_archive_manual" if "manual-media" in str(path) else "manifest_source_packet",
@@ -111,6 +127,7 @@ def local_candidates(root: Path) -> list[dict[str, Any]]:
             "width": width or 0,
             "height": height or 0,
             "source_class": "source_packet_real_media",
+            "visual_metrics": metrics,
         })
     return out
 
@@ -142,12 +159,29 @@ def query_candidates(city: str, topic: dict[str, Any], start_index: int) -> list
 def build_source_candidate_tournament(video_id: str, city: str | None = None) -> tuple[dict[str, Any], Path, Path]:
     root = output_root(video_id)
     approval = ensure_dir(root / "approval")
-    resolved_city = (city or read_json(root / "source-packet" / "visual-rebuild" / "visual-rebuild-manifest.json").get("active_city") or "Cleveland").upper()
+    package = read_json(launch_root(video_id) / "package.json")
+    evidence = read_json(launch_root(video_id) / "evidence-queries.json")
+    visual_manifest = read_json(root / "source-packet" / "visual-rebuild" / "visual-rebuild-manifest.json")
+    city_terms = evidence.get("required_city_terms") if isinstance(evidence.get("required_city_terms"), list) else []
+    evidence_city = city_terms[0] if len(city_terms) == 1 else ""
+    identity_blockers: list[str] = []
+    try:
+        resolved_city = city_from_sources(
+            (
+                ("requested", city),
+                ("package", package.get("city")),
+                ("evidence", evidence_city),
+                ("visual_manifest", visual_manifest.get("city") or visual_manifest.get("active_city")),
+            )
+        ).upper()
+    except CityContractError as exc:
+        resolved_city = ""
+        identity_blockers.append(str(exc))
     locals_ = local_candidates(root)
     topic_reports = []
     global_candidates = []
     for topic in TOPICS:
-        candidates = locals_ + query_candidates(resolved_city, topic, len(locals_) + 1)
+        candidates = locals_ + (query_candidates(resolved_city, topic, len(locals_) + 1) if resolved_city else [])
         scored = []
         for candidate in candidates:
             scored.append({**candidate, **score_candidate(topic, candidate)})
@@ -169,13 +203,13 @@ def build_source_candidate_tournament(video_id: str, city: str | None = None) ->
     unique_local_sources = {item["local_path"] for item in locals_ if item.get("local_path")}
     font_families = [entry.get("family") for entry in font_entries()]
     premium_v3_fonts = [name for name in ["Bangers", "Luckiest Guy", "Lilita One", "Passion One", "Changa One", "Rowdies", "Titan One", "Black Han Sans", "Fugaz One", "Kanit"] if name in font_families]
-    status = "pass" if all(item["status"] == "pass" for item in topic_reports) and len(unique_local_sources) >= 5 and len(premium_v3_fonts) >= 8 else "blocked"
+    status = "pass" if not identity_blockers and all(item["status"] == "pass" for item in topic_reports) and len(unique_local_sources) >= 5 and len(premium_v3_fonts) >= 8 else "blocked"
     payload = {
         "generated_at": utc_now(),
         "video_id": video_id,
         "city": resolved_city,
         "status": status,
-        "multi_source_city_asset_crawler_status": "pass" if len(SOURCE_ADAPTERS) >= 5 else "blocked",
+        "multi_source_city_asset_crawler_status": "pass" if len(SOURCE_ADAPTERS) >= 8 else "blocked",
         "rights_compatible_source_adapter_registry_status": "pass",
         "source_adapters": SOURCE_ADAPTERS,
         "topic_to_image_relevance_ranker_status": "pass" if all(item["candidate_count"] >= 30 for item in topic_reports) else "blocked",
@@ -201,6 +235,7 @@ def build_source_candidate_tournament(video_id: str, city: str | None = None) ->
         "unique_local_source_image_count": len(unique_local_sources),
         "topic_reports": topic_reports,
         "blockers": [] if status == "pass" else [
+            *identity_blockers,
             "need_30_candidates_per_topic" if any(item["candidate_count"] < 30 for item in topic_reports) else "",
             "need_5_rights_compatible_local_sources" if len(unique_local_sources) < 5 else "",
             "need_8_premium_v3_fonts" if len(premium_v3_fonts) < 8 else "",

@@ -1,0 +1,52 @@
+{
+  "version": 2,
+  "local_only": true,
+  "candidates": [
+    {
+      "id": "siglip2-base-patch16-224",
+      "purpose": "fast frame-to-claim retrieval prefilter",
+      "role": "retrieval_only",
+      "must_not_approve_evidence_alone": true
+    },
+    {
+      "id": "qwen3-vl-8b-instruct",
+      "repository": "Qwen/Qwen3-VL-8B-Instruct",
+      "purpose": "preferred local frame-level narration, evidence, OCR, spatial, typography, and misleading-visual review",
+      "role": "final_local_judge",
+      "preferred": true,
+      "license": "Apache-2.0",
+      "must_be_benchmarked_before_production": true
+    },
+    {
+      "id": "qwen2.5-vl-7b-instruct",
+      "repository": "Qwen/Qwen2.5-VL-7B-Instruct",
+      "purpose": "local frame-level narration, evidence, typography, and misleading-visual review",
+      "role": "legacy_final_local_judge",
+      "preferred": false,
+      "must_be_benchmarked_before_production": true
+    }
+  ],
+  "acceptance": {
+    "minimum_fixture_accuracy": 0.95,
+    "minimum_semantic_vlm_accuracy": 0.95,
+    "deterministic_measurement_categories": ["dim_frame", "unreadable_text", "caption_clip"],
+    "hybrid_final_judge_required": true,
+    "minimum_fixture_count": 20,
+    "suite": "resources/visual-judge-benchmark-suite.json",
+    "required_categories": [
+      "wrong_city",
+      "wrong_entity",
+      "dim_frame",
+      "unreadable_text",
+      "random_text_box",
+      "fake_archival",
+      "visual_narration_mismatch",
+      "caption_clip",
+      "valid_source_proof",
+      "valid_context"
+    ],
+    "maximum_median_seconds_per_frame": 20,
+    "required_device": "mps_or_cpu_benchmark_with_explicit_owner_review",
+    "no_silent_model_fallback": true
+  }
+}

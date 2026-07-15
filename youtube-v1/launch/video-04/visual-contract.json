@@ -1,0 +1,685 @@
+{
+  "city": "Detroit",
+  "version": 2,
+  "video_id": "04",
+  "status": "ready",
+  "visual_event_policy": {
+    "first_30_seconds": "meaningful reveal every 2.5 seconds or less",
+    "remainder": "meaningful reveal every 5 seconds or less",
+    "major_change": "new evidence object, comparison, map state, source crop, or visual mode every 15-30 seconds",
+    "movement_rule": "motion must reveal information rather than decorate"
+  },
+  "script_sha256": "2057b9404757cea8bf5f1d63b0d8b5c149e2247ab856889e415f22a5df2836ff",
+  "beat_count": 28,
+  "beats": [
+    {
+      "beat_id": "beat-01",
+      "narration_excerpt": "Black Bottom was not empty. Detroit erased a living district.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life"
+      ],
+      "emotional_function": "proof that a living district existed",
+      "candidate_queries": [
+        "Black Bottom Detroit Hastings Street historical photograph",
+        "Paradise Valley Detroit neighborhood historical photograph",
+        "Detroit Black Bottom pre-clearance streets archive"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "source_highlight",
+      "retention_function": "open on undeniable proof",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-02",
+      "narration_excerpt": "Here is the proof: a neighborhood map, more than 300 Black-owned businesses nearby in Paradise Valley, music venues that hosted American legends, and a freeway footprint that made the old street life harder to see.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life",
+        "storefront_economy"
+      ],
+      "emotional_function": "establish the complete proof trail",
+      "candidate_queries": [
+        "Black Bottom Detroit historical neighborhood map",
+        "Paradise Valley Detroit Black-owned business directory",
+        "I-375 Detroit historical footprint map"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "archive_montage",
+      "retention_function": "preview the evidence stack",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-03",
+      "narration_excerpt": "By the end, you will see the map change: the lived neighborhood, the clearance story, and the replacement footprint that made a Black cultural district look like it had simply vanished.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "promise a visible map transformation",
+      "candidate_queries": [
+        "Detroit Black Bottom before after map",
+        "Detroit urban renewal clearance map Black Bottom",
+        "I-375 footprint Black Bottom overlay"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "map_trace",
+      "retention_function": "promise the map payoff",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-04",
+      "narration_excerpt": "I am James, and this is Pattern Lab. We study American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "orient viewers to Pattern Lab source method",
+      "candidate_queries": [
+        "Detroit Black Bottom archive map photograph montage",
+        "Detroit city plan Black Bottom source document",
+        "Paradise Valley Detroit evidence archive"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "archive_montage",
+      "retention_function": "orient without delaying the story",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-05",
+      "narration_excerpt": "Look at Detroit's near east side before the freeway story swallowed it. On one version of the map, this is land near downtown, close to Gratiot, Brush, the river, and the old rail lines. On another version of the map, it is Black Bottom and Paradise Valley: homes, clubs, churches, stores, hotels, restaurants, doctors, drugstores, music, and memory.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life",
+        "storefront_economy"
+      ],
+      "emotional_function": "restore the lived geography before the freeway",
+      "candidate_queries": [
+        "Black Bottom Paradise Valley Detroit street map Hastings St Antoine",
+        "Detroit Sanborn map Hastings Street Black Bottom",
+        "Paradise Valley Detroit businesses churches hotels map"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "map_trace",
+      "retention_function": "make the lost district spatially legible",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-06",
+      "narration_excerpt": "The question today is simple: what did Detroit erase here, and what proof still shows that this place existed before the clearance lines arrived?",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "make the central mystery concrete",
+      "candidate_queries": [
+        "Black Bottom Detroit pre-demolition street photograph",
+        "Paradise Valley Detroit Hastings Street archive",
+        "Detroit clearance line Black Bottom map"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "source_highlight",
+      "retention_function": "renew the central mystery",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-07",
+      "narration_excerpt": "But the name hides something important. Black Bottom was not named because it became a Black neighborhood. The name reaches back to the area's dark, rich bottomland soil, tied to the old River Savoyard. That matters because it reminds us that a neighborhood can carry layers of history before the story most people know.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "reveal the older environmental meaning of the name",
+      "candidate_queries": [
+        "River Savoyard Detroit historical map",
+        "Black Bottom Detroit bottomland soil River Savoyard",
+        "Detroit early river map Savoyard"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "document_closeup",
+      "retention_function": "deliver a surprising naming fact",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-08",
+      "narration_excerpt": "By the early twentieth century, the area around Hastings Street had already been home to Eastern European Jewish settlement. Then the city changed fast. Black migrants came from the South looking for auto-industry work, but restrictive housing covenants and discrimination limited where many could live. So Black Bottom became one of the few places where Black Detroiters could build a life near the industrial city that needed their labor.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "industrial_labor",
+        "neighborhood_life"
+      ],
+      "emotional_function": "show migration housing and industrial pressure",
+      "candidate_queries": [
+        "Hastings Street Detroit Jewish neighborhood historical",
+        "Black migrants Detroit Black Bottom housing historical photo",
+        "Detroit restrictive covenant Black Bottom document"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "documentary_parallax",
+      "retention_function": "add people and migration context",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-09",
+      "narration_excerpt": "That is the contradiction at the center of this episode. The city needed workers, musicians, church members, business owners, renters, customers, and families. But the housing system squeezed many of those same people into overcrowded, aging blocks, then later treated those blocks as proof that the neighborhood was the problem.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "industrial_labor",
+        "neighborhood_life"
+      ],
+      "emotional_function": "visualize the labor-housing contradiction",
+      "candidate_queries": [
+        "Detroit factory labor Black Bottom housing map",
+        "Detroit housing segregation overcrowding city plan",
+        "Black Bottom Detroit housing conditions archive"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "network_map",
+      "retention_function": "make the contradiction visible",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-10",
+      "narration_excerpt": "This is where the internet usually gets a little too confident. That is a vibe. It is not evidence.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "contrast unsupported internet mood with evidence",
+      "candidate_queries": [
+        "Detroit Black Bottom source card map photo document",
+        "Paradise Valley Detroit archive record montage",
+        "Detroit city planning document Black Bottom"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "document_closeup",
+      "retention_function": "reset trust around evidence",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-11",
+      "narration_excerpt": "So put the evidence on the table. Black Bottom was residential. Paradise Valley, nearby and overlapping in Detroit memory, was the business and entertainment center. If Black Bottom was where many people lived, Paradise Valley was where a lot of the public life happened: restaurants, clubs, theaters, drugstores, beauty salons, hotels, bowling alleys, and places where Detroit's Black economy and culture were visible.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life",
+        "storefront_economy"
+      ],
+      "emotional_function": "separate residential life from commercial public life",
+      "candidate_queries": [
+        "Black Bottom Detroit residential street historical photo",
+        "Paradise Valley Detroit business district historical photo",
+        "Hastings Street Detroit storefront historical photo"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "documentary_parallax",
+      "retention_function": "show lived and commercial life",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-12",
+      "narration_excerpt": "Detroit Historical Society records describe more than 300 Black-owned businesses in Paradise Valley. That number matters because it changes the emotional shape of the story. This was not an empty district waiting for improvement. It was a commercial ecosystem.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "storefront_economy"
+      ],
+      "emotional_function": "make the commercial ecosystem numerically visible",
+      "candidate_queries": [
+        "Paradise Valley Detroit 300 Black-owned businesses source",
+        "Detroit Historical Society Paradise Valley businesses",
+        "Paradise Valley Detroit business directory archive"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "document_closeup",
+      "retention_function": "quantify what was lost",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-13",
+      "narration_excerpt": "Now listen to the names that belong on screen. The Flame Show Bar. The Horseshoe Bar. Club Harlem. The Paradise Theater. These were not generic nightlife decorations. They were part of a network that brought Black performers, local audiences, and sometimes mixed-race audiences into the same cultural geography. Paradise Theater hosted names that belong to American music history: Duke Ellington, Billie Holiday, Louis Armstrong, Dizzy Gillespie.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life"
+      ],
+      "emotional_function": "put named venues and performers on screen",
+      "candidate_queries": [
+        "Paradise Theater Detroit historical photo",
+        "Flame Show Bar Horseshoe Bar Club Harlem Detroit archive",
+        "Paradise Theater Detroit Duke Ellington Billie Holiday program"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "archive_montage",
+      "retention_function": "reward with recognizable names",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-14",
+      "narration_excerpt": "Paradise Valley survives in the record through maps, photographs, business listings, theater materials, newspaper clips, and other documents that point back to the district. Those records do more than set a mood. They show what was there before the clearance lines arrived.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "storefront_economy"
+      ],
+      "emotional_function": "show that the district survives through records",
+      "candidate_queries": [
+        "Paradise Valley Detroit business listing newspaper archive",
+        "Black Bottom Detroit map photograph document archive",
+        "Paradise Theater Detroit ephemera"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "archive_montage",
+      "retention_function": "increase source density",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-15",
+      "narration_excerpt": "The hidden system is not simply demolition. It is the chain that made demolition appear reasonable. First, segregation limited housing choice. Then overcrowding and aging housing became visible. Then official language classified the area through decline and clearance. Then federal law and highway money gave the city tools to act. Then the map changed.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "explain the causal chain behind demolition",
+      "candidate_queries": [
+        "Detroit housing segregation clearance highway timeline",
+        "Black Bottom Detroit urban renewal planning documents",
+        "I-375 funding clearance Black Bottom timeline"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "network_map",
+      "retention_function": "reveal the hidden causal system",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-16",
+      "narration_excerpt": "Condemnation in Black Bottom began in the 1940s. Federal urban-renewal funding after the National Housing Act of 1949, and later highway funding after the 1956 National Highway Act, helped turn plans into demolition. The neighborhood was replaced by Lafayette Park, the Chrysler Freeway, and other redevelopment. Paradise Valley survived a little longer, but its destruction began in 1959 for the I-375 portion of the Chrysler Freeway.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "connect laws funding demolition and replacement",
+      "candidate_queries": [
+        "National Housing Act 1949 Detroit Black Bottom",
+        "1956 Highway Act Detroit Chrysler Freeway map",
+        "I-375 Paradise Valley demolition 1959 source"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "map_trace",
+      "retention_function": "connect policy to demolition",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-17",
+      "narration_excerpt": "The map looks clean from above. At street level, it is not clean at all. That sequence is the source trail. It is not just that a freeway arrived. It is that the freeway arrived after years of labeling, restriction, clearance, and planning. A freeway is never just a line. At street level, that line means addresses disappear.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "translate a clean map line into erased addresses",
+      "candidate_queries": [
+        "Hastings Street addresses before I-375 map",
+        "Black Bottom Detroit address directory map overlay",
+        "I-375 footprint historical parcels Detroit"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "map_trace",
+      "retention_function": "translate map abstraction into addresses",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-18",
+      "narration_excerpt": "Think about what a cleared block really means. It means a family gets notice to leave. It means a business loses the customers who walked past every day. It means a church network stretches across a new geography. It means a musician's route from club to club changes. It means a child who knew a corner store now has to learn another part of the city. It means the next generation has to prove that a place existed at all.",
+      "visual_mode": "reconstruction",
+      "claim_scope": "generic",
+      "semantic_actions": [
+        "relocation",
+        "storefront_economy",
+        "neighborhood_life"
+      ],
+      "emotional_function": "humanize displacement without pretending to show a documented family",
+      "candidate_queries": [
+        "family packing moving boxes period home reconstruction",
+        "small business owner empty storefront reconstruction",
+        "child leaving neighborhood corner store reconstruction"
+      ],
+      "source_role": "ai_reconstruction",
+      "editorial_role": "reconstruction",
+      "requires_exact_evidence": false,
+      "on_screen_disclosure": "Dramatic reconstruction \u2014 not archival footage",
+      "ai_support_allowed": true,
+      "may_imply_named_city": false,
+      "maximum_seconds": 5,
+      "visible_action": "a family and small-business community preparing to relocate without depicting a documented named family",
+      "setting": "generalized mid-century American urban residential street and storefront interior; no identifiable Detroit landmark or sign",
+      "subject": "ordinary family members packing household belongings and a shopkeeper closing a neighborhood storefront",
+      "camera": "documentary medium-wide view at natural eye level with realistic depth and one clear human focal action",
+      "composition": "subjects grouped in the middle third; visible moving boxes and storefront threshold; clean 16:9 crop; no text",
+      "light_and_color": "warm practical interior light against clear blue evening ambient light; vivid but credible documentary color",
+      "historical_constraints": "late-1940s to late-1950s clothing, boxes, vehicles, storefront materials, and household objects; no modern items",
+      "preserve": "coherent faces, hands, body count, architecture, perspective, object count, and family dignity",
+      "avoid": "identifiable Detroit landmarks, named people, readable signs, text, logo, watermark, eviction spectacle, caricature, malformed hands, duplicate people, warped buildings, muddy shadows, gray haze",
+      "motion_intent": "reconstruction_motion",
+      "retention_function": "create the strongest human-consequence moment",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information",
+      "claim_ids": [
+        "relocation-consequence"
+      ],
+      "planned_ai_asset_id": "video-04-local-ai-beat-18"
+    },
+    {
+      "beat_id": "beat-19",
+      "narration_excerpt": "The relocation story is one of the hardest parts. Detroit Historical Society notes that assistance was minimal, and many former residents were given thirty days to vacate. Some relocated to public housing projects like Brewster-Douglass and Jeffries Homes. That is not just a policy detail. That is the human cost of turning a neighborhood into a project area.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "relocation"
+      ],
+      "emotional_function": "document the relocation terms and destinations",
+      "candidate_queries": [
+        "Detroit Black Bottom thirty days vacate source",
+        "Detroit Historical Society Black Bottom relocation assistance",
+        "Brewster-Douglass Jeffries Homes relocation Black Bottom"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "document_closeup",
+      "retention_function": "anchor emotion in documented relocation facts",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-20",
+      "narration_excerpt": "The story becomes clearest when the maps are placed beside each other: the lived district around Hastings Street and St. Antoine, the official clearance map, and the later freeway and redevelopment footprint. Together, they show the crossing from lived map to replacement map.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "deliver the central lived-map to replacement-map payoff",
+      "candidate_queries": [
+        "Hastings St Antoine lived district map",
+        "Detroit Black Bottom official clearance map",
+        "I-375 Lafayette Park redevelopment footprint map"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "then_now",
+      "retention_function": "deliver the promised before-after map comparison",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-21",
+      "narration_excerpt": "That comparison does not mean the old neighborhood had no problems. It had overcrowding. It had poverty. It had aging houses. Some homes lacked modern amenities. But a serious history channel has to hold two truths at once: the neighborhood faced real material conditions, and the solution chosen by institutions destroyed a Black cultural and business district whose value could not be measured only by property condition.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life"
+      ],
+      "emotional_function": "hold neighborhood conditions and institutional destruction together",
+      "candidate_queries": [
+        "Black Bottom Detroit housing conditions archive",
+        "Detroit urban renewal property condition map",
+        "Paradise Valley Black business district historical photograph"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "then_now",
+      "retention_function": "hold two truths in visual tension",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-22",
+      "narration_excerpt": "The simple version says urban renewal cleared slums and highways moved traffic. The source-backed version asks a harder question: who defined the neighborhood, who benefited from the new map, who was forced to move, and what did Detroit lose when the old street life was cut apart?",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "replace the simple renewal story with accountable questions",
+      "candidate_queries": [
+        "Detroit urban renewal beneficiaries Black Bottom source",
+        "Black Bottom displacement city planning map",
+        "Detroit freeway clearance neighborhood impact records"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "network_map",
+      "retention_function": "ask the accountable question",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-23",
+      "narration_excerpt": "Today, parts of the old geography are covered by different landmarks, roads, and institutions. Lafayette Park sits where Black Bottom once stood. A portion of Paradise Valley is now tied to the area around Ford Field. Orchestra Hall survives, restored again as a music landmark. But survival of one building is not the same as survival of a neighborhood.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "show exact modern geography over the old district",
+      "candidate_queries": [
+        "Lafayette Park Black Bottom footprint map",
+        "Ford Field Paradise Valley historical overlay",
+        "Orchestra Hall Paradise Valley Detroit then now"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "then_now",
+      "retention_function": "connect old geography to present landmarks",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-24",
+      "narration_excerpt": "The thing that vanished was not only architecture. It was a dense network of Black businesses, entertainment, housing, churches, customers, workers, and memory. The map changed. The story got shorter. The archive is where the longer story waits.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "storefront_economy",
+        "neighborhood_life"
+      ],
+      "emotional_function": "visualize a network rather than isolated buildings",
+      "candidate_queries": [
+        "Paradise Valley Detroit businesses churches clubs network map",
+        "Black Bottom Detroit community institutions map",
+        "Hastings Street Detroit city directory visualization"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "network_map",
+      "retention_function": "show the vanished network",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-25",
+      "narration_excerpt": "If you grew up hearing only the shorthand version, this is the missing piece: Black Bottom and Paradise Valley were not empty. They were not just an obstacle in the way of progress. They were part of Detroit's cultural engine, and their removal changed more than traffic.",
+      "visual_mode": "proof",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life",
+        "storefront_economy"
+      ],
+      "emotional_function": "return to the undeniable evidence of a cultural engine",
+      "candidate_queries": [
+        "Paradise Valley Detroit street life historical photo",
+        "Black Bottom Detroit community photograph archive",
+        "Hastings Street Detroit Black businesses historical"
+      ],
+      "source_role": "historical_evidence",
+      "editorial_role": "proof",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "documentary_parallax",
+      "retention_function": "return to the central thesis with people",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-26",
+      "narration_excerpt": "Detroit locals: if your family remembers Black Bottom, Paradise Valley, Hastings Street, St. Antoine, or a business that disappeared from this map, leave the name below. Pattern Lab may follow your lead in a future source trail.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "neighborhood_life"
+      ],
+      "emotional_function": "invite local memory as future source leads",
+      "candidate_queries": [
+        "Black Bottom Paradise Valley viewer memory map",
+        "Hastings Street St Antoine Detroit source callout",
+        "Detroit vanished business map submission"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "map_trace",
+      "retention_function": "invite local participation",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-27",
+      "narration_excerpt": "Subscribe for the next Pattern Lab city file if you want American city history built from maps, archives, and evidence. The next episode starts the same way: show the place, show the source, explain the system.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "bridge to the next source-backed city file",
+      "candidate_queries": [
+        "Pattern Lab city source system end card",
+        "American city history archive map montage",
+        "next Pattern Lab city file source trail"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "brand_card",
+      "retention_function": "bridge to the next city file",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    },
+    {
+      "beat_id": "beat-28",
+      "narration_excerpt": "That is the pattern: city, source, system.",
+      "visual_mode": "system",
+      "claim_scope": "city_specific",
+      "semantic_actions": [
+        "urban_change_atmosphere"
+      ],
+      "emotional_function": "close on the city-source-system identity",
+      "candidate_queries": [
+        "Pattern Lab city source system closing card",
+        "Detroit Black Bottom map source closing",
+        "Pattern Lab no source no story end card"
+      ],
+      "source_role": "original_graphic",
+      "editorial_role": "source_grounded_system",
+      "requires_exact_evidence": true,
+      "on_screen_disclosure": "",
+      "ai_support_allowed": false,
+      "motion_intent": "brand_card",
+      "retention_function": "close on the repeatable brand promise",
+      "visual_change_rule": "micro reveal every 4-8 seconds; major evidence or visual-mode change within 15-30 seconds; movement must reveal information"
+    }
+  ],
+  "workflow_note": "Canonical source-tracked narration-to-visual contract. Proof/system beats require exact source inputs; reconstruction is generic, brief, disclosed, and non-proof."
+}

@@ -4,7 +4,12 @@ import csv
 import json
 import subprocess
 import re
+import sys
 from pathlib import Path
+
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import display_path, ensure_dir, ffprobe_cmd, media_duration_seconds, output_root, utc_now
 from patternlab_shorts_audio_economy import build_audio_economy_report
@@ -14,6 +19,7 @@ from patternlab_shorts_first_frame_quality import build_first_frame_quality_repo
 from patternlab_shorts_pacing_quality import build_pacing_quality_report
 from patternlab_shorts_script_package import CONTEXT_DEPENDENT_STARTS, MIN_SCORE
 from patternlab_shorts_toolchain_handoff import build_toolchain_handoff
+from patternlab.state import sha256_file
 
 
 SHORT_MIN_SECONDS = 25
@@ -63,15 +69,16 @@ def video_dimensions(path):
             "-show_entries",
             "stream=width,height",
             "-of",
-            "csv=s=x:p=0",
+            "json",
             str(path),
         ],
         capture_output=True,
         text=True,
         check=True,
     )
-    width, height = result.stdout.strip().split("x", 1)
-    return int(width), int(height)
+    payload = json.loads(result.stdout)
+    stream = (payload.get("streams") or [{}])[0]
+    return int(stream.get("width") or 0), int(stream.get("height") or 0)
 
 
 def plan_text(root):
@@ -112,6 +119,12 @@ def build_shorts_quality_report(video_id):
     blockers = []
     warnings = []
     candidate_reports = []
+    rendered_inspection = read_json(approval / "shorts-render-inspection.json")
+    final_audio = read_json(approval / "audio-quality-report.json")
+    if rendered_inspection.get("status") != "pass":
+        blockers.append("Rendered Shorts inspection is missing or blocked.")
+    if final_audio.get("status") != "pass":
+        blockers.append("Final audio QA is missing or blocked.")
     for label, payload, report in reliability_reports:
         if payload.get("status") != "pass":
             blockers.append(f"Shorts {label} report is blocked: {display_path(report)}.")
@@ -136,8 +149,8 @@ def build_shorts_quality_report(video_id):
     else:
         if "Timestamp source: scripted-short-package" not in plan:
             blockers.append("Shorts must be selected by scripted-short-package, not raw fixed timestamps.")
-        if plan.count("Start boundary: scripted_short_no_long_form_cut") < MIN_SHORTS_COUNT:
-            blockers.append("Shorts upload plan must use scripted boundary-safe starts for every Short draft.")
+        if plan.count("Start boundary: word_aligned_complete_sentence") < MIN_SHORTS_COUNT:
+            blockers.append("Shorts upload plan must use exact word-aligned complete-sentence starts for every Short.")
         if plan.count("Standalone score:") < MIN_SHORTS_COUNT:
             blockers.append("Shorts upload plan must include standalone score for every Short.")
         for phrase in [
@@ -162,20 +175,31 @@ def build_shorts_quality_report(video_id):
     if len(shorts) > MAX_SHORTS_COUNT:
         blockers.append(f"Shorts count must be at most {MAX_SHORTS_COUNT}; found {len(shorts)}.")
 
+    render_receipt = read_json(approval / "shorts-render-report.json")
+    if render_receipt.get("status") != "pass":
+        blockers.append("Exact aligned Shorts render receipt is missing or blocked.")
+    rendered_by_index = {
+        int(item.get("index") or 0): item
+        for item in render_receipt.get("shorts", [])
+        if isinstance(item, dict)
+    }
     for index, short in enumerate(shorts, 1):
-        overlays = overlay_paths(root, video_id, index)
         row = latest_row(ledger_rows, short.name)
+        render_row = rendered_by_index.get(index, {})
         report = {
             "index": index,
             "file": display_path(short),
             "exists": short.exists(),
             "duration_seconds": None,
             "dimensions": "",
-            "overlay_files": [display_path(path) for path in overlays],
-            "overlay_count": sum(1 for path in overlays if path.exists() and path.stat().st_size > 0),
-            "overlay_set_complete": all(path.exists() and path.stat().st_size > 0 for path in overlays),
+            "render_receipt_status": "pass" if render_row else "missing",
+            "narration_mode": render_row.get("narration_mode", "missing"),
+            "first_frame": render_row.get("first_frame", "missing"),
+            "source_asset_count": len(render_row.get("source_assets", [])),
+            "visual_event_max_seconds": render_row.get("visual_event_max_seconds"),
             "ledger_asset_type": row.get("asset_type", ""),
             "ledger_review_status": row.get("human_review_status", ""),
+            "sha256": sha256_file(short) if short.exists() else "",
         }
         candidate_reports.append(report)
         if not short.exists():
@@ -195,12 +219,53 @@ def build_shorts_quality_report(video_id):
                 blockers.append(f"Short {index} must be {SHORT_WIDTH}x{SHORT_HEIGHT}; got {width}x{height}.")
         except Exception as exc:
             blockers.append(f"Could not verify Short {index} dimensions: {exc}.")
-        if not report["overlay_set_complete"]:
-            blockers.append(f"Short {index} overlay PNG set is incomplete.")
+        if render_row.get("sha256") != report["sha256"]:
+            blockers.append(f"Short {index} exact aligned render receipt hash does not match the current MP4.")
+        if render_row.get("narration_mode") != "exact_complete_sentences_from_approved_james_voiceover":
+            blockers.append(f"Short {index} does not prove exact complete-sentence narration reuse.")
+        if len(render_row.get("source_assets", [])) < 4:
+            blockers.append(f"Short {index} must bind at least four rights-accepted source assets.")
+        if float(render_row.get("visual_event_max_seconds") or 999) > 2.5:
+            blockers.append(f"Short {index} visual event gap exceeds 2.5 seconds.")
+        first_frame_path = Path(str(render_row.get("first_frame") or ""))
+        if not first_frame_path.is_absolute():
+            first_frame_path = YOUTUBE_ROOT.parent / first_frame_path
+        if not first_frame_path.is_file() or render_row.get("first_frame_sha256") != sha256_file(first_frame_path):
+            blockers.append(f"Short {index} actual first-frame receipt is missing or stale.")
         if row.get("asset_type") != "short":
             blockers.append(f"Short {index} is missing a rights-ledger row.")
-        if "overlay=shorts/overlays/" not in row.get("notes", ""):
-            blockers.append(f"Short {index} ledger row must reference the overlay PNG set.")
+        if "word_aligned_complete_sentences" not in row.get("notes", ""):
+            blockers.append(f"Short {index} ledger row must prove exact aligned narration rendering.")
+        inspected = next(
+            (
+                item
+                for item in rendered_inspection.get("shorts", [])
+                if isinstance(item, dict) and int(item.get("index") or 0) == index
+            ),
+            {},
+        )
+        report["rendered_inspection_status"] = inspected.get("status", "missing")
+        report["rendered_inspection_score"] = int(inspected.get("score", 0) or 0)
+        report["rendered_inspection_sha256"] = inspected.get("sha256", "")
+        if inspected.get("status") != "pass" or int(inspected.get("score", 0) or 0) < 93:
+            blockers.append(f"Short {index} final rendered-pixel score must be at least 93.")
+        if inspected.get("sha256") != report["sha256"]:
+            blockers.append(f"Short {index} rendered inspection hash does not match the current MP4.")
+        audio_asset = next(
+            (
+                item
+                for item in final_audio.get("assets", [])
+                if isinstance(item, dict) and Path(str(item.get("path", ""))).name == short.name
+            ),
+            {},
+        )
+        report["audio_quality_status"] = audio_asset.get("status", "missing")
+        report["audio_quality_score"] = int(audio_asset.get("score", 0) or 0)
+        report["audio_quality_sha256"] = audio_asset.get("sha256", "")
+        if audio_asset.get("status") != "pass" or int(audio_asset.get("score", 0) or 0) < 93:
+            blockers.append(f"Short {index} final audio score must be at least 93.")
+        if audio_asset.get("sha256") != report["sha256"]:
+            blockers.append(f"Short {index} audio inspection hash does not match the current MP4.")
 
     status = "pass" if not blockers else "blocked"
     payload = {
@@ -227,6 +292,7 @@ def build_shorts_quality_report(video_id):
         },
         "shorts": candidate_reports,
         "shorts_count": len(candidate_reports),
+        "minimum_final_asset_score": 93,
         "minimum_shorts_count": MIN_SHORTS_COUNT,
         "maximum_shorts_count": MAX_SHORTS_COUNT,
     }
@@ -270,7 +336,7 @@ def build_shorts_quality_report(video_id):
         lines.append(
             f"- Short {item['index']}: {item['file']} | exists={item['exists']} | "
             f"duration={item['duration_seconds'] or 'missing'}s | {item['dimensions'] or 'missing'} | "
-            f"overlays={item['overlay_count']}/5 | ledger={item['ledger_asset_type'] or 'missing'}"
+            f"sources={item['source_asset_count']} | narration={item['narration_mode']} | ledger={item['ledger_asset_type'] or 'missing'}"
         )
     lines.extend(["", "## Blockers", ""])
     lines.extend([f"- {blocker}" for blocker in blockers] or ["- none"])
@@ -289,6 +355,7 @@ def main():
     print(f"Shorts quality report: {display_path(report)}")
     for blocker in payload["blockers"]:
         print(f"- {blocker}")
+    raise SystemExit(0 if payload["status"] == "pass" else 1)
 
 
 if __name__ == "__main__":

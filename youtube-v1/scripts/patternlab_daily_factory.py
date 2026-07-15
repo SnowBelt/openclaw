@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import CityContractError, topic_city
 from patternlab_common import BASE, append_ledger, display_path, ensure_dir, load_dotenv, output_root, utc_now
 from patternlab_comment_prompts import city_source_lead_comment
 from patternlab_retention_ladder import default_ladder
@@ -18,6 +22,77 @@ JAMES_MOMENT = "This is where the internet usually gets a little too confident. 
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def sha256_text(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def script_lock(launch, root):
+    """Return one unambiguous hash lock from canonical or owner-approval state."""
+    approval = root / "approval"
+    paths = (
+        launch / "script-lock.json",
+        approval / "paid-service-approval.json",
+        approval / "script-lock.json",
+    )
+    locks = []
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            payload = read_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        script_hash = str(payload.get("script_sha256") or "").strip()
+        if len(script_hash) == 64 and all(char in "0123456789abcdef" for char in script_hash):
+            locks.append({"path": path, "script_sha256": script_hash, "operation": payload.get("operation", "")})
+    if not locks:
+        return None
+    hashes = {lock["script_sha256"] for lock in locks}
+    if len(hashes) != 1:
+        return {"status": "conflict", "locks": locks}
+    return {"status": "valid", **locks[0], "locks": locks}
+
+
+def protect_locked_script(launch, root, video_id, candidate):
+    """Return the exact safe script text; never overwrite a hash-bound script."""
+    script_path = launch / "final-script.md"
+    lock = script_lock(launch, root)
+    if not lock:
+        return candidate
+
+    approval = ensure_dir(root / "approval")
+    current = script_path.read_text(encoding="utf-8") if script_path.exists() else ""
+    current_hash = sha256_text(current) if current else ""
+    candidate_hash = sha256_text(candidate)
+    payload = {
+        "generated_at": utc_now(),
+        "video_id": video_id,
+        "lock_files": [display_path(item["path"]) for item in lock["locks"]],
+        "approved_script_sha256": lock.get("script_sha256", ""),
+        "current_script_sha256": current_hash,
+        "generated_candidate_sha256": candidate_hash,
+        "candidate_write_blocked": candidate_hash != lock.get("script_sha256", ""),
+        "youtube_mutation": "not_performed",
+    }
+    if lock["status"] == "conflict":
+        payload["status"] = "blocked"
+        payload["blocker"] = "conflicting_script_locks"
+    elif not current:
+        payload["status"] = "blocked"
+        payload["blocker"] = "approved_script_missing"
+    elif current_hash != lock["script_sha256"]:
+        payload["status"] = "blocked"
+        payload["blocker"] = "current_script_hash_does_not_match_owner_approval"
+    else:
+        payload["status"] = "protected_reused_approved_script"
+        payload["blocker"] = "generated_candidate_rejected" if payload["candidate_write_blocked"] else ""
+    report = approval / "script-immutability-report.json"
+    report.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if payload["status"] == "blocked":
+        raise SystemExit(f"approved_script_immutable:{payload['blocker']}")
+    return current
 
 
 def weighted_score(strategy, scores):
@@ -45,7 +120,7 @@ def select_topic(video_id=None):
 
 def title_options(topic):
     base = topic["working_title"]
-    city = topic.get("city", "Detroit")
+    city = topic_city(topic)
     artifact = topic["artifact_type"].replace("-", " ")
     if "black bottom" in base.lower() or "paradise valley" in base.lower():
         return [
@@ -74,7 +149,7 @@ def title_options(topic):
 
 def guru_growth_system(topic, titles=None):
     video_id = topic["video_id"]
-    city = topic.get("city", "Detroit")
+    city = topic_city(topic)
     titles = titles or title_options(topic)
     proof_object = topic.get("artifact_type", "source proof object").replace("-", " ")
     shorts_concepts = [
@@ -269,10 +344,10 @@ def script_text(topic):
     title = topic["working_title"]
     artifact = topic["artifact_type"]
     angle = topic["public_angle"]
-    city = topic.get("city", "Detroit")
+    city = topic_city(topic)
     title_lower = title.lower()
 
-    if "black bottom" in title_lower or "paradise valley" in title_lower:
+    if city.casefold() == "detroit" and ("black bottom" in title_lower or "paradise valley" in title_lower):
         opening = f"""Look at this part of Detroit before the freeway story swallowed it: Black Bottom and Paradise Valley were not blank spaces on a planning map. They were neighborhoods, business corridors, church networks, music rooms, apartments, storefronts, and addresses that made a community legible on paper and alive on the street.
 
 The question is simple: what did Detroit erase here, and what proof still shows that the place existed before the clearance lines arrived?
@@ -316,7 +391,7 @@ Subscribe for the next city file if you want American city history built from ma
 That is the pattern: city, source, system.
 
 No source, no story."""
-    elif "rewired" in title_lower or "decline" in title_lower:
+    elif city.casefold() == "detroit" and ("rewired" in title_lower or "decline" in title_lower):
         opening = f"""Look at Detroit's map before accepting the easy decline story. The visible clue is not one abandoned building or one skyline shot. It is the way roads, factories, neighborhoods, population movement, and public decisions changed the city's shape.
 
 The question is not whether Detroit declined. The better question is: who rewired Detroit, where can we see it on the map, and what did that rewiring do to the people who lived inside it?
@@ -385,9 +460,9 @@ That is the pattern: city, source, system.
 
 No source, no story."""
 
-    if "black bottom" in title_lower or "paradise valley" in title_lower:
+    if city.casefold() == "detroit" and ("black bottom" in title_lower or "paradise valley" in title_lower):
         hook = "Black Bottom was not empty. Detroit erased a living district."
-    elif "rewired" in title_lower or "decline" in title_lower:
+    elif city.casefold() == "detroit" and ("rewired" in title_lower or "decline" in title_lower):
         hook = "Detroit did not just decline. It was rewired."
     else:
         hook = f"{city}'s old sources change the story."
@@ -414,14 +489,25 @@ No source, no story."""
 
 
 def production_script_available(topic):
-    """Only source-specific documentary templates can enter the production lane."""
-    title = topic["working_title"].lower()
-    return any(term in title for term in ("black bottom", "paradise valley", "rewired", "decline"))
+    """Only an explicit, source-checked episode contract enters production."""
+    try:
+        topic_city(topic)
+    except CityContractError:
+        return False
+    identity_fields = ("hidden_history_question", "proof_object", "visual_payoff")
+    blueprints = topic.get("shorts_blueprints")
+    return bool(
+        all(str(topic.get(field) or "").strip() for field in identity_fields)
+        and topic.get("source_dossier_status") == "pass"
+        and topic.get("script_status") in {"fact_checked", "approved_locked"}
+        and isinstance(blueprints, list)
+        and 3 <= len(blueprints) <= 5
+    )
 
 def image_prompts(topic):
     artifact = topic["artifact_type"]
     angle = topic["public_angle"]
-    city = topic.get("city", "Detroit")
+    city = topic_city(topic)
     return f"""# Pattern Lab Image And Source Prompts: Video {topic['video_id']}
 
 Create a city-history visual pack for {city}. Use verified historical images whenever rights are clear. Do not scrape random image search results. Do not present AI reconstructions as archival photographs.
@@ -461,7 +547,7 @@ Historical and stock media rule: every real historical image, archival video, mo
 
 def shorts_package(topic):
     artifact = topic["artifact_type"]
-    city = topic.get("city", "Detroit")
+    city = topic_city(topic)
     return f"""# Pattern Lab Shorts Package: Video {topic['video_id']}
 
 Public publishing: blocked until explicit owner approval.
@@ -508,7 +594,7 @@ Public publishing: blocked until explicit owner approval.
 - Payoff: show why Pattern Lab rejects unsourced city myths
 - Bridge to long-form: full city file is in the long-form video
 - Related-video promise: The full video shows the evidence-backed version of the story.
-- Pinned comment: What Detroit story should be checked against the sources?
+- Pinned comment: What {city} story should be checked against the sources?
 - Subscribe cue: Subscribe for the next Pattern Lab city file.
 - Start time: 480s
 - Duration: 40s
@@ -519,7 +605,7 @@ Public publishing: blocked until explicit owner approval.
 def upload_metadata(topic):
     video_id = topic["video_id"]
     titles = title_options(topic)
-    city = topic.get("city", "Detroit")
+    city = topic_city(topic)
     guru = guru_growth_system(topic, titles=titles)
     description = f"""Pattern Lab studies American cities through maps, archives, photographs, buildings, neighborhoods, industries, and evidence.
 
@@ -530,6 +616,7 @@ The source proof is a {topic['artifact_type']}. The goal is to show the source, 
 Historical images are used only when reuse rights are clear. AI visuals, when used, are treated as graphics or reconstructions rather than archival proof."""
     return {
         "video_id": video_id,
+        "city": city,
         "title_options": titles,
         "default_title": titles[0],
         "default_thumbnail": "images/thumbnail_candidate_a.png",
@@ -705,16 +792,17 @@ def write_metrics_seed(root, video_id, metadata):
 
 
 def write_artifact(root, topic):
+    city = topic_city(topic)
     artifact_path = BASE / topic["artifact_source"]
     if not artifact_path.is_absolute():
         artifact_path = BASE / topic["artifact_source"]
     ensure_dir(artifact_path.parent)
     rows = [
         ["source", "place", "date", "visible_clue", "historical_meaning", "what_changed_afterward", "decision"],
-        ["archive map", "Detroit", "source date pending", "route, border, street, or district shape", "the map shows the system before the narration claims it", "use as opening proof", "keep"],
-        ["historic photograph", "Detroit", "source date pending", "signs, streets, crowds, buildings, or empty land", "old photos are evidence, not decoration", "rights row required before final video", "keep_if_rights_clear"],
+        ["archive map", city, "source date pending", "route, border, street, or district shape", "the map shows the system before the narration claims it", "use as opening proof", "keep"],
+        ["historic photograph", city, "source date pending", "signs, streets, crowds, buildings, or empty land", "old photos are evidence, not decoration", "rights row required before final video", "keep_if_rights_clear"],
         ["unsourced internet image", "unknown", "unknown", "interesting but not traceable", "cannot carry a historical claim", "replace with verified source or original graphic", "reject"],
-        ["labeled reconstruction", "Detroit", "production date", "clearly marked graphic", "safe fallback when archival proof is unavailable", "must not be presented as archival", "revise"],
+        ["labeled reconstruction", city, "production date", "clearly marked graphic", "safe fallback when archival proof is unavailable", "must not be presented as archival", "revise"],
     ]
     with artifact_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
@@ -740,16 +828,34 @@ def write_artifact(root, topic):
 
 def write_package(strategy, topic):
     video_id = topic["video_id"]
+    city = topic_city(topic)
     score = weighted_score(strategy, topic["scores"])
     if score < float(strategy["topic_score_threshold"]):
         raise SystemExit(f"Topic {video_id} is below threshold: {score}/100")
     launch = ensure_dir(BASE / "launch" / f"video-{video_id}")
     root = output_root(video_id)
     ensure_dir(root / "approval")
+    if not production_script_available(topic):
+        (launch / "research-brief.md").write_text(
+            "# Research Brief Only\n\n"
+            "This topic is not allowed to enter media production until its explicit city, hidden-history question, proof object, visual payoff, source dossier, fact-checked transcript, and three-to-five Shorts blueprints pass.\n",
+            encoding="utf-8",
+        )
+        raise SystemExit("source_specific_episode_contract_incomplete: wrote research brief only")
+    existing_script = launch / "final-script.md"
+    if not existing_script.is_file():
+        raise SystemExit("source_specific_script_file_missing: research must create and fact-check final-script.md before production")
+    script = protect_locked_script(launch, root, video_id, existing_script.read_text(encoding="utf-8"))
     metadata = upload_metadata(topic)
     package = {
         "generated_at": utc_now(),
         "video_id": video_id,
+        "city": city,
+        "local_terms": list(topic.get("local_terms") or [city]),
+        "hidden_history_question": topic["hidden_history_question"],
+        "proof_object": topic["proof_object"],
+        "visual_payoff": topic["visual_payoff"],
+        "shorts_blueprints": topic["shorts_blueprints"],
         "topic_score": score,
         "working_title": topic["working_title"],
         "lane": strategy["lane"],
@@ -761,14 +867,8 @@ def write_package(strategy, topic):
         "guru_growth_system": metadata["guru_growth_system"],
     }
     (launch / "package.json").write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
-    if not production_script_available(topic):
-        (launch / "research-brief.md").write_text(
-            "# Research Brief Only\n\n"
-            "This topic is not allowed to enter media production until a source dossier, proof object, and documentary transcript pass the transcript and source gates.\n",
-            encoding="utf-8",
-        )
-        raise SystemExit("source_specific_script_missing: wrote research brief only; no final-script.md was created")
-    (launch / "final-script.md").write_text(script_text(topic), encoding="utf-8")
+    if script != existing_script.read_text(encoding="utf-8"):
+        raise SystemExit("source_specific_script_changed_during_package_write")
     (launch / "image-prompts.md").write_text(image_prompts(topic), encoding="utf-8")
     (launch / "shorts-package.md").write_text(shorts_package(topic), encoding="utf-8")
     ensure_dir(BASE / "state" / "monetization")

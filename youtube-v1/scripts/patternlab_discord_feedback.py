@@ -213,6 +213,13 @@ def parse_callback(raw):
     reason = validate_reason(action, asset_type, payload.get("reason", "owner_review"), payload.get("freeformNote", ""))
     repair_scope = payload.get("repairScope") or payload.get("repair_scope") or default_repair_scope(asset_type, action, reason)
     validate_repair_scope(repair_scope)
+    release_candidate_id = payload.get("releaseCandidateId") or payload.get("release_candidate_id") or ""
+    release_candidate_sha256 = payload.get("releaseCandidateSha256") or payload.get("release_candidate_sha256") or ""
+    artifact_sha256 = payload.get("artifactSha256") or payload.get("artifact_sha256") or ""
+    if not release_candidate_id or not release_candidate_sha256:
+        raise ValueError("unbound_discord_callback_release")
+    if asset_type and asset_type != "topic" and not artifact_sha256:
+        raise ValueError("unbound_discord_callback_artifact")
     return {
         "video_id": payload.get("videoId") or payload.get("video_id") or "",
         "action": action,
@@ -225,10 +232,13 @@ def parse_callback(raw):
         "freeform_note": payload.get("freeformNote") or payload.get("freeform_note") or "",
         "timestamp_start": payload.get("timestampStart") or payload.get("timestamp_start") or "",
         "timestamp_end": payload.get("timestampEnd") or payload.get("timestamp_end") or "",
+        "release_candidate_id": release_candidate_id,
+        "release_candidate_sha256": release_candidate_sha256,
+        "artifact_sha256": artifact_sha256,
     }
 
 
-def callback_value(action, asset_type, video_id, asset_id=None, filename=None, reason=None, repair_scope=None, freeform_note=None):
+def callback_value(action, asset_type, video_id, asset_id=None, filename=None, reason=None, repair_scope=None, freeform_note=None, release_candidate_id=None, release_candidate_sha256=None, artifact_sha256=None):
     reason = validate_reason(action, asset_type, reason or "owner_review", freeform_note or "")
     repair_scope = repair_scope or default_repair_scope(asset_type, action, reason)
     validate_repair_scope(repair_scope)
@@ -241,6 +251,12 @@ def callback_value(action, asset_type, video_id, asset_id=None, filename=None, r
         payload["filename"] = filename
     if freeform_note:
         payload["freeformNote"] = freeform_note
+    if release_candidate_id:
+        payload["releaseCandidateId"] = release_candidate_id
+    if release_candidate_sha256:
+        payload["releaseCandidateSha256"] = release_candidate_sha256
+    if artifact_sha256:
+        payload["artifactSha256"] = artifact_sha256
     return "patternlab:" + json.dumps(payload, separators=(",", ":"))
 
 

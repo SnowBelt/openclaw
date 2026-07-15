@@ -44,6 +44,16 @@
   },
   "thumbnail": {
     "canvas": "1280x720",
+    "worldclass_palette": {
+      "electric_blue": "#1769E8",
+      "sky_cyan": "#51C7F4",
+      "warm_yellow": "#FFD51F",
+      "signal_red": "#E2232A",
+      "headline_white": "#FFFFFF",
+      "outline_black": "#080C14",
+      "archival_cream_secondary_only": "#E8DDC5"
+    },
+    "color_rule": "Use vivid focal contrast and subject separation; never apply uniform saturation or a dark archival wash to the entire thumbnail.",
     "must_include": [
       "city name",
       "one proof visual",

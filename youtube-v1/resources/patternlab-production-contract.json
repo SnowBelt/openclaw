@@ -1,0 +1,2518 @@
+{
+  "schema_version": 1,
+  "contract_id": "patternlab-production-v2-city-generic",
+  "minimum_automated_score": 93,
+  "default_profile": "full_package",
+  "side_effect_policy": {
+    "allowed": [
+      "local_read",
+      "local_write",
+      "local_render",
+      "local_model_inference",
+      "discord_owner_review"
+    ],
+    "forbidden_without_exact_owner_approval": [
+      "paid_provider_call",
+      "youtube_upload",
+      "youtube_publish",
+      "youtube_comment",
+      "youtube_pin",
+      "youtube_related_video",
+      "youtube_title_change",
+      "youtube_thumbnail_change",
+      "youtube_visibility_change",
+      "youtube_delete"
+    ]
+  },
+  "change_governance": {
+    "rule": "A Pattern Lab workflow addition is unavailable until the typed contract, canonical production skill, scoped agent rules, runbook, workflow-integrity gate, and regression tests all agree.",
+    "required_surfaces": [
+      "youtube-v1/AGENTS.md",
+      "youtube-v1/resources/patternlab-production-contract.json",
+      "youtube-v1/scripts/patternlab_production.py",
+      "youtube-v1/scripts/patternlab_workflow_integrity.py",
+      "youtube-v1/scripts/patternlab_skill_deployment.py",
+      "youtube-v1/scripts/patternlab_runtime_source_deploy.py",
+      "youtube-v1/skills/patternlab-production-director/SKILL.md",
+      "youtube-v1/tests/test_patternlab_production_entrypoint.py",
+      "youtube-v1/workflows/patternlab-full-auto-production-runbook.md",
+      "youtube-v1/automation/pattern-lab-full-auto-production.plist",
+      "youtube-v1/patternlab/rights.py",
+      "youtube-v1/scripts/patternlab_visual_prompt_compiler.py",
+      "youtube-v1/scripts/patternlab_local_generation_router.py",
+      "youtube-v1/scripts/patternlab_local_still_tournament.py",
+      "youtube-v1/scripts/patternlab_long_form_media_qa.py",
+      "youtube-v1/tests/test_patternlab_city_generic_production.py",
+      "youtube-v1/skills/patternlab-visual-source-motion-director/SKILL.md",
+      "youtube-v1/workflows/visual-source-motion-workflow.md",
+      "youtube-v1/scripts/patternlab_free_stock_acquisition.py",
+      "youtube-v1/scripts/patternlab_context_media_library.py",
+      "youtube-v1/scripts/patternlab_source_pool_compiler.py",
+      "youtube-v1/scripts/patternlab_script_bootstrap.py"
+    ],
+    "required_skills": [
+      "patternlab-production-director",
+      "patternlab-media-qa-director",
+      "patternlab-thumbnail-director",
+      "patternlab-visual-source-motion-director"
+    ],
+    "legacy_entrypoints_requiring_canonical_context": [
+      "youtube-v1/scripts/patternlab_full_auto_production.py",
+      "youtube-v1/scripts/patternlab_media_pipeline.py",
+      "youtube-v1/scripts/patternlab_canonical_renderer.py"
+    ]
+  },
+  "profiles": {
+    "long_form_rebuild": {
+      "description": "Rebuild and independently verify one retained-narration long-form video for any explicitly configured city. Shorts and thumbnails are excluded.",
+      "requires_production_lock": true,
+      "stages": [
+        {
+          "id": "workflow_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_workflow_integrity.py"
+          ],
+          "outputs": [
+            {
+              "path": "repo:youtube-v1/local-output/operations/patternlab-workflow-integrity-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "skill_deployment_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_skill_deployment.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/skill-deployment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "runtime_source_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_runtime_source_deploy.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/runtime-source-deployment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "city_portability",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_city_portability.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/city-portability-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "storage_preflight",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_storage_lifecycle.py",
+            "--video-id",
+            "{video_id}",
+            "--require-operation",
+            "long_form_render"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/storage-lifecycle-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "retained_narration_binding",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_retained_narration_binding.py",
+            "--video-id",
+            "{video_id}",
+            "--approved-script-sha256",
+            "{approved_script_sha256}",
+            "--owner-retained-existing-narration"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/retained-narration-binding.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_contract",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_contract.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-contract-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ai_support_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_ai_support_plan.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/ai-support-plan-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_prompt_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_prompt_compiler.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-prompt-plan.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "local_generation_routes",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_generation_router.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-generation-router-report.json",
+              "json_status": [
+                "pass",
+                "degraded"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "free_stock_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_free_stock_acquisition.py",
+            "--video-id",
+            "{video_id}",
+            "--auto",
+            "--download-per-context",
+            "1"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/free-stock-acquisition-report.json",
+              "json_status": [
+                "planned",
+                "pass",
+                "degraded"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "context_media_library",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_context_media_library.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/context-media-library-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "open_archive_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_open_archive_candidate_acquisition.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/open-archive-candidate-acquisition-report.json",
+              "json_status": [
+                "planned",
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_route_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "{route_compiler}",
+            "--video-id",
+            "{video_id}",
+            "--check"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-route-compiler-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "repo:youtube-v1/launch/video-{video_id}/long-form-visual-routing.json"
+            }
+          ]
+        },
+        {
+          "id": "local_still_tournament",
+          "phase": "render",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_still_tournament.py",
+            "--video-id",
+            "{video_id}",
+            "--live"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-still-tournament-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "source_pool_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "{source_pool_compiler}",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-source-pool-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "authoritative_visual_acquisition",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_acquisition_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-acquisition-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "historical_motion_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_historical_motion_orchestrator.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/historical-motion-selection-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "historical_motion_render",
+          "phase": "render",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_historical_motion_orchestrator.py",
+            "--video-id",
+            "{video_id}",
+            "--render"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/historical-motion-selection-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "historical_motion_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_historical_motion_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--all-production"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/historical-motion-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ai_motion_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_ai_motion_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/ai-motion-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "evidence_manifest_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_evidence_manifest_builder.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/evidence-manifest-builder-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:approval/evidence-manifest.json"
+            },
+            {
+              "path": "output:approval/evidence-manifest-binding.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_system_gate",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_system_gate.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-system-gate-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "word_alignment",
+          "phase": "prepare",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_word_alignment.py",
+            "--video-id",
+            "{video_id}",
+            "--run"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/word-alignment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:captions/word-alignment.json"
+            }
+          ]
+        },
+        {
+          "id": "closed_captions",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_closed_captions.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/closed-captions-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:captions/closed-captions-final.srt"
+            }
+          ]
+        },
+        {
+          "id": "canonical_preflight",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_preflight.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-preflight-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:video/pattern-lab-video-{video_id}.otio"
+            }
+          ]
+        },
+        {
+          "id": "canonical_render_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_renderer.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-render-plan.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "canonical_motion_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_motion_plan.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-motion-plan.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "canonical_render",
+          "phase": "render",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_renderer.py",
+            "--video-id",
+            "{video_id}",
+            "--render"
+          ],
+          "outputs": [
+            {
+              "path": "output:video/pattern-lab-video-{video_id}-draft.mp4"
+            },
+            {
+              "path": "output:video/pattern-lab-video-{video_id}-draft.en.srt"
+            }
+          ]
+        },
+        {
+          "id": "long_form_audio_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_audio_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--long-form-only",
+            "--report-stem",
+            "long-form-audio-quality-report"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-audio-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "long_form_rendered_media_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_rendered_media_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--long-form-only",
+            "--report-stem",
+            "long-form-rendered-media-quality-report"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-rendered-media-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sequence_deterministic_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_long_form_sequence_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--run"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-sequence-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "local_visual_benchmark_run",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_visual_judge_runner.py",
+            "--video-id",
+            "{video_id}",
+            "--benchmark"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-model-benchmark-receipt.json"
+            }
+          ]
+        },
+        {
+          "id": "local_visual_benchmark_verify",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_visual_model_benchmark.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-model-benchmark-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "local_visual_frame_judge",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_visual_judge_runner.py",
+            "--video-id",
+            "{video_id}",
+            "--judge-final"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-judge-receipt.json"
+            }
+          ]
+        },
+        {
+          "id": "visual_judge_gate",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_judge.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-judge-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sequence_semantic_judge",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_sequence_judge.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-sequence-judge-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "render_claim_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_render_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--run"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/render-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "voice_visual_match",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_voice_visual_match.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/voice-visual-match-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_retention_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_retention_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-retention-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "long_form_aggregate_qa",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_long_form_media_qa.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-media-qa-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "package_completeness",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_package_completeness.py",
+            "--video-id",
+            "{video_id}",
+            "--profile",
+            "long_form_rebuild"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/package-completeness-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "owner_rejection_supersession",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_owner_rejection_gate.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/owner-rejection-supersession-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "long_form_review_release",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_register_long_form_review.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-review-release-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "discord_review_proxy",
+          "phase": "review",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/generate_discord_review_proxy.py",
+            "--video-id",
+            "{video_id}",
+            "--long-form-only"
+          ],
+          "outputs": [
+            {
+              "path": "output:review/pattern-lab-video-{video_id}-draft-discord-review.mp4"
+            }
+          ]
+        },
+        {
+          "id": "discord_owner_review",
+          "phase": "review",
+          "side_effect": "discord_owner_review",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_send_long_form_review_to_discord.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-discord-delivery-receipt.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "full_package": {
+      "description": "Build one city-generic, retained-narration release candidate with long form, 3-5 aligned Shorts, three packaging-first thumbnails, toggleable captions, strict 93+ per-asset QA, hashes, and Discord owner review.",
+      "requires_production_lock": true,
+      "stages": [
+        {
+          "id": "workflow_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_workflow_integrity.py"
+          ],
+          "outputs": [
+            {
+              "path": "repo:youtube-v1/local-output/operations/patternlab-workflow-integrity-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "skill_deployment_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_skill_deployment.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/skill-deployment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "runtime_source_integrity",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_runtime_source_deploy.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/runtime-source-deployment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "city_portability",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_city_portability.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/city-portability-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "storage_preflight",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_storage_lifecycle.py",
+            "--video-id",
+            "{video_id}",
+            "--require-operation",
+            "long_form_render"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/storage-lifecycle-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "retained_narration_binding",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_retained_narration_binding.py",
+            "--video-id",
+            "{video_id}",
+            "--approved-script-sha256",
+            "{approved_script_sha256}",
+            "--owner-retained-existing-narration"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/retained-narration-binding.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_contract",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_contract.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-contract-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ai_support_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_ai_support_plan.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/ai-support-plan-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_prompt_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_prompt_compiler.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-prompt-plan.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "local_generation_routes",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_generation_router.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-generation-router-report.json",
+              "json_status": [
+                "pass",
+                "degraded"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "free_stock_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_free_stock_acquisition.py",
+            "--video-id",
+            "{video_id}",
+            "--auto",
+            "--download-per-context",
+            "1"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/free-stock-acquisition-report.json",
+              "json_status": [
+                "planned",
+                "pass",
+                "degraded"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "context_media_library",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_context_media_library.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/context-media-library-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "open_archive_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_open_archive_candidate_acquisition.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/open-archive-candidate-acquisition-report.json",
+              "json_status": [
+                "planned",
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_route_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "{route_compiler}",
+            "--video-id",
+            "{video_id}",
+            "--check"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-route-compiler-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "repo:youtube-v1/launch/video-{video_id}/long-form-visual-routing.json"
+            }
+          ]
+        },
+        {
+          "id": "local_still_tournament",
+          "phase": "render",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_still_tournament.py",
+            "--video-id",
+            "{video_id}",
+            "--live"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-still-tournament-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "source_pool_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "{source_pool_compiler}",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-source-pool-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "authoritative_visual_acquisition",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_acquisition_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-acquisition-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "historical_motion_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_historical_motion_orchestrator.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/historical-motion-selection-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "historical_motion_render",
+          "phase": "render",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_historical_motion_orchestrator.py",
+            "--video-id",
+            "{video_id}",
+            "--render"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/historical-motion-selection-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "historical_motion_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_historical_motion_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--all-production"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/historical-motion-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "ai_motion_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_ai_motion_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/ai-motion-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "evidence_manifest_compile",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_evidence_manifest_builder.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/evidence-manifest-builder-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:approval/evidence-manifest.json"
+            },
+            {
+              "path": "output:approval/evidence-manifest-binding.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_system_gate",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_system_gate.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-system-gate-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "word_alignment",
+          "phase": "prepare",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_word_alignment.py",
+            "--video-id",
+            "{video_id}",
+            "--run"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/word-alignment-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:captions/word-alignment.json"
+            }
+          ]
+        },
+        {
+          "id": "closed_captions",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_closed_captions.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/closed-captions-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:captions/closed-captions-final.srt"
+            }
+          ]
+        },
+        {
+          "id": "canonical_preflight",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_preflight.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-preflight-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:video/pattern-lab-video-{video_id}.otio"
+            }
+          ]
+        },
+        {
+          "id": "canonical_render_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_renderer.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-render-plan.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "canonical_motion_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_motion_plan.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-motion-plan.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "canonical_render",
+          "phase": "render",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_canonical_renderer.py",
+            "--video-id",
+            "{video_id}",
+            "--render"
+          ],
+          "outputs": [
+            {
+              "path": "output:video/pattern-lab-video-{video_id}-draft.mp4"
+            },
+            {
+              "path": "output:video/pattern-lab-video-{video_id}-draft.en.srt"
+            }
+          ]
+        },
+        {
+          "id": "long_form_audio_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_audio_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--long-form-only",
+            "--report-stem",
+            "long-form-audio-quality-report"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-audio-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "long_form_rendered_media_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_rendered_media_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--long-form-only",
+            "--report-stem",
+            "long-form-rendered-media-quality-report"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-rendered-media-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sequence_deterministic_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_long_form_sequence_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--run"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-sequence-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "local_visual_benchmark_run",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_visual_judge_runner.py",
+            "--video-id",
+            "{video_id}",
+            "--benchmark"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-model-benchmark-receipt.json"
+            }
+          ]
+        },
+        {
+          "id": "local_visual_benchmark_verify",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_visual_model_benchmark.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-model-benchmark-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "local_visual_frame_judge",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_visual_judge_runner.py",
+            "--video-id",
+            "{video_id}",
+            "--judge-final"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-visual-judge-receipt.json"
+            }
+          ]
+        },
+        {
+          "id": "visual_judge_gate",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_judge.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-judge-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sequence_semantic_judge",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_local_sequence_judge.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/local-sequence-judge-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "render_claim_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_render_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--run"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/render-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "voice_visual_match",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_voice_visual_match.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/voice-visual-match-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "visual_retention_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_visual_retention_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/visual-retention-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "long_form_aggregate_qa",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_long_form_media_qa.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/long-form-media-qa-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_script_package",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_script_package.py",
+            "--video-id",
+            "{video_id}",
+            "--shorts-target",
+            "{shorts_target}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-script-package.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_audio_economy",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_audio_economy.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-audio-economy-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_boundary_quality",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_boundary_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-boundary-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_first_frame_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_first_frame_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--plan-only",
+            "--report-stem",
+            "shorts-first-frame-plan-report"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-first-frame-plan-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_pacing_plan",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_pacing_quality.py",
+            "--video-id",
+            "{video_id}",
+            "--plan-only",
+            "--report-stem",
+            "shorts-pacing-plan-report"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-pacing-plan-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_engagement_loop",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_engagement_loop.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-engagement-loop-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_toolchain_handoff",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_toolchain_handoff.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-toolchain-handoff.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_render_readiness",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_render_readiness.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-render-readiness-report.json",
+              "json_status": [
+                "render-ready"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_render",
+          "phase": "render",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_renderer.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-render-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "full_audio_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_audio_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/audio-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "full_rendered_media_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_rendered_media_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/rendered-media-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:approval/shorts-render-inspection.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_first_frame_final",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_first_frame_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-first-frame-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_pacing_final",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_pacing_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-pacing-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "shorts_final_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_shorts_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/shorts-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "upload_metadata",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/generate_upload_metadata.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/upload-metadata.json"
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_brief",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/generate_canva_thumbnail_brief.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-brief.json",
+              "json_status": [
+                "ready_for_canva_render"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_reference_library",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_reference_library.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-reference-library-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_factory",
+          "phase": "render",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_factory.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-factory-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:approval/thumbnail-contact-sheet.png"
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_package",
+          "phase": "prepare",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_package.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-package-report.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:approval/thumbnail-codex-primary-review.json",
+              "json_status": [
+                "ready_for_hash_bound_owner_review"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_source_adequacy",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_source_adequacy.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-source-adequacy.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_font_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_font_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-font-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_pixel_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_pixel_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-pixel-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_semantic_quality",
+          "phase": "verify",
+          "side_effect": "local_model_inference",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_semantic_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-semantic-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_package_quality",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_quality.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-quality-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_scorecard",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_scorecard.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-scorecard-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_reliability",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_reliability.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-reliability-proof.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "thumbnail_worldclass",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_thumbnail_worldclass.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/thumbnail-worldclass-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "media_qa_defect_harness",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_media_qa_e2e.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "repo:youtube-v1/local-output/qa/media-qa-defect-harness.json",
+              "json_status": [
+                "pass"
+              ]
+            },
+            {
+              "path": "output:approval/media-qa-defect-harness.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "strict_media_qa",
+          "phase": "verify",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_media_qa.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/media-qa-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "package_hashes",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_package_hashes.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/package-hash-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "package_completeness",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_package_completeness.py",
+            "--video-id",
+            "{video_id}",
+            "--profile",
+            "full_package"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/package-completeness-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "canonical_release_registration",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_register_release.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/canonical-release-registration-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "owner_rejection_supersession",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/patternlab_owner_rejection_gate.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/owner-rejection-supersession-report.json",
+              "json_status": [
+                "pass"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "owner_review_packet",
+          "phase": "release",
+          "side_effect": "local_write",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/generate_owner_review_packet.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:review/owner-review-packet.md"
+            }
+          ]
+        },
+        {
+          "id": "discord_review_proxy",
+          "phase": "review",
+          "side_effect": "local_render",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/generate_discord_review_proxy.py",
+            "--video-id",
+            "{video_id}"
+          ],
+          "outputs": [
+            {
+              "path": "output:review/pattern-lab-video-{video_id}-draft-discord-review.mp4"
+            }
+          ]
+        },
+        {
+          "id": "discord_owner_review",
+          "phase": "review",
+          "side_effect": "discord_owner_review",
+          "command": [
+            "{python}",
+            "youtube-v1/scripts/send_daily_review_to_discord.py",
+            "--video-id",
+            "{video_id}",
+            "--skip-refresh"
+          ],
+          "outputs": [
+            {
+              "path": "output:approval/discord-review-delivery-plan.json"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

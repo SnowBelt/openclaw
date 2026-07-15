@@ -2,9 +2,17 @@
 
 This is the canonical operating architecture for autonomous Pattern Lab production.
 
+The executable authority is
+`youtube-v1/scripts/patternlab_production.py`, backed by
+`youtube-v1/resources/patternlab-production-contract.json`. Every agent,
+scheduler, repair path, and owner-review delivery must enter there. The contract
+is content-addressed, fail-fast, resumable, and binds each stage to explicit
+outputs. A successful leaf script or stale report cannot substitute for a
+passing canonical run receipt.
+
 Required sequence:
 
-`OpenClaw strategy/source safety → Canva plugin render → OpenClaw validation → owner review / YouTube test`
+`OpenClaw strategy/source safety → rights-cleared evidence/context acquisition → Codex/local non-proof support when useful → deterministic Chrome/FFmpeg render → strict hash-bound 93+ final-pixel/audio QA → owner review → separately approved YouTube action/test`
 
 OpenClaw must remain the system of record. Canva is a rendering and polish engine, not the source of strategy, truth, rights, or final approval.
 
@@ -66,15 +74,31 @@ Pattern Lab videos should feel full of real pictures and video, not generated fi
 For every production-grade long-form city file, OpenClaw must:
 
 - build a rights-ledgered visual source pack before assembly
+- create and pass a hash-bound narration-to-visual contract before assembly;
+  every beat is explicitly `proof`, `context`, `reconstruction`, or `system`
 - use real historical photos, archival footage, maps, documents, and modern context stock as the default visual layer
 - source more rights-safe images/video before assembly if the source pack is thin
+- use the exact-item acquisition ladder in `resources/visual-acquisition-routing-policy.json`; search results and local-archive catalog pages are leads, not production assets
+- preserve exact item URL, download URL, creator, license URL, local SHA-256, retrieval time, and editorial role
+- require at least six selected modern context video clips in the long-form source pool so motion does not depend on repeated stills
+- reject low-energy modern thumbnail heroes and major insets from measured pixels rather than trusting a hand-authored `bright` label
 - keep generated graphics limited to overlays on real source media or photo-backed composites
 - target at least 90% real-media or photo-backed visual runtime after the opening source-proof clip
 - keep full-screen generated-only slide runtime at 0%
 - keep the full-screen non-picture slide count at 0
-- change visuals at least every 12 seconds outside the opening proof clip
+- create a meaningful visual reveal at least every 2.5 seconds in the first 30
+  seconds and every 5 seconds afterward; decorative motion does not count
 - match each picture or clip to nearby narration using source title, filename, role, and keyword relevance
 - never use modern stock/context footage as proof of a historical claim
+
+Generic context footage is welcome when the narration is generic: people
+walking can illustrate foot traffic, a moving truck can illustrate relocation,
+and traffic can illustrate mobility. It must match the action and emotional
+function, stay `context_only`, carry a generic geographic scope, and never
+imply it depicts the named city or historical event. Use an `Illustrative
+footage` label where a viewer could reasonably infer a city-specific claim.
+The executable details are in `workflows/visual-source-motion-workflow.md` and
+`resources/generic-context-taxonomy.json`.
 
 If these checks cannot pass, the video is not production-ready. OpenClaw must find more safe source media or rewrite/restructure the visual plan before owner review.
 
@@ -97,8 +121,29 @@ Local model strategy:
 - LTX is the first local smoke-test candidate for text-to-video and image-to-video.
 - Wan2.2-TI2V-5B is the production candidate only after local proof that quality, runtime, and workflow stability are acceptable.
 - Wan2.2-I2V-A14B is research/premium only and requires explicit manual approval before use.
+- Draw Things FLUX.2 Klein 4B is the routine local still/edit route only while
+  its model and companion-file hashes plus a current local generation benchmark
+  pass.
+- Z-Image-Turbo is the second local still candidate because it is Apache-2.0 and supported by current Draw Things releases; it must win a local quality/runtime benchmark before selection.
+- Codex image generation remains primary for important thumbnail/hero support and a bounded still-image fallback; it is never historical proof.
+- ComfyUI is the repeatable image-to-video orchestrator only after endpoint, model, workflow-hash, runtime, and output-quality receipts pass.
 
 Real historical figures may be animated only as clearly labeled reconstruction and owner-approved. Fake lip-sync, fake quotes, realistic unlabeled fake archival footage, and AI output presented as source proof are invalid.
+
+Local still generation is a resumable hash-bound tournament, not a one-shot
+prompt. It runs in the native non-root user runtime because restricted Codex
+Seatbelt cannot reliably allocate Metal. Historical stills use Apple Vision or
+a reviewed manual mask plus deterministic two-plane parallax before any
+generative image-to-video route. Production-selected motion must pass exact
+source/recipe hashes, deterministic temporal/source checks, and >=93 local
+Qwen3-VL contact-sheet QA.
+
+Storage is an explicit scheduler prerequisite. Routine still, long render,
+local image-to-video, and model-download jobs each have free-space reserves.
+The preferred durable layout is a dedicated APFS Thunderbolt/NVMe media store
+for active source media, renders, model cache, and archive masters, with only
+small current metadata/proxies on the internal SSD. Migration copies and
+SHA-verifies before activation and never deletes originals automatically.
 
 ### 2. Canva Plugin Render
 
@@ -179,6 +224,27 @@ After publish, OpenClaw should use YouTube Test & Compare when available and lea
 
 The strategy is fixed unless the owner explicitly changes it:
 
-`OpenClaw strategy/source safety → Canva plugin render → OpenClaw validation → owner review / YouTube test`
+`OpenClaw strategy/source safety → rights-cleared evidence/context acquisition → Codex/local non-proof support when useful → deterministic Chrome/FFmpeg render → strict hash-bound 93+ final-pixel/audio QA → owner review → separately approved YouTube action/test`
 
-Any autonomous Pattern Lab workflow that skips OpenClaw source safety, OpenClaw validation, or owner review is invalid.
+Any autonomous Pattern Lab workflow that skips source safety, final exported-
+asset QA, current artifact hashes, or owner review is invalid. Canva is an
+optional renderer, not a required dependency; final QA is renderer-independent.
+
+The final visual judge is a local, offline hybrid. Deterministic detectors own
+measurable failures, while the benchmarked Qwen3-VL 8B GGUF judge owns semantic
+city, entity, narration, and evidence-role review. Run its adversarial benchmark
+once per model, projector, and QA-contract hash; reuse is allowed only when all
+content hashes still match. Final-frame receipts sample at least every two
+seconds in the first 30 seconds and every five seconds afterward. SigLIP is a
+retrieval prefilter only and cannot approve a frame.
+
+The canonical reusable QA skill lives at
+`youtube-v1/skills/patternlab-media-qa-director/`. The active shared copy under
+the Codex skills directory must be synchronized from that tracked source and
+validated with the skill-creator validator; hand-edited global-only copies are
+not the source of truth.
+
+The mandatory routing skill is
+`youtube-v1/skills/patternlab-production-director/`. Future additions are not
+production capabilities until the typed contract, scoped `AGENTS.md`, targeted
+tests, workflow-integrity gate, and shared skill copies all recognize them.

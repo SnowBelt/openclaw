@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
+from patternlab_media_qa_common import load_policy as load_media_qa_policy
+from patternlab_thumbnail_pixel_quality import ocr_measurement
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.thumbnail import load_thumbnail_candidate_manifest
 
 
 POLICY_PATH = BASE / "resources" / "thumbnail-typography-policy.json"
@@ -40,6 +45,41 @@ def load_font_pack() -> dict[str, Any]:
 
 
 def iter_chrome_fontsource_entries(root: Path) -> list[dict[str, Any]]:
+    # The Codex-primary package is rendered by the same local Chrome helper but
+    # intentionally keeps a review-only source/rights status.  It still needs
+    # the exact same font and 160x90 shelf checks as the legacy HTML package.
+    codex_entries: list[dict[str, Any]] = []
+    for candidate in load_thumbnail_candidate_manifest(root).candidates:
+        file_path = str(candidate.get("path", ""))
+        typography = candidate.get("typography", {})
+        if not file_path or not isinstance(typography, dict):
+            continue
+        city_family = str(typography.get("city_font", "")).strip()
+        main_family = str(typography.get("main_font", "")).strip()
+        support_family = str(typography.get("support_font", main_family)).strip()
+        codex_entries.append({
+            "file": Path(file_path).name,
+            "path": file_path,
+            # Chrome thumbnail packages are city-agnostic.  Hard-coding
+            # Detroit here turns every otherwise-valid future city package
+            # into a false city-name failure.
+            "city_name_present": str(candidate.get("city", "")).upper() in {
+                str(value).upper() for value in candidate.get("public_text", [])
+            },
+            "thumbnail_text": " ".join(str(value) for value in candidate.get("public_text", [])),
+            "ocr_regions": candidate.get("ocr_regions", []),
+            "font": {
+                "policy_file": "resources/thumbnail-typography-policy.json",
+                "font_pack_file": "resources/thumbnail-font-pack.json",
+                "impact_fallback_used": False,
+                "document_prop_is_inside_document_visual": False,
+                "city_anchor": {"role": "city_anchor", "family": city_family, "stroke_width": typography.get("city_stroke_width", 3), "tracking": -2, "max_size": 212, "min_size": 88},
+                "main_hook": {"role": "main_hook", "family": main_family, "stroke_width": typography.get("main_stroke_width", 2), "tracking": -2, "max_size": 244, "min_size": 78},
+                "supporting_line": {"role": "supporting_line", "family": support_family, "stroke_width": typography.get("support_stroke_width", 0), "tracking": 0, "max_size": 78, "min_size": 34},
+            },
+        })
+    if codex_entries:
+        return codex_entries
     report = read_json(root / "approval" / "html-thumbnail-renderer-report.json")
     entries: list[dict[str, Any]] = []
     if report.get("chrome_fontsource_renderer_status") != "pass":
@@ -156,10 +196,18 @@ def validate_entry(
     warnings: list[str] = []
     font = entry.get("font", {}) if isinstance(entry.get("font"), dict) else {}
     source = Path(str(entry.get("path", "")))
+    # Reports intentionally use repo-relative display paths.  Resolve them
+    # against youtube-v1 rather than the caller's shell cwd so cron/LaunchAgent
+    # execution cannot turn valid review PNGs into false missing-preview gates.
+    if not source.is_absolute():
+        source = BASE / source
     file_name = str(entry.get("file") or source.name)
     roles = policy.get("font_roles", {})
     font_pack = load_font_pack()
     preferred_stack = set(font_pack.get("approved_premium_title_fonts", [])) or set(policy.get("preferred_title_stack_available_on_current_mac", []))
+    blocked_generic = set(font_pack.get("blocked_generic_title_fonts", [])) | set(
+        policy.get("generic_font_blocker", {}).get("blocked_families_for_city_or_main_hook", [])
+    )
     city = font_role(font, "city_anchor")
     main = font_role(font, "main_hook")
     support = font_role(font, "supporting_line")
@@ -184,6 +232,12 @@ def validate_entry(
         blockers.append(f"main_hook_font_not_in_preferred_stack:{main_family}")
     if city_family and city_family not in preferred_stack:
         blockers.append(f"city_anchor_font_not_in_preferred_stack:{city_family}")
+    if main_family in blocked_generic:
+        blockers.append(f"generic_main_hook_font_blocked:{main_family}")
+    if city_family in blocked_generic:
+        blockers.append(f"generic_city_anchor_font_blocked:{city_family}")
+    if main_family and city_family and main_family == city_family and not bool(font.get("same_family_hierarchy_human_approved", False)):
+        blockers.append("city_and_hook_use_same_font_without_exact_hierarchy_approval")
 
     main_max_stroke = int(roles.get("main_hook", {}).get("max_stroke_width", 4))
     city_max_stroke = int(roles.get("city_anchor", {}).get("max_stroke_width", 4))
@@ -205,24 +259,46 @@ def validate_entry(
         blockers.append("city_name_missing")
 
     previews = []
+    media_thumbnail_policy = load_media_qa_policy().get("thumbnail", {})
+    expected_text = str(entry.get("thumbnail_text") or "").strip()
     for width, height in SHELF_SIZES:
         preview = preview_dir / f"{Path(file_name).stem}-{width}x{height}{source.suffix or '.jpg'}"
         ok = resize_preview(source, preview, width, height)
-        previews.append({"width": width, "height": height, "path": display_path(preview), "exists": ok})
+        preview_row: dict[str, Any] = {"width": width, "height": height, "path": display_path(preview), "exists": ok}
+        if ok:
+            try:
+                from PIL import Image
+
+                with Image.open(preview) as image:
+                    ocr = ocr_measurement(
+                        image.convert("RGB"),
+                        [expected_text],
+                        media_thumbnail_policy,
+                        entry.get("ocr_regions") if isinstance(entry.get("ocr_regions"), list) else None,
+                    )
+                preview_row["ocr"] = ocr
+                if float(ocr.get("word_recall", 0)) < float(media_thumbnail_policy.get("minimum_ocr_word_recall", 1)):
+                    blockers.append(f"shelf_ocr_text_recall_failure:{width}x{height}")
+                if ocr.get("unsafe_large_text_boxes"):
+                    blockers.append(f"shelf_text_safe_margin_failure:{width}x{height}")
+                if ocr.get("unknown_large_tokens"):
+                    blockers.append(f"shelf_unexpected_large_text_failure:{width}x{height}")
+            except Exception as exc:
+                preview_row["ocr"] = {"status": "blocked", "error": type(exc).__name__}
+                blockers.append(f"shelf_ocr_unavailable_or_failed:{width}x{height}:{type(exc).__name__}")
+        previews.append(preview_row)
         if not ok:
             blockers.append(f"shelf_preview_missing:{width}x{height}")
 
-    # This gate is intentionally conservative and metadata-backed. OCR still belongs
-    # to the rendered OCR gate when an OCR engine is available.
     if int(main.get("min_size", 0)) < 54:
-        warnings.append("main_hook_min_size_near_readability_floor")
+        blockers.append("main_hook_min_size_below_readability_floor")
     if int(city.get("min_size", 0)) < 72:
-        warnings.append("city_anchor_min_size_near_readability_floor")
+        blockers.append("city_anchor_min_size_below_readability_floor")
 
     return {
         "file": file_name,
         "path": str(source),
-        "status": "pass" if not blockers else "blocked",
+        "status": "pass" if not blockers and not warnings else "blocked",
         "blockers": blockers,
         "warnings": warnings,
         "font": font,
@@ -261,7 +337,7 @@ def build_font_quality_report(video_id: str) -> tuple[dict[str, Any], Path, Path
     payload: dict[str, Any] = {
         "generated_at": utc_now(),
         "video_id": video_id,
-        "status": "pass" if validations and not blockers and preview_count == required_preview_count else "blocked",
+        "status": "pass" if validations and not blockers and not warnings and preview_count == required_preview_count else "blocked",
         "mode": mode,
         "policy_file": display_path(POLICY_PATH),
         "font_pack_file": display_path(FONT_PACK_PATH),
@@ -278,10 +354,13 @@ def build_font_quality_report(video_id: str) -> tuple[dict[str, Any], Path, Path
             for blocker in item["blockers"]
             if "stroke_too_large" in blocker
         ),
-        "shelf_readability_status": "pass" if preview_count == required_preview_count and validations else "blocked",
+        "shelf_readability_status": "pass" if preview_count == required_preview_count and validations and not blockers and not warnings else "blocked",
+        "minimum_required_score": 93,
+        "font_quality_score": 100 if validations and not blockers and not warnings else min(92, max(0, 100 - 8 * len(set(blockers)) - 2 * len(set(warnings)))),
         "shelf_preview_count": preview_count,
         "required_shelf_preview_count": required_preview_count,
         "font_reject_reasons": sorted(set(blockers)),
+        "blockers": sorted(set(blockers)),
         "warnings": warnings,
         "entries": validations,
     }

@@ -8,6 +8,7 @@ aiohappyeyeballs==2.7.1
 aiohttp==3.14.1
 aiosignal==1.4.0
 alembic==1.18.5
+annotated-types==0.7.0
 antlr4-python3-runtime==4.9.3
 asteroid-filterbanks==0.4.0
 attrs==26.1.0
@@ -40,6 +41,7 @@ hf-xet==1.5.1
 httplib2==0.32.0
 huggingface_hub==0.36.2
 idna==3.18
+ImageHash==4.3.2
 joblib==1.5.3
 julius==0.2.8
 kiwisolver==1.5.0
@@ -57,7 +59,8 @@ numpy==2.5.1
 oauthlib==3.3.1
 omegaconf==2.3.1
 onnxruntime==1.27.0
-opencv-python==5.0.0.93
+opencv-python-headless==5.0.0.93
+OpenTimelineIO==0.18.1
 opentelemetry-api==1.43.0
 opentelemetry-exporter-otlp-proto-common==1.43.0
 opentelemetry-exporter-otlp-proto-grpc==1.43.0
@@ -85,16 +88,21 @@ pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0
 pyparsing==3.3.2
+pydantic==2.13.4
+pydantic_core==2.46.4
+pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 pytorch-lightning==2.6.5
 pytorch-metric-learning==2.9.0
 regex==2026.6.28
+rembg==2.0.67
 requests-oauthlib==2.0.0
 requests==2.32.5
 rich==15.0.0
 safetensors==0.8.0
 scenedetect==0.7
+scikit-image==0.26.0
 scikit-learn==1.9.0
 scipy==1.18.0
 setuptools==83.0.0
@@ -112,6 +120,7 @@ torchmetrics==1.9.0
 torchvision==0.23.0
 tqdm==4.68.4
 transformers==4.57.6
+typing-inspection==0.4.2
 typing_extensions==4.16.0
 uritemplate==4.2.0
 urllib3==2.7.0

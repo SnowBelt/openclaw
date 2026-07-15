@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "purpose": "Protect source truth and approved releases while preventing Pattern Lab media work from exhausting the system SSD.",
+  "disk_reserves": {
+    "runtime_health": {"minimum_free_gib": 100, "minimum_free_fraction": 0.08},
+    "routine_still_generation": {"minimum_free_gib": 50, "minimum_free_fraction": 0.05},
+    "long_form_render": {"minimum_free_gib": 150, "minimum_free_fraction": 0.08},
+    "local_image_to_video": {"minimum_free_gib": 250, "minimum_free_fraction": 0.15},
+    "model_download": {"minimum_free_gib": 300, "minimum_free_fraction": 0.17}
+  },
+  "episode_budgets_gib": {
+    "source_media": 20,
+    "generated_candidates": 15,
+    "intermediates": 25,
+    "review_proxies": 5,
+    "final_release": 10,
+    "total_active_episode": 60
+  },
+  "retention_days": {
+    "failed_generation_candidate": 2,
+    "superseded_generation_candidate": 7,
+    "render_intermediate": 3,
+    "extracted_frame": 3,
+    "review_proxy": 30,
+    "provider_cache": 30
+  },
+  "never_delete_classes": [
+    "source_media",
+    "rights_receipt",
+    "approval_receipt",
+    "final_approved_media",
+    "upload_receipt",
+    "oauth_or_secret",
+    "release_manifest"
+  ],
+  "disposable_path_tokens": [
+    "/tmp/",
+    "/temp/",
+    "/frames/",
+    "/intermediate/",
+    "/intermediates/",
+    "/failed-candidates/",
+    "/superseded-candidates/",
+    "/source-packet/local-ai-candidates/"
+  ],
+  "protected_path_tokens": [
+    "/source-packet/",
+    "/approval/",
+    "/final/",
+    "/upload/",
+    "rights-ledger",
+    "release-candidate",
+    "package-hash",
+    "oauth",
+    "client_secret"
+  ],
+  "encoding": {
+    "stream_intermediate_frames_to_ffmpeg": true,
+    "review_proxy": "H.264 CRF 22, AAC 128 kbps, maximum 1080p",
+    "final_master": "H.264 CRF 17-18 or visually verified equivalent; preserve source originals separately",
+    "archive_rule": "Keep exact source originals, final approved media, and receipts; regenerate transient frames and caches when needed."
+  },
+  "shared_roots": {
+    "model_environment_variable": "PATTERNLAB_MODEL_ROOT",
+    "media_store_environment_variable": "PATTERNLAB_MEDIA_STORE",
+    "recommended_external_media_root": "/Volumes/PatternLabMedia",
+    "model_files_must_remain_outside_git": true
+  },
+  "safe_cleanup_requires_apply_flag": true,
+  "youtube_mutation": "not_performed"
+}

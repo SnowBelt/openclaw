@@ -16,17 +16,18 @@ OUTPUT_ROOT = BASE / "local-output" / "operations" / "topic-research"
 
 def write_brief(row: dict[str, Any]) -> tuple[Path, Path]:
     video_id = row["video_id"]
+    city = str(row.get("city") or "").strip()
     blockers = [*row.get("topic_blockers", []), *row.get("source_pack_blockers", [])]
     providers = [
         "Library of Congress", "National Archives", "Wikimedia Commons (commercial-use-compatible only)",
-        "Detroit Public Library / Burton Historical Collection (rights clear only)",
-        "Detroit Historical Society (research only unless image rights are explicit)",
+        f"{city} public library/local history collection (rights clear only)",
+        f"{city} historical society or city archive (research only unless image rights are explicit)",
     ]
     required_assets = [
         "opening proof map or document", "neighborhood/street map", "historical place photo", "human-consequence document", "system/route map", "then-and-now comparison", "modern context clip", "source card with rights basis",
     ]
     payload = {
-        "generated_at": utc_now(), "video_id": video_id, "working_title": row.get("working_title"),
+        "generated_at": utc_now(), "video_id": video_id, "city": city, "working_title": row.get("working_title"),
         "status": "research_required", "topic_score": row.get("topic_score"),
         "current_blockers": blockers, "research_sources_to_search": providers,
         "required_visual_evidence": required_assets,

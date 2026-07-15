@@ -9,12 +9,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.city import require_city
 from patternlab_common import BASE, append_ledger, display_path, ensure_dir, output_root, utc_now
 from patternlab_images import IMAGE_HEIGHT, IMAGE_WIDTH, image_dimensions
 
 FACTORY_STATUS = "repo_local_factory_rendered_canva_ready"
 MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
-DEFAULT_CITY = "Detroit"
 IMPACT_FONT = Path("/System/Library/Fonts/Supplemental/Impact.ttf")
 FREE_FONT_CANDIDATES = [
     "Impact",
@@ -35,9 +37,6 @@ FREE_WORKFLOW_REPORTS = {
 TESSERACT_CANDIDATES = ["/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract", "tesseract"]
 BANNED_OCR_MISSPELLINGS = {
     "BEFOR": "BEFORE",
-    "DETRIOT": "DETROIT",
-    "DETRO1T": "DETROIT",
-    "DTEROIT": "DETROIT",
 }
 ALLOWED_SHAPE_PURPOSES = {
     "redaction",
@@ -173,7 +172,7 @@ func bodyColumns(_ x: CGFloat, _ y: CGFloat, _ cols: Int, _ rows: Int) {
         }
     }
 }
-func cityTextColor(for mode: String) -> NSColor { mode == "hidden_map" ? color(0xE1192B) : color(0xFFD335) }
+func cityTextColor(for mode: String) -> NSColor { mode == "hidden_system" ? color(0xE1192B) : color(0xFFD335) }
 
 let image = NSImage(size: canvas)
 image.lockFocus()
@@ -198,7 +197,7 @@ if spec.mode == "redrawn" {
     drawText(promise, NSRect(x: 84, y: 570, width: 1750, height: 132), fitFont(promise, name: "Avenir Next Condensed Heavy", max: 118, min: 78, width: 1750), fill: .white, strokeWidth: 4, kern: -2)
     drawPlain("THE MAP CHANGED THE CITY", NSRect(x: 90, y: 58, width: 1100, height: 80), font("Avenir Next Heavy", 58), color(0x00111A))
     // No outer debug-style border: keep the thumbnail clean at search-shelf size.
-} else if spec.mode == "hidden_map" {
+} else if spec.mode == "hidden_system" {
     try fillImage(left, in: NSRect(x: 920, y: 0, width: 1000, height: height), fraction: 0.92, xBias: 0.55, yBias: 0.50)
     fill(NSRect(x: 0, y: 0, width: 1120, height: height), color(0x050505))
     fill(NSRect(x: 0, y: 0, width: 78, height: height), color(0xE1192B))
@@ -211,7 +210,7 @@ if spec.mode == "redrawn" {
     fill(NSRect(x: 145, y: 272, width: 610, height: 14), color(0xF8EFE0))
     drawPlain("A HIDDEN ROUTE BELOW", NSRect(x: 145, y: 205, width: 720, height: 55), font("Avenir Next Heavy", 46), color(0xF8EFE0))
     stroke(NSRect(x: 1000, y: 92, width: 800, height: 890), color(0xE1192B), width: 12)
-} else if spec.mode == "detroit_1942" {
+} else if spec.mode == "proof_object_mystery" {
     fill(NSRect(x: 0, y: 0, width: width, height: height), color(0x16120F))
     try fillImage(right, in: NSRect(x: 1030, y: 0, width: 890, height: height), fraction: 0.86, xBias: 0.50, yBias: 0.50)
     fill(NSRect(x: 70, y: 72, width: 860, height: 936), color(0xF3D99A))
@@ -224,7 +223,7 @@ if spec.mode == "redrawn" {
     redactedSentenceWords(140, 370, 720, "Neighborhood access changed after the hearing.", words: ["access", "hearing"])
     fill(NSRect(x: 122, y: 232, width: 720, height: 96), color(0xB00020))
     drawPlain("WHO ERASED IT?", NSRect(x: 150, y: 253, width: 664, height: 66), font("Avenir Next Heavy", 62), .white, align: .center)
-} else if spec.mode == "lost_streets" {
+} else if spec.mode == "vanished_place" {
     fill(NSRect(x: 0, y: 0, width: width, height: height), color(0xEEE6D3))
     drawPlain("THE DAILY LEDGER", NSRect(x: 70, y: 930, width: 1780, height: 86), font("Georgia Bold", 76), color(0x17110A), align: .center)
     fill(NSRect(x: 70, y: 907, width: 1780, height: 8), color(0x17110A))
@@ -275,38 +274,22 @@ def read_json(path):
 
 
 def city_possessive(city):
-    city_upper = city.upper()
+    city_upper = require_city(city, source="thumbnail").upper()
     return f"{city_upper}'" if city_upper.endswith("S") else f"{city_upper}'S"
 
 
 def format_city_template(template, city):
+    city = require_city(city, source="thumbnail")
     return template.replace("{CITY_POSSESSIVE}", city_possessive(city)).replace("{CITY}", city.upper())
 
 
-def infer_city_from_text(text):
-    if not text:
-        return ""
-    # Pattern Lab titles normally start with the city name. Keep this simple and
-    # deterministic so low-reasoning executors do not invent a city.
-    match = re.match(r"^([A-Z][A-Za-z]*(?:\\s+[A-Z][A-Za-z]*){0,2})(?:\\b|')", text.strip())
-    if not match:
-        return ""
-    city = match.group(1).strip()
-    blocked = {"The", "This", "What", "Why", "How", "Before", "After", "Not"}
-    return "" if city in blocked else city
+def active_city(metadata, package):
+    from patternlab.city import city_from_sources
 
-
-def active_city(metadata, click_policy):
-    for key in ("city", "active_city", "target_city"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    for value in [metadata.get("default_title", ""), *(metadata.get("title_options") or [])]:
-        inferred = infer_city_from_text(value)
-        if inferred:
-            return inferred
-    fallback = click_policy.get("city_name_policy", {}).get("active_city") or DEFAULT_CITY
-    return str(fallback).strip() or DEFAULT_CITY
+    return city_from_sources(
+        (("package", package.get("city")), ("thumbnail_metadata", metadata.get("city"))),
+        required=True,
+    )
 
 
 def city_slug(city):
@@ -502,11 +485,11 @@ def required_sources(root, manifest, city):
 def concept_specs(sources, city):
     slug = city_slug(city)
     return [
-        {"concept_id":"clear_redrawn","letter":"A","filename":"thumbnail_candidate_a.png","concept_filename":f"thumbnail_concept_01_{slug}_was_redrawn.png","selected":True,"role":"emotional_mystery","headline":format_city_template("{CITY} WAS REDRAWN", city),"mode":"redrawn","bg_key":"redrawn_bg","proof_key":"redrawn_proof","proof_label":"","benchmark_family":"owner-preferred map/redrawn current style","visual_strategy":f"dominant {city} text over a city map, street grid, highway map, or map/photo hybrid; no random lines or meaningless boxes","city_anchor":f"recognizable {city} map/grid or skyline-backed map support","proof_object":"map/grid changed-the-city cue, no public proof/source labels","click_interest_trigger":f"what redrew {city}'s map and streets","style_family":"neon_city_myth"},
-        {"concept_id":"hidden_map","letter":"B","filename":"thumbnail_candidate_b.png","concept_filename":f"thumbnail_concept_02_{slug}_hidden_map.png","selected":True,"role":"map_system_proof","headline":format_city_template("{CITY_POSSESSIVE} HIDDEN MAP", city),"mode":"hidden_map","bg_key":"hidden_bg","proof_key":"hidden_proof","proof_label":"","benchmark_family":"owner-preferred underground city poster","visual_strategy":f"underground/tunnel/sewer/subway/utility image with {city} as the red attention word and no random arrows","city_anchor":f"active-city text plus tunnel/route source context; skyline proof available in source path if needed","proof_object":"underground/hidden-system route clue, not a generic proof label","click_interest_trigger":"what hidden system sits below the city","style_family":"underground_city"},
-        {"concept_id":"detroit_1942","letter":"D","filename":"thumbnail_review_d.png","concept_filename":f"thumbnail_concept_03_{slug}_1942.png","selected":False,"role":"year_time_travel","headline":format_city_template("{CITY} 1942", city),"mode":"detroit_1942","bg_key":"year_bg","proof_key":"year_proof","proof_label":"1942","benchmark_family":"owner-preferred redacted city file","visual_strategy":"large document prop with readable sentence fragments, whole-word redactions, and a prominent WHO ERASED IT? hook","city_anchor":f"{city} spelled as the central document subject plus historic city image support","proof_object":"fictional non-proof redacted document prop plus historic source image","click_interest_trigger":"who erased or rerouted the city file","style_family":"redacted_file"},
-        {"concept_id":"lost_streets","letter":"E","filename":"thumbnail_review_e.png","concept_filename":f"thumbnail_concept_04_{slug}_lost_streets.png","selected":False,"role":"vanished_place","headline":format_city_template("{CITY_POSSESSIVE} LOST STREETS", city),"mode":"lost_streets","bg_key":"lost_bg","proof_key":"lost_proof","proof_label":"","benchmark_family":"owner-preferred street-grid newspaper","visual_strategy":"fictional newspaper/front-page style using a street map, road grid, city blocks, demolition/void clue, or old street photo; rail/track-only images are blocked","city_anchor":f"{city} as the largest newspaper headline subject plus street-grid visual support","proof_object":"fictional newspaper prop pointing to lost streets without claiming to be a real publication","click_interest_trigger":f"which {city} streets vanished","style_family":"newspaper_front_page"},
-        {"concept_id":"fall_explained","letter":"C","filename":"thumbnail_candidate_c.png","concept_filename":f"thumbnail_concept_05_{slug}_fall_explained.png","selected":True,"role":"contrarian_history_angle","headline":format_city_template("{CITY_POSSESSIVE} FALL EXPLAINED", city),"mode":"fall_explained","bg_key":"fall_bg","proof_key":"fall_proof","proof_label":"","benchmark_family":"owner-preferred then/now split","visual_strategy":"THEN on the left, NOW on the right, no median crossing, aspect-preserved source photos, brighter/current skyline on NOW, and old/pre-skyscraper or clearly historic city on THEN","city_anchor":f"historic {city} city/source image contrasted with current {city} skyline/context","proof_object":"then/now visual contradiction","click_interest_trigger":"what changed between then and now","style_family":"then_now_split"},
+        {"concept_id":"city_transformation","letter":"A","filename":"thumbnail_candidate_a.png","concept_filename":f"thumbnail_concept_01_{slug}_was_redrawn.png","selected":True,"role":"emotional_mystery","headline":format_city_template("{CITY} WAS REDRAWN", city),"mode":"redrawn","bg_key":"redrawn_bg","proof_key":"redrawn_proof","proof_label":"","benchmark_family":"owner-preferred map/redrawn current style","visual_strategy":f"dominant {city} text over a city map, street grid, highway map, or map/photo hybrid; no random lines or meaningless boxes","city_anchor":f"recognizable {city} map/grid or skyline-backed map support","proof_object":"map/grid changed-the-city cue, no public proof/source labels","click_interest_trigger":f"what redrew {city}'s map and streets","style_family":"neon_city_myth"},
+        {"concept_id":"hidden_system","letter":"B","filename":"thumbnail_candidate_b.png","concept_filename":f"thumbnail_concept_02_{slug}_hidden_map.png","selected":True,"role":"map_system_proof","headline":format_city_template("{CITY_POSSESSIVE} HIDDEN MAP", city),"mode":"hidden_system","bg_key":"hidden_bg","proof_key":"hidden_proof","proof_label":"","benchmark_family":"owner-preferred underground city poster","visual_strategy":f"underground/tunnel/sewer/subway/utility image with {city} as the red attention word and no random arrows","city_anchor":f"active-city text plus tunnel/route source context; skyline proof available in source path if needed","proof_object":"underground/hidden-system route clue, not a generic proof label","click_interest_trigger":"what hidden system sits below the city","style_family":"underground_city"},
+        {"concept_id":"proof_object_mystery","letter":"D","filename":"thumbnail_review_d.png","concept_filename":f"thumbnail_concept_03_{slug}_1942.png","selected":False,"role":"proof_object_mystery","headline":format_city_template("{CITY} 1942", city),"mode":"proof_object_mystery","bg_key":"year_bg","proof_key":"year_proof","proof_label":"1942","benchmark_family":"owner-preferred redacted city file","visual_strategy":"large document prop with readable sentence fragments, whole-word redactions, and a prominent WHO ERASED IT? hook","city_anchor":f"{city} spelled as the central document subject plus historic city image support","proof_object":"fictional non-proof redacted document prop plus historic source image","click_interest_trigger":"who erased or rerouted the city file","style_family":"redacted_file"},
+        {"concept_id":"vanished_place","letter":"E","filename":"thumbnail_review_e.png","concept_filename":f"thumbnail_concept_04_{slug}_lost_streets.png","selected":False,"role":"vanished_place","headline":format_city_template("{CITY_POSSESSIVE} LOST STREETS", city),"mode":"vanished_place","bg_key":"lost_bg","proof_key":"lost_proof","proof_label":"","benchmark_family":"owner-preferred street-grid newspaper","visual_strategy":"fictional newspaper/front-page style using a street map, road grid, city blocks, demolition/void clue, or old street photo; rail/track-only images are blocked","city_anchor":f"{city} as the largest newspaper headline subject plus street-grid visual support","proof_object":"fictional newspaper prop pointing to lost streets without claiming to be a real publication","click_interest_trigger":f"which {city} streets vanished","style_family":"newspaper_front_page"},
+        {"concept_id":"then_now_contradiction","letter":"C","filename":"thumbnail_candidate_c.png","concept_filename":f"thumbnail_concept_05_{slug}_fall_explained.png","selected":True,"role":"contrarian_history_angle","headline":format_city_template("{CITY_POSSESSIVE} FALL EXPLAINED", city),"mode":"then_now_contradiction","bg_key":"fall_bg","proof_key":"fall_proof","proof_label":"","benchmark_family":"owner-preferred then/now split","visual_strategy":"THEN on the left, NOW on the right, no median crossing, aspect-preserved source photos, brighter/current skyline on NOW, and old/pre-skyscraper or clearly historic city on THEN","city_anchor":f"historic {city} city/source image contrasted with current {city} skyline/context","proof_object":"then/now visual contradiction","click_interest_trigger":"what changed between then and now","style_family":"then_now_split"},
     ]
 
 
@@ -529,13 +512,36 @@ def apply_topic_concepts(concepts, metadata):
     return updated
 
 
+def topic_concept_blockers(metadata, concepts, city):
+    """Require episode-owned thumbnail hypotheses before any final render."""
+    raw = metadata.get("thumbnail_topic_concepts")
+    expected = {str(item.get("concept_id") or "") for item in concepts}
+    if not isinstance(raw, list) or len(raw) != len(expected):
+        return ["thumbnail_topic_concepts_must_define_exactly_five_episode_hypotheses"]
+    by_id = {str(item.get("concept_id") or ""): item for item in raw if isinstance(item, dict)}
+    blockers = []
+    if set(by_id) != expected:
+        blockers.append("thumbnail_topic_concept_ids_mismatch")
+    for concept_id in sorted(expected & set(by_id)):
+        row = by_id[concept_id]
+        headline = str(row.get("headline") or "").strip()
+        if not headline or len(thumbnail_words(headline)) > 4:
+            blockers.append(f"thumbnail_topic_headline_invalid:{concept_id}")
+        if city.casefold() not in headline.casefold():
+            blockers.append(f"thumbnail_topic_headline_missing_city:{concept_id}")
+        for field in ("visual_strategy", "city_anchor", "proof_object", "click_interest_trigger"):
+            if not str(row.get(field) or "").strip():
+                blockers.append(f"thumbnail_topic_field_missing:{concept_id}:{field}")
+    return blockers
+
+
 def rough_concept_specs(city):
     families = [
-        ("clear_redrawn", format_city_template("{CITY} WAS REDRAWN", city), "city transformation"),
-        ("hidden_map", format_city_template("{CITY_POSSESSIVE} HIDDEN MAP", city), "map/system proof"),
-        ("detroit_1942", format_city_template("{CITY} 1942", city), "year/time-travel"),
-        ("lost_streets", format_city_template("{CITY_POSSESSIVE} LOST STREETS", city), "vanished place"),
-        ("fall_explained", format_city_template("{CITY_POSSESSIVE} FALL EXPLAINED", city), "documentary fall/rise"),
+        ("city_transformation", format_city_template("{CITY} WAS REDRAWN", city), "city transformation"),
+        ("hidden_system", format_city_template("{CITY_POSSESSIVE} HIDDEN MAP", city), "map/system proof"),
+        ("proof_object_mystery", format_city_template("{CITY} 1942", city), "year/time-travel"),
+        ("vanished_place", format_city_template("{CITY_POSSESSIVE} LOST STREETS", city), "vanished place"),
+        ("then_now_contradiction", format_city_template("{CITY_POSSESSIVE} FALL EXPLAINED", city), "documentary fall/rise"),
     ]
     angles = [
         "skyline hero",
@@ -696,10 +702,10 @@ def concept_critique(item, city):
 
 
 def font_metadata_for_style(style_family):
-    city_family = "Helvetica Neue Condensed Black" if style_family in {"hidden_map", "redacted_file", "newspaper_front_page", "then_now_split"} else "Avenir Next Condensed Heavy"
-    main_family = "Helvetica Neue Condensed Black" if style_family in {"hidden_map", "redacted_file", "newspaper_front_page"} else "Avenir Next Condensed Heavy"
-    city_stroke = 4 if style_family in {"clear_map_photo", "hidden_map", "then_now_split"} else 0
-    main_stroke = 4 if style_family in {"clear_map_photo", "then_now_split"} else (2 if style_family == "hidden_map" else 1)
+    city_family = "Helvetica Neue Condensed Black" if style_family in {"hidden_system", "redacted_file", "newspaper_front_page", "then_now_split"} else "Avenir Next Condensed Heavy"
+    main_family = "Helvetica Neue Condensed Black" if style_family in {"hidden_system", "redacted_file", "newspaper_front_page"} else "Avenir Next Condensed Heavy"
+    city_stroke = 4 if style_family in {"clear_map_photo", "hidden_system", "then_now_split"} else 0
+    main_stroke = 4 if style_family in {"clear_map_photo", "then_now_split"} else (2 if style_family == "hidden_system" else 1)
     return {
         "policy_file": "resources/thumbnail-typography-policy.json",
         "impact_fallback_used": False,
@@ -754,15 +760,14 @@ def has_any_term(haystack, terms):
 
 def serializable_concept(item, output_path, city):
     status = candidate_status(output_path)
-    city_is_detroit = city.strip().lower() == "detroit"
     style_family = item.get("style_family", "")
     public_words = thumbnail_words(item["headline"])
     blocked_words = [word for word in public_words if word in PUBLIC_WORD_BLOCKLIST]
     haystack = asset_haystack(item)
-    is_redrawn = item["concept_id"] == "clear_redrawn"
-    is_hidden = item["concept_id"] == "hidden_map"
+    is_redrawn = item["concept_id"] == "city_transformation"
+    is_hidden = item["concept_id"] == "hidden_system"
     is_redacted = style_family == "redacted_file"
-    is_lost = item["concept_id"] == "lost_streets"
+    is_lost = item["concept_id"] == "vanished_place"
     is_then_now = style_family == "then_now_split"
     redrawn_map_match = (not is_redrawn) or has_any_term(haystack, ["map", "grid", "street", "route", "highway"])
     underground_match = (not is_hidden) or has_any_term(haystack, ["tunnel", "underground", "sewer", "subway", "utility", "below", "route"])
@@ -775,7 +780,7 @@ def serializable_concept(item, output_path, city):
         "source_paths": [display_path(path) for path in item.get("source_paths", []) if path],
         "source_assets": [{"filename": asset.get("filename", ""), "source_title": asset.get("source_title", ""), "source_class": asset.get("source_class", ""), "visual_category": asset.get("visual_category", "")} for asset in item.get("source_assets", [])],
         "photo_backed": True, "dominant_real_photo": True, "human_or_action_interest": True, "source_board_clutter": False, "tiny_labels": False, "major_proof_marks": 1,
-        "city_name_dominant": True, "city_name_phone_readable": True, "clear_promise": True, "skyline_or_landmark": True, "city_recognizable_visual": True, "detroit_recognizable_visual": city_is_detroit, "premium_city_font": True, "free_font": True, "polished_proof_mark": True, "benchmark_aesthetic_match": True, "search_result_readable": True, "competitive_color_contrast": True, "title_thumbnail_match": True,
+        "city_name_dominant": True, "city_name_phone_readable": True, "clear_promise": True, "skyline_or_landmark": True, "city_recognizable_visual": True, "premium_city_font": True, "free_font": True, "polished_proof_mark": True, "benchmark_aesthetic_match": True, "search_result_readable": True, "competitive_color_contrast": True, "title_thumbnail_match": True,
         "paid_tool_used": False, "paid_asset_used": False, "mobile_ocr_readable": True, "benchmark_similarity_pass": True,
         "internal_public_label_used": False, "random_arrow_used": False, "ai_support_asset_used": False, "ai_support_asset_policy_pass": True, "internet_reference_non_derivative_pass": True, "owner_feedback_blocked_pattern_repeated": False,
         "public_words": public_words, "word_intent_map": word_intent_map(item["headline"], city, style_family), "blocked_public_words": blocked_words, "every_word_intentional": not blocked_words,
@@ -932,7 +937,7 @@ def layout_manifest(item, output_path, city):
         add_text("promise", promise_text, rect(84, 570, 1750, 115))
         add_text("caption", "THE MAP CHANGED THE CITY", rect(90, 58, 1100, 80))
         manifest["required_public_words"] = normalize_words(headline)
-    elif mode == "hidden_map":
+    elif mode == "hidden_system":
         add_image("underground_image", rect(920, 0, 1000, 1080), "generic_or_source_grounded_underground_support")
         add_shape("left_black_field", rect(0, 0, 1120, 1080), "headline_backplate", "#050505")
         add_shape("red_edge", rect(0, 0, 78, 1080), "intentional_design_accent", "#E1192B")
@@ -943,7 +948,7 @@ def layout_manifest(item, output_path, city):
         add_text("the_city", " ".join(hidden_words[1:]) if len(hidden_words) > 1 else "THE CITY", rect(145, 385, 740, 115))
         add_text("support", "A HIDDEN ROUTE BELOW", rect(145, 205, 720, 55))
         manifest["required_public_words"] = normalize_words(headline)
-    elif mode == "detroit_1942":
+    elif mode == "proof_object_mystery":
         add_image("historic_city_context", rect(1030, 0, 890, 1080), "historic_city_context_support")
         add_shape("document_background", rect(70, 72, 860, 936), "document_background", "#F3D99A")
         add_shape("curiosity_hook_bar", rect(122, 232, 720, 96), "intentional_design_accent", "#B00020")
@@ -960,7 +965,7 @@ def layout_manifest(item, output_path, city):
             manifest["redactions"].append({"sentence_id": identifier, "sentence": text, "redacted_words": redacted})
         add_text("curiosity_hook", "WHO ERASED IT?", rect(150, 253, 664, 66))
         manifest["required_public_words"] = normalize_words(headline) + ["WHO", "ERASED", "IT"]
-    elif mode == "lost_streets":
+    elif mode == "vanished_place":
         add_shape("newspaper_background", rect(0, 0, 1920, 1080), "document_background", "#EEE6D3")
         add_shape("masthead_rule", rect(70, 907, 1780, 8), "divider", "#17110A")
         add_image("street_map_photo", rect(1040, 155, 760, 500), "street_map_or_lost_streets_support")
@@ -1211,11 +1216,11 @@ def visible_region_sources(root, item, manifest):
     by_id = {}
     if item["mode"] == "redrawn":
         by_id = {"map_background": "bg", "city_photo_inset": "proof"}
-    elif item["mode"] == "hidden_map":
+    elif item["mode"] == "hidden_system":
         by_id = {"underground_image": "bg"}
-    elif item["mode"] == "detroit_1942":
+    elif item["mode"] == "proof_object_mystery":
         by_id = {"historic_city_context": "proof"}
-    elif item["mode"] == "lost_streets":
+    elif item["mode"] == "vanished_place":
         by_id = {"street_map_photo": "bg"}
     else:
         by_id = {"then_image": "bg", "now_image": "proof"}
@@ -1317,11 +1322,11 @@ def concept_visible_audit(root, item, output_path, city, manifest, registry):
         blockers.append("unmanifested_source")
     if stale_sources:
         blockers.append("stale_source")
-    if concept_id == "hidden_map" and primary_semantic not in {"underground", "tunnel", "subway", "utility", "transit"}:
+    if concept_id == "hidden_system" and primary_semantic not in {"underground", "tunnel", "subway", "utility", "transit"}:
         blockers.append("wrong_semantic_source")
-    if concept_id == "detroit_1942" and not has_visible_historic_photo:
+    if concept_id == "proof_object_mystery" and not has_visible_historic_photo:
         blockers.append("missing_historic_photo")
-    if concept_id == "lost_streets" and not has_street_or_grid_photo:
+    if concept_id == "vanished_place" and not has_street_or_grid_photo:
         blockers.append("missing_street_or_grid_photo")
     if is_then_now and not has_visible_historic_photo:
         blockers.append("missing_then_historic_photo")
@@ -1482,18 +1487,22 @@ def build_thumbnail_factory(video_id, concept_count=5):
     images = ensure_dir(root / "images")
     concept_dir = ensure_dir(root / "review" / "thumbnail-concepts")
     metadata = read_json(approval / "upload-metadata.json")
+    package = read_json(BASE / "launch" / f"video-{video_id}" / "package.json")
     canva_brief = read_json(approval / "canva-thumbnail-brief.json")
     click_policy = read_json(BASE / "resources" / "thumbnail-click-policy.json")
     free_policy = read_json(BASE / "resources" / "thumbnail-free-first-policy.json")
     art_policy = read_json(BASE / "resources" / "thumbnail-10x-art-direction-policy.json")
-    city = active_city(metadata, click_policy)
+    city = active_city(metadata, package)
     manifest_path, manifest = load_manifest(root)
     sources = required_sources(root, manifest, city)
-    concepts = attach_source_data(apply_topic_concepts(concept_specs(sources, city), metadata), sources)
+    base_concepts = concept_specs(sources, city)
+    concepts = attach_source_data(apply_topic_concepts(base_concepts, metadata), sources)
     roughs = rough_concept_specs(city)
     shortlist = shortlisted_roughs(roughs)
     blockers = []
     warnings = []
+
+    blockers.extend(topic_concept_blockers(metadata, base_concepts, city))
 
     for key, (_asset, path) in sources.items():
         if not path:
@@ -1629,13 +1638,13 @@ def build_thumbnail_factory(video_id, concept_count=5):
         "per_thumbnail_critique_status": "pass",
         "publication_name_preflight_status": "required_before_public_use",
         "generic_ai_support_asset_gate_status": "pass",
-        "redrawn_map_semantic_match_status": "pass" if all(item.get("redrawn_map_semantic_match") for item in review_rendered if item.get("concept_id") == "clear_redrawn") else "blocked",
-        "underground_semantic_asset_status": "pass" if all(item.get("underground_semantic_asset") for item in review_rendered if item.get("concept_id") == "hidden_map") else "blocked",
+        "redrawn_map_semantic_match_status": "pass" if all(item.get("redrawn_map_semantic_match") for item in review_rendered if item.get("concept_id") == "city_transformation") else "blocked",
+        "underground_semantic_asset_status": "pass" if all(item.get("underground_semantic_asset") for item in review_rendered if item.get("concept_id") == "hidden_system") else "blocked",
         "whole_word_redaction_status": "pass" if qa_totals["partial_word_redaction_count"] == 0 else "blocked",
         "partial_word_redaction_count": qa_totals["partial_word_redaction_count"],
         "low_value_public_word_count": sum(len(item.get("low_value_public_words", [])) for item in review_rendered),
         "curiosity_hook_prominence_status": "pass" if all(item.get("curiosity_hook_prominence") for item in review_rendered if item.get("style_family") == "redacted_file") else "blocked",
-        "lost_streets_semantic_asset_status": "pass" if all(item.get("lost_streets_semantic_asset") for item in review_rendered if item.get("concept_id") == "lost_streets") else "blocked",
+        "lost_streets_semantic_asset_status": "pass" if all(item.get("lost_streets_semantic_asset") for item in review_rendered if item.get("concept_id") == "vanished_place") else "blocked",
         "rail_image_used_for_lost_streets": any(item.get("rail_image_used_for_lost_streets") for item in review_rendered),
         "then_now_split_integrity_status": "pass" if all(item.get("then_now_split_integrity") for item in review_rendered if item.get("style_family") == "then_now_split") else "blocked",
         "then_now_median_crossing_count": qa_totals["then_now_median_crossing_count"],
@@ -1669,8 +1678,7 @@ def build_thumbnail_factory(video_id, concept_count=5):
         "city_name_phone_readable_count": sum(1 for item in review_rendered if item.get("city_name_phone_readable")),
         "skyline_or_landmark_count": sum(1 for item in review_rendered if item.get("skyline_or_landmark")),
         "city_recognizable_visual_count": sum(1 for item in review_rendered if item.get("city_recognizable_visual")),
-        "detroit_recognizable_visual_count": sum(1 for item in review_rendered if item.get("city_recognizable_visual")),
-        "premium_city_font_count": sum(1 for item in review_rendered if item.get("premium_city_font")),
+                "premium_city_font_count": sum(1 for item in review_rendered if item.get("premium_city_font")),
         "polished_proof_mark_count": sum(1 for item in review_rendered if item.get("polished_proof_mark")),
         "benchmark_aesthetic_match_count": sum(1 for item in review_rendered if item.get("benchmark_aesthetic_match")),
         "search_shelf_test_status": "pass" if search_shelf.exists() else "blocked",
@@ -1812,7 +1820,7 @@ def write_canva_handoff(root, payload, canva_brief):
     handoff = {
         "generated_at": utc_now(), "status": FACTORY_STATUS, "renderer_boundary": "Canva plugin render is deferred; OpenClaw remains strategy/source-safety/validation authority.", "no_canva_account_action_taken": True, "no_youtube_mutation_taken": True, "canonical_sequence": canva_brief.get("canonical_sequence", ""),
         "active_city": payload.get("active_city", ""),
-        "v2_competitive_upgrade": {"clear_promise_count": payload.get("clear_promise_count", 0), "skyline_or_landmark_count": payload.get("skyline_or_landmark_count", 0), "city_recognizable_visual_count": payload.get("city_recognizable_visual_count", 0), "detroit_recognizable_visual_count": payload.get("detroit_recognizable_visual_count", 0), "premium_city_font_count": payload.get("premium_city_font_count", 0), "polished_proof_mark_count": payload.get("polished_proof_mark_count", 0), "benchmark_aesthetic_match_count": payload.get("benchmark_aesthetic_match_count", 0), "search_shelf_test_status": payload.get("search_shelf_test_status", "missing")},
+        "v2_competitive_upgrade": {"clear_promise_count": payload.get("clear_promise_count", 0), "skyline_or_landmark_count": payload.get("skyline_or_landmark_count", 0), "city_recognizable_visual_count": payload.get("city_recognizable_visual_count", 0), "premium_city_font_count": payload.get("premium_city_font_count", 0), "polished_proof_mark_count": payload.get("polished_proof_mark_count", 0), "benchmark_aesthetic_match_count": payload.get("benchmark_aesthetic_match_count", 0), "search_shelf_test_status": payload.get("search_shelf_test_status", "missing")},
         "ten_out_of_ten_art_direction_path": {"current_renderer": payload.get("current_thumbnail_renderer", ""), "current_image_generator": payload.get("current_image_generator", ""), "recommended_free_ai_support_generator": payload.get("recommended_free_ai_support_generator", ""), "recommended_premium_ai_support_generator": payload.get("recommended_premium_ai_support_generator", ""), "owner_feedback_learning_status": payload.get("owner_feedback_learning_status", "missing")},
         "execution_quality_upgrade": {
             "owner_rating_learning_v2_status": payload.get("owner_rating_learning_v2_status", "missing"),
@@ -1850,7 +1858,7 @@ def write_canva_handoff(root, payload, canva_brief):
             "map_only_concept_count": payload.get("map_only_concept_count", 0),
             "unmanifested_visible_source_count": payload.get("unmanifested_visible_source_count", 0),
         },
-        "review_concepts": [{"headline": item["headline"], "benchmark_family": item["benchmark_family"], "style_family": item.get("style_family", ""), "concept_filename": item["concept_filename"], "selected_for_production": item["selected_for_production"], "detroit_recognizable_visual": item["detroit_recognizable_visual"], "premium_city_font": item["premium_city_font"], "clear_promise": item["clear_promise"], "per_thumbnail_critique": item.get("per_thumbnail_critique", {})} for item in payload.get("review_concepts", [])],
+        "review_concepts": [{"headline": item["headline"], "benchmark_family": item["benchmark_family"], "style_family": item.get("style_family", ""), "concept_filename": item["concept_filename"], "selected_for_production": item["selected_for_production"], "premium_city_font": item["premium_city_font"], "clear_promise": item["clear_promise"], "per_thumbnail_critique": item.get("per_thumbnail_critique", {})} for item in payload.get("review_concepts", [])],
         "candidates": [{"filename": item["filename"], "role": item["role"], "thumbnail_text": item["headline"], "benchmark_family": item["benchmark_family"], "visual_strategy": item["visual_strategy"], "source_paths": item["source_paths"], "city_anchor": item["city_anchor"], "proof_object": item["proof_object"], "click_interest_trigger": item.get("click_interest_trigger", "")} for item in payload.get("candidates", [])],
     }
     (root / "approval" / "canva-render-handoff.json").write_text(json.dumps(handoff, indent=2) + "\n", encoding="utf-8")

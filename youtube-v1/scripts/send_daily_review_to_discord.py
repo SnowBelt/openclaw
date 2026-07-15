@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import sqlite3
 import shutil
 import subprocess
 import sys
@@ -10,8 +11,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 YOUTUBE = REPO / "youtube-v1"
 sys.path.insert(0, str(YOUTUBE / "scripts"))
-from patternlab_common import media_duration_seconds, utc_now
+sys.path.insert(0, str(YOUTUBE))
+from patternlab_common import media_duration_seconds, output_root, utc_now
 from patternlab_discord_feedback import callback_value
+from patternlab.approvals import current_release, resolve_artifact
+from patternlab.state import PatternLabState, StateError
 
 DEFAULT_TARGET = "channel:1503779032817209465"
 DISCORD_STAGE_ROOT = Path("/tmp/openclaw/pattern-lab-review")
@@ -32,6 +36,39 @@ AVATAR_LABELS = {
     "james_avatar_concept_b.png": "B",
     "james_avatar_concept_c.png": "C",
 }
+ACTIVE_REVIEW_RELEASE: dict = {}
+
+
+def canonical_state_path():
+    return Path(os.environ.get("PATTERNLAB_STATE_DB", YOUTUBE / "local-output" / "patternlab.sqlite3"))
+
+
+def load_review_release(root, video_id):
+    """Load the exact active immutable release that Discord must bind to."""
+    report_path = root / "approval" / "canonical-release-registration-report.json"
+    if not report_path.exists():
+        raise SystemExit("Review delivery blocked: canonical release registration report is missing.")
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"Review delivery blocked: canonical release report is invalid: {exc}") from exc
+    if report.get("status") != "pass":
+        raise SystemExit("Review delivery blocked: canonical release registration is not passing.")
+    store = PatternLabState(canonical_state_path())
+    try:
+        release = current_release(store, video_id)
+    except (StateError, OSError, sqlite3.Error) as exc:
+        raise SystemExit(f"Review delivery blocked: current canonical release is unavailable: {exc}") from exc
+    if release.get("release_candidate_id") != report.get("release_candidate_id"):
+        raise SystemExit("Review delivery blocked: canonical release report does not match active state.")
+    if release.get("package_sha256") != report.get("package_sha256"):
+        raise SystemExit("Review delivery blocked: canonical package hash does not match active state.")
+    return release
+
+
+def set_active_review_release(release):
+    global ACTIVE_REVIEW_RELEASE
+    ACTIVE_REVIEW_RELEASE = dict(release)
 
 
 def run(command):
@@ -97,7 +134,23 @@ def validate_duration(path, minimum, maximum, label):
 def validate_review_ready(root, video_id, long_form, long_form_for_discord, shorts):
     monetization = root / "approval" / "monetization-gates-report.json"
     long_form_quality = root / "approval" / "long-form-quality-report.json"
+    canonical_owner_review = root / "approval" / "owner-review-canonical-gate-report.json"
+    media_qa = root / "approval" / "media-qa-report.json"
     readiness = root / "approval" / "private-upload-readiness.md"
+    if canonical_owner_review.exists():
+        payload = json.loads(canonical_owner_review.read_text(encoding="utf-8"))
+        if payload.get("status") != "pass":
+            raise SystemExit(
+                "Review delivery blocked: canonical owner-review gate is "
+                f"{payload.get('status')} ({'; '.join(payload.get('blockers', []))})."
+            )
+    else:
+        raise SystemExit("Review delivery blocked: canonical owner-review gate report is missing.")
+    if not media_qa.exists():
+        raise SystemExit("Review delivery blocked: strict final visual/audio QA report is missing.")
+    media_payload = json.loads(media_qa.read_text(encoding="utf-8"))
+    if media_payload.get("status") != "pass" or int(media_payload.get("minimum_asset_score", 0) or 0) < 93:
+        raise SystemExit("Review delivery blocked: strict final visual/audio QA has not passed at 93/100 or greater for every asset.")
     if long_form_quality.exists():
         payload = json.loads(long_form_quality.read_text(encoding="utf-8"))
         if payload.get("status") != "pass":
@@ -162,6 +215,29 @@ def stage_media(video_id, path):
 
 
 def callback(action, asset_type, video_id, asset_id=None, filename=None, reason=None, repair_scope=None):
+    if not ACTIVE_REVIEW_RELEASE:
+        raise SystemExit("Discord callback generation blocked: active canonical release binding is missing.")
+    if asset_type == "video" and not filename:
+        asset_id = asset_id or f"video-{video_id}-long-form"
+        filename = f"video/pattern-lab-video-{video_id}-draft.mp4"
+    if asset_type == "short" and not filename:
+        asset_id = asset_id or f"video-{video_id}-short-01"
+        index = asset_id.rsplit("-", 1)[-1]
+        filename = f"shorts/pattern-lab-video-{video_id}-short-{index}.mp4"
+    artifact_sha256 = ""
+    if asset_type and asset_type != "topic":
+        try:
+            artifact = resolve_artifact(
+                ACTIVE_REVIEW_RELEASE,
+                artifact_id=asset_id or "",
+                filename=filename or "",
+            )
+        except StateError as exc:
+            raise SystemExit(
+                "Discord callback generation blocked: asset is absent from active canonical release: "
+                f"{asset_type} {asset_id or filename or '(missing)'} ({exc})"
+            ) from exc
+        artifact_sha256 = artifact["sha256"]
     return callback_value(
         action,
         asset_type,
@@ -170,6 +246,9 @@ def callback(action, asset_type, video_id, asset_id=None, filename=None, reason=
         filename=filename,
         reason=reason,
         repair_scope=repair_scope,
+        release_candidate_id=ACTIVE_REVIEW_RELEASE["release_candidate_id"],
+        release_candidate_sha256=ACTIVE_REVIEW_RELEASE["package_sha256"],
+        artifact_sha256=artifact_sha256,
     )
 
 
@@ -233,6 +312,7 @@ def refresh_review_reports(video_id):
         [sys.executable, "youtube-v1/scripts/patternlab_long_form_quality.py", "--video-id", video_id],
         [sys.executable, "youtube-v1/scripts/patternlab_thumbnail_quality.py", "--video-id", video_id],
         [sys.executable, "youtube-v1/scripts/patternlab_shorts_quality.py", "--video-id", video_id],
+        [sys.executable, "youtube-v1/scripts/patternlab_media_qa.py", "--video-id", video_id, "--no-rendered-checks"],
         [sys.executable, "youtube-v1/scripts/patternlab_visual_upgrade.py", "--video-id", video_id],
         [sys.executable, "youtube-v1/scripts/monetization_gates.py", "--video-id", video_id],
         [sys.executable, "youtube-v1/scripts/private_upload_readiness.py", "--video-id", video_id],
@@ -253,6 +333,7 @@ def delivery_steps(
     staged_readiness,
     staged_visual_plan,
     staged_long_form,
+    staged_long_form_parts,
     staged_avatar_concepts,
     staged_thumbnails,
     staged_shorts,
@@ -302,6 +383,15 @@ def delivery_steps(
         },
         ]
     )
+    for index, part in enumerate(staged_long_form_parts, 1):
+        steps.append(
+            {
+                "kind": "video",
+                "label": f"Long-form high-quality review part {index}/{len(staged_long_form_parts)}",
+                "media": str(part),
+                "presentation": False,
+            }
+        )
     for thumbnail in staged_thumbnails:
         label = thumbnail_label(thumbnail)
         steps.append(
@@ -346,6 +436,8 @@ def write_delivery_manifest(root, target, steps):
         "channel_only": target.startswith("channel:"),
         "video_delivery": "plain_discord_attachments",
         "controls_delivery": "separate_messages",
+        "release_candidate_id": ACTIVE_REVIEW_RELEASE.get("release_candidate_id", ""),
+        "release_candidate_sha256": ACTIVE_REVIEW_RELEASE.get("package_sha256", ""),
         "max_media_mb": MAX_DISCORD_MEDIA_BYTES // 1024 // 1024,
         "steps": [
             {
@@ -363,39 +455,16 @@ def group_review_controls(video_id):
     return controls(
         [
             {
-                "label": "Approve images",
-                "style": "success",
-                "value": callback("approve", "image", video_id),
-            },
-            {
-                "label": "Regenerate images",
-                "style": "secondary",
-                "value": callback(
-                    "regenerate",
-                    "image",
-                    video_id,
-                    reason="owner_requested_image_variants",
-                ),
-            },
-            {
-                "label": "Approve voice",
-                "style": "success",
-                "value": callback("approve", "voiceover", video_id),
-            },
-            {
-                "label": "Repair voice",
-                "style": "danger",
-                "value": callback("repair", "voiceover", video_id, reason="voice_needs_revision"),
-            },
-            {
-                "label": "Approve proof",
-                "style": "success",
-                "value": callback("approve", "proof_footage", video_id),
-            },
-            {
                 "label": "Revise hook",
                 "style": "secondary",
-                "value": callback("revise_hook", "video", video_id, reason="owner_requested_hook_revision"),
+                "value": callback(
+                    "revise_hook",
+                    "video",
+                    video_id,
+                    asset_id=f"video-{video_id}-long-form",
+                    filename=f"video/pattern-lab-video-{video_id}-draft.mp4",
+                    reason="owner_requested_hook_revision",
+                ),
             },
             {
                 "label": "Reject topic",
@@ -669,44 +738,54 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-intro", action="store_true")
     parser.add_argument("--skip-packet-reports", action="store_true")
+    parser.add_argument("--include-avatar-concepts", action="store_true")
     parser.add_argument("--allow-dm-target", action="store_true")
+    parser.add_argument("--skip-refresh", action="store_true", help="Use only current hash-bound reports; do not regenerate them.")
     args = parser.parse_args()
     validate_channel_target(args.target, args.allow_dm_target)
-    refresh_review_reports(args.video_id)
+    if not args.skip_refresh:
+        refresh_review_reports(args.video_id)
 
-    root = YOUTUBE / "local-output" / f"video-{args.video_id}"
+    root = output_root(args.video_id)
     long_form = existing(root / "video" / f"pattern-lab-video-{args.video_id}-draft.mp4")
     discord_long_form = root / "review" / f"pattern-lab-video-{args.video_id}-draft-discord-review.mp4"
     long_form_for_discord = discord_long_form if discord_long_form.exists() else long_form
-    shorts = [
-        existing(root / "shorts" / f"pattern-lab-video-{args.video_id}-short-01.mp4"),
-        existing(root / "shorts" / f"pattern-lab-video-{args.video_id}-short-02.mp4"),
-        existing(root / "shorts" / f"pattern-lab-video-{args.video_id}-short-03.mp4"),
-    ]
+    long_form_parts = sorted(root.glob("review/pattern-lab-video-*-draft-discord-review-part-*.mp4"))
+    shorts = sorted((root / "shorts").glob(f"pattern-lab-video-{args.video_id}-short-*.mp4"))
+    if len(shorts) < 3:
+        raise SystemExit("Missing review Shorts: expected at least 3 rendered Short files.")
+    discord_shorts = []
+    for short in shorts:
+        proxy = root / "review" / f"{short.stem}-discord-review.mp4"
+        discord_shorts.append(proxy if proxy.exists() else short)
     packet = existing(root / "review" / "owner-review-packet.md")
     brief = existing(root / "approval" / "daily-executive-brief.md")
     readiness = existing(root / "approval" / "private-upload-readiness.md")
     visual_plan = existing(root / "approval" / "visual-upgrade-plan.md")
     avatar_dir = root / "visual-upgrade"
-    avatar_concepts = sorted(avatar_dir.glob("james_avatar_concept_*.png")) if avatar_dir.exists() else []
-    if len(avatar_concepts) < 3:
+    avatar_concepts = (
+        sorted(avatar_dir.glob("james_avatar_concept_*.png"))
+        if args.include_avatar_concepts and avatar_dir.exists()
+        else []
+    )
+    if args.include_avatar_concepts and len(avatar_concepts) < 3:
         raise SystemExit("Missing James avatar concepts: expected 3 james_avatar_concept_*.png files.")
     thumbnails_dir = root / "images"
     thumbnails = sorted(thumbnails_dir.glob("thumbnail_candidate_*.png")) if thumbnails_dir.exists() else []
     if len(thumbnails) < 3:
         raise SystemExit("Missing review thumbnails: expected at least 3 thumbnail_candidate_*.png files.")
     validate_review_ready(root, args.video_id, long_form, long_form_for_discord, shorts)
+    set_active_review_release(load_review_release(root, args.video_id))
 
     intro = (
         "Pattern Lab revised review packet is ready.\n\n"
         "This version uses a hook-first intro, a consistent Pattern Lab outro, and a script-aware visual beat plan where image changes are tied to narration.\n\n"
-        "New visual upgrade review: choose whether James should be represented by a stylized avatar, and approve only one concept before it appears in any public video.\n\n"
         "Review order:\n"
-        "1. James avatar concepts: approve one or reject/regenerate.\n"
-        "2. Long-form draft: voice, pacing, source proof in first 20 seconds, no private info.\n"
-        "3. Short 1: curiosity hook.\n"
-        "4. Short 2: utility hook.\n"
-        "5. Short 3: identity/payoff hook.\n\n"
+        "1. Long-form draft: voice, pacing, narration-to-visual match, source proof, and no private information.\n"
+        f"2. All {len(shorts)} Shorts: clean sentence boundaries, one clear point, mobile captions, and a long-form bridge.\n"
+        "3. Three thumbnail candidates: click appeal, accurate promise, legible text, and Detroit specificity.\n\n"
+        "This packet is hash-bound to the current release candidate. Your buttons create local approval or targeted repair receipts only.\n\n"
+        "The continuous long-form proxy is optimized for quick playback. The numbered high-quality parts are included for detailed visual review.\n\n"
         "Public publishing remains blocked until explicit owner approval."
     )
     staged_brief = stage_media(args.video_id, brief)
@@ -714,7 +793,8 @@ def main():
     staged_readiness = stage_media(args.video_id, readiness)
     staged_visual_plan = stage_media(args.video_id, visual_plan)
     staged_long_form = stage_media(args.video_id, long_form_for_discord)
-    staged_shorts = [stage_media(args.video_id, short) for short in shorts]
+    staged_long_form_parts = [stage_media(args.video_id, part) for part in long_form_parts]
+    staged_shorts = [stage_media(args.video_id, short) for short in discord_shorts]
     staged_thumbnails = [stage_media(args.video_id, thumbnail) for thumbnail in thumbnails]
     staged_avatar_concepts = [stage_media(args.video_id, avatar) for avatar in avatar_concepts]
     steps = delivery_steps(
@@ -724,6 +804,7 @@ def main():
         staged_readiness,
         staged_visual_plan,
         staged_long_form,
+        staged_long_form_parts,
         staged_avatar_concepts,
         staged_thumbnails,
         staged_shorts,
@@ -745,6 +826,7 @@ def main():
             staged_readiness,
             staged_visual_plan,
             staged_long_form,
+            *staged_long_form_parts,
             *staged_avatar_concepts,
             *staged_thumbnails,
             *staged_shorts,
@@ -768,6 +850,12 @@ def main():
             avatar_controls(args.video_id, label, f"visual-upgrade/james_avatar_concept_{label.lower()}.png"),
         )
     send_video(args.target, "Long-form draft video file", staged_long_form)
+    for index, part in enumerate(staged_long_form_parts, 1):
+        send_video(
+            args.target,
+            f"Long-form high-quality review part {index}/{len(staged_long_form_parts)}",
+            part,
+        )
     send_message(
         args.target,
         "Long-form approval controls",

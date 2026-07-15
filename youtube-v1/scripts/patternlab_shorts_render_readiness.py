@@ -26,21 +26,29 @@ def build_render_readiness_report(video_id: str):
     script_package, script_json, script_md = build_shorts_script_package(video_id)
     audio, audio_json, audio_md = build_audio_economy_report(video_id)
     boundary, boundary_json, boundary_md = build_boundary_quality_report(video_id)
-    first_frame, first_json, first_md = build_first_frame_quality_report(video_id)
-    pacing, pacing_json, pacing_md = build_pacing_quality_report(video_id)
+    first_frame, first_json, first_md = build_first_frame_quality_report(
+        video_id,
+        plan_only=True,
+        report_stem="shorts-first-frame-plan-report",
+    )
+    pacing, pacing_json, pacing_md = build_pacing_quality_report(
+        video_id,
+        plan_only=True,
+        report_stem="shorts-pacing-plan-report",
+    )
     engagement, engagement_json, engagement_md = build_engagement_loop_report(video_id)
     toolchain, toolchain_json, toolchain_md = build_toolchain_handoff(video_id)
     gate_rows = [
-        ("shorts_script_package", script_package, script_md),
-        ("shorts_audio_economy", audio, audio_md),
-        ("shorts_boundary_quality", boundary, boundary_md),
-        ("shorts_first_frame_quality", first_frame, first_md),
-        ("shorts_pacing_quality", pacing, pacing_md),
-        ("shorts_engagement_loop", engagement, engagement_md),
-        ("shorts_toolchain_handoff", toolchain, toolchain_md),
+        ("shorts_script_package", script_package, script_md, "status"),
+        ("shorts_audio_economy", audio, audio_md, "status"),
+        ("shorts_boundary_quality", boundary, boundary_md, "status"),
+        ("shorts_first_frame_quality", first_frame, first_md, "planning_status"),
+        ("shorts_pacing_quality", pacing, pacing_md, "planning_status"),
+        ("shorts_engagement_loop", engagement, engagement_md, "status"),
+        ("shorts_toolchain_handoff", toolchain, toolchain_md, "status"),
     ]
-    for name, payload, report in gate_rows:
-        if payload.get("status") != "pass":
+    for name, payload, report, status_key in gate_rows:
+        if payload.get(status_key) != "pass":
             blockers.append(f"{name} is not passing: {display_path(report)}.")
     if not long_form.exists():
         blockers.append("long-form draft is missing")
@@ -59,8 +67,8 @@ def build_render_readiness_report(video_id: str):
         "external_elevenlabs_call_performed": False,
         "render_performed": False,
         "gates": [
-            {"name": name, "status": status_from(payload), "report": display_path(report)}
-            for name, payload, report in gate_rows
+            {"name": name, "status": str(payload.get(status_key) or "missing"), "report": display_path(report)}
+            for name, payload, report, status_key in gate_rows
         ],
     }
     sections = [

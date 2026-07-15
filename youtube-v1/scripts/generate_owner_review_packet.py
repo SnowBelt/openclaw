@@ -2,13 +2,19 @@
 import argparse
 import csv
 import json
+import sys
 from collections import Counter
 from pathlib import Path
+
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import BASE, ensure_dir, media_duration_seconds, output_root, utc_now
 from patternlab_content_calendar import build_calendar
 from patternlab_monetization_tracker import build_tracker_report
 from patternlab_readiness_truth_summary import build_truth_summary
+from patternlab.review import owner_review_blockers, owner_review_gate_statuses, owner_review_status
 
 
 REPO = BASE.parent
@@ -112,6 +118,7 @@ def main():
     monetization = read_json(approval / "monetization-gates-report.json") or {}
     long_form_quality = read_json(approval / "long-form-quality-report.json") or {}
     shorts_quality = read_json(approval / "shorts-quality-report.json") or {}
+    media_qa = read_json(approval / "media-qa-report.json") or {}
     shorts_script_package = read_json(approval / "shorts-script-package.json") or {}
     shorts_audio_economy = read_json(approval / "shorts-audio-economy-report.json") or {}
     shorts_boundary_quality = read_json(approval / "shorts-boundary-quality-report.json") or {}
@@ -122,6 +129,10 @@ def main():
     shorts_render_readiness = read_json(approval / "shorts-render-readiness-report.json") or {}
     thumbnail_factory = read_json(approval / "thumbnail-factory-report.json") or {}
     thumbnail_quality = read_json(approval / "thumbnail-quality-report.json") or {}
+    thumbnail_worldclass = read_json(approval / "thumbnail-worldclass-report.json") or {}
+    thumbnail_worldclass_tournament = read_json(approval / "thumbnail-worldclass-tournament.json") or {}
+    thumbnail_codex_primary = read_json(approval / "thumbnail-codex-primary-review.json") or {}
+    thumbnail_semantic_quality = read_json(approval / "thumbnail-semantic-quality-report.json") or {}
     thumbnail_font_quality = read_json(approval / "thumbnail-font-quality-report.json") or {}
     thumbnail_typography_research = read_json(approval / "thumbnail-market-typography-research-report.json") or {}
     thumbnail_reference_library = read_json(approval / "thumbnail-reference-library-report.json") or {}
@@ -135,6 +146,11 @@ def main():
     html_thumbnail_renderer = read_json(approval / "html-thumbnail-renderer-report.json") or {}
     source_candidate_tournament = read_json(approval / "source-candidate-tournament-report.json") or {}
     source_provider_health = read_json(approval / "source-provider-health-report.json") or {}
+    visual_acquisition_quality = read_json(approval / "visual-acquisition-quality-report.json") or {}
+    visual_contract = read_json(approval / "visual-contract-report.json") or {}
+    context_media_library = read_json(approval / "context-media-library-report.json") or {}
+    local_generation_router = read_json(approval / "local-generation-router-report.json") or {}
+    free_stock_acquisition = read_json(approval / "free-stock-acquisition-report.json") or {}
     shorts_followup = read_json(approval / "shorts-followup-packet.json") or {}
     performance_learning = read_json(root / "metrics" / f"{report_prefix(args.video_id)}-performance-learning-scaffold.json") or {}
     penpot_fallback = read_json(approval / "penpot-fallback-evaluation-report.json") or {}
@@ -170,8 +186,17 @@ def main():
     visual_manifest = root / "source-packet" / "visual-rebuild" / "visual-rebuild-manifest.json"
     historical_count, modern_context_count, visual_rebuild_status = visual_rebuild_counts(visual_manifest)
     pipeline = read_json(approval / "pipeline-run-report.json") or {}
-    ypp, ypp_report = build_tracker_report()
-    calendar, calendar_report = build_calendar()
+    package_hash = read_json(approval / "package-hash-report.json") or {}
+    canonical_preflight = read_json(approval / "canonical-preflight-report.json") or {}
+    canonical_release = read_json(approval / "canonical-release-registration-report.json") or {}
+    canonical_render = read_json(approval / "canonical-render-plan.json") or {}
+    render_quality = read_json(approval / "render-quality-report.json") or {}
+    visual_release_quality = read_json(approval / "visual-release-quality-report.json") or {}
+    # This packet is a read-only review surface. It must not overwrite the
+    # active runtime's calendar or monetization history while inspecting a
+    # source worktree.
+    ypp, ypp_report = build_tracker_report(write=False)
+    calendar, calendar_report = build_calendar(write=False)
     by_type, approved = ledger_counts(root / "rights-ledger.csv")
     private_status = status_from_report(approval / "private-upload-readiness.md")
     public_status = status_from_report(approval / "public-publish-readiness.md")
@@ -189,25 +214,46 @@ def main():
     tags = upload_metadata.get("tags") or []
     chapters = upload_metadata.get("chapters") or []
     pinned = upload_metadata.get("pinned_comment") or ""
-    transcript_gate_statuses = {
-        "episode_standard": episode_standard.get("status"),
-        "transcript_viral": transcript_viral.get("status"),
-        "comment_quality": comment_quality.get("status"),
-        "transcript_watchtime": transcript_watchtime.get("status"),
-    }
-    owner_review_status = (
-        "ready-for-owner-review"
-        if all(status == "pass" for status in transcript_gate_statuses.values())
-        else "blocked-before-owner-review"
+    owner_review_gates = owner_review_gate_statuses(
+        package_hash=package_hash.get("status"),
+        canonical_preflight=canonical_preflight.get("status"),
+        canonical_release=canonical_release.get("status"),
+        canonical_render=canonical_render.get("status"),
+        render_quality=render_quality.get("status"),
+        visual_release_quality=visual_release_quality.get("status"),
+        media_qa=media_qa.get("status"),
+        long_form_quality=long_form_quality.get("status"),
+        shorts_quality=shorts_quality.get("status"),
+        thumbnail_quality=thumbnail_quality.get("status"),
+        episode_standard=episode_standard.get("status"),
+        visual_contract=visual_contract.get("status"),
+        context_media_library=context_media_library.get("status"),
+        voice_visual_match=voice_visual_match.get("voice_visual_match_status"),
+        finished_watchdown=finished_watchdown.get("finished_video_watchdown_status"),
     )
+    owner_review_status_value = owner_review_status(owner_review_gates)
+    owner_review_blocker_list = owner_review_blockers(owner_review_gates)
+    canonical_gate_report = {
+        "generated_at": utc_now(),
+        "video_id": args.video_id,
+        "status": "pass" if owner_review_status_value == "ready-for-owner-review" else "blocked",
+        "owner_review_status": owner_review_status_value,
+        "gates": owner_review_gates,
+        "blockers": owner_review_blocker_list,
+        "release_candidate_id": canonical_release.get("release_candidate_id", ""),
+        "release_candidate_sha256": canonical_release.get("package_sha256", ""),
+        "youtube_mutation": "not_performed",
+    }
+    canonical_gate_path = approval / "owner-review-canonical-gate-report.json"
+    canonical_gate_path.write_text(json.dumps(canonical_gate_report, indent=2) + "\n", encoding="utf-8")
 
     lines = [
         f"# Pattern Lab Owner Review Packet: Video {args.video_id}",
         "",
         f"Generated: {utc_now()}",
         "",
-        f"Status: {owner_review_status}",
-        "Owner review release: blocked until the episode-standard gate passes" if owner_review_status != "ready-for-owner-review" else "Owner review release: ready for owner review after confirming all listed gates",
+        f"Status: {owner_review_status_value}",
+        "Owner review release: blocked until every canonical package and quality gate passes" if owner_review_status_value != "ready-for-owner-review" else "Owner review release: ready for owner review after confirming all listed gates",
         f"Private/unlisted upload readiness: {private_truth}",
         f"Private/unlisted upload action: {private_action}",
         f"Public publish: {public_truth}",
@@ -222,6 +268,13 @@ def main():
         f"- Optional/external/non-private blockers: {len(truth_summary.get('optional_or_external_blockers', []))}",
         f"- Stale/superseded reports: {len(truth_summary.get('stale_or_nonblocking_reports', []))}",
         f"- Next owner action: {truth_summary.get('next_owner_action', 'missing')}",
+        f"- Canonical release candidate: {canonical_release.get('release_candidate_id', 'missing')}",
+        f"- Canonical release package hash: {canonical_release.get('package_sha256', 'missing')}",
+        f"- Canonical evidence renderer: {canonical_render.get('status', 'missing')}",
+        f"- Canonical render quality: {render_quality.get('status', 'missing')}",
+        f"- Visual release quality: {visual_release_quality.get('status', 'missing')}",
+        f"- Owner-review canonical blockers: {', '.join(owner_review_blocker_list) if owner_review_blocker_list else 'none'}",
+        f"- Canonical owner-review gate report: {repo_display(canonical_gate_path)} ({canonical_gate_report['status']})",
         "",
         "## Review Order",
         "",
@@ -244,6 +297,7 @@ def main():
         f"- Shorts engagement loop: {shorts_engagement_loop.get('status', 'missing')} ({repo_display(approval / 'shorts-engagement-loop-report.md')})",
         f"- Shorts free-first toolchain: {shorts_toolchain_handoff.get('status', 'missing')} ({repo_display(approval / 'shorts-toolchain-handoff.md')})",
         f"- Shorts render readiness: {shorts_render_readiness.get('status', 'missing')} ({repo_display(approval / 'shorts-render-readiness-report.md')})",
+        f"- Strict final visual/audio QA: {media_qa.get('status', 'missing')} (minimum asset score={media_qa.get('minimum_asset_score', 'missing')}; {repo_display(approval / 'media-qa-report.md')})",
         f"- Voice-to-visual match: {voice_visual_match.get('voice_visual_match_status', 'missing')} ({voice_visual_match.get('matched_media_row_count', 0)} matched media rows)",
         f"- Finished-video watchdown: {finished_watchdown.get('finished_video_watchdown_status', 'missing')} ({finished_watchdown.get('duration_seconds', 'missing')} seconds)",
         f"- Episode standard: {episode_standard.get('status', 'missing')} ({len(episode_standard.get('blockers', []))} blocker(s); {repo_display(approval / 'episode-standard-report.md')})",
@@ -268,6 +322,16 @@ def main():
         f"- Manifest: {repo_display(visual_manifest)} ({visual_rebuild_status})",
         f"- Rights-logged historical/real-photo assets: {historical_count}",
         f"- Rights-logged modern stock/context assets: {modern_context_count}",
+        f"- Visual acquisition gate: {visual_acquisition_quality.get('status', 'missing')}",
+        f"- Narration-to-visual contract: {visual_contract.get('status', 'missing')} ({len(visual_contract.get('beat_rows', []))} role-bound beats)",
+        f"- Generic context library: {context_media_library.get('status', 'missing')} ({context_media_library.get('reusable_asset_count', 0)} reusable, {context_media_library.get('candidate_only_asset_count', 0)} candidate-only)",
+        f"- Modern context video assets: {visual_acquisition_quality.get('modern_context_video_asset_count', 0)}",
+        f"- Exact item receipts: {visual_acquisition_quality.get('exact_item_receipt_count', 0)}/{visual_acquisition_quality.get('asset_count', 0)}",
+        f"- Selected source providers: {visual_acquisition_quality.get('selected_provider_count', 0)} ({', '.join(visual_acquisition_quality.get('selected_providers', [])) or 'none'})",
+        f"- Local generation router: {local_generation_router.get('status', 'missing')}",
+        f"- Local routine still generation: {local_generation_router.get('routes', {}).get('local_routine_stills', 'missing')}",
+        f"- Local AI image-to-video: {local_generation_router.get('routes', {}).get('local_ai_image_to_video', 'missing')}",
+        f"- Free stock acquisition: {free_stock_acquisition.get('status', 'missing')} (Pexels configured={free_stock_acquisition.get('provider_configuration', {}).get('pexels', False)}, Pixabay configured={free_stock_acquisition.get('provider_configuration', {}).get('pixabay', False)})",
         f"- Visual quality gate: {visual_quality.get('status', 'missing')}",
         f"- Real-media runtime share: {visual_quality.get('real_runtime_share', 0) * 100:.1f}%",
         f"- Generated/support runtime share: {visual_quality.get('generated_runtime_share', 0) * 100:.1f}%",
@@ -326,6 +390,13 @@ def main():
             "## Thumbnails",
             "",
             f"- Thumbnail factory: {thumbnail_factory.get('status', photo_backed_thumbnail_summary.get('status', 'missing'))}",
+            f"- World-class thumbnail prepublication: {thumbnail_worldclass.get('prepublication_status', 'missing')}",
+            f"- Thumbnail semantic quality: {thumbnail_semantic_quality.get('status', 'missing')}",
+            f"- World-class thumbnail engineering completion: {thumbnail_worldclass.get('engineering_completion_percent', 0)}%",
+            f"- World-class tournament: {len(thumbnail_worldclass_tournament.get('roughs', []))} rough / {len(thumbnail_worldclass_tournament.get('shortlist', []))} shortlist / {len(thumbnail_worldclass_tournament.get('production', []))} production / {len(thumbnail_worldclass_tournament.get('finalists', []))} finalists",
+            f"- World-class contact sheet: {repo_display(root / 'review' / 'thumbnail-worldclass' / 'contact-sheet.jpg')}",
+            f"- Current Codex-primary review contact sheet: {repo_display(root / 'approval' / 'thumbnail-codex-primary-v2-contact-sheet.jpg')}",
+            f"- Current Codex-primary review status: {thumbnail_codex_primary.get('status', 'missing')}",
             f"- Active city: {thumbnail_factory.get('active_city', photo_backed_thumbnail_summary.get('city', 'missing'))}",
             f"- Photo-backed package: {photo_backed_thumbnail_summary.get('status', 'missing')} ({photo_backed_thumbnail_summary.get('thumbnail_count', 0)} thumbnails, {photo_backed_thumbnail_summary.get('visible_real_photo_count', 0)} visible real-photo-backed)",
             f"- City-agnostic templates: {thumbnail_factory.get('city_agnostic_status', 'missing')}",
@@ -464,6 +535,20 @@ def main():
             f"- Canva handoff: {repo_display(approval / 'canva-render-handoff.json')}",
         ]
     )
+    if thumbnail_codex_primary.get("candidates"):
+        lines.extend(["", "### Current hash-bound Codex-primary finalists", ""])
+        for candidate in thumbnail_codex_primary.get("candidates", []):
+            if not isinstance(candidate, dict):
+                continue
+            lines.append(
+                "- " + " | ".join([
+                    str(candidate.get("id", "missing")),
+                    f"hook={candidate.get('thumbnail_hook', 'missing')}",
+                    f"composition={candidate.get('composition_mode', 'missing')}",
+                    f"sha256={candidate.get('sha256', 'missing')}",
+                    repo_display(Path(str(candidate.get("path", "")))) if candidate.get("path") else "path=missing",
+                ])
+            )
     chat_by_variant = {
         item.get("variant_id"): item
         for item in html_thumbnail_renderer.get("chat_delivery_artifacts", [])
@@ -535,6 +620,8 @@ def main():
             f"- Reconstruction label: {synthetic_disclosure.get('required_reconstruction_label', 'Dramatic reconstruction — not archival footage')}",
             f"- Visual upgrade plan: {visual_upgrade.get('status', 'missing')}",
             f"- Visual quality: {visual_quality.get('status', 'missing')}",
+            f"- Visual acquisition: {visual_acquisition_quality.get('status', 'missing')}",
+            f"- Local generation router: {local_generation_router.get('status', 'missing')}",
             f"- Shorts script package: {shorts_script_package.get('status', 'missing')}",
             f"- Shorts audio economy: {shorts_audio_economy.get('status', 'missing')}",
             f"- Shorts boundary quality: {shorts_boundary_quality.get('status', 'missing')}",

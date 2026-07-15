@@ -1,0 +1,1441 @@
+{
+  "version": 1,
+  "video_id": "04",
+  "purpose": "Item-level rights-cleared sources added after the owner's 13/100 rejection of the repeated-visual draft.",
+  "excluded_sources": [
+    {
+      "filename_pattern": "source-packet/stock-media/commons-images/paradise-theatre-*.jpg",
+      "reason": "Wikimedia search results are the Paradise Theatre in Toronto, not Detroit. They are an adversarial wrong-city fixture and must never enter production."
+    },
+    {
+      "filename_pattern": "source-packet/visual-rebuild/modern-context/pexels-970170-detroit-context-frame-*.jpg",
+      "reason": "Repeated frames from one gloomy clip do not provide source diversity and the item-level creator receipt is incomplete."
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "commons-c1940-metro-detroit-film",
+      "source_id": "commons-file-c1940-metro-detroit",
+      "relative_path": "source-packet/stock-media/commons/c1940-metro-detroit.webm",
+      "sha256": "79d3cb4994a7a29b45622094a947216cd42b8ddf03811c64360f2af1cc8e5907",
+      "source_url": "https://commons.wikimedia.org/wiki/File:C._1940_Color_8mm_Footage_of_Metro_Detroit.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/7/7e/C._1940_Color_8mm_Footage_of_Metro_Detroit.webm",
+      "source_title": "c. 1940 Color 8mm Footage of Metro Detroit",
+      "creator": "Detroit Historical Society",
+      "rights_basis": "Public domain, as recorded by the exact Wikimedia Commons item metadata.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "film",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "black bottom",
+        "brewster homes",
+        "downtown"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "hastings-st-antoine-network",
+        "paradise-valley-businesses",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Exact period Detroit street, neighborhood, downtown, and Brewster Homes motion",
+      "context_emotion": "lived city texture",
+      "on_screen_disclosure": "Detroit Historical Society, c. 1940; source description includes Black Bottom"
+    },
+    {
+      "asset_id": "commons-city-of-neighbors-film",
+      "source_id": "commons-file-city-of-neighbors",
+      "relative_path": "source-packet/stock-media/commons/city-of-neighbors.ogv",
+      "sha256": "412a482cc90c5a863d3e9122268374dcadabedeb3977f6586c3dbc24fe72e7d3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:United_Foundation_of_Metropolitan_Detroit_-_City_of_Neighbors_Give_Once_for_All.ogv",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/a/aa/United_Foundation_of_Metropolitan_Detroit_-_City_of_Neighbors_Give_Once_for_All.ogv",
+      "source_title": "City of Neighbors: Give Once for All",
+      "creator": "United Foundation of Metropolitan Detroit",
+      "rights_basis": "Public domain, as recorded by the exact Wikimedia Commons item metadata.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "film",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "crowds",
+        "factories",
+        "downtown"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "housing-restrictions",
+        "relocation-consequence"
+      ],
+      "context_action": "Period Detroit crowds, streets, work, construction, and community life",
+      "context_emotion": "human scale",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "commons-detroit-views-film",
+      "source_id": "commons-file-detroit-views",
+      "relative_path": "source-packet/stock-media/commons/detroit-views.webm",
+      "sha256": "c23e57a18570b8762566e12db65747c92ed8caa98438f4aa9a05008a2cf1a479",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Detroit_views.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/2/2e/Detroit_views.webm",
+      "source_title": "Detroit-Windsor views, 2016",
+      "creator": "Usmiech",
+      "rights_basis": "CC BY-SA 4.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "riverfront",
+        "downtown"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day Detroit riverfront, pedestrians, and skyline",
+      "context_emotion": "present-day footprint",
+      "on_screen_disclosure": "Present-day Detroit context"
+    },
+    {
+      "asset_id": "commons-renaissance-center-flags-film",
+      "source_id": "commons-file-renaissance-center-flags",
+      "relative_path": "source-packet/stock-media/commons/renaissance-center-flags.webm",
+      "sha256": "d27ef3ca9d31aded98949fc552e0f72175aff260120c7f35e75fa7af004bd4e3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:American_Flags_swaying_in_slow_motion_outside_the_renaissance_center_in_Detroit_Michigan.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/4/47/American_Flags_swaying_in_slow_motion_outside_the_renaissance_center_in_Detroit_Michigan.webm",
+      "source_title": "Flags outside the Renaissance Center in Detroit",
+      "creator": "Yourusernamewillbepublic2",
+      "rights_basis": "CC0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "renaissance center"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day Detroit landmark motion",
+      "context_emotion": "continuity and contrast",
+      "on_screen_disclosure": "Present-day Detroit context"
+    },
+    {
+      "asset_id": "commons-belle-isle-drone-film",
+      "source_id": "commons-file-belle-isle-drone",
+      "relative_path": "source-packet/stock-media/commons/belle-isle-drone.webm",
+      "sha256": "a7c86dfabc7cbef4422d6eb97ff588f12d79d563cd283aea263d7f6548b8e55a",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Drone_Photography_Belle_Isle_-_Detroit,_Michigan.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/1/1c/Drone_Photography_Belle_Isle_-_Detroit%2C_Michigan.webm",
+      "source_title": "Drone Photography over Belle Isle, Detroit",
+      "creator": "Creative Edge Drone",
+      "rights_basis": "CC BY 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "belle isle"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day Detroit aerial movement",
+      "context_emotion": "geographic orientation",
+      "on_screen_disclosure": "Present-day Detroit context"
+    },
+    {
+      "asset_id": "commons-detroit-river-cobo-film",
+      "source_id": "commons-file-detroit-river-cobo",
+      "relative_path": "source-packet/stock-media/commons/detroit-river-cobo.webm",
+      "sha256": "3bfd7a10c22005d53c7c825074eddbc876f0e2b2abb66d8995cc6deac701cb50",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Video_of_Windsor_and_Detroit_River_from_Cobo_Center_-_February_2017.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/6/68/Video_of_Windsor_and_Detroit_River_from_Cobo_Center_-_February_2017.webm",
+      "source_title": "Detroit River from Cobo Center, 2017",
+      "creator": "Gregory Varnum",
+      "rights_basis": "CC BY-SA 4.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "detroit river",
+        "cobo center"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "then-now-footprint"
+      ],
+      "context_action": "Detroit River geographic context",
+      "context_emotion": "orientation",
+      "on_screen_disclosure": "Present-day Detroit context"
+    },
+    {
+      "asset_id": "commons-detroit-windsor-tunnel-film",
+      "source_id": "commons-file-detroit-windsor-tunnel",
+      "relative_path": "source-packet/stock-media/commons/detroit-windsor-tunnel.ogv",
+      "sha256": "db36a28d84cc32bf32811780cc4579dff1216e8e769ffd42b20642c6d7872c4e",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Drive_through_detroit-windsor_tunnel.ogv",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/d/dc/Drive_through_detroit-windsor_tunnel.ogv",
+      "source_title": "Drive through the Detroit-Windsor Tunnel",
+      "creator": "Dwight Burdette",
+      "rights_basis": "CC BY 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "detroit-windsor tunnel"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day infrastructure movement into Detroit",
+      "context_emotion": "movement through changed infrastructure",
+      "on_screen_disclosure": "Present-day Detroit context"
+    },
+    {
+      "asset_id": "commons-lafayette-over-black-bottom",
+      "source_id": "commons-file-lafayette-over-black-bottom",
+      "relative_path": "source-packet/stock-media/commons-images/lafayette-over-black-bottom.jpg",
+      "sha256": "a220c4f17c99e6aa4890ee0060d0812c013703c80da4e0b62a85c97a6e5cd003",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Lafayette_Park_Detroit_redevelopment_over_Black_Bottom.jpg",
+      "source_title": "Lafayette Park redevelopment over Black Bottom",
+      "creator": "Mike Russell",
+      "rights_basis": "CC BY-SA 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "lafayette park",
+        "black bottom",
+        "detroit"
+      ],
+      "claim_ids": [
+        "clearance-redevelopment",
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day Lafayette Park on the former Black Bottom footprint",
+      "context_emotion": "replacement footprint",
+      "on_screen_disclosure": "Lafayette Park on the former Black Bottom footprint"
+    },
+    {
+      "asset_id": "commons-frederick-douglass-towers-2010",
+      "source_id": "commons-file-frederick-douglass-towers-2010",
+      "relative_path": "source-packet/stock-media/commons-images/frederick-douglass-towers-2010.jpg",
+      "sha256": "787366e89de1b7d686b4511e48aa81805c68b631396145385a54150edee02991",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Fredrick_Douglass_Housing_Project_Towers_2010.jpg",
+      "source_title": "Frederick Douglass Housing Project Towers, 2010",
+      "creator": "Albert duce",
+      "rights_basis": "CC BY 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "frederick douglass homes",
+        "brewster-douglass",
+        "detroit"
+      ],
+      "claim_ids": [
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Exact housing-project landmark referenced by the narration",
+      "context_emotion": "relocation consequence",
+      "on_screen_disclosure": "Frederick Douglass Homes, 2010"
+    },
+    {
+      "asset_id": "commons-frederick-douglass-homes",
+      "source_id": "commons-file-frederick-douglass-homes",
+      "relative_path": "source-packet/stock-media/commons-images/frederick-douglass-homes.jpg",
+      "sha256": "6d91db345a49a518fe54ebd4045adcc767283a64e1c7a6bc66e5f4b7de6917fe",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Frederick_Douglass_Homes_Detroit.jpg",
+      "source_title": "Frederick Douglass Homes towers in Detroit",
+      "creator": "Mike Russell",
+      "rights_basis": "CC BY-SA 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "frederick douglass homes",
+        "brewster-douglass",
+        "detroit"
+      ],
+      "claim_ids": [
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Exact housing-project landmark referenced by the narration",
+      "context_emotion": "relocation consequence",
+      "on_screen_disclosure": "Frederick Douglass Homes, Detroit"
+    },
+    {
+      "asset_id": "commons-lafayette-park-modern",
+      "source_id": "commons-file-lafayette-park-modern",
+      "relative_path": "source-packet/stock-media/commons-images/lafayette-park-modern.jpg",
+      "sha256": "3ad109e3e7db8981d533d1a50b1b7f2a457a666fca28b122852358a9023dacec",
+      "source_url": "https://commons.wikimedia.org/wiki/File:LafayetteParkDetroit.jpg",
+      "source_title": "Lafayette Park, Detroit",
+      "creator": "Mike Russell",
+      "rights_basis": "CC BY-SA 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "lafayette park",
+        "black bottom",
+        "detroit"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day redevelopment footprint",
+      "context_emotion": "then-versus-now contrast",
+      "on_screen_disclosure": "Present-day Lafayette Park"
+    },
+    {
+      "asset_id": "commons-mies-residential-district",
+      "source_id": "commons-file-mies-residential-district",
+      "relative_path": "source-packet/stock-media/commons-images/mies-residential-district.jpg",
+      "sha256": "e04ba4c9b8433163838c984827f59044828ab6a0d3ef01c84da0ed189f2397b1",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Mies_van_der_Rohe_Residential_District.jpg",
+      "source_title": "Mies van der Rohe Residential District, Lafayette Park",
+      "creator": "Mike Russell",
+      "rights_basis": "CC BY-SA 3.0, exact Wikimedia Commons item.",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "lafayette park",
+        "black bottom",
+        "detroit"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day redevelopment footprint",
+      "context_emotion": "institutional replacement",
+      "on_screen_disclosure": "Present-day Lafayette Park"
+    },
+    {
+      "asset_id": "loc-duke-ellington-1943",
+      "source_id": "loc-item-2017851451",
+      "relative_path": "source-packet/stock-media/loc-musicians/duke-ellington.jpg",
+      "sha256": "3efb710345f0324fa85b8c25e930ebad393d30f766f457fdc42d77c78934d56f",
+      "source_url": "https://www.loc.gov/pictures/item/2017851451/",
+      "source_title": "Duke Ellington at the Hurricane, 1943",
+      "creator": "Gordon Parks",
+      "rights_basis": "No known restrictions; FSA/OWI collection, Library of Congress.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "not_applicable",
+      "entity_terms": [
+        "duke ellington"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Exact artist named by the narration",
+      "context_emotion": "cultural significance",
+      "on_screen_disclosure": "Duke Ellington portrait; not Detroit performance proof"
+    },
+    {
+      "asset_id": "loc-billie-holiday-1949",
+      "source_id": "loc-item-2004663020",
+      "relative_path": "source-packet/stock-media/loc-musicians/billie-holiday.jpg",
+      "sha256": "ddcfb4794f798387deba92f06377fa8ee5f711b843e679cae15303179497b6d2",
+      "source_url": "https://www.loc.gov/pictures/item/2004663020/",
+      "source_title": "Portrait of Billie Holiday, 1949",
+      "creator": "Carl Van Vechten",
+      "rights_basis": "Public-domain Carl Van Vechten photograph; Library of Congress item and Commons public-domain record.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "not_applicable",
+      "entity_terms": [
+        "billie holiday"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Exact artist named by the narration",
+      "context_emotion": "cultural significance",
+      "on_screen_disclosure": "Billie Holiday portrait; not Detroit performance proof"
+    },
+    {
+      "asset_id": "loc-dizzy-gillespie-1955",
+      "source_id": "loc-item-2004662923",
+      "relative_path": "source-packet/stock-media/loc-musicians/dizzy-gillespie.jpg",
+      "sha256": "82accce6fafd23671ebb4f5ff020f009b7574078114ddc66b0f2805508780092",
+      "source_url": "https://www.loc.gov/pictures/item/2004662923/",
+      "source_title": "Portrait of Dizzy Gillespie, 1955",
+      "creator": "Carl Van Vechten",
+      "rights_basis": "Public-domain Carl Van Vechten photograph; Library of Congress item and Commons public-domain record.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "not_applicable",
+      "entity_terms": [
+        "dizzy gillespie"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Exact artist named by the narration",
+      "context_emotion": "cultural significance",
+      "on_screen_disclosure": "Dizzy Gillespie portrait; not Detroit performance proof"
+    },
+    {
+      "asset_id": "commons-louis-armstrong-gottlieb",
+      "source_id": "commons-file-louis-armstrong-restored",
+      "relative_path": "source-packet/stock-media/loc-musicians/louis-armstrong-public-domain.jpg",
+      "sha256": "2af5cc09821c9fbaeedb0809b1a724439d8a045a3f61e3f4cf2bd60d3bbef6e4",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Louis_Armstrong_restored.jpg",
+      "source_title": "Portrait of Louis Armstrong, 1947",
+      "creator": "William P. Gottlieb",
+      "rights_basis": "Public domain; William P. Gottlieb collection and exact Wikimedia Commons public-domain record.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "not_applicable",
+      "entity_terms": [
+        "louis armstrong"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Exact artist named by the narration",
+      "context_emotion": "cultural significance",
+      "on_screen_disclosure": "Louis Armstrong portrait; not Detroit performance proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017702476",
+      "source_id": "loc-item-2017702476",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017702476-tyszka-real-estate-dyke-street-detroit-michigan.jpg",
+      "sha256": "62f616db20ea441778e7f1ba2d57e37bf1d0579f2e6ca871d81ef891dab6d270",
+      "source_url": "https://www.loc.gov/item/2017702476/",
+      "source_title": "Tyszka Real Estate, Dyke Street, Detroit, Michigan",
+      "creator": "Margolies, John, photographer",
+      "rights_basis": "No known restrictions on publication. For more information, see \"John Margolies Roadside America Photograph Archive - Rights and Restrictions Information\" https://www.loc.gov/rr/print/res/723_marg.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Detroit real-estate storefront context for housing choice and neighborhood commerce",
+      "context_emotion": "housing and neighborhood commerce",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017813226",
+      "source_id": "loc-item-2017813226",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017813226-pay-line-of-hudson-ordnance-plant-near-detroit-michigan.jpg",
+      "sha256": "4fd2efef231c5b48e882763b00d1af0376ed0698dd10e2276a008bff26c0adc2",
+      "source_url": "https://www.loc.gov/item/2017813226/",
+      "source_title": "Pay line of Hudson ordnance plant near Detroit, Michigan",
+      "creator": "Vachon, John, 1914-1975, photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "relocation-consequence"
+      ],
+      "context_action": "Detroit-area industrial workers in a pay line",
+      "context_emotion": "labor and human scale",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2016812629",
+      "source_id": "loc-item-2016812629",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2016812629-shafting-for-new-detroit-cleveland-navigation-co-steamer.jpg",
+      "sha256": "b114e626cc4896eb90fc72a5972d863cbc42a77e6b62472879200c2c166d65d6",
+      "source_url": "https://www.loc.gov/item/2016812629/",
+      "source_title": "[Shafting for new Detroit & Cleveland Navigation Co. steamer]",
+      "creator": "Detroit Publishing Co., publisher",
+      "rights_basis": "No known restrictions on publication.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "hastings-st-antoine-network",
+        "housing-restrictions"
+      ],
+      "context_action": "Detroit industrial worker and machinery context",
+      "context_emotion": "industrial labor",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017840046",
+      "source_id": "loc-item-2017840046",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017840046-hanna-furnaces-of-the-great-lakes-steel-corporation-detroit-michigan-stock-pile.jpg",
+      "sha256": "3d0a2c6975a724da0a49083c6f7d35db1b476e1c963e82005b13908b3a839fb8",
+      "source_url": "https://www.loc.gov/item/2017840046/",
+      "source_title": "Hanna furnaces of the Great Lakes Steel Corporation. Detroit, Michigan. Stock pile of coal and iron ore",
+      "creator": "Siegel, Arthur S., photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "clearance-redevelopment"
+      ],
+      "context_action": "Detroit heavy-industry landscape supporting the labor-city contradiction",
+      "context_emotion": "industrial scale",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017813174",
+      "source_id": "loc-item-2017813174",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017813174-laundry-room-in-oak-grove-trailer-park-this-park-on-the-edge-of-detroit-michigan.jpg",
+      "sha256": "58d64fd63fab2bb5c78cc90a457278da145c9dcd78cad05d4d9a3604ecc4ad18",
+      "source_url": "https://www.loc.gov/item/2017813174/",
+      "source_title": "Laundry room in Oak Grove trailer park. This park on the edge of Detroit, Michigan is occupied mainly by defense workers",
+      "creator": "Vachon, John, 1914-1975, photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "relocation-consequence"
+      ],
+      "context_action": "Detroit defense-worker housing and domestic-life context",
+      "context_emotion": "housing pressure and daily life",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017844381",
+      "source_id": "loc-item-2017844381",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017844381-detroit-michigan-scrap-collected-for-salvage-at-a-rally-sponsored-by-the-work-pr.jpg",
+      "sha256": "97c6bf60cff19edccb104bc873107097878d9a3a4ad71a54d7769a694cb17156",
+      "source_url": "https://www.loc.gov/item/2017844381/",
+      "source_title": "Detroit, Michigan. Scrap collected for salvage at a rally sponsored by the Work Projects Administration (WPA) at the state fairgrounds",
+      "creator": "Siegel, Arthur S., photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "clearance-redevelopment"
+      ],
+      "context_action": "Detroit WPA salvage and material-city context",
+      "context_emotion": "institutional action and material conditions",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017858657",
+      "source_id": "loc-item-2017858657",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017858657-parke-davis-and-company-manufacturing-chemists-detroit-michigan-cleaning-filled.jpg",
+      "sha256": "edd78f3e510bc4c9c7b09ca062e2c122dd7d3a42f12da3917f5c7bfb84615901",
+      "source_url": "https://www.loc.gov/item/2017858657/",
+      "source_title": "Parke, Davis and Company, manufacturing chemists, Detroit, Michigan. Cleaning filled capsules",
+      "creator": "Siegel, Arthur S., photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Detroit manufacturing worker context",
+      "context_emotion": "workers and local economy",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017858732",
+      "source_id": "loc-item-2017858732",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017858732-parke-davis-and-company-manufacturing-chemists-detroit-michigan-capping-bottles.jpg",
+      "sha256": "838da5df2ee10ff18e1329d906595846640bd3172d2c024a610fbc70def0c3d1",
+      "source_url": "https://www.loc.gov/item/2017858732/",
+      "source_title": "Parke, Davis and Company, manufacturing chemists, Detroit, Michigan. Capping bottles containing blood plasma",
+      "creator": "Siegel, Arthur S., photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Detroit manufacturing worker context",
+      "context_emotion": "workers and local economy",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2017844243",
+      "source_id": "loc-item-2017844243",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017844243-detroit-michigan-new-method-of-making-x-ray-photographs-size-4x5-inches-instead.jpg",
+      "sha256": "c51414134d7a3badfc8265711dddff1dfc3e8fe5e405ab0a0557a57dc8f9f39d",
+      "source_url": "https://www.loc.gov/item/2017844243/",
+      "source_title": "Detroit, Michigan. New method of making x-ray photographs size 4x5 inches instead of larger. Used at the Herman Kiefer Hospital for Communicable Diseases to show various stages of tuberculosis. The patient is placed in front of a flurescent screen and this screen is photographed on ordinary photographic film by means of a lens of larger aperture",
+      "creator": "Siegel, Arthur S., photographer",
+      "rights_basis": "No known restrictions. For information, see U.S. Farm Security Administration/Office of War Information Black & White Photographs https://www.loc.gov/rr/print/res/071_fsab.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "then-now-footprint"
+      ],
+      "context_action": "Detroit public-health worker and institutional-services context",
+      "context_emotion": "services and human scale",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "video-04-visual-rebuild-loc-2021641670",
+      "source_id": "loc-item-2021641670",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2021641670-detroit-receiving-hospital-and-wayne-state-university-health-center-detroit-mich.jpg",
+      "sha256": "1e5a353b36f7922885f4274260bbe955e7ebc34765dc350affea3b805dd2ce66",
+      "source_url": "https://www.loc.gov/item/2021641670/",
+      "source_title": "[Detroit Receiving Hospital and Wayne State University Health Center, Detroit, Michigan]. [Exterior with snow]",
+      "creator": "Balthazar Korab Studios, Ltd., photographer; William Kessler and Associates, architect",
+      "rights_basis": "No known restrictions on publication. For information see: \"Balthazar Korab collection,\" https://hdl.loc.gov/loc.pnp/res.598.kora",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit"
+      ],
+      "claim_ids": [
+        "clearance-redevelopment",
+        "then-now-footprint"
+      ],
+      "context_action": "Detroit institutional redevelopment context",
+      "context_emotion": "replacement institutions",
+      "on_screen_disclosure": "Period Detroit context; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "openverse-bethel-ame-st-antoine",
+      "source_id": "openverse-flickr-54268142104",
+      "relative_path": "source-packet/stock-media/openverse/bethel-ame-st-antoine.jpg",
+      "sha256": "072038487f23080342a7760283710121d154d323225a26f45601e84fcc41480d",
+      "source_url": "https://www.flickr.com/photos/59081381@N03/54268142104",
+      "source_title": "Bethel AME Church, Warren Avenue and St. Antoine Street, Detroit",
+      "creator": "w_lemay",
+      "rights_basis": "CC BY-SA 2.0; exact Openverse-indexed Flickr item and license recorded at https://creativecommons.org/licenses/by-sa/2.0/",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "st. antoine"
+      ],
+      "claim_ids": [
+        "hastings-st-antoine-network",
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day St. Antoine church context",
+      "context_emotion": "church and place continuity",
+      "on_screen_disclosure": "Present-day Detroit context; not historical proof"
+    },
+    {
+      "asset_id": "openverse-st-antoine-marker-a",
+      "source_id": "openverse-flickr-54221031945",
+      "relative_path": "source-packet/stock-media/openverse/st-antoine-historical-marker-a.jpg",
+      "sha256": "70f96aa0538bc16c1de5ad1504d8f48f6efb7ee10cb9c8d36f71ab86942215b0",
+      "source_url": "https://www.flickr.com/photos/59081381@N03/54221031945",
+      "source_title": "Historical markers, St. Antoine Street and Congress Street, Detroit",
+      "creator": "w_lemay",
+      "rights_basis": "CC BY-SA 2.0; exact Openverse-indexed Flickr item and license recorded at https://creativecommons.org/licenses/by-sa/2.0/",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "st. antoine"
+      ],
+      "claim_ids": [
+        "hastings-st-antoine-network",
+        "then-now-footprint"
+      ],
+      "context_action": "Exact St. Antoine historical-marker context",
+      "context_emotion": "layered neighborhood memory",
+      "on_screen_disclosure": "Present-day Detroit context; not historical proof"
+    },
+    {
+      "asset_id": "openverse-st-antoine-marker-b",
+      "source_id": "openverse-flickr-54221030750",
+      "relative_path": "source-packet/stock-media/openverse/st-antoine-historical-marker-b.jpg",
+      "sha256": "cfce3fb0a22e2b852f28133b6482822ad14076d85299d53fa008b1f2d366d738",
+      "source_url": "https://www.flickr.com/photos/59081381@N03/54221030750",
+      "source_title": "Historical markers, St. Antoine Street and Congress Street, Detroit",
+      "creator": "w_lemay",
+      "rights_basis": "CC BY-SA 2.0; exact Openverse-indexed Flickr item and license recorded at https://creativecommons.org/licenses/by-sa/2.0/",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "st. antoine"
+      ],
+      "claim_ids": [
+        "hastings-st-antoine-network",
+        "then-now-footprint"
+      ],
+      "context_action": "Exact St. Antoine historical-marker context",
+      "context_emotion": "layered neighborhood memory",
+      "on_screen_disclosure": "Present-day Detroit context; not historical proof"
+    },
+    {
+      "asset_id": "openverse-st-antoine-street-view",
+      "source_id": "openverse-flickr-54220862048",
+      "relative_path": "source-packet/stock-media/openverse/st-antoine-street-view-a.jpg",
+      "sha256": "97f8be19acb8713ada9015cc5ad2572214bbd692795f69a54d0c635c496f30c9",
+      "source_url": "https://www.flickr.com/photos/59081381@N03/54220862048",
+      "source_title": "View from St. Antoine Street, Detroit",
+      "creator": "w_lemay",
+      "rights_basis": "CC BY-SA 2.0; exact Openverse-indexed Flickr item and license recorded at https://creativecommons.org/licenses/by-sa/2.0/",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "st. antoine"
+      ],
+      "claim_ids": [
+        "i-375-route",
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day view from St. Antoine Street",
+      "context_emotion": "changed street geography",
+      "on_screen_disclosure": "Present-day Detroit context; not historical proof"
+    },
+    {
+      "asset_id": "openverse-virgil-carr-cultural-center",
+      "source_id": "openverse-flickr-5796058195",
+      "relative_path": "source-packet/stock-media/openverse/virgil-carr-cultural-arts-center.jpg",
+      "sha256": "1b47b7ab2f4ddd0b3106d7e561ca1b8be00c38e5d6e740daa0583e795bf23cd2",
+      "source_url": "https://www.flickr.com/photos/27169824@N00/5796058195",
+      "source_title": "Virgil H. Carr Cultural Arts Center, Detroit",
+      "creator": "Neil Noland",
+      "rights_basis": "CC BY-SA 2.0; exact Openverse-indexed Flickr item and license recorded at https://creativecommons.org/licenses/by-sa/2.0/",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "paradise valley"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses",
+        "then-now-footprint"
+      ],
+      "context_action": "Exact Paradise Valley-area cultural institution context",
+      "context_emotion": "cultural continuity",
+      "on_screen_disclosure": "Present-day Detroit context; not historical proof"
+    },
+    {
+      "source_class": "historical_evidence",
+      "evidence_fit": "direct",
+      "asset_kind": "document",
+      "editorial_role": "proof",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "i-375",
+        "black bottom",
+        "paradise valley",
+        "redevelopment"
+      ],
+      "claim_ids": [
+        "clearance-redevelopment",
+        "i-375-route",
+        "then-now-footprint"
+      ],
+      "context_action": "Official FHWA I-375 corridor evidence",
+      "context_emotion": "documented system change",
+      "on_screen_disclosure": "U.S. FHWA source",
+      "asset_id": "fhwa-i375-workshop-page-05",
+      "source_id": "source-fhwa-i375-workshop-page-05",
+      "relative_path": "source-packet/candidates/fhwa/i375-workshop-report-page-05.jpg",
+      "sha256": "ac16f991db62b156519cfb91cd7dc6c2493491fdc0ff7d2313eb805e10b838d7",
+      "source_url": "https://www.fhwa.dot.gov/ipd/pdfs/value_capture/Value_Capture_MI_Workshop_Report.pdf",
+      "source_title": "FHWA I-375 Improvements Overview and Background, page 5",
+      "creator": "U.S. Department of Transportation, Federal Highway Administration",
+      "rights_basis": "U.S. federal government work; public domain under 17 U.S.C. 105. Local page render documented."
+    },
+    {
+      "source_class": "historical_evidence",
+      "evidence_fit": "direct",
+      "asset_kind": "document",
+      "editorial_role": "proof",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "i-375",
+        "black bottom",
+        "paradise valley",
+        "redevelopment"
+      ],
+      "claim_ids": [
+        "clearance-redevelopment",
+        "i-375-route",
+        "then-now-footprint"
+      ],
+      "context_action": "Official FHWA I-375 corridor evidence",
+      "context_emotion": "documented system change",
+      "on_screen_disclosure": "U.S. FHWA source",
+      "asset_id": "fhwa-i375-workshop-page-06",
+      "source_id": "source-fhwa-i375-workshop-page-06",
+      "relative_path": "source-packet/candidates/fhwa/i375-workshop-report-page-06.jpg",
+      "sha256": "fc19e70fadeeca94ee67a75270f06d5dbe57fe3c291ee3dbab0175c61ba86f68",
+      "source_url": "https://www.fhwa.dot.gov/ipd/pdfs/value_capture/Value_Capture_MI_Workshop_Report.pdf",
+      "source_title": "FHWA I-375 corridor and potential excess property, page 6",
+      "creator": "U.S. Department of Transportation, Federal Highway Administration",
+      "rights_basis": "U.S. federal government work; public domain under 17 U.S.C. 105. Local page render documented."
+    },
+    {
+      "asset_id": "commons-generic-foot-traffic",
+      "source_id": "commons-file-commons-generic-foot-traffic",
+      "relative_path": "source-packet/stock-media/commons-generic/calle-preciados-foot-traffic.ogv",
+      "sha256": "ac479582b1462a96feec1382da3bc52313f8afc0b486b211d56907cfc837b664",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Calle_preciados.ogv",
+      "source_title": "Calle Preciados pedestrian street",
+      "creator": "OsvaldoGago",
+      "rights_basis": "CC BY-SA 3.0; exact Wikimedia Commons item. https://creativecommons.org/licenses/by-sa/3.0/",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "generic",
+      "entity_terms": [
+        "generic urban context"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "foot_traffic",
+      "context_emotion": "commercial street life",
+      "on_screen_disclosure": "Illustrative urban context; not Detroit location proof"
+    },
+    {
+      "asset_id": "commons-generic-public-square",
+      "source_id": "commons-file-commons-generic-public-square",
+      "relative_path": "source-packet/stock-media/commons-generic/skvallertorget-public-square.webm",
+      "sha256": "5ed7b0f9ed88b315b3c0dbdffc7c60f3ef8394067fcd40904996f45353a0a1e7",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Soundscapes_of_Norrk%C3%B6ping_(1)_-_Skvallertorget.webm",
+      "source_title": "Skvallertorget public square",
+      "creator": "Erik P\u00e5lsson",
+      "rights_basis": "CC BY 3.0; exact Wikimedia Commons item. https://creativecommons.org/licenses/by/3.0/",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "generic",
+      "entity_terms": [
+        "generic urban context"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "foot_traffic",
+      "context_emotion": "public-space activity",
+      "on_screen_disclosure": "Illustrative urban context; not Detroit location proof"
+    },
+    {
+      "asset_id": "commons-generic-street-traffic",
+      "source_id": "commons-file-commons-generic-street-traffic",
+      "relative_path": "source-packet/stock-media/commons-generic/slovenska-street-traffic.webm",
+      "sha256": "ae8f684c170da8e0ac10f00b62705d51c121a80a05414008c6726491ecd63db5",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Traffic_on_Slovenska_street.webm",
+      "source_title": "Traffic on Slovenska Street",
+      "creator": "Klemen Slakonja",
+      "rights_basis": "CC BY 3.0; exact Wikimedia Commons item. https://creativecommons.org/licenses/by/3.0/",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "modern_video",
+      "editorial_role": "context_only",
+      "geographic_scope": "generic",
+      "entity_terms": [
+        "generic urban context"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "commuting_traffic",
+      "context_emotion": "street movement",
+      "on_screen_disclosure": "Illustrative urban context; not Detroit location proof"
+    },
+    {
+      "asset_id": "loc-billie-holiday-carnegie-1946",
+      "source_id": "loc-item-2023867857",
+      "relative_path": "source-packet/stock-media/loc-musicians-expanded/billie-holiday-carnegie-hall-1946.jpg",
+      "sha256": "c3caddafa8b3656070ae93ca3f9c5660b5abda141f2217ca6465489b799991a8",
+      "source_url": "https://www.loc.gov/item/2023867857/",
+      "source_title": "Portrait of Billie Holiday, Carnegie Hall, between 1946 and 1948",
+      "creator": "William P. Gottlieb",
+      "rights_basis": "William P. Gottlieb Collection image dedicated to the public domain on February 16, 2010; exact Library of Congress item and IIIF derivative verified.",
+      "license_url": "https://www.loc.gov/item/2023867857/",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "generic",
+      "entity_terms": [
+        "billie holiday",
+        "jazz singer"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses"
+      ],
+      "context_action": "Billie Holiday performing during the Paradise Theater era",
+      "context_emotion": "live jazz performance",
+      "on_screen_disclosure": "Billie Holiday \u2014 period performance context; not photographed in Detroit"
+    },
+    {
+      "asset_id": "loc-louis-armstrong-carnegie-1947",
+      "source_id": "loc-item-2023867412",
+      "relative_path": "source-packet/stock-media/loc-musicians-expanded/louis-armstrong-carnegie-hall-1947.jpg",
+      "sha256": "cbcf0577fa3b150eb8174d68a24e9b67eb160b4227d3f1dc854cf54b7da8baf0",
+      "source_url": "https://www.loc.gov/item/2023867412/",
+      "source_title": "Portrait of Louis Armstrong, Carnegie Hall, ca. February 1947",
+      "creator": "William P. Gottlieb",
+      "rights_basis": "William P. Gottlieb Collection image dedicated to the public domain on February 16, 2010; exact Library of Congress item and IIIF derivative verified.",
+      "license_url": "https://www.loc.gov/item/2023867412/",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "generic",
+      "entity_terms": [
+        "louis armstrong",
+        "jazz musician"
+      ],
+      "claim_ids": [
+        "paradise-valley-businesses",
+        "then-now-footprint"
+      ],
+      "context_action": "Louis Armstrong performing during the Paradise Theater era",
+      "context_emotion": "live jazz performance",
+      "on_screen_disclosure": "Louis Armstrong \u2014 period performance context; not photographed in Detroit"
+    },
+    {
+      "asset_id": "loc-detroit-black-church-1942",
+      "source_id": "loc-item-2017835555",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-2017835555-church-black-section-1942.jpg",
+      "sha256": "ebc67a22c45f17271b897fe45b2fd68dceaf34f90519002fdfa51f79c6cf5a9b",
+      "source_url": "https://www.loc.gov/item/2017835555/",
+      "source_title": "Church in the Black section of Detroit, Michigan, 1942",
+      "creator": "Arthur S. Siegel, Farm Security Administration / Office of War Information",
+      "rights_basis": "Library of Congress FSA/OWI photograph; the collection is public domain and free to use and reuse. Exact item page and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/fsa/rights.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black detroit",
+        "church",
+        "community institution",
+        "1942"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "hastings-st-antoine-network",
+        "paradise-valley-businesses",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Black Detroit church and community institution",
+      "context_emotion": "community continuity",
+      "on_screen_disclosure": "Black Detroit church, 1942; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "loc-detroit-mother-child-sojourner-truth-1942",
+      "source_id": "loc-item-2017844474",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-2017844474-mother-child-sojourner-truth-1942.jpg",
+      "sha256": "e4a156024db17c895bc146b9d5dbbd7749bb5ab97a2fd6f7977c99e17b3e5531",
+      "source_url": "https://www.loc.gov/item/2017844474/",
+      "source_title": "Mother and child at the Sojourner Truth housing project, Detroit, 1942",
+      "creator": "Arthur S. Siegel, Farm Security Administration / Office of War Information",
+      "rights_basis": "Library of Congress FSA/OWI photograph; the collection is public domain and free to use and reuse. Exact item page and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/fsa/rights.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black detroit family",
+        "sojourner truth housing",
+        "1942"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Black Detroit mother and child in wartime housing",
+      "context_emotion": "family consequence",
+      "on_screen_disclosure": "Black Detroit family at Sojourner Truth Homes, 1942; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "loc-detroit-family-sojourner-truth-1942",
+      "source_id": "loc-item-2017844486",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-2017844486-typical-black-family-sojourner-truth-1942.jpg",
+      "sha256": "3b33298b20aa6db355a38c59f2ffc71173b96a2e8b186a4c2d487991eb54a635",
+      "source_url": "https://www.loc.gov/item/2017844486/",
+      "source_title": "Black family at the Sojourner Truth housing project, Detroit, 1942",
+      "creator": "Arthur S. Siegel, Farm Security Administration / Office of War Information",
+      "rights_basis": "Library of Congress FSA/OWI photograph; the collection is public domain and free to use and reuse. Exact item page and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/fsa/rights.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black detroit family",
+        "sojourner truth housing",
+        "1942"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Black Detroit family in wartime housing",
+      "context_emotion": "family and community",
+      "on_screen_disclosure": "Black Detroit family at Sojourner Truth Homes, 1942; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "loc-detroit-black-neighborhood-houses-1942",
+      "source_id": "loc-item-2017844867",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-2017844867-looking-over-black-neighborhood-houses-1942.jpg",
+      "sha256": "8d178855fe21e8556a407a63db86ecba2ee6ababb6e8a2d4d74985b8f88db32f",
+      "source_url": "https://www.loc.gov/item/2017844867/",
+      "source_title": "Looking over houses in a Black neighborhood, Detroit, 1942",
+      "creator": "Arthur S. Siegel, Farm Security Administration / Office of War Information",
+      "rights_basis": "Library of Congress FSA/OWI photograph; the collection is public domain and free to use and reuse. Exact item page and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/fsa/rights.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black detroit neighborhood",
+        "houses",
+        "1942"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "housing-restrictions",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Black Detroit residential neighborhood",
+      "context_emotion": "lived neighborhood",
+      "on_screen_disclosure": "Black Detroit neighborhood context, 1942; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "loc-detroit-grocery-black-district-1942",
+      "source_id": "loc-item-2017844873",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-2017844873-grocery-window-black-district-1942.jpg",
+      "sha256": "545f9c1017ac4a2d8923fecd3304a81bd2a64cb42e00d46f20ff4d287770dbc7",
+      "source_url": "https://www.loc.gov/pictures/item/2017844873/",
+      "source_title": "Grocery window in a Black district, Detroit, 1942",
+      "creator": "Arthur S. Siegel, Farm Security Administration / Office of War Information",
+      "rights_basis": "Library of Congress FSA/OWI photograph; the collection is public domain and free to use and reuse. Exact item page and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/fsa/rights.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black detroit business district",
+        "grocery",
+        "storefront",
+        "1942"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "hastings-st-antoine-network",
+        "paradise-valley-businesses",
+        "relocation-consequence",
+        "then-now-footprint"
+      ],
+      "context_action": "Black Detroit grocery storefront",
+      "context_emotion": "daily commerce",
+      "on_screen_disclosure": "Black Detroit business-district context, 1942; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "loc-detroit-downtown-from-black-neighborhood-1942",
+      "source_id": "loc-item-2017844916",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-2017844916-looking-downtown-from-black-neighborhood-1942.jpg",
+      "sha256": "e3968a6f894fefbe5ba479b9dbd3b4a2af62de1a6ec7e1d03009d0f52bec5060",
+      "source_url": "https://www.loc.gov/pictures/item/2017844916/",
+      "source_title": "Looking toward downtown from a Black neighborhood, Detroit, 1942",
+      "creator": "Arthur S. Siegel, Farm Security Administration / Office of War Information",
+      "rights_basis": "Library of Congress FSA/OWI photograph; the collection is public domain and free to use and reuse. Exact item page and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/fsa/rights.html",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black detroit neighborhood",
+        "downtown detroit",
+        "1942"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "housing-restrictions",
+        "clearance-redevelopment",
+        "then-now-footprint"
+      ],
+      "context_action": "View toward downtown from a Black Detroit neighborhood",
+      "context_emotion": "proximity and separation",
+      "on_screen_disclosure": "Black Detroit neighborhood context, 1942; not Black Bottom location proof"
+    },
+    {
+      "asset_id": "commons-ford-field-comerica-public-domain",
+      "source_id": "commons-file-FordFieldsuperbowlXL.JPG",
+      "relative_path": "source-packet/stock-media/loc-detroit/commons-ford-field-comerica-public-domain.jpg",
+      "sha256": "5a31e8a67e1eaade95c6a86026c576e367983f66d95f16526a754a47c4c04dfd",
+      "source_url": "https://commons.wikimedia.org/wiki/File:FordFieldsuperbowlXL.JPG",
+      "source_title": "Ford Field and Comerica Park, Detroit",
+      "creator": "Mikerussell",
+      "rights_basis": "Exact Wikimedia Commons item released into the public domain by its creator; local file and item page verified.",
+      "license_url": "https://commons.wikimedia.org/wiki/File:FordFieldsuperbowlXL.JPG",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "ford field",
+        "comerica park",
+        "detroit"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day Ford Field and surrounding downtown footprint",
+      "context_emotion": "replacement footprint",
+      "on_screen_disclosure": "Present-day Ford Field and Comerica Park footprint"
+    },
+    {
+      "asset_id": "loc-ford-field-aerial-2020",
+      "source_id": "loc-highsm-63421",
+      "relative_path": "source-packet/stock-media/loc-detroit/loc-highsm-63421-ford-field-aerial-2020.jpg",
+      "sha256": "123943c9d7f9471af124156534972145cafd2bf3e8068c630e0dfb58c59c61f7",
+      "source_url": "https://www.loc.gov/pictures/resource/highsm.63421",
+      "source_title": "Aerial view of Detroit with a focus on Ford Field, 2020",
+      "creator": "Carol M. Highsmith",
+      "rights_basis": "Carol M. Highsmith Archive photograph at the Library of Congress; no known restrictions on publication. Exact resource and local file verified.",
+      "license_url": "https://www.loc.gov/pictures/collection/highsm/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "ford field",
+        "downtown detroit",
+        "2020"
+      ],
+      "claim_ids": [
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day aerial view of Ford Field footprint",
+      "context_emotion": "replacement footprint",
+      "on_screen_disclosure": "Present-day Ford Field footprint, 2020"
+    },
+    {
+      "asset_id": "commons-i375-current-view-2023",
+      "source_id": "commons-file-Interstate_375_view.jpg",
+      "relative_path": "source-packet/stock-media/loc-detroit/commons-i375-current-view-cc-by-sa.jpg",
+      "sha256": "d6a53847782e7ae3e1051501f0575047945c765f865ba6a0f1da4b5193abba99",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Interstate_375_view.jpg",
+      "source_title": "Current view of Interstate 375 in Detroit, 2023",
+      "creator": "TenPoundHammer",
+      "rights_basis": "CC BY-SA 4.0; exact Wikimedia Commons item and author verified. Attribution and share-alike terms retained in the rights ledger.",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "source_class": "modern_context",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "interstate 375",
+        "i-375",
+        "detroit",
+        "2023"
+      ],
+      "claim_ids": [
+        "i-375-route",
+        "then-now-footprint"
+      ],
+      "context_action": "Present-day I-375 corridor",
+      "context_emotion": "freeway footprint",
+      "on_screen_disclosure": "Present-day I-375 corridor, 2023"
+    },
+    {
+      "asset_id": "fhwa-detroit-chrysler-freeway-1964",
+      "source_id": "fhwa-mi-I757i94-1964-557",
+      "relative_path": "source-packet/stock-media/loc-detroit/fhwa-detroit-chrysler-freeway-1964.jpg",
+      "sha256": "7e0d06aa61220699295a12f84da79549ab53b3e116633c64d64ab34ac3bb3f51",
+      "source_url": "https://www.fhwa.dot.gov/highwayhistory/resultsDisplayImg.cfm?img=mi_I757i94_FHWA_1964_557.jpg",
+      "download_url": "https://www.fhwa.dot.gov/infrastructure/gallery/mi_I757i94_FHWA_1964_557.jpg",
+      "source_title": "Walter Chrysler Freeway construction in Detroit, 1964",
+      "creator": "Federal Highway Administration",
+      "rights_basis": "United States Federal Highway Administration photograph; public-domain federal government work. Exact FHWA image and local file verified.",
+      "license_url": "https://www.fhwa.dot.gov/highwayhistory/resultsDisplayImg.cfm?img=mi_I757i94_FHWA_1964_557.jpg",
+      "source_class": "historical_evidence",
+      "evidence_fit": "context_only",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "walter chrysler freeway",
+        "detroit",
+        "1964"
+      ],
+      "claim_ids": [
+        "clearance-redevelopment",
+        "i-375-route",
+        "then-now-footprint"
+      ],
+      "context_action": "Detroit freeway construction",
+      "context_emotion": "infrastructure consequence",
+      "on_screen_disclosure": "Detroit I-75 / Walter Chrysler Freeway, 1964; not I-375 construction proof"
+    },
+    {
+      "asset_id": "sanborn-1950-sheet-12",
+      "source_id": "source-sanborn-1950-sheet-12",
+      "relative_path": "source-packet/candidates/loc-sanborn-1950-v3/03985_03_1950-0012-25pct.jpg",
+      "sha256": "7673a8f28cb059d7239d2f0ecee78f3752e12fa71865acad10e2e22320f3996b",
+      "source_url": "https://www.loc.gov/item/sanborn03985_052/",
+      "source_title": "Sanborn Detroit 1950 Vol. 3, sheet 12 — Hastings, St. Antoine, Beaubien and dense built blocks",
+      "creator": "Sanborn Map Company",
+      "rights_basis": "Public domain; Library of Congress.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "map",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "black bottom",
+        "detroit",
+        "hastings street",
+        "st. antoine street",
+        "housing"
+      ],
+      "claim_ids": [
+        "black-bottom-neighborhood",
+        "hastings-st-antoine-network",
+        "housing-restrictions"
+      ],
+      "context_action": "Period Detroit block and street pattern",
+      "context_emotion": "dense lived neighborhood",
+      "on_screen_disclosure": "Sanborn Detroit 1950, Vol. 3, sheet 12"
+    },
+    {
+      "asset_id": "loc-sojourner-truth-multiple-unit-1942",
+      "source_id": "loc-2017844920",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017844920-sojourner-truth-multiple-unit-1942.jpg",
+      "sha256": "dca42d33d1b423502949d5419b5e4a12eb749743e326f8d4c1616fb5e95692a3",
+      "source_url": "https://www.loc.gov/pictures/item/2017844920/",
+      "download_url": "https://tile.loc.gov/storage-services/service/pnp/fsa/8d13000/8d13600/8d13617v.jpg",
+      "source_title": "Detroit, Michigan. Multiple unit at the Sojourner Truth homes, a new U.S. federal housing project",
+      "creator": "Arthur S. Siegel, photographer",
+      "rights_basis": "No known restrictions; Library of Congress Farm Security Administration/Office of War Information collection.",
+      "license_url": "https://www.loc.gov/pictures/item/2017844920/",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "sojourner truth homes",
+        "federal housing project",
+        "housing"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "relocation-consequence"
+      ],
+      "context_action": "Detroit federal housing project exterior",
+      "context_emotion": "institutional housing system",
+      "on_screen_disclosure": "Sojourner Truth Homes, Detroit • 1942"
+    },
+    {
+      "asset_id": "loc-sojourner-truth-homes-1942",
+      "source_id": "loc-2017844919",
+      "relative_path": "source-packet/visual-rebuild/historical/loc-2017844919-sojourner-truth-homes-1942.jpg",
+      "sha256": "e06c4e87aee984bf95e49b5905c727dce21eeac8a0554d180b498cb863c8eea0",
+      "source_url": "https://www.loc.gov/pictures/item/2017844919/",
+      "download_url": "https://tile.loc.gov/storage-services/service/pnp/fsa/8d13000/8d13600/8d13616v.jpg",
+      "source_title": "Detroit, Michigan. Sojourner Truth homes, a new U.S. federal housing project",
+      "creator": "Arthur S. Siegel, photographer",
+      "rights_basis": "No known restrictions; Library of Congress Farm Security Administration/Office of War Information collection.",
+      "license_url": "https://www.loc.gov/pictures/item/2017844919/",
+      "source_class": "historical_evidence",
+      "evidence_fit": "supporting",
+      "asset_kind": "photo",
+      "editorial_role": "context_only",
+      "geographic_scope": "city_specific",
+      "entity_terms": [
+        "detroit",
+        "sojourner truth homes",
+        "federal housing project",
+        "housing"
+      ],
+      "claim_ids": [
+        "housing-restrictions",
+        "relocation-consequence"
+      ],
+      "context_action": "Detroit federal housing project exterior",
+      "context_emotion": "housing opportunity constrained by policy",
+      "on_screen_disclosure": "Sojourner Truth Homes, Detroit • 1942"
+    },
+    {
+      "asset_id": "federal-acts-1949-1956-source-card",
+      "source_id": "us-government-federal-acts-1949-1956",
+      "relative_path": "source-packet/long-form-rebuild/generated/federal-acts-1949-1956-source-card.png",
+      "sha256": "0335cc251a537cbbd112eaa859be2671bc950ec6f9b3aef51a1aa5b3b67de7ec",
+      "source_url": "https://www.govinfo.gov/app/details/COMPS-10349",
+      "source_urls": [
+        "https://www.govinfo.gov/app/details/COMPS-10349",
+        "https://www.senate.gov/artandhistory/history/minute/Federal_Highway_Act.htm"
+      ],
+      "source_title": "Housing Act of 1949 and Federal-Aid Highway Act of 1956 official source card",
+      "creator": "Pattern Lab summary of U.S. Government records",
+      "rights_basis": "U.S. federal public-law text and U.S. Senate Historical Office facts; government-source facts summarized locally with visible citations.",
+      "source_class": "historical_evidence",
+      "evidence_fit": "direct",
+      "asset_kind": "document",
+      "editorial_role": "proof",
+      "geographic_scope": "not_applicable",
+      "entity_terms": [
+        "housing act of 1949",
+        "federal-aid highway act of 1956",
+        "federal funding",
+        "redevelopment",
+        "black bottom",
+        "detroit",
+        "i-375",
+        "paradise valley"
+      ],
+      "claim_ids": [
+        "clearance-redevelopment",
+        "i-375-route"
+      ],
+      "context_action": "Official federal-law evidence named by the narration",
+      "context_emotion": "system mechanics made visible",
+      "on_screen_disclosure": "Federal-law source card; Detroit consequence shown in adjacent evidence"
+    }
+  ]
+}

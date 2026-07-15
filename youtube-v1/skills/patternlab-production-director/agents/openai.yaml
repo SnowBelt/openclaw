@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pattern Lab Production Director"
+  short_description: "Run every Pattern Lab task through one 93+ gate"
+  default_prompt: "Route this Pattern Lab request through the canonical typed production contract and execute every routine stage without asking the owner to remember substeps. Require deployed skills, source safety, retained-input locks, content-addressed resume, current hashes, independent 93+ QA, and hash-bound owner approval. Never use a silent weaker fallback or mutate YouTube without exact approval."

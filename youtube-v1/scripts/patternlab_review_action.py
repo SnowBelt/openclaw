@@ -2,9 +2,15 @@
 import argparse
 import csv
 import json
+import os
 import subprocess
+import sys
 import uuid
 from pathlib import Path
+
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
 
 from patternlab_common import display_path, ensure_dir, load_dotenv, output_root, utc_now
 from patternlab_approval_package import build_approval_package_report, default_thumbnail, target_rows
@@ -17,11 +23,30 @@ from patternlab_discord_feedback import (
     validate_reason,
     validate_repair_scope,
 )
+from patternlab.approvals import approval_binding, record_approval
+from patternlab.models import ApprovalScope
+from patternlab.state import PatternLabState
 
 
 ASSET_TYPES = {"avatar", "image", "thumbnail", "voiceover", "proof_footage", "video", "short"}
 REPAIR_ACTIONS = {"reject", "repair", "regenerate", "revise_hook", "kill_topic"}
 APPROVAL_ACTIONS = {"approve", "approve_review_package", "approve_private_upload", "approve_public_publish"}
+
+
+def canonical_state_store():
+    path = Path(os.environ.get("PATTERNLAB_STATE_DB", Path(__file__).resolve().parents[1] / "local-output" / "patternlab.sqlite3"))
+    store = PatternLabState(path)
+    store.migrate()
+    return store
+
+
+def approval_scope(action):
+    return {
+        "approve": ApprovalScope.ASSET,
+        "approve_review_package": ApprovalScope.OWNER_REVIEW,
+        "approve_private_upload": ApprovalScope.PRIVATE_UPLOAD,
+        "approve_public_publish": ApprovalScope.PUBLIC_PUBLISH,
+    }[action]
 
 
 def read_csv_rows(path):
@@ -205,7 +230,7 @@ def update_default_thumbnail(root, filename):
 
 def rerun_readiness(video_id):
     subprocess.run(
-        ["python3", "youtube-v1/scripts/private_upload_readiness.py", "--video-id", video_id],
+        [sys.executable, "youtube-v1/scripts/private_upload_readiness.py", "--video-id", video_id],
         cwd=Path(__file__).resolve().parents[2],
         check=False,
     )
@@ -214,7 +239,7 @@ def rerun_readiness(video_id):
 def run_auto_private_upload(video_id):
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "youtube-v1/scripts/upload_approved_package.py",
             "--video-id",
             video_id,
@@ -243,9 +268,12 @@ def apply_review_action(
     freeform_note="",
     timestamp_start="",
     timestamp_end="",
+    release_candidate_id="",
+    release_candidate_sha256="",
+    artifact_sha256="",
     dry_run=False,
     auto_repair=True,
-    auto_upload=True,
+    auto_upload=False,
 ):
     load_dotenv()
     if action not in APPROVAL_ACTIONS and action not in REPAIR_ACTIONS:
@@ -264,6 +292,23 @@ def apply_review_action(
     new_status = None
     review_package_payload = None
     review_package_report = None
+    approval_binding_receipt = {}
+    supplied_binding = {
+        "release_candidate_id": release_candidate_id,
+        "release_candidate_sha256": release_candidate_sha256,
+        "artifact_sha256": artifact_sha256,
+    }
+    if any(supplied_binding.values()):
+        expected_binding = approval_binding(
+            canonical_state_store(),
+            episode_id=video_id,
+            artifact_id=asset_id or "" if asset_type and asset_type != "topic" else "",
+            filename=filename or "" if asset_type and asset_type != "topic" else "",
+        )
+        for key, supplied in supplied_binding.items():
+            if supplied and expected_binding.get(key) != supplied:
+                raise ValueError(f"stale_or_tampered_discord_callback:{key}")
+        approval_binding_receipt = expected_binding
 
     if action == "approve":
         if not asset_type:
@@ -331,6 +376,15 @@ def apply_review_action(
         "repair_scope": repair_scope,
         "rows_changed": changed,
     }
+    if action in APPROVAL_ACTIONS:
+        if not approval_binding_receipt:
+            approval_binding_receipt = approval_binding(
+                canonical_state_store(),
+                episode_id=video_id,
+                artifact_id=asset_id or "" if action == "approve" else "",
+                filename=filename or "" if action == "approve" else "",
+            )
+        event.update(approval_binding_receipt)
     if dry_run and action == "approve_public_publish":
         public_blockers = public_publish_preapproval_blockers(root)
         if not public_blockers:
@@ -364,6 +418,7 @@ def apply_review_action(
             "rows_changed": changed,
             "review_package_report": review_package_report or "",
             "review_package_pending_targets": (review_package_payload or {}).get("pending_target_count", ""),
+            "approval_binding": approval_binding_receipt,
         }
 
     if rows and changed:
@@ -380,6 +435,19 @@ def apply_review_action(
     review_package_file = None
     if action == "approve_review_package" and review_package_payload:
         review_package_file = write_review_package_approval(root, reason, review_package_payload, changed)
+
+    canonical_approval = None
+    if action in APPROVAL_ACTIONS:
+        canonical_approval = record_approval(
+            canonical_state_store(),
+            episode_id=video_id,
+            scope=approval_scope(action),
+            action=action,
+            source="discord",
+            reason=reason,
+            artifact_id=asset_id or "" if action == "approve" else "",
+            filename=filename or "" if action == "approve" else "",
+        )
 
     append_jsonl(approval / "review-actions.jsonl", event)
     append_jsonl(approval / "approval-log.jsonl", event)
@@ -437,6 +505,7 @@ def apply_review_action(
         "gate_file": display_path(gate_file) if gate_file else "",
         "repair_result": repair_result or {},
         "upload_result": upload_result or {},
+        "canonical_approval": canonical_approval or {},
     }
 
 
@@ -488,7 +557,7 @@ def main():
     parser.add_argument("--timestamp-end", default="")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-auto-repair", action="store_true")
-    parser.add_argument("--no-auto-upload", action="store_true")
+    parser.add_argument("--allow-youtube-upload", action="store_true", help="Explicitly allow the separately approved private uploader.")
     parser.add_argument("--callback", help="Raw patternlab:{json} callback payload from Discord.")
     args = parser.parse_args()
     if args.callback:
@@ -506,6 +575,9 @@ def main():
         args.freeform_note = payload.get("freeform_note", args.freeform_note)
         args.timestamp_start = payload.get("timestamp_start", args.timestamp_start)
         args.timestamp_end = payload.get("timestamp_end", args.timestamp_end)
+        args.release_candidate_id = payload.get("release_candidate_id", "")
+        args.release_candidate_sha256 = payload.get("release_candidate_sha256", "")
+        args.artifact_sha256 = payload.get("artifact_sha256", "")
     if not args.action:
         raise SystemExit("--action or --callback is required")
     result = apply_review_action(
@@ -519,9 +591,12 @@ def main():
         freeform_note=args.freeform_note,
         timestamp_start=args.timestamp_start,
         timestamp_end=args.timestamp_end,
+        release_candidate_id=getattr(args, "release_candidate_id", ""),
+        release_candidate_sha256=getattr(args, "release_candidate_sha256", ""),
+        artifact_sha256=getattr(args, "artifact_sha256", ""),
         dry_run=args.dry_run,
         auto_repair=not args.no_auto_repair,
-        auto_upload=not args.no_auto_upload,
+        auto_upload=args.allow_youtube_upload,
     )
     print(json.dumps(result, indent=2))
 

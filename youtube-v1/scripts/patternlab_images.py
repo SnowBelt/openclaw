@@ -10,6 +10,7 @@ from patternlab_common import append_ledger, display_path, ensure_dir, ffprobe_c
 
 IMAGE_WIDTH = 1920
 IMAGE_HEIGHT = 1080
+ALLOWED_IMAGE_DIMENSIONS = {(1920, 1080), (1280, 720)}
 CODEX_IMAGE_TOOL = "Codex image generation"
 # OpenAI Images API is retained only as the backup image source; Codex remains primary.
 OPENAI_IMAGE_TOOL = "OpenAI Images API"
@@ -160,8 +161,9 @@ def file_status(root, filename):
         status["reason"] = f"dimension probe failed: {exc}"
         return status
     status["dimensions"] = f"{width}x{height}"
-    if width != IMAGE_WIDTH or height != IMAGE_HEIGHT:
-        status["reason"] = f"expected {IMAGE_WIDTH}x{IMAGE_HEIGHT}, got {width}x{height}"
+    if (width, height) not in ALLOWED_IMAGE_DIMENSIONS:
+        allowed = " or ".join(f"{item_width}x{item_height}" for item_width, item_height in sorted(ALLOWED_IMAGE_DIMENSIONS))
+        status["reason"] = f"expected {allowed}, got {width}x{height}"
         return status
     status["valid"] = True
     status["reason"] = "ok"
@@ -225,7 +227,7 @@ def validate_image_pack(root):
         selected_source = "unknown"
     return {
         "generated_at": utc_now(),
-        "required_dimensions": f"{IMAGE_WIDTH}x{IMAGE_HEIGHT}",
+        "required_dimensions": " or ".join(f"{width}x{height}" for width, height in sorted(ALLOWED_IMAGE_DIMENSIONS)),
         "required_images": REQUIRED_IMAGE_FILENAMES,
         "file_status": files,
         "missing_images": missing_images,

@@ -29,6 +29,8 @@ def build_source_provider_health_report(video_id: str) -> tuple[dict[str, Any], 
     approval = ensure_dir(root / "approval")
     manifest_path = root / "source-packet" / "visual-rebuild" / "visual-rebuild-manifest.json"
     manifest = read_json(manifest_path)
+    free_stock = read_json(approval / "free-stock-acquisition-report.json")
+    acquisition_quality = read_json(approval / "visual-acquisition-quality-report.json")
     assets = []
     for key in ("historical_assets", "modern_context_assets"):
         rows = manifest.get(key, [])
@@ -57,12 +59,44 @@ def build_source_provider_health_report(video_id: str) -> tuple[dict[str, Any], 
         }
         for provider, count in sorted(provider_counter.items())
     ]
+    attempted_rows = [
+        row
+        for row in free_stock.get("provider_rows", [])
+        if isinstance(row, dict) and row.get("status") in {"queried", "failed"}
+    ]
+    archive_events = [
+        row for row in manifest.get("provider_events", []) if isinstance(row, dict)
+    ]
+    provider_rows.extend(
+        {
+            "provider": str(row.get("provider") or "unknown"),
+            "query": str(row.get("query") or ""),
+            "selected_count": 0,
+            "status": str(row.get("status") or "unknown"),
+            "candidate_count": int(row.get("candidate_count") or 0),
+        }
+        for row in attempted_rows
+    )
+    provider_rows.extend(
+        {
+            "provider": str(row.get("provider") or "unknown"),
+            "query": "",
+            "selected_count": 0,
+            "status": str(row.get("status") or "unknown"),
+            "candidate_count": 0,
+            "detail": str(row.get("detail") or ""),
+        }
+        for row in archive_events
+    )
     selected_provider_count = len(provider_counter)
     asset_count = len(assets)
     compatible_count = len(compatible_assets)
     blockers: list[str] = []
     if manifest.get("status") not in {"ready", "pass"}:
         blockers.append(f"visual_rebuild_manifest_status:{manifest.get('status', 'missing')}")
+    active_city = str(manifest.get("city") or manifest.get("active_city") or "").strip()
+    if not active_city:
+        blockers.append("visual_rebuild_manifest_city_missing")
     if asset_count < 5:
         blockers.append(f"insufficient_assets:{asset_count}/5")
     if selected_provider_count < 2:
@@ -72,17 +106,25 @@ def build_source_provider_health_report(video_id: str) -> tuple[dict[str, Any], 
     payload: dict[str, Any] = {
         "generated_at": utc_now(),
         "video_id": video_id,
-        "active_city": manifest.get("city") or "Detroit",
+        "active_city": active_city,
         "status": "pass" if not blockers else "blocked",
         "source_package_status": manifest.get("status", "missing"),
         "source_package_manifest": display_path(manifest_path),
-        "provider_attempt_count": asset_count,
-        "attempted_provider_count": selected_provider_count,
+        "provider_attempt_count": len(attempted_rows) + len(archive_events),
+        "attempted_provider_count": len(
+            {
+                str(row.get("provider") or "")
+                for row in attempted_rows + archive_events
+                if str(row.get("provider") or "")
+            }
+        ),
         "selected_provider_count": selected_provider_count,
         "selected_providers": sorted(provider_counter.keys()),
         "asset_count": asset_count,
         "rights_compatible_asset_count": compatible_count,
         "unique_source_url_count": len(source_urls),
+        "exact_item_receipt_count": int(acquisition_quality.get("exact_item_receipt_count") or 0),
+        "free_stock_acquisition_status": free_stock.get("status", "missing"),
         "single_source_dependency": selected_provider_count <= 1,
         "provider_rows": provider_rows,
         "blockers": blockers,
@@ -111,7 +153,9 @@ def build_source_provider_health_report(video_id: str) -> tuple[dict[str, Any], 
         "",
     ]
     for row in provider_rows:
-        lines.append(f"- {row['provider']}: selected={row['selected_count']}")
+        lines.append(
+            f"- {row['provider']}: status={row['status']} selected={row['selected_count']} candidates={row.get('candidate_count', 0)} query={row.get('query', '')} detail={row.get('detail', '')}"
+        )
     lines.extend(["", "## Blockers", ""])
     lines.extend([f"- {item}" for item in blockers] or ["- none"])
     md_report.write_text("\n".join(lines) + "\n", encoding="utf-8")

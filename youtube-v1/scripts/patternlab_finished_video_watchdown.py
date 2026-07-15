@@ -41,6 +41,8 @@ def build_finished_video_watchdown_report(video_id: str) -> tuple[dict[str, Any]
     video = root / "video" / f"pattern-lab-video-{video_id}-draft.mp4"
     duration = video_duration(video)
     voice_visual = json.loads((approval / "voice-visual-match-report.json").read_text(encoding="utf-8")) if (approval / "voice-visual-match-report.json").exists() else {}
+    audio_quality = json.loads((approval / "audio-quality-report.json").read_text(encoding="utf-8")) if (approval / "audio-quality-report.json").exists() else {}
+    rendered_quality = json.loads((approval / "rendered-media-quality-report.json").read_text(encoding="utf-8")) if (approval / "rendered-media-quality-report.json").exists() else {}
     blockers: list[str] = []
     warnings: list[str] = []
     if duration is None:
@@ -51,6 +53,10 @@ def build_finished_video_watchdown_report(video_id: str) -> tuple[dict[str, Any]
         warnings.append(f"long_form_duration_below_preferred_10_minutes:{duration:.1f}")
     if voice_visual.get("voice_visual_match_status") not in {"pass", None}:
         blockers.append("voice_visual_match_blocked")
+    if audio_quality.get("status") != "pass":
+        blockers.append("strict_final_audio_qa_not_pass")
+    if rendered_quality.get("status") != "pass":
+        blockers.append("strict_rendered_media_qa_not_pass")
     black_status = blackdetect(video) if video.exists() else "missing_video"
     if black_status.startswith("blocked"):
         blockers.append(black_status)
@@ -68,7 +74,10 @@ def build_finished_video_watchdown_report(video_id: str) -> tuple[dict[str, Any]
         "duration_policy": "8-14 minutes is acceptable for private/unlisted readiness; 10-14 minutes is preferred optimization.",
         "first_30_second_payoff_status": voice_visual.get("voice_visual_match_status", "missing"),
         "blank_or_black_segment_status": black_status,
-        "audio_gap_status": "not_checked_by_local_probe",
+        "audio_gap_status": "pass" if audio_quality.get("status") == "pass" else "blocked",
+        "audio_quality_report": display_path(approval / "audio-quality-report.json"),
+        "rendered_media_quality_status": rendered_quality.get("status", "missing"),
+        "rendered_media_quality_report": display_path(approval / "rendered-media-quality-report.json"),
         "public_youtube_mutation": "not_performed",
         "blockers": blockers,
         "warnings": warnings,

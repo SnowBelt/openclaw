@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import csv
+import json
 import os
 import re
 import shutil
@@ -9,6 +10,7 @@ from pathlib import Path
 
 
 BASE = Path(__file__).resolve().parents[1]
+RUNTIME_CONFIG_PATH = BASE / "local-output" / "runtime-config.json"
 
 
 LEDGER_FIELDS = [
@@ -170,6 +172,8 @@ def load_dotenv(path=None):
     for env_name, account in {
         "OPENAI_API_KEY": "openai.api-key",
         "ELEVENLABS_API_KEY": "elevenlabs.api-key",
+        "PEXELS_API_KEY": "pexels.api-key",
+        "PIXABAY_API_KEY": "pixabay.api-key",
     }.items():
         if os.environ.get(env_name, "").strip():
             continue
@@ -193,6 +197,14 @@ def require_env(name):
     return value
 
 
+def runtime_config():
+    try:
+        value = json.loads(RUNTIME_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def video_folder_name(video_id):
     return str(video_id) if str(video_id).startswith("video-") else f"video-{video_id}"
 
@@ -207,7 +219,37 @@ def output_root(video_id):
             if not root.is_absolute():
                 root = BASE / root
             return root
+    media_store = os.environ.get("PATTERNLAB_MEDIA_STORE", "").strip() or str(
+        runtime_config().get("media_store") or ""
+    ).strip()
+    if media_store and media_store != "replace_me":
+        root = Path(media_store).expanduser()
+        if not root.is_absolute():
+            root = BASE / root
+        return root / "active" / output_name
     return BASE / "local-output" / output_name
+
+
+def patternlab_model_root():
+    """Return the shared, operator-configurable directory containing model files."""
+    configured = os.environ.get("PATTERNLAB_MODEL_ROOT", "").strip() or str(
+        runtime_config().get("model_root") or ""
+    ).strip()
+    if configured and configured != "replace_me":
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BASE / path
+    return BASE / "local-output" / "models" / "draw-things"
+
+
+def patternlab_media_store():
+    """Return the configured media store, without silently moving active files."""
+    configured = os.environ.get("PATTERNLAB_MEDIA_STORE", "").strip() or str(
+        runtime_config().get("media_store") or ""
+    ).strip()
+    if configured and configured != "replace_me":
+        path = Path(configured).expanduser()
+        return path if path.is_absolute() else BASE / path
+    return BASE / "local-output"
 
 
 def launch_root(video_id):
@@ -240,11 +282,25 @@ def strip_markdown_for_voiceover(markdown):
 
 
 def ffmpeg_cmd():
-    return shutil.which("ffmpeg") or "ffmpeg"
+    configured = os.environ.get("PATTERNLAB_FFMPEG", "").strip()
+    candidates = [
+        configured,
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        shutil.which("ffmpeg") or "",
+        "ffmpeg",
+    ]
+    return next((item for item in candidates if item and (item == "ffmpeg" or Path(item).is_file())), "ffmpeg")
 
 
 def ffprobe_cmd():
-    return shutil.which("ffprobe") or "ffprobe"
+    configured = os.environ.get("PATTERNLAB_FFPROBE", "").strip()
+    candidates = [
+        configured,
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe",
+        shutil.which("ffprobe") or "",
+        "ffprobe",
+    ]
+    return next((item for item in candidates if item and (item == "ffprobe" or Path(item).is_file())), "ffprobe")
 
 
 def media_duration_seconds(path):

@@ -56,6 +56,7 @@ def main():
     synthetic_disclosure = read_json(approval / "synthetic-disclosure-report.json")
     thumbnail_factory = read_json(approval / "thumbnail-factory-report.json")
     thumbnail_quality = read_json(approval / "thumbnail-quality-report.json")
+    media_qa = read_json(approval / "media-qa-report.json") or {}
     shorts_plan = approval / "shorts-upload-plan.md"
     metadata = read_json(approval / "upload-metadata.json") or {}
     blockers = []
@@ -100,6 +101,8 @@ def main():
     thumbnail_quality_status = (thumbnail_quality or {}).get("status", "missing")
     if thumbnail_quality_status != "pass":
         blockers.append("Thumbnail quality gate is not passing.")
+    if media_qa.get("status") != "pass" or int(media_qa.get("minimum_asset_score", 0) or 0) < 93:
+        blockers.append("Strict final visual/audio QA is not passing at 93/100 or greater for every asset.")
     if (motion_polish or {}).get("local_rerender_requires_review_upload"):
         blockers.append("Motion-polished local render is newer than the private YouTube upload; replacement review/upload is required before public publish.")
     if not public_approval:
@@ -164,6 +167,7 @@ def main():
         f"- Synthetic disclosure gate: {synthetic_disclosure_status}",
         f"- Synthetic disclosure decision present: {(synthetic_disclosure or {}).get('synthetic_disclosure_decision_present', False)}",
         f"- Thumbnail quality gate: {thumbnail_quality_status}",
+        f"- Strict final visual/audio QA: {media_qa.get('status', 'missing')} (minimum asset score={media_qa.get('minimum_asset_score', 'missing')})",
         f"- Active city: {(thumbnail_factory or {}).get('active_city', 'missing')}",
         f"- City-agnostic templates: {(thumbnail_factory or {}).get('city_agnostic_status', 'missing')}",
         f"- Current thumbnail renderer: {(thumbnail_factory or {}).get('current_thumbnail_renderer', 'missing')}",

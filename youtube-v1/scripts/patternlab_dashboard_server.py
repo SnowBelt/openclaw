@@ -470,6 +470,10 @@ def build_state(video_id=None):
     thumbnail_factory = read_json_file(output / "approval" / "thumbnail-factory-report.json") or {}
     thumbnail_quality = read_json_file(output / "approval" / "thumbnail-quality-report.json") or {}
     quality_gates = read_json_file(output / "approval" / "quality-gates-report.json") or {}
+    media_qa = read_json_file(output / "approval" / "media-qa-report.json") or {}
+    audio_quality = read_json_file(output / "approval" / "audio-quality-report.json") or {}
+    rendered_media_quality = read_json_file(output / "approval" / "rendered-media-quality-report.json") or {}
+    thumbnail_pixel_quality = read_json_file(output / "approval" / "thumbnail-pixel-quality-report.json") or {}
     thumbnail_rendered_ocr = read_json_file(output / "approval" / "thumbnail-rendered-ocr-report.json") or {}
     thumbnail_layout_audit = read_json_file(output / "approval" / "thumbnail-layout-audit-report.json") or {}
     thumbnail_redteam_audit = read_json_file(output / "approval" / "thumbnail-redteam-audit-report.json") or {}
@@ -573,6 +577,10 @@ def build_state(video_id=None):
         "full_auto_production_report": file_info(output / "approval" / "full-auto-production-report.json"),
         "voice_visual_match_report": file_info(output / "approval" / "voice-visual-match-report.json"),
         "finished_video_watchdown_report": file_info(output / "approval" / "finished-video-watchdown-report.json"),
+        "strict_media_qa_report": file_info(output / "approval" / "media-qa-report.json"),
+        "audio_quality_report": file_info(output / "approval" / "audio-quality-report.json"),
+        "rendered_media_quality_report": file_info(output / "approval" / "rendered-media-quality-report.json"),
+        "thumbnail_pixel_quality_report": file_info(output / "approval" / "thumbnail-pixel-quality-report.json"),
         "html_thumbnail_renderer_contact_sheet": file_info(output / "approval" / "html-thumbnail-renderer-contact-sheet.jpg"),
         "penpot_fallback_report": file_info(output / "approval" / "penpot-fallback-evaluation-report.json"),
         "penpot_slot_fill_report": file_info(output / "approval" / "penpot-slot-fill-smoke-report.json"),
@@ -602,7 +610,7 @@ def build_state(video_id=None):
     return {
         "generated_at": utc_now(),
         "video_id": video_id,
-        "status": "private-upload-ready" if ready_for_private else "owner-review-required",
+        "status": "private-upload-ready" if ready_for_private else "blocked-before-owner-review",
         "public_publish": "blocked_until_explicit_owner_approval",
         "approvals": approvals,
         "blockers": blockers,
@@ -878,6 +886,18 @@ def build_state(video_id=None):
             "finished_video_watchdown_status": finished_watchdown.get("finished_video_watchdown_status", "missing"),
             "finished_video_duration_seconds": finished_watchdown.get("duration_seconds"),
             "blank_or_black_segment_status": finished_watchdown.get("blank_or_black_segment_status", "missing"),
+        },
+        "strict_media_qa": {
+            "status": media_qa.get("status", "missing"),
+            "minimum_asset_score": media_qa.get("minimum_asset_score", 93),
+            "minimum_observed_scores": {
+                "thumbnail": thumbnail_pixel_quality.get("minimum_score_observed", 0),
+                "audio": audio_quality.get("minimum_score_observed", 0),
+                "rendered_media": rendered_media_quality.get("minimum_score_observed", 0),
+            },
+            "blocker_count": len(media_qa.get("blockers", [])),
+            "warning_count": len(media_qa.get("warnings", [])),
+            "no_average_pass": media_qa.get("no_average_pass", True),
         },
         "performance": build_performance_state(video_id),
         "monetization": build_monetization_state(video_id),
@@ -1325,7 +1345,7 @@ def dashboard_html():
       document.getElementById("approval-count").textContent = completeGroups + "/" + groups.length;
       document.getElementById("pattern-score").textContent = totalAssets;
       document.getElementById("criteria-score").textContent = approvedAssets + "/" + totalAssets;
-      document.getElementById("proof-score").textContent = state.status === "private-upload-ready" ? "PASS" : "REVIEW";
+      document.getElementById("proof-score").textContent = state.status === "private-upload-ready" ? "PASS" : "BLOCKED";
       document.getElementById("next-actions").innerHTML = state.next_actions.map(x => `<li>${x}</li>`).join("");
       document.getElementById("blockers").innerHTML = (state.blockers.length ? state.blockers : ["none"]).map(x => `<li>${x}</li>`).join("");
       document.getElementById("safety-lock").textContent = [

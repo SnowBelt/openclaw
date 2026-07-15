@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from patternlab_common import BASE, display_path, ensure_dir, output_root, utc_now
+import patternlab_script_bootstrap  # noqa: F401
+
+from patternlab.thumbnail import thumbnail_review_manifest_path
 
 
 def sha256(path: Path) -> str:
@@ -45,33 +48,113 @@ def newest(paths: list[Path]) -> float:
     return max((p.stat().st_mtime for p in paths if p.exists()), default=0.0)
 
 
+def valid_retained_narration_binding(path: Path, script: Path, transcript: Path, voice: Path) -> bool:
+    if not all(item.is_file() for item in (path, script, transcript, voice)):
+        return False
+    try:
+        binding = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(
+        binding.get("status") == "pass"
+        and binding.get("authorization") == "owner_retained_existing_narration"
+        and binding.get("approved_script", {}).get("sha256") == sha256(script)
+        and binding.get("retained_narration_transcript", {}).get("sha256") == sha256(transcript)
+        and binding.get("retained_normalized_audio", {}).get("sha256") == sha256(voice)
+        and binding.get("new_voice_generation_performed") is False
+    )
+
+
+def valid_shorts_render_receipt(path: Path, shorts: list[Path]) -> bool:
+    if not path.is_file() or not shorts:
+        return False
+    try:
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if receipt.get("status") != "pass":
+        return False
+    rows = receipt.get("shorts")
+    if not isinstance(rows, list) or len(rows) != len(shorts):
+        return False
+    expected = {Path(row.get("path", "")).name: row.get("sha256") for row in rows if isinstance(row, dict)}
+    return all(expected.get(short.name) == sha256(short) for short in shorts)
+
+
+def valid_thumbnail_manifest(path: Path, thumbnails: list[Path]) -> bool:
+    if not path.is_file() or len(thumbnails) != 3:
+        return False
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    rows = manifest.get("candidates")
+    if not isinstance(rows, list) or len(rows) != len(thumbnails):
+        return False
+    expected = {
+        Path(str(row.get("path") or "")).name: str(row.get("sha256") or "")
+        for row in rows
+        if isinstance(row, dict)
+    }
+    return all(expected.get(path.name) == sha256(path) for path in thumbnails)
+
+
+def valid_evidence_binding(path: Path, manifest: Path, script: Path, route: Path) -> bool:
+    if not all(item.is_file() for item in (path, manifest, script, route)):
+        return False
+    try:
+        binding = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    intake = Path(str(binding.get("intake_path") or "")).expanduser()
+    if not intake.is_absolute():
+        intake = BASE / intake
+    return bool(
+        binding.get("status") == "pass"
+        and intake.is_file()
+        and binding.get("manifest_sha256") == sha256(manifest)
+        and binding.get("script_sha256") == sha256(script)
+        and binding.get("visual_route_sha256") == sha256(route)
+        and binding.get("intake_sha256") == sha256(intake)
+    )
+
+
 def build_report(video_id: str) -> tuple[dict[str, Any], Path, Path]:
     root = output_root(video_id)
     approval = ensure_dir(root / 'approval')
     launch = BASE / 'launch' / f'video-{video_id}'
     dependency_paths = {
         'final_script': launch / 'final-script.md',
+        'episode_package': launch / 'package.json',
+        'evidence_queries': launch / 'evidence-queries.json',
+        'visual_route': launch / 'long-form-visual-routing.json',
+        'visual_contract': launch / 'visual-contract.json',
         'voiceover_normalized': root / 'audio' / 'voiceover_full_normalized.mp3',
-        'visual_beat_plan': root / 'video' / f'pattern-lab-video-{video_id}-visual-beat-plan.md',
         'rights_ledger': root / 'rights-ledger.csv',
-        'thumbnail_factory': approval / 'thumbnail-factory-report.json',
         'shorts_script_package': approval / 'shorts-script-package.json',
         'brand_kit': BASE / 'resources' / 'pattern-lab-brand-tokens.json',
-        'source_manifest': root / 'source-packet' / 'visual-rebuild' / 'visual-rebuild-manifest.json',
+        'evidence_manifest': approval / 'evidence-manifest.json',
+        'canonical_render_plan': approval / 'canonical-render-plan.json',
+        'thumbnail_candidate_manifest': thumbnail_review_manifest_path(root),
+    }
+    receipt_paths = {
+        'evidence_manifest_binding_receipt': approval / 'evidence-manifest-binding.json',
+        'retained_narration_binding_receipt': approval / 'retained-narration-binding.json',
+        'shorts_render_receipt': approval / 'shorts-render-report.json',
     }
     output_groups = {
         'long_form_video': [root / 'video' / f'pattern-lab-video-{video_id}-draft.mp4'],
-        'voiceover': [root / 'audio' / 'voiceover_full.mp3', root / 'audio' / 'voiceover_full_normalized.mp3'],
+        'voiceover': [root / 'audio' / 'voiceover_full_normalized.mp3'],
+        'closed_captions': [root / 'captions' / 'closed-captions-final.srt'],
         'shorts': sorted((root / 'shorts').glob(f'pattern-lab-video-{video_id}-short-*.mp4')),
         'thumbnails': sorted((root / 'images').glob('thumbnail_candidate_*.png')),
-        'owner_packet': [root / 'review' / 'owner-review-packet.md'],
     }
     dependencies = {name: file_info(path) for name, path in dependency_paths.items()}
+    receipts = {name: file_info(path) for name, path in receipt_paths.items()}
     outputs = {name: [file_info(path) for path in paths] for name, paths in output_groups.items()}
     final_package_hash, final_package_manifest = canonical_package_hash(video_id, dependencies, outputs)
     script_mtime = dependency_paths['final_script'].stat().st_mtime if dependency_paths['final_script'].exists() else 0
     brand_mtime = dependency_paths['brand_kit'].stat().st_mtime if dependency_paths['brand_kit'].exists() else 0
-    visual_mtime = dependency_paths['visual_beat_plan'].stat().st_mtime if dependency_paths['visual_beat_plan'].exists() else 0
     shorts_pkg_mtime = dependency_paths['shorts_script_package'].stat().st_mtime if dependency_paths['shorts_script_package'].exists() else 0
     stale_outputs: list[dict[str, str]] = []
 
@@ -79,25 +162,76 @@ def build_report(video_id: str) -> tuple[dict[str, Any], Path, Path]:
         if condition:
             stale_outputs.append({"asset_group": group, "reason": reason})
 
-    mark_if('voiceover', script_mtime > newest(output_groups['voiceover']), 'final script is newer than voiceover outputs')
-    mark_if('long_form_video', max(script_mtime, visual_mtime, newest(output_groups['voiceover'])) > newest(output_groups['long_form_video']), 'script, visual plan, or voiceover is newer than long-form render')
-    mark_if('shorts', max(script_mtime, shorts_pkg_mtime, brand_mtime) > newest(output_groups['shorts']), 'script, Shorts package, or brand kit is newer than Shorts renders')
-    mark_if('thumbnails', brand_mtime > newest(output_groups['thumbnails']), 'brand kit is newer than thumbnail renders')
+    retained_narration_is_bound = valid_retained_narration_binding(
+        receipt_paths['retained_narration_binding_receipt'],
+        dependency_paths['final_script'],
+        root / 'audio' / 'voiceover_full.txt',
+        dependency_paths['voiceover_normalized'],
+    )
+    shorts_render_is_bound = valid_shorts_render_receipt(
+        receipt_paths['shorts_render_receipt'],
+        output_groups['shorts'],
+    )
+    thumbnails_are_bound = valid_thumbnail_manifest(
+        dependency_paths['thumbnail_candidate_manifest'],
+        output_groups['thumbnails'],
+    )
+    evidence_is_bound = valid_evidence_binding(
+        receipt_paths['evidence_manifest_binding_receipt'],
+        dependency_paths['evidence_manifest'],
+        dependency_paths['final_script'],
+        dependency_paths['visual_route'],
+    )
+    mark_if(
+        'voiceover',
+        script_mtime > newest(output_groups['voiceover']) and not retained_narration_is_bound,
+        'final script is newer than voiceover outputs and no exact retained-narration binding exists',
+    )
+    long_form_input_mtime = newest(
+        [
+            dependency_paths['final_script'],
+            dependency_paths['visual_route'],
+            dependency_paths['visual_contract'],
+            dependency_paths['evidence_manifest'],
+            dependency_paths['canonical_render_plan'],
+            dependency_paths['voiceover_normalized'],
+        ]
+    )
+    mark_if('long_form_video', long_form_input_mtime > newest(output_groups['long_form_video']), 'script, route, visual contract, evidence manifest, render plan, or voiceover is newer than long-form render')
+    mark_if(
+        'shorts',
+        max(script_mtime, shorts_pkg_mtime, brand_mtime) > newest(output_groups['shorts']) and not shorts_render_is_bound,
+        'script, Shorts package, or brand kit is newer than Shorts renders and no exact render receipt exists',
+    )
+    mark_if(
+        'thumbnails',
+        brand_mtime > newest(output_groups['thumbnails']) or not thumbnails_are_bound,
+        'brand kit is newer than thumbnail renders or the candidate manifest is missing/stale',
+    )
     missing_dependency = [name for name, info in dependencies.items() if not info['exists']]
+    missing_receipt = [name for name, info in receipts.items() if not info['exists']]
     blockers = [f'missing_dependency:{name}' for name in missing_dependency]
+    blockers.extend(f'missing_receipt:{name}' for name in missing_receipt)
     blockers.extend(
         f"stale_output:{item['asset_group']}:{item['reason']}"
         for item in stale_outputs
     )
+    if not evidence_is_bound:
+        blockers.append('evidence_manifest_binding_missing_or_stale')
     payload = {
         'generated_at': utc_now(),
         'video_id': video_id,
         'status': 'blocked' if blockers else 'pass',
         'dependencies': dependencies,
+        'receipts': receipts,
         'outputs': outputs,
         'final_package_hash': final_package_hash,
         'final_package_manifest': final_package_manifest,
         'stale_outputs': stale_outputs,
+        'retained_narration_binding_valid': retained_narration_is_bound,
+        'shorts_render_receipt_valid': shorts_render_is_bound,
+        'thumbnail_candidate_manifest_valid': thumbnails_are_bound,
+        'evidence_manifest_binding_valid': evidence_is_bound,
         'blockers': blockers,
         'youtube_mutation': 'not_performed',
     }

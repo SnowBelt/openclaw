@@ -6,10 +6,16 @@ import argparse
 import csv
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
+YOUTUBE_ROOT = Path(__file__).resolve().parents[1]
+if str(YOUTUBE_ROOT) not in sys.path:
+    sys.path.insert(0, str(YOUTUBE_ROOT))
+
 from patternlab_common import display_path, ensure_dir, launch_root, output_root, read_text, utc_now
+from patternlab.state import sha256_file
 
 PROOF_TERMS = {"map", "photo", "source", "archive", "record", "document", "ledger", "proof", "neighborhood", "street", "freeway", "station", "water", "river"}
 STOCK_CLASSES = {"stock_video", "modern_context", "context_footage", "stock"}
@@ -54,6 +60,8 @@ def build_voice_visual_match_report(video_id: str) -> tuple[dict[str, Any], Path
     stock_rows = [row for row in media_rows if row.get("source_class", "").lower() in STOCK_CLASSES or "stock" in row.get("notes", "").lower()]
     frame_receipt_path = approval / "voice-visual-frame-receipt.json"
     frame_receipt = read_json(frame_receipt_path)
+    visual_judge_report = read_json(approval / "visual-judge-report.json")
+    visual_judge_receipt = read_json(approval / "local-visual-judge-receipt.json")
     blockers: list[str] = []
     warnings: list[str] = []
     if script_terms and not matched_rows:
@@ -72,6 +80,21 @@ def build_voice_visual_match_report(video_id: str) -> tuple[dict[str, Any], Path
         blockers.append("frame_level_visual_review_receipt_has_no_beats")
     elif frame_receipt.get("status") != "pass":
         blockers.append("frame_level_visual_review_not_passed")
+    else:
+        video = root / "video" / f"pattern-lab-video-{video_id}-draft.mp4"
+        if not video.exists() or frame_receipt.get("video_render_sha256") != sha256_file(video):
+            blockers.append("frame_level_visual_review_receipt_stale_or_wrong_render")
+        beat_rows = [row for row in frame_receipt.get("beats", []) if isinstance(row, dict)]
+        if any(not row.get("expected_claim_ids") for row in beat_rows):
+            blockers.append("frame_level_visual_review_claim_binding_missing")
+        if any(row.get("match") is not True for row in beat_rows):
+            blockers.append("frame_level_visual_review_contains_claim_mismatch")
+        missing_scores = [
+            row for row in beat_rows
+            if float(row.get("expected_claim_score", 0) or 0) <= 0
+        ]
+        if missing_scores:
+            blockers.append("frame_level_visual_review_expected_claim_score_missing")
     payload: dict[str, Any] = {
         "generated_at": utc_now(),
         "video_id": video_id,

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pattern Lab Media QA Director"
+  short_description: "Fail-closed 93+ visual and audio QA"
+  default_prompt: "Audit the final Pattern Lab thumbnails, long-form video, Shorts, captions, visuals, and audio. Require current artifact hashes, reject every defect, and block owner review unless every asset independently scores at least 93/100."

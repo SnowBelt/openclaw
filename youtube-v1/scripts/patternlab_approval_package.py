@@ -19,6 +19,8 @@ QUALITY_REPORTS = [
     ("long_form", "long-form-quality-report.json"),
     ("synthetic_disclosure", "synthetic-disclosure-report.json"),
     ("visual_quality", "visual-quality-report.json"),
+    ("visual_release_quality", "visual-release-quality-report.json"),
+    ("visual_judge", "visual-judge-report.json"),
     ("visual_variety", "visual-variety-report.json"),
     ("motion_polish", "motion-polish-report.json"),
     ("benchmark_growth", "benchmark-growth-report.json"),

@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "purpose": "Reusable, rights-safe generic context footage and stills for Pattern Lab. These assets may illustrate a general action or consequence but never prove a named city, person, date, neighborhood, or historical event.",
+  "required_asset_metadata": [
+    "context_action",
+    "context_emotion",
+    "editorial_role",
+    "geographic_scope",
+    "may_imply_named_city",
+    "source_role"
+  ],
+  "actions": {
+    "foot_traffic": {
+      "queries": ["people walking busy city sidewalk", "pedestrian street crowd", "downtown foot traffic"],
+      "safe_narration_uses": ["foot traffic", "street life", "customers passing storefronts"],
+      "disallowed_narration_uses": ["this named street", "this named neighborhood", "this historical event"]
+    },
+    "commuting_traffic": {
+      "queries": ["urban traffic at dusk", "cars moving downtown street", "commuter traffic city"],
+      "safe_narration_uses": ["commuting", "traffic flow", "street access"],
+      "disallowed_narration_uses": ["this named freeway construction", "this named route at this date"]
+    },
+    "relocation": {
+      "queries": ["family moving boxes house", "moving truck residential street", "packing a home moving day"],
+      "safe_narration_uses": ["relocation", "a family leaving", "human consequence"],
+      "disallowed_narration_uses": ["a documented named family", "the actual clearance event"]
+    },
+    "storefront_economy": {
+      "queries": ["small business storefront customers", "neighborhood shop exterior", "people entering local store"],
+      "safe_narration_uses": ["small-business trade", "customer access", "street-facing commerce"],
+      "disallowed_narration_uses": ["a named business", "a named historic district"]
+    },
+    "industrial_labor": {
+      "queries": ["factory workers shift change", "industrial worker hands", "manufacturing floor wide"],
+      "safe_narration_uses": ["industrial work", "shift change", "factory economy"],
+      "disallowed_narration_uses": ["a named plant", "a documented labor action"]
+    },
+    "neighborhood_life": {
+      "queries": ["neighbors talking on porch", "residential neighborhood evening", "community street life"],
+      "safe_narration_uses": ["neighbors", "daily neighborhood life", "community ties"],
+      "disallowed_narration_uses": ["a named historical neighborhood", "a known resident"]
+    },
+    "transit_mobility": {
+      "queries": ["city bus passengers", "subway platform commuters", "streetcar urban travel"],
+      "safe_narration_uses": ["mobility", "access", "transit dependence"],
+      "disallowed_narration_uses": ["a named transit line", "a local service change"]
+    },
+    "urban_change_atmosphere": {
+      "queries": ["city construction crane street", "urban demolition exterior", "downtown development aerial"],
+      "safe_narration_uses": ["urban change", "construction pressure", "the scale of redevelopment"],
+      "disallowed_narration_uses": ["a named project", "proof of a demolition or clearance"]
+    }
+  },
+  "default_asset_contract": {
+    "source_role": "modern_context",
+    "editorial_role": "context_only",
+    "geographic_scope": "generic",
+    "may_imply_named_city": false,
+    "requires_exact_item_rights_receipt": true,
+    "requires_illustrative_label_when_city_identity_could_be_inferred": true
+  }
+}

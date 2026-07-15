@@ -1,8 +1,8 @@
 {
-  "version": 4,
+  "version": 5,
   "channel": "Pattern Lab",
-  "purpose": "Free-first thumbnail production policy for Pattern Lab city-history thumbnails.",
-  "default_cost": "free",
+  "purpose": "Rights-first thumbnail production policy for Pattern Lab city-history thumbnails, with owner-approved Codex image generation primary for non-proof support assets.",
+  "default_cost": "Codex image generation primary for non-proof support; free/local tools remain the secondary resilient path",
   "paid_tools_require_owner_approval": true,
   "approved_free_tools": [
     "Canva Free",
@@ -19,6 +19,8 @@
     "SAM2",
     "rembg",
     "ComfyUI local workflow",
+    "Draw Things local workflow",
+    "Qwen Image local model",
     "FLUX.1-schnell-class local model",
     "SDXL-class local model"
   ],
@@ -29,7 +31,7 @@
     "Topaz Photo AI",
     "Gigapixel",
     "paid stock assets",
-    "paid AI image services"
+    "paid AI image services other than owner-approved Codex image generation"
   ],
   "free_asset_requirements": [
     "rights ledger row",
@@ -103,8 +105,9 @@
   },
   "recommended_upgrade_path": {
     "current_final_renderer": "Swift/AppKit deterministic thumbnail composite",
-    "free_ai_support": "ComfyUI local workflow with FLUX.1-schnell/SDXL-class models for support graphics only",
-    "premium_ai_support_if_owner_approves": "OpenAI gpt-image-2 via image_generate for high-instruction-following support graphics and reference edits",
+    "free_ai_support": "Draw Things for interactive Apple-Silicon editing plus ComfyUI for repeatable Qwen Image/FLUX-family support workflows",
+    "primary_ai_support": "Codex built-in image generation for high-instruction-following non-proof support graphics and reference-safe support edits",
+    "secondary_ai_support": "Draw Things for interactive Apple-Silicon editing plus ComfyUI for repeatable Qwen Image/FLUX-family support workflows",
     "transparent_cutout_premium_if_owner_approves": "OpenAI gpt-image-1.5 when transparent-background output is required"
   },
   "execution_quality_gates": [

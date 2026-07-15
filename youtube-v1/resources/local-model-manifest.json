@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "model_root_environment": "PATTERNLAB_MODEL_ROOT",
+  "default_model_root": "/Users/openclaw/PatternLabModels",
+  "models": {
+    "whisperx_transcription": {
+      "repository": "Systran/faster-whisper-small.en",
+      "revision": "main",
+      "local_directory": "faster-whisper-small.en",
+      "required_files": ["config.json", "model.bin", "tokenizer.json"],
+      "purpose": "English transcription for complete-sentence Short boundaries and word timing"
+    },
+    "whisperx_alignment": {
+      "repository": "facebook/wav2vec2-base-960h",
+      "revision": "main",
+      "local_directory": "wav2vec2-base-960h",
+      "required_files": ["config.json", "model.safetensors", "preprocessor_config.json"],
+      "purpose": "English word alignment for caption and edit-boundary verification"
+    },
+    "siglip2_frame_match": {
+      "repository": "google/siglip2-base-patch16-224",
+      "revision": "main",
+      "local_directory": "siglip2-base-patch16-224",
+      "required_files": ["config.json", "model.safetensors", "preprocessor_config.json"],
+      "purpose": "Frame-to-narration image-text matching; no weak silent fallback is permitted"
+    }
+  }
+}
