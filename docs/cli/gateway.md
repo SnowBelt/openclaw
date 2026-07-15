@@ -514,7 +514,14 @@ launcher before a rollback restart. This preserves rollback compatibility when
 the previous release predates the current runtime-provenance contract. Both the
 staging and promotion gates require the dashboard routes, WebSocket upgrade,
 and a parseable read-only `selfImprovement.summary` response before accepting
-the candidate. Packaged uncommitted candidates also bind their source stamp to
+the candidate. Pass `--enable-sig-background` only when the operator has chosen
+to opt the managed service into the recommendation-only background cycle; the
+private staging process always keeps that cycle disabled. A successful
+promotion preregisters a hash-verified rollback bundle containing the previous
+runtime pointer, launcher, LaunchAgent, and service environment. Managed
+restarts use `custom-runtime-restart.sh`; scoped rollback uses
+`custom-runtime-rollback.sh`, so neither operation rewrites the custom service
+through the package-local native snapshot pointer. Packaged uncommitted candidates also bind their source stamp to
 the SHA-256 digest of the packaged source-provenance ledger; commit-backed
 updates bind the stamp directly to the build commit.
 

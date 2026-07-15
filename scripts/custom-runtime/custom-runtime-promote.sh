@@ -12,15 +12,18 @@ state_dir=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
+desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 rollback_launcher=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}
+rollback_root="$runtime_home/rollbacks"
 
-usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--port 18789]' >&2; exit 64; }
-release= source_sha= port=18789
+usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--port 18789] [--enable-sig-background]' >&2; exit 64; }
+release= source_sha= port=18789 enable_sig_background=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
+    --enable-sig-background) enable_sig_background=true; shift ;;
     *) usage ;;
   esac
 done
@@ -50,12 +53,52 @@ if ! mkdir "$promotion_lock" 2>/dev/null; then
   printf '%s\n' 'another custom-runtime promotion is already active' >&2
   exit 75
 fi
-cleanup_promotion_lock() { rmdir "$promotion_lock" 2>/dev/null || true; }
-trap cleanup_promotion_lock EXIT
+rollback_bundle_tmp=
+promotion_applied=false
+promotion_committed=false
+cleanup_promotion() {
+  status=$?
+  trap - EXIT INT TERM
+  if [ "$status" -ne 0 ] && [ "$promotion_applied" = true ] && \
+     [ "$promotion_committed" = false ]; then
+    restore || status=1
+  fi
+  [ -z "$rollback_bundle_tmp" ] || rm -rf "$rollback_bundle_tmp" 2>/dev/null || true
+  rmdir "$promotion_lock" 2>/dev/null || true
+  exit "$status"
+}
+trap cleanup_promotion EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+failure_receipt="$runtime_home/receipts/promotion-failure-$timestamp.json"
+record_failure() {
+  gate=$1
+  detail=${2:-}
+  python3 - "$failure_receipt" "$timestamp" "$gate" "$detail" "$release" "$source_sha" <<'PY'
+import json
+import os
+import sys
+
+target, at, gate, detail, release, source_sha = sys.argv[1:]
+with open(target, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "at": at,
+            "detail": detail,
+            "gate": gate,
+            "release": os.path.basename(release),
+            "result": "promotion_gate_failed",
+            "sourceSha": source_sha,
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+PY
+}
 previous_pointer="$runtime_home/active-runtime.json"
 pointer_backup="$runtime_home/backups/active-runtime.$timestamp.json"
 plist_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.plist"
@@ -63,6 +106,73 @@ env_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.env"
 [ -f "$previous_pointer" ] && cp -p "$previous_pointer" "$pointer_backup" || :
 cp -p "$plist" "$plist_backup"
 cp -p "$env_file" "$env_backup"
+
+rollback_bundle=
+rollback_manifest_sha=
+if [ -f "$pointer_backup" ]; then
+  rollback_source_launcher=$launcher
+  [ -z "$rollback_launcher" ] || rollback_source_launcher=$rollback_launcher
+  [ -f "$rollback_source_launcher" ] || {
+    printf '{"at":"%s","result":"rollback_preflight_launcher_missing"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+    exit 1
+  }
+  if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer_backup" \
+    "$rollback_source_launcher" --verify >/dev/null 2>&1; then
+    printf '{"at":"%s","result":"rollback_preflight_verify_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+    exit 1
+  fi
+  mkdir -p "$rollback_root"
+  rollback_bundle_tmp="$rollback_root/.rollback-$timestamp-$$"
+  rollback_bundle="$rollback_root/rollback-$timestamp-$$"
+  mkdir -m 700 "$rollback_bundle_tmp"
+  cp -p "$pointer_backup" "$rollback_bundle_tmp/active-runtime.json"
+  cp -p "$plist_backup" "$rollback_bundle_tmp/ai.openclaw.gateway.plist"
+  cp -p "$env_backup" "$rollback_bundle_tmp/ai.openclaw.gateway.env"
+  cp -p "$rollback_source_launcher" "$rollback_bundle_tmp/custom-runtime-launcher.sh"
+  python3 - "$rollback_bundle_tmp" "$release" "$source_sha" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+bundle, release, source_sha = sys.argv[1:]
+with open(os.path.join(bundle, "active-runtime.json"), encoding="utf-8") as f:
+    previous = json.load(f)
+with open(os.path.join(release, "snapshot.json"), encoding="utf-8") as f:
+    snapshot = json.load(f)
+files = {}
+for name in (
+    "active-runtime.json",
+    "ai.openclaw.gateway.plist",
+    "ai.openclaw.gateway.env",
+    "custom-runtime-launcher.sh",
+):
+    with open(os.path.join(bundle, name), "rb") as f:
+        files[name] = hashlib.sha256(f.read()).hexdigest()
+manifest = {
+    "version": 1,
+    "candidateReleaseId": os.path.basename(release),
+    "candidateRuntimeReleaseId": snapshot.get("releaseId"),
+    "candidateSourceSha": source_sha,
+    "rollbackReleaseId": previous.get("releaseId"),
+    "rollbackRuntimeRoot": previous.get("runtimeRoot"),
+    "files": files,
+}
+required = (
+    manifest["candidateRuntimeReleaseId"],
+    manifest["rollbackReleaseId"],
+    manifest["rollbackRuntimeRoot"],
+)
+if not all(isinstance(value, str) and value for value in required):
+    raise SystemExit("rollback manifest identity is incomplete")
+with open(os.path.join(bundle, "manifest.json"), "w", encoding="utf-8") as f:
+    json.dump(manifest, f, indent=2, sort_keys=True)
+    f.write("\n")
+PY
+  rollback_manifest_sha=$(shasum -a 256 "$rollback_bundle_tmp/manifest.json" | awk '{print $1}')
+  mv "$rollback_bundle_tmp" "$rollback_bundle"
+  rollback_bundle_tmp=
+fi
 
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 capability_manifest_sha=$(shasum -a 256 "$capability_manifest" | awk '{print $1}')
@@ -143,6 +253,7 @@ restore() {
   [ -f "$pointer_backup" ] && cp -p "$pointer_backup" "$previous_pointer" || rm -f "$previous_pointer"
   cp -p "$plist_backup" "$plist"
   cp -p "$env_backup" "$env_file"
+  cp -p "$plist" "$desired_plist"
   if [ -n "$rollback_launcher" ]; then
     if [ ! -f "$rollback_launcher" ]; then
       printf '{"at":"%s","result":"rollback_launcher_missing"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
@@ -169,6 +280,7 @@ restore() {
     sleep 2
   done
   if [ "$rollback_ok" = true ] && "$launcher" --verify >/dev/null 2>&1; then
+    promotion_applied=false
     printf '{"at":"%s","result":"rolled_back_verified"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
   else
     printf '{"at":"%s","result":"rollback_health_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
@@ -176,11 +288,18 @@ restore() {
   fi
 }
 
+fail_promotion() {
+  record_failure "$1" "${2:-}"
+  restore || exit 1
+  exit 1
+}
+
+promotion_applied=true
 cp -p "$pointer_tmp" "$previous_pointer"
 rm -f "$pointer_tmp"
-python3 - "$env_file" "$launcher" "$release" <<'PY'
+python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" <<'PY'
 import os, shlex, stat, sys
-path, launcher, release = sys.argv[1:]
+path, launcher, release, enable_sig_background = sys.argv[1:]
 mode = stat.S_IMODE(os.stat(path).st_mode)
 with open(path, encoding="utf-8") as f:
     replaced = (
@@ -188,12 +307,16 @@ with open(path, encoding="utf-8") as f:
         "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=",
         "export OPENCLAW_BUNDLED_PLUGINS_DIR=",
     )
+    if enable_sig_background == "true":
+        replaced += ("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=",)
     lines = [line for line in f.readlines() if not line.startswith(replaced)]
 lines.append(f"export OPENCLAW_WRAPPER={shlex.quote(launcher)}\n")
 lines.append(f"export OPENCLAW_RUNTIME_SNAPSHOT_ROOT={shlex.quote(release)}\n")
 lines.append(
     f"export OPENCLAW_BUNDLED_PLUGINS_DIR={shlex.quote(os.path.join(release, 'dist-runtime', 'extensions'))}\n"
 )
+if enable_sig_background == "true":
+    lines.append("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1\n")
 with open(path + ".tmp", "w", encoding="utf-8") as f:
     f.writelines(lines)
 os.chmod(path + ".tmp", mode)
@@ -210,15 +333,14 @@ data["ProgramArguments"] = [wrapper, env_file, launcher, "gateway", "--port", po
 with open(path + ".tmp", "wb") as f: plistlib.dump(data, f, sort_keys=False)
 PY
 mv "$plist.tmp" "$plist"
-cp -p "$plist" "$runtime_home/ai.openclaw.gateway.desired.plist"
+cp -p "$plist" "$desired_plist"
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
 for _ in $(seq 1 15); do
   launchctl print "gui/$uid/$label" >/dev/null 2>&1 || break
   sleep 1
 done
 if ! launchctl bootstrap "gui/$uid" "$plist"; then
-  restore
-  exit 1
+  fail_promotion bootstrap
 fi
 
 ok=false
@@ -226,16 +348,19 @@ for _ in $(seq 1 45); do
   if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then ok=true; break; fi
   sleep 2
 done
-if [ "$ok" != true ]; then restore; exit 1; fi
+if [ "$ok" != true ]; then fail_promotion health; fi
 if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! pgrep -f "$release/dist/index.js gateway --port $port" >/dev/null 2>&1 || \
    ! grep -Fqx "export OPENCLAW_WRAPPER=$launcher" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=$release" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file"; then
-  restore
-  exit 1
+  fail_promotion runtime_identity
 fi
-routes=$(python3 - "$manifest" "$previous_pointer" <<'PY'
+if [ "$enable_sig_background" = true ] && \
+   ! grep -Fqx 'export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1' "$env_file"; then
+  fail_promotion sig_background_environment
+fi
+if ! routes=$(python3 - "$manifest" "$previous_pointer" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     manifest = json.load(f)
@@ -249,11 +374,12 @@ for surface_id in pointer["requiredSurfaces"]:
         if isinstance(value, str) and value.startswith("/") and " " not in value:
             print(value.lstrip("/"))
 PY
-)
+); then
+  fail_promotion route_inventory
+fi
 for route in $routes self-improvement; do
   if [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" != 200 ]; then
-    restore
-    exit 1
+    fail_promotion route "$route"
   fi
 done
 websocket_headers="$runtime_home/websocket-promotion.$$.headers"
@@ -263,18 +389,20 @@ curl --silent --show-error --max-time 3 --dump-header "$websocket_headers" --out
   "http://127.0.0.1:$port/" >/dev/null 2>&1 || true
 if ! grep -q '^HTTP/1.1 101 ' "$websocket_headers"; then
   rm -f "$websocket_headers"
-  restore
-  exit 1
+  fail_promotion websocket
 fi
 rm -f "$websocket_headers"
 self_improvement_summary="$runtime_home/self-improvement-promotion.$$.json"
-if ! OPENCLAW_CONFIG_PATH="$config_path" OPENCLAW_STATE_DIR="$state_dir" \
+if ! OPENAI_API_KEY= AZURE_OPENAI_API_KEY= OPENAI_BASE_URL= \
+  OPENCLAW_CONFIG_PATH="$config_path" OPENCLAW_STATE_DIR="$state_dir" \
+  OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
+  OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
+  OPENCLAW_CUSTOM_RUNTIME_POINTER="$previous_pointer" \
   "$launcher" self-improvement summary \
-  --timeout 10000 --limit 1 --json \
+  --url "ws://127.0.0.1:$port" --timeout 10000 --limit 1 --json \
   > "$self_improvement_summary"; then
   rm -f "$self_improvement_summary"
-  restore
-  exit 1
+  fail_promotion self_improvement_rpc
 fi
 if ! python3 - "$self_improvement_summary" <<'PY'
 import json, sys
@@ -288,10 +416,38 @@ if not isinstance(summary.get("groups"), list):
 PY
 then
   rm -f "$self_improvement_summary"
-  restore
-  exit 1
+  fail_promotion self_improvement_contract
 fi
 rm -f "$self_improvement_summary"
-cp -p "$previous_pointer" "$runtime_home/last-known-good.json"
-printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s"}\n' "$timestamp" "$(basename "$release")" "$source_sha" > "$runtime_home/receipts/promotion-$timestamp.json"
+if [ -n "$rollback_bundle" ]; then
+  cp -p "$pointer_backup" "$runtime_home/last-known-good.json"
+  rollback_pointer_tmp="$runtime_home/active-rollback.$$.json"
+  python3 - "$rollback_pointer_tmp" "$rollback_bundle" "$rollback_manifest_sha" <<'PY'
+import json
+import os
+import sys
+
+target, bundle, manifest_sha = sys.argv[1:]
+with open(os.path.join(bundle, "manifest.json"), encoding="utf-8") as f:
+    manifest = json.load(f)
+with open(target, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "version": 1,
+            "bundle": bundle,
+            "manifestSha256": manifest_sha,
+            "candidateReleaseId": manifest["candidateReleaseId"],
+            "candidateRuntimeReleaseId": manifest["candidateRuntimeReleaseId"],
+            "rollbackReleaseId": manifest["rollbackReleaseId"],
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+PY
+  mv "$rollback_pointer_tmp" "$runtime_home/active-rollback.json"
+fi
+printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"
+promotion_committed=true

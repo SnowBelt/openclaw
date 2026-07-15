@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildSelfImprovementSoakRestartCommand,
+  buildSelfImprovementSoakRollbackCommand,
   collectSelfImprovementSoakSample,
   executeSelfImprovementSoakCycle,
   hashSelfImprovementSoakEvidence,
@@ -141,17 +143,53 @@ describe("Self-Improvement production soak runner", () => {
     expect(deps.rollbackCandidate).toHaveBeenCalledOnce();
   });
 
-  it("records an RPC collection error without attempting an unverified rollback", async () => {
-    const deps = dependencies(vi.fn(async () => Promise.reject(new Error("offline"))));
+  it("uses the preregistered managed rollback when RPC collection fails", async () => {
+    const deps = dependencies(
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
     const result = await executeSelfImprovementSoakCycle({
       receipt: receipt(),
       dashboardBaseUrl: "http://127.0.0.1:18789",
       dependencies: deps,
     });
-    expect(result.rolledBack).toBe(false);
+    expect(result.rolledBack).toBe(true);
     expect(result.receipt.samples).toHaveLength(0);
-    expect(result.receipt.lastError).toContain("Sample collection failed");
-    expect(deps.rollbackCandidate).not.toHaveBeenCalled();
+    expect(result.receipt.rollbackResult).toMatchObject({
+      fromReleaseId: "candidate",
+      toReleaseId: "previous",
+    });
+    expect(deps.rollbackCandidate).toHaveBeenCalledOnce();
+  });
+
+  it("builds only the managed custom-runtime restart and rollback commands", () => {
+    expect(
+      buildSelfImprovementSoakRestartCommand({ runtimeHome: "/managed/runtime", port: 18888 }),
+    ).toEqual({
+      command: "/managed/runtime/bin/custom-runtime-restart.sh",
+      args: ["--port", "18888"],
+    });
+    expect(
+      buildSelfImprovementSoakRollbackCommand({
+        runtimeHome: "/managed/runtime",
+        candidateRuntimeReleaseId: "native-candidate",
+        rollbackReleaseId: "custom-previous",
+        port: 18888,
+        verifyOnly: true,
+      }),
+    ).toEqual({
+      command: "/managed/runtime/bin/custom-runtime-rollback.sh",
+      args: [
+        "--candidate-runtime-release",
+        "native-candidate",
+        "--rollback-release",
+        "custom-previous",
+        "--port",
+        "18888",
+        "--verify-only",
+      ],
+    });
   });
 
   it("writes durable receipts and hashes only bounded evidence artifacts", async () => {

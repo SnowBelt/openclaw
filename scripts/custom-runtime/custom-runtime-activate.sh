@@ -7,20 +7,21 @@ releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releas
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
-managed_files='custom-runtime-activate.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-stage.sh custom-runtime-updater.sh copy_stage_state.py'
+managed_files='custom-runtime-activate.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-stage.sh custom-runtime-updater.sh copy_stage_state.py'
 
 usage() {
-  printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--stage-port 18790] [--port 18789]' >&2
+  printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2
   exit 64
 }
 
-release= source_sha= stage_port=18790 port=18789
+release= source_sha= stage_port=18790 port=18789 enable_sig_background=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --stage-port) stage_port=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
+    --enable-sig-background) enable_sig_background=true; shift ;;
     *) usage ;;
   esac
 done
@@ -139,13 +140,18 @@ done
 
 rollback_launcher=
 [ ! -f "$backup/custom-runtime-launcher.sh" ] || rollback_launcher="$backup/custom-runtime-launcher.sh"
-if ! OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
-  "$runtime_home/bin/custom-runtime-promote.sh" \
-  --release "$release" --source-sha "$source_sha" --port "$port"; then
-  exit 1
+if [ "$enable_sig_background" = true ]; then
+  OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    "$runtime_home/bin/custom-runtime-promote.sh" \
+    --release "$release" --source-sha "$source_sha" --port "$port" \
+    --enable-sig-background || exit 1
+else
+  OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    "$runtime_home/bin/custom-runtime-promote.sh" \
+    --release "$release" --source-sha "$source_sha" --port "$port" || exit 1
 fi
 
 committed=true
-printf '{"at":"%s","result":"activated","release":"%s","sourceSha":"%s"}\n' \
-  "$stamp" "$(basename "$release")" "$source_sha" > "$runtime_home/receipts/activation-$stamp.json"
+printf '{"at":"%s","result":"activated","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s}\n' \
+  "$stamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/activation-$stamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_ACTIVATED release=$(basename "$release")"

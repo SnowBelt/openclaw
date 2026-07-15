@@ -218,13 +218,14 @@ PY
       printf '%s\n' 'candidate stage WebSocket upgrade failed' >&2
       exit 1
     }
-    if ! OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" \
+    if ! OPENAI_API_KEY= AZURE_OPENAI_API_KEY= OPENAI_BASE_URL= \
+      OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" \
       OPENCLAW_STATE_DIR="$stage/state" \
       OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
       OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
       OPENCLAW_CUSTOM_RUNTIME_POINTER="$stage/pointer.json" \
       "$launcher" self-improvement summary \
-      --timeout 10000 --limit 1 --json \
+      --url "ws://127.0.0.1:$port" --timeout 10000 --limit 1 --json \
       > "$stage/self-improvement-summary.json" 2>> "$stage/gateway.log"; then
       printf '%s\n' 'candidate stage Self-Improvement RPC failed' >&2
       exit 1

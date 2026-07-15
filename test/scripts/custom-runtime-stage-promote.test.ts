@@ -49,7 +49,7 @@ function fixture() {
   }
   writeFileSync(assetPath, "// pcc\n");
   writeFileSync(pluginManifestPath, "{}\n");
-  writeFileSync(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
+  writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFileSync(
     manifestPath,
@@ -209,9 +209,15 @@ describe("custom runtime canary and rollback", () => {
     const fakeBin = path.join(input.home, "bin");
     const launchctlState = path.join(input.home, "launchctl-count");
     const promotedPlist = path.join(input.home, "promoted-gateway.plist");
+    const rollbackLauncher = path.join(input.home, "rollback-launcher.sh");
     mkdirSync(fakeBin, { recursive: true });
     mkdirSync(input.runtimeHome, { recursive: true });
-    const originalPointer = '{"releaseId":"release-old","requiredSurfaces":[]}\n';
+    const previousRuntimeRoot = path.join(input.releasesDir, "release-old");
+    const originalPointer = `${JSON.stringify({
+      releaseId: "release-old",
+      runtimeRoot: previousRuntimeRoot,
+      requiredSurfaces: [],
+    })}\n`;
     writeFileSync(activePointer, originalPointer);
     writeFileSync(
       plist,
@@ -222,6 +228,7 @@ describe("custom runtime canary and rollback", () => {
     );
     writeFileSync(envFile, "export EXISTING_VALUE=1\n");
     executable(envWrapper, '#!/bin/sh\nexec "$@"\n');
+    executable(rollbackLauncher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n');
     executable(
       path.join(fakeBin, "launchctl"),
       `#!/bin/sh
@@ -264,6 +271,7 @@ esac
           HOME: input.home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER: rollbackLauncher,
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plist,

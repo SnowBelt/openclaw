@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
-import { rollbackGatewayRuntimeSnapshot } from "../../src/daemon/gateway-runtime-snapshot.js";
 import { callGatewayCli } from "../../src/gateway/call.js";
 import {
   SELF_IMPROVEMENT_PRODUCTION_SOAK_MS,
@@ -56,6 +56,48 @@ const productionResultSchema = z.object({
 
 type GatewayCall = (method: string, params: unknown) => Promise<unknown>;
 type RouteProbe = (url: string) => Promise<boolean>;
+
+export type SelfImprovementManagedRuntimeCommand = {
+  command: string;
+  args: string[];
+};
+
+function resolveCustomRuntimeHome(): string {
+  return path.resolve(
+    process.env.OPENCLAW_CUSTOM_RUNTIME_HOME ?? path.join(os.homedir(), ".openclaw-custom-runtime"),
+  );
+}
+
+export function buildSelfImprovementSoakRollbackCommand(params: {
+  runtimeHome: string;
+  candidateRuntimeReleaseId: string;
+  rollbackReleaseId: string;
+  port?: number;
+  verifyOnly?: boolean;
+}): SelfImprovementManagedRuntimeCommand {
+  return {
+    command: path.join(path.resolve(params.runtimeHome), "bin", "custom-runtime-rollback.sh"),
+    args: [
+      "--candidate-runtime-release",
+      params.candidateRuntimeReleaseId,
+      "--rollback-release",
+      params.rollbackReleaseId,
+      "--port",
+      String(params.port ?? 18789),
+      ...(params.verifyOnly ? ["--verify-only"] : []),
+    ],
+  };
+}
+
+export function buildSelfImprovementSoakRestartCommand(params: {
+  runtimeHome: string;
+  port?: number;
+}): SelfImprovementManagedRuntimeCommand {
+  return {
+    command: path.join(path.resolve(params.runtimeHome), "bin", "custom-runtime-restart.sh"),
+    args: ["--port", String(params.port ?? 18789)],
+  };
+}
 
 export type SelfImprovementSoakDependencies = {
   callGateway: GatewayCall;
@@ -322,14 +364,40 @@ export async function executeSelfImprovementSoakCycle(params: {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      receipt: recordSelfImprovementSoakError({
-        receipt,
-        error: `Sample collection failed: ${message}`,
-        observedAt: params.dependencies.now(),
-      }),
-      rolledBack: false,
-    };
+    receipt = recordSelfImprovementSoakError({
+      receipt,
+      error: `Sample collection failed: ${message}`,
+      observedAt: params.dependencies.now(),
+    });
+    if (!receipt.automaticRollbackEnabled || !receipt.rollbackReleaseId) {
+      return { receipt, rolledBack: false };
+    }
+    try {
+      const rollback = await params.dependencies.rollbackCandidate({
+        candidateReleaseId: receipt.candidateReleaseId,
+        rollbackReleaseId: receipt.rollbackReleaseId,
+      });
+      return {
+        receipt: recordSelfImprovementSoakRollback({
+          receipt,
+          performedAt: rollback.performedAt,
+          verifiedAt: rollback.verifiedAt,
+          toReleaseId: rollback.releaseId,
+        }),
+        rolledBack: true,
+      };
+    } catch (rollbackError) {
+      const rollbackMessage =
+        rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+      return {
+        receipt: recordSelfImprovementSoakError({
+          receipt,
+          error: `Sample collection failed (${message}); scoped rollback failed: ${rollbackMessage}`,
+          observedAt: params.dependencies.now(),
+        }),
+        rolledBack: false,
+      };
+    }
   }
   receipt = appendSelfImprovementSoakSample({ receipt, sample });
   if (!shouldAutomaticallyRollbackSelfImprovementSoak({ receipt, sample })) {
@@ -354,14 +422,13 @@ export async function executeSelfImprovementSoakCycle(params: {
   };
 }
 
-async function runFixedCommand(params: {
+async function runManagedRuntimeCommand(params: {
+  command: string;
   args: string[];
-  cwd: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("pnpm", ["--silent", "openclaw", ...params.args], {
-      cwd: params.cwd,
+    const child = spawn(params.command, params.args, {
       env: params.env,
       stdio: ["ignore", "inherit", "inherit"],
     });
@@ -373,7 +440,7 @@ async function runFixedCommand(params: {
       }
       reject(
         new Error(
-          `OpenClaw command failed (${signal ? `signal ${signal}` : `exit ${String(code)}`}): ${params.args.join(" ")}`,
+          `Managed runtime command failed (${signal ? `signal ${signal}` : `exit ${String(code)}`}): ${params.command} ${params.args.join(" ")}`,
         ),
       );
     });
@@ -430,7 +497,7 @@ function defaultRouteProbe(url: string): Promise<boolean> {
 
 function buildDefaultDependencies(params: {
   gatewayUrl?: string;
-  rootDir: string;
+  runtimeHome: string;
 }): SelfImprovementSoakDependencies {
   const callGateway = defaultGatewayCall(params);
   const sleep = async (durationMs: number) =>
@@ -445,38 +512,28 @@ function buildDefaultDependencies(params: {
     probeRoute: defaultRouteProbe,
     sleep,
     restartManagedGateway: async () => {
-      await runFixedCommand({
-        args: ["gateway", "restart", "--force", "--json"],
-        cwd: params.rootDir,
+      await runManagedRuntimeCommand({
+        ...buildSelfImprovementSoakRestartCommand({ runtimeHome: params.runtimeHome }),
         env: childEnv,
       });
     },
     rollbackCandidate: async ({ candidateReleaseId, rollbackReleaseId }) => {
-      const before = productionResultSchema.parse(
-        await callGateway("selfImprovement.productionCheck", {
-          days: 14,
-          limit: 14,
-          requireModelReady: true,
-          requireEvalsReady: true,
-        }),
-      );
-      if (before.runtime.releaseId !== candidateReleaseId) {
-        throw new Error(
-          "Refusing rollback because the active runtime is not the scoped candidate.",
-        );
-      }
       const performedAt = Date.now();
-      rollbackGatewayRuntimeSnapshot({ rootDir: params.rootDir, releaseId: rollbackReleaseId });
-      await runFixedCommand({
-        args: ["gateway", "restart", "--force", "--json"],
-        cwd: params.rootDir,
+      await runManagedRuntimeCommand({
+        ...buildSelfImprovementSoakRollbackCommand({
+          runtimeHome: params.runtimeHome,
+          candidateRuntimeReleaseId: candidateReleaseId,
+          rollbackReleaseId,
+        }),
         env: childEnv,
       });
-      const verifiedAt = await waitForRuntimeRelease({
-        callGateway,
-        releaseId: rollbackReleaseId,
-        sleep,
-      });
+      const pointer = JSON.parse(
+        await fs.readFile(path.join(params.runtimeHome, "active-runtime.json"), "utf8"),
+      ) as { releaseId?: unknown };
+      if (pointer.releaseId !== rollbackReleaseId) {
+        throw new Error("Managed rollback pointer did not match the preregistered release.");
+      }
+      const verifiedAt = Date.now();
       return { releaseId: rollbackReleaseId, performedAt, verifiedAt };
     },
   };
@@ -528,12 +585,37 @@ export async function runSelfImprovementProductionSoak(params: {
     const elapsedMs = Math.max(0, now - receipt.startedAt);
     for (const [index, offsetMs] of MANAGED_RESTART_OFFSETS_MS.entries()) {
       if (elapsedMs >= offsetMs && receipt.managedRestartReleaseIds.length <= index) {
-        receipt = await restartAndVerifyCandidate({
-          receipt,
-          dashboardBaseUrl: params.dashboardBaseUrl,
-          dependencies: params.dependencies,
-        });
-        await writeSelfImprovementSoakReceipt({ filePath: params.receiptPath, receipt });
+        try {
+          receipt = await restartAndVerifyCandidate({
+            receipt,
+            dashboardBaseUrl: params.dashboardBaseUrl,
+            dependencies: params.dependencies,
+          });
+          await writeSelfImprovementSoakReceipt({ filePath: params.receiptPath, receipt });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          receipt = recordSelfImprovementSoakError({
+            receipt,
+            error: `Managed restart failed: ${message}`,
+            observedAt: params.dependencies.now(),
+          });
+          if (!receipt.automaticRollbackEnabled || !receipt.rollbackReleaseId) {
+            await writeSelfImprovementSoakReceipt({ filePath: params.receiptPath, receipt });
+            throw error;
+          }
+          const rollback = await params.dependencies.rollbackCandidate({
+            candidateReleaseId: receipt.candidateReleaseId,
+            rollbackReleaseId: receipt.rollbackReleaseId,
+          });
+          receipt = recordSelfImprovementSoakRollback({
+            receipt,
+            performedAt: rollback.performedAt,
+            verifiedAt: rollback.verifiedAt,
+            toReleaseId: rollback.releaseId,
+          });
+          await writeSelfImprovementSoakReceipt({ filePath: params.receiptPath, receipt });
+          return receipt;
+        }
       }
     }
 
@@ -581,6 +663,7 @@ async function main(): Promise<void> {
     },
   });
   const rootDir = path.resolve(optionValue(values, "root") ?? process.cwd());
+  const runtimeHome = resolveCustomRuntimeHome();
   const receiptPath = resolveBoundedArtifactPath(
     optionValue(values, "receipt") ?? DEFAULT_RECEIPT_PATH,
     rootDir,
@@ -596,9 +679,26 @@ async function main(): Promise<void> {
       filePath: rollbackEvidencePath,
       rootDir,
     });
+    const rollbackReleaseId = optionValue(values, "rollback-release");
+    if (values["auto-rollback"]) {
+      if (!rollbackReleaseId) {
+        throw new Error("Automatic rollback requires --rollback-release.");
+      }
+      const childEnv = { ...process.env };
+      delete childEnv.OPENCLAW_ALLOW_OLDER_BINARY_DESTRUCTIVE_ACTIONS;
+      await runManagedRuntimeCommand({
+        ...buildSelfImprovementSoakRollbackCommand({
+          runtimeHome,
+          candidateRuntimeReleaseId: candidateReleaseId,
+          rollbackReleaseId,
+          verifyOnly: true,
+        }),
+        env: childEnv,
+      });
+    }
     const receipt = createSelfImprovementSoakReceipt({
       candidateReleaseId,
-      rollbackReleaseId: optionValue(values, "rollback-release"),
+      rollbackReleaseId,
       automaticRollbackEnabled: values["auto-rollback"] ?? false,
       startedAt: Date.now(),
       rollbackEvidence,
@@ -610,7 +710,7 @@ async function main(): Promise<void> {
 
   const dependencies = buildDefaultDependencies({
     gatewayUrl: optionValue(values, "gateway-url"),
-    rootDir,
+    runtimeHome,
   });
   if (command === "status") {
     const receipt = await readSelfImprovementSoakReceipt(receiptPath);

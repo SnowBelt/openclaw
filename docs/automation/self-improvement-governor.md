@@ -885,10 +885,15 @@ Rapid repeated samples do not count as distributed coverage.
 
 Automatic rollback is candidate-scoped and fail-closed. It is available only
 when a distinct retained rollback release was preregistered and cryptographic
-rollback evidence was attached at receipt creation. Before changing the latest
-snapshot pointer, the runner verifies that the live runtime is still the exact
-candidate. It removes any inherited downgrade override from managed lifecycle
-commands and never rolls back an unknown runtime.
+rollback evidence was attached at receipt creation. Receipt initialization also
+verifies the managed custom-runtime rollback registration before the 72-hour
+clock starts. The registration binds the active native runtime release id to a
+specific previous custom release and hashes the prior pointer, launcher,
+LaunchAgent, and service environment. Automatic rollback restores that complete
+managed control-plane bundle transactionally; it does not change the unrelated
+package-local native snapshot pointer. Managed soak restarts use the selected
+custom-runtime service without reinstalling it. Lifecycle commands remove any
+inherited downgrade override and never restart or roll back an unknown runtime.
 
 ## Safety Model
 

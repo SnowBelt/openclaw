@@ -204,6 +204,11 @@
         "src/self-improvement/production-readiness.ts",
         "src/gateway/server-methods/self-improvement.ts",
         "scripts/custom-runtime/custom-runtime-activate.sh",
+        "scripts/custom-runtime/custom-runtime-guard.sh",
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-restart.sh",
+        "scripts/custom-runtime/custom-runtime-rollback.sh",
+        "scripts/custom-runtime/custom-runtime-stage.sh",
         "scripts/dev/control-ui-self-improvement-smoke.ts"
       ]
     }
