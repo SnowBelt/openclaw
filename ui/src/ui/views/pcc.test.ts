@@ -3029,7 +3029,7 @@ describe("renderPccDashboard", () => {
       container.querySelector("[data-pcc-create-flow]")?.getAttribute("data-pcc-create-step"),
     ).toBe("describe");
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
-      "AI fills only the blanks",
+      "PCC fills only the blanks",
     );
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
       "Anything you type stays unchanged",
@@ -3039,10 +3039,17 @@ describe("renderPccDashboard", () => {
       "No automatic Codex use",
     );
     expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "without an LLM call",
+      "without calling a model",
     );
     expect(container.querySelector("[data-pcc-create-customize]")?.hasAttribute("open")).toBe(
       false,
+    );
+    const customizeSummary = container.querySelector("[data-pcc-create-customize-summary]");
+    expect(
+      customizeSummary?.querySelector(".pcc-create-options__summary-copy")?.textContent,
+    ).toContain("Change the details, team, workflow, or safety choices");
+    expect(customizeSummary?.querySelector(".pcc-create-options__summary-state")?.textContent).toBe(
+      "Optional",
     );
     expect(
       container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
@@ -3052,7 +3059,7 @@ describe("renderPccDashboard", () => {
     );
   });
 
-  it("offers five conflict-free execution profiles with qualitative Codex usage guidance", () => {
+  it("offers six conflict-free execution profiles with qualitative Codex usage guidance", () => {
     const onProjectFormChange = vi.fn();
     const container = renderView(
       createProps({
@@ -3065,8 +3072,9 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelectorAll("[data-pcc-execution-profile]")).toHaveLength(5);
+    expect(container.querySelectorAll("[data-pcc-execution-profile]")).toHaveLength(6);
     expect(container.querySelector('[data-pcc-execution-profile="ultra_local"]')).not.toBeNull();
+    expect(container.querySelector('[data-pcc-execution-profile="ultra_expert"]')).not.toBeNull();
     container
       .querySelector<HTMLInputElement>('[data-pcc-execution-profile="ultra_hybrid"]')
       ?.dispatchEvent(new Event("change", { bubbles: true }));
@@ -3092,13 +3100,70 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Ultra + Codex",
+      "Codex-led Ultra",
     );
     expect(codexContainer.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "one Codex approval is required before creation",
+      "one Codex approval is required before later work",
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).toBeNull();
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
+  });
+
+  it("makes the local-first maximum-quality route explicit without hidden overrides", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          projectDescription: "Build a dependable family calendar app.",
+          executionProfile: resolvePccExecutionProfilePreset("ultra_expert"),
+        },
+        executionCapacity: {
+          logicalCpuCount: 16,
+          performanceCpuCount: null,
+          totalRamGb: 64,
+          freeRamGb: 32,
+          load1: 1,
+          load5: 1,
+          load15: 1,
+          memoryPressure: "low",
+          activeOpenClawTaskCount: 0,
+          configuredSubagentLimit: 8,
+          observedLocalModelProcessCount: 0,
+          safeLocalAgentSlots: 8,
+          timestamp: "2026-07-15T00:00:00.000Z",
+          warnings: [],
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    const preview = container.querySelector("[data-pcc-execution-preview]");
+    expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
+      "Ultra + Expert Codex",
+    );
+    expect(preview?.textContent).toContain("One OpenClaw local coordinator");
+    expect(preview?.textContent).toContain("8 now (host-safe maximum)");
+    expect(preview?.textContent).toContain(
+      "planning, architecture, difficult problem-solving, debugging, and QA only",
+    );
+    expect(preview?.textContent).toContain("Minimum 93/100 target");
+    expect(preview?.textContent).toContain("one Codex specialist per project today");
+    expect(preview?.textContent).toContain("No hidden setting can override it");
+
+    const role = container.querySelector<HTMLSelectElement>("[data-pcc-codex-role]");
+    role!.value = "checkpoints";
+    role?.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionProfile: expect.objectContaining({
+          presetId: "ultra_expert",
+          codexRole: "checkpoints",
+        }),
+        codexPlanningAllowed: false,
+      }),
+    );
   });
 
   it("keeps unavailable models out of new choices while explaining a stale saved selection", () => {
@@ -3301,9 +3366,7 @@ describe("renderPccDashboard", () => {
       expect.objectContaining({
         title: "My Kitchen Plan",
         goal: "Finish the kitchen safely and on budget.",
-        outcomeMetrics: expect.stringContaining(
-          "My Kitchen Plan produces a first approved deliverable",
-        ),
+        outcomeMetrics: expect.stringContaining("Goal achieved:"),
         intakeApproved: true,
         planPreviewAccepted: true,
         intakeAnswers: expect.objectContaining({
@@ -3313,6 +3376,38 @@ describe("renderPccDashboard", () => {
         }),
       }),
     );
+  });
+
+  it("generates a meaningful project name, goal, and proof metrics from the finished prompt", () => {
+    const onProjectFormChange = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          projectDescription:
+            "I want to build a family calendar app that coordinates school, work, and appointments so everyone knows what happens next.",
+        },
+        onProjectFormChange,
+      }),
+    );
+
+    container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.click();
+
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Family Calendar App",
+        goal: "Build a family calendar app that coordinates school, work, and appointments so everyone knows what happens next.",
+        outcomeMetrics: expect.stringContaining("Goal achieved:"),
+        intakeAnswers: expect.objectContaining({
+          goal: "Build a family calendar app that coordinates school, work, and appointments so everyone knows what happens next.",
+          firstDeliverable: expect.stringContaining("Family Calendar App"),
+        }),
+        intakeApproved: true,
+        planPreviewAccepted: true,
+      }),
+    );
+    expect(onProjectFormChange.mock.calls.at(-1)?.[0]).not.toMatchObject({ title: "I" });
   });
 
   it("uses one Codex approval on review and does not expose a token-budget control", () => {
@@ -3479,7 +3574,7 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with AI.",
+      "Fill missing answers with PCC.",
     );
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.matches("[data-pcc-project-intake-autofill]"),
@@ -3496,7 +3591,7 @@ describe("renderPccDashboard", () => {
           firstDeliverable: expect.stringContaining("Kitchen Remodel Planner"),
           doneProof: expect.stringContaining("completion receipt"),
           constraints: expect.stringContaining("separate approval"),
-          owner: "Local Project Manager",
+          owner: "OpenClaw coordinator",
           blockers: expect.stringContaining("Unknown blockers"),
         }),
         planPreviewAccepted: false,
@@ -3524,7 +3619,7 @@ describe("renderPccDashboard", () => {
     const goalFill = container.querySelector<HTMLButtonElement>(
       '[data-pcc-intake-question-ai-fill="goal"]',
     );
-    expect(goalFill?.textContent).toContain("AI fill");
+    expect(goalFill?.textContent).toContain("PCC fill");
 
     goalFill?.click();
 
@@ -3541,7 +3636,7 @@ describe("renderPccDashboard", () => {
     const ownerRegenerate = container.querySelector<HTMLButtonElement>(
       '[data-pcc-intake-question-ai-fill="owner"]',
     );
-    expect(ownerRegenerate?.textContent).toContain("Regenerate with AI");
+    expect(ownerRegenerate?.textContent).toContain("Regenerate");
   });
 
   it("keeps AI intake autofill visible while editing a project with missing setup", () => {
@@ -3765,7 +3860,7 @@ describe("renderPccDashboard", () => {
     expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Focused",
     );
-    expect(pmContainer.textContent).toContain("without an LLM call");
+    expect(pmContainer.textContent).toContain("without calling a model");
   });
 
   it("renders responsibility routing labels and editor controls", () => {

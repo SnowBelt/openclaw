@@ -2813,6 +2813,22 @@ describe("PCC CRUD controller", () => {
     expect(state.pccProjectForm.planPreviewAccepted).toBe(false);
   });
 
+  it("waits for Generate Project Plan instead of turning the first keystroke into the name and goal", () => {
+    const state = createState({ pccProjectForm: { ...EMPTY_PCC_PROJECT_FORM } });
+
+    updatePccProjectForm(state, { projectDescription: "I" });
+    expect(state.pccProjectForm.title).toBe("");
+    expect(state.pccProjectForm.goal).toBe("");
+
+    updatePccProjectForm(state, {
+      projectDescription:
+        "I want to build a family calendar app that coordinates school, work, and appointments.",
+    });
+    expect(state.pccProjectForm.title).toBe("");
+    expect(state.pccProjectForm.goal).toBe("");
+    expect(state.pccProjectForm.planPreviewAccepted).toBe(false);
+  });
+
   it("builds and applies scoped AI regenerate previews without broad milestone writes", async () => {
     const detail = {
       project: { ...project, goal: "" },

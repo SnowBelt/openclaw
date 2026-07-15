@@ -1,9 +1,18 @@
 .pcc-shell {
+  box-sizing: border-box;
   container-name: pcc-shell;
   container-type: inline-size;
   display: grid;
   gap: 12px;
+  max-width: 100%;
+  min-width: 0;
   padding: 0 0 32px;
+  width: 100%;
+}
+
+.pcc-shell > * {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .pcc-hero,
@@ -616,6 +625,16 @@
   display: flex;
   gap: 12px;
   justify-content: space-between;
+  min-width: 0;
+}
+
+.pcc-editor__header > div:first-child {
+  min-width: 0;
+}
+
+.pcc-editor__header h3,
+.pcc-editor__header p {
+  overflow-wrap: anywhere;
 }
 
 .pcc-editor__header-actions {
@@ -1118,7 +1137,15 @@
 .pcc-create-options__nested > summary {
   cursor: pointer;
   list-style: none;
+  min-width: 0;
   padding: 13px 15px;
+}
+
+.pcc-create-options > summary {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .pcc-create-options > summary::-webkit-details-marker,
@@ -1127,11 +1154,29 @@
   display: none;
 }
 
-.pcc-create-options > summary > span {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
+.pcc-create-options__summary-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pcc-create-options__summary-copy strong,
+.pcc-create-options__summary-copy small {
+  display: block;
+  line-height: 1.35;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.pcc-create-options__summary-state {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 6px 9px;
 }
 
 .pcc-create-options > summary small {
@@ -1156,6 +1201,62 @@
 
 .pcc-editor__grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pcc-execution-preview {
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.pcc-execution-preview > div {
+  display: grid;
+  gap: 3px;
+}
+
+.pcc-execution-preview > div > span,
+.pcc-execution-preview > p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.pcc-execution-preview dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.pcc-execution-preview dl > div {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
+  border-radius: 12px;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: minmax(84px, 0.3fr) minmax(0, 1.7fr);
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.pcc-execution-preview dt,
+.pcc-execution-preview dd {
+  margin: 0;
+}
+
+.pcc-execution-preview dt {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.pcc-execution-preview dd {
+  color: var(--muted);
+  line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .pcc-create-start-hint {
@@ -1233,10 +1334,22 @@
   }
 
   .pcc-create-review-callout,
-  .pcc-create-planner-summary,
-  .pcc-create-options > summary > span {
+  .pcc-create-planner-summary {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .pcc-create-options > summary {
+    align-items: start;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pcc-create-options__summary-state {
+    justify-self: start;
+  }
+
+  .pcc-execution-preview dl > div {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .pcc-create-review-callout > span,
@@ -4694,6 +4807,22 @@
     padding-bottom: 92px;
   }
 
+  .pcc-shell button,
+  .pcc-shell input,
+  .pcc-shell select,
+  .pcc-shell textarea,
+  .pcc-shell [role="button"] {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .pcc-shell button,
+  .pcc-shell [role="button"] {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
   .pcc-callout[data-pcc-action-notice] {
     align-items: stretch;
     grid-template-columns: 1fr;
@@ -4720,6 +4849,10 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     min-width: 0;
+  }
+
+  .pcc-hero--compact .pcc-hero__actions > .btn {
+    width: 100%;
   }
 
   .pcc-hero--compact .pcc-view-mode__option {
@@ -4749,11 +4882,17 @@
   }
 
   .pcc-focus-mode {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-self: stretch;
+    min-width: 0;
+    width: 100%;
   }
 
   .pcc-focus-mode__option {
     flex: 1 1 0;
+    min-width: 0;
+    white-space: normal;
   }
 
   .pcc-focus-mode-wrap small,
@@ -4765,7 +4904,13 @@
 
   .pcc-today__next {
     border-radius: 16px;
+    min-width: 0;
     width: 100%;
+  }
+
+  .pcc-today__next strong {
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .pcc-mobile-command-rail {
@@ -4885,15 +5030,28 @@
 
   .pcc-project-focus-bar {
     border-radius: 18px;
+    max-width: 100%;
+    min-width: 0;
     padding: 8px;
+    width: 100%;
+  }
+
+  .pcc-project-focus-bar__top {
+    align-items: stretch;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
   }
 
   .pcc-project-tabs {
     display: grid;
     gap: 6px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: 100%;
+    min-width: 0;
     overflow: visible;
     padding-bottom: 0;
+    width: 100%;
   }
 
   .pcc-project-tabs button {
@@ -4905,12 +5063,26 @@
   .pcc-project-grid {
     gap: 10px;
     grid-template-columns: 1fr;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
   }
 
   .pcc-project-card {
     border-radius: 18px;
     gap: 10px;
+    max-width: 100%;
+    min-width: 0;
     padding: 12px;
+    width: 100%;
+  }
+
+  .pcc-project-search,
+  .pcc-project-search label,
+  .pcc-project-search input {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
   }
 
   .pcc-project-card p,

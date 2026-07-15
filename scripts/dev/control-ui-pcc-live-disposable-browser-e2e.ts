@@ -377,6 +377,39 @@ async function clickSafely(locator: import("playwright").Locator): Promise<void>
   });
 }
 
+async function dragWithPointer(params: {
+  page: import("playwright").Page;
+  source: import("playwright").Locator;
+  target: import("playwright").Locator;
+}): Promise<void> {
+  const source = params.source.first();
+  const target = params.target.first();
+  await source.waitFor({ state: "visible", timeout: 15_000 });
+  await target.waitFor({ state: "visible", timeout: 15_000 });
+  await target.scrollIntoViewIfNeeded({ timeout: 5_000 });
+  await source.scrollIntoViewIfNeeded({ timeout: 5_000 });
+  const sourceBox = await source.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!sourceBox || !targetBox) {
+    throw new Error("pointer drag requires visible source and target bounds");
+  }
+  const sourcePoint = {
+    x: sourceBox.x + sourceBox.width / 2,
+    y: sourceBox.y + sourceBox.height / 2,
+  };
+  const targetPoint = {
+    x: targetBox.x + Math.min(targetBox.width * 0.72, targetBox.width - 12),
+    y: targetBox.y + Math.min(targetBox.height * 0.32, targetBox.height - 12),
+  };
+  await params.page.mouse.move(sourcePoint.x, sourcePoint.y);
+  await params.page.mouse.down();
+  await params.page.mouse.move(sourcePoint.x + 12, sourcePoint.y + 4, { steps: 4 });
+  await params.page.waitForTimeout(80);
+  await params.page.mouse.move(targetPoint.x, targetPoint.y, { steps: 16 });
+  await params.page.waitForTimeout(120);
+  await params.page.mouse.up();
+}
+
 async function clickProjectButton(
   page: import("playwright").Page | import("playwright").Locator,
   selector: string,
@@ -442,11 +475,19 @@ async function auditPccViewport(params: {
         if (offscreenControls.length > 0) {
           const offscreenLabels: string[] = [];
           for (const control of offscreenControls) {
+            const rect = control.getBoundingClientRect();
+            const parent = control.parentElement;
+            const parentLabel = parent
+              ? `${parent.tagName.toLowerCase()}${parent.className ? `.${parent.className.trim().replace(/\s+/gu, ".")}` : ""}`
+              : "none";
             offscreenLabels.push(
-              (control.getAttribute("aria-label") || control.textContent || control.tagName)
+              `${(control.getAttribute("aria-label") || control.textContent || control.tagName)
                 .replace(/\s+/gu, " ")
                 .trim()
-                .slice(0, 64),
+                .slice(
+                  0,
+                  48,
+                )} [${Math.round(rect.left)}..${Math.round(rect.right)} in ${parentLabel}]`,
             );
           }
           failures.push(
@@ -584,11 +625,42 @@ async function auditPccViewport(params: {
 async function openProjectCard(page: import("playwright").Page, projectId: string): Promise<void> {
   const card = page.locator(`[data-pcc-project-card][data-pcc-project-id="${projectId}"]`).first();
   await card.waitFor({ state: "visible", timeout: 45_000 });
-  await clickSafely(card.locator("button", { hasText: /Open|Selected/i }).first());
-  await page
-    .locator(`[data-pcc-detail-project-id="${projectId}"]`)
-    .first()
-    .waitFor({ state: "visible", timeout: 45_000 });
+  const openButton = card.locator("[data-pcc-project-open]").first();
+  await clickSafely(openButton);
+  try {
+    await page
+      .locator(`[data-pcc-detail-project-id="${projectId}"]`)
+      .first()
+      .waitFor({ state: "visible", timeout: 45_000 });
+  } catch (error) {
+    const diagnostics = await page.evaluate((expectedProjectId) => {
+      const selectedCards = [
+        ...document.querySelectorAll<HTMLElement>("[data-pcc-project-card].is-selected"),
+      ].map((item) => item.dataset.pccProjectId ?? "");
+      const detailIds = [
+        ...document.querySelectorAll<HTMLElement>("[data-pcc-detail-project-id]"),
+      ].map((item) => item.dataset.pccDetailProjectId ?? "");
+      const target = document.querySelector<HTMLElement>(
+        `[data-pcc-project-card][data-pcc-project-id="${expectedProjectId}"]`,
+      );
+      return {
+        selectedCards,
+        detailIds,
+        targetClasses: target?.className ?? "missing",
+        targetButtonText:
+          target?.querySelector<HTMLElement>("[data-pcc-project-open]")?.textContent?.trim() ??
+          "missing",
+        actionError:
+          document.querySelector<HTMLElement>("[data-pcc-action-error], .pcc-error")?.textContent ??
+          "",
+      };
+    }, projectId);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Project card did not open ${projectId}. ${message} Diagnostics: ${JSON.stringify(diagnostics)}`,
+      { cause: error },
+    );
+  }
 }
 
 async function fillProjectTitle(
@@ -757,7 +829,7 @@ async function main() {
     await creationEditor
       .locator("[data-pcc-project-description]")
       .fill(
-        "Create a disposable project that proves the guided PCC creation flow without touching user work.",
+        `Create a disposable project called "${createdProjectTitle}" that proves the guided PCC creation flow without touching user work.`,
       );
     const aiRolePicker = creationEditor.locator("[data-pcc-ai-role-picker]").first();
     await aiRolePicker.locator(":scope > summary").click();
@@ -772,11 +844,12 @@ async function main() {
       .getByText("one Codex approval", { exact: false })
       .isVisible();
     const allAiPlansVisible =
-      (await aiRolePicker.locator("[data-pcc-execution-profile]").count()) === 5 &&
+      (await aiRolePicker.locator("[data-pcc-execution-profile]").count()) === 6 &&
       (await aiRolePicker.locator('[data-pcc-execution-profile="local_focused"]').count()) === 1 &&
       (await aiRolePicker.locator('[data-pcc-execution-profile="local_parallel"]').count()) === 1 &&
       (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_local"]').count()) === 1 &&
       (await aiRolePicker.locator('[data-pcc-execution-profile="balanced"]').count()) === 1 &&
+      (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_expert"]').count()) === 1 &&
       (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_hybrid"]').count()) === 1;
     const customizeDetails = creationEditor.locator("[data-pcc-create-customize]").first();
     const customizeSummary = customizeDetails.locator(":scope > summary");
@@ -785,11 +858,6 @@ async function main() {
     if ((await customizeDetails.getAttribute("open")) === null) {
       await customizeSummary.press("Enter");
     }
-    await creationEditor
-      .locator("[data-pcc-project-title]")
-      .first()
-      .waitFor({ state: "visible", timeout: 15_000 });
-    await fillProjectTitle(creationEditor, createdProjectTitle);
     const aiExplainerVisible = await creationEditor
       .locator("[data-pcc-create-ai-explainer]")
       .isVisible();
@@ -799,7 +867,7 @@ async function main() {
       .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
       .waitFor({ state: "visible", timeout: 15_000 });
     projectPreviewMs = Math.round(performance.now() - previewStartedAt);
-    const userTitlePreserved =
+    const generatedTitleIsMeaningful =
       (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
       createdProjectTitle;
     const reviewExplainsSafety = await creationEditor
@@ -906,7 +974,7 @@ async function main() {
       balancedTeamPresetVisible &&
       codexApprovalExplainedOnce &&
       allAiPlansVisible &&
-      userTitlePreserved &&
+      generatedTitleIsMeaningful &&
       reviewExplainsSafety &&
       routingSummaryVisible &&
       permissionCardCount === 1 &&
@@ -927,21 +995,78 @@ async function main() {
     await clickProjectButton(page, "[data-pcc-new-project]", /^New project$/i);
     const mobileCreationEditor = page.locator('[data-pcc-editor="project"]').first();
     await mobileCreationEditor.waitFor({ state: "visible", timeout: 15_000 });
+    await mobileCreationEditor
+      .locator("[data-pcc-project-description]")
+      .fill(
+        "Create a reliable local-first project with maximum safe OpenClaw workers and one expert Codex specialist for planning, hard problems, debugging, and QA.",
+      );
+    const mobileAiRolePicker = mobileCreationEditor.locator("[data-pcc-ai-role-picker]").first();
+    await mobileAiRolePicker.locator(":scope > summary").click();
+    const mobileUltraExpertProfile = mobileAiRolePicker.locator(
+      '[data-pcc-execution-profile="ultra_expert"]',
+    );
+    await mobileUltraExpertProfile.check({ force: true });
+    const mobileCustomizeDetails = mobileCreationEditor
+      .locator("[data-pcc-create-customize]")
+      .first();
+    await mobileCustomizeDetails.locator(":scope > summary").click();
+    const mobileExecutionPreview = mobileCustomizeDetails
+      .locator("[data-pcc-execution-preview]")
+      .first();
+    await mobileExecutionPreview.waitFor({ state: "visible", timeout: 15_000 });
+    await mobileExecutionPreview.scrollIntoViewIfNeeded();
     const newProjectMobileLayout = await mobileCreationEditor.evaluate((editor) => {
       const rect = editor.getBoundingClientRect();
       const explainer = editor.querySelector<HTMLElement>("[data-pcc-create-ai-explainer]");
       const aiRoles = editor.querySelector<HTMLElement>("[data-pcc-ai-role-picker]");
       const action = editor.querySelector<HTMLElement>("[data-pcc-create-review-plan]");
+      const customize = editor.querySelector<HTMLElement>("[data-pcc-create-customize-summary]");
+      const customizeCopy = customize?.querySelector<HTMLElement>(
+        ".pcc-create-options__summary-copy",
+      );
+      const customizeState = customize?.querySelector<HTMLElement>(
+        ".pcc-create-options__summary-state",
+      );
+      const copyRect = customizeCopy?.getBoundingClientRect();
+      const stateRect = customizeState?.getBoundingClientRect();
+      const executionPreview = editor.querySelector<HTMLElement>("[data-pcc-execution-preview]");
+      const executionPreviewRect = executionPreview?.getBoundingClientRect();
+      const ultraExpertProfile = editor.querySelector<HTMLInputElement>(
+        '[data-pcc-execution-profile="ultra_expert"]',
+      );
       return {
         fitsViewport: rect.left >= -1 && rect.right <= globalThis.innerWidth + 1,
         noHorizontalOverflow: editor.scrollWidth <= editor.clientWidth + 1,
         explainerVisible: Boolean(explainer && explainer.getBoundingClientRect().height > 0),
+        explainerCopyAccurate:
+          explainer?.textContent?.includes("PCC fills only the blanks") === true,
         aiRolesVisible: Boolean(aiRoles && aiRoles.getBoundingClientRect().height > 0),
         primaryActionVisible: Boolean(action && action.getBoundingClientRect().height > 0),
+        customizeSummaryVisible: Boolean(customize && customize.getBoundingClientRect().height > 0),
+        customizeSummaryDoesNotOverlap: Boolean(
+          copyRect &&
+          stateRect &&
+          (copyRect.bottom <= stateRect.top + 1 || copyRect.right <= stateRect.left + 1),
+        ),
+        ultraExpertSelected: ultraExpertProfile?.checked === true,
+        executionPreviewVisible: Boolean(executionPreviewRect && executionPreviewRect.height > 0),
+        executionPreviewFitsEditor: Boolean(
+          executionPreviewRect &&
+          executionPreviewRect.left >= rect.left - 1 &&
+          executionPreviewRect.right <= rect.right + 1,
+        ),
       };
     });
     await page.screenshot({ path: creationMobileScreenshotPath, fullPage: true });
-    await mobileCreationEditor.locator("[data-pcc-project-cancel]").click({ force: true });
+    const mobileProjectCancel = mobileCreationEditor.locator("[data-pcc-project-cancel]");
+    await clickSafely(mobileProjectCancel);
+    const newProjectMobileDiscardConfirmationVisible = (await mobileProjectCancel.textContent())
+      ?.replace(/\s+/gu, " ")
+      .includes("Discard draft");
+    const newProjectMobileDraftRemainedOpenForConfirmation = await mobileCreationEditor
+      .isVisible()
+      .catch(() => false);
+    await clickSafely(mobileProjectCancel);
     await mobileCreationEditor.waitFor({ state: "hidden", timeout: 15_000 });
     await page.locator('[data-pcc-mobile-section-tab="projects"]').first().click({ force: true });
     await page.setViewportSize({ width: 1024, height: 900 });
@@ -1177,7 +1302,13 @@ async function main() {
     }
     const milestoneDisclosureWorked = (await secondMilestoneDetails.getAttribute("open")) !== null;
     const subStepDrilldown = secondMilestone.locator("[data-pcc-submilestone-drilldown]").first();
-    await subStepDrilldown.locator(":scope > summary").click({ force: true });
+    if ((await subStepDrilldown.getAttribute("open")) === null) {
+      const subStepSummary = subStepDrilldown.locator(":scope > summary");
+      await subStepSummary.click({ force: true });
+      if ((await subStepDrilldown.getAttribute("open")) === null) {
+        await subStepSummary.press("Enter");
+      }
+    }
     const subStepDisclosureWorked = (await subStepDrilldown.getAttribute("open")) !== null;
 
     phase = "testing context copy feedback";
@@ -1395,7 +1526,7 @@ async function main() {
       )
       .first();
     const dropTarget = page.locator(`[data-pcc-milestone-id="${actionProjectId}-step-1"]`).first();
-    await dragHandle.dragTo(dropTarget, { force: true, timeout: 15_000 });
+    await dragWithPointer({ page, source: dragHandle, target: dropTarget });
     await page
       .getByText("Saved new milestone order", { exact: false })
       .first()
@@ -1776,6 +1907,7 @@ async function main() {
       newProjectGuidedCreateWorked,
       newProjectBalancedTeamPresetVisible: balancedTeamPresetVisible,
       newProjectAllAiPlansVisible: allAiPlansVisible,
+      newProjectGeneratedMeaningfulTitle: generatedTitleIsMeaningful,
       newProjectCodexApprovalExplainedOnce: codexApprovalExplainedOnce,
       newProjectRoutingSummaryVisible: routingSummaryVisible,
       newProjectSinglePermissionCard: permissionCardCount === 1,
@@ -1792,8 +1924,17 @@ async function main() {
       newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
       newProjectMobileDoesNotOverflow: newProjectMobileLayout.noHorizontalOverflow,
       newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,
+      newProjectMobileExplainerCopyAccurate: newProjectMobileLayout.explainerCopyAccurate,
       newProjectMobileAiRolesVisible: newProjectMobileLayout.aiRolesVisible,
       newProjectMobilePrimaryActionVisible: newProjectMobileLayout.primaryActionVisible,
+      newProjectMobileCustomizeSummaryVisible: newProjectMobileLayout.customizeSummaryVisible,
+      newProjectMobileCustomizeSummaryDoesNotOverlap:
+        newProjectMobileLayout.customizeSummaryDoesNotOverlap,
+      newProjectMobileUltraExpertSelected: newProjectMobileLayout.ultraExpertSelected,
+      newProjectMobileExecutionPreviewVisible: newProjectMobileLayout.executionPreviewVisible,
+      newProjectMobileExecutionPreviewFitsEditor: newProjectMobileLayout.executionPreviewFitsEditor,
+      newProjectMobileDiscardConfirmationVisible,
+      newProjectMobileDraftRemainedOpenForConfirmation,
       archiveConfirmationPersisted: archivePersisted,
       projectSearchWorked,
       projectFilterWorked,
@@ -1875,6 +2016,7 @@ async function main() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     summary.ok = false;
+    summary.failedPhase = phase;
     summary.phase = phase;
     summary.error = message;
     summary.checks = {

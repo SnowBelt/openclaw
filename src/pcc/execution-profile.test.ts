@@ -39,6 +39,25 @@ describe("PCC canonical execution profile", () => {
     });
   });
 
+  it("models Ultra expert as maximum local execution with one scoped Codex specialist", () => {
+    const profile = resolvePccExecutionProfilePreset("ultra_expert");
+
+    expect(profile).toMatchObject({
+      speed: "ultra",
+      codexRole: "hard_work",
+      codexEffort: "max",
+      capacityPolicy: "maximum_safe",
+      approvalScope: "project",
+    });
+    expect(derivePccAiUsePolicy(profile)).toBe("codex_expert");
+    expect(resolvePccEstimatedAgentCounts(profile, 8)).toEqual({
+      availableCapacity: 8,
+      localAgents: 8,
+      codexAgents: 1,
+      totalAgents: 9,
+    });
+  });
+
   it("migrates the old Ultra reasoning label to Maximum without changing the team preset", () => {
     const profile = normalizePccExecutionProfile({
       pccExecutionProfile: {

@@ -86,6 +86,7 @@ import {
   resolveConfiguredExecutionModel,
   resolvePccExecutionStandardForDetail,
 } from "../pcc/application/execution-team.ts";
+import { buildPccProjectCreationDraftPatch } from "../pcc/application/project-creation-draft.ts";
 import type {
   PccAiRegenerateSection,
   PccAutofillPreview,
@@ -581,16 +582,6 @@ function plannerModeFromPlanningMode(mode: PccPlanningMode | undefined): PccPlan
       : "local_project_manager";
 }
 
-function plannerResponsibility(mode: PccPlannerMode): string {
-  return mode === "local_model"
-    ? "local model"
-    : mode === "codex"
-      ? "Codex"
-      : mode === "high_reasoning_codex"
-        ? "high-reasoning Codex"
-        : "local Project Manager";
-}
-
 function aiUsePolicyFromPlannerMode(mode: PccPlannerMode): PccAiUsePolicy {
   return mode === "codex" || mode === "high_reasoning_codex" ? "codex_expert" : "local_only";
 }
@@ -653,47 +644,6 @@ function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectForm
   };
 }
 
-function inferProjectTitle(text: string): string {
-  const firstLine = text
-    .split(/\r?\n/u)
-    .map((line) => line.replace(/^#+\s*/u, "").trim())
-    .find(Boolean);
-  const sentence = firstLine ?? text.trim();
-  return sentence.replace(/[.!?]$/u, "").slice(0, 90) || "Untitled Project";
-}
-
-function inferIntakeAnswersFromDescription(
-  description: string,
-  plannerMode: PccPlannerMode,
-): Record<string, string> {
-  const trimmed = description.trim();
-  if (!trimmed) {
-    return {};
-  }
-  return {
-    goal: trimmed,
-    firstDeliverable:
-      "A reviewed PCC plan with ordered milestones and sub-milestones generated from the project description.",
-    doneProof:
-      "Each milestone needs explicit acceptance criteria, proof requirements, and a completion receipt before it is marked complete.",
-    constraints:
-      plannerMode === "codex" || plannerMode === "high_reasoning_codex"
-        ? "Codex or high-reasoning planning is permission-gated before token spend; destructive, remote, publish, runtime, and reboot actions need separate approval."
-        : "Do not run destructive, remote, publish, runtime, reboot, or high-token actions without separate approval.",
-    owner: plannerResponsibility(plannerMode),
-    blockers:
-      "Unknown blockers should be captured as PCC permission, tool, source, or proof gaps before work starts.",
-  };
-}
-
-function inferOutcomeMetrics(title: string): string {
-  const subject = title.trim() || "This project";
-  return [
-    `${subject} produces a first approved deliverable.`,
-    "Every milestone has acceptance criteria and receipt-backed proof before completion.",
-  ].join("\n");
-}
-
 function enrichProjectFormFromDescription(form: PccProjectFormState): PccProjectFormState {
   const routedForm = canonicalizeProjectAiRouting(form);
   const plannerMode =
@@ -711,27 +661,16 @@ function enrichProjectFormFromDescription(form: PccProjectFormState): PccProject
       planningMode: plannerModeToPlanningMode(plannerMode),
     };
   }
-  const answers = inferIntakeAnswersFromDescription(description, plannerMode);
-  const recommendation = recommendPccWorkflow({
-    title: routedForm.title || inferProjectTitle(description),
-    goal: routedForm.goal || description,
-    intakeAnswers: { ...answers, ...routedForm.intakeAnswers },
-  });
+  const draft = buildPccProjectCreationDraftPatch(routedForm);
   return {
     ...routedForm,
-    title: routedForm.title.trim() ? routedForm.title : inferProjectTitle(description),
-    goal: routedForm.goal.trim() ? routedForm.goal : description,
-    outcomeMetrics: (routedForm.outcomeMetrics ?? "").trim()
-      ? routedForm.outcomeMetrics
-      : inferOutcomeMetrics(routedForm.title || inferProjectTitle(description)),
-    workflowTemplateId: routedForm.workflowTemplateId || recommendation.templateId,
+    ...draft,
     plannerMode,
     aiUsePolicy,
     projectDescription: routedForm.projectDescription ?? "",
     plannerModelId: routedForm.plannerModelId ?? "",
     planPreviewAccepted: routedForm.planPreviewAccepted ?? false,
     planningMode: plannerModeToPlanningMode(plannerMode),
-    intakeAnswers: { ...answers, ...routedForm.intakeAnswers },
   };
 }
 
@@ -1595,7 +1534,7 @@ export function updatePccProjectForm(
   if (patch.projectDescription !== undefined) {
     nextForm = { ...nextForm, planPreviewAccepted: false };
   }
-  if (patch.projectDescription !== undefined || patch.plannerMode !== undefined) {
+  if (patch.plannerMode !== undefined) {
     nextForm = enrichProjectFormFromDescription(nextForm);
   }
   state.pccProjectForm = nextForm;

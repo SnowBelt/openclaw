@@ -225,16 +225,10 @@ async function main(): Promise<void> {
     );
 
     const today = requireSelector(root, "[data-pcc-today]");
-    const selectedNotice = requireSelector(root, "[data-pcc-selected-filtered-project]");
     const layout = requireSelector(root, ".pcc-layout");
     const projects = requireSelector(root, ".pcc-projects");
     const workspace = requireSelector(root, "[data-pcc-selected-project-workspace]");
-    assertBefore(today, selectedNotice, "Today should stay above selected-project filter notice");
-    assertBefore(
-      selectedNotice,
-      layout,
-      "selected-project filter notice should not be buried in project cards",
-    );
+    assertBefore(layout, today, "Simple mode should keep the selected workspace above Today");
     assertBefore(
       projects,
       workspace,
@@ -242,23 +236,22 @@ async function main(): Promise<void> {
     );
     requireSelector(root, "[data-pcc-project-search-scope]");
     requireSelector(root, "[data-pcc-search-all]");
-    requireSelector(root, "[data-pcc-show-selected-in-all]");
-    requireSelector(root, "[data-pcc-open-selected-project]");
-    requireSelector(root, "[data-pcc-autopilot-hero-chip]");
-    const portfolioConsole = requireSelector(root, "[data-pcc-portfolio-console]");
-    if (portfolioConsole.getAttribute("data-pcc-portfolio-console-ready") !== "false") {
-      throw new Error("portfolio work console should be marked not ready for no-ready proof data");
+    if (root.querySelector("[data-pcc-selected-filtered-project]")) {
+      throw new Error("selected project should remain open without a duplicate filter warning");
     }
-    const consoleDetails = portfolioConsole.querySelector("details");
-    if (!(consoleDetails instanceof dom.window.HTMLDetailsElement) || consoleDetails.open) {
-      throw new Error("no-ready portfolio work console should be collapsed");
+    if (!workspace.textContent?.includes(pccProject.title)) {
+      throw new Error("selected project workspace should remain visible across list filters");
+    }
+    if (root.querySelector("[data-pcc-autopilot-hero-chip]")) {
+      throw new Error("Simple mode should not render the advanced Autopilot hero chip");
+    }
+    if (root.querySelector("[data-pcc-portfolio-console]")) {
+      throw new Error("Simple mode should defer the advanced portfolio work console");
     }
     assertNoTitleAttributes(root);
     root.querySelector<HTMLButtonElement>("[data-pcc-search-all]")?.click();
-    root.querySelector<HTMLButtonElement>("[data-pcc-show-selected-in-all]")?.click();
-    root.querySelector<HTMLButtonElement>("[data-pcc-open-selected-project]")?.click();
-    if (!calls.includes("filter:all") || !calls.includes(`select:${pccProject.id}`)) {
-      throw new Error("filter recovery actions did not fire");
+    if (!calls.includes("filter:all")) {
+      throw new Error("search-all filter recovery action did not fire");
     }
     writeFileSync(join(artifactDir, "dom.txt"), root.textContent ?? "");
     console.log("PCC_FOCUS_COMPLETION_POLISH_SMOKE_OK", artifactDir);

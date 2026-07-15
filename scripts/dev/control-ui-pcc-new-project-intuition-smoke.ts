@@ -51,9 +51,8 @@ async function main(): Promise<void> {
 
     let projectForm: PccProjectFormState = {
       ...EMPTY_PCC_PROJECT_FORM,
-      title: "My Kitchen Plan",
       projectDescription:
-        "Plan a kitchen remodel without missing permits, inspections, or budget checks.",
+        "I want to build a family calendar app that coordinates school, work, and appointments so everyone knows what happens next.",
       intakeAnswers: { owner: "Todd" },
     };
     const commonProps = {
@@ -142,15 +141,17 @@ async function main(): Promise<void> {
     };
 
     renderCurrent();
-    requireText(root, "[data-pcc-create-ai-explainer]", "AI fills only the blanks");
+    requireText(root, "[data-pcc-create-ai-explainer]", "PCC fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
+    requireText(root, "[data-pcc-create-ai-explainer]", "does not call a model");
     requireText(root, "[data-pcc-create-execution-standard]", "automatic local-first");
     requireText(root, "[data-pcc-create-execution-standard]", "93/100");
     requireText(root, "[data-pcc-ai-role-picker]", "Focused");
     requireText(root, "[data-pcc-ai-role-picker]", "Parallel");
     requireText(root, "[data-pcc-ai-role-picker]", "Ultra");
     requireText(root, "[data-pcc-ai-role-picker]", "Balanced team");
-    requireText(root, "[data-pcc-ai-role-picker]", "Ultra + Codex");
+    requireText(root, "[data-pcc-ai-role-picker]", "Ultra + Expert Codex");
+    requireText(root, "[data-pcc-ai-role-picker]", "Codex-led Ultra");
     requireText(root, "[data-pcc-ai-role-picker]", "single source of truth");
     requireText(root, "[data-pcc-create-review-plan]", "Generate project plan");
     if (root.querySelector("[data-pcc-planner-selector]")) {
@@ -178,13 +179,21 @@ async function main(): Promise<void> {
     requireText(root, "[data-pcc-create-ai-summary]", "one Codex approval");
 
     (requireSelector(root, "[data-pcc-create-review-plan]") as HTMLButtonElement).click();
-    if (projectForm.title !== "My Kitchen Plan" || projectForm.intakeAnswers.owner !== "Todd") {
-      throw new Error("AI review replaced user-entered project data");
+    if (
+      projectForm.title !== "Family Calendar App" ||
+      projectForm.goal !==
+        "Build a family calendar app that coordinates school, work, and appointments so everyone knows what happens next." ||
+      projectForm.intakeAnswers.owner !== "Todd"
+    ) {
+      throw new Error("PCC generated an invalid name/goal or replaced user-entered project data");
     }
     requireText(root, "[data-pcc-create-review-ready]", "Your plan is ready to review");
     requireText(root, "[data-pcc-create-review-ready]", "Nothing has been created or started yet");
     requireSelector(root, "[data-pcc-plan-preview]");
     requireText(root, "[data-pcc-ai-routing-summary]", "Codex");
+    requireText(root, "[data-pcc-execution-preview]", "Exactly what PCC will do");
+    requireText(root, "[data-pcc-execution-preview]", "One OpenClaw local coordinator");
+    requireText(root, "[data-pcc-execution-preview]", "No hidden setting can override it");
     const confirm = requireSelector(root, "[data-pcc-create-project-confirm]") as HTMLButtonElement;
     if (!confirm.disabled) {
       throw new Error("Codex project creation must wait for its single scoped approval");

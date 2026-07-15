@@ -13,17 +13,18 @@ PCC execution teams run explicitly independent project tasks in parallel while k
 
 Each project stores one canonical `pccExecutionProfile`:
 
-| Preset        | OpenClaw work                | Codex role                    |
-| ------------- | ---------------------------- | ----------------------------- |
-| Focused       | One local worker at a time   | Off                           |
-| Parallel      | Safe available local workers | Off                           |
-| Ultra local   | Maximum safe local workers   | Off                           |
-| Balanced      | Parallel local workers       | Approval-gated checkpoints    |
-| Ultra + Codex | Maximum safe local workers   | One approval-gated Codex lead |
+| Preset               | OpenClaw work                | Codex role                                                  |
+| -------------------- | ---------------------------- | ----------------------------------------------------------- |
+| Focused              | One local worker at a time   | Off                                                         |
+| Parallel             | Safe available local workers | Off                                                         |
+| Ultra local          | Maximum safe local workers   | Off                                                         |
+| Balanced             | Parallel local workers       | One approval-gated planning and final-QA reviewer           |
+| Ultra + Expert Codex | Maximum safe local workers   | One approval-gated expert for hard problems, debugging, QA  |
+| Codex-led Ultra      | Maximum safe local workers   | One approval-gated Codex lead for any eligible project work |
 
 Fine-tuning the local model, Codex model, Codex depth, capacity policy, or approval scope edits this same profile. There is no second routing switch that can silently override it. A canonical profile takes precedence over legacy planner metadata.
 
-`Ultra local` never invokes Codex. `Ultra + Codex` cannot start until the selected project has a usable scoped Codex permission grant. Codex depth uses `Medium`, `High`, `Very high`, or `Maximum`; it is not a token budget or a team-size control. `Maximum` is admitted only with a configured GPT-5.6 model, so an older saved model cannot silently downgrade the requested depth.
+`Ultra local` never invokes Codex. `Ultra + Expert Codex` keeps routine work local and reserves one Codex specialist for planning, architecture, difficult problem-solving, debugging, and QA. `Codex-led Ultra` is the broader option: the single Codex lead may handle any eligible project work. Either Codex option remains blocked until the selected project has a usable scoped permission grant. Codex depth uses `Medium`, `High`, `Very high`, or `Maximum`; it is not a token budget or a team-size control. `Maximum` is admitted only with a configured GPT-5.6 model, so an older saved model cannot silently downgrade the requested depth.
 
 ## Model Truth
 

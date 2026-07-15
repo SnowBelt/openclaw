@@ -26,7 +26,8 @@ const EXECUTION_PROFILE_TITLES: Record<PccExecutionProfilePresetId, string> = {
   local_parallel: "Parallel",
   ultra_local: "Ultra",
   balanced: "Balanced team",
-  ultra_hybrid: "Ultra + Codex",
+  ultra_expert: "Ultra + Expert Codex",
+  ultra_hybrid: "Codex-led Ultra",
 };
 
 function renderAutopilotPromptSlot(slot: PccAutopilotPromptSlot, props: PccDashboardProps) {

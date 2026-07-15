@@ -13,6 +13,7 @@ export type PccExecutionProfilePresetId =
   | "local_parallel"
   | "ultra_local"
   | "balanced"
+  | "ultra_expert"
   | "ultra_hybrid";
 
 export type PccExecutionProfile = {
@@ -49,6 +50,7 @@ const PRESET_IDS = [
   "local_parallel",
   "ultra_local",
   "balanced",
+  "ultra_expert",
   "ultra_hybrid",
 ] as const;
 
@@ -97,6 +99,17 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
     localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
     codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
     codexEffort: "high",
+    approvalScope: "project",
+  },
+  ultra_expert: {
+    schemaVersion: PCC_EXECUTION_PROFILE_SCHEMA_VERSION,
+    presetId: "ultra_expert",
+    speed: "ultra",
+    codexRole: "hard_work",
+    capacityPolicy: "maximum_safe",
+    localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexEffort: "max",
     approvalScope: "project",
   },
   ultra_hybrid: {

@@ -14,7 +14,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   priority: "3",
   dueDate: "",
   outcomeMetrics: "",
-  workflowTemplateId: "software-product",
+  workflowTemplateId: "",
   planningMode: "local_project_manager",
   plannerMode: "best_available",
   aiUsePolicy: "local_only",
