@@ -78,6 +78,22 @@ class PatternLabProductionContractTests(unittest.TestCase):
             self.assertIn(slate, paths)
             self.assertNotIn(mutable, paths)
 
+    def test_runtime_source_selection_includes_renderer_source_without_dependencies(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "source"
+            renderer = source / "render"
+            contract = renderer / "src" / "contract.mjs"
+            dependency = renderer / "node_modules" / "generated.mjs"
+            contract.parent.mkdir(parents=True)
+            dependency.parent.mkdir(parents=True)
+            (renderer / "package.json").write_text('{"private": true}\n', encoding="utf-8")
+            contract.write_text("export const ready = true;\n", encoding="utf-8")
+            dependency.write_text("export const generated = true;\n", encoding="utf-8")
+            paths = runtime_deploy.selected_paths(source)
+            self.assertIn(renderer / "package.json", paths)
+            self.assertIn(contract, paths)
+            self.assertNotIn(dependency, paths)
+
     def test_runtime_source_rollback_restores_old_files_and_removes_new_files(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "source"

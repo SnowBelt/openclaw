@@ -47,8 +47,17 @@ class LocalMediaDurabilityTests(unittest.TestCase):
             {name: runtime_lock.get(name) for name in visual_lock},
             visual_lock,
         )
+        self.assertEqual(runtime_lock["numpy"], "2.4.6")
+        # PySceneDetect declares opencv-python while rembg declares the
+        # headless distribution. Keep both at the same build and probe media
+        # modules in isolated child processes (the environment-health rule)
+        # so their shared cv2 files cannot drift independently.
+        self.assertEqual(
+            runtime_lock["opencv-python"],
+            runtime_lock["opencv-python-headless"],
+        )
         self.assertIn("opencv-python-headless", runtime_lock)
-        self.assertNotIn("opencv-python", runtime_lock)
+        self.assertIn("opencv-python", runtime_lock)
 
     def test_codex_seatbelt_is_not_trusted_for_metal_generation(self):
         with patch.dict(os.environ, {"CODEX_SANDBOX": "seatbelt"}, clear=False):

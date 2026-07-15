@@ -35,6 +35,7 @@ SOURCE_ENTRIES = (
     "production-grade-milestones.md",
     "requirements-python312.lock",
     "requirements-visual.lock",
+    "render",
     "resources",
     "scripts",
     "shorts-strategy.md",
@@ -58,7 +59,6 @@ IGNORED_PARTS = frozenset(
         "__pycache__",
         "local-output",
         "node_modules",
-        "render",
     }
 )
 FORBIDDEN_NAME_MARKERS = ("client_secret", "oauth-token", "credential", "discord-token")
