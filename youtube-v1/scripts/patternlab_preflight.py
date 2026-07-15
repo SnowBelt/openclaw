@@ -14,7 +14,8 @@ from patternlab_long_form_quality import build_long_form_quality_report
 
 REPO = BASE.parent
 EXPECTED_DISCORD_TARGET = "channel:1503779032817209465"
-INSTALLED_DAILY_PLIST = Path.home() / "Library" / "LaunchAgents" / "com.openclaw.pattern-lab.daily-review.plist"
+DAILY_LAUNCHAGENT_LABEL = "com.openclaw.patternlab-v2.daily-review"
+INSTALLED_DAILY_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{DAILY_LAUNCHAGENT_LABEL}.plist"
 REPO_DAILY_PLIST = BASE / "automation" / "pattern-lab-daily-review.plist"
 REQUIRED_REVIEW_ACTIONS = [
     "approve",
@@ -231,7 +232,9 @@ def validate_daily_plist(checks, path, label):
 def validate_launchd(checks):
     validate_daily_plist(checks, REPO_DAILY_PLIST, "repo")
     validate_daily_plist(checks, INSTALLED_DAILY_PLIST, "installed")
-    stdout, stderr, code = command_text(["launchctl", "print", "gui/502/com.openclaw.pattern-lab.daily-review"])
+    stdout, stderr, code = command_text(
+        ["launchctl", "print", f"gui/{os.getuid()}/{DAILY_LAUNCHAGENT_LABEL}"]
+    )
     detail = stdout if stdout else stderr
     add(
         checks,

@@ -43,10 +43,19 @@ Run the watchdog by hand first:
 youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_runtime_watchdog.py --check
 ```
 
-Then install `automation/pattern-lab-runtime-watchdog.plist` as a user
-LaunchAgent. Keep `allow_discord_alerts` and `allow_launchd_recovery` false
-until a separate approval exists. The watchdog's first scheduled release is
-receipt only; it has no restart or alert authority.
+Install and verify the complete canonical user LaunchAgent set through the
+backup-first installer:
+
+```bash
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_launchd_install.py --apply
+youtube-v1/.venv-youtube-3.12/bin/python youtube-v1/scripts/patternlab_launchd_install.py
+```
+
+The installer backs up matching legacy or malformed files, loads only the four
+`com.openclaw.patternlab-v2.*` user agents, and does not load the root-owned wake
+scheduler as a user job. It does not manually kickstart production or daily
+review. Discord alert and bounded recovery policy still require the separately
+recorded owner activation; installation alone grants neither authority.
 
 ## 4. Restore-confidence drill
 

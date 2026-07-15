@@ -26,6 +26,7 @@ CANONICAL_BOOTSTRAP_STAGES = (
     "workflow_integrity",
     "skill_deployment_integrity",
     "runtime_source_integrity",
+    "launchd_integrity",
     "city_portability",
 )
 
