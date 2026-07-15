@@ -223,9 +223,7 @@ PY
   ); then
     return 1
   fi
-  for route in $routes self-improvement; do
-    [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" = 200 ] || return 1
-  done
+  custom_runtime_wait_for_routes "$port" $routes self-improvement || return 1
   summary="$runtime_home/self-improvement-rollback.$$.json"
   custom_runtime_export_gateway_auth "$config_path" || return 1
   if ! OPENAI_API_KEY= AZURE_OPENAI_API_KEY= OPENAI_BASE_URL= \

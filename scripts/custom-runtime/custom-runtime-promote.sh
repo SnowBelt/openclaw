@@ -380,11 +380,9 @@ PY
 ); then
   fail_promotion route_inventory
 fi
-for route in $routes self-improvement; do
-  if [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" != 200 ]; then
-    fail_promotion route "$route"
-  fi
-done
+if ! custom_runtime_wait_for_routes "$port" $routes self-improvement; then
+  fail_promotion route "$custom_runtime_failed_route"
+fi
 websocket_headers="$runtime_home/websocket-promotion.$$.headers"
 curl --silent --show-error --max-time 3 --dump-header "$websocket_headers" --output /dev/null \
   --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \

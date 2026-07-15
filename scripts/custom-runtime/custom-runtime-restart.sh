@@ -140,12 +140,10 @@ PY
   write_receipt restart_route_inventory_failed
   exit 1
 fi
-for route in $routes self-improvement; do
-  if [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" != 200 ]; then
-    write_receipt "restart_route_failed:$route"
-    exit 1
-  fi
-done
+if ! custom_runtime_wait_for_routes "$port" $routes self-improvement; then
+  write_receipt "restart_route_failed:$custom_runtime_failed_route"
+  exit 1
+fi
 
 summary="$runtime_home/self-improvement-restart.$$.json"
 cleanup_summary() { rm -f "$summary"; }

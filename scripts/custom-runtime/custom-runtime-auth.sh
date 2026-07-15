@@ -44,3 +44,33 @@ PY
     *) return 1 ;;
   esac
 }
+
+# Health can become ready before dashboard routes finish initializing. Verify the
+# complete route set repeatedly so promotion, restart, and rollback share the
+# same bounded readiness contract instead of failing on a transient response.
+custom_runtime_wait_for_routes() {
+  custom_runtime_route_port=${1:-}
+  shift || return 1
+
+  custom_runtime_route_attempt=1
+  custom_runtime_failed_route=
+  while [ "$custom_runtime_route_attempt" -le 15 ]; do
+    custom_runtime_failed_route=
+    for custom_runtime_route in "$@"; do
+      custom_runtime_route_code=$(
+        curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
+          "http://127.0.0.1:$custom_runtime_route_port/$custom_runtime_route" \
+          2>/dev/null || true
+      )
+      if [ "$custom_runtime_route_code" != 200 ]; then
+        custom_runtime_failed_route=$custom_runtime_route
+        break
+      fi
+    done
+    [ -z "$custom_runtime_failed_route" ] && return 0
+    [ "$custom_runtime_route_attempt" -ge 15 ] && break
+    custom_runtime_route_attempt=$((custom_runtime_route_attempt + 1))
+    sleep 2
+  done
+  return 1
+}

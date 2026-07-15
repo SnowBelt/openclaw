@@ -329,6 +329,7 @@ describe("custom runtime lifecycle", () => {
     const sigRpcArgsMarker = path.join(root, "sig-rpc-args");
     const sigRpcEnvMarker = path.join(root, "sig-rpc-env");
     const sigRpcUrlMarker = path.join(root, "sig-rpc-url");
+    const routeAttemptsMarker = path.join(root, "route-attempts");
     const sourceSha = "c".repeat(64);
     const previousRelease = path.join(releases, "previous");
     const previousPointer = {
@@ -394,11 +395,17 @@ describe("custom runtime lifecycle", () => {
         "  esac",
         "done",
         'if [ -n "$header" ]; then printf \'HTTP/1.1 101 Switching Protocols\\r\\n\\r\\n\' > "$header"; exit 0; fi',
-        'if [ "$write_out" = true ]; then printf 200; else printf \'{"ok":true}\'; fi',
+        'if [ "$write_out" = true ]; then',
+        `  count=0; [ ! -f ${JSON.stringify(routeAttemptsMarker)} ] || count=$(cat ${JSON.stringify(routeAttemptsMarker)})`,
+        "  count=$((count + 1))",
+        `  printf '%s\\n' "$count" > ${JSON.stringify(routeAttemptsMarker)}`,
+        '  if [ "$count" -lt 3 ]; then printf 503; else printf 200; fi',
+        "else printf '{\"ok\":true}'; fi",
         "",
       ].join("\n"),
       0o700,
     );
+    writeFile(path.join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n", 0o700);
 
     const result = spawnSync(
       promoteScript,
@@ -436,6 +443,7 @@ describe("custom runtime lifecycle", () => {
       }),
     ).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_PROMOTED release=candidate");
+    expect(Number(fs.readFileSync(routeAttemptsMarker, "utf8").trim())).toBeGreaterThanOrEqual(4);
     expect(fs.existsSync(sigRpcMarker)).toBe(true);
     expect(fs.readFileSync(sigRpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
     expect(fs.readFileSync(sigRpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18789");
@@ -755,6 +763,7 @@ describe("custom runtime lifecycle", () => {
     const restarted = path.join(root, "restarted");
     const rpcArgsMarker = path.join(root, "restart-rpc-args");
     const rpcUrlMarker = path.join(root, "restart-rpc-url");
+    const routeAttemptsMarker = path.join(root, "restart-route-attempts");
     const manifestPath = path.join(runtimeRoot, "dist", "control-ui", "dashboard-surfaces.json");
     writeFile(path.join(runtimeRoot, "snapshot.json"), '{"releaseId":"native-candidate"}\n');
     writeFile(manifestPath, '{"surfaces":[{"id":"pcc","path":"/pcc"}]}\n');
@@ -796,11 +805,17 @@ describe("custom runtime lifecycle", () => {
         "while [ $# -gt 0 ]; do",
         '  case "$1" in --write-out) write_out=true; shift 2;; *) shift;; esac',
         "done",
-        'if [ "$write_out" = true ]; then printf 200; else printf \'{"ok":true}\'; fi',
+        'if [ "$write_out" = true ]; then',
+        `  count=0; [ ! -f ${JSON.stringify(routeAttemptsMarker)} ] || count=$(cat ${JSON.stringify(routeAttemptsMarker)})`,
+        "  count=$((count + 1))",
+        `  printf '%s\\n' "$count" > ${JSON.stringify(routeAttemptsMarker)}`,
+        '  if [ "$count" -lt 2 ]; then printf 503; else printf 200; fi',
+        "else printf '{\"ok\":true}'; fi",
         "",
       ].join("\n"),
       0o700,
     );
+    writeFile(path.join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n", 0o700);
 
     const result = spawnSync(restartScript, ["--port", "18789"], {
       encoding: "utf8",
@@ -814,6 +829,7 @@ describe("custom runtime lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_RESTARTED release=native-candidate");
+    expect(Number(fs.readFileSync(routeAttemptsMarker, "utf8").trim())).toBeGreaterThanOrEqual(3);
     expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
     expect(fs.readFileSync(rpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18789");
     const receipt = fs
