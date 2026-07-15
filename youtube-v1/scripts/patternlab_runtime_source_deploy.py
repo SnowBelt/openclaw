@@ -42,6 +42,7 @@ SOURCE_ENTRIES = (
     "skills",
     "state/monetization/content-slate.json",
     "templates",
+    "tests",
     "third_party",
     "thumbnail-strategy.md",
     "workflows",

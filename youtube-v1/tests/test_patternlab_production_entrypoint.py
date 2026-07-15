@@ -94,6 +94,19 @@ class PatternLabProductionContractTests(unittest.TestCase):
             self.assertIn(contract, paths)
             self.assertNotIn(dependency, paths)
 
+    def test_runtime_source_selection_includes_current_verification_tests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "source"
+            current_test = source / "tests" / "test_current_contract.py"
+            stale_cache = source / "tests" / "__pycache__" / "test_current_contract.pyc"
+            current_test.parent.mkdir(parents=True)
+            stale_cache.parent.mkdir(parents=True)
+            current_test.write_text("def test_current_contract(): pass\n", encoding="utf-8")
+            stale_cache.write_bytes(b"stale")
+            paths = runtime_deploy.selected_paths(source)
+            self.assertIn(current_test, paths)
+            self.assertNotIn(stale_cache, paths)
+
     def test_runtime_source_rollback_restores_old_files_and_removes_new_files(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "source"
