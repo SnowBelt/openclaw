@@ -1,6 +1,6 @@
 /* oxlint-disable eslint/no-promise-executor-return eslint/no-useless-assignment -- The smoke harness intentionally retains callback and lifecycle state for failure diagnostics. */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -246,14 +246,62 @@ async function findFreePort(): Promise<number> {
 
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      server.closeAllConnections();
+      resolve();
+    }, 5_000);
+    timeout.unref();
     server.close((error) => {
+      clearTimeout(timeout);
       if (error) {
         reject(error);
         return;
       }
       resolve();
     });
+    server.closeIdleConnections();
+    server.closeAllConnections();
   });
+}
+
+async function stopGateway(gateway: ChildProcessWithoutNullStreams): Promise<void> {
+  if (gateway.exitCode !== null) {
+    return;
+  }
+  const waitForExit = (timeoutMs: number) =>
+    new Promise<boolean>((resolve) => {
+      const timeout = setTimeout(() => resolve(false), timeoutMs);
+      timeout.unref();
+      gateway.once("close", () => {
+        clearTimeout(timeout);
+        resolve(true);
+      });
+    });
+  gateway.kill("SIGTERM");
+  if (await waitForExit(5_000)) {
+    return;
+  }
+  gateway.kill("SIGKILL");
+  await waitForExit(5_000);
+}
+
+function writeEpubCheckSmokeStub(path: string): void {
+  writeFileSync(
+    path,
+    `#!/usr/bin/env node
+import { openSync, readSync, closeSync, statSync } from "node:fs";
+
+const epubPath = process.argv[2];
+if (!epubPath || statSync(epubPath).size === 0) process.exit(2);
+const fd = openSync(epubPath, "r");
+const header = Buffer.alloc(2);
+readSync(fd, header, 0, header.length, 0);
+closeSync(fd);
+if (header[0] !== 0x50 || header[1] !== 0x4b) process.exit(3);
+console.log("EPUBCheck smoke dependency accepted a non-empty ZIP container.");
+`,
+  );
+  chmodSync(path, 0o755);
 }
 
 function startGateway(params: {
@@ -262,6 +310,7 @@ function startGateway(params: {
   stateDir: string;
   homeDir: string;
   logPath: string;
+  epubCheckBin: string;
 }): ChildProcessWithoutNullStreams {
   const child = spawn(
     "pnpm",
@@ -287,6 +336,9 @@ function startGateway(params: {
         NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=8192",
         OPENCLAW_CONFIG_PATH: params.configPath,
         OPENCLAW_STATE_DIR: params.stateDir,
+        // The UI smoke isolates external tooling just like it isolates the model provider. The
+        // production exporter and its official EPUBCheck contract remain covered separately.
+        OPENCLAW_BOOK_WRITER_EPUBCHECK_BIN: params.epubCheckBin,
         HOME: params.homeDir,
       },
       stdio: "pipe",
@@ -386,6 +438,8 @@ async function main(): Promise<void> {
   const smokeStderrPath = join(artifactDir, "smoke.stderr.log");
   const bookWriterSummaryPath = join(artifactDir, "book-writer-summary.json");
   const uiBuildLogPath = join(artifactDir, "ui-build.log");
+  const epubCheckBin = join(tempRoot, "epubcheck-smoke-stub.mjs");
+  writeEpubCheckSmokeStub(epubCheckBin);
   const uiBuild = await rebuildControlUi(uiBuildLogPath);
 
   writeFileSync(
@@ -429,6 +483,7 @@ async function main(): Promise<void> {
     stateDir,
     homeDir,
     logPath: gatewayLogPath,
+    epubCheckBin,
   });
 
   try {
@@ -484,11 +539,7 @@ async function main(): Promise<void> {
       process.exitCode = result.code ?? 1;
     }
   } finally {
-    gateway.kill("SIGTERM");
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    if (gateway.exitCode === null) {
-      gateway.kill("SIGKILL");
-    }
+    await stopGateway(gateway);
     await closeServer(mockServer);
   }
 }
