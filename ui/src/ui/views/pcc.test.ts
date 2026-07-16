@@ -2671,6 +2671,7 @@ describe("renderPccDashboard", () => {
   it("shows fail-closed update protection and an approval-ready candidate", () => {
     const container = renderView(
       createProps({
+        viewMode: "simple",
         updateSafety: {
           status: "protected",
           standardUpdateBlocked: true,

@@ -8481,7 +8481,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
             ${renderImpactAttentionInbox(props)}
           </details>`}
       ${mode === "simple"
-        ? nothing
+        ? renderUpdateSafetyDrawer(props)
         : html`${renderProductionTruthDrawer(props)} ${renderUpdateSafetyDrawer(props)}
           ${renderRecentActivityFeed(props)}`}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
