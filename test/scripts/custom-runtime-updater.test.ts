@@ -112,8 +112,28 @@ describe("custom runtime update broker", () => {
     const releases = path.join(base, "releases");
     const release = path.join(releases, "candidate");
     const marker = path.join(base, "activated.txt");
-    const baseSha = "b".repeat(40);
-    const sourceSha = "c".repeat(40);
+    const sourceRepo = path.join(base, "source");
+    const sourceBranch = "codex/runtime-update-test";
+    fs.mkdirSync(sourceRepo, { recursive: true });
+    expect(spawnSync("git", ["init", "-q", sourceRepo]).status).toBe(0);
+    expect(
+      spawnSync("git", ["-C", sourceRepo, "config", "user.email", "test@example.invalid"]).status,
+    ).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "config", "user.name", "Test"]).status).toBe(0);
+    fs.writeFileSync(path.join(sourceRepo, "source.txt"), "base\n");
+    expect(spawnSync("git", ["-C", sourceRepo, "add", "source.txt"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "commit", "-qm", "base"]).status).toBe(0);
+    const baseSha = spawnSync("git", ["-C", sourceRepo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    expect(spawnSync("git", ["-C", sourceRepo, "switch", "-qc", sourceBranch]).status).toBe(0);
+    fs.writeFileSync(path.join(sourceRepo, "source.txt"), "candidate\n");
+    expect(spawnSync("git", ["-C", sourceRepo, "add", "source.txt"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "commit", "-qm", "candidate"]).status).toBe(0);
+    const sourceSha = spawnSync("git", ["-C", sourceRepo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    expect(spawnSync("git", ["-C", sourceRepo, "branch", "codex/stale", baseSha]).status).toBe(0);
     fs.mkdirSync(path.join(release, "scripts", "custom-runtime"), { recursive: true });
     fs.writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
     fs.writeFileSync(
@@ -129,8 +149,8 @@ describe("custom runtime update broker", () => {
       release,
       baseSha,
       sourceSha,
-      sourceRepo: path.join(base, "source"),
-      sourceBranch: "codex/custom-runtime",
+      sourceRepo,
+      sourceBranch,
     });
     let result = spawnSync(approve, [], {
       encoding: "utf8",
@@ -145,7 +165,36 @@ describe("custom runtime update broker", () => {
     expect(fs.existsSync(marker)).toBe(false);
 
     writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: baseSha });
-    fs.mkdirSync(path.join(base, "source"), { recursive: true });
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch: "codex/stale",
+    });
+    result = spawnSync(approve, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("source branch does not identify the candidate commit");
+    expect(fs.existsSync(marker)).toBe(false);
+
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+    });
     result = spawnSync(approve, [], {
       encoding: "utf8",
       env: {
@@ -156,6 +205,7 @@ describe("custom runtime update broker", () => {
     });
     expect(result.status, result.stderr).toBe(0);
     expect(fs.readFileSync(marker, "utf8")).toContain("--source-sha");
+    expect(fs.readFileSync(marker, "utf8")).toContain(sourceBranch);
     expect(fs.existsSync(pending)).toBe(false);
     const approval = fs
       .readdirSync(path.join(runtimeHome, "receipts"))

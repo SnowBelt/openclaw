@@ -50,6 +50,26 @@ release=$(printf '%s\n' "$fields" | sed -n '1p')
 source_sha=$(printf '%s\n' "$fields" | sed -n '2p')
 source_repo=$(printf '%s\n' "$fields" | sed -n '3p')
 source_branch=$(printf '%s\n' "$fields" | sed -n '4p')
+[ -d "$source_repo/.git" ] || git -C "$source_repo" rev-parse --git-dir >/dev/null 2>&1 || {
+  printf '%s\n' 'prepared update source repository is unavailable' >&2
+  exit 64
+}
+[ -z "$(git -C "$source_repo" status --porcelain)" ] || {
+  printf '%s\n' 'prepared update source repository is dirty' >&2
+  exit 64
+}
+git -C "$source_repo" cat-file -e "$source_sha^{commit}" 2>/dev/null || {
+  printf '%s\n' 'prepared update source commit is unavailable' >&2
+  exit 64
+}
+branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 2>/dev/null) || {
+  printf '%s\n' 'prepared update source branch is unavailable' >&2
+  exit 64
+}
+[ "$branch_sha" = "$source_sha" ] || {
+  printf '%s\n' 'prepared update source branch does not identify the candidate commit' >&2
+  exit 64
+}
 [ -f "$release/.openclaw-production-sha" ] || { printf '%s\n' 'prepared release source stamp is missing' >&2; exit 64; }
 [ "$(tr -d '[:space:]' < "$release/.openclaw-production-sha")" = "$source_sha" ] || {
   printf '%s\n' 'prepared release source stamp changed after proof' >&2

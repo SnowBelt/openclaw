@@ -56,7 +56,7 @@ The scheduled broker only prepares a candidate:
 custom-runtime-updater.sh --prepare
 ```
 
-It fetches the selected official stable release, merges it onto the exact active custom commit, runs the complete check/build/test/browser surface, constructs an immutable release, and writes a `ready_for_approval` receipt. It does not change the live runtime.
+It fetches the selected official stable release, merges it onto the exact active custom commit on a dedicated candidate branch, runs the complete check/build/test/browser surface, constructs an immutable release, and writes a `ready_for_approval` receipt. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
 
 After reviewing the receipt, an operator approves that exact candidate:
 

@@ -17,6 +17,7 @@ releases=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 mkdir -p "$worktrees" "$receipts"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 candidate="$worktrees/$stamp"
+update_branch="codex/runtime-update-$stamp"
 receipt="$receipts/update-$stamp.json"
 fail() { printf '{"at":"%s","result":"failed","stage":"%s","worktree":"%s"}\n' "$stamp" "$1" "$candidate" > "$receipt"; exit 1; }
 
@@ -68,7 +69,7 @@ if git -C "$repo" merge-base --is-ancestor "$official_ref" "$base_ref"; then
   exit 0
 fi
 
-git -C "$repo" worktree add -b "codex/runtime-update-$stamp" "$candidate" "$base_ref" || fail worktree
+git -C "$repo" worktree add -b "$update_branch" "$candidate" "$base_ref" || fail worktree
 if ! git -C "$candidate" merge --no-ff --no-edit "$official_ref"; then
   git -C "$candidate" diff --binary > "$candidate/openclaw-update-merge-conflict.patch" || true
   git -C "$candidate" merge --abort || true
@@ -157,7 +158,7 @@ with open(target, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$branch" <<'PY'
+  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" <<'PY'
 import json, os, sys
 receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch = sys.argv[1:]
 data = {
