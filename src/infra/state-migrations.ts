@@ -597,11 +597,17 @@ function legacyInstallRecordHasCurrentResolvedIdentity(params: {
   const { currentRecord, legacyRecord } = params;
   const currentResolvedSpec = readInstallRecordStringField(currentRecord, "resolvedSpec");
   const legacySpec = readInstallRecordStringField(legacyRecord, "spec");
-  if (legacySpec) {
-    return currentResolvedSpec === legacySpec;
+  if (legacySpec && currentResolvedSpec === legacySpec) {
+    return true;
   }
   const legacyResolvedSpec = readInstallRecordStringField(legacyRecord, "resolvedSpec");
-  return Boolean(legacyResolvedSpec && currentResolvedSpec === legacyResolvedSpec);
+  if (!legacyResolvedSpec || currentResolvedSpec !== legacyResolvedSpec) {
+    return false;
+  }
+  if (!legacySpec) {
+    return true;
+  }
+  return legacySpec.includes("@file:./_openclaw-pack-archives/") && legacySpec.endsWith(".tgz");
 }
 
 function readAuthoritativeCurrentNpmIdentity(

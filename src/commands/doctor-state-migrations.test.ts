@@ -2222,6 +2222,50 @@ describe("doctor legacy state migrations", () => {
     });
   });
 
+  it("archives a legacy npm pack record when its resolved package identity matches SQLite", async () => {
+    const root = await makeTempRoot();
+    await writeExistingPluginInstallIndex(root, {
+      demo: {
+        source: "npm",
+        spec: "demo@1.0.0",
+        sourcePath: "/tmp/demo-1.0.0.tgz",
+        installPath: "/tmp/openclaw/plugins/demo",
+        version: "1.0.0",
+        resolvedName: "demo",
+        resolvedVersion: "1.0.0",
+        resolvedSpec: "demo@1.0.0",
+        integrity: "sha512-current",
+      },
+    });
+    const sourcePath = writeLegacyPluginInstallIndex(root, {
+      demo: {
+        source: "npm",
+        spec: "demo@file:./_openclaw-pack-archives/demo-1.0.0.tgz",
+        installPath: "/tmp/openclaw/plugins/demo",
+        version: "1.0.0",
+        resolvedName: "demo",
+        resolvedVersion: "1.0.0",
+        resolvedSpec: "demo@1.0.0",
+      },
+    });
+
+    const result = await runLegacyStateMigrationsForRoot(root);
+
+    expect(result.warnings).toStrictEqual([]);
+    expect(fs.existsSync(sourcePath)).toBe(false);
+    expect(fs.existsSync(`${sourcePath}.migrated`)).toBe(true);
+    await expect(readPersistedInstalledPluginIndex({ stateDir: root })).resolves.toMatchObject({
+      installRecords: {
+        demo: {
+          source: "npm",
+          spec: "demo@1.0.0",
+          resolvedSpec: "demo@1.0.0",
+          integrity: "sha512-current",
+        },
+      },
+    });
+  });
+
   it("keeps exact legacy npm install record when SQLite lacks authoritative package identity", async () => {
     const root = await makeTempRoot();
     await writeExistingPluginInstallIndex(root, {
