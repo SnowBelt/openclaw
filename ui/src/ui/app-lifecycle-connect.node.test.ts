@@ -33,6 +33,11 @@ vi.mock("./app-settings.ts", () => ({
 }));
 
 vi.mock("./app-polling.ts", () => ({
+  shouldPollKalshiDashboard: vi.fn(() => false),
+  startKalshiDashboardPolling: vi.fn(),
+  stopKalshiDashboardPolling: vi.fn(),
+  startDashboardPolling: vi.fn(),
+  stopDashboardPolling: vi.fn(),
   startLogsPolling: vi.fn(),
   startNodesPolling: vi.fn(),
   stopLogsPolling: vi.fn(),
@@ -43,8 +48,13 @@ vi.mock("./app-polling.ts", () => ({
 
 vi.mock("./app-scroll.ts", () => ({
   observeTopbar: vi.fn(),
+  scheduleActivityScroll: vi.fn(),
   scheduleChatScroll: vi.fn(),
   scheduleLogsScroll: vi.fn(),
+}));
+
+vi.mock("./control-ui-performance.ts", () => ({
+  startControlUiResponsivenessObserver: vi.fn(() => ({ disconnect: vi.fn() })),
 }));
 
 import { handleConnected, handleUpdated } from "./app-lifecycle.ts";

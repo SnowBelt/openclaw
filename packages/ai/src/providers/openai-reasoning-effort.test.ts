@@ -1,7 +1,6 @@
 // Verifies model-specific OpenAI reasoning-effort normalization and disablement.
 import { describe, expect, it } from "vitest";
 import {
-  isOpenAIGpt56Model,
   resolveOpenAIReasoningEffortForModel,
   resolveOpenAISupportedReasoningEfforts,
 } from "./openai-reasoning-effort.js";

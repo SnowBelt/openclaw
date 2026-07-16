@@ -462,16 +462,18 @@ export function getSlashCommandCompletions(
   }
 
   return commands.toSorted((a, b) => {
-    // Sort by tier first (essential → standard → power)
-    const aTier = TIER_ORDER[a.tier ?? "standard"] ?? 1;
-    const bTier = TIER_ORDER[b.tier ?? "standard"] ?? 1;
-    if (aTier !== bTier) {
-      return aTier - bTier;
-    }
+    // The renderer groups by category. Keep the backing array in that same
+    // order so keyboard indices, aria-activedescendant, and visible options
+    // always refer to the same command.
     const ai = CATEGORY_ORDER.indexOf(a.category ?? "session");
     const bi = CATEGORY_ORDER.indexOf(b.category ?? "session");
     if (ai !== bi) {
       return ai - bi;
+    }
+    const aTier = TIER_ORDER[a.tier ?? "standard"] ?? 1;
+    const bTier = TIER_ORDER[b.tier ?? "standard"] ?? 1;
+    if (aTier !== bTier) {
+      return aTier - bTier;
     }
     if (lower) {
       const aExact = a.name.startsWith(lower) ? 0 : 1;

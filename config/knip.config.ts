@@ -148,6 +148,9 @@ const config = {
         "partial-json",
         "sqlite-vec",
         "tree-sitter-bash",
+        // scripts/** is intentionally outside Knip's dependency graph; the
+        // SNES asset studio executable loads sharp directly at runtime.
+        "sharp",
         ...rootBundledPluginRuntimeDependencies,
       ],
       project: [
@@ -161,12 +164,20 @@ const config = {
       entry: [
         "index.html!",
         "src/main.ts!",
+        // Dependency-check the upstream app-host graph while the customized
+        // Control UI remains the production entrypoint.
+        "src/app/app-host.ts!",
         "src/lib/browser-redact.ts!",
         "vite.config.ts!",
         "vitest*.ts!",
       ],
-      // Workboard lazy-loads Three.js at runtime; Knip's dependency pass misses it.
-      ignoreDependencies: ["three"],
+      ignoreDependencies: [
+        // Workboard lazy-loads Three.js at runtime; Knip's dependency pass misses it.
+        "three",
+        // The terminal runtime dynamically imports Ghostty. The custom Control UI
+        // entry does not statically reach that lazy module during Knip analysis.
+        "ghostty-web",
+      ],
       project: ["src/**/*.{ts,tsx}!"],
     },
     "packages/ai": {

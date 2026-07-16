@@ -9,6 +9,10 @@ import {
   prepareSimpleCompletionModel,
 } from "openclaw/plugin-sdk/simple-completion-runtime";
 import {
+  fetchWithSsrFGuard,
+  ssrfPolicyFromHttpBaseUrlAllowedOrigin,
+} from "openclaw/plugin-sdk/ssrf-runtime";
+import {
   applyAppBuilderPatchPlan,
   applyAppBuilderImplementationPass,
   captureIosSimulatorScreenshot,
@@ -2433,13 +2437,12 @@ async function completeWithLocalQwen(params: {
   request: AppStudioAiCompletionRequest;
   baseUrl: string;
 }): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), params.request.timeoutMs);
-  try {
-    const response = await fetch(`${params.baseUrl.replace(/\/+$/, "")}/api/chat`, {
+  const baseUrl = params.baseUrl.replace(/\/+$/, "");
+  const { response, release } = await fetchWithSsrFGuard({
+    url: `${baseUrl}/api/chat`,
+    init: {
       method: "POST",
       headers: { "content-type": "application/json" },
-      signal: controller.signal,
       body: JSON.stringify({
         model: modelNameFromOllamaRef(params.request.modelRef),
         stream: true,
@@ -2452,7 +2455,12 @@ async function completeWithLocalQwen(params: {
           { role: "user", content: params.request.prompt },
         ],
       }),
-    });
+    },
+    timeoutMs: params.request.timeoutMs,
+    policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(baseUrl),
+    auditContext: "apps.app-studio.local-qwen",
+  });
+  try {
     if (!response.ok) {
       throw new Error(`Ollama returned HTTP ${response.status}`);
     }
@@ -2462,7 +2470,7 @@ async function completeWithLocalQwen(params: {
     }
     return text;
   } finally {
-    clearTimeout(timer);
+    await release();
   }
 }
 

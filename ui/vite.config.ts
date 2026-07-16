@@ -206,7 +206,7 @@ function normalizeViteImporterPath(importer: string): string {
 }
 
 export function controlUiBrowserOnlySharedModuleAliases(): Plugin {
-  const browserRedactPath = path.join(here, "src/ui/browser-redact.ts");
+  const browserRedactPath = path.join(here, "src/lib/browser-redact.ts");
   const sharedRedactImporters = new Set([
     path.join(repoRoot, "src/agents/tool-display-common.ts"),
     path.join(repoRoot, "src/agents/tool-display-exec.ts"),

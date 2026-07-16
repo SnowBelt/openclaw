@@ -170,6 +170,10 @@ function patternLabYoutubeRootMissingMessage(): string {
   return `Pattern Lab youtube-v1 root not found. Set ${PATTERN_LAB_YOUTUBE_ROOT_ENV} to the YouTube workspace, or keep youtube-v1 under the OpenClaw repo root.`;
 }
 
+function resetPatternLabYoutubeRootCacheForTests(): void {
+  cachedPatternLabYoutubeRoot = null;
+}
+
 export function normalizePatternLabVideoId(videoId: unknown = DEFAULT_VIDEO_ID): string {
   const normalized =
     typeof videoId === "string" && videoId.trim() ? videoId.trim() : DEFAULT_VIDEO_ID;
@@ -872,4 +876,5 @@ export const patternLabDashboardDataTesting = {
   normalizeMediaPath,
   collectPatternLabYoutubeRootCandidates,
   patternLabYoutubeRootMissingMessage,
+  resetPatternLabYoutubeRootCacheForTests,
 };

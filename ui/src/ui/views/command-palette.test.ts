@@ -162,7 +162,7 @@ describe("command palette", () => {
     const label = container.querySelector<HTMLLabelElement>("#cmd-palette-label");
     const input = container.querySelector<HTMLInputElement>("#cmd-palette-input");
     const listbox = container.querySelector<HTMLElement>("#cmd-palette-listbox");
-    expect(label?.textContent).toBe("Type a command…");
+    expect(label?.textContent).toBe("Search chats and commands…");
     expect(label?.getAttribute("for")).toBe("cmd-palette-input");
     expect(input?.getAttribute("role")).toBe("combobox");
     expect(input?.getAttribute("aria-autocomplete")).toBe("list");

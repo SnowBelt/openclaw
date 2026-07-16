@@ -2,11 +2,12 @@ import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { CronJob } from "../cron/types.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { listTaskRecords } from "../tasks/runtime-internal.js";
 import {
-  createTaskRecord,
-  listTaskRecords,
-  markTaskTerminalById,
-} from "../tasks/runtime-internal.js";
+  completeTaskRunByRunId,
+  createRunningTaskRun,
+  failTaskRunByRunId,
+} from "../tasks/task-executor.js";
 import type { TaskRecord } from "../tasks/task-registry.types.js";
 import { auditSelfImprovementOpportunities } from "./auditor.js";
 import { replaySelfImprovementOutbox } from "./outbox.js";
@@ -44,7 +45,7 @@ export async function runSelfImprovementGovernorScan(params: {
   const task =
     params.recordTask === false
       ? null
-      : createTaskRecord({
+      : createRunningTaskRun({
           runtime: "cron",
           taskKind: "self-improvement",
           sourceId: "self-improvement-governor",
@@ -54,7 +55,6 @@ export async function runSelfImprovementGovernorScan(params: {
           runId,
           label: "Self-Improvement Governor scan",
           task: "Inspect OpenClaw state and produce recommendation records.",
-          status: "running",
           startedAt: now,
           lastEventAt: now,
           notifyPolicy: "silent",
@@ -103,23 +103,25 @@ export async function runSelfImprovementGovernorScan(params: {
       recommendations: upsert.recommendations,
     };
     if (task) {
-      markTaskTerminalById({
-        taskId: task.taskId,
-        status: "succeeded",
+      completeTaskRunByRunId({
+        runId,
+        runtime: "cron",
         endedAt: Date.now(),
         terminalOutcome: "succeeded",
         terminalSummary: `Produced ${audit.recommendations.length} self-improvement recommendation(s).`,
+        suppressDelivery: true,
       });
     }
     return result;
   } catch (error) {
     if (task) {
-      markTaskTerminalById({
-        taskId: task.taskId,
-        status: "failed",
+      failTaskRunByRunId({
+        runId,
+        runtime: "cron",
         endedAt: Date.now(),
         error: formatErrorMessage(error),
         terminalSummary: "Self-Improvement Governor scan failed.",
+        suppressDelivery: true,
       });
     }
     throw error;

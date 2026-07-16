@@ -951,7 +951,12 @@ describe("grouped chat rendering", () => {
     );
     const meta = cached.querySelector<HTMLDetailsElement>("details.msg-meta");
     expect(meta?.open).toBe(false);
-    expect(meta?.querySelector(".msg-meta__summary span:last-child")?.textContent).toBe("Context");
+    expect(meta?.querySelector(".msg-meta__summary")?.getAttribute("aria-label")).toContain(
+      "Message context for",
+    );
+    expect(meta?.querySelector(".chat-group-timestamp")?.textContent?.trim()).toBe(
+      formatChatTimestampForDisplay(1000).label,
+    );
     expect(cached.querySelector(".msg-meta__ctx")?.textContent).toBe("44% ctx");
     expect(
       Array.from(cached.querySelectorAll(".msg-meta__cache")).map((node) => node.textContent),

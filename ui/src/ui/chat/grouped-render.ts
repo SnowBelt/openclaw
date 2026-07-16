@@ -97,13 +97,53 @@ export function formatChatTimestampForDisplay(timestamp: number): ChatTimestampD
   };
 }
 
-function renderChatTimestamp(timestamp: number) {
+function renderChatTimestamp(timestamp: number, interactive = false) {
   const display = formatChatTimestampForDisplay(timestamp);
   return html`
-    <time class="chat-group-timestamp" datetime=${display.dateTime} title=${display.title}>
+    <time
+      class="chat-group-timestamp"
+      datetime=${display.dateTime}
+      title=${interactive ? nothing : display.title}
+    >
       ${display.label}
     </time>
   `;
+}
+
+function resolveMessageMetaDetails(target: EventTarget | null): HTMLDetailsElement | null {
+  if (target instanceof HTMLDetailsElement) {
+    return target;
+  }
+  return target instanceof HTMLElement
+    ? target.closest<HTMLDetailsElement>("details.msg-meta")
+    : null;
+}
+
+function previewMessageMeta(event: PointerEvent | FocusEvent) {
+  const details = resolveMessageMetaDetails(event.currentTarget);
+  if (!details || details.open || ("pointerType" in event && event.pointerType === "touch")) {
+    return;
+  }
+  details.dataset.preview = "true";
+  details.open = true;
+}
+
+function closeMessageMetaPreview(event: PointerEvent | FocusEvent) {
+  const details = resolveMessageMetaDetails(event.currentTarget);
+  if (!details || details.dataset.preview !== "true" || details.matches(":hover, :focus-within")) {
+    return;
+  }
+  delete details.dataset.preview;
+  details.open = false;
+}
+
+function pinMessageMetaPreview(event: MouseEvent) {
+  const details = resolveMessageMetaDetails(event.currentTarget);
+  if (details?.dataset.preview !== "true") {
+    return;
+  }
+  event.preventDefault();
+  delete details.dataset.preview;
 }
 
 export function resetAssistantAttachmentAvailabilityCacheForTest() {
@@ -635,7 +675,7 @@ export function renderMessageGroup(
         )}
         <div class="chat-group-footer">
           <span class="chat-sender-name">${who}</span>
-          ${renderChatTimestamp(group.timestamp)} ${renderMessageMeta(meta)}
+          ${renderMessageMeta(group.timestamp, meta)}
           ${opts.onDelete
             ? renderDeleteButton(opts.onDelete, normalizedRole === "user" ? "left" : "right")
             : nothing}
@@ -706,9 +746,9 @@ function extractGroupMeta(group: MessageGroup, contextWindow: number | null): Gr
   return { input, output, cacheRead, cacheWrite, cost, model, contextPercent };
 }
 
-function renderMessageMeta(meta: GroupMeta | null) {
+function renderMessageMeta(timestamp: number, meta: GroupMeta | null) {
   if (!meta) {
-    return nothing;
+    return renderChatTimestamp(timestamp);
   }
 
   const parts: Array<ReturnType<typeof html>> = [];
@@ -760,14 +800,25 @@ function renderMessageMeta(meta: GroupMeta | null) {
   }
 
   if (parts.length === 0) {
-    return nothing;
+    return renderChatTimestamp(timestamp);
   }
 
+  const display = formatChatTimestampForDisplay(timestamp);
+
   return html`
-    <details class="msg-meta">
-      <summary class="msg-meta__summary" title="Show message context details">
-        <span class="msg-meta__summary-icon" aria-hidden="true">${icons.chevronRight}</span>
-        <span>Context</span>
+    <details
+      class="msg-meta"
+      @pointerenter=${previewMessageMeta}
+      @pointerleave=${closeMessageMetaPreview}
+      @focusin=${previewMessageMeta}
+      @focusout=${closeMessageMetaPreview}
+    >
+      <summary
+        class="msg-meta__summary"
+        aria-label=${`Message context for ${display.title}`}
+        @click=${pinMessageMetaPreview}
+      >
+        ${renderChatTimestamp(timestamp, true)}
       </summary>
       <span class="msg-meta__details">${parts}</span>
     </details>

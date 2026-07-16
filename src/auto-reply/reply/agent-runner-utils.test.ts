@@ -83,6 +83,7 @@ describe("agent-runner-utils", () => {
       agentDir: run.agentDir,
       agentId: run.agentId,
       sessionKey: run.sessionKey,
+      automaticSelection: false,
       fallbacksOverride: ["fallback-model"],
     });
   });

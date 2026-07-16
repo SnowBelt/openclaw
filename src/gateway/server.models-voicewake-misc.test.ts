@@ -91,6 +91,10 @@ type ModelCatalogRpcEntry = {
   contextWindow?: number;
   input?: string[];
   reasoning?: boolean;
+  agentRuntime?: {
+    id: string;
+    source: string;
+  };
 };
 
 type AgentCatalogFixtureEntry = {
@@ -141,6 +145,7 @@ const expectedSortedCatalog = (): ModelCatalogRpcEntry[] => [
     id: "gpt-test-a",
     name: "A-Model",
     provider: "openai",
+    agentRuntime: { id: "codex", source: "implicit" },
     available: false,
     contextWindow: 8000,
   },
@@ -148,6 +153,7 @@ const expectedSortedCatalog = (): ModelCatalogRpcEntry[] => [
     id: "gpt-test-z",
     name: "gpt-test-z",
     provider: "openai",
+    agentRuntime: { id: "codex", source: "implicit" },
     available: false,
   },
 ];
@@ -657,6 +663,7 @@ describe("gateway server models + voicewake", () => {
             id: "gpt-test-z",
             name: "gpt-test-z",
             provider: "openai",
+            agentRuntime: { id: "codex", source: "implicit" },
             available: false,
           },
         ]);
@@ -703,6 +710,7 @@ describe("gateway server models + voicewake", () => {
           id: "gpt-test-z",
           name: "gpt-test-z",
           provider: "openai",
+          agentRuntime: { id: "codex", source: "implicit" },
           available: false,
         },
       ],
@@ -720,6 +728,7 @@ describe("gateway server models + voicewake", () => {
           id: "not-in-catalog",
           name: "not-in-catalog",
           provider: "openai",
+          agentRuntime: { id: "codex", source: "implicit" },
           available: false,
         },
       ],

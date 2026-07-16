@@ -19,11 +19,11 @@ type MobileFixture = {
 
 function readUiCss(): string {
   const files = [
-    "ui/src/styles/base.css",
-    "ui/src/styles/components.css",
+    "ui/src/legacy-styles/base.css",
+    "ui/src/legacy-styles/components.css",
     "ui/src/styles/config.css",
-    "ui/src/styles/usage.css",
-    "ui/src/styles/chat/layout.css",
+    "ui/src/legacy-styles/usage.css",
+    "ui/src/legacy-styles/chat/layout.css",
   ];
   return files.map((file) => readStyleSheet(file)).join("\n");
 }

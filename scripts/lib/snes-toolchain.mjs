@@ -5161,6 +5161,7 @@ export function projectConversion(options = {}) {
     },
     status: "blocked",
     tool,
+    visualApprovalClaimed: false,
   };
   if (!tool.available) {
     report.blockers = [tool.blocker];

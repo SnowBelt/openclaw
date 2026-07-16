@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/temp-path";
 import type { GateFinding, GateReport } from "./types.js";
 
 type CommandResult = {
@@ -292,7 +292,9 @@ async function exportPdfWithChromium(params: {
   if (!chromium) {
     return undefined;
   }
-  const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-book-writer-print-"));
+  const profileDir = await fs.mkdtemp(
+    path.join(resolvePreferredOpenClawTmpDir(), "openclaw-book-writer-print-"),
+  );
   const result = await params.commandRunner(
     chromium,
     [

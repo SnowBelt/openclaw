@@ -26,10 +26,10 @@ type BrowserFixture = {
 
 function readUiCss(): string {
   const files = [
-    "ui/src/styles/base.css",
-    "ui/src/styles/layout.css",
-    "ui/src/styles/layout.mobile.css",
-    "ui/src/styles/components.css",
+    "ui/src/legacy-styles/base.css",
+    "ui/src/legacy-styles/layout.css",
+    "ui/src/legacy-styles/layout.mobile.css",
+    "ui/src/legacy-styles/components.css",
   ];
   return files.map((file) => readStyleSheet(file)).join("\n");
 }

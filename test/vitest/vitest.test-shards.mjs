@@ -83,6 +83,7 @@ export const fullSuiteVitestShards = [
       "test/vitest/vitest.tui.config.ts",
       "test/vitest/vitest.tui-pty.config.ts",
       "test/vitest/vitest.ui.config.ts",
+      "test/vitest/vitest.apps-snes-studio.config.ts",
       "test/vitest/vitest.utils.config.ts",
       "test/vitest/vitest.wizard.config.ts",
     ],

@@ -67,8 +67,11 @@ type TestMilestone = {
 
 type TestLedger = { milestones: TestMilestone[] };
 
-function readJson<T = unknown>(filePath: string): T {
-  return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
+function readJson<T = unknown>(
+  filePath: string,
+  decode: (value: unknown) => T = (value) => value as T,
+): T {
+  return decode(JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown);
 }
 
 function writeJson(filePath: string, value: unknown) {
@@ -340,7 +343,9 @@ describe("SNES PCC team orchestrator", () => {
   it("reports next as pass when every milestone is already complete", () => {
     const { root, project, pccDir } = initDemo();
     const ledger = readJson<TestLedger>(path.join(pccDir, "milestone-ledger.json"));
-    for (const milestone of ledger.milestones) passMilestone(root, project, milestone.milestoneId);
+    for (const milestone of ledger.milestones) {
+      passMilestone(root, project, milestone.milestoneId);
+    }
 
     expect(pccNext({ project, root })).toMatchObject({
       status: "pass",
@@ -1464,13 +1469,13 @@ describe("SNES PCC team orchestrator", () => {
     expect(dispatch.status).toBe("pass");
   });
 
-  it("keeps SNES skill orchestration references discoverable", () => {
+  it("keeps durable SNES orchestration entrypoints discoverable", () => {
     for (const file of [
-      ".agents/skills/snes-game-creator/references/production-orchestration.md",
-      ".agents/skills/snes-game-creator/references/agent-routing.md",
-      ".agents/skills/snes-game-creator/references/proof-gates.md",
-      ".agents/skills/snes-game-creator/references/art-quality-rubric.md",
-      ".agents/skills/snes-game-creator/references/prompt-to-rom-workflow.md",
+      "scripts/snes-team-orchestrator.mjs",
+      "scripts/lib/snes-team-orchestrator.mjs",
+      "scripts/snes-toolchain.mjs",
+      "scripts/lib/snes-toolchain.mjs",
+      "scripts/snes-asset-studio.mjs",
     ]) {
       expect(fs.existsSync(file)).toBe(true);
     }

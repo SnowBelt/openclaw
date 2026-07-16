@@ -85,7 +85,7 @@ function writeSmokeApp(appDir: string) {
   writeFileSync(
     join(appDir, "main.ts"),
     `import { render } from "lit";
-import "/ui/src/styles/chat.css";
+import "/ui/src/styles.css";
 import { renderChat } from "/ui/src/ui/views/chat.ts";
 
 type Mode = "desktop" | "mobile";

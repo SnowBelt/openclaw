@@ -121,12 +121,18 @@ describe("control-ui-snes-studio-smoke milestone gates", () => {
   });
 
   it("uses a system browser only when explicitly allowed", () => {
+    const expectedSystemBrowser =
+      process.platform === "darwin"
+        ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        : process.platform === "win32"
+          ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+          : "/usr/bin/google-chrome";
     expect(
       resolveSnesStudioSmokeBrowserExecutable(
         { OPENCLAW_CONTROL_UI_SMOKE_ALLOW_SYSTEM_BROWSER: "1" },
-        (path) => path === "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        (path) => path === expectedSystemBrowser,
       ),
-    ).toBe("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
+    ).toBe(expectedSystemBrowser);
   });
 
   it("detects local GLM only after a llama.cpp decode probe succeeds", () => {
@@ -325,7 +331,9 @@ describe("control-ui-snes-studio-smoke milestone gates", () => {
             return { pid: 1234, unref() {} };
           },
           spawnSyncFn: (command) => {
-            if (command === "lsof") return { status: 1, stdout: "" };
+            if (command === "lsof") {
+              return { status: 1, stdout: "" };
+            }
             return { status: 0, stdout: "" };
           },
         },
@@ -375,9 +383,15 @@ describe("control-ui-snes-studio-smoke milestone gates", () => {
       };
     };
     const spawnSyncFn = (command: string, args: readonly string[]) => {
-      if (command === "lsof") return { status: 1, stdout: "" };
-      if (command === "vm_stat") return { status: 0, stdout: "Pages free: 1" };
-      if (command === "llama-server") return { status: 0, stdout: "version: test" };
+      if (command === "lsof") {
+        return { status: 1, stdout: "" };
+      }
+      if (command === "vm_stat") {
+        return { status: 0, stdout: "Pages free: 1" };
+      }
+      if (command === "llama-server") {
+        return { status: 0, stdout: "version: test" };
+      }
       if (command === "curl" && String(args.at(-1)).endsWith("/v1/models")) {
         return {
           status: 0,
@@ -388,8 +402,12 @@ describe("control-ui-snes-studio-smoke milestone gates", () => {
         const response = probeResponses.shift() ?? probeResponses.at(-1);
         return { status: 0, stdout: JSON.stringify(response) };
       }
-      if (command === "kill") return { status: 0, stdout: "" };
-      if (command === "ps") return { status: 0, stdout: "llama-server" };
+      if (command === "kill") {
+        return { status: 0, stdout: "" };
+      }
+      if (command === "ps") {
+        return { status: 0, stdout: "llama-server" };
+      }
       return { status: 0, stdout: "" };
     };
 

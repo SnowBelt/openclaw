@@ -1669,9 +1669,10 @@ function requestSlashCommandRefresh(
     const nextValue = getCurrentValue?.() ?? props.getDraft?.() ?? value;
     if (!nextValue.startsWith("/")) {
       closeSlashMenuIfNeeded(requestUpdate);
-      return;
     }
-    updateSlashMenu(nextValue, requestUpdate, props, { skipSlashIntent: true });
+    // Keep the visible command list stable while the user is navigating it.
+    // Hydration updates the shared command catalog; the next input change or
+    // menu open picks up fresh commands without reindexing the current DOM.
   });
 }
 
@@ -1856,6 +1857,29 @@ function getActiveSlashMenuOptionLabel(): string {
   }
   const command = `/${cmd.name}${cmd.args ? ` ${cmd.args}` : ""}`;
   return `${command} ${cmd.description}`;
+}
+
+function scrollActiveSlashMenuOptionIntoView(): void {
+  const activeId = getActiveSlashMenuOptionId();
+  if (!activeId) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    const activeOption = document.getElementById(activeId);
+    const menu = activeOption?.closest<HTMLElement>(".slash-menu");
+    if (!activeOption || !menu) {
+      return;
+    }
+    const menuBounds = menu.getBoundingClientRect();
+    const optionBounds = activeOption.getBoundingClientRect();
+    // Keep keyboard navigation owned by the menu. scrollIntoView can move the
+    // entire short-landscape composer and steal the user's visual context.
+    if (optionBounds.top < menuBounds.top) {
+      menu.scrollTop -= menuBounds.top - optionBounds.top;
+    } else if (optionBounds.bottom > menuBounds.bottom) {
+      menu.scrollTop += optionBounds.bottom - menuBounds.bottom;
+    }
+  });
 }
 
 function tokenEstimate(draft: string): string | null {
@@ -2947,10 +2971,6 @@ function renderSlashMenu(
                 role="option"
                 aria-selected=${i === vs.slashMenuIndex}
                 @click=${() => selectSlashArg(arg, props, requestUpdate, true)}
-                @mouseenter=${() => {
-                  vs.slashMenuIndex = i;
-                  requestUpdate();
-                }}
               >
                 ${vs.slashMenuCommand?.icon
                   ? html`<span class="slash-menu-icon">${icons[vs.slashMenuCommand.icon]}</span>`
@@ -3003,10 +3023,6 @@ function renderSlashMenu(
               role="option"
               aria-selected=${globalIdx === vs.slashMenuIndex}
               @click=${() => selectSlashCommand(cmd, props, requestUpdate)}
-              @mouseenter=${() => {
-                vs.slashMenuIndex = globalIdx;
-                requestUpdate();
-              }}
             >
               ${cmd.icon ? html`<span class="slash-menu-icon">${icons[cmd.icon]}</span>` : nothing}
               <span class="slash-menu-name">/${cmd.name}</span>
@@ -3391,11 +3407,13 @@ export function renderChat(props: ChatProps) {
           e.preventDefault();
           vs.slashMenuIndex = (vs.slashMenuIndex + 1) % len;
           requestUpdate();
+          scrollActiveSlashMenuOptionIntoView();
           return;
         case "ArrowUp":
           e.preventDefault();
           vs.slashMenuIndex = (vs.slashMenuIndex - 1 + len) % len;
           requestUpdate();
+          scrollActiveSlashMenuOptionIntoView();
           return;
         case "Tab":
           e.preventDefault();
@@ -3422,11 +3440,13 @@ export function renderChat(props: ChatProps) {
           e.preventDefault();
           vs.slashMenuIndex = (vs.slashMenuIndex + 1) % len;
           requestUpdate();
+          scrollActiveSlashMenuOptionIntoView();
           return;
         case "ArrowUp":
           e.preventDefault();
           vs.slashMenuIndex = (vs.slashMenuIndex - 1 + len) % len;
           requestUpdate();
+          scrollActiveSlashMenuOptionIntoView();
           return;
         case "Tab":
           e.preventDefault();

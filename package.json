@@ -1983,7 +1983,6 @@
     "verify": "node scripts/verify.mjs",
     "check:pcc-capabilities": "node --import tsx scripts/check-pcc-capability-contracts.ts",
     "check:custom-runtime-capabilities": "node --import tsx scripts/check-custom-runtime-capabilities.ts",
-    "ios:version:pin": null,
     "glm52:runtime": "node scripts/glm52-local-runtime.mjs",
     "snes:asset-studio": "node scripts/snes-asset-studio.mjs",
     "snes:benchmark:models": "node scripts/snes-local-model-benchmark.mjs",

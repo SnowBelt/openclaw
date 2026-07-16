@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/no-promise-executor-return -- Gateway lifecycle promises resolve through timer callbacks. */
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -112,7 +111,9 @@ async function waitForGatewayPort(params: {
       });
       return;
     } catch {
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+      await new Promise((resolvePromise) => {
+        setTimeout(resolvePromise, 50);
+      });
     }
   }
   throw new Error("Timed out waiting for isolated SNES smoke gateway.");
@@ -127,7 +128,9 @@ async function waitForGatewayExit(child: ChildProcessWithoutNullStreams, timeout
       }
       child.once("exit", () => resolvePromise(true));
     }),
-    new Promise<boolean>((resolvePromise) => setTimeout(() => resolvePromise(false), timeoutMs)),
+    new Promise<boolean>((resolvePromise) => {
+      setTimeout(() => resolvePromise(false), timeoutMs);
+    }),
   ]);
 }
 
@@ -524,7 +527,9 @@ async function getFreePort(): Promise<number> {
     server.listen(0, "127.0.0.1", () => resolvePromise());
   });
   const address = server.address();
-  await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
+  await new Promise<void>((resolvePromise) => {
+    server.close(() => resolvePromise());
+  });
   if (!address || typeof address === "string") {
     throw new Error("failed to reserve an ephemeral loopback port");
   }
@@ -596,9 +601,9 @@ async function startStaticControlUiServer(): Promise<StaticControlUiServer> {
   return {
     url: `http://127.0.0.1:${port}/snes-studio`,
     close: async () => {
-      await new Promise<void>((resolvePromise, reject) =>
-        server.close((error) => (error ? reject(error) : resolvePromise())),
-      );
+      await new Promise<void>((resolvePromise, reject) => {
+        server.close((error) => (error ? reject(error) : resolvePromise()));
+      });
     },
   };
 }

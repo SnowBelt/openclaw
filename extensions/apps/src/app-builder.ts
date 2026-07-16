@@ -4,6 +4,10 @@ import { constants as fsConstants } from "node:fs";
 import { access, lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  fetchWithSsrFGuard,
+  ssrfPolicyFromHttpBaseUrlAllowedOrigin,
+} from "openclaw/plugin-sdk/ssrf-runtime";
 
 export type AppBuilderTarget = "ios-native" | "plugin";
 
@@ -3906,7 +3910,7 @@ async function checkOllamaModelAvailability(
 ): Promise<{ ok: boolean; digest: string | null; message: string }> {
   const url = `${baseUrl.replace(/\/+$/, "")}/api/tags`;
   try {
-    const parsed = await fetchJsonWithTimeout(url, { method: "GET" }, 2_000);
+    const parsed = await fetchJsonWithTimeout(url, { method: "GET" }, 2_000, baseUrl);
     if (!isRecord(parsed) || !Array.isArray(parsed.models)) {
       return {
         ok: false,
@@ -3948,17 +3952,22 @@ async function fetchJsonWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  baseUrl: string,
 ): Promise<unknown> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { response, release } = await fetchWithSsrFGuard({
+    url,
+    init,
+    timeoutMs,
+    policy: ssrfPolicyFromHttpBaseUrlAllowedOrigin(baseUrl),
+    auditContext: "apps.app-builder.ollama-model-availability",
+  });
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
     return (await response.json()) as unknown;
   } finally {
-    clearTimeout(timer);
+    await release();
   }
 }
 

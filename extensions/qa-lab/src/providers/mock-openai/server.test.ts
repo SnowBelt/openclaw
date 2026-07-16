@@ -81,12 +81,6 @@ function outputItem(payload: unknown, index = 0) {
   return requireRecord(output[index], `response output ${index}`);
 }
 
-function outputItems(payload: unknown) {
-  return requireArray(requireRecord(payload, "response payload").output, "response output").map(
-    (item, index) => requireRecord(item, `response output ${index}`),
-  );
-}
-
 function outputToolArgs(payload: unknown, index = 0) {
   const item = outputItem(payload, index);
   return outputToolArgsFromItem(item);
@@ -97,20 +91,6 @@ function outputToolArgsFromItem(item: Record<string, unknown>) {
     throw new Error("Expected response output arguments");
   }
   return requireRecord(JSON.parse(item.arguments) as unknown, "response output arguments");
-}
-
-function outputToolCall(payload: unknown, name: string) {
-  const toolCall = outputItems(payload).find(
-    (item) => item.type === "function_call" && item.name === name,
-  );
-  if (!toolCall) {
-    throw new Error(`Expected ${name} tool call`);
-  }
-  return toolCall;
-}
-
-function outputToolCallId(item: Record<string, unknown>, fallback: string) {
-  return typeof item.call_id === "string" ? item.call_id : fallback;
 }
 
 function outputContentItem(payload: unknown, outputIndex = 0, contentIndex = 0) {
@@ -142,55 +122,8 @@ const TEST_RUNTIME_CONTEXT_CARRIER = [
   "<<<END_OPENCLAW_INTERNAL_CONTEXT>>>",
 ].join("\n");
 
-function makeDeveloperInput(text: string) {
-  return {
-    role: "developer" as const,
-    content: [{ type: "input_text" as const, text }],
-  };
-}
-
-function buildWhatsAppPendingHistoryContextFixture(
-  history: Array<{ body: string; sender: string; timestamp: number }>,
-) {
-  return [
-    "Chat history since last reply (untrusted, for context):",
-    ...history.map((entry, index) => `#history-${index + 1} ${entry.sender}: ${entry.body}`),
-  ].join("\n");
-}
-
 const SESSIONS_SPAWN_TOOL = { type: "function", name: "sessions_spawn" } as const;
 const SESSIONS_YIELD_TOOL = { type: "function", name: "sessions_yield" } as const;
-const READ_TOOL = { type: "function", name: "read" } as const;
-const MESSAGE_TOOL = { type: "function", name: "message" } as const;
-const WHATSAPP_AGENT_REACT_PROMPT =
-  "React to this WhatsApp message with thumbs up for QA action check WHATSAPP_QA_AGENT_REACT_TEST.";
-const WHATSAPP_GROUP_AGENT_REACT_PROMPT =
-  "openclawqa react to this WhatsApp group message with thumbs up for QA action check WHATSAPP_QA_GROUP_AGENT_REACT_TEST.";
-const WHATSAPP_AGENT_UPLOAD_TOKEN = "WHATSAPP_QA_AGENT_UPLOAD_TEST";
-const WHATSAPP_GROUP_AGENT_UPLOAD_TOKEN = "WHATSAPP_QA_GROUP_AGENT_UPLOAD_TEST";
-const WHATSAPP_AGENT_UPLOAD_PROMPT =
-  `Use the WhatsApp message tool upload-file action to send a PNG with caption ${WHATSAPP_AGENT_UPLOAD_TOKEN}. ` +
-  "Do not send any visible text reply after the upload.";
-const WHATSAPP_GROUP_AGENT_UPLOAD_PROMPT =
-  `openclawqa use the WhatsApp message tool upload-file action to send a PNG with caption ${WHATSAPP_GROUP_AGENT_UPLOAD_TOKEN}. ` +
-  "Do not send any visible text reply after the upload.";
-const WHATSAPP_PENDING_HISTORY_QUIET_MARKER = "WHATSAPP_QA_PENDING_HISTORY_QUIET_TEST";
-const WHATSAPP_PENDING_HISTORY_CONTEXT_SENTINEL = "WHATSAPP_QA_PENDING_HISTORY_CONTEXT_ONLY_TEST";
-const WHATSAPP_PENDING_HISTORY_TRIGGER_MARKER = "WHATSAPP_QA_PENDING_HISTORY_TRIGGER_TEST";
-const WHATSAPP_PENDING_HISTORY_OK_MARKER = "WHATSAPP_QA_PENDING_HISTORY_OK_TEST";
-const WHATSAPP_PENDING_HISTORY_TRIGGER_PROMPT = [
-  "openclawqa pending history context check",
-  WHATSAPP_PENDING_HISTORY_TRIGGER_MARKER,
-  `Return ${WHATSAPP_PENDING_HISTORY_OK_MARKER} only if prior group context contains ${WHATSAPP_PENDING_HISTORY_CONTEXT_SENTINEL}.`,
-].join(" ");
-const WHATSAPP_BROADCAST_TOKEN = "WHATSAPP_QA_BROADCAST_TOKEN_TEST";
-const WHATSAPP_BROADCAST_PROMPT = `openclawqa broadcast fanout check ${WHATSAPP_BROADCAST_TOKEN}`;
-const WHATSAPP_ACTIVATION_ALWAYS_MARKER = "WHATSAPP_QA_ACTIVATION_ALWAYS_TEST";
-const WHATSAPP_ACTIVATION_ALWAYS_PROMPT = `Group activation visible behavior marker ${WHATSAPP_ACTIVATION_ALWAYS_MARKER}`;
-const WHATSAPP_REPLY_TO_BOT_SEED_MARKER = "WHATSAPP_QA_REPLY_TO_BOT_SEED_TEST";
-const WHATSAPP_REPLY_TO_BOT_SEED_PROMPT = `Mentioned group seed marker ${WHATSAPP_REPLY_TO_BOT_SEED_MARKER}`;
-const WHATSAPP_REPLY_TO_BOT_TRIGGER_MARKER = "WHATSAPP_QA_REPLY_TO_BOT_TRIGGER_TEST";
-const WHATSAPP_REPLY_TO_BOT_TRIGGER_PROMPT = `Quoted implicit reply trigger marker ${WHATSAPP_REPLY_TO_BOT_TRIGGER_MARKER}`;
 const THREAD_SUBAGENT_CHILD_ERROR_TOKEN = "QA_SUBAGENT_CHILD_ERROR";
 const THREAD_SUBAGENT_TOOL_ERROR =
   "thread=true requested but thread delivery is unavailable in this test harness.";

@@ -1304,7 +1304,7 @@ async function agentCommandInternal(
           finalAssistantVisibleText: finalText,
           classification: finalText.trim() ? undefined : "empty",
           canQueueContinuation: Boolean(sessionKey),
-          externalAbort: opts.abortSignal?.aborted === true,
+          externalAbort: opts.abortSignal?.aborted,
           runId,
           sessionId,
           sessionKey,
@@ -2105,7 +2105,8 @@ async function agentCommandInternal(
             sessionId,
             sessionKey: sessionKey ?? sessionId,
             automaticSelection:
-              !hasExplicitRunOverride && (!hasStoredOverride || storedModelOverrideSource === "auto"),
+              !hasExplicitRunOverride &&
+              (!hasStoredOverride || storedModelOverrideSource === "auto"),
             automaticPurpose: "general",
             resolveAgentHarnessRuntimeOverride: (candidateProvider) =>
               resolveSessionRuntimeOverrideForProvider({
@@ -2587,7 +2588,7 @@ async function agentCommandInternal(
           finalAssistantVisibleText: result.meta.finalAssistantVisibleText,
           classification: result.meta.agentHarnessResultClassification,
           canQueueContinuation: Boolean(sessionKey),
-          externalAbort: result.meta.aborted === true || opts.abortSignal?.aborted === true,
+          externalAbort: result.meta.aborted || opts.abortSignal?.aborted,
           approvalPending: Boolean(result.meta.pendingToolCalls?.length),
           runId,
           sessionId: effectiveSessionId,

@@ -84,7 +84,7 @@ function writeSmokeApp(appDir: string) {
   );
   writeFileSync(
     join(appDir, "main.ts"),
-    `import "/ui/src/styles/chat.css";
+    `import "/ui/src/styles.css";
 import "/ui/src/styles/chat/tool-cards.css";
 import { render } from "lit";
 import { renderChat } from "/ui/src/ui/views/chat.ts";

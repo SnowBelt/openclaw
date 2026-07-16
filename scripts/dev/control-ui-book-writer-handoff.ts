@@ -106,8 +106,8 @@ function readArgValue(args: string[], name: string): string | null {
   return index >= 0 ? (args[index + 1] ?? null) : null;
 }
 
-function gitStatusEntries(): GitStatusEntry[] {
-  const result = spawnSync("git", ["status", "--short"], { encoding: "utf8" });
+function gitStatusEntries(cwd = process.cwd()): GitStatusEntry[] {
+  const result = spawnSync("git", ["status", "--short"], { cwd, encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(`git status failed: ${result.stderr || result.stdout}`);
   }
@@ -203,8 +203,8 @@ function latestArtifacts(): HandoffArtifactSet {
   };
 }
 
-function gitDiff(args: string[], allowDifferenceExit = false): string {
-  const result = spawnSync("git", args, { encoding: "utf8" });
+function gitDiff(args: string[], allowDifferenceExit = false, cwd = process.cwd()): string {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   const allowedStatus = allowDifferenceExit ? [0, 1] : [0];
   if (!allowedStatus.includes(result.status ?? 1)) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
@@ -212,8 +212,9 @@ function gitDiff(args: string[], allowDifferenceExit = false): string {
   return result.stdout;
 }
 
-function gitPathExistsAtRef(ref: string, path: string): boolean | null {
+function gitPathExistsAtRef(ref: string, path: string, cwd = process.cwd()): boolean | null {
   const result = spawnSync("git", ["cat-file", "-e", `${ref}:${path}`], {
+    cwd,
     encoding: "utf8",
   });
   if (result.status === 0) {
@@ -225,10 +226,10 @@ function gitPathExistsAtRef(ref: string, path: string): boolean | null {
   return false;
 }
 
-function buildOriginMainPortStatus(): OriginMainPortStatus {
+function buildOriginMainPortStatus(cwd = process.cwd()): OriginMainPortStatus {
   const requiredStatuses = ORIGIN_MAIN_PORT_REQUIRED_BASELINES.map((path) => ({
     path,
-    exists: gitPathExistsAtRef("origin/main", path),
+    exists: gitPathExistsAtRef("origin/main", path, cwd),
   }));
   if (requiredStatuses.some((entry) => entry.exists === null)) {
     return {
@@ -244,7 +245,7 @@ function buildOriginMainPortStatus(): OriginMainPortStatus {
     .filter((entry) => entry.exists === false)
     .map((entry) => entry.path);
   const addedIntendedFiles = BOOK_WRITER_INTENDED_FILES.filter(
-    (path) => gitPathExistsAtRef("origin/main", path) === false,
+    (path) => gitPathExistsAtRef("origin/main", path, cwd) === false,
   );
   return {
     ref: "origin/main",
@@ -263,7 +264,10 @@ function isUntracked(entry: GitStatusEntry): boolean {
   return entry.status === "??";
 }
 
-export function buildBookWriterScopedPatch(report: BookWriterHandoffReport): string {
+export function buildBookWriterScopedPatch(
+  report: BookWriterHandoffReport,
+  cwd = process.cwd(),
+): string {
   const trackedIntendedFiles = report.dirtyState.intended
     .filter((entry) => !isUntracked(entry))
     .map((entry) => entry.path);
@@ -272,10 +276,12 @@ export function buildBookWriterScopedPatch(report: BookWriterHandoffReport): str
     .map((entry) => entry.path);
   const parts: string[] = [];
   if (trackedIntendedFiles.length > 0) {
-    parts.push(gitDiff(["diff", "--binary", "--unified=0", "--", ...trackedIntendedFiles]));
+    parts.push(
+      gitDiff(["diff", "--binary", "--unified=0", "--", ...trackedIntendedFiles], false, cwd),
+    );
   }
   for (const file of untrackedIntendedFiles) {
-    parts.push(gitDiff(["diff", "--binary", "--no-index", "--", "/dev/null", file], true));
+    parts.push(gitDiff(["diff", "--binary", "--no-index", "--", "/dev/null", file], true, cwd));
   }
   return parts
     .map((part) => part.trimEnd())
@@ -380,14 +386,17 @@ function renderMarkdown(report: BookWriterHandoffReport): string {
   ].join("\n");
 }
 
-export function buildBookWriterHandoffReport(now = new Date()): BookWriterHandoffReport {
+export function buildBookWriterHandoffReport(
+  now = new Date(),
+  cwd = process.cwd(),
+): BookWriterHandoffReport {
   const intendedSet = new Set<string>(BOOK_WRITER_INTENDED_FILES);
-  const entries = gitStatusEntries();
+  const entries = gitStatusEntries(cwd);
   const intended = entries.filter((entry) => intendedSet.has(entry.path));
   const unrelated = entries.filter((entry) => !intendedSet.has(entry.path));
   const artifacts = latestArtifacts();
   const hasCoreProof = Boolean(artifacts.smokeSummary && artifacts.completionAuditJson);
-  const originMainPort = buildOriginMainPortStatus();
+  const originMainPort = buildOriginMainPortStatus(cwd);
   const blockers = [
     "Real KDP final submit remains approval-gated and was not clicked.",
     ...(unrelated.length > 0

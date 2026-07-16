@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/no-promise-executor-return -- Gateway lifecycle promises resolve through timer callbacks. */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -107,9 +106,13 @@ function resolveGatewayEntrypoint(): string {
 
 async function getFreePort(): Promise<number> {
   const server = net.createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const address = server.address();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
   if (!address || typeof address === "string") {
     throw new Error("failed to reserve an ephemeral loopback port");
   }
@@ -147,7 +150,9 @@ async function waitForPortOpen(params: {
       });
       return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
     }
   }
   throw new Error(
@@ -173,7 +178,9 @@ async function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: num
       }
       child.once("exit", () => resolve(true));
     }),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
   ]);
 }
 

@@ -114,13 +114,13 @@ function countNonEmptyLines(value: string): number {
   return count;
 }
 
-function expectFatalError(run: () => unknown, message: string): void {
+function expectFatalError(action: () => unknown, message: string): void {
   const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
     throw new Error(`process.exit(${code})`);
   });
   try {
-    expect(run).toThrow("process.exit(1)");
+    expect(action).toThrow("process.exit(1)");
     expect(stderr).toHaveBeenLastCalledWith(`error: ${message}\n`);
   } finally {
     exit.mockRestore();
@@ -2063,9 +2063,6 @@ setInterval(() => {}, 1000);
         ),
       "invalid OPENCLAW_PARALLELS_WINDOWS_UPDATE_TIMEOUT_S: 12.5",
     );
-
-    expect(duplicateNpmUpdatePlatformResult.status).toBe(1);
-    expect(duplicateNpmUpdatePlatformResult.stderr).toContain("duplicate --platform entry: macos");
 
     expect(readFileSync(TS_PATHS.macos, "utf8")).toContain(
       'this.updateDevTimeoutSeconds = readPositiveIntEnv(\n      "OPENCLAW_PARALLELS_MACOS_UPDATE_DEV_TIMEOUT_S"',

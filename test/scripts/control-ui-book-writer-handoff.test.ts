@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildBookWriterHandoffReport,
@@ -37,12 +41,40 @@ describe("control-ui-book-writer-handoff", () => {
   });
 
   it("builds a scoped patch that excludes unrelated dirty paths", () => {
-    const report = buildBookWriterHandoffReport(new Date("2026-07-07T17:10:00.000Z"));
-    const patch = buildBookWriterScopedPatch(report);
+    const repo = mkdtempSync(path.join(os.tmpdir(), "openclaw-book-writer-handoff-"));
+    const intendedPath = "ui/src/ui/views/book-writer-dashboard.ts";
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      mkdirSync(path.join(repo, path.dirname(intendedPath)), { recursive: true });
+      writeFileSync(path.join(repo, intendedPath), "export const state = 'before';\n");
+      writeFileSync(path.join(repo, "README.md"), "before\n");
+      execFileSync("git", ["add", "."], { cwd: repo });
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=OpenClaw Test",
+          "-c",
+          "user.email=test@openclaw.invalid",
+          "commit",
+          "-qm",
+          "fixture",
+        ],
+        { cwd: repo },
+      );
+      writeFileSync(path.join(repo, intendedPath), "export const state = 'after';\n");
+      writeFileSync(path.join(repo, "README.md"), "after\n");
 
-    expect(patch).toContain("ui/src/ui/views/book-writer-dashboard.ts");
-    for (const unrelated of report.dirtyState.unrelated) {
-      expect(patch).not.toContain(unrelated.path);
+      const report = buildBookWriterHandoffReport(new Date("2026-07-07T17:10:00.000Z"), repo);
+      const patch = buildBookWriterScopedPatch(report, repo);
+
+      expect(patch).toContain(intendedPath);
+      expect(patch).not.toContain("README.md");
+      for (const unrelated of report.dirtyState.unrelated) {
+        expect(patch).not.toContain(unrelated.path);
+      }
+    } finally {
+      rmSync(repo, { force: true, recursive: true });
     }
   });
 });

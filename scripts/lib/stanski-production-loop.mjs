@@ -1,4 +1,3 @@
-/* oxlint-disable eslint/no-useless-assignment -- Repair receipts retain explicit null state when the optional retry path is not entered. */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -1864,11 +1863,8 @@ export async function runOneMilestone(options, snapshot, deps = {}) {
   let qaReceipt = runBuildAndSmoke(options, deps);
   writeJson(path.join(milestoneDir, "qa-receipt.json"), qaReceipt);
   if (qaReceipt.status !== "pass") {
-    let repairGlm = null;
-    let repairApplyReceipt = null;
-    let repairQaReceipt = null;
     try {
-      repairGlm = await askLocalGlmForMilestonePatch(
+      const repairGlm = await askLocalGlmForMilestonePatch(
         {
           milestone,
           options,
@@ -1893,12 +1889,12 @@ export async function runOneMilestone(options, snapshot, deps = {}) {
         timings: repairGlm.timings,
         generatedAt: nowIso(deps),
       });
-      repairApplyReceipt = applyMilestonePatch(
+      const repairApplyReceipt = applyMilestonePatch(
         { artifactDir: paths.artifactDir, milestone, patch: repairGlm.patch },
         deps,
       );
       writeJson(path.join(milestoneDir, "repair-apply-receipt.json"), repairApplyReceipt);
-      repairQaReceipt = runBuildAndSmoke(options, deps);
+      const repairQaReceipt = runBuildAndSmoke(options, deps);
       writeJson(path.join(milestoneDir, "repair-qa-receipt.json"), repairQaReceipt);
       if (repairQaReceipt.status === "pass") {
         glm = repairGlm;
@@ -1907,7 +1903,7 @@ export async function runOneMilestone(options, snapshot, deps = {}) {
         qaReceipt = repairQaReceipt;
       }
     } catch (error) {
-      repairQaReceipt = {
+      const repairQaReceipt = {
         status: "fail",
         step: "glm-repair",
         stderr: error instanceof Error ? error.message : String(error),

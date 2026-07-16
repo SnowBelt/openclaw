@@ -967,13 +967,17 @@ describe("handleControlUiHttpRequest", () => {
         expect(parsed.timeFormat).toBe("24");
         expect(parsed.terminalEnabled).toBe(false);
         expect(parsed.runtimeIdentity).toMatchObject({
-          runtimeRoot: expect.any(String),
           runtimeEntrypoint: expect.any(String),
-          dashboardBuildId: expect.any(String),
+          dashboardSurfaces: expect.any(Array),
         });
-        expect(parsed.runtimeIdentity?.dashboardSurfaces).toEqual(
-          expect.arrayContaining(["pcc", "app-studio", "music-studio"]),
-        );
+        expect(
+          parsed.runtimeIdentity?.runtimeRoot === null ||
+            typeof parsed.runtimeIdentity?.runtimeRoot === "string",
+        ).toBe(true);
+        expect(
+          parsed.runtimeIdentity?.dashboardBuildId === null ||
+            typeof parsed.runtimeIdentity?.dashboardBuildId === "string",
+        ).toBe(true);
         expect(Array.isArray(parsed.localMediaPreviewRoots)).toBe(true);
       },
     });

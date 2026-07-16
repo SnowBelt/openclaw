@@ -1108,6 +1108,7 @@ describe("model-selection", () => {
           id: "gpt-test-z",
           name: "Configured GPT Test Z",
           alias: "GPT Test Z Alias",
+          baseUrl: "https://openai.example.com",
           contextWindow: 64_000,
           compat: { supportedReasoningEfforts: ["low", "medium", "high", "xhigh"] },
         },
@@ -1188,6 +1189,7 @@ describe("model-selection", () => {
         { provider: "ollama", id: "existing", name: "Existing" },
         {
           api: "ollama",
+          baseUrl: "http://127.0.0.1:11434",
           compat: undefined,
           contextTokens: undefined,
           provider: "ollama",
@@ -1196,6 +1198,7 @@ describe("model-selection", () => {
           contextWindow: 131_072,
           input: undefined,
           reasoning: undefined,
+          routeConfig: undefined,
         },
       ]);
       expect(result.allowedKeys.has("ollama/glm-5.1:cloud")).toBe(true);
@@ -1470,8 +1473,13 @@ describe("model-selection", () => {
           id: "moonshotai/kimi-k2.5",
           name: "Kimi K2.5 (Configured)",
           alias: "Kimi K2.5 (NVIDIA)",
+          api: undefined,
+          baseUrl: "https://nvidia.example.com",
+          contextTokens: undefined,
           contextWindow: 32_000,
+          input: undefined,
           reasoning: true,
+          routeConfig: undefined,
           compat: { supportedReasoningEfforts: ["low", "medium", "high", "xhigh"] },
         },
       ]);

@@ -45,6 +45,14 @@ const UNGUARDED_RUNTIME_API_PLUGIN_IDS = [
 const RUNTIME_API_EXPORT_GUARDS: Record<string, readonly string[]> = {
   [bundledPluginFile({
     rootDir: ROOT_DIR,
+    pluginId: "book-writer",
+    relativePath: "runtime-api.ts",
+  })]: [
+    'export { DEFAULT_BOOK_WRITER_CONFIG, resolveBookWriterConfig, type BookWriterConfig, type ResolvedBookWriterConfig } from "./src/config.js";',
+    'export { runBookWriterPipeline, type BookWriterPipelineOptions } from "./src/pipeline.js";',
+  ],
+  [bundledPluginFile({
+    rootDir: ROOT_DIR,
     pluginId: "diagnostics-otel",
     relativePath: "runtime-api.ts",
   })]: [

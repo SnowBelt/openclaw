@@ -94,6 +94,17 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Related
 
+## automation/custom-runtime-update-safety.md
+
+- Route: /automation/custom-runtime-update-safety
+- Headings:
+  - H1: Custom runtime update safety
+  - H2: Source of truth
+  - H2: Durable source requirement
+  - H2: Prepare, review, approve
+  - H2: Project Command Center status
+  - H2: Recovery
+
 ## automation/gmail-pubsub.md
 
 - Route: /automation/gmail-pubsub
@@ -142,16 +153,78 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: Inferred commitments
   - H3: Task Flow
   - H3: Standing orders
+  - H3: Self-Improvement Governor
   - H3: Hooks
   - H3: Heartbeat
   - H2: How they work together
   - H2: Related
+
+## automation/pcc-execution-teams.md
+
+- Route: /automation/pcc-execution-teams
+- Headings:
+  - H2: Choose One Team Plan
+  - H2: Model Truth
+  - H2: Capacity Governor
+  - H2: Task Admission And Coordination
+  - H2: Stop, Fan-In, And Proof
+  - H2: Learning Boundary
+
+## automation/pcc-learning-loop.md
+
+- Route: /automation/pcc-learning-loop
+- Headings:
+  - H2: Source Of Truth
+  - H2: Lifecycle
+  - H2: Promotion Evidence
+  - H2: Safety Boundary
+  - H2: Canonical Documentation
+
+## automation/pcc-operational-excellence.md
+
+- Route: /automation/pcc-operational-excellence
+- Headings:
+  - H1: PCC operational excellence
+  - H2: Execution contract
+  - H2: Milestone sequence
+  - H2: Future additions
+  - H2: Performance and scale contract
+  - H2: Clean architecture map
+  - H2: Update preservation
+  - H2: Continuation receipt
+  - H3: Current proof states
 
 ## automation/poll.md
 
 - Route: /automation/poll
 - Headings:
   - H2: Related
+
+## automation/self-improvement-governor.md
+
+- Route: /automation/self-improvement-governor
+- Headings:
+  - H2: What It Inspects
+  - H2: Typed Improvement Signals
+  - H2: Recommendation Records
+  - H2: Dashboard Intervention Evidence
+  - H2: Actionability And Closure
+  - H2: Improvement Intelligence
+  - H2: Analysis Runs And Proposals
+  - H2: Reviewer Quality Evals
+  - H2: Memory/Skill Curation Loop
+  - H2: Grouped Scorecard
+  - H2: Operational Health
+  - H2: Production Readiness
+  - H2: Routing
+  - H2: Background Operation
+  - H2: Retention Maintenance
+  - H2: CLI
+  - H2: Dashboard
+  - H2: Gateway RPC
+  - H2: Tiered Autonomy And Effectiveness
+  - H2: Production Acceptance And Soak
+  - H2: Safety Model
 
 ## automation/standing-orders.md
 
@@ -1484,6 +1557,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Lint mode
   - H2: Structured health checks
   - H2: Check selection
+  - H2: PCC state repair
   - H2: Post-upgrade mode
   - H2: Notes
   - H2: macOS: launchctl env overrides
@@ -1517,6 +1591,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H4: Remote over SSH (Mac app parity)
   - H3: gateway call &lt;method&gt;
   - H2: Manage the Gateway service
+  - H3: Source-checkout runtime snapshots
   - H3: Install with a wrapper
   - H2: Discover gateways (Bonjour)
   - H3: gateway discover
@@ -1910,6 +1985,38 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Suppressions
   - H2: JSON output
   - H2: What --fix changes
+  - H2: Related
+
+## cli/self-improvement.md
+
+- Route: /cli/self-improvement
+- Headings:
+  - H2: Usage
+  - H2: Subcommands
+  - H3: scan
+  - H3: record-dashboard-intervention
+  - H3: models template
+  - H3: preflight
+  - H3: opportunities
+  - H3: evals run
+  - H3: analyze
+  - H3: curator
+  - H3: scorecard
+  - H3: health
+  - H3: production-check
+  - H3: maintain
+  - H3: proof-receipts
+  - H3: summary
+  - H3: triage
+  - H3: assign
+  - H3: prove
+  - H3: list
+  - H3: show
+  - H3: audit-events
+  - H3: update
+  - H3: groups update
+  - H3: groups prove
+  - H3: proposals
   - H2: Related
 
 ## cli/sessions.md
@@ -7691,6 +7798,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Quick start (two steps)
   - H2: Supported providers (starter set)
   - H2: Additional provider variants
+  - H2: Local-first automatic routing
   - H2: Related
 
 ## providers/moonshot.md
@@ -8422,6 +8530,70 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Pre-compaction memory flush
   - H2: Troubleshooting checklist
   - H2: Related
+
+## reference/snes-game-creator-platform-runbook.md
+
+- Route: /reference/snes-game-creator-platform-runbook
+- Headings:
+  - H1: SNES Game Creator Platform Runbook
+  - H2: Required preflight
+  - H2: Allowed platform surfaces
+  - H2: Low-reasoning milestone loop
+  - H2: Generic MVP closure command
+  - H2: Prompt-to-game prototype commands
+  - H2: Generic platform validators
+  - H2: Generic proof requirements
+  - H2: Status reporting
+  - H2: SNES Asset Studio v1
+
+## reference/snes-studio-agent-routing.md
+
+- Route: /reference/snes-studio-agent-routing
+- Headings:
+  - H2: Default Model Routing
+  - H2: Parallel Work
+  - H2: PCC v2 worker packets
+  - H2: PCC v3 Multi-Agent Coordination
+  - H2: PCC real local model execution
+
+## reference/snes-studio-art-pipeline.md
+
+- Route: /reference/snes-studio-art-pipeline
+- Headings:
+  - H2: Asset Intent Contract
+  - H2: Proof Chain
+  - H2: PCC v3 Multi-Agent Coordination
+
+## reference/snes-studio-model-benchmarking.md
+
+- Route: /reference/snes-studio-model-benchmarking
+- Headings:
+  - H2: Current Default Policy
+  - H2: Benchmark Command
+  - H2: PCC v3 Multi-Agent Coordination
+  - H2: PCC model health versus benchmark scores
+
+## reference/snes-studio-proof-gates.md
+
+- Route: /reference/snes-studio-proof-gates
+- Headings:
+  - H2: Separate Proof Surfaces
+  - H2: Judge Order
+  - H2: Repair Policy
+  - H2: Approval queue and overnight stops
+  - H2: PCC v3 Multi-Agent Coordination
+  - H2: Real worker output proof gate
+
+## reference/snes-studio-workflow.md
+
+- Route: /reference/snes-studio-workflow
+- Headings:
+  - H2: Prompt To PCC
+  - H2: PCC Commands
+  - H2: Completion Rule
+  - H2: Overnight Operation
+  - H2: PCC v3 Multi-Agent Coordination
+  - H2: Running local model workers
 
 ## reference/templates/AGENTS.dev.md
 
@@ -9920,6 +10092,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Personal identity (browser-local)
   - H2: Runtime config endpoint
   - H2: Gateway host status
+  - H2: Self-Improvement recommendations
   - H2: Language support
   - H2: Appearance themes
   - H2: Sidebar navigation
@@ -9961,6 +10134,32 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Tailscale access
   - H2: Security notes
   - H2: Building the UI
+
+## web/snes-studio.md
+
+- Route: /web/snes-studio
+- Headings:
+  - H2: Project Command Center
+  - H2: Guided Builder
+  - H2: Game Plan And Gap Filling
+  - H2: Production SNES Studio
+  - H2: Stanski's World Batch 1
+  - H3: Durable GLM Production Loop
+  - H2: Classic Platformer Graphics
+  - H2: Prompt-First Creation
+  - H2: Playtest
+  - H2: Drag And Drop
+  - H2: Beginner Language
+  - H2: Expert Studio
+  - H2: Verification
+  - H2: Visual Quality And Revision Gates
+  - H2: Production SNES Studio Gates
+  - H2: Local Model Benchmark And Live Proof Gates
+  - H2: Generic SNES Mastery Proof Chain
+  - H2: Project Command Center v2
+  - H2: PCC v3 Multi-Agent Coordination
+  - H2: PCC local model execution
+  - H2: SNES Asset Studio
 
 ## web/tui.md
 

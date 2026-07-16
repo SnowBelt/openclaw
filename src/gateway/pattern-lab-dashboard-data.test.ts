@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   patternLabDashboardDataTesting,
@@ -5,16 +8,30 @@ import {
 } from "./pattern-lab-dashboard-data.js";
 
 describe("Pattern Lab dashboard data helpers", () => {
-  it("resolves the repo-local youtube-v1 command center", () => {
-    expect(resolvePatternLabYoutubeRoot()).toMatch(/openclaw\/youtube-v1$/);
+  it("resolves an explicitly configured youtube-v1 command center", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "openclaw-pattern-lab-test-"));
+    const youtubeRoot = path.join(root, "youtube-v1");
+    const previous = process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT;
+    mkdirSync(youtubeRoot);
+    process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT = youtubeRoot;
+    patternLabDashboardDataTesting.resetPatternLabYoutubeRootCacheForTests();
+    try {
+      expect(resolvePatternLabYoutubeRoot()).toBe(realpathSync(youtubeRoot));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT;
+      } else {
+        process.env.OPENCLAW_PATTERN_LAB_YOUTUBE_ROOT = previous;
+      }
+      patternLabDashboardDataTesting.resetPatternLabYoutubeRootCacheForTests();
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it("checks ancestor layouts so promoted gateway snapshots can find repo-local Pattern Lab files", () => {
-    expect(
-      patternLabDashboardDataTesting
-        .collectPatternLabYoutubeRootCandidates()
-        .some((candidate) => candidate.endsWith("openclaw/youtube-v1")),
-    ).toBe(true);
+    expect(patternLabDashboardDataTesting.collectPatternLabYoutubeRootCandidates()).toContain(
+      path.resolve(process.cwd(), "youtube-v1"),
+    );
   });
 
   it("keeps missing-root errors actionable without leaking checked absolute paths", () => {
