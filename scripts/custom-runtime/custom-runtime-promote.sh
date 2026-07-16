@@ -398,8 +398,26 @@ PY
 ); then
   fail_promotion route_inventory
 fi
+route_attempts=${OPENCLAW_CUSTOM_RUNTIME_ROUTE_ATTEMPTS:-20}
+case "$route_attempts" in
+  ''|*[!0-9]*) fail_promotion route_attempts "$route_attempts" ;;
+esac
+[ "$route_attempts" -ge 1 ] && [ "$route_attempts" -le 60 ] || \
+  fail_promotion route_attempts "$route_attempts"
+wait_for_route() {
+  route=$1
+  attempt=1
+  while [ "$attempt" -le "$route_attempts" ]; do
+    code=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 \
+      "http://127.0.0.1:$port/$route" || true)
+    [ "$code" = 200 ] && return 0
+    [ "$attempt" -eq "$route_attempts" ] || sleep 1
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
 for route in $routes self-improvement; do
-  if [ "$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 "http://127.0.0.1:$port/$route")" != 200 ]; then
+  if ! wait_for_route "$route"; then
     fail_promotion route "$route"
   fi
 done

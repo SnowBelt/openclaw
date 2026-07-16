@@ -346,6 +346,7 @@ describe("custom runtime lifecycle", () => {
     const sigRpcArgsMarker = path.join(root, "sig-rpc-args");
     const sigRpcEnvMarker = path.join(root, "sig-rpc-env");
     const sigRpcUrlMarker = path.join(root, "sig-rpc-url");
+    const delayedPccRouteMarker = path.join(root, "delayed-pcc-route");
     const sourceSha = "c".repeat(64);
     const previousRelease = path.join(releases, "previous");
     const previousPointer = {
@@ -402,16 +403,25 @@ describe("custom runtime lifecycle", () => {
       path.join(fakeBin, "curl"),
       [
         "#!/bin/sh",
-        "header= write_out=false",
+        "header= url= write_out=false",
         "while [ $# -gt 0 ]; do",
         '  case "$1" in',
         "    --dump-header) header=$2; shift 2;;",
         "    --write-out) write_out=true; shift 2;;",
-        "    *) shift;;",
+        "    *) url=$1; shift;;",
         "  esac",
         "done",
         'if [ -n "$header" ]; then printf \'HTTP/1.1 101 Switching Protocols\\r\\n\\r\\n\' > "$header"; exit 0; fi',
-        'if [ "$write_out" = true ]; then printf 200; else printf \'{"ok":true}\'; fi',
+        'if [ "$write_out" = true ]; then',
+        `  if [ "\${url##*/}" = pcc ] && [ ! -f ${JSON.stringify(delayedPccRouteMarker)} ]; then`,
+        `    : > ${JSON.stringify(delayedPccRouteMarker)}`,
+        "    printf 503",
+        "  else",
+        "    printf 200",
+        "  fi",
+        "else",
+        "  printf '{\"ok\":true}'",
+        "fi",
         "",
       ].join("\n"),
       0o700,
@@ -453,6 +463,7 @@ describe("custom runtime lifecycle", () => {
       }),
     ).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_PROMOTED release=candidate");
+    expect(fs.existsSync(delayedPccRouteMarker)).toBe(true);
     expect(fs.existsSync(sigRpcMarker)).toBe(true);
     expect(fs.readFileSync(sigRpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
     expect(fs.readFileSync(sigRpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18789");
