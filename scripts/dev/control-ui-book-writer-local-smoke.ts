@@ -265,24 +265,42 @@ function closeServer(server: Server): Promise<void> {
 }
 
 async function stopGateway(gateway: ChildProcessWithoutNullStreams): Promise<void> {
-  if (gateway.exitCode !== null) {
-    return;
-  }
+  const signalTree = (signal: NodeJS.Signals) => {
+    if (process.platform !== "win32" && gateway.pid) {
+      try {
+        process.kill(-gateway.pid, signal);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+          throw error;
+        }
+      }
+      return;
+    }
+    gateway.kill(signal);
+  };
   const waitForExit = (timeoutMs: number) =>
     new Promise<boolean>((resolve) => {
+      if (gateway.exitCode !== null) {
+        resolve(true);
+        return;
+      }
       const timeout = setTimeout(() => resolve(false), timeoutMs);
-      timeout.unref();
-      gateway.once("close", () => {
+      gateway.once("exit", () => {
         clearTimeout(timeout);
         resolve(true);
       });
     });
-  gateway.kill("SIGTERM");
-  if (await waitForExit(5_000)) {
-    return;
+  signalTree("SIGTERM");
+  if (!(await waitForExit(5_000))) {
+    signalTree("SIGKILL");
+    await waitForExit(5_000);
   }
-  gateway.kill("SIGKILL");
-  await waitForExit(5_000);
+  // pnpm launches the actual Gateway as a grandchild. Ensure no descendant can retain the
+  // wrapper's stdio pipes after the pnpm process itself exits.
+  signalTree("SIGKILL");
+  gateway.stdin.destroy();
+  gateway.stdout.destroy();
+  gateway.stderr.destroy();
 }
 
 function writeEpubCheckSmokeStub(path: string): void {
@@ -331,6 +349,7 @@ function startGateway(params: {
       "--allow-unconfigured",
     ],
     {
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=8192",
