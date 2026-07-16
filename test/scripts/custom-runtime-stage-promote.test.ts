@@ -36,6 +36,7 @@ function fixture() {
   const manifestPath = path.join(release, "dist", "control-ui", "dashboard-surfaces.json");
   const assetPath = path.join(release, "dist", "control-ui", "assets", "pcc.js");
   const capabilityManifestPath = path.join(release, "config", "custom-runtime-capabilities.json");
+  const evidenceRoot = path.join(release, ".test-release-governance");
   const pluginManifestPath = path.join(release, "extensions", "apps", "openclaw.plugin.json");
   const entrypoint = path.join(release, "dist", "index.js");
   const sourceSha = "abcdef1234567890abcdef1234567890abcdef12";
@@ -51,6 +52,35 @@ function fixture() {
   writeFileSync(pluginManifestPath, "{}\n");
   writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+  executable(
+    path.join(release, "dist", "release-governor.js"),
+    [
+      "#!/usr/bin/env node",
+      'import fs from "node:fs";',
+      "const args = process.argv.slice(2);",
+      "const value = (name) => args[args.indexOf(name) + 1];",
+      'if (args[0] !== "verify") process.exit(64);',
+      'const bundle = JSON.parse(fs.readFileSync(value("--bundle"), "utf8"));',
+      'if (bundle.candidateSha !== value("--candidate-sha") || bundle.operation !== value("--operation") || bundle.decision !== "authorize") process.exit(1);',
+      'if (!value("--release") || !fs.existsSync(value("--release"))) process.exit(1);',
+      'if (!fs.existsSync(value("--policy"))) process.exit(1);',
+      "process.exit(0);",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    path.join(release, "config", "release-governor-policy.json"),
+    '{"schema":"openclaw.release-governor-policy.v1","version":1}\n',
+  );
+  for (const operation of ["stage", "promotion"]) {
+    const evidencePath = path.join(evidenceRoot, sourceSha, `${operation}.json`);
+    mkdirSync(path.dirname(evidencePath), { recursive: true });
+    writeFileSync(
+      evidencePath,
+      `${JSON.stringify({ candidateSha: sourceSha, operation, decision: "authorize" })}\n`,
+      { mode: 0o600 },
+    );
+  }
   writeFileSync(
     manifestPath,
     `${JSON.stringify({
@@ -137,6 +167,7 @@ server.listen(port, "127.0.0.1");
   return {
     capabilityManifestPath,
     entrypoint,
+    evidenceRoot,
     home,
     manifestPath,
     release,
@@ -196,6 +227,7 @@ describe("custom runtime canary and rollback", () => {
           HOME: input.home,
           OPENCLAW_CONFIG_PATH: configPath,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
           OPENCLAW_NODE_BIN: process.execPath,
           OPENCLAW_SECRET_PROVIDER: provider,
           OPENCLAW_STATE_DIR: stateDir,
@@ -280,6 +312,7 @@ esac
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
           OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER: rollbackLauncher,
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plist,
