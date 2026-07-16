@@ -501,6 +501,7 @@ describe("models.list", () => {
                   name: "Claude Opus 4.8",
                   provider: "anthropic",
                   available: true,
+                  agentRuntime: { id: "claude-cli", source: "model" },
                 },
               ],
             },
