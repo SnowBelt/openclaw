@@ -1298,6 +1298,7 @@
                 "pages": [
                   "automation/index",
                   "automation/pcc-execution-standard",
+                  "automation/release-governor",
                   "automation/pcc-execution-teams",
                   "automation/pcc-learning-loop",
                   "automation/cron-jobs",

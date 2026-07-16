@@ -8,6 +8,111 @@ const NonEmptyIdListSchema = Type.Array(NonEmptyString, { minItems: 1, maxItems:
 const StringListSchema = Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 200 });
 const MetadataSchema = Type.Record(Type.String(), Type.Unknown());
 
+const ReleaseGovernanceStatusSchema = Type.Object(
+  {
+    schema: Type.Literal("openclaw.release-governance-status.v1"),
+    policyVersion: Type.Integer({ minimum: 1 }),
+    candidateSha: Type.Union([Type.String(), Type.Null()]),
+    activeRuntimeSha: Type.Union([Type.String(), Type.Null()]),
+    riskLevel: Type.Union([
+      Type.Literal("P0"),
+      Type.Literal("P1"),
+      Type.Literal("P2"),
+      Type.Literal("P3"),
+      Type.Null(),
+    ]),
+    protectedPaths: Type.Array(
+      Type.Object(
+        { path: Type.String(), pattern: Type.String(), reason: Type.String() },
+        { additionalProperties: false },
+      ),
+    ),
+    capabilityDiff: Type.Array(
+      Type.Object(
+        {
+          id: Type.String(),
+          change: Type.Union([
+            Type.Literal("unchanged"),
+            Type.Literal("added"),
+            Type.Literal("removed"),
+            Type.Literal("modified"),
+            Type.Literal("weakened"),
+            Type.Literal("unknown"),
+          ]),
+          required: Type.Boolean(),
+          reason: Type.String(),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    checks: Type.Array(
+      Type.Object(
+        {
+          id: Type.String(),
+          status: Type.Union([
+            Type.Literal("passed"),
+            Type.Literal("failed"),
+            Type.Literal("pending"),
+            Type.Literal("blocked"),
+            Type.Literal("not_applicable"),
+          ]),
+          summary: Type.String(),
+          command: Type.Optional(Type.String()),
+          count: Type.Optional(Type.Integer()),
+          url: Type.Optional(Type.String()),
+          artifact: Type.Optional(Type.String()),
+          recordedAt: TimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    approvalStatus: Type.Union([
+      Type.Literal("automatic"),
+      Type.Literal("exact"),
+      Type.Literal("bounded_grant"),
+      Type.Literal("none"),
+    ]),
+    approvalScope: Type.Union([Type.String(), Type.Null()]),
+    reviews: Type.Array(
+      Type.Object(
+        {
+          role: Type.Union([
+            Type.Literal("release_governor"),
+            Type.Literal("judge"),
+            Type.Literal("control_director"),
+            Type.Literal("telemetry_evaluation_analyst"),
+            Type.Literal("program_manager"),
+          ]),
+          reviewerId: Type.String(),
+          decision: Type.Union([
+            Type.Literal("approve"),
+            Type.Literal("deny"),
+            Type.Literal("escalate"),
+          ]),
+          confidence: Type.Number({ minimum: 0, maximum: 1 }),
+          summary: Type.String(),
+          evidenceIds: Type.Array(Type.String()),
+          reviewedAt: TimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    rollbackTarget: Type.Union([Type.String(), Type.Null()]),
+    decision: Type.Union([
+      Type.Literal("authorize"),
+      Type.Literal("deny"),
+      Type.Literal("escalate"),
+      Type.Literal("none"),
+    ]),
+    evidenceReceiptHash: Type.Union([Type.String(), Type.Null()]),
+    evidencePath: Type.Union([Type.String(), Type.Null()]),
+    exactBlocker: Type.Union([Type.String(), Type.Null()]),
+    approvalWording: Type.Union([Type.String(), Type.Null()]),
+    updatedAt: TimestampSchema,
+  },
+  { additionalProperties: false },
+);
+
 export const PccStatusSchema = Type.Union([
   Type.Literal("not_started"),
   Type.Literal("active"),
@@ -687,6 +792,7 @@ export const PccSummaryGetResultSchema = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    releaseGovernance: Type.Optional(Type.Union([ReleaseGovernanceStatusSchema, Type.Null()])),
   },
   { additionalProperties: false },
 );

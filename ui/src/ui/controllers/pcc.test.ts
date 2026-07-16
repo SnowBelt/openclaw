@@ -415,10 +415,14 @@ describe("loadPccDashboard", () => {
   });
 
   it("loads project list and portfolio summary", async () => {
+    const releaseGovernance = {
+      schema: "openclaw.release-governance-status.v1",
+      candidateSha: "a".repeat(40),
+    };
     const request = vi
       .fn()
       .mockResolvedValueOnce({ projects: [summary] })
-      .mockResolvedValueOnce({ portfolio });
+      .mockResolvedValueOnce({ portfolio, releaseGovernance });
     const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
 
     await loadPccDashboard(state);
@@ -428,6 +432,7 @@ describe("loadPccDashboard", () => {
     expect(state.pccProjects).toHaveLength(1);
     expect(state.pccProjects[0]?.title).toBe("Project Command Center");
     expect(state.pccPortfolioSummary?.averagePercentComplete).toBe(25);
+    expect(state.pccReleaseGovernance?.candidateSha).toBe("a".repeat(40));
     expect(state.pccLoading).toBe(false);
     expect(state.pccError).toBeNull();
     expect(state.pccUpdatedAt).toEqual(expect.any(Number));

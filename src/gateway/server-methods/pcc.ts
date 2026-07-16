@@ -49,6 +49,7 @@ import {
   pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
+import { readReleaseGovernanceStatus } from "../../pcc/release-governance/store.js";
 import { readPccRuntimeIdentity, type PccRuntimeIdentity } from "../../pcc/runtime-identity.js";
 import { listTaskRecords } from "../../tasks/runtime-internal.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
@@ -2531,6 +2532,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           portfolio: summarizePortfolio(ledger, index),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
+          releaseGovernance: readReleaseGovernanceStatus(),
         });
         return;
       }
@@ -2538,6 +2540,7 @@ export const pccHandlers: GatewayRequestHandlers = {
         portfolio: summarizePortfolio(ledger, index),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
+        releaseGovernance: readReleaseGovernanceStatus(),
       });
     } catch (error) {
       respondUnhandled(respond, error);

@@ -3,6 +3,7 @@ import { LitElement } from "lit";
 import { state } from "lit/decorators.js";
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
+import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
@@ -474,6 +475,7 @@ export class OpenClawApp extends LitElement {
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
+  @state() pccReleaseGovernance: ReleaseGovernanceStatus | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;
   @state() pccLoading = false;
   @state() pccError: string | null = null;

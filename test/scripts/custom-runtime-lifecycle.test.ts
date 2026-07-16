@@ -51,6 +51,27 @@ function writeCandidateContracts(release: string, sourceSha: string) {
   );
   writeFile(path.join(bundledPlugins, "example", "package.json"), "{}\n");
   writeFile(
+    path.join(release, "dist", "release-governor.js"),
+    [
+      "#!/usr/bin/env node",
+      'import fs from "node:fs";',
+      "const args = process.argv.slice(2);",
+      "const value = (name) => args[args.indexOf(name) + 1];",
+      'if (args[0] !== "verify") process.exit(64);',
+      'const bundle = JSON.parse(fs.readFileSync(value("--bundle"), "utf8"));',
+      'if (bundle.candidateSha !== value("--candidate-sha") || bundle.operation !== value("--operation") || bundle.decision !== "authorize") process.exit(1);',
+      'if (!value("--release") || !fs.existsSync(value("--release"))) process.exit(1);',
+      'if (!fs.existsSync(value("--policy"))) process.exit(1);',
+      "process.exit(0);",
+      "",
+    ].join("\n"),
+    0o700,
+  );
+  writeFile(
+    path.join(release, "config", "release-governor-policy.json"),
+    '{"schema":"openclaw.release-governor-policy.v1","version":1}\n',
+  );
+  writeFile(
     path.join(release, "config", "custom-runtime-capabilities.json"),
     `${JSON.stringify({
       schema: "openclaw.custom-runtime-capabilities.v1",
@@ -81,6 +102,15 @@ function writeCandidateContracts(release: string, sourceSha: string) {
   writeFile(path.join(release, "extensions", "book-writer", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
   writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+  const evidenceRoot = path.join(release, ".test-release-governance");
+  for (const operation of ["stage", "promotion", "restart", "rollback", "finalize"]) {
+    writeFile(
+      path.join(evidenceRoot, sourceSha, `${operation}.json`),
+      `${JSON.stringify({ candidateSha: sourceSha, operation, decision: "authorize" })}\n`,
+      0o600,
+    );
+  }
+  process.env.OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR = evidenceRoot;
   writeFile(
     path.join(release, "snapshot.json"),
     `${JSON.stringify({
@@ -123,12 +153,97 @@ function sha256(filePath: string): string {
 }
 
 afterEach(() => {
+  delete process.env.OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR;
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { force: true, recursive: true });
   }
 });
 
 describe("custom runtime lifecycle", () => {
+  it("blocks lifecycle mutation when exact-SHA governance evidence is missing", () => {
+    const root = createRoot("openclaw-release-governor-deny-");
+    const release = path.join(root, "release");
+    const sourceSha = "c".repeat(64);
+    const marker = path.join(root, "mutation-marker");
+    writeCandidateContracts(release, sourceSha);
+    const emptyEvidence = path.join(root, "empty-evidence");
+    fs.mkdirSync(emptyEvidence, { mode: 0o700 });
+
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. ${JSON.stringify(path.resolve("scripts/custom-runtime/custom-runtime-auth.sh"))}; custom_runtime_require_release_governance promotion ${sourceSha} ${JSON.stringify(release)} && : > ${JSON.stringify(marker)}`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: path.join(root, "runtime-home"),
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: emptyEvidence,
+        },
+      },
+    );
+
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("exact evidence");
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("prefers the active immutable Release Governor over the candidate verifier", () => {
+    const root = createRoot("openclaw-release-governor-active-");
+    const runtimeHome = path.join(root, "runtime-home");
+    const activeRelease = path.join(root, "active-release");
+    const candidateRelease = path.join(root, "candidate-release");
+    const sourceSha = "d".repeat(64);
+    const activeMarker = path.join(root, "active-governor-called");
+    const candidateMarker = path.join(root, "candidate-governor-called");
+    writeCandidateContracts(activeRelease, "a".repeat(64));
+    writeCandidateContracts(candidateRelease, sourceSha);
+    const verifier = (marker: string) =>
+      [
+        "#!/usr/bin/env node",
+        'import fs from "node:fs";',
+        `fs.writeFileSync(${JSON.stringify(marker)}, "called\\n");`,
+        "process.exit(0);",
+        "",
+      ].join("\n");
+    writeFile(
+      path.join(activeRelease, "dist", "release-governor.js"),
+      verifier(activeMarker),
+      0o700,
+    );
+    writeFile(
+      path.join(candidateRelease, "dist", "release-governor.js"),
+      verifier(candidateMarker),
+      0o700,
+    );
+    writeFile(
+      path.join(runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ runtimeRoot: activeRelease })}\n`,
+      0o600,
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. ${JSON.stringify(path.resolve("scripts/custom-runtime/custom-runtime-auth.sh"))}; custom_runtime_require_release_governance promotion ${sourceSha} ${JSON.stringify(candidateRelease)}`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        },
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.existsSync(activeMarker)).toBe(true);
+    expect(fs.existsSync(candidateMarker)).toBe(false);
+  });
+
   it("stages with copied local auth while suppressing external runtime side effects", () => {
     const root = createRoot("openclaw-custom-stage-local-");
     const runtimeHome = path.join(root, "runtime-home");
@@ -630,12 +745,14 @@ describe("custom runtime lifecycle", () => {
     const candidatePointer = {
       releaseId: "candidate",
       runtimeRoot: candidateRoot,
+      sourceSha: "f".repeat(64),
       manifestPath: candidateManifest,
       requiredSurfaces: ["pcc"],
     };
     const previousPointer = {
       releaseId: "previous",
       runtimeRoot: previousRoot,
+      sourceSha: "e".repeat(64),
       manifestPath: previousManifest,
       requiredSurfaces: ["pcc"],
     };
@@ -648,6 +765,7 @@ describe("custom runtime lifecycle", () => {
     ].join("\n");
     const previousLauncher = candidateLauncher.replace("exit 1", "# previous\nexit 1");
 
+    writeCandidateContracts(candidateRoot, "f".repeat(64));
     writeFile(path.join(candidateRoot, "snapshot.json"), '{"releaseId":"native-candidate"}\n');
     writeFile(candidateManifest, '{"surfaces":[{"id":"pcc","path":"/pcc","aliases":[]}]}\n');
     writeFile(previousManifest, '{"surfaces":[{"id":"pcc","path":"/pcc","aliases":[]}]}\n');
@@ -765,11 +883,13 @@ describe("custom runtime lifecycle", () => {
     const rpcUrlMarker = path.join(root, "restart-rpc-url");
     const routeAttemptsMarker = path.join(root, "restart-route-attempts");
     const manifestPath = path.join(runtimeRoot, "dist", "control-ui", "dashboard-surfaces.json");
+    const sourceSha = "d".repeat(64);
+    writeCandidateContracts(runtimeRoot, sourceSha);
     writeFile(path.join(runtimeRoot, "snapshot.json"), '{"releaseId":"native-candidate"}\n');
     writeFile(manifestPath, '{"surfaces":[{"id":"pcc","path":"/pcc"}]}\n');
     writeFile(
       path.join(runtimeHome, "active-runtime.json"),
-      `${JSON.stringify({ releaseId: "candidate", runtimeRoot, manifestPath, requiredSurfaces: ["pcc"] })}\n`,
+      `${JSON.stringify({ releaseId: "candidate", runtimeRoot, sourceSha, manifestPath, requiredSurfaces: ["pcc"] })}\n`,
     );
     writeFile(
       launcher,

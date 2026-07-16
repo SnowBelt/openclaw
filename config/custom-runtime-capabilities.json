@@ -212,6 +212,26 @@
         "scripts/custom-runtime/custom-runtime-stage.sh",
         "scripts/dev/control-ui-self-improvement-smoke.ts"
       ]
+    },
+    {
+      "id": "runtime:release-governor",
+      "kind": "runtime",
+      "requiredPaths": [
+        "config/release-governor-policy.json",
+        "src/pcc/release-governance/decision.ts",
+        "src/pcc/release-governance/evidence.ts",
+        "src/pcc/release-governance/cli.ts",
+        "src/pcc/release-governance/governor.ts",
+        "scripts/custom-runtime/custom-runtime-activate.sh",
+        "scripts/custom-runtime/custom-runtime-auth.sh",
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-restart.sh",
+        "scripts/custom-runtime/custom-runtime-rollback.sh",
+        "scripts/custom-runtime/custom-runtime-stage.sh",
+        "scripts/custom-runtime/custom-runtime-updater.sh",
+        "scripts/dev/control-ui-pcc-release-governor-smoke.ts",
+        "ui/src/ui/views/pcc.ts"
+      ]
     }
   ]
 }

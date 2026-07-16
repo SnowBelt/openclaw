@@ -89,6 +89,19 @@ pnpm -C "$candidate" test \
 pnpm -C "$candidate" ui:smoke:dashboard --artifact-profile release \
   --artifact-root "$candidate/.artifacts/custom-runtime-update" || fail dashboard_smoke
 sha=$(git -C "$candidate" rev-parse HEAD)
+# Prefer the already-active control plane so a candidate cannot select its own
+# policy verifier. Candidate bootstrap is permitted only before the first
+# Release Governor-capable runtime exists.
+active_auth_helper="$runtime_home/bin/custom-runtime-auth.sh"
+candidate_auth_helper="$candidate/scripts/custom-runtime/custom-runtime-auth.sh"
+if [ -f "$active_auth_helper" ]; then
+  . "$active_auth_helper"
+fi
+if ! command -v custom_runtime_require_release_governance >/dev/null 2>&1; then
+  [ -f "$candidate_auth_helper" ] || fail release_governor_missing
+  . "$candidate_auth_helper"
+fi
+command -v custom_runtime_require_release_governance >/dev/null 2>&1 || fail release_governor_missing
 short_sha=$(printf '%s' "$sha" | cut -c1-8)
 release="$releases/$stamp-$short_sha"
 [ ! -e "$release" ] || fail release_exists
@@ -135,6 +148,8 @@ with open(target, "w", encoding="utf-8") as f:
     json.dump(snapshot, f, indent=2, sort_keys=True)
     f.write("\n")
 PY
+custom_runtime_require_release_governance stage "$sha" "$release" || fail release_governor_stage
+custom_runtime_require_release_governance promotion "$sha" "$release" || fail release_governor_promotion
 "$release/scripts/custom-runtime/custom-runtime-activate.sh" \
   --release "$release" --source-sha "$sha" --stage-port 18790 --port 18789 || fail activate
 printf '{"at":"%s","result":"promoted","worktree":"%s","release":"%s","stableRef":"%s"}\n' \

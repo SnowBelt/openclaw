@@ -231,6 +231,16 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     ],
     proofSurfaces: ["pnpm ui:smoke:self-improvement", "Self-Improvement production soak"],
   },
+  {
+    id: "runtime:release-governor",
+    kind: "runtime",
+    owner: "PCC Release Governor",
+    tests: [
+      "src/pcc/release-governance/release-governance.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+    ],
+    proofSurfaces: ["pnpm check:release-governor-policy", "PCC deployment-governance view"],
+  },
 ];
 
 export const PCC_CUSTOM_RUNTIME_ADDITION_STANDARD_IDS = CUSTOM_RUNTIME_ADDITIONS.map(

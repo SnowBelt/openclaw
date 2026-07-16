@@ -62,7 +62,7 @@ write_receipt() {
     "$timestamp" "$1" "$candidate_runtime_release" "$rollback_release" > "$receipt"
 }
 
-if ! bundle=$(python3 - "$registration" "$pointer" "$runtime_home" "$releases_dir" \
+if ! rollback_identity=$(python3 - "$registration" "$pointer" "$runtime_home" "$releases_dir" \
   "$candidate_runtime_release" "$rollback_release" <<'PY'
 import hashlib
 import json
@@ -100,6 +100,9 @@ for key, value in expected.items():
 runtime_root = active.get("runtimeRoot")
 if not isinstance(runtime_root, str) or not runtime_root:
     raise SystemExit("active runtime root is missing")
+source_sha = active.get("sourceSha")
+if not isinstance(source_sha, str) or not source_sha:
+    raise SystemExit("active runtime source SHA is missing")
 with open(os.path.join(runtime_root, "snapshot.json"), encoding="utf-8") as f:
     snapshot = json.load(f)
 if snapshot.get("releaseId") != candidate_runtime_id:
@@ -133,11 +136,17 @@ real_rollback = os.path.realpath(str(rollback_root_path))
 if os.path.commonpath((real_rollback, real_releases)) != real_releases or real_rollback == real_releases:
     raise SystemExit("rollback runtime is outside the immutable releases root")
 print(bundle)
+print(source_sha)
+print(runtime_root)
 PY
 ); then
   write_receipt rollback_preflight_failed
   exit 1
 fi
+bundle=$(printf '%s\n' "$rollback_identity" | sed -n '1p')
+candidate_source_sha=$(printf '%s\n' "$rollback_identity" | sed -n '2p')
+candidate_runtime_root=$(printf '%s\n' "$rollback_identity" | sed -n '3p')
+custom_runtime_require_release_governance rollback "$candidate_source_sha" "$candidate_runtime_root"
 
 rollback_launcher="$bundle/custom-runtime-launcher.sh"
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$bundle/active-runtime.json" \

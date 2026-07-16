@@ -8,6 +8,7 @@ import type { PccExecutionPlan, PccExecutionTask } from "../../../../src/pcc/exe
 import type { PccExecutionProfile } from "../../../../src/pcc/execution-profile.js";
 import type { PccExecutionStandard } from "../../../../src/pcc/execution-standard.js";
 import type { PccAiUsePolicy, PccPlanningMode } from "../../../../src/pcc/project-workflows.js";
+import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import type { PccWorkLoopSettings } from "../../../../src/pcc/work-loop.js";
 import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
@@ -214,6 +215,7 @@ export type PccDashboardState = {
   pccProductFocusMode?: "pcc_product" | "project_work";
   pccReorderMode?: boolean;
   pccRuntimeIdentity?: PccRuntimeIdentity | null;
+  pccReleaseGovernance?: ReleaseGovernanceStatus | null;
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
   agentsList?: AgentsListResult | null;
   chatModelCatalog?: ModelCatalogEntry[];
@@ -257,6 +259,7 @@ export type PccDashboardProps = {
   modelsLastRefreshedAt?: number | null;
   modelsFallback?: boolean;
   runtimeIdentity?: PccRuntimeIdentity | null;
+  releaseGovernance?: ReleaseGovernanceStatus | null;
   executionCapacity?: PccExecutionCapacitySnapshot | null;
   skillsReport?: SkillStatusReport | null;
   skillsError?: string | null;

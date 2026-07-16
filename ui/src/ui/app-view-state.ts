@@ -1,4 +1,5 @@
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
+import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 // Control UI module implements app view state behavior.
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
@@ -226,6 +227,7 @@ export type AppViewState = {
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;
+  pccReleaseGovernance: ReleaseGovernanceStatus | null;
   pccExecutionCapacity: PccExecutionCapacitySnapshot | null;
   pccLoading: boolean;
   pccError: string | null;

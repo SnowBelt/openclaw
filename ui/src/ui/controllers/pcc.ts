@@ -65,6 +65,7 @@ import {
   type PccAiUsePolicy,
   type PccPlanningMode,
 } from "../../../../src/pcc/project-workflows.js";
+import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
 import {
@@ -177,6 +178,7 @@ type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
   executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
+  releaseGovernance?: ReleaseGovernanceStatus | null;
 };
 
 const dashboardLoadByState = new WeakMap<PccDashboardState, Promise<void>>();
@@ -1364,6 +1366,7 @@ async function loadPccDashboardOnce(state: PccDashboardState): Promise<void> {
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
+    state.pccReleaseGovernance = summaryResult.releaseGovernance ?? null;
     if (state.pccProjectDetail) {
       rememberPccProjectDetailForState(state, state.pccProjectDetail);
     }

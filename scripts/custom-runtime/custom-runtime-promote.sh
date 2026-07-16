@@ -37,19 +37,22 @@ releases_dir=$(cd "$releases_dir" && pwd -P)
 release=$(cd "$release" && pwd -P)
 case "$release" in "$releases_dir"/*) ;; *) printf '%s\n' 'release must be under the immutable releases root' >&2; exit 64 ;; esac
 [ -f "$release/dist/index.js" ] || { printf '%s\n' 'release entrypoint is missing' >&2; exit 64; }
+[ -f "$release/dist/release-governor.js" ] || { printf '%s\n' 'release Governor entrypoint is missing' >&2; exit 64; }
 [ -f "$release/snapshot.json" ] || { printf '%s\n' 'release runtime provenance is missing' >&2; exit 64; }
 manifest="$release/dist/control-ui/dashboard-surfaces.json"
 [ -f "$manifest" ] || { printf '%s\n' 'release surface manifest is missing' >&2; exit 64; }
 capability_manifest="$release/config/custom-runtime-capabilities.json"
 [ -f "$capability_manifest" ] || { printf '%s\n' 'release capability manifest is missing' >&2; exit 64; }
 stamp_file="$release/.openclaw-production-sha"
-if [ -f "$stamp_file" ] && [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
+[ -f "$stamp_file" ] || {
+  printf '%s\n' 'release source stamp is missing' >&2
+  exit 64
+}
+if [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
   printf '%s\n' 'release source stamp conflicts with requested source SHA' >&2
   exit 64
 fi
-if [ ! -f "$stamp_file" ]; then
-  (umask 077 && printf '%s\n' "$source_sha" > "$stamp_file")
-fi
+custom_runtime_require_release_governance promotion "$source_sha" "$release"
 mkdir -p "$runtime_home/backups" "$runtime_home/receipts" "$runtime_home/locks"
 promotion_lock="$runtime_home/locks/promotion.lock"
 if ! mkdir "$promotion_lock" 2>/dev/null; then

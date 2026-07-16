@@ -273,6 +273,71 @@ afterEach(() => {
 });
 
 describe("renderPccDashboard", () => {
+  it("renders fail-closed release governance with exact blockers and approval wording", () => {
+    const container = renderView(
+      createProps({
+        productFocusMode: "pcc_product",
+        releaseGovernance: {
+          schema: "openclaw.release-governance-status.v1",
+          policyVersion: 1,
+          candidateSha: "a".repeat(40),
+          activeRuntimeSha: "b".repeat(40),
+          riskLevel: "P1",
+          protectedPaths: [
+            {
+              path: "src/pcc/release-governance/policy.ts",
+              pattern: "src/pcc/release-governance/**",
+              reason: "Release policy engine cannot approve itself",
+            },
+          ],
+          capabilityDiff: [
+            {
+              id: "runtime:release-governor",
+              change: "added",
+              required: true,
+              reason: "Capability is newly declared by the candidate.",
+            },
+          ],
+          checks: [
+            {
+              id: "workflow_sanity",
+              status: "pending",
+              summary: "Exact-SHA Workflow Sanity is pending.",
+              recordedAt: "2026-07-15T12:00:00.000Z",
+            },
+          ],
+          approvalStatus: "none",
+          approvalScope: null,
+          reviews: [
+            {
+              role: "release_governor",
+              reviewerId: "release-governor",
+              decision: "approve",
+              confidence: 1,
+              summary: "Deterministic policy evaluated.",
+              evidenceIds: ["policy"],
+              reviewedAt: "2026-07-15T12:00:00.000Z",
+            },
+          ],
+          rollbackTarget: "b".repeat(40),
+          decision: "escalate",
+          evidenceReceiptHash: null,
+          evidencePath: null,
+          exactBlocker: "Explicit approval is required.",
+          approvalWording: "I explicitly approve candidate aaaa.",
+          updatedAt: "2026-07-15T12:00:00.000Z",
+        },
+      }),
+    );
+
+    const governance = container.querySelector("[data-pcc-release-governance]");
+    expect(governance).toBeTruthy();
+    expect(governance?.hasAttribute("open")).toBe(true);
+    expect(governance?.textContent).toContain("Explicit approval is required");
+    expect(governance?.textContent).toContain("Release policy engine cannot approve itself");
+    expect(governance?.querySelector("textarea")?.value).toContain("explicitly approve");
+  });
+
   it("renders operational SLOs from evidence without inferring missing data", () => {
     const empty = renderView(createProps());
     expect(

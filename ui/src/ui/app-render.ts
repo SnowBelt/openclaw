@@ -2903,6 +2903,7 @@ export function renderApp(state: AppViewState) {
                 modelsLastRefreshedAt: state.chatModelCatalogRefreshedAt,
                 modelsFallback: state.chatModelCatalogFallback,
                 runtimeIdentity: state.pccRuntimeIdentity,
+                releaseGovernance: state.pccReleaseGovernance,
                 executionCapacity: state.pccExecutionCapacity,
                 skillsReport: state.skillsReport,
                 skillsError: state.skillsError,

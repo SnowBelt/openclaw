@@ -14,6 +14,7 @@ Docs: https://docs.openclaw.ai
 
 ### Changes
 
+- **Project Command Center release governance:** PCC now provides a fail-closed Release Governor with deterministic risk classification, protected-path escalation, exact and bounded approvals, hash-bound evidence, capability-preservation checks, independent review requirements, health and rollback gates, immutable-runtime enforcement, and a responsive governance status panel.
 - **Project Command Center operational quality:** PCC workflows now declare versioned capability and 93-point quality contracts, preflight installed skills before work, require capability-use and first-pass evidence before completion, expose source-backed quality/error-budget metrics, and keep automatic model selection local-first with explicit paid-route ceilings.
 - **Gateway and plugin tooling:** channel identity hook context and per-agent usage-cost reporting give integrations and operators more precise routing and accounting. (#91903, #94483) Thanks @lanzhi-lee, @vincentkoc, and @ly-wang19.
 - **Provider and model coverage:** catalog parsing, reasoning controls, provider model resolution, and encrypted reasoning support now handle more live provider variants. (#95283, #95710, #95268, #95744, #95686, #93956) Thanks @ZengWen-DT, @vincentkoc, @Marvinthebored, @Darren2030, @daniel-alejandro-t, @parveshsaini, @geraint0923, @fuller-stack-dev, and @jason-allen-oneal.

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PCC_OPERATIONAL_QUALITY_DIMENSIONS } from "../../pcc/capability-contract.js";
 import type { PccLedger } from "../../pcc/ledger-store.js";
+import { releaseGovernanceStatusPath } from "../../pcc/release-governance/store.js";
 import { pccHandlers, pccTesting } from "./pcc.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
 
@@ -755,6 +756,45 @@ describe("Project Command Center gateway methods", () => {
       await invoke("pcc.summary.get", { projectId: project.id }),
     );
     expect(withSkipped.project.percentComplete).toBe(7);
+  });
+
+  it("returns the current Release Governor status without exposing approval secrets", async () => {
+    const statusPath = releaseGovernanceStatusPath();
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(
+      statusPath,
+      `${JSON.stringify({
+        schema: "openclaw.release-governance-status.v1",
+        policyVersion: 1,
+        candidateSha: "a".repeat(40),
+        activeRuntimeSha: "b".repeat(40),
+        riskLevel: "P1",
+        protectedPaths: [],
+        capabilityDiff: [],
+        checks: [],
+        approvalStatus: "none",
+        approvalScope: null,
+        reviews: [],
+        rollbackTarget: "b".repeat(40),
+        decision: "escalate",
+        evidenceReceiptHash: null,
+        evidencePath: null,
+        exactBlocker: "Explicit approval is required.",
+        approvalWording: "Approve exact SHA aaaa.",
+        updatedAt: "2026-07-15T12:00:00.000Z",
+      })}\n`,
+      { mode: 0o600 },
+    );
+
+    const result = okPayload<{
+      releaseGovernance: { candidateSha: string; exactBlocker: string };
+    }>(await invoke("pcc.summary.get", {}));
+
+    expect(result.releaseGovernance).toMatchObject({
+      candidateSha: "a".repeat(40),
+      exactBlocker: "Explicit approval is required.",
+    });
+    expect(JSON.stringify(result.releaseGovernance)).not.toContain("token");
   });
 
   it("rejects completion receipts backed by non-passing evidence", async () => {

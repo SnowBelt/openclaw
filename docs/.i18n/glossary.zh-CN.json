@@ -1208,6 +1208,10 @@
     "target": "Zalo ClawBot"
   },
   {
+    "source": "PCC Execution Standard",
+    "target": "PCC 执行标准"
+  },
+  {
     "source": "PCC Execution Teams",
     "target": "PCC 执行团队"
   },
@@ -1220,8 +1224,20 @@
     "target": "PCC 卓越运营"
   },
   {
+    "source": "Release Governor",
+    "target": "发布治理器"
+  },
+  {
     "source": "Self-Improvement Governor",
     "target": "自我改进治理器"
+  },
+  {
+    "source": "Subagents",
+    "target": "子智能体"
+  },
+  {
+    "source": "Permission modes",
+    "target": "权限模式"
   },
   {
     "source": "Background tasks",
