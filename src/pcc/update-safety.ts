@@ -53,7 +53,7 @@ function latestReceipt(receiptsDir: string): PccUpdateSafetyReceipt | null {
       .readdirSync(receiptsDir)
       .filter((name) => name.startsWith("update-") && name.endsWith(".json"))
       .toSorted()
-      .reverse();
+      .toReversed();
   } catch {
     return null;
   }
