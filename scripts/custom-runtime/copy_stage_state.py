@@ -128,7 +128,73 @@ def backup_sqlite_isolated(source: Path, target: Path) -> None:
         raise RuntimeError(detail)
 
 
+def remap_copied_path_values(value: object, sources: tuple[Path, ...], target: Path) -> object:
+    if isinstance(value, str):
+        for source in sources:
+            source_text = str(source)
+            if value == source_text:
+                return str(target)
+            source_prefix = f"{source_text}{os.sep}"
+            if value.startswith(source_prefix):
+                return str(target / value[len(source_prefix) :])
+        return value
+    if isinstance(value, list):
+        return [remap_copied_path_values(item, sources, target) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: remap_copied_path_values(item, sources, target)
+            for key, item in value.items()
+        }
+    return value
+
+
+def remap_copied_plugin_index_paths(sources: tuple[Path, ...], target: Path) -> None:
+    legacy_path = target / "plugins" / "installs.json"
+    if legacy_path.is_file():
+        legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+        remapped = remap_copied_path_values(legacy, sources, target)
+        temporary = legacy_path.with_name(f".{legacy_path.name}.remap-{os.getpid()}")
+        temporary.write_text(f"{json.dumps(remapped, indent=2, sort_keys=True)}\n", encoding="utf-8")
+        os.chmod(temporary, stat.S_IMODE(legacy_path.stat().st_mode))
+        os.replace(temporary, legacy_path)
+
+    database_path = target / "state" / "openclaw.sqlite"
+    if not database_path.is_file():
+        return
+    with closing(sqlite3.connect(database_path, timeout=30)) as database:
+        table = database.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'installed_plugin_index'"
+        ).fetchone()
+        if table is None:
+            return
+        rows = database.execute(
+            "SELECT index_key, install_records_json, plugins_json FROM installed_plugin_index"
+        ).fetchall()
+        for index_key, install_records_json, plugins_json in rows:
+            records = remap_copied_path_values(
+                json.loads(install_records_json), sources, target
+            )
+            plugins = remap_copied_path_values(json.loads(plugins_json), sources, target)
+            database.execute(
+                """
+                UPDATE installed_plugin_index
+                SET install_records_json = ?, plugins_json = ?
+                WHERE index_key = ?
+                """,
+                (
+                    json.dumps(records, separators=(",", ":"), sort_keys=True),
+                    json.dumps(plugins, separators=(",", ":"), sort_keys=True),
+                    index_key,
+                ),
+            )
+        result = database.execute("PRAGMA quick_check").fetchone()
+        if result != ("ok",):
+            raise RuntimeError("SQLite quick_check failed after remapping staged plugin paths")
+        database.commit()
+
+
 def copy_stage_state(source: Path, target: Path) -> dict[str, object]:
+    source_argument = source.absolute()
     source = source.resolve(strict=True)
     target = target.resolve()
     if source == target or source in target.parents or target in source.parents:
@@ -175,6 +241,8 @@ def copy_stage_state(source: Path, target: Path) -> dict[str, object]:
         relative = database.relative_to(source)
         backup_sqlite_isolated(database, target / relative)
         copied.append(relative.as_posix())
+    source_roots = tuple(dict.fromkeys((source_argument, source)))
+    remap_copied_plugin_index_paths(source_roots, target)
     return {
         "databaseCount": len(copied),
         "databases": copied,
