@@ -635,9 +635,3 @@ function iconForFile(path: string) {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return CODE_EXTENSIONS.has(ext) ? icons.fileCode : icons.fileText;
 }
-
-declare global {
-  interface HTMLElementTagNameMap {
-    "openclaw-file-preview-modal": OpenClawFilePreviewModal;
-  }
-}

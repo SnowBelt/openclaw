@@ -5,7 +5,13 @@ set -eu
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
 pointer=${OPENCLAW_CUSTOM_RUNTIME_POINTER:-"$runtime_home/active-runtime.json"}
-node_bin=${OPENCLAW_NODE_BIN:-/opt/homebrew/opt/node/bin/node}
+if [ -n "${OPENCLAW_NODE_BIN:-}" ]; then
+  node_bin=$OPENCLAW_NODE_BIN
+elif [ -x "$runtime_home/toolchains/node-current/bin/node" ]; then
+  node_bin="$runtime_home/toolchains/node-current/bin/node"
+else
+  node_bin=/opt/homebrew/opt/node/bin/node
+fi
 
 fail() { printf '%s\n' "custom-runtime-launcher: $*" >&2; exit 64; }
 [ -d "$releases_dir" ] || fail "immutable releases root is missing"

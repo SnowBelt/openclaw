@@ -126,7 +126,8 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - &workflow_sanity_checkout_step
+        name: Checkout
         env:
           CHECKOUT_REPO: ${{ github.repository }}
           CHECKOUT_SHA: ${{ github.sha }}
@@ -185,36 +186,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        env:
-          CHECKOUT_REPO: ${{ github.repository }}
-          CHECKOUT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          git init "$GITHUB_WORKSPACE"
-          git -C "$GITHUB_WORKSPACE" config gc.auto 0
-          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${CHECKOUT_REPO}.git"
-          fetch_checkout_ref() {
-            local fetch_status
-            for attempt in 1 2 3; do
-              timeout --signal=TERM --kill-after=10s 30s git -C "$GITHUB_WORKSPACE" \
-                -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
-                "+${CHECKOUT_SHA}:refs/remotes/origin/checkout" && return 0
-              fetch_status="$?"
-              if [ "$fetch_status" != "124" ] && [ "$fetch_status" != "137" ]; then
-                return "$fetch_status"
-              fi
-              if [ "$attempt" = "3" ]; then
-                return "$fetch_status"
-              fi
-              echo "::warning::checkout fetch for '$CHECKOUT_SHA' timed out on attempt $attempt; retrying"
-              sleep 5
-            done
-          }
-          fetch_checkout_ref
-          git -C "$GITHUB_WORKSPACE" checkout --detach refs/remotes/origin/checkout
-
+      - *workflow_sanity_checkout_step
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -329,36 +301,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true' && inputs.pcc-context-package-proof != 'true' && inputs.pcc-chat-sync-proof != 'true' && inputs.pcc-submilestones-proof != 'true' && inputs.pcc-skimmability-work-controls-proof != 'true' && inputs.pcc-portfolio-orchestration-proof != 'true' && inputs.pcc-production-governor-proof != 'true' && inputs.pcc-phase1-skimmability-proof != 'true' && inputs.pcc-phase2-workflow-intake-proof != 'true' && inputs.pcc-project-agnostic-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        env:
-          CHECKOUT_REPO: ${{ github.repository }}
-          CHECKOUT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          git init "$GITHUB_WORKSPACE"
-          git -C "$GITHUB_WORKSPACE" config gc.auto 0
-          git -C "$GITHUB_WORKSPACE" remote add origin "https://github.com/${CHECKOUT_REPO}.git"
-          fetch_checkout_ref() {
-            local fetch_status
-            for attempt in 1 2 3; do
-              timeout --signal=TERM --kill-after=10s 30s git -C "$GITHUB_WORKSPACE" \
-                -c protocol.version=2 \
-                fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
-                "+${CHECKOUT_SHA}:refs/remotes/origin/checkout" && return 0
-              fetch_status="$?"
-              if [ "$fetch_status" != "124" ] && [ "$fetch_status" != "137" ]; then
-                return "$fetch_status"
-              fi
-              if [ "$attempt" = "3" ]; then
-                return "$fetch_status"
-              fi
-              echo "::warning::checkout fetch for '$CHECKOUT_SHA' timed out on attempt $attempt; retrying"
-              sleep 5
-            done
-          }
-          fetch_checkout_ref
-          git -C "$GITHUB_WORKSPACE" checkout --detach refs/remotes/origin/checkout
-
+      - *workflow_sanity_checkout_step
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
         with:

@@ -1,5 +1,6 @@
 // Control UI i18n module implements translate behavior.
 import { getSafeLocalStorage } from "../../local-storage.ts";
+import { customLocaleOverlays } from "../custom-locale-overlays.ts";
 import { en } from "../locales/en.ts";
 import {
   DEFAULT_LOCALE,
@@ -12,11 +13,25 @@ import type { Locale, TranslationMap } from "./types.ts";
 
 type Subscriber = (locale: Locale) => void;
 
+function mergeTranslationMaps(base: TranslationMap, overlay: TranslationMap): TranslationMap {
+  const merged: TranslationMap = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    const current = merged[key];
+    merged[key] =
+      typeof current === "object" && typeof value === "object"
+        ? mergeTranslationMaps(current, value)
+        : value;
+  }
+  return merged;
+}
+
 export { SUPPORTED_LOCALES, isSupportedLocale };
 
 class I18nManager {
   private locale: Locale = DEFAULT_LOCALE;
-  private translations: Partial<Record<Locale, TranslationMap>> = { [DEFAULT_LOCALE]: en };
+  private translations: Partial<Record<Locale, TranslationMap>> = {
+    [DEFAULT_LOCALE]: mergeTranslationMaps(en, customLocaleOverlays.en ?? {}),
+  };
   private subscribers: Set<Subscriber> = new Set();
 
   constructor() {
@@ -84,7 +99,10 @@ class I18nManager {
         if (!translation) {
           return;
         }
-        this.translations[locale] = translation;
+        this.translations[locale] = mergeTranslationMaps(
+          translation,
+          customLocaleOverlays[locale] ?? {},
+        );
       } catch (e) {
         console.error(`Failed to load locale: ${locale}`, e);
         return;

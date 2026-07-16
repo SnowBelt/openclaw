@@ -22,6 +22,7 @@ import { resolveGatewayProgramArguments } from "../../daemon/program-args.js";
 import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { resolveGatewayService } from "../../daemon/service.js";
+import { resolveAdvertisedControlUiLinks } from "../../gateway/control-ui-links.js";
 import { gatewaySecretInputPathCanWin } from "../../gateway/credentials-secret-inputs.js";
 import { trimToUndefined } from "../../gateway/credentials.js";
 import { resolveGatewayProbeCredentialConfig } from "../../gateway/probe-auth.js";
@@ -46,6 +47,10 @@ import {
   readGatewayRestartHandoffSync,
   type GatewayRestartHandoff,
 } from "../../infra/restart-handoff.js";
+import {
+  inspectWindowsGatewayFirewall,
+  type WindowsGatewayFirewallDiagnostic,
+} from "../../infra/windows-gateway-firewall-diagnostics.js";
 import { resolveConfiguredLogFilePath } from "../../logging/log-file-path.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-record-reader.js";
 import {
@@ -74,8 +79,10 @@ type GatewayStatusSummary = {
   port: number;
   portSource: "service args" | "env/config";
   probeUrl: string;
+  controlUiLinks?: { httpUrl: string; wsUrl: string };
   probeNote?: string;
   version?: string | null;
+  windowsFirewall?: WindowsGatewayFirewallDiagnostic;
 };
 
 type PortStatusSummary = {
@@ -455,6 +462,16 @@ async function resolveGatewayStatusSummary(params: {
   const tlsEnabled = params.daemonCfg.gateway?.tls?.enabled === true;
   const scheme = tlsEnabled ? "wss" : "ws";
   const probeUrl = probeUrlOverride ?? `${scheme}://${probeHost}:${daemonPort}`;
+  const controlUiLinks =
+    params.daemonCfg.gateway?.controlUi?.enabled === false
+      ? undefined
+      : await resolveAdvertisedControlUiLinks({
+          port: daemonPort,
+          bind: bindMode,
+          customBindHost,
+          basePath: params.daemonCfg.gateway?.controlUi?.basePath,
+          tlsEnabled,
+        });
   let probeNote =
     !probeUrlOverride && bindMode === "lan"
       ? `bind=lan listens on 0.0.0.0 (all interfaces); probing via ${probeHost}.`
@@ -473,6 +490,7 @@ async function resolveGatewayStatusSummary(params: {
       port: daemonPort,
       portSource,
       probeUrl,
+      ...(controlUiLinks ? { controlUiLinks } : {}),
       ...(probeNote ? { probeNote } : {}),
     },
     daemonPort,
@@ -602,6 +620,16 @@ export async function gatherDaemonStatus(
     commandProgramArguments: command?.programArguments,
     rpcUrlOverride: opts.rpc.url,
   });
+  const shouldInspectLocalGateway = daemonCfg.gateway?.mode !== "remote" && !probeUrlOverride;
+  const windowsFirewall =
+    opts.deep === true && shouldInspectLocalGateway
+      ? await inspectWindowsGatewayFirewall({
+          bind: gateway.bindMode,
+          mode: "quick",
+          port: daemonPort,
+          platform: process.platform,
+        })
+      : undefined;
   const expectedEntrypoint = await resolveGatewayProgramArguments({
     port: daemonPort,
     runtime: "node",
@@ -739,8 +767,17 @@ export async function gatherDaemonStatus(
     : undefined;
 
   let lastError: string | undefined;
-  if (loaded && runtime?.status === "running" && portStatus && portStatus.status !== "busy") {
-    lastError = (await readLastGatewayErrorLine(mergedDaemonEnv as NodeJS.ProcessEnv)) ?? undefined;
+  if (
+    shouldInspectLocalGateway &&
+    loaded &&
+    runtime?.status === "running" &&
+    portStatus &&
+    (portStatus.status !== "busy" || rpc?.ok === false)
+  ) {
+    lastError =
+      (await readLastGatewayErrorLine(mergedDaemonEnv as NodeJS.ProcessEnv, {
+        requirePatternMatch: portStatus.status === "busy",
+      })) ?? undefined;
   }
 
   // Plugin version drift detection.
@@ -752,7 +789,7 @@ export async function gatherDaemonStatus(
   // diagnostics instead.
   // Best-effort: unreadable install records omit this advisory report.
   let pluginVersionDrift: PluginVersionDriftReport | undefined;
-  if (daemonCfg.gateway?.mode !== "remote" && !probeUrlOverride) {
+  if (shouldInspectLocalGateway) {
     try {
       const installRecords = await loadInstalledPluginIndexInstallRecords({
         env: mergedDaemonEnv as NodeJS.ProcessEnv,
@@ -788,6 +825,7 @@ export async function gatherDaemonStatus(
     },
     gateway: {
       ...gateway,
+      ...(windowsFirewall?.applies ? { windowsFirewall } : {}),
       ...(opts.probe
         ? {
             version: gatewayVersion,

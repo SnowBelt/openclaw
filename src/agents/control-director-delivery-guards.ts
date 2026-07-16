@@ -157,6 +157,7 @@ async function persistControlDirectorSessionEntry(params: {
   sessionStore: Record<string, SessionEntry>;
   sessionKey: string;
   storePath: string;
+  initialEntry: SessionEntry;
   entry: SessionEntry;
 }): Promise<void> {
   await persistSessionEntryBase(params);
@@ -192,6 +193,7 @@ async function recordControlDirectorGuardAudit(
         sessionStore: params.sessionStore,
         sessionKey: params.sessionKey,
         storePath: params.storePath,
+        initialEntry: entry,
         entry: next,
       });
       return next;
@@ -230,6 +232,7 @@ async function recordControlDirectorLivenessAudit(
         sessionStore: params.sessionStore,
         sessionKey: params.sessionKey,
         storePath: params.storePath,
+        initialEntry: entry,
         entry: next,
       });
       return next;
@@ -396,6 +399,7 @@ async function recordControlDirectorMissionLedger(
     sessionStore: params.sessionStore,
     sessionKey: params.sessionKey,
     storePath: params.storePath,
+    initialEntry: entry,
     entry: next,
   });
   if (params.runId) {
@@ -489,6 +493,7 @@ async function recordControlDirectorTruthAudit(
         sessionStore: params.sessionStore,
         sessionKey: params.sessionKey,
         storePath: params.storePath,
+        initialEntry: entry,
         entry: next,
       });
       return { sessionEntry: next, auditEntry };

@@ -6,6 +6,7 @@ import {
   resetDiagnosticEventsForTest,
   type DiagnosticMessageReceivedEvent,
 } from "../infra/diagnostic-events.js";
+import { registerReplyDispatcherSettledTask } from "./dispatch-dispatcher.js";
 import { getReplyPayloadMetadata, setReplyPayloadMetadata } from "./reply-payload.js";
 import type { ReplyDispatchBeforeDeliver, ReplyDispatcher } from "./reply/reply-dispatcher.js";
 import { buildTestCtx } from "./reply/test-ctx.js";
@@ -208,6 +209,9 @@ describe("withReplyDispatcher", () => {
   it("always marks complete and waits for idle after success", async () => {
     const order: string[] = [];
     const dispatcher = createDispatcher(order);
+    registerReplyDispatcherSettledTask(dispatcher, () => {
+      order.push("settledTask");
+    });
 
     const result = await withReplyDispatcher({
       dispatcher,
@@ -221,7 +225,7 @@ describe("withReplyDispatcher", () => {
     });
 
     expect(result).toBe("ok");
-    expect(order).toEqual(["run", "markComplete", "waitForIdle", "onSettled"]);
+    expect(order).toEqual(["run", "markComplete", "waitForIdle", "settledTask", "onSettled"]);
   });
 
   it("still drains dispatcher after run throws", async () => {

@@ -157,7 +157,28 @@ export function resolveSourcePackageAliasesForVite(): ControlUiViteAlias[] {
     sourcePackageAlias("normalization-core", "record-coerce"),
     sourcePackageAlias("normalization-core", "string-coerce"),
     sourcePackageAlias("normalization-core", "string-normalization"),
+    sourcePackageAlias("normalization-core", "utf16-slice"),
     sourcePackageAlias("normalization-core"),
+  ];
+}
+
+export function resolveExternalPackageAliasesForVite(): ControlUiViteAlias[] {
+  return [
+    {
+      find: "@openclaw/libterminal/browser",
+      replacement: path.join(
+        repoRoot,
+        "node_modules",
+        "@openclaw",
+        "libterminal",
+        "dist",
+        "browser.js",
+      ),
+    },
+    {
+      find: "@openclaw/uirouter",
+      replacement: path.join(repoRoot, "node_modules", "@openclaw", "uirouter", "dist", "index.js"),
+    },
   ];
 }
 
@@ -279,6 +300,7 @@ export default function controlUiViteConfig(): UserConfig {
     resolve: {
       alias: [
         { find: "json5", replacement: json5EsmPath },
+        ...resolveExternalPackageAliasesForVite(),
         ...resolveSourcePackageAliasesForVite(),
         ...resolveTsconfigPathAliasesForVite(),
       ],

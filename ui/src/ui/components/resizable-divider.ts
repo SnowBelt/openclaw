@@ -201,9 +201,3 @@ export class ResizableDivider extends LitElement {
 if (!customElements.get("resizable-divider")) {
   customElements.define("resizable-divider", ResizableDivider);
 }
-
-declare global {
-  interface HTMLElementTagNameMap {
-    "resizable-divider": ResizableDivider;
-  }
-}

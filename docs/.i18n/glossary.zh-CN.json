@@ -44,6 +44,22 @@
     "target": "ClawHub"
   },
   {
+    "source": "ClawRouter (managed multi-provider routing)",
+    "target": "ClawRouter（托管式多提供商路由）"
+  },
+  {
+    "source": "ClawRouter",
+    "target": "ClawRouter"
+  },
+  {
+    "source": "ClawRouter plugin",
+    "target": "ClawRouter 插件"
+  },
+  {
+    "source": "clawrouter",
+    "target": "clawrouter"
+  },
+  {
     "source": "OpenAI",
     "target": "OpenAI"
   },
@@ -624,6 +640,10 @@
     "target": "发布策略"
   },
   {
+    "source": "Release notes",
+    "target": "发布说明"
+  },
+  {
     "source": "for full details",
     "target": "了解详情"
   },
@@ -972,8 +992,8 @@
     "target": "轨迹导出"
   },
   {
-    "source": "Tencent Cloud (TokenHub)",
-    "target": "腾讯云（TokenHub）"
+    "source": "Tencent Cloud (TokenHub / TokenPlan)",
+    "target": "腾讯云（TokenHub / TokenPlan）"
   },
   {
     "source": "Codex Harness Context Engine Port",
@@ -1202,6 +1222,18 @@
   {
     "source": "cohere",
     "target": "cohere"
+  },
+  {
+    "source": "Meta",
+    "target": "Meta"
+  },
+  {
+    "source": "Meta plugin",
+    "target": "Meta 插件"
+  },
+  {
+    "source": "meta",
+    "target": "meta"
   },
   {
     "source": "Zalo ClawBot",

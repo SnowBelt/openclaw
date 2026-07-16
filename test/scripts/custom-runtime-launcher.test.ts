@@ -149,6 +149,33 @@ afterEach(() => {
 });
 
 describe("custom runtime launcher", () => {
+  it("prefers the isolated managed Node toolchain when no override is provided", () => {
+    const input = fixture(["pcc"]);
+    const managedNode = path.join(
+      input.home,
+      ".openclaw-custom-runtime",
+      "toolchains",
+      "node-current",
+      "bin",
+      "node",
+    );
+    writeFile(managedNode, readFileSync(input.fakeNode, "utf8"), 0o700);
+
+    const result = spawnSync(launcher, ["gateway", "--port", "18789"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: input.home,
+        OPENCLAW_CUSTOM_RUNTIME_POINTER: input.pointer,
+        OPENCLAW_NODE_BIN: "",
+      },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`runtime=${input.release}`);
+    expect(result.stdout).toContain("gateway --port 18789");
+  });
+
   it("accepts a hash-bound runtime with complete provenance, surfaces, and capabilities", () => {
     const result = verifyLauncher(fixture(["pcc"]));
 

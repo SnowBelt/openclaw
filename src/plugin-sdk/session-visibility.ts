@@ -8,7 +8,10 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { callGateway as defaultCallGateway } from "../gateway/call.js";
 import { resolveAgentIdFromSessionKey } from "../routing/session-key.js";
 
-type GatewayCaller = typeof defaultCallGateway;
+type GatewayCaller = <T = Record<string, unknown>>(opts: {
+  method: string;
+  params?: unknown;
+}) => Promise<T>;
 
 let callGatewayForListSpawned: GatewayCaller = defaultCallGateway;
 
