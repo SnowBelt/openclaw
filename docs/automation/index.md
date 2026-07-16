@@ -49,6 +49,7 @@ flowchart TD
 | Run a script on session reset           | Hooks                     | Event-driven, fires on lifecycle events               |
 | Execute code on every tool call         | Plugin hooks              | In-process hooks can intercept tool calls             |
 | Always check compliance before replying | Standing Orders           | Injected into every session automatically             |
+| Stage or promote an immutable runtime   | Release Governor          | Verifies risk, evidence, approvals, health, and rollback |
 | Review recurring operating problems     | Self-Improvement Governor | Default-off, recommendation-only evidence and routing |
 
 ### Scheduled Tasks (Cron) vs Heartbeat
@@ -65,6 +66,12 @@ Use Scheduled Tasks (Cron) when you need precise timing or isolated execution. U
 
 ## Core concepts
 
+### Release Governor
+
+The [Release Governor](/automation/release-governor) is the fail-closed policy
+boundary for custom-runtime staging, promotion, restart, rollback, and final
+release receipts. It uses deterministic risk and protected-path rules before
+structured agent reviews and never lets consensus override a blocker.
 ### Scheduled tasks (cron)
 
 Cron is the Gateway's built-in scheduler for precise timing. It persists jobs, wakes the agent at the right time, and can deliver output to a chat channel or webhook endpoint. Supports one-shot reminders, recurring expressions, and inbound webhook triggers.
@@ -134,6 +141,7 @@ See [Heartbeat](/gateway/heartbeat).
 
 ## Related
 
+- [Release Governor](/automation/release-governor) — exact-SHA release policy, evidence, approval, health, and rollback
 - [Scheduled Tasks](/automation/cron-jobs) — precise scheduling and one-shot reminders
 - [Inferred Commitments](/concepts/commitments) — memory-like follow-up check-ins
 - [Background Tasks](/automation/tasks) — task ledger for all detached work

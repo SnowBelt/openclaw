@@ -1316,6 +1316,7 @@
                 "group": "Automation",
                 "pages": [
                   "automation/index",
+                  "automation/release-governor",
                   "automation/cron-jobs",
                   "automation/tasks",
                   "automation/taskflow",

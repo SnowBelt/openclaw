@@ -23,11 +23,25 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 [ -f "$release/dist/index.js" ] || usage
+[ -f "$release/dist/release-governor.js" ] || {
+  printf '%s\n' 'candidate Release Governor entrypoint is missing' >&2
+  exit 64
+}
 capability_manifest="$release/config/custom-runtime-capabilities.json"
 [ -f "$capability_manifest" ] || {
   printf '%s\n' 'candidate capability manifest is missing' >&2
   exit 64
 }
+stamp_file="$release/.openclaw-production-sha"
+[ -f "$stamp_file" ] || {
+  printf '%s\n' 'candidate stage blocked: release source stamp is missing' >&2
+  exit 64
+}
+[ "$(tr -d '[:space:]' < "$stamp_file")" = "$source_sha" ] || {
+  printf '%s\n' 'candidate stage blocked: release source stamp does not match requested source SHA' >&2
+  exit 64
+}
+custom_runtime_require_release_governance stage "$source_sha" "$release"
 mkdir -p "$runtime_home"
 
 # A missing Keychain value is a hard stop. It is never replaced by a file value.
@@ -110,15 +124,6 @@ manifest="$release/dist/control-ui/dashboard-surfaces.json"
 }
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 capability_manifest_sha=$(shasum -a 256 "$capability_manifest" | awk '{print $1}')
-stamp_file="$release/.openclaw-production-sha"
-[ -f "$stamp_file" ] || {
-  printf '%s\n' 'candidate stage blocked: release source stamp is missing' >&2
-  exit 64
-}
-[ "$(tr -d '[:space:]' < "$stamp_file")" = "$source_sha" ] || {
-  printf '%s\n' 'candidate stage blocked: release source stamp does not match requested source SHA' >&2
-  exit 64
-}
 python3 - "$stage/pointer.json" "$release" "$source_sha" "$manifest" "$manifest_sha" \
   "$capability_manifest" "$capability_manifest_sha" "$runtime_home/active-runtime.json" <<'PY'
 import json, os, sys

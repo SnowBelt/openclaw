@@ -56,6 +56,7 @@ import {
   summarizePccPortfolio as summarizePortfolio,
   summarizePccProject as summarizeProject,
 } from "../../pcc/read-model/project-summary.js";
+import { readReleaseGovernanceStatus } from "../../pcc/release-governance/store.js";
 import { readPccRuntimeIdentity, type PccRuntimeIdentity } from "../../pcc/runtime-identity.js";
 import { readPccUpdateSafety } from "../../pcc/update-safety.js";
 import { listTaskRecords } from "../../tasks/runtime-internal.js";
@@ -1914,6 +1915,7 @@ export const pccHandlers: GatewayRequestHandlers = {
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
           updateSafety: readPccUpdateSafety(),
+          releaseGovernance: readReleaseGovernanceStatus(),
         });
         return;
       }
@@ -1922,6 +1924,7 @@ export const pccHandlers: GatewayRequestHandlers = {
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
         updateSafety: readPccUpdateSafety(),
+        releaseGovernance: readReleaseGovernanceStatus(),
       });
     } catch (error) {
       respondUnhandled(respond, error);

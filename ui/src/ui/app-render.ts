@@ -2961,6 +2961,7 @@ export function renderApp(state: AppViewState) {
                 modelsFallback: state.chatModelCatalogFallback,
                 runtimeIdentity: state.pccRuntimeIdentity,
                 updateSafety: state.pccUpdateSafety,
+                releaseGovernance: state.pccReleaseGovernance,
                 executionCapacity: state.pccExecutionCapacity,
                 executionProjection: state.pccExecutionProjection,
                 executionProjectionLoading: state.pccExecutionProjectionLoading,

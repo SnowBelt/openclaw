@@ -1,6 +1,7 @@
 import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
+import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 // Control UI module implements app view state behavior.
@@ -235,6 +236,7 @@ export type AppViewState = {
   pccPortfolioSummary: PccPortfolioSummary | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;
   pccUpdateSafety: PccUpdateSafety | null;
+  pccReleaseGovernance: ReleaseGovernanceStatus | null;
   pccExecutionCapacity: PccExecutionCapacitySnapshot | null;
   pccLoading: boolean;
   pccError: string | null;

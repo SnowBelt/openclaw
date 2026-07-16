@@ -58,6 +58,7 @@ import {
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
+import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
 import {
   getPccWorkLoopNext,
@@ -149,6 +150,7 @@ export type PccDashboardProps = {
   modelsFallback?: boolean;
   runtimeIdentity?: PccRuntimeIdentity | null;
   updateSafety?: PccUpdateSafety | null;
+  releaseGovernance?: ReleaseGovernanceStatus | null;
   executionCapacity?: PccExecutionCapacitySnapshot | null;
   executionProjection?: PccExecutionRuntimeProjection | null;
   executionProjectionLoading?: boolean;
@@ -1434,6 +1436,136 @@ function renderProductionTruthCard(props: PccDashboardProps) {
       </div>
     </details>
   </section>`;
+}
+
+function renderReleaseGovernance(props: PccDashboardProps) {
+  if ((props.productFocusMode ?? "project_work") !== "pcc_product") {
+    return nothing;
+  }
+  const status = props.releaseGovernance;
+  const blocked = status?.decision === "deny" || status?.decision === "escalate";
+  const passedChecks = status?.checks.filter((check) => check.status === "passed").length ?? 0;
+  const totalChecks = status?.checks.length ?? 0;
+  const capabilityChanges =
+    status?.capabilityDiff.filter((entry) => entry.change !== "unchanged") ?? [];
+  return html`<details
+    class="pcc-release-governance ${blocked ? "is-blocked" : ""}"
+    data-pcc-release-governance
+    ?open=${blocked}
+  >
+    <summary>
+      <span>
+        <span class="pcc-kicker">Deployment governance</span>
+        <strong
+          >${status?.candidateSha
+            ? `Candidate ${status.candidateSha.slice(0, 12)}`
+            : "No candidate waiting"}</strong
+        >
+      </span>
+      <span class="pcc-release-governance__decision">
+        ${status?.riskLevel ?? "No risk"} · ${status?.decision ?? "none"}
+      </span>
+    </summary>
+    ${status
+      ? html`<div class="pcc-release-governance__body">
+          <dl class="pcc-release-governance__facts">
+            <div>
+              <dt>Active runtime</dt>
+              <dd>${status.activeRuntimeSha?.slice(0, 12) ?? "Unknown"}</dd>
+            </div>
+            <div>
+              <dt>Candidate</dt>
+              <dd>${status.candidateSha?.slice(0, 12) ?? "None"}</dd>
+            </div>
+            <div>
+              <dt>Risk</dt>
+              <dd>${status.riskLevel ?? "Unknown"}</dd>
+            </div>
+            <div>
+              <dt>Checks</dt>
+              <dd>${passedChecks}/${totalChecks} passed</dd>
+            </div>
+            <div>
+              <dt>Approval</dt>
+              <dd>${status.approvalStatus.replaceAll("_", " ")}</dd>
+            </div>
+            <div>
+              <dt>Rollback target</dt>
+              <dd>${status.rollbackTarget?.slice(0, 12) ?? "Not recorded"}</dd>
+            </div>
+          </dl>
+          ${status.exactBlocker
+            ? html`<div class="pcc-callout" role="alert">
+                <strong>Blocked</strong><span>${status.exactBlocker}</span>
+              </div>`
+            : nothing}
+          <div class="pcc-release-governance__columns">
+            <section>
+              <h4>Protected paths</h4>
+              ${status.protectedPaths.length
+                ? html`<ul>
+                    ${status.protectedPaths.map(
+                      (entry) => html`<li><code>${entry.path}</code> — ${entry.reason}</li>`,
+                    )}
+                  </ul>`
+                : html`<p>None touched.</p>`}
+            </section>
+            <section>
+              <h4>Capability changes</h4>
+              ${capabilityChanges.length
+                ? html`<ul>
+                    ${capabilityChanges.map(
+                      (entry) =>
+                        html`<li>
+                          <strong>${entry.id}</strong>: ${entry.change} — ${entry.reason}
+                        </li>`,
+                    )}
+                  </ul>`
+                : html`<p>Required capabilities are unchanged.</p>`}
+            </section>
+          </div>
+          <section>
+            <h4>Checks and reviewers</h4>
+            <ul class="pcc-release-governance__checks">
+              ${status.checks.map(
+                (check) =>
+                  html`<li>
+                    <span>${check.status === "passed" ? "✓" : "!"}</span><strong>${check.id}</strong
+                    ><small>${check.summary}</small>
+                  </li>`,
+              )}
+              ${status.reviews.map(
+                (review) =>
+                  html`<li>
+                    <span>${review.decision === "approve" ? "✓" : "!"}</span
+                    ><strong>${review.role.replaceAll("_", " ")}</strong
+                    ><small
+                      >${review.decision} · ${Math.round(review.confidence * 100)}%
+                      confidence</small
+                    >
+                  </li>`,
+              )}
+            </ul>
+          </section>
+          <p><strong>Evidence receipt:</strong> ${status.evidenceReceiptHash ?? "Not recorded"}</p>
+          ${status.approvalWording
+            ? html`<label class="pcc-release-governance__approval">
+                <span>Exact approval required</span>
+                <textarea readonly .value=${status.approvalWording}></textarea>
+                <button
+                  class="btn"
+                  type="button"
+                  @click=${() => void navigator.clipboard?.writeText(status.approvalWording ?? "")}
+                >
+                  Copy approval wording
+                </button>
+              </label>`
+            : nothing}
+        </div>`
+      : html`<div class="pcc-release-governance__empty">
+          <p>No release candidate has been evaluated. Deployment remains fail closed.</p>
+        </div>`}
+  </details>`;
 }
 
 function renderProductionTruthDrawer(props: PccDashboardProps) {
@@ -8494,6 +8626,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${renderPccOfflineState(props)}
       ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
       ${renderPccMobileCommandRail(props)}
+      ${renderReleaseGovernance(props)}
 
       <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
         <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
