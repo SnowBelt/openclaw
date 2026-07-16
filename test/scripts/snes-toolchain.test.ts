@@ -488,7 +488,9 @@ describe("SNES toolchain runner", () => {
       expect(truth.blockers.join("\n")).toContain("synthetic-composite");
     } else {
       expect(truth.assets).toHaveLength(0);
-      expect(truth.blockers.join("\n")).toContain("project-conversion");
+      expect(truth.blockers.join("\n")).toContain(
+        "Runtime asset truth requires converted production asset records.",
+      );
     }
   });
 
@@ -562,7 +564,9 @@ describe("SNES toolchain runner", () => {
     expect(audit.blockers.join("\n")).toContain("Human in-game screenshot grade is 3/100");
     expect(audit.runtimeAssetTruth.status).toBe("blocked");
     expect(audit.blockers.join("\n")).toContain(
-      conversion.status === "pass" ? "synthetic-composite" : "project-conversion",
+      conversion.status === "pass"
+        ? "synthetic-composite"
+        : "Runtime asset truth requires converted production asset records.",
     );
     expect(audit.safeReferencePolicy.commercialRomDownloadAllowed).toBe(false);
   });

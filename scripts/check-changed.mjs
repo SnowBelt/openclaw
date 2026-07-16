@@ -261,13 +261,13 @@ export function createChangedCheckPlan(result, options = {}) {
       commands.push({ name, args, ...(env ? { env } : {}) });
     }
   };
-  const addCommand = (name, bin, args, env) => {
+  const addCommand = (name, bin, args, env, commandOptions = {}) => {
     if (
       !commands.some(
         (command) => command.name === name && command.bin === bin && sameArgs(command.args, args),
       )
     ) {
-      commands.push({ name, bin, args, ...(env ? { env } : {}) });
+      commands.push({ name, bin, args, ...(env ? { env } : {}), ...commandOptions });
     }
   };
   const addTypecheck = (name, args) => add(name, args, createSparseTsgoSkipEnv(baseEnv));
@@ -286,6 +286,7 @@ export function createChangedCheckPlan(result, options = {}) {
           : ["--base", options.base ?? "origin/main", "--head", options.head ?? "HEAD"]),
       ],
       baseEnv,
+      { warningOnly: true },
     );
   };
 
@@ -710,6 +711,13 @@ async function runCommand(command, timings) {
     });
   } catch (error) {
     console.error(error);
+  }
+
+  if (status !== 0 && command.warningOnly) {
+    console.error(
+      `[check:changed] warning-only command exited ${status}; continuing: ${command.name}`,
+    );
+    status = 0;
   }
 
   timings.push({

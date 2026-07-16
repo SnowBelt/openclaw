@@ -2047,7 +2047,7 @@ jobs:
           - pnpm ui:smoke:dashboard-codex-plus-apps
           - pnpm ui:smoke:self-improvement
           - pnpm check:workflows
-          - pnpm check:changed -- $(git diff --name-only 4f9a4672b645a57f62fa04ce7339253dd4e5fa38...HEAD)
+          - pnpm check:changed --base 4f9a4672b645a57f62fa04ce7339253dd4e5fa38 --head HEAD
           EOF_COMMANDS
 
       - name: Run targeted operational-excellence tests
@@ -2152,10 +2152,10 @@ jobs:
         run: |
           set -euo pipefail
           git cat-file -e "${PROOF_BASE_SHA}^{commit}"
-          mapfile -t changed_files < <(git diff --name-only "${PROOF_BASE_SHA}"...HEAD)
-          if (( ${#changed_files[@]} == 0 )); then
+          changed_count="$(git diff --name-only "${PROOF_BASE_SHA}"...HEAD | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [[ "$changed_count" == "0" ]]; then
             echo "No milestone files found between ${PROOF_BASE_SHA} and HEAD" >&2
             exit 1
           fi
-          printf 'changed_file=%s\n' "${changed_files[@]}"
-          pnpm check:changed -- "${changed_files[@]}"
+          echo "changed_file_count=${changed_count}"
+          pnpm check:changed --base "${PROOF_BASE_SHA}" --head HEAD
