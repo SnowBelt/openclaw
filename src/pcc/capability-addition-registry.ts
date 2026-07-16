@@ -221,6 +221,22 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     proofSurfaces: ["pnpm ui:smoke:dashboard-codex-plus-apps"],
   },
   {
+    id: "runtime:update-safe-customizations",
+    kind: "runtime",
+    owner: "Custom runtime update broker",
+    tests: [
+      "src/infra/custom-runtime-update-policy.test.ts",
+      "src/pcc/update-safety.test.ts",
+      "test/scripts/custom-runtime-updater.test.ts",
+      "src/gateway/server-methods/update.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm check:custom-runtime-capabilities",
+      "PCC Update Safety dashboard status",
+      "custom runtime candidate and approval receipts",
+    ],
+  },
+  {
     id: "runtime:self-improvement-governor",
     kind: "runtime",
     owner: "Self-Improvement Governor",

@@ -2,6 +2,7 @@
 // managed-service handoff, restart scheduling, and delivery context preservation.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../../config/types.openclaw.js";
+import type { CustomRuntimeUpdatePolicy } from "../../infra/custom-runtime-update-policy.js";
 import type { RestartSentinelPayload } from "../../infra/restart-sentinel.js";
 import type { RespawnSupervisor } from "../../infra/supervisor-markers.js";
 import type { UpdateInstallSurface, UpdateRunResult } from "../../infra/update-runner.js";
@@ -25,6 +26,17 @@ const recordLatestUpdateRestartSentinelMock = vi.fn();
 const isRestartEnabledMock = vi.fn(() => true);
 const readPackageVersionMock = vi.fn(async () => "1.0.0");
 const detectRespawnSupervisorMock = vi.fn<() => RespawnSupervisor | null>(() => null);
+const resolveCustomRuntimeUpdatePolicyMock = vi.fn<() => CustomRuntimeUpdatePolicy>(() => ({
+  managedRuntime: false,
+  standardUpdateBlocked: false,
+  sourceDurable: false,
+  sourceSha: null,
+  sourceRepo: null,
+  sourceBranch: null,
+  runtimeRoot: null,
+  pointerPath: "/tmp/active-runtime.json",
+  reason: "not managed",
+}));
 const normalizeUpdateChannelMock = vi.fn((): "stable" | "beta" | "dev" | null => null);
 const readConfigFileSnapshotMock = vi.fn<() => Promise<ConfigFileSnapshot>>();
 const startManagedServiceUpdateHandoffMock = vi.fn(async () => ({
@@ -90,6 +102,11 @@ vi.mock("../../infra/openclaw-root.js", async () => {
     resolveOpenClawPackageRoot: async () => "/tmp/openclaw",
   };
 });
+
+vi.mock("../../infra/custom-runtime-update-policy.js", () => ({
+  CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON: "custom-runtime-update-broker-required",
+  resolveCustomRuntimeUpdatePolicy: resolveCustomRuntimeUpdatePolicyMock,
+}));
 
 vi.mock("../../infra/restart-sentinel.js", async () => {
   const actual = await vi.importActual("../../infra/restart-sentinel.js");
@@ -199,6 +216,18 @@ beforeEach(() => {
   });
   detectRespawnSupervisorMock.mockReset();
   detectRespawnSupervisorMock.mockReturnValue(null);
+  resolveCustomRuntimeUpdatePolicyMock.mockReset();
+  resolveCustomRuntimeUpdatePolicyMock.mockReturnValue({
+    managedRuntime: false,
+    standardUpdateBlocked: false,
+    sourceDurable: false,
+    sourceSha: null,
+    sourceRepo: null,
+    sourceBranch: null,
+    runtimeRoot: null,
+    pointerPath: "/tmp/active-runtime.json",
+    reason: "not managed",
+  });
   runGatewayUpdateMock.mockClear();
   runGatewayUpdateMock.mockResolvedValue({
     status: "ok",
@@ -293,6 +322,37 @@ function mockGitInstallSurface(root: string) {
     packageRoot: root,
   });
 }
+
+describe("custom runtime update safety", () => {
+  it("blocks update.run before any generic update or handoff is started", async () => {
+    resolveCustomRuntimeUpdatePolicyMock.mockReturnValueOnce({
+      managedRuntime: true,
+      standardUpdateBlocked: true,
+      sourceDurable: true,
+      sourceSha: "a".repeat(40),
+      sourceRepo: "/source",
+      sourceBranch: "codex/custom-runtime",
+      runtimeRoot: "/managed/release",
+      pointerPath: "/managed/active-runtime.json",
+      reason: "managed",
+    });
+
+    const payload = await captureUpdateRunPayload();
+
+    expect(payload).toMatchObject({
+      ok: false,
+      result: {
+        status: "skipped",
+        mode: "unknown",
+        reason: "custom-runtime-update-broker-required",
+      },
+      restart: null,
+    });
+    expect(resolveUpdateInstallSurfaceMock).not.toHaveBeenCalled();
+    expect(runGatewayUpdateMock).not.toHaveBeenCalled();
+    expect(startManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("update.run sentinel deliveryContext", () => {
   it("includes deliveryContext in sentinel payload when sessionKey is provided", async () => {
@@ -831,6 +891,9 @@ describe("update.status", () => {
     expect(refreshLatestUpdateRestartSentinelMock).toHaveBeenCalledTimes(1);
     expect(response?.sentinel?.kind).toBe("update");
     expect(response?.sentinel?.status).toBe("ok");
+    expect(response).toMatchObject({
+      updateSafety: { standardUpdateBlocked: false },
+    });
   });
 
   it("falls back to the cached update sentinel when refresh fails", async () => {

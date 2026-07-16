@@ -1,7 +1,7 @@
 import { evaluatePccProjectSetup } from "../../../../src/pcc/intake-quality.js";
 import { pccResponsibilityForItem } from "../../../../src/pcc/metadata.js";
 import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
-import type { PccProjectDetail } from "../controllers/pcc.ts";
+import type { PccProjectDetail } from "../pcc/application/state.ts";
 import type { PccMilestone, PccPermissionGrant } from "../types.ts";
 
 export type PccInteractionContract = {

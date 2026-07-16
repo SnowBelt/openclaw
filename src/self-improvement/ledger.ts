@@ -1,9 +1,19 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { resolveStateDir } from "../config/paths.js";
 import { createAsyncLock } from "../infra/json-files.js";
+import {
+  clearNodeSqliteKyselyCacheForDatabase,
+  executeSqliteQuerySync,
+  executeSqliteQueryTakeFirstSync,
+  getNodeSqliteKysely,
+} from "../infra/kysely-sync.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { readSqliteQuickCheck } from "../infra/sqlite-integrity.js";
+import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
+import { readSqliteUserVersion } from "../infra/sqlite-user-version.js";
 
 const LEDGER_DIRECTORY = "self-improvement";
 const LEDGER_FILENAME = "ledger.sqlite";
@@ -37,6 +47,15 @@ type StoredLedgerRow = {
   updated_at: number;
   payload_json: string;
   payload_hash: string;
+};
+
+type SelfImprovementLedgerDatabase = {
+  sig_ledger_entities: StoredLedgerRow & { collection: string };
+  sig_ledger_metadata: {
+    key: string;
+    value_json: string;
+    updated_at: number;
+  };
 };
 
 type NormalizedLedgerRow<T> = SelfImprovementLedgerRow<T> & {
@@ -98,11 +117,12 @@ async function openLedger(ledgerPath: string) {
   await fs.mkdir(path.dirname(ledgerPath), { recursive: true, mode: 0o700 });
   const { DatabaseSync } = requireNodeSqlite();
   const database = new DatabaseSync(ledgerPath);
-  database.exec("PRAGMA journal_mode = WAL");
-  database.exec("PRAGMA synchronous = NORMAL");
-  database.exec("PRAGMA foreign_keys = ON");
-  database.exec("PRAGMA busy_timeout = 5000");
+  // sqlite-allow-raw -- connection PRAGMAs and schema DDL belong to this lifecycle boundary.
   database.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA foreign_keys = ON;
+    PRAGMA busy_timeout = 5000;
     CREATE TABLE IF NOT EXISTS sig_ledger_entities (
       collection TEXT NOT NULL,
       entity_id TEXT NOT NULL,
@@ -119,8 +139,8 @@ async function openLedger(ledgerPath: string) {
       value_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    PRAGMA user_version = ${LEDGER_SCHEMA_VERSION};
   `);
-  database.exec(`PRAGMA user_version = ${LEDGER_SCHEMA_VERSION}`);
   return database;
 }
 
@@ -135,8 +155,18 @@ async function openExistingLedgerReadOnly(ledgerPath: string) {
   }
   const { DatabaseSync } = requireNodeSqlite();
   const database = new DatabaseSync(ledgerPath, { readOnly: true });
+  // sqlite-allow-raw -- a read-only connection still needs a bounded busy timeout.
   database.exec("PRAGMA busy_timeout = 5000");
   return database;
+}
+
+function getSelfImprovementLedgerKysely(database: DatabaseSync) {
+  return getNodeSqliteKysely<SelfImprovementLedgerDatabase>(database);
+}
+
+function closeLedger(database: DatabaseSync): void {
+  clearNodeSqliteKyselyCacheForDatabase(database);
+  database.close();
 }
 
 async function normalizeLedgerRows<T>(params: {
@@ -192,27 +222,37 @@ function upsertNormalizedRows<T>(params: {
   collection: SelfImprovementLedgerCollection;
   rows: readonly NormalizedLedgerRow<T>[];
 }): void {
-  const upsert = params.database.prepare(`
-    INSERT INTO sig_ledger_entities
-      (collection, entity_id, created_at, updated_at, payload_json, payload_hash)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(collection, entity_id) DO UPDATE SET
-      created_at = excluded.created_at,
-      updated_at = excluded.updated_at,
-      payload_json = excluded.payload_json,
-      payload_hash = excluded.payload_hash
-    WHERE sig_ledger_entities.created_at != excluded.created_at
-      OR sig_ledger_entities.updated_at != excluded.updated_at
-      OR sig_ledger_entities.payload_hash != excluded.payload_hash
-  `);
+  const kysely = getSelfImprovementLedgerKysely(params.database);
   for (const entry of params.rows) {
-    upsert.run(
-      params.collection,
-      entry.id,
-      entry.createdAt,
-      entry.updatedAt,
-      entry.payloadJson,
-      entry.payloadHash,
+    executeSqliteQuerySync(
+      params.database,
+      kysely
+        .insertInto("sig_ledger_entities")
+        .values({
+          collection: params.collection,
+          entity_id: entry.id,
+          created_at: entry.createdAt,
+          updated_at: entry.updatedAt,
+          payload_json: entry.payloadJson,
+          payload_hash: entry.payloadHash,
+        })
+        .onConflict((conflict) =>
+          conflict
+            .columns(["collection", "entity_id"])
+            .doUpdateSet({
+              created_at: (eb) => eb.ref("excluded.created_at"),
+              updated_at: (eb) => eb.ref("excluded.updated_at"),
+              payload_json: (eb) => eb.ref("excluded.payload_json"),
+              payload_hash: (eb) => eb.ref("excluded.payload_hash"),
+            })
+            .where((eb) =>
+              eb.or([
+                eb("sig_ledger_entities.created_at", "!=", eb.ref("excluded.created_at")),
+                eb("sig_ledger_entities.updated_at", "!=", eb.ref("excluded.updated_at")),
+                eb("sig_ledger_entities.payload_hash", "!=", eb.ref("excluded.payload_hash")),
+              ]),
+            ),
+        ),
     );
   }
 }
@@ -228,14 +268,15 @@ export async function listSelfImprovementLedgerRows<T>(params: {
     return [];
   }
   try {
-    const rows = database
-      .prepare(
-        `SELECT entity_id, created_at, updated_at, payload_json, payload_hash
-         FROM sig_ledger_entities
-         WHERE collection = ?
-         ORDER BY updated_at DESC, entity_id ASC`,
-      )
-      .all(params.collection) as StoredLedgerRow[];
+    const rows = executeSqliteQuerySync(
+      database,
+      getSelfImprovementLedgerKysely(database)
+        .selectFrom("sig_ledger_entities")
+        .select(["entity_id", "created_at", "updated_at", "payload_json", "payload_hash"])
+        .where("collection", "=", params.collection)
+        .orderBy("updated_at", "desc")
+        .orderBy("entity_id", "asc"),
+    ).rows;
     return rows.flatMap((row) => {
       try {
         return [
@@ -252,7 +293,7 @@ export async function listSelfImprovementLedgerRows<T>(params: {
       }
     });
   } finally {
-    database.close();
+    closeLedger(database);
   }
 }
 
@@ -279,16 +320,11 @@ export async function upsertSelfImprovementLedgerRows<T>(params: {
   await withLedgerMutation(ledgerPath, async () => {
     const database = await openLedger(ledgerPath);
     try {
-      database.exec("BEGIN IMMEDIATE");
-      try {
+      runSqliteImmediateTransactionSync(database, () => {
         upsertNormalizedRows({ database, collection: params.collection, rows: normalized });
-        database.exec("COMMIT");
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
+      });
     } finally {
-      database.close();
+      closeLedger(database);
     }
   });
   return publicLedgerRows(normalized);
@@ -309,24 +345,23 @@ export async function deleteSelfImprovementLedgerRows(params: {
   return await withLedgerMutation(ledgerPath, async () => {
     const database = await openLedger(ledgerPath);
     try {
-      database.exec("BEGIN IMMEDIATE");
-      try {
-        const remove = database.prepare(
-          "DELETE FROM sig_ledger_entities WHERE collection = ? AND entity_id = ?",
-        );
+      return runSqliteImmediateTransactionSync(database, () => {
+        const kysely = getSelfImprovementLedgerKysely(database);
         let deleted = 0;
         for (const id of ids) {
-          const result = remove.run(params.collection, id);
-          deleted += Number(result.changes ?? 0);
+          const result = executeSqliteQuerySync(
+            database,
+            kysely
+              .deleteFrom("sig_ledger_entities")
+              .where("collection", "=", params.collection)
+              .where("entity_id", "=", id),
+          );
+          deleted += Number(result.numAffectedRows ?? 0);
         }
-        database.exec("COMMIT");
         return deleted;
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
+      });
     } finally {
-      database.close();
+      closeLedger(database);
     }
   });
 }
@@ -354,27 +389,30 @@ export async function replaceSelfImprovementLedgerRows<T>(params: {
   await withLedgerMutation(ledgerPath, async () => {
     const database = await openLedger(ledgerPath);
     try {
-      database.exec("BEGIN IMMEDIATE");
-      try {
+      runSqliteImmediateTransactionSync(database, () => {
         upsertNormalizedRows({ database, collection: params.collection, rows: normalized });
-        const existing = database
-          .prepare("SELECT entity_id FROM sig_ledger_entities WHERE collection = ?")
-          .all(params.collection) as Array<{ entity_id: string }>;
-        const remove = database.prepare(
-          "DELETE FROM sig_ledger_entities WHERE collection = ? AND entity_id = ?",
-        );
+        const kysely = getSelfImprovementLedgerKysely(database);
+        const existing = executeSqliteQuerySync(
+          database,
+          kysely
+            .selectFrom("sig_ledger_entities")
+            .select("entity_id")
+            .where("collection", "=", params.collection),
+        ).rows;
         for (const row of existing) {
           if (!desiredIds.has(row.entity_id)) {
-            remove.run(params.collection, row.entity_id);
+            executeSqliteQuerySync(
+              database,
+              kysely
+                .deleteFrom("sig_ledger_entities")
+                .where("collection", "=", params.collection)
+                .where("entity_id", "=", row.entity_id),
+            );
           }
         }
-        database.exec("COMMIT");
-      } catch (error) {
-        database.exec("ROLLBACK");
-        throw error;
-      }
+      });
     } finally {
-      database.close();
+      closeLedger(database);
     }
   });
   return publicLedgerRows(normalized);
@@ -391,15 +429,19 @@ export async function readSelfImprovementLedgerMetadata<T>(params: {
     return null;
   }
   try {
-    const row = database
-      .prepare("SELECT value_json FROM sig_ledger_metadata WHERE key = ?")
-      .get(params.key) as { value_json?: string } | undefined;
+    const row = executeSqliteQueryTakeFirstSync(
+      database,
+      getSelfImprovementLedgerKysely(database)
+        .selectFrom("sig_ledger_metadata")
+        .select("value_json")
+        .where("key", "=", params.key),
+    );
     if (!row?.value_json) {
       return null;
     }
     return JSON.parse(row.value_json) as T;
   } finally {
-    database.close();
+    closeLedger(database);
   }
 }
 
@@ -418,15 +460,24 @@ export async function writeSelfImprovementLedgerMetadata(params: {
   await withLedgerMutation(ledgerPath, async () => {
     const database = await openLedger(ledgerPath);
     try {
-      database
-        .prepare(`
-          INSERT INTO sig_ledger_metadata (key, value_json, updated_at)
-          VALUES (?, ?, ?)
-          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-        `)
-        .run(key, stableJson(params.value), params.now ?? Date.now());
+      executeSqliteQuerySync(
+        database,
+        getSelfImprovementLedgerKysely(database)
+          .insertInto("sig_ledger_metadata")
+          .values({
+            key,
+            value_json: stableJson(params.value),
+            updated_at: params.now ?? Date.now(),
+          })
+          .onConflict((conflict) =>
+            conflict.column("key").doUpdateSet({
+              value_json: (eb) => eb.ref("excluded.value_json"),
+              updated_at: (eb) => eb.ref("excluded.updated_at"),
+            }),
+          ),
+      );
     } finally {
-      database.close();
+      closeLedger(database);
     }
   });
 }
@@ -451,31 +502,25 @@ export async function inspectSelfImprovementLedgerIntegrity(params?: {
     return { ledgerPath, exists: false, ok: true, quickCheck: [], collections: {} };
   }
   try {
-    const quickRows = database.prepare("PRAGMA quick_check").all() as Array<{
-      quick_check?: string;
-    }>;
-    const quickCheck = quickRows.map((row) => row.quick_check ?? "unknown");
-    const versionRow = database.prepare("PRAGMA user_version").get() as
-      | { user_version?: number }
-      | undefined;
-    const countRows = database
-      .prepare(
-        `SELECT collection, COUNT(*) AS count
-         FROM sig_ledger_entities
-         GROUP BY collection
-         ORDER BY collection`,
-      )
-      .all() as Array<{ collection: SelfImprovementLedgerCollection; count: number }>;
+    const quickCheck = readSqliteQuickCheck(database);
+    const countRows = executeSqliteQuerySync(
+      database,
+      getSelfImprovementLedgerKysely(database)
+        .selectFrom("sig_ledger_entities")
+        .select((eb) => ["collection", eb.fn.countAll<number>().as("count")])
+        .groupBy("collection")
+        .orderBy("collection", "asc"),
+    ).rows;
     return {
       ledgerPath,
       exists: true,
       ok: quickCheck.length === 1 && quickCheck[0] === "ok",
       quickCheck,
-      schemaVersion: versionRow?.user_version ?? 0,
+      schemaVersion: readSqliteUserVersion(database),
       collections: Object.fromEntries(countRows.map((row) => [row.collection, row.count])),
     };
   } finally {
-    database.close();
+    closeLedger(database);
   }
 }
 
@@ -506,9 +551,10 @@ export async function backupSelfImprovementLedger(params: {
   await withLedgerMutation(ledgerPath, async () => {
     const database = await openLedger(ledgerPath);
     try {
+      // sqlite-allow-raw -- WAL checkpointing is a database lifecycle operation.
       database.exec("PRAGMA wal_checkpoint(FULL)");
     } finally {
-      database.close();
+      closeLedger(database);
     }
     await fs.copyFile(ledgerPath, temporaryPath);
     await fs.chmod(temporaryPath, 0o600);

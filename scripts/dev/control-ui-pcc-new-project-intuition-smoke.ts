@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
-import type { PccProjectFormState } from "../../ui/src/ui/controllers/pcc.ts";
+import type { PccProjectFormState } from "../../ui/src/ui/pcc/application/state.ts";
 
 function requireSelector(root: ParentNode, selector: string): Element {
   const found = root.querySelector(selector);

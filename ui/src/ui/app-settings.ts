@@ -51,7 +51,7 @@ import {
   type ModelAuthStatusState,
 } from "./controllers/model-auth-status.ts";
 import { loadNodes, type NodesState } from "./controllers/nodes.ts";
-import { loadPccDashboard, type PccDashboardState } from "./controllers/pcc.ts";
+import { loadPccDashboard } from "./controllers/pcc.ts";
 import { loadPresence, type PresenceState } from "./controllers/presence.ts";
 import {
   loadSelfImprovementRecommendations,
@@ -80,6 +80,7 @@ import {
   tabFromPath,
   type Tab,
 } from "./navigation.ts";
+import type { PccDashboardState } from "./pcc/application/state.ts";
 import { normalizeAgentId, parseAgentSessionKey } from "./session-key.ts";
 import {
   normalizeTextScale,

@@ -12,15 +12,9 @@ import {
   pccCapabilityContractMetadata,
   pccCapabilityRequirementIdsForPhase,
 } from "./capability-contract.js";
+import type { PccWorkflowTemplateId } from "./domain/workflow.js";
 
-export type PccWorkflowTemplateId =
-  | "software-product"
-  | "dashboard-data"
-  | "creative-media"
-  | "research"
-  | "trading-finance"
-  | "snes-studio"
-  | "custom";
+export type { PccWorkflowTemplateId } from "./domain/workflow.js";
 
 export type PccPlanningMode = "template_only" | "local_project_manager" | "codex_full_plan";
 

@@ -2090,13 +2090,15 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF_COMMANDS'
           commands:
-          - pnpm test src/agents/model-fallback.test.ts src/agents/model-routing-policy.test.ts src/agents/model-spend-budget.test.ts src/config/schema.test.ts src/gateway/server-methods/models.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-methods/self-improvement.test.ts src/gateway/server-maintenance.test.ts src/gateway/server-model-catalog.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server.sessions.create.test.ts src/gateway/session-utils.subagent.test.ts src/gateway/sessions-patch.test.ts src/infra/self-improvement-admission.test.ts src/logging/diagnostic-stability.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/capability-contract.test.ts src/pcc/capability-evidence.test.ts src/pcc/capability-standards.test.ts src/pcc/custom-runtime-capabilities.test.ts src/pcc/operational-excellence-roadmap.test.ts src/pcc/operational-metrics.test.ts src/pcc/project-action.test.ts src/pcc/project-workflows.test.ts src/pcc/runtime-identity.test.ts src/pcc/work-loop.test.ts src/self-improvement test/scripts/build-all.test.ts test/scripts/control-ui-self-improvement-smoke.test.ts test/scripts/control-ui-smoke-url.test.ts test/scripts/custom-runtime-copy-stage-state.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-lifecycle.test.ts test/scripts/custom-runtime-stage-promote.test.ts test/scripts/promote-gateway-runtime-snapshot.test.ts test/scripts/self-improvement-production-soak.test.ts ui/src/ui/chat-model-select-state.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/controllers/self-improvement.test.ts ui/src/ui/views/agents.test.ts ui/src/ui/views/pcc.test.ts
+          - pnpm test src/agents/model-fallback.test.ts src/agents/model-routing-policy.test.ts src/agents/model-spend-budget.test.ts src/config/schema.test.ts src/gateway/server-methods/models.test.ts src/gateway/server-methods/pcc.test.ts src/gateway/server-methods/self-improvement.test.ts src/gateway/server-methods/update.test.ts src/gateway/server-maintenance.test.ts src/gateway/server-model-catalog.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server.sessions.create.test.ts src/gateway/session-utils.subagent.test.ts src/gateway/sessions-patch.test.ts src/infra/custom-runtime-update-policy.test.ts src/infra/self-improvement-admission.test.ts src/logging/diagnostic-stability.test.ts src/pcc/architecture.guardrail.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/capability-contract.test.ts src/pcc/capability-evidence.test.ts src/pcc/capability-standards.test.ts src/pcc/custom-runtime-capabilities.test.ts src/pcc/domain/completion-policy.test.ts src/pcc/ledger-store.test.ts src/pcc/operational-excellence-roadmap.test.ts src/pcc/operational-metrics.test.ts src/pcc/project-action.test.ts src/pcc/project-workflows.test.ts src/pcc/read-model/ledger-index.test.ts src/pcc/read-model/project-summary.test.ts src/pcc/runtime-identity.test.ts src/pcc/update-safety.test.ts src/pcc/work-loop.test.ts src/self-improvement test/scripts/build-all.test.ts test/scripts/control-ui-self-improvement-smoke.test.ts test/scripts/control-ui-smoke-url.test.ts test/scripts/custom-runtime-copy-stage-state.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-lifecycle.test.ts test/scripts/custom-runtime-stage-promote.test.ts test/scripts/custom-runtime-updater.test.ts test/scripts/promote-gateway-runtime-snapshot.test.ts test/scripts/self-improvement-production-soak.test.ts ui/src/ui/chat-model-select-state.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/pcc.test.ts ui/src/ui/controllers/self-improvement.test.ts ui/src/ui/pcc/application/detail-cache.test.ts ui/src/ui/pcc/presentation/formatters.test.ts ui/src/ui/views/agents.test.ts ui/src/ui/views/pcc.test.ts
           - pnpm tsgo:all
           - pnpm tsgo:test:ui
           - pnpm build
+          - pnpm check:architecture
           - pnpm check:pcc-capabilities
           - pnpm check:custom-runtime-capabilities
           - node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
+          - pnpm ui:smoke:pcc-performance
           - pnpm ui:smoke:chat-projects
           - pnpm ui:smoke:pcc-mobile
           - pnpm ui:smoke:dashboard-codex-plus-apps
@@ -2115,24 +2117,32 @@ jobs:
           src/gateway/server-methods/models.test.ts
           src/gateway/server-methods/pcc.test.ts
           src/gateway/server-methods/self-improvement.test.ts
+          src/gateway/server-methods/update.test.ts
           src/gateway/server-maintenance.test.ts
           src/gateway/server-model-catalog.test.ts
           src/gateway/server-runtime-services.test.ts
           src/gateway/server.sessions.create.test.ts
           src/gateway/session-utils.subagent.test.ts
           src/gateway/sessions-patch.test.ts
+          src/infra/custom-runtime-update-policy.test.ts
           src/infra/self-improvement-admission.test.ts
           src/logging/diagnostic-stability.test.ts
+          src/pcc/architecture.guardrail.test.ts
           src/pcc/capability-addition-registry.test.ts
           src/pcc/capability-contract.test.ts
           src/pcc/capability-evidence.test.ts
           src/pcc/capability-standards.test.ts
           src/pcc/custom-runtime-capabilities.test.ts
+          src/pcc/domain/completion-policy.test.ts
+          src/pcc/ledger-store.test.ts
           src/pcc/operational-excellence-roadmap.test.ts
           src/pcc/operational-metrics.test.ts
           src/pcc/project-action.test.ts
           src/pcc/project-workflows.test.ts
+          src/pcc/read-model/ledger-index.test.ts
+          src/pcc/read-model/project-summary.test.ts
           src/pcc/runtime-identity.test.ts
+          src/pcc/update-safety.test.ts
           src/pcc/work-loop.test.ts
           src/self-improvement
           test/scripts/build-all.test.ts
@@ -2142,12 +2152,15 @@ jobs:
           test/scripts/custom-runtime-launcher.test.ts
           test/scripts/custom-runtime-lifecycle.test.ts
           test/scripts/custom-runtime-stage-promote.test.ts
+          test/scripts/custom-runtime-updater.test.ts
           test/scripts/promote-gateway-runtime-snapshot.test.ts
           test/scripts/self-improvement-production-soak.test.ts
           ui/src/ui/chat-model-select-state.test.ts
           ui/src/ui/controllers/chat.test.ts
           ui/src/ui/controllers/pcc.test.ts
           ui/src/ui/controllers/self-improvement.test.ts
+          ui/src/ui/pcc/application/detail-cache.test.ts
+          ui/src/ui/pcc/presentation/formatters.test.ts
           ui/src/ui/views/agents.test.ts
           ui/src/ui/views/pcc.test.ts
 
@@ -2159,11 +2172,17 @@ jobs:
       - name: Run build proof
         run: pnpm build
 
+      - name: Run architecture proof
+        run: pnpm check:architecture
+
       - name: Run capability and runtime integrity checks
         run: |
           pnpm check:pcc-capabilities
           pnpm check:custom-runtime-capabilities
           node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
+
+      - name: Run PCC performance budgets
+        run: pnpm ui:smoke:pcc-performance
 
       - name: Run browser smoke proof
         run: |

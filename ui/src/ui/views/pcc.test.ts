@@ -8,7 +8,7 @@ import {
   EMPTY_PCC_DECISION_FORM,
   EMPTY_PCC_MILESTONE_FORM,
   EMPTY_PCC_PROJECT_FORM,
-} from "../controllers/pcc.ts";
+} from "../pcc/application/state.ts";
 import { renderPccDashboard, type PccDashboardProps } from "./pcc.ts";
 
 const project = {
@@ -2666,6 +2666,35 @@ describe("renderPccDashboard", () => {
     expect(productionTruth?.textContent).toContain(verifiedSha.slice(0, 12));
     expect(productionTruth?.textContent).toContain("Passed");
     expect(productionTruth?.textContent).not.toContain("PCC remote Workflow Sanity proof missing");
+  });
+
+  it("shows fail-closed update protection and an approval-ready candidate", () => {
+    const container = renderView(
+      createProps({
+        updateSafety: {
+          status: "protected",
+          standardUpdateBlocked: true,
+          sourceDurable: true,
+          brokerConfigured: true,
+          approvalPending: true,
+          sourceSha: "a".repeat(40),
+          sourceBranch: "codex/custom-runtime",
+          activeRelease: "release-1",
+          lastReceipt: {
+            at: "20260715T000000Z",
+            result: "ready_for_approval",
+            stage: null,
+          },
+          issues: [],
+        },
+      }),
+    );
+
+    const safety = container.querySelector("[data-pcc-update-safety]");
+    expect(safety?.textContent).toContain("Update ready for approval");
+    expect(safety?.textContent).toContain("Blocked safely");
+    expect(safety?.textContent).toContain("Durable source");
+    expect(safety?.textContent).toContain("All update-preservation controls are healthy");
   });
 
   it("renders production truth as current when proof metadata and receipts align", () => {

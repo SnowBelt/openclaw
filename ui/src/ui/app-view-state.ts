@@ -1,5 +1,6 @@
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
+import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 // Control UI module implements app view state behavior.
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import type { ChatAbortOptions, ChatSendOptions } from "./app-chat.ts";
@@ -45,6 +46,17 @@ import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
+import type {
+  ClawHubSearchResult,
+  ClawHubSkillSecurityVerdict,
+  ClawHubSkillDetail,
+  SkillMessage,
+} from "./controllers/skills.ts";
+import type { EmbedSandboxMode } from "./embed-sandbox.ts";
+import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
+import type { Tab } from "./navigation.ts";
+import type { PccChatSyncProposal } from "./pcc-chat-sync.ts";
 import type {
   PccActionNotice,
   PccAutofillPreview,
@@ -57,18 +69,7 @@ import type {
   PccProjectFormState,
   PccUndoAction,
   PccViewMode,
-} from "./controllers/pcc.ts";
-import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
-import type {
-  ClawHubSearchResult,
-  ClawHubSkillSecurityVerdict,
-  ClawHubSkillDetail,
-  SkillMessage,
-} from "./controllers/skills.ts";
-import type { EmbedSandboxMode } from "./embed-sandbox.ts";
-import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
-import type { Tab } from "./navigation.ts";
-import type { PccChatSyncProposal } from "./pcc-chat-sync.ts";
+} from "./pcc/application/state.ts";
 import type { SidebarContent } from "./sidebar-content.ts";
 import type { UiSettings } from "./storage.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
@@ -226,6 +227,7 @@ export type AppViewState = {
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;
+  pccUpdateSafety: PccUpdateSafety | null;
   pccExecutionCapacity: PccExecutionCapacitySnapshot | null;
   pccLoading: boolean;
   pccError: string | null;

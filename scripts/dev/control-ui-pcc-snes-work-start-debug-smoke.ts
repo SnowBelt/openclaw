@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
-import type { PccDashboardState } from "../../ui/src/ui/controllers/pcc.ts";
+import type { PccDashboardState } from "../../ui/src/ui/pcc/application/state.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {

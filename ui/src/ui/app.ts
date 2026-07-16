@@ -4,6 +4,7 @@ import { state } from "lit/decorators.js";
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
+import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import {
@@ -222,22 +223,6 @@ import {
   type PatternLabDashboardSnapshot,
 } from "./controllers/pattern-lab-dashboard.ts";
 import {
-  EMPTY_PCC_DECISION_FORM,
-  EMPTY_PCC_MILESTONE_FORM,
-  EMPTY_PCC_PROJECT_FORM,
-  type PccActionNotice,
-  type PccAutofillPreview,
-  type PccDecisionFormState,
-  type PccEditorMode,
-  type PccMilestoneFormState,
-  type PccProjectDetail,
-  type PccProjectEditMode,
-  type PccProjectFilter,
-  type PccProjectFormState,
-  type PccUndoAction,
-  type PccViewMode,
-} from "./controllers/pcc.ts";
-import {
   loadSkillWorkshopProposals,
   type SkillWorkshopState,
 } from "./controllers/skill-workshop.ts";
@@ -258,6 +243,22 @@ import {
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { PccChatSyncProposal } from "./pcc-chat-sync.ts";
+import {
+  EMPTY_PCC_DECISION_FORM,
+  EMPTY_PCC_MILESTONE_FORM,
+  EMPTY_PCC_PROJECT_FORM,
+  type PccActionNotice,
+  type PccAutofillPreview,
+  type PccDecisionFormState,
+  type PccEditorMode,
+  type PccMilestoneFormState,
+  type PccProjectDetail,
+  type PccProjectEditMode,
+  type PccProjectFilter,
+  type PccProjectFormState,
+  type PccUndoAction,
+  type PccViewMode,
+} from "./pcc/application/state.ts";
 import { resolveAgentIdFromSessionKey } from "./session-key.ts";
 import type { SidebarContent } from "./sidebar-content.ts";
 import { loadLocalUserIdentity, loadSettings, type UiSettings } from "./storage.ts";
@@ -474,6 +475,7 @@ export class OpenClawApp extends LitElement {
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
+  @state() pccUpdateSafety: PccUpdateSafety | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;
   @state() pccLoading = false;
   @state() pccError: string | null = null;

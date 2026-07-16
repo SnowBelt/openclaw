@@ -1,6 +1,17 @@
 {
-  "schema": "openclaw.custom-runtime-capabilities.v1",
-  "version": 1,
+  "schema": "openclaw.custom-runtime-capabilities.v2",
+  "version": 2,
+  "preservation": {
+    "contractVersion": 1,
+    "criticality": "required",
+    "migrationPolicy": "preserve_or_block",
+    "rollbackPolicy": "immutable_release_pointer",
+    "standardsRegistry": "src/pcc/capability-addition-registry.ts",
+    "verificationCommands": [
+      "pnpm check:custom-runtime-capabilities",
+      "pnpm check:pcc-capabilities"
+    ]
+  },
   "capabilities": [
     {
       "id": "dashboard:pcc",
@@ -195,6 +206,17 @@
         "ui/config/dashboard-surfaces.ts",
         "ui/src/ui/navigation.ts",
         "scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:update-safe-customizations",
+      "kind": "runtime",
+      "requiredPaths": [
+        "src/infra/custom-runtime-update-policy.ts",
+        "src/pcc/update-safety.ts",
+        "scripts/custom-runtime/custom-runtime-updater.sh",
+        "scripts/custom-runtime/custom-runtime-update-approve.sh",
+        "docs/automation/custom-runtime-update-safety.md"
       ]
     },
     {

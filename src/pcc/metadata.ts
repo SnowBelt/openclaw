@@ -45,6 +45,11 @@ function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+export function pccMetadataString(value: unknown): string | undefined {
+  const normalized = trimmedString(value);
+  return normalized || undefined;
+}
+
 function normalizedScopeString(value: unknown): string {
   return trimmedString(value)
     .toLowerCase()

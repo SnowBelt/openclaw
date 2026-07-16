@@ -77,8 +77,16 @@ for capability in $required_capabilities; do
 import json, os, posixpath, sys
 capability_manifest, root, surface_manifest, required = sys.argv[1:]
 with open(capability_manifest, encoding="utf-8") as f: data = json.load(f)
-if data.get("schema") != "openclaw.custom-runtime-capabilities.v1" or not isinstance(data.get("version"), int) or data["version"] < 1:
+schema = data.get("schema")
+if schema not in ("openclaw.custom-runtime-capabilities.v1", "openclaw.custom-runtime-capabilities.v2") or not isinstance(data.get("version"), int) or data["version"] < 1:
     raise SystemExit(1)
+if schema == "openclaw.custom-runtime-capabilities.v2":
+    preservation = data.get("preservation")
+    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 1 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer":
+        raise SystemExit(1)
+    commands = preservation.get("verificationCommands")
+    if not isinstance(commands, list) or not commands or not all(isinstance(command, str) and command for command in commands):
+        raise SystemExit(1)
 capabilities = data.get("capabilities")
 if not isinstance(capabilities, list):
     raise SystemExit(1)

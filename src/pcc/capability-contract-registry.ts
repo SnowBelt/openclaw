@@ -1,6 +1,6 @@
-import type { PccCapabilityRequirement } from "./capability-contract.js";
+import type { PccCapabilityRequirement } from "./domain/capability-contract.js";
 // Canonical PCC workflow requirements stay separate from resolution logic.
-import type { PccWorkflowTemplateId } from "./project-workflows.js";
+import type { PccWorkflowTemplateId } from "./domain/workflow.js";
 
 export const BASE_REQUIREMENTS: readonly PccCapabilityRequirement[] = [
   {

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
   parseCustomRuntimeCapabilityManifest,
   validateCustomRuntimeCapabilityManifest,
 } from "../src/pcc/custom-runtime-capabilities.js";
@@ -19,6 +20,17 @@ if (!parsed) {
     manifest: parsed,
     dashboardSurfaceIds: DASHBOARD_SURFACES.map((surface) => surface.id),
   });
+  if (parsed.schema !== CUSTOM_RUNTIME_CAPABILITY_SCHEMA || parsed.version !== 2) {
+    errors.push("Canonical custom runtime capability manifest must use schema v2.");
+  }
+  const standardsRegistry = parsed.preservation?.standardsRegistry;
+  if (
+    !standardsRegistry ||
+    !fs.existsSync(path.join(repoRoot, standardsRegistry)) ||
+    !fs.statSync(path.join(repoRoot, standardsRegistry)).isFile()
+  ) {
+    errors.push("Custom runtime preservation standards registry is missing.");
+  }
   for (const capability of parsed.capabilities) {
     for (const requiredPath of capability.requiredPaths) {
       const absolutePath = path.join(repoRoot, requiredPath);

@@ -5,87 +5,36 @@ import {
   PHASE_REQUIREMENT_IDS,
   TEMPLATE_REQUIREMENTS,
 } from "./capability-contract-registry.js";
+import {
+  PCC_CAPABILITY_CONTRACT_SCHEMA,
+  PCC_OPERATIONAL_QUALITY_DIMENSIONS,
+  PCC_OPERATIONAL_QUALITY_THRESHOLD,
+  type PccCapabilityContract,
+  type PccCapabilityInventoryEntry,
+  type PccCapabilityKind,
+  type PccCapabilityRequirement,
+  type PccCapabilityResolution,
+  type PccCapabilityResolutionEntry,
+} from "./domain/capability-contract.js";
+import type { PccWorkflowTemplateId } from "./domain/workflow.js";
 import { pccMetadataObject } from "./metadata.js";
-import type { PccWorkflowTemplateId } from "./project-workflows.js";
 
-export const PCC_CAPABILITY_CONTRACT_SCHEMA = "openclaw.pcc.capability-contract.v1";
-export const PCC_OPERATIONAL_QUALITY_THRESHOLD = 93;
-
-export const PCC_OPERATIONAL_QUALITY_DIMENSIONS = [
-  "speed",
-  "accuracy",
-  "efficiency",
-  "first_pass_quality",
-  "qa_coverage",
-  "overall_quality",
-  "reliability",
-  "durability",
-  "safety",
-  "cost_discipline",
-  "observability",
-  "recoverability",
-] as const;
-
-export type PccOperationalQualityDimension = (typeof PCC_OPERATIONAL_QUALITY_DIMENSIONS)[number];
-
-export type PccCapabilityKind =
-  | "process"
-  | "workflow"
-  | "skill"
-  | "tool"
-  | "plugin"
-  | "software"
-  | "agent"
-  | "model"
-  | "proof";
-
-export type PccCapabilityRequirement = {
-  id: string;
-  kind: PccCapabilityKind;
-  title: string;
-  purpose: string;
-  required: boolean;
-  evidence: string;
-  fallback?: string;
-};
-
-export type PccCapabilityContract = {
-  schema: typeof PCC_CAPABILITY_CONTRACT_SCHEMA;
-  workflowTemplateId: PccWorkflowTemplateId;
-  qualityThreshold: number;
-  qualityDimensions: readonly PccOperationalQualityDimension[];
-  requirements: readonly PccCapabilityRequirement[];
-};
-
-export type PccCapabilityAvailability = "ready" | "blocked" | "missing" | "unknown";
-
-export type PccCapabilityInventoryEntry = {
-  id: string;
-  kind: PccCapabilityKind;
-  status: PccCapabilityAvailability;
-  title?: string;
-  reason?: string;
-};
-
-export type PccCapabilityResolutionStatus = "planned" | "ready" | "blocked" | "missing" | "unknown";
-
-export type PccCapabilityResolutionEntry = {
-  requirement: PccCapabilityRequirement;
-  status: PccCapabilityResolutionStatus;
-  reason: string;
-};
-
-export type PccCapabilityResolution = {
-  schema: typeof PCC_CAPABILITY_CONTRACT_SCHEMA;
-  workflowTemplateId: PccWorkflowTemplateId;
-  qualityThreshold: number;
-  qualityDimensions: readonly PccOperationalQualityDimension[];
-  entries: readonly PccCapabilityResolutionEntry[];
-  ready: boolean;
-  readinessScore: number;
-  blockingRequirementIds: readonly string[];
-  selectedCapabilityIds: readonly string[];
-};
+export {
+  PCC_CAPABILITY_CONTRACT_SCHEMA,
+  PCC_OPERATIONAL_QUALITY_DIMENSIONS,
+  PCC_OPERATIONAL_QUALITY_THRESHOLD,
+} from "./domain/capability-contract.js";
+export type {
+  PccCapabilityAvailability,
+  PccCapabilityContract,
+  PccCapabilityInventoryEntry,
+  PccCapabilityKind,
+  PccCapabilityRequirement,
+  PccCapabilityResolution,
+  PccCapabilityResolutionEntry,
+  PccCapabilityResolutionStatus,
+  PccOperationalQualityDimension,
+} from "./domain/capability-contract.js";
 
 type SkillStatusLike = {
   skillKey: string;
@@ -406,14 +355,22 @@ export function pccCapabilityInventoryFromModelCatalog(
   });
 }
 
-function inventoryEntryFor(
-  requirement: PccCapabilityRequirement,
+function capabilityInventoryKey(kind: PccCapabilityKind, id: string): string {
+  return `${kind}:${id.toLowerCase()}`;
+}
+
+function buildCapabilityInventoryIndex(
   inventory: readonly PccCapabilityInventoryEntry[],
-): PccCapabilityInventoryEntry | undefined {
-  return inventory.find(
-    (entry) =>
-      entry.kind === requirement.kind && entry.id.toLowerCase() === requirement.id.toLowerCase(),
-  );
+): ReadonlyMap<string, PccCapabilityInventoryEntry> {
+  const index = new Map<string, PccCapabilityInventoryEntry>();
+  for (const entry of inventory) {
+    const key = capabilityInventoryKey(entry.kind, entry.id);
+    // Preserve the previous Array.find contract: the first duplicate wins.
+    if (!index.has(key)) {
+      index.set(key, entry);
+    }
+  }
+  return index;
 }
 
 function isBuiltInRequirement(requirement: PccCapabilityRequirement): boolean {
@@ -430,12 +387,13 @@ export function resolvePccCapabilityContract(input: {
   requirementIds?: readonly string[];
 }): PccCapabilityResolution {
   const inventory = input.inventory ?? [];
+  const inventoryIndex = buildCapabilityInventoryIndex(inventory);
   const requirementFilter = input.requirementIds ? new Set(input.requirementIds) : null;
   const requirements = input.contract.requirements.filter(
     (requirement) => !requirementFilter || requirementFilter.has(requirement.id),
   );
   const entries = requirements.map((requirement): PccCapabilityResolutionEntry => {
-    const found = inventoryEntryFor(requirement, inventory);
+    const found = inventoryIndex.get(capabilityInventoryKey(requirement.kind, requirement.id));
     if (found) {
       return {
         requirement,

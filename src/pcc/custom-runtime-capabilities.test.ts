@@ -6,10 +6,20 @@ import {
 } from "./custom-runtime-capabilities.js";
 
 describe("custom runtime capability manifest", () => {
+  const preservation = {
+    contractVersion: 1,
+    criticality: "required",
+    migrationPolicy: "preserve_or_block",
+    rollbackPolicy: "immutable_release_pointer",
+    standardsRegistry: "src/pcc/capability-addition-registry.ts",
+    verificationCommands: ["pnpm check:custom-runtime-capabilities"],
+  } as const;
+
   it("accepts a complete, path-safe capability inventory", () => {
     const manifest = parseCustomRuntimeCapabilityManifest({
       schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
-      version: 1,
+      version: 2,
+      preservation,
       capabilities: [
         {
           id: "dashboard:pcc",
@@ -38,7 +48,8 @@ describe("custom runtime capability manifest", () => {
   it("rejects path traversal, duplicate ids, and a weakened dashboard inventory", () => {
     const manifest = parseCustomRuntimeCapabilityManifest({
       schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
-      version: 1,
+      version: 2,
+      preservation,
       capabilities: [
         {
           id: "plugin:apps",
@@ -68,5 +79,15 @@ describe("custom runtime capability manifest", () => {
         expect.stringContaining("Dashboard capability inventory must match"),
       ]),
     );
+  });
+
+  it("fails closed when a current manifest omits migration and rollback policy", () => {
+    expect(
+      parseCustomRuntimeCapabilityManifest({
+        schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+        version: 2,
+        capabilities: [],
+      }),
+    ).toBeNull();
   });
 });

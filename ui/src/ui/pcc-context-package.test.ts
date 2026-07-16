@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PccProjectDetail } from "./controllers/pcc.ts";
 import { buildPccContextPackage } from "./pcc-context-package.ts";
+import type { PccProjectDetail } from "./pcc/application/state.ts";
 
 const project = {
   id: "project-1",

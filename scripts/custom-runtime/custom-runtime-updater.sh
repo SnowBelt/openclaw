@@ -1,12 +1,13 @@
 #!/bin/sh
-# Weekly stable update pipeline. It preserves failed worktrees and never mutates production before all gates pass.
+# Weekly stable update broker. It prepares a fully proven immutable candidate but
+# never promotes it without a separate approval command.
 set -eu
 
 PATH=/opt/homebrew/opt/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 export PATH
 
-repo=${OPENCLAW_CUSTOM_RUNTIME_REPO:-"$HOME/OpenClaw"}
-branch=${OPENCLAW_CUSTOM_RUNTIME_BRANCH:-main}
+repo=${OPENCLAW_CUSTOM_RUNTIME_REPO:-}
+branch=${OPENCLAW_CUSTOM_RUNTIME_BRANCH:-}
 official_remote=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_REMOTE:-origin}
 official_ref=${OPENCLAW_CUSTOM_RUNTIME_OFFICIAL_REF:-}
 worktrees=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES:-"$HOME/OpenClaw-runtime-updates"}
@@ -19,6 +20,39 @@ candidate="$worktrees/$stamp"
 receipt="$receipts/update-$stamp.json"
 fail() { printf '{"at":"%s","result":"failed","stage":"%s","worktree":"%s"}\n' "$stamp" "$1" "$candidate" > "$receipt"; exit 1; }
 
+usage() {
+  printf '%s\n' 'usage: custom-runtime-updater.sh [--prepare]' >&2
+  exit 64
+}
+[ $# -eq 0 ] || { [ $# -eq 1 ] && [ "$1" = --prepare ]; } || usage
+
+active_pointer="$runtime_home/active-runtime.json"
+[ -f "$active_pointer" ] || fail active_pointer
+pointer_fields=$(python3 - "$active_pointer" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f)
+for key in ("sourceSha", "sourceRepo", "sourceBranch"):
+    item = value.get(key, "")
+    print(item if isinstance(item, str) else "")
+PY
+) || fail active_pointer
+active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
+pointer_repo=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
+pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+[ -n "$repo" ] || repo=$pointer_repo
+[ -n "$branch" ] || branch=$pointer_branch
+[ -n "$repo" ] && [ -n "$branch" ] || fail durable_source_config
+case "$active_sha" in *[!0-9a-fA-F]*|'') fail durable_source_sha ;; esac
+[ "${#active_sha}" -eq 40 ] || fail durable_source_sha
+[ -d "$repo/.git" ] || git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || fail durable_source_repo
+[ -z "$(git -C "$repo" status --porcelain)" ] || fail durable_source_dirty
+git -C "$repo" cat-file -e "$active_sha^{commit}" 2>/dev/null || fail durable_source_missing_commit
+git -C "$repo" rev-parse --verify "$branch^{commit}" >/dev/null 2>&1 || fail durable_source_branch
+git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch" || fail durable_source_branch_history
+[ -f "$repo/config/custom-runtime-capabilities.json" ] || fail durable_source_capabilities
+[ -f "$repo/scripts/custom-runtime/custom-runtime-activate.sh" ] || fail durable_source_control_plane
+
 if [ -z "$official_ref" ]; then
   stable_version=$(npm view openclaw dist-tags.latest 2>/dev/null | tr -d '[:space:]') || fail stable_version_lookup
   case "$stable_version" in ''|*[!0-9.]*) fail stable_version_invalid ;; esac
@@ -27,20 +61,7 @@ fi
 git -C "$repo" fetch --prune --tags "$official_remote" || fail fetch
 git -C "$repo" rev-parse --verify "$official_ref^{commit}" >/dev/null 2>&1 || fail stable_ref
 
-base_ref=$branch
-active_pointer="$runtime_home/active-runtime.json"
-active_sha=$(python3 - "$active_pointer" <<'PY'
-import json, sys
-try:
-    value = json.load(open(sys.argv[1], encoding="utf-8")).get("sourceSha", "")
-except Exception:
-    value = ""
-print(value if isinstance(value, str) else "")
-PY
-)
-if [ -n "$active_sha" ] && git -C "$repo" cat-file -e "$active_sha^{commit}" 2>/dev/null; then
-  base_ref=$active_sha
-fi
+base_ref=$active_sha
 if git -C "$repo" merge-base --is-ancestor "$official_ref" "$base_ref"; then
   printf '{"at":"%s","result":"no_update","stableRef":"%s","base":"%s"}\n' \
     "$stamp" "$official_ref" "$base_ref" > "$receipt"
@@ -135,7 +156,27 @@ with open(target, "w", encoding="utf-8") as f:
     json.dump(snapshot, f, indent=2, sort_keys=True)
     f.write("\n")
 PY
-"$release/scripts/custom-runtime/custom-runtime-activate.sh" \
-  --release "$release" --source-sha "$sha" --stage-port 18790 --port 18789 || fail activate
-printf '{"at":"%s","result":"promoted","worktree":"%s","release":"%s","stableRef":"%s"}\n' \
-  "$stamp" "$candidate" "$release" "$official_ref" > "$receipt"
+python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
+  "$official_ref" "$active_sha" "$sha" "$repo" "$branch" <<'PY'
+import json, os, sys
+receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch = sys.argv[1:]
+data = {
+    "schema": "openclaw.custom-runtime-update-candidate.v1",
+    "at": at,
+    "result": "ready_for_approval",
+    "worktree": worktree,
+    "release": release,
+    "stableRef": stable_ref,
+    "baseSha": base_sha,
+    "sourceSha": source_sha,
+    "sourceRepo": repo,
+    "sourceBranch": branch,
+}
+for target in (receipt, pending):
+    temporary = target + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(temporary, target)
+PY
+printf '%s\n' "CUSTOM_RUNTIME_UPDATE_READY receipt=$receipt release=$(basename "$release")"

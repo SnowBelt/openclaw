@@ -21,6 +21,7 @@ const controlPlaneFiles = [
   "custom-runtime-rollback.sh",
   "custom-runtime-stage.sh",
   "custom-runtime-updater.sh",
+  "custom-runtime-update-approve.sh",
   "copy_stage_state.py",
 ] as const;
 
@@ -202,7 +203,22 @@ describe("custom runtime lifecycle", () => {
     );
     writeFile(
       path.join(runtimeHome, "active-runtime.json"),
-      `${JSON.stringify({ releaseId: "legacy-sig", requiredSurfaces: ["pcc"] })}\n`,
+      `${JSON.stringify({
+        releaseId: "legacy-sig",
+        runtimeRoot: path.join(root, "releases", "previous"),
+        entrypoint: path.join(root, "releases", "previous", "dist", "index.js"),
+        sourceSha: "8".repeat(64),
+        manifestPath: path.join(root, "releases", "previous", "dashboard-surfaces.json"),
+        capabilityManifestPath: path.join(
+          root,
+          "releases",
+          "previous",
+          "custom-runtime-capabilities.json",
+        ),
+        capabilityManifestSha256: "7".repeat(64),
+        requiredSurfaces: ["pcc"],
+        requiredCapabilities: ["dashboard:pcc"],
+      })}\n`,
     );
     writeFile(
       path.join(fakeBin, "curl"),
@@ -248,6 +264,7 @@ describe("custom runtime lifecycle", () => {
         stderr: result.stderr,
       }),
     ).toBe(0);
+    expect(result.stdout).toContain("CUSTOM_RUNTIME_ROLLBACK_CANARY_OK release=candidate");
     expect(result.stdout).toContain("CUSTOM_RUNTIME_STAGE_OK release=candidate");
     expect(JSON.parse(fs.readFileSync(gatewayMarker, "utf8"))).toEqual({
       background: "0",
@@ -442,6 +459,7 @@ describe("custom runtime lifecycle", () => {
     expect(fs.readFileSync(sigRpcEnvMarker, "utf8")).toBe("||\n");
     const serviceEnv = fs.readFileSync(envFile, "utf8");
     expect(serviceEnv).toContain("OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1");
+    expect(serviceEnv).toContain("OPENCLAW_NO_AUTO_UPDATE=1");
     expect(serviceEnv).toContain(`export OPENCLAW_WRAPPER=${launcher}`);
     expect(serviceEnv).toContain(`export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=${release}`);
     expect(serviceEnv).toContain(

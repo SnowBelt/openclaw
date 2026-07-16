@@ -687,6 +687,37 @@ export const PccSummaryGetResultSchema = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    updateSafety: Type.Optional(
+      Type.Object(
+        {
+          status: Type.Union([
+            Type.Literal("protected"),
+            Type.Literal("attention"),
+            Type.Literal("unmanaged"),
+          ]),
+          standardUpdateBlocked: Type.Boolean(),
+          sourceDurable: Type.Boolean(),
+          brokerConfigured: Type.Boolean(),
+          approvalPending: Type.Boolean(),
+          sourceSha: Type.Union([Type.String(), Type.Null()]),
+          sourceBranch: Type.Union([Type.String(), Type.Null()]),
+          activeRelease: Type.Union([Type.String(), Type.Null()]),
+          lastReceipt: Type.Union([
+            Type.Object(
+              {
+                at: Type.Union([Type.String(), Type.Null()]),
+                result: Type.String(),
+                stage: Type.Union([Type.String(), Type.Null()]),
+              },
+              { additionalProperties: false },
+            ),
+            Type.Null(),
+          ]),
+          issues: StringListSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );

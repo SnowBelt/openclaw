@@ -1,5 +1,6 @@
 // Control UI view renders the Project Command Center dashboard and CRUD shell.
 import { html, nothing } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import {
   autopilotStatusLabel,
   buildPccAutopilotPermissionForecast,
@@ -56,6 +57,7 @@ import {
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
+import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
 import {
   getPccWorkLoopNext,
   getPccWorkLoopSettings,
@@ -64,7 +66,9 @@ import {
 } from "../../../../src/pcc/work-loop.js";
 import { buildPccWorkStartBlockers } from "../../../../src/pcc/work-start.js";
 import { buildQualifiedChatModelValue } from "../chat-model-ref.ts";
-import { buildPccExecutionTeamReadiness } from "../controllers/pcc.ts";
+import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
+import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
+import { buildPccExecutionTeamReadiness } from "../pcc/application/execution-readiness.ts";
 import type {
   PccActionNotice,
   PccAiRegenerateSection,
@@ -79,9 +83,12 @@ import type {
   PccProjectFilter,
   PccProjectFormState,
   PccViewMode,
-} from "../controllers/pcc.ts";
-import type { PccChatSyncProposal } from "../pcc-chat-sync.ts";
-import { buildPccContextPackage, type PccContextPackageMode } from "../pcc-context-package.ts";
+} from "../pcc/application/state.ts";
+import {
+  formatPccProjectDate as formatProjectDate,
+  formatPccStatus as formatStatus,
+  formatPccUpdatedAt as formatUpdatedAt,
+} from "../pcc/presentation/formatters.ts";
 import type {
   PccCompletionReceipt,
   PccDecision,
@@ -140,6 +147,7 @@ export type PccDashboardProps = {
   modelsLastRefreshedAt?: number | null;
   modelsFallback?: boolean;
   runtimeIdentity?: PccRuntimeIdentity | null;
+  updateSafety?: PccUpdateSafety | null;
   executionCapacity?: PccExecutionCapacitySnapshot | null;
   onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
@@ -464,25 +472,6 @@ function clampPercent(value: number): number {
     return 0;
   }
   return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function formatStatus(status: string | null | undefined): string {
-  const value = typeof status === "string" ? status.trim() : "";
-  if (!value) {
-    return "Not recorded";
-  }
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function formatUpdatedAt(value: number | null): string {
-  if (!value) {
-    return "Not loaded yet";
-  }
-  return `Updated ${new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function confirmAction(message: string): boolean {
@@ -1464,6 +1453,84 @@ function renderProductionTruthDrawer(props: PccDashboardProps) {
   </details>`;
 }
 
+function renderUpdateSafetyDrawer(props: PccDashboardProps) {
+  const safety = props.updateSafety;
+  if (!safety) {
+    return nothing;
+  }
+  const protectedRuntime = safety.status === "protected";
+  const label = protectedRuntime
+    ? safety.approvalPending
+      ? "Update ready for approval"
+      : "Customizations protected"
+    : safety.status === "attention"
+      ? "Update protection needs attention"
+      : "Standard OpenClaw runtime";
+  return html`<details
+    class="pcc-detail-drawer pcc-top-proof-drawer"
+    data-pcc-update-safety
+    ?open=${safety.status === "attention"}
+  >
+    <summary><span class="pcc-proof-badge">${label}</span></summary>
+    <section
+      class="pcc-production-truth pcc-production-truth--${protectedRuntime ? "current" : "blocked"}"
+      aria-label="Update safety"
+    >
+      <div class="pcc-section-heading">
+        <div>
+          <p class="pcc-kicker">Update safety</p>
+          <h4>Will an OpenClaw update keep custom features?</h4>
+          <p>
+            ${protectedRuntime
+              ? "Yes. Standard updates are blocked and candidates must preserve every registered capability before approval."
+              : "Do not update this runtime until every protection item below is resolved."}
+          </p>
+        </div>
+        <span>${safety.status}</span>
+      </div>
+      <dl class="pcc-production-truth__facts">
+        <div>
+          <dt>Standard update</dt>
+          <dd>${safety.standardUpdateBlocked ? "Blocked safely" : "Available"}</dd>
+        </div>
+        <div>
+          <dt>Durable source</dt>
+          <dd>${safety.sourceDurable ? "Verified" : "Missing"}</dd>
+        </div>
+        <div>
+          <dt>Update broker</dt>
+          <dd>${safety.brokerConfigured ? "Installed" : "Missing"}</dd>
+        </div>
+        <div>
+          <dt>Approval</dt>
+          <dd>${safety.approvalPending ? "Waiting for you" : "No candidate waiting"}</dd>
+        </div>
+        <div>
+          <dt>Source</dt>
+          <dd>${safety.sourceSha ? safety.sourceSha.slice(0, 12) : "Not recorded"}</dd>
+        </div>
+        <div>
+          <dt>Branch</dt>
+          <dd>${safety.sourceBranch ?? "Not recorded"}</dd>
+        </div>
+        <div>
+          <dt>Active release</dt>
+          <dd>${safety.activeRelease ?? "Not recorded"}</dd>
+        </div>
+        <div>
+          <dt>Last update result</dt>
+          <dd>${safety.lastReceipt?.result ?? "No receipt"}</dd>
+        </div>
+      </dl>
+      ${safety.issues.length
+        ? html`<ul>
+            ${safety.issues.map((issue) => html`<li>${issue}</li>`)}
+          </ul>`
+        : html`<p>All update-preservation controls are healthy.</p>`}
+    </section>
+  </details>`;
+}
+
 function projectHeroProofBadge(detail: PccProjectDetail, props: PccDashboardProps) {
   if (
     detail.project.id === "project-command-center" ||
@@ -1780,21 +1847,6 @@ function metadataStringArray(value: unknown): string[] {
 
 function projectOutcomeMetrics(project: unknown): string[] {
   return metadataStringArray(metadataObject(metadataObject(project).metadata).pccOutcomeMetrics);
-}
-
-function formatProjectDate(value: string | undefined): string {
-  if (!value) {
-    return "No due date";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
 }
 
 function formatProjectActivity(value: string | undefined): string {
@@ -6928,102 +6980,106 @@ function renderSubMilestoneList(
     class="pcc-submilestones ${options.compact ? "pcc-submilestones--compact" : ""}"
     data-pcc-submilestones
   >
-    ${subMilestones.map((subMilestone) => {
-      const percent = subMilestoneDisplayPercent(subMilestone);
-      const complete =
-        subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance";
-      return html`<li
-        class="pcc-submilestone"
-        data-pcc-submilestone
-        data-pcc-submilestone-id=${subMilestone.id}
-        @dragenter=${(event: DragEvent) => {
-          event.preventDefault();
-          if (reorderMode) {
-            setPccDropTarget(event, true);
-          }
-        }}
-        @dragover=${(event: DragEvent) => {
-          event.preventDefault();
-          if (event.dataTransfer) {
-            event.dataTransfer.dropEffect = "move";
-          }
-        }}
-        @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
-        @drop=${(event: DragEvent) => {
-          event.preventDefault();
-          setPccDropTarget(event, false);
-          if (!reorderMode) {
+    ${repeat(
+      subMilestones,
+      (subMilestone) => subMilestone.id,
+      (subMilestone) => {
+        const percent = subMilestoneDisplayPercent(subMilestone);
+        const complete =
+          subMilestone.status === "complete" || subMilestone.status === "complete_with_maintenance";
+        return html`<li
+          class="pcc-submilestone"
+          data-pcc-submilestone
+          data-pcc-submilestone-id=${subMilestone.id}
+          @dragenter=${(event: DragEvent) => {
+            event.preventDefault();
+            if (reorderMode) {
+              setPccDropTarget(event, true);
+            }
+          }}
+          @dragover=${(event: DragEvent) => {
+            event.preventDefault();
+            if (event.dataTransfer) {
+              event.dataTransfer.dropEffect = "move";
+            }
+          }}
+          @dragleave=${(event: DragEvent) => setPccDropTarget(event, false)}
+          @drop=${(event: DragEvent) => {
+            event.preventDefault();
+            setPccDropTarget(event, false);
+            if (!reorderMode) {
+              draggedPccSubMilestoneId = null;
+              return;
+            }
+            const sourceId = getPccDraggedId(event, "submilestone", draggedPccSubMilestoneId);
+            const source = subMilestones.find((item) => item.id === sourceId);
             draggedPccSubMilestoneId = null;
-            return;
-          }
-          const sourceId = getPccDraggedId(event, "submilestone", draggedPccSubMilestoneId);
-          const source = subMilestones.find((item) => item.id === sourceId);
-          draggedPccSubMilestoneId = null;
-          if (source && source.id !== subMilestone.id) {
-            props.onMoveSubMilestoneBefore?.(source, subMilestone);
-          }
-        }}
-        @dragend=${() => {
-          draggedPccSubMilestoneId = null;
-          document
-            .querySelectorAll(".pcc-submilestone.is-drop-target")
-            .forEach((item) => item.classList.remove("is-drop-target"));
-        }}
-      >
-        <div class="pcc-submilestone__main">
-          ${reorderMode
-            ? html`<button
-                  class="pcc-drag-handle"
-                  type="button"
-                  data-pcc-drag-handle="submilestone"
-                  draggable="true"
-                  aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
-                  @dragstart=${(event: DragEvent) => {
-                    setPccDragData(event, "submilestone", subMilestone.id);
-                    draggedPccSubMilestoneId = subMilestone.id;
-                  }}
-                  @dragend=${() => {
-                    draggedPccSubMilestoneId = null;
-                  }}
-                >
-                  ☰
-                </button>
-                ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}`
-            : nothing}
-          <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
-          <div>
-            <strong>${subMilestone.title}</strong>
+            if (source && source.id !== subMilestone.id) {
+              props.onMoveSubMilestoneBefore?.(source, subMilestone);
+            }
+          }}
+          @dragend=${() => {
+            draggedPccSubMilestoneId = null;
+            document
+              .querySelectorAll(".pcc-submilestone.is-drop-target")
+              .forEach((item) => item.classList.remove("is-drop-target"));
+          }}
+        >
+          <div class="pcc-submilestone__main">
+            ${reorderMode
+              ? html`<button
+                    class="pcc-drag-handle"
+                    type="button"
+                    data-pcc-drag-handle="submilestone"
+                    draggable="true"
+                    aria-label=${`Drag to reorder sub-milestone ${subMilestone.title}`}
+                    @dragstart=${(event: DragEvent) => {
+                      setPccDragData(event, "submilestone", subMilestone.id);
+                      draggedPccSubMilestoneId = subMilestone.id;
+                    }}
+                    @dragend=${() => {
+                      draggedPccSubMilestoneId = null;
+                    }}
+                  >
+                    ☰
+                  </button>
+                  ${renderSubMilestoneReorderControls(subMilestones, subMilestone, props)}`
+              : nothing}
+            <span class="pcc-submilestone__check" aria-hidden="true">${complete ? "✓" : ""}</span>
+            <div>
+              <strong>${subMilestone.title}</strong>
+              ${options.compact
+                ? nothing
+                : html`<p>
+                    ${subMilestone.implementationPlan || "No implementation plan recorded."}
+                  </p>`}
+            </div>
+            <span class="pcc-status pcc-status--${subMilestone.status}"
+              >${formatStatus(subMilestone.status)}</span
+            >
+            ${reorderMode ? nothing : renderSubMilestoneActionMenu(subMilestone, props)}
+          </div>
+          <div class="pcc-project-card__meta">
+            <span>${percent}%</span>
             ${options.compact
               ? nothing
-              : html`<p>
-                  ${subMilestone.implementationPlan || "No implementation plan recorded."}
-                </p>`}
+              : html`
+                  <span class="pcc-route-chip" data-pcc-route-chip="worker"
+                    ><b>Worker</b> ${itemWorkerLabel(subMilestone)}</span
+                  >
+                  <span>${itemProofLabel(subMilestone)}</span>
+                  <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
+                `}
           </div>
-          <span class="pcc-status pcc-status--${subMilestone.status}"
-            >${formatStatus(subMilestone.status)}</span
-          >
-          ${reorderMode ? nothing : renderSubMilestoneActionMenu(subMilestone, props)}
-        </div>
-        <div class="pcc-project-card__meta">
-          <span>${percent}%</span>
-          ${options.compact
-            ? nothing
-            : html`
-                <span class="pcc-route-chip" data-pcc-route-chip="worker"
-                  ><b>Worker</b> ${itemWorkerLabel(subMilestone)}</span
-                >
-                <span>${itemProofLabel(subMilestone)}</span>
-                <span>${subMilestone.acceptanceCriteria?.length ?? 0} criteria</span>
-              `}
-        </div>
-        ${subMilestone.blocker
-          ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
-          : nothing}
-        ${options.showDrilldown || !options.compact
-          ? renderSubMilestoneDrilldown(subMilestone, props)
-          : nothing}
-      </li>`;
-    })}
+          ${subMilestone.blocker
+            ? html`<p class="pcc-submilestone__blocker">${subMilestone.blocker}</p>`
+            : nothing}
+          ${options.showDrilldown || !options.compact
+            ? renderSubMilestoneDrilldown(subMilestone, props)
+            : nothing}
+        </li>`;
+      },
+    )}
   </ol>`;
 }
 
@@ -8395,7 +8451,11 @@ export function renderPccDashboard(props: PccDashboardProps) {
                   filteredByTab.length,
                 )
               : html`<section class="pcc-project-grid" aria-label="Project cards">
-                  ${projects.map((project) => renderProjectCard(project, props))}
+                  ${repeat(
+                    projects,
+                    (project) => project.id,
+                    (project) => renderProjectCard(project, props),
+                  )}
                 </section>`}
         </section>
         <section class="pcc-workspace" data-pcc-selected-project-workspace>
@@ -8422,7 +8482,8 @@ export function renderPccDashboard(props: PccDashboardProps) {
           </details>`}
       ${mode === "simple"
         ? nothing
-        : html`${renderProductionTruthDrawer(props)} ${renderRecentActivityFeed(props)}`}
+        : html`${renderProductionTruthDrawer(props)} ${renderUpdateSafetyDrawer(props)}
+          ${renderRecentActivityFeed(props)}`}
       ${props.editorMode === "create-project" || props.editorMode === "edit-project"
         ? renderProjectEditor(props)
         : nothing}

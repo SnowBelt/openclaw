@@ -128,8 +128,13 @@ with open(manifest, encoding="utf-8") as f:
     candidate = json.load(f)
 with open(capability_manifest, encoding="utf-8") as f:
     capability_data = json.load(f)
-if capability_data.get("schema") != "openclaw.custom-runtime-capabilities.v1" or not isinstance(capability_data.get("version"), int) or capability_data["version"] < 1:
+schema = capability_data.get("schema")
+if schema not in ("openclaw.custom-runtime-capabilities.v1", "openclaw.custom-runtime-capabilities.v2") or not isinstance(capability_data.get("version"), int) or capability_data["version"] < 1:
     raise SystemExit("candidate capability manifest schema is invalid")
+if schema == "openclaw.custom-runtime-capabilities.v2":
+    preservation = capability_data.get("preservation")
+    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 1 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer":
+        raise SystemExit("candidate preservation contract is invalid")
 raw_capabilities = capability_data.get("capabilities")
 if not isinstance(raw_capabilities, list):
     raise SystemExit("candidate capability manifest entries are invalid")
@@ -248,6 +253,42 @@ if not isinstance(summary, dict) or not isinstance(summary.get("scorecard"), dic
 if not isinstance(summary.get("groups"), list):
     raise SystemExit("candidate stage Self-Improvement groups contract failed")
 PY
+    rollback_pointer_usable=false
+    if [ -f "$runtime_home/active-runtime.json" ] && \
+       python3 - "$runtime_home/active-runtime.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f)
+required = ("runtimeRoot", "entrypoint", "sourceSha", "manifestPath", "capabilityManifestPath")
+raise SystemExit(0 if all(isinstance(value.get(key), str) and value[key] for key in required) else 1)
+PY
+    then
+      rollback_pointer_usable=true
+    fi
+    if [ "$rollback_pointer_usable" = true ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      pid=
+      OPENCLAW_CONFIG_PATH="$stage/openclaw.director.json" OPENCLAW_STATE_DIR="$stage/state" \
+        OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
+        OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
+        OPENCLAW_CUSTOM_RUNTIME_POINTER="$runtime_home/active-runtime.json" \
+        "$launcher" gateway --port "$port" >>"$stage/gateway.log" 2>&1 &
+      pid=$!
+      rollback_ok=false
+      for _ in $(seq 1 45); do
+        if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
+          rollback_ok=true
+          break
+        fi
+        sleep 2
+      done
+      if [ "$rollback_ok" != true ]; then
+        printf '%s\n' 'candidate stage rollback compatibility canary failed' >&2
+        exit 1
+      fi
+      printf '%s\n' "CUSTOM_RUNTIME_ROLLBACK_CANARY_OK release=$(basename "$release")"
+    fi
     printf '%s\n' "CUSTOM_RUNTIME_STAGE_OK release=$(basename "$release")"
     exit 0
   fi

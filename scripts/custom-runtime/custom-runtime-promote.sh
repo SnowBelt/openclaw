@@ -19,12 +19,14 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
-usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--port 18789] [--enable-sig-background]' >&2; exit 64; }
-release= source_sha= port=18789 enable_sig_background=false
+usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' >&2; exit 64; }
+release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
+    --source-repo) source_repo=${2:-}; shift 2 ;;
+    --source-branch) source_branch=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
     *) usage ;;
@@ -32,6 +34,11 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
+if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
+  [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
+  source_repo=$(cd "$source_repo" && pwd -P)
+  case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
+fi
 [ -d "$releases_dir" ] || { printf '%s\n' 'immutable releases root is missing' >&2; exit 64; }
 releases_dir=$(cd "$releases_dir" && pwd -P)
 release=$(cd "$release" && pwd -P)
@@ -180,9 +187,9 @@ fi
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 capability_manifest_sha=$(shasum -a 256 "$capability_manifest" | awk '{print $1}')
 pointer_tmp="$runtime_home/active-runtime.$$.json"
-python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" <<'PY'
+python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$source_repo" "$source_branch" <<'PY'
 import json, os, sys
-target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at = sys.argv[1:]
+target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_repo, source_branch = sys.argv[1:]
 previous = None
 previous_required = []
 previous_capabilities = []
@@ -210,8 +217,13 @@ with open(manifest, encoding="utf-8") as f:
     surface_manifest = json.load(f)
 with open(capability_manifest, encoding="utf-8") as f:
     capability_data = json.load(f)
-if capability_data.get("schema") != "openclaw.custom-runtime-capabilities.v1" or not isinstance(capability_data.get("version"), int) or capability_data["version"] < 1:
+schema = capability_data.get("schema")
+if schema not in ("openclaw.custom-runtime-capabilities.v1", "openclaw.custom-runtime-capabilities.v2") or not isinstance(capability_data.get("version"), int) or capability_data["version"] < 1:
     raise SystemExit("release capability manifest schema is invalid")
+if schema == "openclaw.custom-runtime-capabilities.v2":
+    preservation = capability_data.get("preservation")
+    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 1 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer":
+        raise SystemExit("release preservation contract is invalid")
 raw_capabilities = capability_data.get("capabilities")
 if not isinstance(raw_capabilities, list):
     raise SystemExit("release capability manifest entries are invalid")
@@ -244,6 +256,9 @@ data = {"schemaVersion": 1, "releaseId": os.path.basename(root), "runtimeRoot": 
         "capabilityManifestSha256": capability_manifest_sha,
         "requiredCapabilities": required_capabilities,
         "previousRelease": previous, "promotedAt": promoted_at}
+if source_repo and source_branch:
+    data["sourceRepo"] = source_repo
+    data["sourceBranch"] = source_branch
 with open(target, "w", encoding="utf-8") as f: json.dump(data, f, indent=2, sort_keys=True); f.write("\n")
 PY
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer_tmp" "$launcher" --verify >/dev/null; then
@@ -309,6 +324,7 @@ with open(path, encoding="utf-8") as f:
         "export OPENCLAW_WRAPPER=",
         "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=",
         "export OPENCLAW_BUNDLED_PLUGINS_DIR=",
+        "export OPENCLAW_NO_AUTO_UPDATE=",
     )
     if enable_sig_background == "true":
         replaced += ("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=",)
@@ -318,6 +334,7 @@ lines.append(f"export OPENCLAW_RUNTIME_SNAPSHOT_ROOT={shlex.quote(release)}\n")
 lines.append(
     f"export OPENCLAW_BUNDLED_PLUGINS_DIR={shlex.quote(os.path.join(release, 'dist-runtime', 'extensions'))}\n"
 )
+lines.append("export OPENCLAW_NO_AUTO_UPDATE=1\n")
 if enable_sig_background == "true":
     lines.append("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1\n")
 with open(path + ".tmp", "w", encoding="utf-8") as f:
@@ -356,7 +373,8 @@ if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! pgrep -f "$release/dist/index.js gateway --port $port" >/dev/null 2>&1 || \
    ! grep -Fqx "export OPENCLAW_WRAPPER=$launcher" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=$release" "$env_file" || \
-   ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file"; then
+   ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file" || \
+   ! grep -Fqx 'export OPENCLAW_NO_AUTO_UPDATE=1' "$env_file"; then
   fail_promotion runtime_identity
 fi
 if [ "$enable_sig_background" = true ] && \

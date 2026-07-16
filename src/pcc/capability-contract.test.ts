@@ -80,6 +80,29 @@ describe("PCC capability contract", () => {
     expect(ready.selectedCapabilityIds).toContain("required-review-skill");
   });
 
+  it("preserves first-match inventory semantics when capability IDs are duplicated", () => {
+    const contract = buildPccCapabilityContract("software-product", {
+      pccRequiredSkills: ["review-skill"],
+    });
+    const resolution = resolvePccCapabilityContract({
+      contract,
+      inventory: [
+        {
+          id: "REVIEW-SKILL",
+          kind: "skill",
+          status: "blocked",
+          reason: "First catalog entry is blocked.",
+        },
+        { id: "review-skill", kind: "skill", status: "ready" },
+      ],
+    });
+
+    expect(resolution.ready).toBe(false);
+    expect(
+      resolution.entries.find((entry) => entry.requirement.id === "review-skill"),
+    ).toMatchObject({ status: "blocked", reason: "First catalog entry is blocked." });
+  });
+
   it("does not block when a preferred skill is unavailable", () => {
     const resolution = resolvePccCapabilityContract({
       contract: buildPccCapabilityContract("snes-studio"),

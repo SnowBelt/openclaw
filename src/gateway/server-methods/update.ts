@@ -12,6 +12,10 @@ import { readConfigFileSnapshot } from "../../config/config.js";
 import { extractDeliveryInfo } from "../../config/sessions.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { GATEWAY_SERVICE_KIND, GATEWAY_SERVICE_MARKER } from "../../daemon/constants.js";
+import {
+  CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON,
+  resolveCustomRuntimeUpdatePolicy,
+} from "../../infra/custom-runtime-update-policy.js";
 import { resolveOpenClawPackageRoot } from "../../infra/openclaw-root.js";
 import { readPackageVersion } from "../../infra/package-json.js";
 import { type RestartSentinelPayload, writeRestartSentinel } from "../../infra/restart-sentinel.js";
@@ -135,6 +139,7 @@ export const updateHandlers: GatewayRequestHandlers = {
     }
     respond(true, {
       sentinel,
+      updateSafety: resolveCustomRuntimeUpdatePolicy(),
     });
   },
   "update.run": async ({ params, respond, client, context }) => {
@@ -174,156 +179,169 @@ export const updateHandlers: GatewayRequestHandlers = {
     };
     let supervisor: ReturnType<typeof detectRespawnSupervisor> = null;
     try {
-      const config = context.getRuntimeConfig();
-      const configChannel = normalizeUpdateChannel(config.update?.channel);
-      const invocationCwd = tryResolveProcessCwd();
-      const root =
-        (await resolveOpenClawPackageRoot({
-          moduleUrl: import.meta.url,
-          argv1: process.argv[1],
-          ...(invocationCwd ? { cwd: invocationCwd } : {}),
-        })) ??
-        invocationCwd ??
-        os.homedir();
-      const installSurface = await resolveUpdateInstallSurface({
-        timeoutMs,
-        cwd: root,
-        argv1: process.argv[1],
-      });
-      supervisor = detectRespawnSupervisor(process.env, process.platform);
-      const hasHandoffContext = supervisor
-        ? hasManagedServiceHandoffContext(process.env, supervisor)
-        : false;
-      const requiresManagedServiceHandoff =
-        installSurface.kind === "global" || (installSurface.kind === "git" && supervisor !== null);
-      if (!isRestartEnabled(config) && !supervisor) {
-        // Package updates need a restart path to finish safely. Dev/git installs
-        // can report the disabled restart directly, but global installs must not
-        // mutate files if this process cannot come back.
-        const beforeVersion = installSurface.root
-          ? await readPackageVersion(installSurface.root)
-          : null;
+      const updateSafety = resolveCustomRuntimeUpdatePolicy();
+      if (updateSafety.standardUpdateBlocked) {
         result = {
           status: "skipped",
-          mode: installSurface.mode,
-          ...(installSurface.root ? { root: installSurface.root } : {}),
-          reason: installSurface.kind === "global" ? "restart-unavailable" : "restart-disabled",
-          ...(beforeVersion ? { before: { version: beforeVersion } } : {}),
+          mode: "unknown",
+          ...(updateSafety.runtimeRoot ? { root: updateSafety.runtimeRoot } : {}),
+          reason: CUSTOM_RUNTIME_UPDATE_BROKER_REQUIRED_REASON,
           steps: [],
           durationMs: 0,
         };
-      } else if (requiresManagedServiceHandoff) {
-        const handoffChannel =
-          installSurface.kind === "git" ? undefined : (configChannel ?? undefined);
-        const command = formatManagedServiceUpdateCommand({
+      } else {
+        const config = context.getRuntimeConfig();
+        const configChannel = normalizeUpdateChannel(config.update?.channel);
+        const invocationCwd = tryResolveProcessCwd();
+        const root =
+          (await resolveOpenClawPackageRoot({
+            moduleUrl: import.meta.url,
+            argv1: process.argv[1],
+            ...(invocationCwd ? { cwd: invocationCwd } : {}),
+          })) ??
+          invocationCwd ??
+          os.homedir();
+        const installSurface = await resolveUpdateInstallSurface({
           timeoutMs,
-          ...(handoffChannel ? { channel: handoffChannel } : {}),
+          cwd: root,
+          argv1: process.argv[1],
         });
-        if (supervisor && hasHandoffContext) {
-          try {
-            const startedAt = Date.now();
-            const handoffId = randomUUID();
-            sentinelMeta.handoffId = handoffId;
-            // Managed services update from a detached helper so the running
-            // gateway does not replace its own package or git-built dist tree
-            // while still serving RPCs.
-            const started = await startManagedServiceUpdateHandoff({
-              root,
-              timeoutMs,
-              ...(handoffChannel ? { channel: handoffChannel } : {}),
-              restartDelayMs,
-              meta: sentinelMeta,
-              handoffId,
-              supervisor,
-            });
-            handoff = {
-              status: "started",
-              ...(started.pid ? { pid: started.pid } : {}),
-              command: started.command,
-            };
+        supervisor = detectRespawnSupervisor(process.env, process.platform);
+        const hasHandoffContext = supervisor
+          ? hasManagedServiceHandoffContext(process.env, supervisor)
+          : false;
+        const requiresManagedServiceHandoff =
+          installSurface.kind === "global" ||
+          (installSurface.kind === "git" && supervisor !== null);
+        if (!isRestartEnabled(config) && !supervisor) {
+          // Package updates need a restart path to finish safely. Dev/git installs
+          // can report the disabled restart directly, but global installs must not
+          // mutate files if this process cannot come back.
+          const beforeVersion = installSurface.root
+            ? await readPackageVersion(installSurface.root)
+            : null;
+          result = {
+            status: "skipped",
+            mode: installSurface.mode,
+            ...(installSurface.root ? { root: installSurface.root } : {}),
+            reason: installSurface.kind === "global" ? "restart-unavailable" : "restart-disabled",
+            ...(beforeVersion ? { before: { version: beforeVersion } } : {}),
+            steps: [],
+            durationMs: 0,
+          };
+        } else if (requiresManagedServiceHandoff) {
+          const handoffChannel =
+            installSurface.kind === "git" ? undefined : (configChannel ?? undefined);
+          const command = formatManagedServiceUpdateCommand({
+            timeoutMs,
+            ...(handoffChannel ? { channel: handoffChannel } : {}),
+          });
+          if (supervisor && hasHandoffContext) {
+            try {
+              const startedAt = Date.now();
+              const handoffId = randomUUID();
+              sentinelMeta.handoffId = handoffId;
+              // Managed services update from a detached helper so the running
+              // gateway does not replace its own package or git-built dist tree
+              // while still serving RPCs.
+              const started = await startManagedServiceUpdateHandoff({
+                root,
+                timeoutMs,
+                ...(handoffChannel ? { channel: handoffChannel } : {}),
+                restartDelayMs,
+                meta: sentinelMeta,
+                handoffId,
+                supervisor,
+              });
+              handoff = {
+                status: "started",
+                ...(started.pid ? { pid: started.pid } : {}),
+                command: started.command,
+              };
+              const beforeVersion = installSurface.root
+                ? await readPackageVersion(installSurface.root)
+                : null;
+              result = {
+                status: "skipped",
+                mode: installSurface.mode,
+                root: installSurface.root,
+                reason: CONTROL_PLANE_UPDATE_HANDOFF_STARTED_REASON,
+                ...(beforeVersion ? { before: { version: beforeVersion } } : {}),
+                steps: [
+                  {
+                    name: "managed-service update handoff",
+                    command: started.command,
+                    cwd: root,
+                    durationMs: Date.now() - startedAt,
+                    exitCode: null,
+                  },
+                ],
+                durationMs: Date.now() - startedAt,
+              };
+            } catch (err) {
+              context?.logGateway?.warn(
+                `update.run managed-service handoff failed ${formatControlPlaneActor(actor)} error=${formatUpdateRunErrorMessage(err)}`,
+              );
+              result = {
+                status: "error",
+                mode: installSurface.mode,
+                root: installSurface.root,
+                reason: "managed-service-handoff-failed",
+                steps: [],
+                durationMs: 0,
+              };
+            }
+          } else {
             const beforeVersion = installSurface.root
               ? await readPackageVersion(installSurface.root)
               : null;
+            handoff = {
+              status: "unavailable",
+              command,
+              message: buildManagedServiceHandoffUnavailableMessage(command),
+            };
             result = {
               status: "skipped",
               mode: installSurface.mode,
               root: installSurface.root,
-              reason: CONTROL_PLANE_UPDATE_HANDOFF_STARTED_REASON,
+              reason: "managed-service-handoff-unavailable",
               ...(beforeVersion ? { before: { version: beforeVersion } } : {}),
-              steps: [
-                {
-                  name: "managed-service update handoff",
-                  command: started.command,
-                  cwd: root,
-                  durationMs: Date.now() - startedAt,
-                  exitCode: null,
-                },
-              ],
-              durationMs: Date.now() - startedAt,
-            };
-          } catch (err) {
-            context?.logGateway?.warn(
-              `update.run managed-service handoff failed ${formatControlPlaneActor(actor)} error=${formatUpdateRunErrorMessage(err)}`,
-            );
-            result = {
-              status: "error",
-              mode: installSurface.mode,
-              root: installSurface.root,
-              reason: "managed-service-handoff-failed",
               steps: [],
               durationMs: 0,
             };
           }
         } else {
-          const beforeVersion = installSurface.root
-            ? await readPackageVersion(installSurface.root)
-            : null;
-          handoff = {
-            status: "unavailable",
-            command,
-            message: buildManagedServiceHandoffUnavailableMessage(command),
-          };
-          result = {
-            status: "skipped",
-            mode: installSurface.mode,
-            root: installSurface.root,
-            reason: "managed-service-handoff-unavailable",
-            ...(beforeVersion ? { before: { version: beforeVersion } } : {}),
-            steps: [],
-            durationMs: 0,
-          };
+          const preUpdateConfig =
+            installSurface.kind === "git"
+              ? await readPreUpdateConfigForPostCoreFinalize().catch((err: unknown) => {
+                  context?.logGateway?.warn(
+                    `update.run could not capture pre-update config ${formatControlPlaneActor(actor)} error=${formatUpdateRunErrorMessage(err)}`,
+                  );
+                  return undefined;
+                })
+              : undefined;
+          result = await runGatewayUpdate({
+            timeoutMs,
+            cwd: root,
+            argv1: process.argv[1],
+            channel: configChannel ?? undefined,
+          });
+          // The CLI `openclaw update` resumes post-core plugin convergence after a
+          // git/source core update; the RPC path did not, leaving official managed
+          // plugins stale on the new core. Run the finalizer here to match.
+          const finalizeOutcome = await runPostCoreFinalizeAfterGatewayUpdate({
+            result,
+            channel: configChannel ?? undefined,
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            ...(preUpdateConfig ? { preUpdateConfig } : {}),
+          });
+          if (finalizeOutcome.status === "error") {
+            context?.logGateway?.warn(
+              `update.run post-core plugin finalize failed ${formatControlPlaneActor(actor)} reason=${finalizeOutcome.reason}`,
+            );
+          }
+          result = foldPostCoreFinalizeIntoResult(result, finalizeOutcome);
         }
-      } else {
-        const preUpdateConfig =
-          installSurface.kind === "git"
-            ? await readPreUpdateConfigForPostCoreFinalize().catch((err: unknown) => {
-                context?.logGateway?.warn(
-                  `update.run could not capture pre-update config ${formatControlPlaneActor(actor)} error=${formatUpdateRunErrorMessage(err)}`,
-                );
-                return undefined;
-              })
-            : undefined;
-        result = await runGatewayUpdate({
-          timeoutMs,
-          cwd: root,
-          argv1: process.argv[1],
-          channel: configChannel ?? undefined,
-        });
-        // The CLI `openclaw update` resumes post-core plugin convergence after a
-        // git/source core update; the RPC path did not, leaving official managed
-        // plugins stale on the new core. Run the finalizer here to match.
-        const finalizeOutcome = await runPostCoreFinalizeAfterGatewayUpdate({
-          result,
-          channel: configChannel ?? undefined,
-          ...(timeoutMs === undefined ? {} : { timeoutMs }),
-          ...(preUpdateConfig ? { preUpdateConfig } : {}),
-        });
-        if (finalizeOutcome.status === "error") {
-          context?.logGateway?.warn(
-            `update.run post-core plugin finalize failed ${formatControlPlaneActor(actor)} reason=${finalizeOutcome.reason}`,
-          );
-        }
-        result = foldPostCoreFinalizeIntoResult(result, finalizeOutcome);
       }
     } catch {
       result = {

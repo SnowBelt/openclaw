@@ -1,25 +1,9 @@
 // Project Command Center chat sync turns chat plans into reviewable PCC diffs.
 import { parseProposedPlanSegments } from "./chat/proposed-plan.ts";
-import type { PccProjectDetail } from "./controllers/pcc.ts";
-import type { PccMilestone, PccPermissionGrant, PccStatus } from "./types.ts";
+import type { PccChatSyncProposal, PccProjectDetail } from "./pcc/application/state.ts";
+import type { PccMilestone, PccStatus } from "./types.ts";
 
-export type PccChatSyncProposalKind =
-  | "add_milestone"
-  | "update_milestone"
-  | "request_permission"
-  | "add_receipt";
-
-export type PccChatSyncProposal = {
-  id: string;
-  kind: PccChatSyncProposalKind;
-  title: string;
-  summary: string;
-  risky: boolean;
-  milestoneId?: string;
-  milestonePatch?: Partial<PccMilestone> & Pick<PccMilestone, "projectId" | "title">;
-  permission?: Partial<PccPermissionGrant> &
-    Pick<PccPermissionGrant, "projectId" | "type" | "status" | "riskLevel" | "allowedActions">;
-};
+export type { PccChatSyncProposal, PccChatSyncProposalKind } from "./pcc/application/state.ts";
 
 const STATUS_PATTERNS: Array<[RegExp, PccStatus]> = [
   [/\b(local[- ]proof complete|local_proof_complete)\b/iu, "local_proof_complete"],

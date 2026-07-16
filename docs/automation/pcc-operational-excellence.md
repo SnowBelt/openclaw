@@ -70,13 +70,63 @@ OE-05 turns this list into a deterministic validation gate.
 
 The checked registry is `src/pcc/capability-addition-registry.ts`. It covers every standard PCC workflow and every capability in the custom-runtime manifest. Adding a custom dashboard, plugin, workflow, or runtime contract without a matching owner, trigger, permission/cost class, proof, observability, upgrade impact, rollback, and documentation standard fails `pnpm check:pcc-capabilities`.
 
+## Performance and scale contract
+
+PCC treats portfolio reads and rendering as bounded production paths rather than unmeasured dashboard work. The Gateway builds one immutable read index per ledger snapshot, so project summaries reuse grouped milestone, sub-milestone, permission, evidence, receipt, decision, and last-known-good relationships instead of rescanning every ledger collection for every project. Capability preflight similarly builds one case-insensitive inventory index while preserving first-match behavior for duplicate catalog entries.
+
+The Control UI bounds its long-session project-detail cache to 32 recent entries while pinning the selected project and Project Command Center, reuses bounded status and date formatters, and keys project and sub-milestone cards by stable ID. These changes preserve active context, all rows, and all interactions while preventing unbounded cache growth and reducing repeated computation, DOM replacement, and temporary allocation.
+
+Run the deterministic scale budget locally with:
+
+```bash
+pnpm ui:smoke:pcc-performance
+```
+
+The smoke uses a 600-project portfolio, 14,400 milestones, 1,000 required capabilities, and a 6,000-entry capability inventory. It fails when Gateway summary latency, capability resolution, template generation, initial DOM creation, rerendering, search rendering, or retained heap exceeds its checked budget. The Workflow Sanity operational-excellence lane runs the same command so future additions cannot silently restore quadratic scans.
+
+## Clean architecture map
+
+PCC uses an inward dependency direction so storage, transport, and browser concerns cannot become the source of business rules:
+
+```text
+src/pcc/
+  domain/
+    capability-contract.ts      # stable capability contract vocabulary
+    completion-policy.ts       # status and completion invariants
+    ledger.ts                  # storage-independent aggregate contract
+    workflow.ts                # workflow identity contract
+  read-model/
+    ledger-index.ts            # immutable relationship index per snapshot
+    project-summary.ts         # project and portfolio projections
+  ledger-store.ts              # SQLite/JSON infrastructure adapter
+
+src/gateway/server-methods/
+  pcc.ts                       # protocol validation and use-case orchestration
+
+ui/src/ui/pcc/
+  application/
+    state.ts                   # UI state and form contracts
+    detail-cache.ts            # bounded selected-project cache policy
+    execution-readiness.ts     # pure execution-team readiness use case
+  presentation/
+    formatters.ts              # bounded display formatting
+
+ui/src/ui/
+  controllers/pcc.ts           # mutation orchestration and compatibility facade
+  views/pcc.ts                 # Lit composition and event binding
+```
+
+Domain modules import protocol types only. Read models depend on the domain, never on Gateway handlers or storage. Gateway methods validate requests and coordinate domain/read-model operations. UI application modules own state and deterministic use cases; presentation imports those modules directly instead of importing a controller facade. The facade keeps existing callers stable while new code follows the narrower boundaries. This permits storage replacement, isolated policy tests, and incremental view decomposition without changing PCC behavior.
+
+PCC and Self-Improvement Governor ledger data operations use compile-checked Kysely builders. Native SQLite calls are confined to shared connection, schema, transaction, integrity, WAL, and PRAGMA lifecycle boundaries. The architecture gate rejects import cycles, direct layer reversals, and unreviewed raw SQLite access.
+
 ## Update preservation
 
 Custom functionality must be declared, versioned, and tested as desired state. An official update is first staged in an isolated candidate runtime. The candidate must pass manifest, migration, plugin, route, workflow, browser, runtime, and rollback checks before atomic promotion. Missing custom features reject the candidate before the live runtime changes.
 
-The desired-state inventory is `config/custom-runtime-capabilities.json`. It covers dashboard surfaces, required plugins, PCC workflows, Control Director truth gates, and local-first model intelligence. Every capability has a stable ID and one or more required runtime paths. The immutable runtime pointer binds the capability manifest hash and the cumulative required capability IDs. Candidates may add capabilities, but cannot silently remove an active requirement.
+The desired-state inventory is `config/custom-runtime-capabilities.json`. It covers dashboard surfaces, required plugins, PCC workflows, Control Director truth gates, local-first model intelligence, and the update-safety control plane. Every capability has a stable ID and one or more required runtime paths. The v2 preservation contract also binds required criticality, preserve-or-block migration, immutable-pointer rollback, verification commands, and the checked addition-standards registry. The immutable runtime pointer binds the capability manifest hash and the cumulative required capability IDs. Candidates may add capabilities, but cannot silently remove an active requirement.
 
-The current inventory contains 28 preserved capabilities. It includes all seven app dashboards, both required plugins, PCC project management and operational excellence, Control Director truth gates, local-first model intelligence, the complete Codex-style Chat stack, mobile PCC control, PCC-to-Chat synchronization, Chat UX cleanup, the cumulative Codex-plus-apps dashboard, and the Self-Improvement Governor runtime. Each preserved browser surface also has a named `pnpm ui:smoke:*` command so a future update cannot pass by keeping source files while silently removing the executable proof path.
+The current inventory contains 29 preserved capabilities. It includes all seven app dashboards, both required plugins, PCC project management and operational excellence, Control Director truth gates, local-first model intelligence, the complete Codex-style Chat stack, mobile PCC control, PCC-to-Chat synchronization, Chat UX cleanup, the cumulative Codex-plus-apps dashboard, update-safe customizations, and the Self-Improvement Governor runtime. Each preserved browser surface also has a named `pnpm ui:smoke:*` command so a future update cannot pass by keeping source files while silently removing the executable proof path.
 
 Chat-native Projects uses the PCC project ledger as its only project source of truth. The picker lists and creates projects through `pcc.projects.*`, while the selected project ID is stored on the canonical session entry through `sessions.create` or `sessions.patch`. There is no second Chat-only project database to drift from PCC.
 
@@ -88,7 +138,7 @@ pnpm check:custom-runtime-capabilities
 pnpm test src/pcc/custom-runtime-capabilities.test.ts src/pcc/runtime-identity.test.ts test/scripts/custom-runtime-launcher.test.ts test/scripts/custom-runtime-stage-promote.test.ts
 ```
 
-`custom-runtime-stage.sh` runs the candidate against copied config and state on a private port; it does not modify the active pointer. `custom-runtime-promote.sh` updates the pointer and managed service only after staging, and restores the prior pointer, plist, and environment file if bootstrap or health proof fails.
+`custom-runtime-stage.sh` runs the candidate against copied config and state on a private port; it does not modify the active pointer. The weekly broker prepares and proves a candidate but stops at `ready_for_approval`. `custom-runtime-update-approve.sh` promotes only that exact candidate after explicit approval. `custom-runtime-promote.sh` updates the pointer and managed service only after staging, and restores the prior pointer, plist, and environment file if bootstrap or health proof fails. See [Custom Runtime Update Safety](/automation/custom-runtime-update-safety) for the complete operator flow.
 
 This follows the same principles used by mature reliability programs: user-centered service objectives and error budgets, automation of repetitive toil, continuous evaluation, declarative desired state, and progressive delivery with rollback.
 

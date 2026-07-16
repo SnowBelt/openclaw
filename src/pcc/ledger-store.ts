@@ -4,34 +4,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import type {
-  PccCompletionReceipt,
-  PccDecision,
-  PccEvidence,
-  PccLastKnownGood,
-  PccMilestone,
-  PccPermissionGrant,
-  PccProject,
-  PccSubMilestone,
-} from "../../packages/gateway-protocol/src/schema/types.js";
+import {
+  clearNodeSqliteKyselyCacheForDatabase,
+  executeSqliteQuerySync,
+  executeSqliteQueryTakeFirstSync,
+  getNodeSqliteKysely,
+} from "../infra/kysely-sync.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
+import { readSqliteUserVersion } from "../infra/sqlite-user-version.js";
 import {
   configureSqliteConnectionPragmas,
   type SqliteWalMaintenance,
 } from "../infra/sqlite-wal.js";
+import type { PccLedger } from "./domain/ledger.js";
 
-export type PccLedger = {
-  version: 1;
-  projects: PccProject[];
-  milestones: PccMilestone[];
-  subMilestones: PccSubMilestone[];
-  permissions: PccPermissionGrant[];
-  evidence: PccEvidence[];
-  receipts: PccCompletionReceipt[];
-  decisions: PccDecision[];
-  lastKnownGood: PccLastKnownGood[];
-};
+export type { PccLedger } from "./domain/ledger.js";
 
 export type PccLedgerMutationOptions = {
   write?: boolean;
@@ -59,6 +47,18 @@ type LedgerSnapshotRow = {
   payload_json: string;
   payload_sha256: string;
   updated_at: string;
+};
+
+type PccLedgerDatabase = {
+  pcc_ledger_snapshot: LedgerSnapshotRow & { singleton: number };
+  pcc_ledger_audit: {
+    id: string;
+    revision: number;
+    event_kind: string;
+    payload_sha256: string;
+    created_at: string;
+    details_json: string | null;
+  };
 };
 
 type OpenLedgerDatabase = {
@@ -149,14 +149,13 @@ function ensurePrivateStoragePath(pathname: string): void {
 }
 
 function ensureLedgerSchema(db: DatabaseSync, pathname: string): void {
-  const userVersion = Number(
-    (db.prepare("PRAGMA user_version").get() as { user_version?: unknown }).user_version ?? 0,
-  );
+  const userVersion = readSqliteUserVersion(db);
   if (userVersion > PCC_LEDGER_STORAGE_SCHEMA_VERSION) {
     throw new Error(
       `PCC ledger database ${pathname} uses newer schema version ${userVersion}; this OpenClaw build supports ${PCC_LEDGER_STORAGE_SCHEMA_VERSION}.`,
     );
   }
+  // sqlite-allow-raw -- schema DDL and PRAGMA ownership stay at the database lifecycle boundary.
   db.exec(`
     CREATE TABLE IF NOT EXISTS pcc_ledger_snapshot (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -178,6 +177,10 @@ function ensureLedgerSchema(db: DatabaseSync, pathname: string): void {
       ON pcc_ledger_audit (revision DESC, created_at DESC);
     PRAGMA user_version = ${PCC_LEDGER_STORAGE_SCHEMA_VERSION};
   `);
+}
+
+function getPccLedgerKysely(db: DatabaseSync) {
+  return getNodeSqliteKysely<PccLedgerDatabase>(db);
 }
 
 function openLedgerDatabase(env: NodeJS.ProcessEnv = process.env): OpenLedgerDatabase {
@@ -215,11 +218,13 @@ function openLedgerDatabase(env: NodeJS.ProcessEnv = process.env): OpenLedgerDat
 }
 
 function selectSnapshot(db: DatabaseSync): LedgerSnapshotRow | null {
-  const row = db
-    .prepare(
-      "SELECT schema_version, revision, payload_json, payload_sha256, updated_at FROM pcc_ledger_snapshot WHERE singleton = 1",
-    )
-    .get() as LedgerSnapshotRow | undefined;
+  const row = executeSqliteQueryTakeFirstSync(
+    db,
+    getPccLedgerKysely(db)
+      .selectFrom("pcc_ledger_snapshot")
+      .select(["schema_version", "revision", "payload_json", "payload_sha256", "updated_at"])
+      .where("singleton", "=", 1),
+  );
   return row ?? null;
 }
 
@@ -255,22 +260,40 @@ function writeSnapshot(
   const payload = JSON.stringify(ledger);
   const payloadSha256 = sha256(payload);
   const updatedAt = nowIso();
-  db.prepare(
-    `INSERT INTO pcc_ledger_snapshot (
-      singleton, schema_version, revision, payload_json, payload_sha256, updated_at
-    ) VALUES (1, ?, ?, ?, ?, ?)
-    ON CONFLICT(singleton) DO UPDATE SET
-      schema_version = excluded.schema_version,
-      revision = excluded.revision,
-      payload_json = excluded.payload_json,
-      payload_sha256 = excluded.payload_sha256,
-      updated_at = excluded.updated_at`,
-  ).run(PCC_LEDGER_STORAGE_SCHEMA_VERSION, revision, payload, payloadSha256, updatedAt);
-  db.prepare(
-    `INSERT INTO pcc_ledger_audit (
-      id, revision, event_kind, payload_sha256, created_at, details_json
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(randomUUID(), revision, eventKind, payloadSha256, updatedAt, null);
+  const kysely = getPccLedgerKysely(db);
+  executeSqliteQuerySync(
+    db,
+    kysely
+      .insertInto("pcc_ledger_snapshot")
+      .values({
+        singleton: 1,
+        schema_version: PCC_LEDGER_STORAGE_SCHEMA_VERSION,
+        revision,
+        payload_json: payload,
+        payload_sha256: payloadSha256,
+        updated_at: updatedAt,
+      })
+      .onConflict((conflict) =>
+        conflict.column("singleton").doUpdateSet({
+          schema_version: (eb) => eb.ref("excluded.schema_version"),
+          revision: (eb) => eb.ref("excluded.revision"),
+          payload_json: (eb) => eb.ref("excluded.payload_json"),
+          payload_sha256: (eb) => eb.ref("excluded.payload_sha256"),
+          updated_at: (eb) => eb.ref("excluded.updated_at"),
+        }),
+      ),
+  );
+  executeSqliteQuerySync(
+    db,
+    kysely.insertInto("pcc_ledger_audit").values({
+      id: randomUUID(),
+      revision,
+      event_kind: eventKind,
+      payload_sha256: payloadSha256,
+      created_at: updatedAt,
+      details_json: null,
+    }),
+  );
 }
 
 function readLegacyLedger(env: NodeJS.ProcessEnv): PccLedger | null {
@@ -405,6 +428,7 @@ export function closePccLedgerStorageForTest(): void {
   for (const database of cachedDatabases.values()) {
     database.walMaintenance.close();
     if (database.db.isOpen) {
+      clearNodeSqliteKyselyCacheForDatabase(database.db);
       database.db.close();
     }
   }
