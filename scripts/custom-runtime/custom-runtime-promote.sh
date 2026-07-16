@@ -45,6 +45,16 @@ release=$(cd "$release" && pwd -P)
 case "$release" in "$releases_dir"/*) ;; *) printf '%s\n' 'release must be under the immutable releases root' >&2; exit 64 ;; esac
 [ -f "$release/dist/index.js" ] || { printf '%s\n' 'release entrypoint is missing' >&2; exit 64; }
 [ -f "$release/snapshot.json" ] || { printf '%s\n' 'release runtime provenance is missing' >&2; exit 64; }
+[ -f "$release/package.json" ] || { printf '%s\n' 'release package metadata is missing' >&2; exit 64; }
+release_version=$(python3 - "$release/package.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    version = json.load(f).get("version")
+if not isinstance(version, str) or not version:
+    raise SystemExit("release package version is missing")
+print(version)
+PY
+) || exit 64
 manifest="$release/dist/control-ui/dashboard-surfaces.json"
 [ -f "$manifest" ] || { printf '%s\n' 'release surface manifest is missing' >&2; exit 64; }
 capability_manifest="$release/config/custom-runtime-capabilities.json"
@@ -315,9 +325,9 @@ fail_promotion() {
 promotion_applied=true
 cp -p "$pointer_tmp" "$previous_pointer"
 rm -f "$pointer_tmp"
-python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" <<'PY'
+python3 - "$env_file" "$launcher" "$release" "$enable_sig_background" "$release_version" <<'PY'
 import os, shlex, stat, sys
-path, launcher, release, enable_sig_background = sys.argv[1:]
+path, launcher, release, enable_sig_background, release_version = sys.argv[1:]
 mode = stat.S_IMODE(os.stat(path).st_mode)
 with open(path, encoding="utf-8") as f:
     replaced = (
@@ -325,6 +335,7 @@ with open(path, encoding="utf-8") as f:
         "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=",
         "export OPENCLAW_BUNDLED_PLUGINS_DIR=",
         "export OPENCLAW_NO_AUTO_UPDATE=",
+        "export OPENCLAW_SERVICE_VERSION=",
     )
     if enable_sig_background == "true":
         replaced += ("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=",)
@@ -335,6 +346,7 @@ lines.append(
     f"export OPENCLAW_BUNDLED_PLUGINS_DIR={shlex.quote(os.path.join(release, 'dist-runtime', 'extensions'))}\n"
 )
 lines.append("export OPENCLAW_NO_AUTO_UPDATE=1\n")
+lines.append(f"export OPENCLAW_SERVICE_VERSION={shlex.quote(release_version)}\n")
 if enable_sig_background == "true":
     lines.append("export OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1\n")
 with open(path + ".tmp", "w", encoding="utf-8") as f:
@@ -342,14 +354,15 @@ with open(path + ".tmp", "w", encoding="utf-8") as f:
 os.chmod(path + ".tmp", mode)
 PY
 mv "$env_file.tmp" "$env_file"
-python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" <<'PY'
+python3 - "$plist" "$env_wrapper" "$env_file" "$launcher" "$port" "$release_version" <<'PY'
 import plistlib, sys
-path, wrapper, env_file, launcher, port = sys.argv[1:]
+path, wrapper, env_file, launcher, port, release_version = sys.argv[1:]
 with open(path, "rb") as f: data = plistlib.load(f)
 # Keep the generated environment wrapper as argv[0]. The launchd status audit
 # recognizes this canonical shape, unwraps the real launcher, and reads PATH
 # from the service environment file before checking runtime drift.
 data["ProgramArguments"] = [wrapper, env_file, launcher, "gateway", "--port", port]
+data["Comment"] = f"OpenClaw Gateway (v{release_version})"
 with open(path + ".tmp", "wb") as f: plistlib.dump(data, f, sort_keys=False)
 PY
 mv "$plist.tmp" "$plist"
@@ -369,12 +382,20 @@ for _ in $(seq 1 45); do
   sleep 2
 done
 if [ "$ok" != true ]; then fail_promotion health; fi
+plist_comment=$(python3 - "$plist" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as f:
+    print(plistlib.load(f).get("Comment", ""))
+PY
+) || fail_promotion runtime_identity
 if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! pgrep -f "$release/dist/index.js gateway --port $port" >/dev/null 2>&1 || \
    ! grep -Fqx "export OPENCLAW_WRAPPER=$launcher" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_RUNTIME_SNAPSHOT_ROOT=$release" "$env_file" || \
    ! grep -Fqx "export OPENCLAW_BUNDLED_PLUGINS_DIR=$release/dist-runtime/extensions" "$env_file" || \
-   ! grep -Fqx 'export OPENCLAW_NO_AUTO_UPDATE=1' "$env_file"; then
+   ! grep -Fqx 'export OPENCLAW_NO_AUTO_UPDATE=1' "$env_file" || \
+   ! grep -Fqx "export OPENCLAW_SERVICE_VERSION=$release_version" "$env_file" || \
+   [ "$plist_comment" != "OpenClaw Gateway (v$release_version)" ]; then
   fail_promotion runtime_identity
 fi
 if [ "$enable_sig_background" = true ] && \

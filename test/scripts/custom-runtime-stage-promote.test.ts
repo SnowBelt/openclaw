@@ -217,6 +217,7 @@ describe("custom runtime canary and rollback", () => {
     const fakeBin = path.join(input.home, "bin");
     const launchctlState = path.join(input.home, "launchctl-count");
     const promotedPlist = path.join(input.home, "promoted-gateway.plist");
+    const promotedEnv = path.join(input.home, "promoted-gateway.env");
     const rollbackLauncher = path.join(input.home, "rollback-launcher.sh");
     mkdirSync(fakeBin, { recursive: true });
     mkdirSync(input.runtimeHome, { recursive: true });
@@ -248,7 +249,10 @@ case "$1" in
     [ -f "$FAKE_LAUNCHCTL_STATE" ] && count=$(cat "$FAKE_LAUNCHCTL_STATE")
     count=$((count + 1))
     printf '%s\\n' "$count" > "$FAKE_LAUNCHCTL_STATE"
-    [ "$count" -ne 1 ] || cp "$OPENCLAW_GATEWAY_PLIST" "$FAKE_PROMOTED_PLIST"
+    if [ "$count" -eq 1 ]; then
+      cp "$OPENCLAW_GATEWAY_PLIST" "$FAKE_PROMOTED_PLIST"
+      cp "$OPENCLAW_GATEWAY_ENV_FILE" "$FAKE_PROMOTED_ENV"
+    fi
     [ "$count" -gt 1 ]
     ;;
 esac
@@ -276,6 +280,7 @@ esac
           ...process.env,
           FAKE_LAUNCHCTL_STATE: launchctlState,
           FAKE_PROMOTED_PLIST: promotedPlist,
+          FAKE_PROMOTED_ENV: promotedEnv,
           HOME: input.home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
@@ -296,6 +301,10 @@ esac
     expect(readFileSync(launchctlState, "utf8").trim()).toBe("2");
     const promotedPlistContents = readFileSync(promotedPlist, "utf8");
     expect(promotedPlistContents).toContain(`<string>${envWrapper}</string>`);
+    expect(promotedPlistContents).toContain("OpenClaw Gateway (v2026.6.11)");
     expect(promotedPlistContents).not.toContain("<string>/bin/sh</string>");
+    expect(readFileSync(promotedEnv, "utf8")).toContain(
+      "export OPENCLAW_SERVICE_VERSION=2026.6.11",
+    );
   });
 });
