@@ -18,6 +18,16 @@ const rootEntries = [
   "src/infra/kysely-node-sqlite.ts!",
   "src/infra/warning-filter.ts!",
   "src/infra/command-explainer/index.ts!",
+  // Custom production support contracts are invoked by managed-runtime and
+  // proof tooling that scripts/** intentionally excludes from Knip's graph.
+  // Keep the real contract roots explicit instead of allowlisting findings.
+  "src/pcc/capability-addition-registry.ts!",
+  "src/pcc/learning-store.ts!",
+  "src/pcc/operational-excellence-roadmap.ts!",
+  "src/pcc/snes-game-creator-submilestones.ts!",
+  "src/self-improvement/autonomy.ts!",
+  "src/self-improvement/mlx-diagnostic.ts!",
+  "src/self-improvement/soak.ts!",
   bundledPluginFile("telegram", "src/audit.ts", "!"),
   bundledPluginFile("telegram", "src/token.ts", "!"),
   "src/hooks/bundled/*/handler.ts!",
@@ -168,6 +178,9 @@ const config = {
         // Control UI remains the production entrypoint.
         "src/app/app-host.ts!",
         "src/lib/browser-redact.ts!",
+        // Preserve the legacy custom import boundary while delegating to the
+        // canonical browser redactor.
+        "src/ui/browser-redact.ts!",
         "vite.config.ts!",
         "vitest*.ts!",
       ],
