@@ -52,6 +52,8 @@ describe("control-director-verify", () => {
   it("keeps every required source gate sequential and explicit", () => {
     const plan = buildControlDirectorSourceGatePlan();
     expect(plan.map((entry) => entry.id)).toEqual([
+      "protocol-coverage",
+      "protocol-generated",
       "torture",
       "chaos",
       "tests",
@@ -71,8 +73,17 @@ describe("control-director-verify", () => {
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "test/scripts/control-ui-production-chat-stack.test.ts",
     );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "packages/gateway-protocol/src/schema/tasks.test.ts",
+    );
     expect(plan.find((entry) => entry.id === "ui-tests")?.args).toContain(
       "ui/src/ui/views/chat.test.ts",
     );
+    expect(plan.find((entry) => entry.id === "protocol-coverage")?.args).toEqual([
+      "check:protocol-coverage",
+    ]);
+    expect(plan.find((entry) => entry.id === "protocol-generated")?.args).toEqual([
+      "protocol:check",
+    ]);
   });
 });

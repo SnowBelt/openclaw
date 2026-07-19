@@ -342,24 +342,25 @@ export const TaskFlowSummarySchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const TaskFlowDetailSchema = Type.Intersect([
-  TaskFlowSummarySchema,
-  Type.Object(
-    {
-      tasks: Type.Array(TaskSummarySchema),
-      taskSummary: Type.Object(
-        {
-          total: Type.Integer({ minimum: 0 }),
-          active: Type.Integer({ minimum: 0 }),
-          terminal: Type.Integer({ minimum: 0 }),
-          failures: Type.Integer({ minimum: 0 }),
-        },
-        { additionalProperties: false },
-      ),
-    },
-    { additionalProperties: false },
-  ),
-]);
+// Keep the detail schema as one closed object. An allOf/intersection of two
+// independently closed objects rejects each side's properties and cannot be
+// emitted as a concrete struct by the bundled Swift protocol generator.
+export const TaskFlowDetailSchema = Type.Object(
+  {
+    ...TaskFlowSummarySchema.properties,
+    tasks: Type.Array(TaskSummarySchema),
+    taskSummary: Type.Object(
+      {
+        total: Type.Integer({ minimum: 0 }),
+        active: Type.Integer({ minimum: 0 }),
+        terminal: Type.Integer({ minimum: 0 }),
+        failures: Type.Integer({ minimum: 0 }),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
 
 export const TaskFlowsListParamsSchema = Type.Object(
   {

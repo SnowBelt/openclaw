@@ -6,7 +6,36 @@ public enum OpenClawChatTransportEvent: Sendable {
     case chat(OpenClawChatEventPayload)
     case sessionMessage(OpenClawSessionMessageEventPayload)
     case agent(OpenClawAgentEventPayload)
+    case taskFlow(OpenClawTaskFlowEventPayload)
     case seqGap
+}
+
+/// Compact gateway notification used to reconcile chat after a Pursue Goal
+/// changes state. The detailed flow remains server-owned and is fetched by the
+/// dashboard; mobile chat only needs ownership and lifecycle metadata.
+public struct OpenClawTaskFlowEventPayload: Codable, Sendable {
+    public let action: String
+    public let flowId: String?
+    public let ownerKey: String?
+    public let status: String?
+    public let revision: Int?
+    public let updatedAt: Double?
+
+    public init(
+        action: String,
+        flowId: String? = nil,
+        ownerKey: String? = nil,
+        status: String? = nil,
+        revision: Int? = nil,
+        updatedAt: Double? = nil)
+    {
+        self.action = action
+        self.flowId = flowId
+        self.ownerKey = ownerKey
+        self.status = status
+        self.revision = revision
+        self.updatedAt = updatedAt
+    }
 }
 
 /// One immutable transport route used by an entire outbox flush. Route-aware

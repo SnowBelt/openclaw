@@ -1,5 +1,9 @@
 # OpenClaw iOS Changelog
 
+## Unreleased
+
+- Kept the current chat synchronized with live Pursue Goal progress without interrupting pending messages.
+
 ## 2026.7.1 - 2026-07-08
 
 - Added multi-gateway pairing and switching with gateway-scoped credentials, TLS trust, cached chats, push registration, and custom proxy headers.
