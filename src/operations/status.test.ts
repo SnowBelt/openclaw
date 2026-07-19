@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   capOperationsRows,
+  OPERATIONS_RECENT_WORKFLOW_FAILURE_MS,
+  OPERATIONS_STALE_QUEUED_WORKFLOW_MS,
+  operationsFindingSeverityForWorkflow,
   operationsStatusForFindings,
   operationsStatusForTask,
+  operationsStatusForWorkflow,
   resetOperationsFindingHistoryForTests,
   scoreOperationsFindings,
   stampOperationsFindingHistory,
@@ -45,6 +49,31 @@ describe("Operations Room status policy", () => {
     expect(operationsStatusForTask("succeeded", "blocked")).toBe("blocked");
     expect(operationsStatusForTask("timed_out")).toBe("failed");
     expect(operationsStatusForTask("mystery")).toBe("unknown");
+  });
+
+  it("separates active workflow failures from historical outcomes and stale queue entries", () => {
+    const now = 10 * OPERATIONS_STALE_QUEUED_WORKFLOW_MS;
+
+    expect(operationsStatusForWorkflow("running", now, now)).toBe("working");
+    expect(operationsStatusForWorkflow("queued", now - 1_000, now)).toBe("working");
+    expect(
+      operationsStatusForWorkflow("queued", now - OPERATIONS_STALE_QUEUED_WORKFLOW_MS, now),
+    ).toBe("degraded");
+    expect(
+      operationsFindingSeverityForWorkflow(
+        "failed",
+        now - OPERATIONS_RECENT_WORKFLOW_FAILURE_MS + 1,
+        now,
+      ),
+    ).toBe("critical");
+    expect(
+      operationsFindingSeverityForWorkflow(
+        "failed",
+        now - OPERATIONS_RECENT_WORKFLOW_FAILURE_MS - 1,
+        now,
+      ),
+    ).toBe("info");
+    expect(operationsFindingSeverityForWorkflow("blocked", 0, now)).toBe("warning");
   });
 
   it("keeps first-observed time stable while a finding remains active", () => {

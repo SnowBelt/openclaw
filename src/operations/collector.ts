@@ -21,8 +21,10 @@ import { getOperationsShadowMonitorState, OPERATIONS_SHADOW_INTERVAL_MS } from "
 import { collectOperationsProcesses } from "./process-probe.js";
 import {
   capOperationsRows,
+  operationsFindingSeverityForWorkflow,
   operationsStatusForFindings,
   operationsStatusForTask,
+  operationsStatusForWorkflow,
   scoreOperationsFindings,
   stampOperationsFindingHistory,
 } from "./status.js";
@@ -60,27 +62,6 @@ function taskAgentId(task: TaskRecord): string | undefined {
 
 function taskUpdatedAt(task: TaskRecord): number {
   return task.lastEventAt ?? task.endedAt ?? task.startedAt ?? task.createdAt;
-}
-
-function flowStatus(status: string): OperationsStatus {
-  switch (status) {
-    case "running":
-    case "queued":
-      return "working";
-    case "waiting":
-      return "idle";
-    case "blocked":
-      return "blocked";
-    case "failed":
-    case "lost":
-      return "failed";
-    case "cancelled":
-      return "disabled";
-    case "succeeded":
-      return "healthy";
-    default:
-      return "unknown";
-  }
 }
 
 function cronStatus(job: CronJob): OperationsStatus {
@@ -196,7 +177,7 @@ function buildAgentRows(params: {
   return rows;
 }
 
-function buildWorkflowRows(tasks: TaskRecord[]): OperationsWorkflowSnapshot[] {
+function buildWorkflowRows(tasks: TaskRecord[], now: number): OperationsWorkflowSnapshot[] {
   const taskCountsByFlow = new Map<string, { active: number; failed: number }>();
   for (const task of tasks) {
     if (!task.parentFlowId) {
@@ -219,7 +200,7 @@ function buildWorkflowRows(tasks: TaskRecord[]): OperationsWorkflowSnapshot[] {
       id: flow.flowId,
       title: flow.goal,
       ownerKey: flow.ownerKey,
-      status: flowStatus(flow.status),
+      status: operationsStatusForWorkflow(flow.status, flow.updatedAt, now),
       sourceStatus: flow.status,
       activeTaskCount: counts.active,
       failedTaskCount: counts.failed,
@@ -494,19 +475,56 @@ function buildFindings(params: {
       );
     }
   }
-  for (const flow of params.workflows.filter(
-    (entry) => entry.status === "blocked" || entry.status === "failed",
+  const staleQueuedWorkflows = params.workflows.filter(
+    (entry) => entry.sourceStatus === "queued" && entry.status === "degraded",
+  );
+  if (staleQueuedWorkflows.length > 0) {
+    findings.push(
+      finding(
+        {
+          id: "workflow:queued:stale",
+          severity: "warning",
+          category: "workflow",
+          title: `${staleQueuedWorkflows.length} queued workflows need review`,
+          detail:
+            "These workflows have not changed for at least 24 hours and are not counted as active work.",
+          recommendedAction:
+            "Review the queued workflow backlog and cancel only work that is no longer intended.",
+        },
+        params.now,
+      ),
+    );
+  }
+  for (const flow of params.workflows.filter((entry) =>
+    ["blocked", "failed", "lost"].includes(entry.sourceStatus),
   )) {
+    const severity = operationsFindingSeverityForWorkflow(
+      flow.sourceStatus,
+      flow.updatedAt,
+      params.now,
+    );
+    if (!severity) {
+      continue;
+    }
+    const historical = severity === "info";
     findings.push(
       finding(
         {
           id: `workflow:${flow.id}:${flow.sourceStatus}`,
-          severity: flow.status === "failed" ? "critical" : "warning",
+          severity,
           category: "workflow",
           entityId: flow.id,
-          title: flow.status === "failed" ? "Workflow failed" : "Workflow is blocked",
+          title: historical
+            ? "Historical workflow failure"
+            : flow.status === "failed"
+              ? "Workflow failed recently"
+              : "Workflow is blocked",
           detail: flow.blocker ?? flow.title,
-          recommendedAction: "Open the workflow inspector and resolve its recorded blocker.",
+          ...(historical
+            ? {}
+            : {
+                recommendedAction: "Open the workflow inspector and resolve its recorded blocker.",
+              }),
         },
         params.now,
       ),
@@ -592,7 +610,7 @@ export async function collectOperationsSnapshot(params: {
   const tasks = listTaskRecords();
   const agents = buildAgentRows({ cfg: params.cfg, modelCatalog, tasks, now });
   const taskRows = capOperationsRows(buildTaskRows(tasks));
-  const workflows = capOperationsRows(buildWorkflowRows(tasks));
+  const workflows = capOperationsRows(buildWorkflowRows(tasks, now));
   const cronJobs = capOperationsRows(buildCronRows(cronJobsRaw));
   const catalogs = buildCatalogs({ cfg: params.cfg, modelCatalog });
   const processMemory = process.memoryUsage();
@@ -627,8 +645,11 @@ export async function collectOperationsSnapshot(params: {
       ).length,
       tasks: taskRows.length,
       activeTasks: taskRows.filter((task) => task.status === "working").length,
-      failedTasks: taskRows.filter((task) => task.status === "failed" || task.status === "blocked")
-        .length,
+      failedTasks: taskRows.filter(
+        (task) =>
+          (task.status === "failed" || task.status === "blocked") &&
+          now - task.updatedAt <= RECENT_AGENT_FAILURE_MS,
+      ).length,
       workflows: workflows.length,
       activeWorkflows: workflows.filter((flow) => flow.status === "working").length,
       cronJobs: cronJobs.length,

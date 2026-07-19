@@ -39,6 +39,11 @@ schedules, task registry maintenance owns stale task lifecycle, channel health o
 skill curator owns skill maintenance, and the Self-Improvement Governor owns recommendation
 governance. The Operations Room observes those systems instead of creating competing loops.
 
+Terminal workflow history remains visible without being reported as a current outage forever.
+Failures updated within the last 24 hours are critical; older failures are historical information.
+Queued workflows with no update for 24 hours are grouped into one backlog warning and are not counted
+as active work. This keeps the reliability score useful without hiding unfinished or failed history.
+
 ## Guarded controls
 
 The first release supports only:

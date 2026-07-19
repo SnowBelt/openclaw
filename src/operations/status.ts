@@ -8,6 +8,9 @@ const SEVERITY_DEDUCTION: Record<OperationsSeverity, number> = {
   critical: 8,
 };
 
+export const OPERATIONS_RECENT_WORKFLOW_FAILURE_MS = 24 * 60 * 60 * 1_000;
+export const OPERATIONS_STALE_QUEUED_WORKFLOW_MS = 24 * 60 * 60 * 1_000;
+
 const findingFirstObservedAt = new Map<string, number>();
 
 export function operationsStatusForFindings(
@@ -44,6 +47,49 @@ export function operationsStatusForTask(
     default:
       return "unknown";
   }
+}
+
+export function operationsStatusForWorkflow(
+  status: string,
+  updatedAt: number,
+  now: number,
+): OperationsStatus {
+  switch (status) {
+    case "running":
+      return "working";
+    case "queued":
+      return now - updatedAt >= OPERATIONS_STALE_QUEUED_WORKFLOW_MS ? "degraded" : "working";
+    case "waiting":
+      return "idle";
+    case "blocked":
+      return "blocked";
+    case "failed":
+    case "lost":
+      return "failed";
+    case "cancelled":
+      return "disabled";
+    case "succeeded":
+      return "healthy";
+    default:
+      return "unknown";
+  }
+}
+
+export function operationsFindingSeverityForWorkflow(
+  status: string,
+  updatedAt: number,
+  now: number,
+): OperationsSeverity | null {
+  if (status === "blocked") {
+    return "warning";
+  }
+  if (status === "queued" && now - updatedAt >= OPERATIONS_STALE_QUEUED_WORKFLOW_MS) {
+    return "warning";
+  }
+  if (status === "failed" || status === "lost") {
+    return now - updatedAt <= OPERATIONS_RECENT_WORKFLOW_FAILURE_MS ? "critical" : "info";
+  }
+  return null;
 }
 
 export function scoreOperationsFindings(findings: readonly OperationsFinding[]): number {

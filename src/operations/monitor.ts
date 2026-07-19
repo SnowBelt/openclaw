@@ -3,6 +3,7 @@
 import { listTaskRecords } from "../tasks/runtime-internal.js";
 import { listTaskFlowRecords } from "../tasks/task-flow-runtime-internal.js";
 import { collectOperationsHostMemory } from "./host-memory-probe.js";
+import { operationsFindingSeverityForWorkflow } from "./status.js";
 
 export const OPERATIONS_SHADOW_INTERVAL_MS = 60_000;
 const STALE_RUNNING_TASK_MS = 2 * 60 * 60_000;
@@ -50,10 +51,19 @@ export async function collectOperationsShadowFindingIds(now = Date.now()): Promi
       findings.push(`task:${task.taskId}:stale`);
     }
   }
+  let hasStaleQueuedWorkflow = false;
   for (const flow of listTaskFlowRecords()) {
-    if (flow.status === "blocked" || flow.status === "failed" || flow.status === "lost") {
+    const severity = operationsFindingSeverityForWorkflow(flow.status, flow.updatedAt, now);
+    if (flow.status === "queued" && severity === "warning") {
+      hasStaleQueuedWorkflow = true;
+      continue;
+    }
+    if (severity === "critical" || severity === "warning") {
       findings.push(`workflow:${flow.flowId}:${flow.status}`);
     }
+  }
+  if (hasStaleQueuedWorkflow) {
+    findings.push("workflow:queued:stale");
   }
   return findings.toSorted();
 }
