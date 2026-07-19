@@ -2695,6 +2695,7 @@ describe("renderPccDashboard", () => {
     expect(safety?.textContent).toContain("Update ready for approval");
     expect(safety?.textContent).toContain("Blocked safely");
     expect(safety?.textContent).toContain("Durable source");
+    expect(safety?.textContent).toContain("Scheduled");
     expect(safety?.textContent).toContain("All update-preservation controls are healthy");
   });
 

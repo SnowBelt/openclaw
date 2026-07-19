@@ -35,12 +35,14 @@ const REQUIRED_UPDATE_SAFE_PATHS = Object.freeze([
   "src/pcc/capability-addition-registry.ts",
   "src/pcc/custom-runtime-capabilities.test.ts",
   "src/pcc/custom-runtime-capabilities.ts",
+  "src/pcc/update-safety.test.ts",
   "src/pcc/update-safety.ts",
   "scripts/check.mjs",
   "scripts/check-custom-runtime-capabilities.ts",
   "scripts/control-director-readiness.mjs",
   "scripts/control-director-roadmap-proof.mjs",
   "scripts/control-director-verify.mjs",
+  "scripts/custom-runtime/ai.openclaw.custom-runtime.update-weekly.plist",
   "scripts/custom-runtime/custom-runtime-update-survival.ts",
   "scripts/custom-runtime/custom-runtime-updater.sh",
   "scripts/custom-runtime/custom-runtime-update-approve.sh",
@@ -50,8 +52,11 @@ const REQUIRED_UPDATE_SAFE_PATHS = Object.freeze([
   "test/scripts/control-director-readiness.test.ts",
   "test/scripts/control-director-roadmap-proof.test.ts",
   "test/scripts/control-director-verify.test.ts",
+  "test/scripts/custom-runtime-lifecycle.test.ts",
   "test/scripts/custom-runtime-update-survival.test.ts",
   "test/scripts/custom-runtime-updater.test.ts",
+  "ui/src/ui/views/pcc.test.ts",
+  "ui/src/ui/views/pcc.ts",
   ".agents/skills/control-director-reliability/SKILL.md",
   ".github/workflows/workflow-sanity.yml",
   "work/control-director/reliability-v1/roadmap.json",
@@ -285,6 +290,10 @@ export function auditUpdateSurvivalRepository(repoRoot: string): string[] {
     path.join(repoRoot, "scripts", "custom-runtime", "custom-runtime-update-approve.sh"),
     "utf8",
   );
+  const promotion = fs.readFileSync(
+    path.join(repoRoot, "scripts", "custom-runtime", "custom-runtime-promote.sh"),
+    "utf8",
+  );
   if (
     [
       "custom-runtime:update-survival",
@@ -303,6 +312,15 @@ export function auditUpdateSurvivalRepository(repoRoot: string): string[] {
     ].some((fragment) => !approval.includes(fragment))
   ) {
     errors.push("Update approval does not verify the bound update-survival proof.");
+  }
+  if (
+    [
+      "ai.openclaw.custom-runtime.update-weekly.plist",
+      "install_update_scheduler",
+      "updateBrokerScheduled",
+    ].some((fragment) => !promotion.includes(fragment))
+  ) {
+    errors.push("Managed promotion does not install the proof-gated update scheduler.");
   }
   for (const script of [
     "custom-runtime-stage.sh",

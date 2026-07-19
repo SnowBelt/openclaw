@@ -1,4 +1,5 @@
 // Read-only update safety status for the Project Command Center.
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +30,10 @@ export type PccUpdateSafety = {
 export type PccUpdateSafetyOptions = CustomRuntimeUpdatePolicyOptions & {
   runtimeHome?: string;
   launchAgentPath?: string;
+  schedulerLoaded?: boolean;
 };
+
+const UPDATE_SCHEDULER_LABEL = "ai.openclaw.custom-runtime.update-weekly";
 
 function readJson(filePath: string): Record<string, unknown> | null {
   try {
@@ -67,6 +71,18 @@ function latestReceipt(receiptsDir: string): PccUpdateSafetyReceipt | null {
   return null;
 }
 
+function isUpdateSchedulerLoaded(): boolean {
+  if (process.platform !== "darwin" || typeof process.getuid !== "function") {
+    return false;
+  }
+  const result = spawnSync(
+    "/bin/launchctl",
+    ["print", `gui/${process.getuid()}/${UPDATE_SCHEDULER_LABEL}`],
+    { stdio: "ignore", timeout: 1_000 },
+  );
+  return result.status === 0;
+}
+
 export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUpdateSafety {
   const homedir = options.homedir ?? os.homedir();
   const runtimeHome = options.runtimeHome ?? path.join(homedir, ".openclaw-custom-runtime");
@@ -77,18 +93,15 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     ...(options.pointerPath ? { pointerPath: options.pointerPath } : {}),
   });
   const pointer = readJson(policy.pointerPath);
-  const brokerConfigured =
+  const launchAgentPath =
+    options.launchAgentPath ??
+    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist");
+  const brokerInstalled =
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
-    fs.existsSync(
-      options.launchAgentPath ??
-        path.join(
-          homedir,
-          "Library",
-          "LaunchAgents",
-          "ai.openclaw.custom-runtime.update-weekly.plist",
-        ),
-    );
+    fs.existsSync(launchAgentPath);
+  const schedulerLoaded = options.schedulerLoaded ?? isUpdateSchedulerLoaded();
+  const brokerConfigured = brokerInstalled && schedulerLoaded;
   const pending = readJson(path.join(runtimeHome, "pending-update.json"));
   const approvalPending = pending?.result === "ready_for_approval";
   const issues: string[] = [];
@@ -100,8 +113,10 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
       "The active runtime is not bound to a durable Git commit, source repo, and branch.",
     );
   }
-  if (policy.managedRuntime && !brokerConfigured) {
+  if (policy.managedRuntime && !brokerInstalled) {
     issues.push("The verified custom-runtime update broker is not fully installed.");
+  } else if (policy.managedRuntime && !schedulerLoaded) {
+    issues.push("The verified custom-runtime update broker is installed but not scheduled.");
   }
   const status = !policy.managedRuntime
     ? "unmanaged"

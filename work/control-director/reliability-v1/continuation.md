@@ -38,5 +38,5 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 - Do not infer PCC state from ordinary assistant prose.
 - Do not use a mock GPT identity as proof for the managed Gemma Control Director.
 - Do not claim live or Dashboard completion until the exact promoted SHA is exercised there.
-- Do not mark a customization update-safe unless its capability/path inventory, exact-parent candidate proof, managed activation, browser/device proof, rollback/restore, and soak all pass.
+- Do not mark a customization update-safe unless its capability/path inventory, exact-parent candidate proof, loaded prepare-only update broker, managed activation, browser/device proof, rollback/restore, and soak all pass.
 - Do not edit milestone status or evidence optimistically; a missing or stale binding remains pending.

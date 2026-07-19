@@ -62,8 +62,9 @@ Every Control Director and Dashboard change must survive an official OpenClaw up
 4. `pnpm custom-runtime:update-survival` proves repository wiring and digest-binds every candidate required path. The broker then runs the ordered verification commands from the manifest rather than a divergent hard-coded list.
 5. The prepared receipt binds the preservation proof by SHA-256. Explicit approval revalidates that exact proof, candidate, active base, immutable release, and source branch before managed staging.
 6. Staging, promotion, restart, browser/device proof, rollback, restore, and soak remain separate required truth surfaces. Missing preservation, approval, rollback, or live proof blocks completion.
+7. Managed promotion installs and loads the prepare-only weekly update broker. PCC must report it as scheduled; a plist that merely exists but is not loaded is not update-safe.
 
-Never describe a customization as update-safe merely because its source file still exists. It is update-safe only after its registered capability, exact-parent candidate proof, manifest gates, proof-bound approval, managed activation, rollback, and live acceptance all pass.
+Never describe a customization as update-safe merely because its source file still exists. It is update-safe only after its registered capability, exact-parent candidate proof, manifest gates, proof-bound approval, loaded prepare-only broker, managed activation, rollback, and live acceptance all pass.
 
 ## Runtime acceptance
 

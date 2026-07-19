@@ -59,6 +59,7 @@ describe("PCC update safety", () => {
         homedir,
         runtimeHome,
         pointerPath,
+        schedulerLoaded: true,
         argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
         env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
       }),
@@ -77,6 +78,21 @@ describe("PCC update safety", () => {
         stage: null,
       },
       issues: [],
+    });
+
+    expect(
+      readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: false,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
+      }),
+    ).toMatchObject({
+      status: "attention",
+      brokerConfigured: false,
+      issues: ["The verified custom-runtime update broker is installed but not scheduled."],
     });
   });
 });

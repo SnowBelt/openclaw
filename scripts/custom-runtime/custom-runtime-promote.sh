@@ -10,6 +10,8 @@ env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-en
 config_path=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 state_dir=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
+update_label=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_LABEL:-ai.openclaw.custom-runtime.update-weekly}
+update_plist=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.custom-runtime.update-weekly.plist"}
 uid=$(id -u)
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
@@ -59,6 +61,8 @@ manifest="$release/dist/control-ui/dashboard-surfaces.json"
 [ -f "$manifest" ] || { printf '%s\n' 'release surface manifest is missing' >&2; exit 64; }
 capability_manifest="$release/config/custom-runtime-capabilities.json"
 [ -f "$capability_manifest" ] || { printf '%s\n' 'release capability manifest is missing' >&2; exit 64; }
+update_plist_source="$release/scripts/custom-runtime/ai.openclaw.custom-runtime.update-weekly.plist"
+[ -f "$update_plist_source" ] || { printf '%s\n' 'release update scheduler definition is missing' >&2; exit 64; }
 stamp_file="$release/.openclaw-production-sha"
 if [ -f "$stamp_file" ] && [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
   printf '%s\n' 'release source stamp conflicts with requested source SHA' >&2
@@ -123,9 +127,19 @@ previous_pointer="$runtime_home/active-runtime.json"
 pointer_backup="$runtime_home/backups/active-runtime.$timestamp.json"
 plist_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.plist"
 env_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.env"
+update_plist_backup="$runtime_home/backups/ai.openclaw.custom-runtime.update-weekly.$timestamp.plist"
+update_plist_existed=false
+update_scheduler_was_loaded=false
 [ -f "$previous_pointer" ] && cp -p "$previous_pointer" "$pointer_backup" || :
 cp -p "$plist" "$plist_backup"
 cp -p "$env_file" "$env_backup"
+if [ -f "$update_plist" ]; then
+  cp -p "$update_plist" "$update_plist_backup"
+  update_plist_existed=true
+fi
+if launchctl print "gui/$uid/$update_label" >/dev/null 2>&1; then
+  update_scheduler_was_loaded=true
+fi
 
 rollback_bundle=
 rollback_manifest_sha=
@@ -308,6 +322,21 @@ restore() {
     sleep 2
   done
   if [ "$rollback_ok" = true ] && "$launcher" --verify >/dev/null 2>&1; then
+    launchctl bootout "gui/$uid/$update_label" 2>/dev/null || true
+    for _ in $(seq 1 15); do
+      launchctl print "gui/$uid/$update_label" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    if [ "$update_plist_existed" = true ]; then
+      cp -p "$update_plist_backup" "$update_plist"
+      if [ "$update_scheduler_was_loaded" = true ] && \
+         ! launchctl bootstrap "gui/$uid" "$update_plist"; then
+        printf '{"at":"%s","result":"rollback_update_scheduler_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+        return 1
+      fi
+    else
+      rm -f "$update_plist"
+    fi
     promotion_applied=false
     printf '{"at":"%s","result":"rolled_back_verified"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
   else
@@ -320,6 +349,34 @@ fail_promotion() {
   record_failure "$1" "${2:-}"
   restore || exit 1
   exit 1
+}
+
+install_update_scheduler() {
+  mkdir -p "$(dirname "$update_plist")" "$HOME/Library/Logs/openclaw"
+  python3 - "$update_plist_source" "$update_plist.tmp" "$update_label" \
+    "$runtime_home/bin/custom-runtime-updater.sh" "$HOME/Library/Logs/openclaw" <<'PY'
+import os
+import plistlib
+import sys
+
+source, target, label, updater, logs = sys.argv[1:]
+with open(source, "rb") as f:
+    data = plistlib.load(f)
+data["Label"] = label
+data["ProgramArguments"] = [updater]
+data["StandardOutPath"] = os.path.join(logs, "custom-runtime-update.log")
+data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-update-error.log")
+with open(target, "wb") as f:
+    plistlib.dump(data, f, sort_keys=False)
+os.chmod(target, 0o600)
+PY
+  mv "$update_plist.tmp" "$update_plist"
+  launchctl bootout "gui/$uid/$update_label" 2>/dev/null || true
+  for _ in $(seq 1 15); do
+    launchctl print "gui/$uid/$update_label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  launchctl bootstrap "gui/$uid" "$update_plist"
 }
 
 promotion_applied=true
@@ -484,6 +541,10 @@ then
   fail_promotion self_improvement_contract
 fi
 rm -f "$self_improvement_summary"
+if ! install_update_scheduler; then
+  rm -f "$update_plist.tmp"
+  fail_promotion update_scheduler
+fi
 if [ -n "$rollback_bundle" ]; then
   cp -p "$pointer_backup" "$runtime_home/last-known-good.json"
   rollback_pointer_tmp="$runtime_home/active-rollback.$$.json"
@@ -513,6 +574,6 @@ with open(target, "w", encoding="utf-8") as f:
 PY
   mv "$rollback_pointer_tmp" "$runtime_home/active-rollback.json"
 fi
-printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
+printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s,"updateBrokerScheduled":true}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"
 promotion_committed=true

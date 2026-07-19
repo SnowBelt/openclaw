@@ -332,6 +332,11 @@ export function collectControlDirectorActiveWiring() {
         "executedVerificationCommands",
         "active_sha:config/custom-runtime-capabilities.json",
       ]) &&
+      hasAll(customRuntimePromote, [
+        "ai.openclaw.custom-runtime.update-weekly.plist",
+        "install_update_scheduler",
+        "updateBrokerScheduled",
+      ]) &&
       hasAll(customRuntimeUpdateApprove, [
         "preservationProof",
         "executedVerificationCommands",

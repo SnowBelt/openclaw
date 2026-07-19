@@ -12,7 +12,7 @@ title: "Custom Runtime Update Safety"
 An update-safe custom runtime uses two separate control planes:
 
 1. the normal OpenClaw update path for unmodified installations, and
-2. the custom-runtime update broker for installations with registered custom capabilities.
+2. the scheduled, prepare-only custom-runtime update broker for installations with registered custom capabilities.
 
 When an immutable custom runtime is active, normal `update.run` requests are rejected with `custom-runtime-update-broker-required`. The managed Gateway also sets `OPENCLAW_NO_AUTO_UPDATE=1`. These independent locks prevent an official package or source update from replacing custom behavior in place.
 
@@ -61,7 +61,7 @@ The scheduled broker only prepares a candidate:
 custom-runtime-updater.sh --prepare
 ```
 
-It fetches the selected official stable release and creates an exact two-parent merge on a dedicated candidate branch: parent one is the exact active custom commit and parent two is the selected official commit. The broker proves that ancestry, checks the cumulative capability/path inventory, digest-binds every required candidate path, then runs the ordered verification commands from the preservation manifest. It constructs an immutable release and writes a `ready_for_approval` receipt that binds the update-survival proof by SHA-256. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
+Managed promotion installs and loads `ai.openclaw.custom-runtime.update-weekly` from the promoted release. The LaunchAgent runs the prepare-only broker every Sunday at 03:30 local time. It fetches the selected official stable release and creates an exact two-parent merge on a dedicated candidate branch: parent one is the exact active custom commit and parent two is the selected official commit. The broker proves that ancestry, checks the cumulative capability/path inventory, digest-binds every required candidate path, then runs the ordered verification commands from the preservation manifest. It constructs an immutable release and writes a `ready_for_approval` receipt that binds the update-survival proof by SHA-256. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
 
 After reviewing the receipt, an operator approves that exact candidate:
 
@@ -81,7 +81,7 @@ The PCC Update Safety card reports:
 
 - whether normal updates are blocked,
 - whether source identity is durable,
-- whether the scheduled broker and approval command are installed,
+- whether the prepare-only broker and approval command are installed and its weekly LaunchAgent is loaded,
 - whether a candidate is waiting for approval,
 - the active release, source branch, and latest update receipt,
 - exact protection gaps that must be resolved before an update.
@@ -90,7 +90,7 @@ The card is status evidence, not permission to promote. Candidate approval remai
 
 ## Recovery
 
-Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, or RPC proof restores the prior control plane. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
+Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, RPC, or update-scheduler installation restores the prior control plane and prior scheduler state. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
 
 Never delete the previous immutable release or rollback bundle until the new runtime passes restart, desktop browser, mobile browser, and bounded soak proof.
 

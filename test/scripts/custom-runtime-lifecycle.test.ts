@@ -82,6 +82,24 @@ function writeCandidateContracts(release: string, sourceSha: string) {
   writeFile(path.join(release, "extensions", "apps", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "extensions", "book-writer", "openclaw.plugin.json"), "{}\n");
   writeFile(path.join(release, "package.json"), '{"version":"2026.6.11"}\n');
+  writeFile(
+    path.join(
+      release,
+      "scripts",
+      "custom-runtime",
+      "ai.openclaw.custom-runtime.update-weekly.plist",
+    ),
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<plist version="1.0"><dict>',
+      "<key>Label</key><string>ai.openclaw.custom-runtime.update-weekly</string>",
+      "<key>ProgramArguments</key><array><string>/stale/updater</string></array>",
+      "<key>RunAtLoad</key><false/>",
+      "<key>StartCalendarInterval</key><dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>30</integer></dict>",
+      "</dict></plist>",
+      "",
+    ].join("\n"),
+  );
   writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFile(
     path.join(release, "snapshot.json"),
@@ -348,6 +366,7 @@ describe("custom runtime lifecycle", () => {
     const sigRpcEnvMarker = path.join(root, "sig-rpc-env");
     const sigRpcUrlMarker = path.join(root, "sig-rpc-url");
     const delayedPccRouteMarker = path.join(root, "delayed-pcc-route");
+    const bootstrapMarker = path.join(root, "launchctl-bootstrap-args");
     const sourceSha = "c".repeat(64);
     const previousRelease = path.join(releases, "previous");
     const previousPointer = {
@@ -396,7 +415,16 @@ describe("custom runtime lifecycle", () => {
     );
     writeFile(
       path.join(fakeBin, "launchctl"),
-      '#!/bin/sh\ncase "${1:-}" in bootout|bootstrap) exit 0;; print) exit 1;; esac\nexit 1\n',
+      [
+        "#!/bin/sh",
+        'case "${1:-}" in',
+        "  bootout) exit 0;;",
+        `  bootstrap) printf '%s\\n' "$*" >> ${JSON.stringify(bootstrapMarker)}; exit 0;;`,
+        "  print) exit 1;;",
+        "esac",
+        "exit 1",
+        "",
+      ].join("\n"),
       0o700,
     );
     writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o700);
@@ -485,6 +513,19 @@ describe("custom runtime lifecycle", () => {
       "--port",
       "18789",
     ]);
+    expect(
+      readPlistProgramArguments(
+        path.join(
+          home,
+          "Library",
+          "LaunchAgents",
+          "ai.openclaw.custom-runtime.update-weekly.plist",
+        ),
+      ),
+    ).toEqual([path.join(runtimeHome, "bin", "custom-runtime-updater.sh")]);
+    expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(
+      path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),
+    );
     const pointer = JSON.parse(
       fs.readFileSync(path.join(runtimeHome, "active-runtime.json"), "utf8"),
     ) as {
@@ -517,6 +558,15 @@ describe("custom runtime lifecycle", () => {
       rollbackReleaseId: "previous",
     });
     expect(fs.existsSync(path.join(rollbackRegistration.bundle, "manifest.json"))).toBe(true);
+    expect(
+      JSON.parse(
+        fs
+          .readdirSync(path.join(runtimeHome, "receipts"))
+          .filter((entry) => entry.startsWith("promotion-") && entry.endsWith(".json"))
+          .map((entry) => fs.readFileSync(path.join(runtimeHome, "receipts", entry), "utf8"))
+          .find((entry) => JSON.parse(entry).result === "promoted")!,
+      ),
+    ).toMatchObject({ updateBrokerScheduled: true });
   });
 
   it("restores the previous launcher before a failed promotion restart", () => {
