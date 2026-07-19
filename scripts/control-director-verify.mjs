@@ -58,6 +58,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "src/gateway/server-methods/execution-state.test.ts",
   "src/gateway/server-methods/pcc.test.ts",
   "src/gateway/server-methods/self-improvement.test.ts",
+  "src/gateway/server-methods/tasks.test.ts",
   "src/gateway/server-startup-early.test.ts",
   "src/gateway/server-startup-post-attach.test.ts",
   "src/pcc/execution-capacity.test.ts",
