@@ -6,6 +6,7 @@ import {
 } from "../../../../../src/pcc/execution-profile.js";
 import type { PccExecutionRuntimeProjection } from "../../../../../src/pcc/execution-state-projection.js";
 import type { PccAiUsePolicy, PccPlanningMode } from "../../../../../src/pcc/project-workflows.js";
+import type { ReleaseGovernanceStatus } from "../../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../../../src/pcc/update-safety.js";
 import type {
@@ -241,6 +242,7 @@ export type PccDashboardState = {
   pccReorderMode?: boolean;
   pccRuntimeIdentity?: PccRuntimeIdentity | null;
   pccUpdateSafety?: PccUpdateSafety | null;
+  pccReleaseGovernance?: ReleaseGovernanceStatus | null;
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
   pccExecutionProjection?: PccExecutionRuntimeProjection | null;
   pccExecutionProjectionLoading?: boolean;

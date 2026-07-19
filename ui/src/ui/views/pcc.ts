@@ -57,8 +57,8 @@ import {
   buildPccWorkflowDraft,
   PCC_WORKFLOW_TEMPLATES,
 } from "../../../../src/pcc/project-workflows.js";
-import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
+import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
 import {
   getPccWorkLoopNext,
@@ -8625,8 +8625,7 @@ export function renderPccDashboard(props: PccDashboardProps) {
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)}
       ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
-      ${renderPccMobileCommandRail(props)}
-      ${renderReleaseGovernance(props)}
+      ${renderPccMobileCommandRail(props)} ${renderReleaseGovernance(props)}
 
       <div class=${focusWorkspace ? "pcc-layout pcc-layout--focus" : "pcc-layout"}>
         <section class="pcc-projects" data-pcc-mobile-section="projects" aria-label="Projects">
