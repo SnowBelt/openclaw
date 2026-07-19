@@ -61,12 +61,16 @@ function digest(filePath) {
 
 function immutableSha(value, label) {
   const sha = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!SHA_PATTERN.test(sha)) throw new Error(`${label} must be an immutable 40-character SHA.`);
+  if (!SHA_PATTERN.test(sha)) {
+    throw new Error(`${label} must be an immutable 40-character SHA.`);
+  }
   return sha;
 }
 
 function exactSha(value, expected, label) {
-  if (value !== expected) throw new Error(`${label} sourceSha does not match ${expected}.`);
+  if (value !== expected) {
+    throw new Error(`${label} sourceSha does not match ${expected}.`);
+  }
 }
 
 function validDate(value) {
@@ -109,9 +113,7 @@ function validateRuntimeSurface(name, value, sourceSha) {
 function git(repoRoot, args) {
   const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
   if (result.status !== 0) {
-    throw new Error(
-      `git ${args.join(" ")} failed: ${String(result.stderr || result.stdout).trim()}`,
-    );
+    throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
   }
   return result.stdout.trim();
 }
@@ -172,7 +174,9 @@ export function validateControlDirectorRoadmap(params) {
   }
   const byId = new Map(milestones.map((milestone) => [milestone.id, milestone]));
   for (const milestone of milestones) {
-    if (milestone.status !== "passed") throw new Error(`${milestone.id} is not passed.`);
+    if (milestone.status !== "passed") {
+      throw new Error(`${milestone.id} is not passed.`);
+    }
     if (typeof milestone.acceptance !== "string" || !milestone.acceptance.trim()) {
       throw new Error(`${milestone.id} has no acceptance contract.`);
     }
@@ -328,7 +332,9 @@ export function validateControlDirectorRoadmap(params) {
 
   const remoteProof = object(params.remoteProof, "remoteProof");
   exactSha(remoteProof.sourceSha, sourceSha, "remoteProof");
-  if (remoteProof.passed !== true) throw new Error("Remote proof has not passed.");
+  if (remoteProof.passed !== true) {
+    throw new Error("Remote proof has not passed.");
+  }
   for (const gate of ["workflowSanity", "nonAndroidCi"]) {
     const value = object(remoteProof[gate], `remoteProof.${gate}`);
     if (
@@ -383,10 +389,16 @@ function parseArgs(argv) {
   const values = new Map();
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
-    if (key === "--") continue;
-    if (!key?.startsWith("--")) throw new Error(`Unknown argument: ${key ?? ""}`);
+    if (key === "--") {
+      continue;
+    }
+    if (!key?.startsWith("--")) {
+      throw new Error(`Unknown argument: ${key ?? ""}`);
+    }
     const value = argv[++index];
-    if (!value) throw new Error(`Missing value for ${key}.`);
+    if (!value) {
+      throw new Error(`Missing value for ${key}.`);
+    }
     values.set(key.slice(2), value);
   }
   for (const key of [
@@ -398,7 +410,9 @@ function parseArgs(argv) {
     "readiness",
     "output",
   ]) {
-    if (!values.get(key)) throw new Error(`Missing --${key}.`);
+    if (!values.get(key)) {
+      throw new Error(`Missing --${key}.`);
+    }
   }
   return values;
 }
@@ -409,7 +423,9 @@ function main() {
   const roadmapPath = path.resolve(args.get("roadmap"));
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const head = git(repoRoot, ["rev-parse", "HEAD"]).toLowerCase();
-  if (head !== sourceSha) throw new Error(`HEAD ${head} does not match ${sourceSha}.`);
+  if (head !== sourceSha) {
+    throw new Error(`HEAD ${head} does not match ${sourceSha}.`);
+  }
   if (git(repoRoot, ["status", "--porcelain=v1", "--untracked-files=all"])) {
     throw new Error("Source checkout is not clean.");
   }
@@ -435,7 +451,9 @@ function main() {
   const bindings = object(roadmap.evidenceBinding, "evidenceBinding");
   for (const [name, inputPath] of Object.entries(inputPaths)) {
     const expected = resolveBinding(repoRoot, bindings[name], sourceSha);
-    if (expected !== inputPath) throw new Error(`${name} path does not match its roadmap binding.`);
+    if (expected !== inputPath) {
+      throw new Error(`${name} path does not match its roadmap binding.`);
+    }
   }
   const output = path.resolve(args.get("output"));
   const expectedOutput = resolveBinding(repoRoot, bindings.finalReceipt, sourceSha);
