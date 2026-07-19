@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildControlDirectorSourceConfig,
+  buildControlDirectorSourceGateReceipt,
   buildControlDirectorSourceGatePlan,
   CONTROL_DIRECTOR_VERIFY_REPO_ROOT,
   validateControlDirectorSourceIdentity,
@@ -28,6 +29,18 @@ describe("control-director-verify", () => {
     expect(
       validateControlDirectorSourceIdentity({ head: "main", expectedSha: sha, status: "" }),
     ).toEqual({ ok: false, reason: "HEAD is not an immutable 40-character SHA." });
+  });
+
+  it("binds the source-gate receipt to the clean exact source identity", () => {
+    expect(buildControlDirectorSourceGateReceipt(sha, [], "/tmp/clean-source")).toMatchObject({
+      schemaVersion: 2,
+      sourceSha: sha,
+      expectedSha: sha,
+      sourceRoot: "/tmp/clean-source",
+      sourceClean: true,
+      identityVerified: true,
+      passed: false,
+    });
   });
 
   it("uses the role-scoped Gemma default with a safe selectable local alternative", () => {
@@ -76,6 +89,9 @@ describe("control-director-verify", () => {
     );
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "test/scripts/control-director-role-config.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "test/scripts/control-director-roadmap-proof.test.ts",
     );
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "test/scripts/custom-runtime-lifecycle.test.ts",

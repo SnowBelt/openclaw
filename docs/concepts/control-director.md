@@ -176,6 +176,21 @@ pnpm control-director:runtime-proof -- \
 
 The assembler hashes every input, requires timestamps and evidence references, rejects a soak shorter than five minutes, and refuses mismatched source SHAs or incomplete cold/warm model-evaluation coverage.
 
+For a milestone program, the roadmap's `passed` fields are not sufficient by themselves. Bind the final committed ledger to the clean source gate, managed runtime proof, all-job remote gates, and production-readiness scorecard after the final SHA is landed and active:
+
+```bash
+pnpm control-director:roadmap-proof -- \
+  --source-sha "$SHA" \
+  --roadmap work/control-director/reliability-v1/roadmap.json \
+  --source-proof ".artifacts/control-director/source-gates-$SHA.json" \
+  --runtime-proof ".artifacts/control-director/runtime-$SHA/runtime-proof.json" \
+  --remote-proof ".artifacts/control-director/remote-gates-$SHA.json" \
+  --readiness ".artifacts/control-director/runtime-$SHA/readiness.json" \
+  --output ".artifacts/control-director/final-ledger-$SHA.json"
+```
+
+The final-ledger command rejects a dirty or mismatched checkout, any milestone other than M01-M60 marked `passed`, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, or an incomplete managed-runtime truth surface. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
+
 ## Questions to ask during a reliability review
 
 - Did the server persist an acknowledgement, or did only the browser optimistically render one?

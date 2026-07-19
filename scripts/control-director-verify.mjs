@@ -19,6 +19,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-format-check.test.ts",
   "test/scripts/control-director-readiness.test.ts",
   "test/scripts/control-director-role-config.test.ts",
+  "test/scripts/control-director-roadmap-proof.test.ts",
   "test/scripts/control-director-runtime-proof.test.ts",
   "test/scripts/control-director-verify.test.ts",
   "test/scripts/custom-runtime-lifecycle.test.ts",
@@ -246,10 +247,18 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function initialReceipt(sourceSha, plan) {
+export function buildControlDirectorSourceGateReceipt(
+  sourceSha,
+  plan,
+  sourceRoot = CONTROL_DIRECTOR_VERIFY_REPO_ROOT,
+) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha,
+    expectedSha: sourceSha,
+    sourceRoot,
+    sourceClean: true,
+    identityVerified: true,
     passed: false,
     generatedAt: new Date().toISOString(),
     torture: { passed: false },
@@ -364,7 +373,7 @@ async function main() {
 
   const receiptPath = path.join(args.artifactDir, `source-gates-${expectedSha}.json`);
   const configPath = path.join(args.artifactDir, `source-config-${expectedSha}.json`);
-  const receipt = initialReceipt(expectedSha, plan);
+  const receipt = buildControlDirectorSourceGateReceipt(expectedSha, plan);
   writeJson(configPath, buildControlDirectorSourceConfig());
   writeJson(receiptPath, receipt);
 
