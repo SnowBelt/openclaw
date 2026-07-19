@@ -268,6 +268,24 @@ describe("self-improvement recommendation store", () => {
       id: "sir_test",
       status: "resolved",
       resolutionProof: "pnpm test passed",
+      controlDirectorClosure: {
+        schemaVersion: 1,
+        recommendationId: "sir_test",
+        signalCode: "delivery_miss",
+        owner: "codex",
+        slaAt: Date.parse("2026-05-08T12:00:00.000Z"),
+        observation: {
+          startedAt: Date.parse("2026-05-07T12:00:00.000Z"),
+          endedAt: Date.parse("2026-05-07T12:20:00.000Z"),
+          minimumDurationMs: 60_000,
+        },
+        recurrenceCount: 0,
+        targetRecurrenceCount: 0,
+        proofReceiptId: "proof-1",
+        judgeReceiptId: "judge-1",
+        closedAt: Date.parse("2026-05-07T12:20:00.000Z"),
+        status: "closed",
+      },
       now: Date.parse("2026-05-07T12:20:00.000Z"),
     });
 
@@ -288,6 +306,11 @@ describe("self-improvement recommendation store", () => {
       recurrenceCount: 2,
       resolutionProof: "pnpm test passed",
       resolutionProofState: "stale",
+      controlDirectorClosure: {
+        status: "reopened",
+        recurrenceCount: 1,
+        lastRecurrenceAt: Date.parse("2026-05-07T12:30:00.000Z"),
+      },
     });
   });
 

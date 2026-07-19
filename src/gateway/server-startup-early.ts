@@ -125,13 +125,17 @@ export async function startGatewayEarlyRuntime(params: {
         params.log.warn(`Context-window cache warmup failed to start: ${String(err)}`);
       });
 
-    const [{ primeRemoteSkillsCache, setSkillsRemoteRegistry }, taskRegistryMaintenance] =
-      await measureStartup(params.startupTrace, "runtime.early.lazy-runtime-imports", () =>
-        Promise.all([
-          loadRemoteSkillsRuntimeModule(),
-          import("../tasks/task-registry.maintenance.js"),
-        ]),
-      );
+    const [
+      { primeRemoteSkillsCache, setSkillsRemoteRegistry },
+      taskRegistryMaintenance,
+      pursueGoalController,
+    ] = await measureStartup(params.startupTrace, "runtime.early.lazy-runtime-imports", () =>
+      Promise.all([
+        loadRemoteSkillsRuntimeModule(),
+        import("../tasks/task-registry.maintenance.js"),
+        import("../tasks/pursue-goal-controller.js"),
+      ]),
+    );
     setSkillsRemoteRegistry(params.nodeRegistry);
     void primeRemoteSkillsCache();
     // Task registry maintenance is authoritative in the Gateway process so
@@ -141,6 +145,7 @@ export async function startGatewayEarlyRuntime(params: {
       runtimeAuthoritative: true,
     });
     taskRegistryMaintenance.startTaskRegistryMaintenance();
+    pursueGoalController.startPursueGoalControllers();
     getActiveTaskCount = () =>
       taskRegistryMaintenance.getInspectableActiveTaskRestartBlockers().length;
   }

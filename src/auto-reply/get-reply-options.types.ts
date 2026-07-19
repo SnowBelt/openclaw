@@ -4,6 +4,7 @@ import type { ImageContent } from "../llm/types.js";
 import type { PromptImageOrderEntry } from "../media/prompt-image-order.js";
 import type { UserTurnTranscriptRecorder } from "../sessions/user-turn-transcript.types.js";
 import type { ReplyPayload } from "./reply-payload.js";
+import type { QueueMode } from "./reply/queue/types.js";
 import type { TypingController } from "./reply/typing.js";
 
 export type BlockReplyContext = {
@@ -112,6 +113,8 @@ export type GetReplyOptions = {
   fastModeOverride?: FastMode;
   /** One-shot auto fast-mode cutoff override in seconds; does not persist to the session. */
   fastModeAutoOnSecondsOverride?: number;
+  /** One-shot queue admission override; never persists to session configuration. */
+  queueModeOverride?: QueueMode;
   /** Controls bootstrap workspace context injection (default: full). */
   bootstrapContextMode?: "full" | "lightweight";
   /** If true, suppress tool error warning payloads for this run. */
@@ -122,6 +125,8 @@ export type GetReplyOptions = {
   disableTools?: boolean;
   /** Runtime tool allow-list for this turn. Empty means no tools. */
   toolsAllow?: string[];
+  /** Preserve the bounded skills catalog when a trusted compiler supplies a narrow tool allow-list. */
+  retainSkillsWithToolsAllow?: boolean;
   /** If true, include the heartbeat response tool for structured heartbeat outcomes. */
   enableHeartbeatTool?: boolean;
   /** If true, keep the heartbeat response tool available even under narrow tool profiles. */

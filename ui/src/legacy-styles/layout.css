@@ -681,6 +681,9 @@
 .sidebar-recent-sessions__list {
   display: grid;
   gap: 4px;
+  max-height: min(44vh, 440px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* UX-009 — Sidebar session search */
@@ -780,13 +783,12 @@
   z-index: var(--z-dropdown);
 }
 
-.sidebar-recent-session {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
+.sidebar-recent-session-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   min-height: 40px;
-  padding: 7px 9px;
+  padding: 0 4px 0 0;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--muted);
@@ -797,7 +799,71 @@
     color var(--duration-fast) ease;
 }
 
-.sidebar-recent-session:hover {
+.sidebar-recent-session {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 5px 7px 9px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-recent-session__link:hover {
+  text-decoration: none;
+}
+
+.sidebar-recent-session__actions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.sidebar-recent-session-row:hover .sidebar-recent-session__actions,
+.sidebar-recent-session-row:focus-within .sidebar-recent-session__actions,
+.sidebar-recent-session__actions:has(button[title^="Unpin"]) {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .sidebar-recent-session__actions {
+    opacity: 1;
+  }
+}
+
+.sidebar-recent-session__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sidebar-recent-session__action:hover,
+.sidebar-recent-session__action:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.sidebar-recent-session__action svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7px;
+}
+
+.sidebar-recent-session-row:hover {
   background: color-mix(in srgb, var(--bg-hover) 78%, transparent);
   border-color: color-mix(in srgb, var(--border) 70%, transparent);
   color: var(--text);

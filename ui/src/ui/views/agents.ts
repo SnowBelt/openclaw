@@ -454,7 +454,7 @@ function renderAgentTabs(
     { id: "skills", label: t("agents.tabs.skills") },
     { id: "channels", label: t("agents.tabs.channels") },
     { id: "cron", label: t("agents.tabs.cronJobs") },
-    { id: "self-improvement", label: "Self-Improvement" },
+    { id: "self-improvement", label: "System Quality" },
   ];
   return html`
     <div class="agent-tabs">

@@ -6,7 +6,13 @@
  */
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildTtsSystemPromptHint } from "../tts/tts.js";
+import {
+  buildAgentRoleCapabilitySystemPromptSection,
+  resolveAgentRoleCapabilityContract,
+} from "./agent-role-capabilities.js";
 import { resolveAgentConfig } from "./agent-scope.js";
+import { buildControlDirectorSystemPromptSection } from "./control-director-contract.js";
+import { isConfiguredControlDirectorAgent } from "./control-director-role.js";
 import { buildModelAliasLines } from "./model-alias-lines.js";
 import { resolveOwnerDisplaySetting } from "./owner-display.js";
 import { buildAgentSystemPrompt } from "./system-prompt.js";
@@ -58,8 +64,22 @@ export function resolveAgentSystemPromptConfig(params: {
 export function buildConfiguredAgentSystemPrompt(params: ConfiguredAgentSystemPromptParams) {
   const { config, agentId, ...renderParams } = params;
   const configParams = config ? resolveAgentSystemPromptConfig({ config, agentId }) : {};
+  const controlDirectorContract = isConfiguredControlDirectorAgent({ config, agentId })
+    ? buildControlDirectorSystemPromptSection("control-director").join("\n")
+    : undefined;
+  const roleCapabilityContract = buildAgentRoleCapabilitySystemPromptSection(
+    resolveAgentRoleCapabilityContract({ config, agentId }),
+  );
+  const extraSystemPrompt = [
+    controlDirectorContract,
+    roleCapabilityContract,
+    renderParams.extraSystemPrompt?.trim(),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n\n");
   return buildAgentSystemPrompt({
     ...renderParams,
+    ...(extraSystemPrompt ? { extraSystemPrompt } : {}),
     ...configParams,
   });
 }

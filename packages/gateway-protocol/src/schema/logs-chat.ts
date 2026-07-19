@@ -86,6 +86,9 @@ export const ChatSendParamsSchema = Type.Object(
     fastMode: Type.Optional(Type.Union([Type.Boolean(), Type.Literal("auto")])),
     // One-turn override for auto fast-mode cutoff seconds.
     fastAutoOnSeconds: Type.Optional(Type.Integer({ minimum: 1 })),
+    // One-turn admission policy. This never changes the session's configured
+    // queue mode and lets an operator deliberately queue or steer an active run.
+    turnMode: Type.Optional(Type.Union([Type.Literal("queue"), Type.Literal("steer")])),
     deliver: Type.Optional(Type.Boolean()),
     originatingChannel: Type.Optional(Type.String()),
     originatingTo: Type.Optional(Type.String()),

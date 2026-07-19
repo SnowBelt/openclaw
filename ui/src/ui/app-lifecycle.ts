@@ -27,6 +27,11 @@ import {
   syncThemeWithSettings,
 } from "./app-settings.ts";
 import { persistChatComposerState, restoreChatComposerState } from "./chat/composer-persistence.ts";
+import {
+  connectControlDirectorLayoutHealth,
+  disconnectControlDirectorLayoutHealth,
+  scheduleControlDirectorLayoutHealthCheck,
+} from "./chat/layout-health.ts";
 import { startControlUiResponsivenessObserver } from "./control-ui-performance.ts";
 import { loadControlUiBootstrapConfig } from "./controllers/control-ui-bootstrap.ts";
 import { stopWorkboardLifecycleRefresh, stopWorkboardPolling } from "./controllers/workboard.ts";
@@ -148,10 +153,16 @@ export function handleConnected(host: LifecycleHost) {
   host.controlUiResponsivenessObserver ??= startControlUiResponsivenessObserver(
     host as unknown as Parameters<typeof startControlUiResponsivenessObserver>[0],
   );
+  connectControlDirectorLayoutHealth(
+    host as unknown as Parameters<typeof connectControlDirectorLayoutHealth>[0],
+  );
 }
 
 export function handleFirstUpdated(host: LifecycleHost) {
   observeTopbar(host as unknown as Parameters<typeof observeTopbar>[0]);
+  scheduleControlDirectorLayoutHealthCheck(
+    host as unknown as Parameters<typeof scheduleControlDirectorLayoutHealthCheck>[0],
+  );
 }
 
 function cancelHostAnimationFrame(frame: number | null | undefined) {
@@ -247,6 +258,9 @@ export function handleDisconnected(host: LifecycleHost) {
   host.topbarObserver = null;
   host.controlUiResponsivenessObserver?.disconnect();
   host.controlUiResponsivenessObserver = null;
+  disconnectControlDirectorLayoutHealth(
+    host as unknown as Parameters<typeof disconnectControlDirectorLayoutHealth>[0],
+  );
 }
 
 export function handleUpdated(host: LifecycleHost, changed: Map<PropertyKey, unknown>) {
@@ -260,6 +274,11 @@ export function handleUpdated(host: LifecycleHost, changed: Map<PropertyKey, unk
     }
   } else if (changed.has("chatMessage")) {
     scheduleChatComposerDraftPersistence(host);
+  }
+  if (host.tab === "chat") {
+    scheduleControlDirectorLayoutHealthCheck(
+      host as unknown as Parameters<typeof scheduleControlDirectorLayoutHealthCheck>[0],
+    );
   }
   if (host.tab === "chat" && host.chatManualRefreshInFlight) {
     return;

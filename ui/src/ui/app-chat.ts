@@ -1,3 +1,7 @@
+import type {
+  ChatTurnSummary,
+  ExecutionStateSnapshot,
+} from "../../../packages/gateway-protocol/src/index.js";
 // Control UI module implements app chat behavior.
 import { isNonTerminalAgentRunStatus } from "../../../src/shared/agent-run-status.js";
 import { setLastActiveSessionKey } from "./app-last-active-session.ts";
@@ -44,6 +48,7 @@ import {
 import {
   abortChatRun,
   appendUserChatMessage,
+  buildApiAttachments,
   loadChatHistory,
   requestChatSend,
   requestSkillWorkshopRevisionChatSend,
@@ -120,6 +125,7 @@ export type ChatHost = ChatInputHistoryState & {
   chatModelSwitchPromises?: Record<string, Promise<boolean>>;
   chatModelsLoading: boolean;
   chatModelCatalog: ModelCatalogEntry[];
+  chatExecutionState?: ExecutionStateSnapshot | null;
   sessionsResult?: SessionsListResult | null;
   sessionsError?: string | null;
   sessionsShowArchived?: boolean;
@@ -188,6 +194,7 @@ export type ChatSendOptions = {
   flowId?: string;
   restoreDraft?: boolean;
   skillWorkshopRevision?: ChatQueueSkillWorkshopRevision;
+  turnMode?: "queue" | "steer";
 };
 
 export type ChatAbortOptions = {
@@ -528,6 +535,209 @@ function writeChatQueueForSession(host: ChatHost, sessionKey: string, queue: Cha
   host.requestUpdate?.();
 }
 
+type ChatTurnsListResponse = { turns?: ChatTurnSummary[] };
+
+function isExecutionStateSnapshot(
+  value: ChatTurnsListResponse | ExecutionStateSnapshot,
+): value is ExecutionStateSnapshot {
+  return (
+    "snapshotRevision" in value &&
+    typeof value.snapshotRevision === "string" &&
+    "sessionKey" in value &&
+    typeof value.sessionKey === "string" &&
+    "health" in value
+  );
+}
+type ChatTurnResponse = { turn?: ChatTurnSummary };
+type ChatTurnMutationResponse = {
+  found?: boolean;
+  applied?: boolean;
+  reason?: string;
+  turn?: ChatTurnSummary;
+};
+
+function queueItemFromServerTurn(turn: ChatTurnSummary, existing?: ChatQueueItem): ChatQueueItem {
+  return {
+    id: turn.id,
+    text: turn.message,
+    createdAt: turn.createdAt,
+    kind: turn.mode === "steer" ? "steered" : "queued",
+    ...(existing?.attachments?.length ? { attachments: existing.attachments } : {}),
+    sessionKey: turn.sessionKey,
+    ...(turn.agentId ? { agentId: turn.agentId } : {}),
+    serverTurnId: turn.id,
+    serverRevision: turn.revision,
+    serverPhase: turn.phase,
+    ...(turn.activitySummary ? { serverActivitySummary: turn.activitySummary } : {}),
+    serverLastActivityAt: turn.lastActivityAt,
+    serverAdmissionOpen: turn.admissionOpen,
+    serverAttachmentCount: turn.attachmentCount,
+    ...(turn.runId ? { sendRunId: turn.runId } : {}),
+    ...(turn.phase === "failed" ? { sendState: "failed" as const } : {}),
+    ...(turn.lastError ? { sendError: turn.lastError } : {}),
+  };
+}
+
+function applyServerTurnToQueue(host: ChatHost, turn: ChatTurnSummary): ChatQueueItem {
+  const sessionKey = turn.sessionKey;
+  const queue = readChatQueueForSession(host, sessionKey);
+  const existing = queue.find((entry) => entry.serverTurnId === turn.id || entry.id === turn.id);
+  const next = queueItemFromServerTurn(turn, existing);
+  writeChatQueueForSession(
+    host,
+    sessionKey,
+    [
+      ...queue.filter((entry) => entry.serverTurnId !== turn.id && entry.id !== turn.id),
+      next,
+    ].toSorted((left, right) => left.createdAt - right.createdAt),
+  );
+  return next;
+}
+
+export async function loadServerChatTurns(
+  host: ChatHost,
+  sessionKey = host.sessionKey,
+): Promise<void> {
+  if (!host.client || !host.connected) {
+    return;
+  }
+  if (isGatewayMethodAdvertised(host as unknown as ChatState, "chat.turns.list") !== true) {
+    return;
+  }
+  const client = host.client;
+  try {
+    const response =
+      isGatewayMethodAdvertised(host as unknown as ChatState, "executionState.get") === true
+        ? await client.request<ExecutionStateSnapshot>("executionState.get", {
+            sessionKey,
+            includeTerminal: true,
+          })
+        : await client.request<ChatTurnsListResponse>("chat.turns.list", {
+            sessionKey,
+            includeTerminal: true,
+          });
+    if (host.client !== client || !host.connected) {
+      return;
+    }
+    const visibleTurns = (response.turns ?? []).filter(
+      (turn) => turn.phase !== "delivered" && turn.phase !== "cancelled",
+    );
+    if (isExecutionStateSnapshot(response)) {
+      host.chatExecutionState = response;
+    }
+    const visibleIds = new Set(visibleTurns.map((turn) => turn.id));
+    const queue = readChatQueueForSession(host, sessionKey);
+    const retainedLocal = queue.filter(
+      (entry) => !entry.serverTurnId || visibleIds.has(entry.serverTurnId),
+    );
+    const removed = queue.filter(
+      (entry) => entry.serverTurnId && !visibleIds.has(entry.serverTurnId),
+    );
+    const existingById = new Map(
+      retainedLocal
+        .filter((entry) => entry.serverTurnId)
+        .map((entry) => [entry.serverTurnId!, entry] as const),
+    );
+    const localOnly = retainedLocal.filter((entry) => !entry.serverTurnId);
+    const serverItems = visibleTurns.map((turn) =>
+      queueItemFromServerTurn(turn, existingById.get(turn.id)),
+    );
+    writeChatQueueForSession(
+      host,
+      sessionKey,
+      [...localOnly, ...serverItems].toSorted((left, right) => left.createdAt - right.createdAt),
+    );
+    for (const item of removed) {
+      releaseChatAttachmentPayloads(excludeComposerAttachments(host, item.attachments));
+    }
+  } catch (error) {
+    // Older or temporarily unavailable gateways keep the browser queue usable.
+    setChatError(host, `Could not refresh queued turns: ${formatConnectError(error)}`);
+  }
+}
+
+async function createServerChatTurn(
+  host: ChatHost,
+  item: ChatQueueItem,
+  mode: "queue" | "steer",
+): Promise<boolean> {
+  if (!host.client || !host.connected) {
+    return false;
+  }
+  if (isGatewayMethodAdvertised(host as unknown as ChatState, "chat.turns.create") !== true) {
+    return false;
+  }
+  try {
+    const response = await host.client.request<ChatTurnResponse>("chat.turns.create", {
+      sessionKey: item.sessionKey ?? host.sessionKey,
+      ...(item.agentId ? { agentId: item.agentId } : {}),
+      message: item.text,
+      attachments: buildApiAttachments(item.attachments),
+      mode,
+      idempotencyKey: item.sendRunId ?? item.id,
+    });
+    if (!response.turn) {
+      throw new Error("Gateway returned no queued turn.");
+    }
+    const queue = readChatQueueForSession(host, item.sessionKey ?? host.sessionKey);
+    const local = queue.find((entry) => entry.id === item.id);
+    writeChatQueueForSession(
+      host,
+      item.sessionKey ?? host.sessionKey,
+      queue.filter((entry) => entry.id !== item.id),
+    );
+    applyServerTurnToQueue(host, response.turn);
+    const mapped = readChatQueueForSession(host, response.turn.sessionKey).find(
+      (entry) => entry.serverTurnId === response.turn?.id,
+    );
+    if (mapped && local?.attachments?.length) {
+      updateQueuedMessageForSession(host, response.turn.sessionKey, mapped.id, (entry) => ({
+        ...entry,
+        attachments: local.attachments,
+      }));
+    }
+    return true;
+  } catch (error) {
+    updateQueuedMessageForSession(host, item.sessionKey ?? host.sessionKey, item.id, (entry) => ({
+      ...entry,
+      sendState: "failed",
+      sendError: formatConnectError(error),
+    }));
+    setChatError(host, `Could not queue the message: ${formatConnectError(error)}`);
+    return false;
+  }
+}
+
+async function mutateServerChatTurn(
+  host: ChatHost,
+  item: ChatQueueItem,
+  method: "chat.turns.setMode" | "chat.turns.cancel" | "chat.turns.retry",
+  extra: Record<string, unknown> = {},
+): Promise<ChatTurnMutationResponse | null> {
+  if (!host.client || !host.connected || !item.serverTurnId || item.serverRevision == null) {
+    return null;
+  }
+  try {
+    const response = await host.client.request<ChatTurnMutationResponse>(method, {
+      turnId: item.serverTurnId,
+      sessionKey: item.sessionKey ?? host.sessionKey,
+      expectedRevision: item.serverRevision,
+      idempotencyKey: generateUUID(),
+      ...extra,
+    });
+    if (response.turn) {
+      applyServerTurnToQueue(host, response.turn);
+    }
+    if (!response.applied && response.reason === "revision_conflict") {
+      await loadServerChatTurns(host, item.sessionKey ?? host.sessionKey);
+    }
+    return response;
+  } catch (error) {
+    setChatError(host, formatConnectError(error));
+    return null;
+  }
+}
+
 function updateQueuedMessageForSession(
   host: ChatHost,
   sessionKey: string,
@@ -653,6 +863,7 @@ type ChatSendTimingPhase =
   | "first-assistant-visible"
   | "terminal-before-delta"
   | "queued-busy"
+  | "queued-server"
   | "waiting-model"
   | "waiting-reconnect"
   | "failed";
@@ -1469,16 +1680,23 @@ async function sendDetachedBtwMessage(
 }
 
 export async function steerQueuedChatMessage(host: ChatHost, id: string) {
-  if (!host.connected || !host.chatRunId) {
-    return;
-  }
-  const activeRunId = host.chatRunId;
-  const item = host.chatQueue.find(
-    (entry) => entry.id === id && !entry.pendingRunId && !entry.localCommandName,
-  );
+  const item = host.chatQueue.find((entry) => entry.id === id);
   if (!item) {
     return;
   }
+  if (item.serverTurnId) {
+    if (!item.serverAdmissionOpen) {
+      return;
+    }
+    await mutateServerChatTurn(host, item, "chat.turns.setMode", {
+      mode: item.kind === "steered" ? "queue" : "steer",
+    });
+    return;
+  }
+  if (!host.connected || !host.chatRunId || item.pendingRunId || item.localCommandName) {
+    return;
+  }
+  const activeRunId = host.chatRunId;
   const message = item.text.trim();
   const attachments = item.attachments ?? [];
   const hasAttachments = attachments.length > 0;
@@ -1518,6 +1736,7 @@ async function flushChatQueue(host: ChatHost) {
   }
   const nextIndex = host.chatQueue.findIndex(
     (item) =>
+      !item.serverTurnId &&
       !item.pendingRunId &&
       item.sendState !== "sending" &&
       item.sendState !== "waiting-model" &&
@@ -1666,7 +1885,19 @@ export function flushChatQueueAfterIdleSessionReconciliation(
   });
 }
 
-export function removeQueuedMessage(host: ChatHost, id: string) {
+export async function removeQueuedMessage(host: ChatHost, id: string) {
+  const serverItem = host.chatQueue.find((item) => item.id === id && item.serverTurnId);
+  if (serverItem) {
+    const result = await mutateServerChatTurn(host, serverItem, "chat.turns.cancel");
+    if (result?.applied || result?.found === false) {
+      const removed = host.chatQueue.filter((item) => item.id === id);
+      host.chatQueue = host.chatQueue.filter((item) => item.id !== id);
+      for (const item of removed) {
+        releaseChatAttachmentPayloads(excludeComposerAttachments(host, item.attachments));
+      }
+    }
+    return;
+  }
   const removed = host.chatQueue.filter((item) => item.id === id);
   host.chatQueue = host.chatQueue.filter((item) => item.id !== id);
   for (const item of removed) {
@@ -1748,6 +1979,7 @@ export async function retryReconnectableQueuedChatSends(host: ChatHost) {
   for (const sessionKey of sessionKeys) {
     const item = readChatQueueForSession(host, sessionKey).find(
       (entry) =>
+        !entry.serverTurnId &&
         entry.sendRunId &&
         entry.sendState === "waiting-reconnect" &&
         !entry.pendingRunId &&
@@ -1768,6 +2000,10 @@ export async function retryReconnectableQueuedChatSends(host: ChatHost) {
 
 export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   const item = host.chatQueue.find((entry) => entry.id === id);
+  if (item?.serverTurnId) {
+    await mutateServerChatTurn(host, item, "chat.turns.retry");
+    return;
+  }
   if (
     !item ||
     item.localCommandName ||
@@ -1938,6 +2174,27 @@ export async function handleSendChat(
       return;
     }
 
+    const serverInboxAdvertised =
+      !opts?.flowId &&
+      isGatewayMethodAdvertised(host as unknown as ChatState, "chat.turns.create") === true;
+    if (serverInboxAdvertised) {
+      const pending = updateQueuedMessage(host, queued.id, (item) => ({
+        ...item,
+        sendError: undefined,
+        sendState: undefined,
+      }));
+      recordChatSendTiming(
+        host,
+        queued,
+        isChatBusy(host) ? "queued-busy" : "queued-server",
+        submittedAtMs,
+      );
+      if (pending) {
+        await createServerChatTurn(host, pending, opts?.turnMode ?? "queue");
+      }
+      return;
+    }
+
     if (isChatBusy(host)) {
       if (opts?.flowId) {
         cancelPendingSendBeforeRequest(host, queued, {
@@ -1953,6 +2210,7 @@ export async function handleSendChat(
         sendState: undefined,
       }));
       recordChatSendTiming(host, queued, "queued-busy", submittedAtMs);
+      // Legacy gateways without the durable inbox keep their browser-local queue.
       return;
     }
 
@@ -2123,6 +2381,7 @@ export async function refreshChat(
   const historyLoad = loadChatHistory(host as unknown as ChatState, {
     startup: opts?.startup === true,
   });
+  const serverTurnsRefresh = loadServerChatTurns(host, refreshedSessionKey);
   const historyRefresh = historyLoad.finally(() => {
     if (opts?.scheduleScroll !== false) {
       scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
@@ -2162,9 +2421,11 @@ export async function refreshChat(
     sessionsRefresh,
     previousSessionsResult,
   );
-  const secondaryRefresh = Promise.allSettled([sessionsRefresh, startupMetadataRefresh]).finally(
-    requestUpdate,
-  );
+  const secondaryRefresh = Promise.allSettled([
+    sessionsRefresh,
+    startupMetadataRefresh,
+    serverTurnsRefresh,
+  ]).finally(requestUpdate);
   scheduleChatMetadataRefresh(() => {
     if (host.sessionKey !== refreshedSessionKey || !host.connected) {
       return;

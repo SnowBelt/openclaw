@@ -85,6 +85,36 @@ One component can create at most 20 distinct low/medium signals per hour; excess
 noise is coalesced into a deterministic budget bucket. Trusted high/critical
 signals bypass that budget and wake the background analyzer immediately.
 
+### Control Director user-journey signals
+
+The [Control Director](/concepts/control-director) emits a closed versioned set
+of user-journey signals for silence, activity gaps, stalled goals, recent-memory
+misses, Chat layout obstruction, title failures, queue/steer races,
+terminal-delivery misses, proofless completion, and managed-runtime lineage
+mismatch. The signal code is preserved on the recommendation source so closure
+cannot be substituted with proof from another journey. These signals make the
+systemic reliability of the Control Director a SIG responsibility without
+giving SIG authority to implement or deploy a fix.
+
+Runtime paths emit their own trusted observations. For DOM-only layout failures,
+the authenticated Control UI sends a closed reason and bounded viewport/element
+geometry through `selfImprovement.controlDirector.layout.report`. The Gateway
+re-derives the obstruction before emitting trusted SIG evidence; arbitrary
+client text is neither accepted nor copied into the signal.
+
+Resolving one of these recommendations requires all of the following in the
+same update: the exact signal code, assigned owner, SLA, recurrence count,
+observation window, current proof receipt, and a valid signed independent Judge
+receipt bound to the same claim. The Gateway rejects mismatched or stale closure
+material. Novel recurrence reopens the recommendation, marks the prior proof
+stale, and requires a fresh observation window.
+
+Control Director self-healing is separate from SIG implementation authority.
+The runtime may perform only allowlisted, reversible reconciliation such as a
+bounded terminal-delivery retry or stale-goal repair. Each attempt has a
+cooldown, attempt ceiling, evidence, and rollback reference. Exhaustion emits a
+new typed signal and escalates to the assigned owner rather than looping.
+
 Future integrated components should implement the version 1 admission contract:
 component owner, expected outcome, SLO, proof requirements, rollback,
 retention/privacy policy, capability list, and `observe` or `recommend`
@@ -177,6 +207,10 @@ signal, diagnosis, corrective action, target metric, observed metric,
 observation window, optional holdout, and bounded evidence references. Failed
 receipts remain durable evidence but do not unlock closure. A correlated
 recurrence reopens the causal recommendation and marks the previous proof stale.
+
+For typed Control Director journey findings, the stricter exact-signal closure
+contract above also applies, including an independently signed claim-bound Judge
+receipt. Generic recommendation proof cannot close a Control Director journey.
 
 ## Improvement Intelligence
 

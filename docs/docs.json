@@ -1188,6 +1188,7 @@
                 "pages": [
                   "concepts/architecture",
                   "concepts/agent",
+                  "concepts/control-director",
                   "concepts/agent-loop",
                   "concepts/agent-runtimes",
                   "concepts/system-prompt",

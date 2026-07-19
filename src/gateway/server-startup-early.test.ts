@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   ensureContextWindowCacheLoaded: vi.fn(),
   configureTaskRegistryMaintenance: vi.fn(),
   startTaskRegistryMaintenance: vi.fn(),
+  startPursueGoalControllers: vi.fn(),
   getInspectableActiveTaskRestartBlockers: vi.fn(),
 }));
 
@@ -46,6 +47,10 @@ vi.mock("../tasks/task-registry.maintenance.js", () => ({
   configureTaskRegistryMaintenance: mocks.configureTaskRegistryMaintenance,
   startTaskRegistryMaintenance: mocks.startTaskRegistryMaintenance,
   getInspectableActiveTaskRestartBlockers: mocks.getInspectableActiveTaskRestartBlockers,
+}));
+
+vi.mock("../tasks/pursue-goal-controller.js", () => ({
+  startPursueGoalControllers: mocks.startPursueGoalControllers,
 }));
 
 import { startGatewayEarlyRuntime, startGatewayPluginDiscovery } from "./server-startup-early.js";
@@ -99,6 +104,7 @@ describe("startGatewayEarlyRuntime", () => {
     mocks.ensureContextWindowCacheLoaded.mockResolvedValue(undefined);
     mocks.configureTaskRegistryMaintenance.mockReset();
     mocks.startTaskRegistryMaintenance.mockReset();
+    mocks.startPursueGoalControllers.mockReset();
     mocks.getInspectableActiveTaskRestartBlockers.mockReset();
     mocks.getInspectableActiveTaskRestartBlockers.mockReturnValue([]);
   });
@@ -126,6 +132,7 @@ describe("startGatewayEarlyRuntime", () => {
     expect(mocks.primeRemoteSkillsCache).toHaveBeenCalledTimes(1);
     expect(mocks.configureTaskRegistryMaintenance).toHaveBeenCalledTimes(1);
     expect(mocks.startTaskRegistryMaintenance).toHaveBeenCalledTimes(1);
+    expect(mocks.startPursueGoalControllers).toHaveBeenCalledTimes(1);
     expect(mocks.registerSkillsChangeListener).toHaveBeenCalledTimes(1);
     expect(earlyRuntime.getActiveTaskCount()).toBe(1);
 

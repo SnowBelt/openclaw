@@ -27,6 +27,16 @@ function expectSchemaFailurePath(result: SchemaParseResult, expectedPathPrefix: 
 }
 
 describe("agent defaults schema", () => {
+  it("accepts only declared operational roles", () => {
+    expect(AgentEntrySchema.parse({ id: "main", role: "control_director" }).role).toBe(
+      "control_director",
+    );
+    expectSchemaFailurePath(
+      AgentEntrySchema.safeParse({ id: "main", role: "director-by-name" }),
+      "role",
+    );
+  });
+
   it("accepts utility models on defaults and agent entries", () => {
     const defaults = AgentDefaultsSchema.parse({ utilityModel: "openai/gpt-5.4-mini" })!;
     const agent = AgentEntrySchema.parse({

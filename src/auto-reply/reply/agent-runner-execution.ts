@@ -2669,6 +2669,7 @@ async function runAgentTurnWithFallbackInternal(
                     currentInboundEventKind: params.followupRun.currentInboundEventKind,
                     currentInboundContext: params.followupRun.currentInboundContext,
                     extraSystemPrompt: params.followupRun.run.extraSystemPrompt,
+                    retainSkillsWithToolsAllow: params.opts?.retainSkillsWithToolsAllow,
                     sourceReplyDeliveryMode: params.followupRun.run.sourceReplyDeliveryMode,
                     forceMessageTool:
                       params.followupRun.run.sourceReplyDeliveryMode === "message_tool_only",

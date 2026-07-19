@@ -2,6 +2,7 @@ import {
   ErrorCodes,
   errorShape,
   formatValidationErrors,
+  validateControlDirectorLayoutObservationReportParams,
   validateSelfImprovementAnalysisRunParams,
   validateSelfImprovementDashboardInterventionParams,
   validateSelfImprovementAuditEventsListParams,
@@ -30,9 +31,11 @@ import type {
   SelfImprovementRecommendationsListParams,
   SelfImprovementRecommendationsSummaryParams,
 } from "../../../packages/gateway-protocol/src/schema/self-improvement.js";
+import { isConfiguredControlDirectorAgent } from "../../agents/control-director-role.js";
 import { resolveStateDir } from "../../config/paths.js";
 import { readGatewayRuntimeSnapshotProvenance } from "../../daemon/gateway-runtime-snapshot.js";
 import { formatErrorMessage } from "../../infra/errors.js";
+import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { deriveSelfImprovementRecommendationActionability } from "../../self-improvement/actionability.js";
 import { runSelfImprovementAnalysis } from "../../self-improvement/analysis.js";
 import {
@@ -40,6 +43,12 @@ import {
   appendSelfImprovementModelPreflightAuditEvent,
   listSelfImprovementAuditEvents,
 } from "../../self-improvement/audit-events.js";
+import {
+  evaluateControlDirectorJourneyClosure,
+  type ControlDirectorJourneyClosure,
+} from "../../self-improvement/control-director-closure.js";
+import { emitControlDirectorJourneySignal } from "../../self-improvement/control-director-journeys.js";
+import { validateControlDirectorLayoutObservation } from "../../self-improvement/control-director-layout-observation.js";
 import { recordSelfImprovementDashboardIntervention } from "../../self-improvement/interventions.js";
 import { preflightSelfImprovementReviewModels } from "../../self-improvement/llm-reviewer.js";
 import { runSelfImprovementMaintenance } from "../../self-improvement/maintenance.js";
@@ -79,6 +88,8 @@ import type { GatewayRequestHandlers } from "./types.js";
 
 const DEFAULT_RECOMMENDATIONS_LIMIT = 100;
 const MAX_RECOMMENDATIONS_LIMIT = 500;
+const CONTROL_DIRECTOR_LAYOUT_OBSERVATION_MAX_AGE_MS = 5 * 60_000;
+const CONTROL_DIRECTOR_LAYOUT_OBSERVATION_MAX_FUTURE_MS = 60_000;
 const SENSITIVE_MARKER_PATTERN =
   /\[redacted(?:-token)?\]|\b(?:api[_-]?key|token|secret|password)\s*=\s*\[redacted\]/i;
 const ALL_RECOMMENDATION_STATUSES: SelfImprovementRecommendationStatus[] = [
@@ -207,6 +218,70 @@ function invalidParams(method: string, errors: unknown) {
 }
 
 export const selfImprovementHandlers: GatewayRequestHandlers = {
+  "selfImprovement.controlDirector.layout.report": ({ params, respond, context }) => {
+    if (!validateControlDirectorLayoutObservationReportParams(params)) {
+      respond(
+        false,
+        undefined,
+        invalidParams(
+          "selfImprovement.controlDirector.layout.report",
+          validateControlDirectorLayoutObservationReportParams.errors,
+        ),
+      );
+      return;
+    }
+    const parsedSession = parseAgentSessionKey(params.sessionKey);
+    if (
+      !parsedSession?.agentId ||
+      !isConfiguredControlDirectorAgent({
+        config: context.getRuntimeConfig(),
+        agentId: parsedSession.agentId,
+      })
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "layout observations are accepted only for the configured Control Director",
+        ),
+      );
+      return;
+    }
+    const now = Date.now();
+    if (
+      params.observedAt < now - CONTROL_DIRECTOR_LAYOUT_OBSERVATION_MAX_AGE_MS ||
+      params.observedAt > now + CONTROL_DIRECTOR_LAYOUT_OBSERVATION_MAX_FUTURE_MS
+    ) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "layout observation timestamp is stale or future"),
+      );
+      return;
+    }
+    const validated = validateControlDirectorLayoutObservation(params);
+    if (!validated) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "layout obstruction reason does not match its measurements",
+        ),
+      );
+      return;
+    }
+    emitControlDirectorJourneySignal({
+      code: "layout_obstruction",
+      idempotencyKey: params.observationId,
+      summary: "The Control Director Chat layout obstructed the transcript or composer.",
+      observed: validated.observed,
+      occurredAt: params.observedAt,
+      evidenceRefs: [`layout-observation:${params.observationId}`],
+    });
+    respond(true, { accepted: true, signalCode: "layout_obstruction" });
+  },
   "selfImprovement.proofReceipts.list": async ({ params, respond }) => {
     if (!validateSelfImprovementProofReceiptsListParams(params)) {
       respond(
@@ -665,7 +740,9 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
       params.status === "resolved" &&
       existing.safety.requiresTests &&
       !existing.resolutionProof?.trim() &&
-      !params.resolutionProof?.trim()
+      !params.resolutionProof?.trim() &&
+      !params.controlDirectorClosure &&
+      !existing.source.signalCode
     ) {
       respond(
         false,
@@ -673,6 +750,130 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
         errorShape(
           ErrorCodes.INVALID_REQUEST,
           "resolution proof is required for test-required self-improvement recommendations",
+        ),
+      );
+      return;
+    }
+    let controlDirectorClosure: ControlDirectorJourneyClosure | undefined;
+    if (params.controlDirectorClosure && params.status !== "resolved") {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "Control Director journey closure evidence is accepted only for resolution.",
+        ),
+      );
+      return;
+    }
+    if (params.status === "resolved" && existing.source.signalCode) {
+      const requested = params.controlDirectorClosure;
+      if (!requested) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "Control Director journey resolution requires typed closure evidence and an independent Judge receipt.",
+          ),
+        );
+        return;
+      }
+      if (requested.signalCode !== existing.source.signalCode) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "Control Director closure signal does not match the recommendation source.",
+          ),
+        );
+        return;
+      }
+      const expectedOwner =
+        existing.claimedBy ?? existing.assignedTargetAgentId ?? existing.route.targetAgentId;
+      if (requested.owner !== expectedOwner) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `Control Director closure owner must match ${expectedOwner}.`,
+          ),
+        );
+        return;
+      }
+      const expectedRecurrences = Math.max(0, existing.recurrenceCount - 1);
+      if (requested.recurrenceCount !== expectedRecurrences) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `Control Director closure recurrence count must equal current evidence (${expectedRecurrences}).`,
+          ),
+        );
+        return;
+      }
+      if (requested.slaAt < existing.createdAt) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "Control Director closure SLA cannot predate the recommendation.",
+          ),
+        );
+        return;
+      }
+      const proofReceipts = await listSelfImprovementProofReceipts({
+        stateDir: resolveStateDir(),
+        recommendationId: existing.id,
+        limit: 500,
+      });
+      const proofReceipt = proofReceipts.find((receipt) => receipt.id === requested.proofReceiptId);
+      if (!proofReceipt) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "Control Director closure proof receipt was not found for this recommendation.",
+          ),
+        );
+        return;
+      }
+      const decision = evaluateControlDirectorJourneyClosure({
+        recommendationId: existing.id,
+        signalCode: existing.source.signalCode,
+        owner: requested.owner,
+        slaAt: requested.slaAt,
+        observation: requested.observation,
+        recurrenceCount: requested.recurrenceCount,
+        targetRecurrenceCount: requested.targetRecurrenceCount,
+        lastRecurrenceAt: requested.lastRecurrenceAt,
+        proofReceipt,
+        judgeReceipt: requested.judgeReceipt,
+      });
+      if (!decision.ready) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            `Control Director journey closure is not ready: ${decision.reason}`,
+          ),
+        );
+        return;
+      }
+      controlDirectorClosure = decision.closure;
+    } else if (params.controlDirectorClosure) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "Typed Control Director closure evidence cannot be attached to a generic recommendation.",
         ),
       );
       return;
@@ -699,6 +900,14 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
       assignedTargetAgentId: params.assignedTargetAgentId,
       claimedBy: params.claimedBy,
       resolutionProof: params.resolutionProof,
+      ...(controlDirectorClosure
+        ? {
+            resolutionProof:
+              params.resolutionProof ??
+              `Control Director closure ${controlDirectorClosure.proofReceiptId} approved by Judge ${controlDirectorClosure.judgeReceiptId}.`,
+            controlDirectorClosure,
+          }
+        : {}),
       dismissalReason: params.dismissalReason,
       stateDir: resolveStateDir(),
     });
@@ -723,11 +932,24 @@ export const selfImprovementHandlers: GatewayRequestHandlers = {
           assignedTargetAgentId: recommendation.assignedTargetAgentId ?? "",
           claimedBy: recommendation.claimedBy ?? "",
           proofPresent: Boolean(recommendation.resolutionProof?.trim()),
+          ...(controlDirectorClosure
+            ? {
+                controlDirectorSignalCode: controlDirectorClosure.signalCode,
+                controlDirectorProofReceiptId: controlDirectorClosure.proofReceiptId,
+                controlDirectorJudgeReceiptId: controlDirectorClosure.judgeReceiptId,
+                controlDirectorObservationMs:
+                  controlDirectorClosure.observation.endedAt -
+                  controlDirectorClosure.observation.startedAt,
+              }
+            : {}),
           dismissalReasonPresent: Boolean(recommendation.dismissalReason?.trim()),
         },
       },
     });
-    respond(true, { recommendation: withRecommendationActionability(recommendation) });
+    respond(true, {
+      recommendation: withRecommendationActionability(recommendation),
+      ...(controlDirectorClosure ? { controlDirectorClosure } : {}),
+    });
   },
   "selfImprovement.groups.update": async ({ params, respond }) => {
     if (!validateSelfImprovementGroupsUpdateParams(params)) {

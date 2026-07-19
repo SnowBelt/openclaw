@@ -13,6 +13,15 @@ export type ChatQueueProps = {
 };
 
 function sendStateLabel(item: ChatQueueItem): string | null {
+  if (item.serverPhase === "pending") {
+    return "Acknowledged";
+  }
+  if (item.serverPhase === "dispatching") {
+    return "Admitting";
+  }
+  if (item.serverPhase === "admitted") {
+    return "Working";
+  }
   switch (item.sendState) {
     case "waiting-model":
       return "Waiting for model";
@@ -53,6 +62,9 @@ export function renderChatQueue(props: ChatQueueProps) {
                 ${item.sendError
                   ? html`<div class="chat-queue__error">${item.sendError}</div>`
                   : nothing}
+                ${item.serverActivitySummary
+                  ? html`<div class="chat-queue__activity">${item.serverActivitySummary}</div>`
+                  : nothing}
               </div>
               <div class="chat-queue__actions">
                 ${item.sendState === "failed" && props.onQueueRetry
@@ -69,24 +81,40 @@ export function renderChatQueue(props: ChatQueueProps) {
                       </button>
                     `
                   : nothing}
-                ${props.canAbort &&
-                props.onQueueSteer &&
-                item.kind !== "steered" &&
-                !item.sendState &&
-                !item.localCommandName
+                ${props.onQueueSteer && item.serverTurnId && item.serverAdmissionOpen
                   ? html`
                       <button
                         class="btn chat-queue__steer"
                         type="button"
-                        title="Steer now"
-                        aria-label="Steer queued message"
+                        title=${item.kind === "steered" ? "Keep queued" : "Steer now"}
+                        aria-label=${item.kind === "steered"
+                          ? "Change steered message back to queued"
+                          : "Steer queued message"}
                         @click=${() => props.onQueueSteer?.(item.id)}
                       >
-                        ${icons.cornerDownRight}
-                        <span>Steer</span>
+                        ${item.kind === "steered" ? icons.clock : icons.cornerDownRight}
+                        <span>${item.kind === "steered" ? "Queue" : "Steer"}</span>
                       </button>
                     `
-                  : nothing}
+                  : props.canAbort &&
+                      props.onQueueSteer &&
+                      item.kind !== "steered" &&
+                      !item.sendState &&
+                      !item.localCommandName &&
+                      !item.serverTurnId
+                    ? html`
+                        <button
+                          class="btn chat-queue__steer"
+                          type="button"
+                          title="Steer now"
+                          aria-label="Steer queued message"
+                          @click=${() => props.onQueueSteer?.(item.id)}
+                        >
+                          ${icons.cornerDownRight}
+                          <span>Steer</span>
+                        </button>
+                      `
+                    : nothing}
                 <button
                   class="btn chat-queue__remove"
                   type="button"

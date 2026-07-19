@@ -74,7 +74,7 @@ describe("buildPccChatSyncProposals", () => {
     });
   });
 
-  it("proposes status, permission, and receipt updates without applying them", () => {
+  it("never infers status, permission, or proof mutations from transcript text", () => {
     const proposals = buildPccChatSyncProposals(
       detail,
       [
@@ -84,9 +84,6 @@ describe("buildPccChatSyncProposals", () => {
       ].join("\n"),
     );
 
-    expect(proposals.some((proposal) => proposal.kind === "update_milestone")).toBe(true);
-    expect(proposals.some((proposal) => proposal.kind === "request_permission")).toBe(true);
-    expect(proposals.some((proposal) => proposal.kind === "add_receipt")).toBe(true);
-    expect(proposals.find((proposal) => proposal.kind === "update_milestone")?.risky).toBe(true);
+    expect(proposals).toEqual([]);
   });
 });

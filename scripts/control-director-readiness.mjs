@@ -4,24 +4,35 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import {
+  resolveAgentIdByOperationalRole,
+  resolveJudgeAgentId,
+  resolveProgramManagerRoute,
+} from "../src/agents/agent-scope-config.ts";
+import { buildControlDirectorModelRegistry } from "../src/agents/control-director-model-registry.ts";
+import {
+  CONTROL_DIRECTOR_DEFAULT_ALIAS,
+  CONTROL_DIRECTOR_DEFAULT_MODEL,
+  CONTROL_DIRECTOR_DEFAULT_MODEL_ID,
+  CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG,
+  isConfiguredControlDirectorAgent,
+} from "../src/agents/control-director-role.ts";
 
-const PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-const PRIMARY_MODEL = "ollama/openclaw-control-qwen36-27b:latest";
-const PRIMARY_OLLAMA_NAME = "openclaw-control-qwen36-27b:latest";
-const UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
-const FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
-const EFFECTIVE_CONTEXT = 64_000;
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+export const CONTROL_DIRECTOR_READINESS_REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
+const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".openclaw", "openclaw.director.json");
 const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 const CHAT_SMOKE_TIMEOUT_MS = 180_000;
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
-const CONTROL_DIRECTOR_CONTRACT_SOURCE = path.join(
-  REPO_ROOT,
-  "src",
-  "agents",
-  "control-director-contract.ts",
-);
+const MINIMUM_SOAK_MS = 5 * 60 * 1_000;
+const REQUIRED_MODEL_EVAL_TASK_CLASSES = Object.freeze([
+  "conversation",
+  "recall",
+  "planning",
+  "delegation",
+  "steering",
+  "verification",
+]);
 
 const REQUIRED_OLLAMA_ENV = Object.freeze({
   OLLAMA_FLASH_ATTENTION: "1",
@@ -31,38 +42,35 @@ const REQUIRED_OLLAMA_ENV = Object.freeze({
 
 function usage() {
   return [
-    "Usage: node scripts/control-director-readiness.mjs [--json] [--config <path>] [--skip-runtime] [--skip-chat-smoke]",
+    "Usage: pnpm control-director:readiness -- [--json] [--source-only] [--config <path>]",
+    "       [--expected-sha <40-char-sha>] [--gate-proof <json>] [--runtime-proof <json>]",
     "",
-    "Checks Control Director model policy, rollback chain, Ollama runtime env, local model inventory, and Qwen3.6 model-load smoke.",
+    "Source readiness requires a clean exact checkout and passing torture/chaos/Chat-stack gate receipts.",
+    "Production readiness additionally requires managed lineage, model, desktop, tablet, mobile, restart, soak, rollback, and live diagnostic proof.",
   ].join("\n");
 }
 
 function parseArgs(argv) {
   const args = {
-    configPath:
-      process.env.OPENCLAW_CONFIG_PATH ??
-      path.join(os.homedir(), ".openclaw", "openclaw.director.json"),
+    configPath: process.env.OPENCLAW_CONFIG_PATH ?? DEFAULT_CONFIG_PATH,
+    expectedSha: process.env.OPENCLAW_EXPECTED_SOURCE_SHA ?? "",
+    gateProofPath: "",
+    runtimeProofPath: "",
     json: false,
-    skipRuntime: false,
-    skipChatSmoke: false,
+    sourceOnly: false,
+    help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (arg === "--") {
-      continue;
-    } else if (arg === "--json") {
-      args.json = true;
-    } else if (arg === "--skip-runtime") {
-      args.skipRuntime = true;
-    } else if (arg === "--skip-chat-smoke") {
-      args.skipChatSmoke = true;
-    } else if (arg === "--config") {
-      args.configPath = argv[++index];
-    } else if (arg === "--help" || arg === "-h") {
-      args.help = true;
-    } else {
-      throw new Error(`Unknown argument: ${arg}`);
-    }
+    const value = argv[index];
+    if (value === "--") continue;
+    if (value === "--json") args.json = true;
+    else if (value === "--source-only") args.sourceOnly = true;
+    else if (value === "--config") args.configPath = argv[++index] ?? "";
+    else if (value === "--expected-sha") args.expectedSha = argv[++index] ?? "";
+    else if (value === "--gate-proof") args.gateProofPath = argv[++index] ?? "";
+    else if (value === "--runtime-proof") args.runtimeProofPath = argv[++index] ?? "";
+    else if (value === "--help" || value === "-h") args.help = true;
+    else throw new Error(`Unknown argument: ${value}`);
   }
   return args;
 }
@@ -71,599 +79,601 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
-function normalizeModelRef(value) {
-  const raw = String(value ?? "").trim();
-  return raw === PRIMARY_ALIAS ? PRIMARY_MODEL : raw;
+function run(command, args) {
+  try {
+    return {
+      ok: true,
+      stdout: execFileSync(command, args, {
+        cwd: CONTROL_DIRECTOR_READINESS_REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim(),
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function immutableSha(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return /^[a-f0-9]{40}$/u.test(normalized) ? normalized : "";
 }
 
 function findControlDirectorAgent(config) {
-  return (config.agents?.list ?? []).find(
-    (agent) =>
-      agent?.id === "main" || String(agent?.name ?? "").toLowerCase() === "control director",
-  );
+  return (config.agents?.list ?? []).find((agent) => agent?.role === "control_director");
 }
 
-function parseOllamaList(output) {
+export function parseOllamaList(output) {
   const models = new Map();
-  for (const line of output.split(/\r?\n/)) {
+  for (const line of String(output ?? "").split(/\r?\n/u)) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("NAME")) {
-      continue;
-    }
-    const [name, digest, size, sizeUnit] = trimmed.split(/\s+/);
+    if (!trimmed || trimmed.startsWith("NAME")) continue;
+    const [name, digest, size, sizeUnit] = trimmed.split(/\s+/u);
     if (name && digest) {
       models.set(name, {
         name,
         digest,
-        size: size && sizeUnit ? `${size} ${sizeUnit}` : undefined,
-        line: trimmed,
+        ...(size && sizeUnit ? { size: `${size} ${sizeUnit}` } : {}),
       });
     }
   }
   return models;
 }
 
-function runOptional(command, args) {
-  try {
-    return { ok: true, stdout: execFileSync(command, args, { encoding: "utf8" }) };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
+function source(relativePath) {
+  return fs.readFileSync(path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, relativePath), "utf8");
 }
 
-function detectControlDirectorThinkingEscalationPolicy() {
-  try {
-    const source = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    return (
-      source.includes("resolveControlDirectorThinkingEscalation") &&
-      source.includes("CONTROL_DIRECTOR_THINKING_TRIGGERS") &&
-      source.includes("high-risk failure, rollback, runtime, or production-control task")
-    );
-  } catch {
-    return false;
-  }
+function hasAll(text, fragments) {
+  return fragments.every((fragment) => text.includes(fragment));
 }
 
-function detectControlDirectorCompletionEvidencePolicy() {
-  try {
-    const source = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    return (
-      source.includes("A completion claim must include the concrete evidence") &&
-      source.includes('status === "complete"') &&
-      source.includes("verified evidence for complete status")
-    );
-  } catch {
-    return false;
-  }
+/** Static boundary checks complement executable gates and fail when a contract loses its caller. */
+export function collectControlDirectorActiveWiring() {
+  const replyRun = source("src/auto-reply/reply/get-reply-run.ts");
+  const agentRunner = source("src/auto-reply/reply/agent-runner.ts");
+  const agentCommand = source("src/agents/agent-command.ts");
+  const goalRuntime = source("src/tasks/pursue-goal-controller.runtime.ts");
+  const goalController = source("src/tasks/pursue-goal-controller.ts");
+  const pccServer = source("src/gateway/server-methods/pcc.ts");
+  const taskServer = source("src/gateway/server-methods/tasks.ts");
+  const selfImprovementServer = source("src/gateway/server-methods/self-improvement.ts");
+  const chatTurnServer = source("src/gateway/server-methods/chat-turns.ts");
+  const chatTurnController = source("src/gateway/chat-turn-inbox-controller.ts");
+  const taskStateServer = source("src/gateway/server-methods/tasks.ts");
+  const deliveryGuards = source("src/agents/control-director-delivery-guards.ts");
+  const chatServer = source("src/gateway/server-methods/chat.ts");
+  const recentContext = source("src/auto-reply/reply/control-director-recent-context.ts");
+  const chatTurnState = source("src/gateway/chat-turn-inbox-state.ts");
+  const sessionTitle = source("src/gateway/dashboard-session-title.ts");
+  const journeySignals = source("src/self-improvement/control-director-journeys.ts");
+  const layoutHealth = source("ui/src/ui/chat/layout-health.ts");
+  const appLifecycle = source("ui/src/ui/app-lifecycle.ts");
+  const resourceRuntime = source("src/agents/control-director-resource-runtime.ts");
+  const resourceAdmission = source("src/agents/control-director-resource-admission.ts");
+  const modelWarmup = source("src/agents/control-director-model-warmup.ts");
+  const ollamaProvider = source("extensions/ollama/index.ts");
+  const activeMemory = source("extensions/active-memory/index.ts");
+  const postAttachStartup = source("src/gateway/server-startup-post-attach.ts");
+  const roleCapabilities = source("src/agents/agent-role-capabilities.ts");
+  const systemPrompt = source("src/agents/system-prompt-config.ts");
+  const gatewayImpl = source("src/gateway/server.impl.ts");
+  const gatewayStartup = source("src/gateway/server-startup-early.ts");
+  const appMain = source("ui/src/main.ts");
+  const appRender = source("ui/src/ui/app-render.ts");
+  const pccSync = source("ui/src/ui/pcc-chat-sync.ts");
+  const packageJson = readJson(path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, "package.json"));
+  return {
+    turnPolicyAndPromptBudget: hasAll(replyRun, [
+      "compileControlDirectorTurnPolicy",
+      "compileControlDirectorPromptBudget",
+      "buildControlDirectorRecentContext",
+    ]),
+    roleScopedDeliveryGuards:
+      hasAll(agentRunner, ["isConfiguredControlDirectorAgent", "controlDirectorScope"]) &&
+      hasAll(agentCommand, [
+        "isConfiguredControlDirectorAgent",
+        "applyControlDirectorDeliveryGuards",
+      ]),
+    governedCodexAdapter: goalRuntime.includes("prepareGovernedControlDirectorCodexEscalation"),
+    pursueGoalOrchestrator:
+      gatewayStartup.includes("startPursueGoalControllers") &&
+      gatewayImpl.includes("stopPursueGoalControllers") &&
+      goalController.includes("evaluateControlDirectorSelfHealing"),
+    resourceGovernor:
+      pccServer.includes("assessControlDirectorResourceAdmission") &&
+      resourceAdmission.includes("decideControlDirectorResourceAdmission"),
+    resourceResidencyProbe:
+      resourceAdmission.includes("collectControlDirectorResidencyObservation") &&
+      resourceRuntime.includes("resolveLoadedProviderRuntimePlugin") &&
+      ollamaProvider.includes("probeModelResidency: probeOllamaModelResidency"),
+    resourceModelWarmup:
+      postAttachStartup.includes("warmConfiguredControlDirectorModel") &&
+      modelWarmup.includes("assessControlDirectorResourceAdmission") &&
+      modelWarmup.includes("requestControlDirectorModelWarmup") &&
+      ollamaProvider.includes("warmModel: warmOllamaModel"),
+    responsiveMemoryPolicy:
+      recentContext.includes("buildControlDirectorRuntimeMemoryState") &&
+      activeMemory.includes("shouldRunControlDirectorActiveRecall") &&
+      activeMemory.includes("DEFAULT_CONTROL_DIRECTOR_TIMEOUT_MS = 2_000"),
+    memoryHealthProjection:
+      taskStateServer.includes("buildControlDirectorRuntimeMemoryState") &&
+      taskStateServer.includes("memoryHealth"),
+    runtimeLineage:
+      taskServer.includes("buildControlDirectorRuntimeLineage") &&
+      taskServer.includes("readGatewayRuntimeSnapshotProvenance"),
+    sigClosureGovernance: selfImprovementServer.includes("evaluateControlDirectorJourneyClosure"),
+    typedJourneySignals:
+      hasAll(journeySignals, [
+        "silence_after_ack",
+        "activity_gap",
+        "stalled_goal",
+        "memory_miss",
+        "layout_obstruction",
+        "title_failure",
+        "queue_race",
+        "delivery_miss",
+        "completion_without_proof",
+        "runtime_lineage_mismatch",
+      ]) &&
+      deliveryGuards.includes("emitControlDirectorJourneySignal") &&
+      chatServer.includes('code: "activity_gap"') &&
+      chatServer.includes("startControlDirectorActivityWatchdog") &&
+      chatTurnController.includes('code: "activity_gap"') &&
+      recentContext.includes("emitControlDirectorJourneySignal") &&
+      chatTurnState.includes("emitControlDirectorJourneySignal") &&
+      sessionTitle.includes("emitControlDirectorJourneySignal") &&
+      goalController.includes("emitControlDirectorJourneySignal") &&
+      taskStateServer.includes('code: "runtime_lineage_mismatch"') &&
+      selfImprovementServer.includes('code: "layout_obstruction"') &&
+      layoutHealth.includes('"selfImprovement.controlDirector.layout.report"') &&
+      appLifecycle.includes("scheduleControlDirectorLayoutHealthCheck"),
+    independentJudge:
+      goalRuntime.includes("judgeCompletionIndependently") &&
+      goalController.includes("verifyJudgeReceipt"),
+    durableMailboxAndEvents:
+      goalController.includes("appendDurableWorkerMailboxMessage") &&
+      goalController.includes("withPursueGoalEvent"),
+    unifiedApprovalEnvelope:
+      goalRuntime.includes("prepareGovernedControlDirectorCodexEscalation") &&
+      pccServer.includes("assessControlDirectorResourceAdmission") &&
+      resourceAdmission.includes("compileControlDirectorExecutionProfile"),
+    roleCapabilityCompiler:
+      roleCapabilities.includes("compileOperationalRoleCapabilityBudget") &&
+      systemPrompt.includes("buildAgentRoleCapabilitySystemPromptSection"),
+    serverOwnedTurnInbox:
+      chatTurnServer.includes("createChatTurnFlow") &&
+      gatewayImpl.includes("startChatTurnInboxController"),
+    singleProductionChat:
+      appMain.includes('import "./ui/app.ts";') &&
+      !/app-routes|pages\/chat/u.test(appMain) &&
+      appRender.includes('import { renderChat } from "./views/chat.ts";'),
+    typedPccBoundary:
+      !/milestone.*(?:complete|status).*regex/iu.test(pccSync) &&
+      pccSync.includes("hasExplicitPlanEnvelope"),
+    acceptanceScripts:
+      typeof packageJson.scripts?.["control-director:format-check"] === "string" &&
+      typeof packageJson.scripts?.["control-director:torture"] === "string" &&
+      typeof packageJson.scripts?.["control-director:chaos"] === "string" &&
+      typeof packageJson.scripts?.["control-director:readiness"] === "string" &&
+      typeof packageJson.scripts?.["control-director:runtime-proof"] === "string" &&
+      typeof packageJson.scripts?.["control-director:verify"] === "string",
+  };
 }
 
-function detectControlDirectorContinueUntilCompletePolicy() {
-  try {
-    const source = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    return (
-      source.includes("Continue until the requested task is complete") &&
-      source.includes("Do not stop at advice or a proposed next step") &&
-      source.includes("when you can safely continue executing")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function detectControlDirectorExplicitStatusPolicy() {
-  try {
-    const source = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    return (
-      source.includes("parseExplicitControlDirectorFinalStatus") &&
-      source.includes("explicit completion status") &&
-      source.includes("!explicitStatus")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function detectControlDirectorRuntimeFinalOutputGuard() {
-  try {
-    const contractSource = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    const deliveryGuardSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/control-director-delivery-guards.ts"),
-      "utf8",
-    );
-    const agentCommandSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/agent-command.ts"),
-      "utf8",
-    );
-    return (
-      contractSource.includes("applyControlDirectorFinalOutputGuard") &&
-      contractSource.includes("rewrote_unsupported_complete") &&
-      deliveryGuardSource.includes("applyControlDirectorFinalOutputGuard") &&
-      deliveryGuardSource.includes("controlDirectorGuardAudit") &&
-      agentCommandSource.includes("applyControlDirectorDeliveryGuards")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function detectControlDirectorJudgeCompletionGate() {
-  try {
-    const contractSource = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    const deliveryGuardSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/control-director-delivery-guards.ts"),
-      "utf8",
-    );
-    return (
-      contractSource.includes("applyControlDirectorJudgeCompletionGate") &&
-      contractSource.includes("buildControlDirectorJudgeClaimHash") &&
-      contractSource.includes("blocked_missing_judge_approval") &&
-      deliveryGuardSource.includes("applyControlDirectorJudgeCompletionGate") &&
-      deliveryGuardSource.includes("judgeCompletionGate")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function detectControlDirectorTruthGate() {
-  try {
-    const contractSource = fs.readFileSync(CONTROL_DIRECTOR_CONTRACT_SOURCE, "utf8");
-    const deliveryGuardSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/control-director-delivery-guards.ts"),
-      "utf8",
-    );
-    return (
-      contractSource.includes("applyControlDirectorTruthGate") &&
-      contractSource.includes("ControlDirectorTruthAudit") &&
-      contractSource.includes("blocked_unsupported_truth_claim") &&
-      deliveryGuardSource.includes("applyControlDirectorTruthGate") &&
-      deliveryGuardSource.includes("controlDirectorTruthAudit")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function detectControlDirectorTruthEvidenceIngestion() {
-  try {
-    const evidenceSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/control-director-truth-evidence.ts"),
-      "utf8",
-    );
-    const deliveryGuardSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/control-director-delivery-guards.ts"),
-      "utf8",
-    );
-    const agentCommandSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/agents/agent-command.ts"),
-      "utf8",
-    );
-    const autoReplySource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/auto-reply/reply/agent-runner.ts"),
-      "utf8",
-    );
-    const chatSource = fs.readFileSync(
-      path.join(REPO_ROOT, "src/gateway/server-methods/chat.ts"),
-      "utf8",
-    );
-    return (
-      evidenceSource.includes("buildControlDirectorTruthEvidenceFromRecords") &&
-      evidenceSource.includes("loadControlDirectorTruthEvidence") &&
-      evidenceSource.includes("exitCode === 0") &&
-      evidenceSource.includes("github_run") &&
-      evidenceSource.includes("ui_smoke") &&
-      evidenceSource.includes("repo_change") &&
-      evidenceSource.includes("source_citation") &&
-      deliveryGuardSource.includes("loadControlDirectorTruthEvidence") &&
-      deliveryGuardSource.includes("extraEvidence: params.truthEvidence") &&
-      deliveryGuardSource.includes("implementationSha") &&
-      agentCommandSource.includes("applyControlDirectorDeliveryGuards") &&
-      autoReplySource.includes("applyControlDirectorDeliveryGuards") &&
-      chatSource.includes("applyControlDirectorDeliveryGuards")
-    );
-  } catch {
-    return false;
-  }
-}
-
-function readOllamaEnvFromLaunchctl() {
-  const uid = typeof process.getuid === "function" ? process.getuid() : null;
-  if (uid === null) {
-    return { ok: false, values: {}, error: "process uid unavailable" };
-  }
-  const result = runOptional("launchctl", ["print", `gui/${uid}/ai.openclaw.ollama`]);
-  if (!result.ok) {
-    return { ok: false, values: {}, error: result.error };
-  }
-  const values = {};
-  for (const [key] of Object.entries(REQUIRED_OLLAMA_ENV)) {
-    const match = result.stdout.match(new RegExp(`${key}\\s*=>\\s*([^\\n]+)`));
-    if (match?.[1]) {
-      values[key] = match[1].trim();
-    }
-  }
-  return { ok: true, values };
-}
-
-function resolveOllamaBaseUrl(config) {
-  const provider = config.models?.providers?.ollama ?? {};
-  const raw =
-    typeof provider.baseUrl === "string" && provider.baseUrl.trim()
-      ? provider.baseUrl
-      : typeof provider.baseURL === "string" && provider.baseURL.trim()
-        ? provider.baseURL
-        : DEFAULT_OLLAMA_BASE_URL;
-  const trimmed = raw.trim().replace(/\/+$/, "");
-  return trimmed.replace(/\/v1$/i, "") || DEFAULT_OLLAMA_BASE_URL;
-}
-
-async function runOllamaChatSmoke(params) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CHAT_SMOKE_TIMEOUT_MS);
-  try {
-    const response = await fetch(`${params.baseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: params.model,
-        messages: [{ role: "user", content: "Reply exactly: OK" }],
-        stream: false,
-        think: false,
-        options: {
-          num_ctx: 2048,
-          num_predict: 4,
-          temperature: 0,
-        },
-      }),
-    });
-    const body = await response.text();
-    return {
-      ok: response.ok,
-      status: response.status,
-      detail: response.ok
-        ? `status=${response.status}`
-        : `status=${response.status} ${body.slice(0, 240)}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      detail: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function fact(id, label, passed, critical, detail) {
+function fact(id, label, passed, options = {}) {
   return {
     id,
     label,
     passed: Boolean(passed),
-    critical: Boolean(critical),
-    ...(detail ? { detail } : {}),
+    critical: options.critical !== false,
+    surface: options.surface ?? "source",
+    ...(options.detail ? { detail: options.detail } : {}),
   };
 }
 
+function runtimeEvidencePassed(value, sourceSha) {
+  return (
+    value?.passed === true &&
+    value.sourceSha === sourceSha &&
+    typeof value.checkedAt === "string" &&
+    Number.isFinite(Date.parse(value.checkedAt)) &&
+    Array.isArray(value.evidenceRefs) &&
+    value.evidenceRefs.some((entry) => typeof entry === "string" && Boolean(entry.trim()))
+  );
+}
+
+function gatePassed(gates, key) {
+  const value = gates?.[key];
+  return value === true || value?.passed === true;
+}
+
 export function buildControlDirectorReadinessScorecard(params) {
-  const config = params.config;
+  const config = params.config ?? {};
   const agent = findControlDirectorAgent(config);
-  const defaultsModels = config.agents?.defaults?.models ?? {};
-  const providerModels = config.models?.providers?.ollama?.models ?? [];
-  const primary = normalizeModelRef(agent?.model?.primary ?? agent?.model);
-  const fallbacks = Array.isArray(agent?.model?.fallbacks) ? agent.model.fallbacks : [];
-  const controlAliasDefaults = defaultsModels[PRIMARY_MODEL];
-  const providerAlias = providerModels.find((entry) => entry?.id === PRIMARY_OLLAMA_NAME);
+  const controlDirectorAgents = (config.agents?.list ?? []).filter(
+    (entry) => entry?.role === "control_director",
+  );
+  const programManagerAgentId = resolveAgentIdByOperationalRole(config, "program_manager");
+  const judgeAgentId = resolveJudgeAgentId(config);
+  const agentId = params.agentId ?? agent?.id ?? "control-director";
+  const registry = buildControlDirectorModelRegistry({ config, agentId });
+  const selected = registry.selected.status === "ready" ? registry.selected.effective : "";
+  const sourceState = params.source ?? {};
+  const sourceSha = immutableSha(sourceState.sha);
+  const expectedSha = immutableSha(sourceState.expectedSha);
+  const wiring = params.wiring ?? {};
+  const gates = params.gates ?? {};
+  const runtime = params.runtimeProof;
   const facts = [];
 
-  facts.push(fact("agent-present", "Control Director agent configured", Boolean(agent), true));
   facts.push(
     fact(
-      "primary",
-      "Primary alias is Qwen3.6 Control alias",
-      primary === PRIMARY_MODEL,
-      true,
-      `resolved=${primary || "missing"}`,
+      "agent-role",
+      "Exactly one configured agent owns role control_director",
+      Boolean(agent) && controlDirectorAgents.length === 1,
     ),
   );
   facts.push(
     fact(
-      "fallback",
-      "Qwen2.5 rollback is first fallback",
-      fallbacks[0] === FALLBACK_MODEL,
-      true,
-      `first=${fallbacks[0] ?? "missing"}`,
+      "program-manager-role",
+      "A dedicated Program Manager owns delegated execution fan-out",
+      Boolean(programManagerAgentId) &&
+        resolveProgramManagerRoute(config, agent?.id).source === "dedicated" &&
+        programManagerAgentId !== agent?.id,
     ),
   );
   facts.push(
     fact(
-      "thinking-default",
-      "Control Director thinking default is off",
-      agent?.thinkingDefault === "off",
-      true,
-      `thinkingDefault=${agent?.thinkingDefault ?? "missing"}`,
+      "judge-role",
+      "A distinct independent Judge owns read-only completion review",
+      Boolean(judgeAgentId) && judgeAgentId !== agent?.id && judgeAgentId !== programManagerAgentId,
     ),
   );
   facts.push(
     fact(
-      "thinking-escalation-policy",
-      "Control Director thinking-as-needed escalation policy is present",
-      params.thinkingEscalationPolicy === true,
-      true,
+      "role-scope",
+      "Control Director scope is role-only, never id, name, persona, or model based",
+      Boolean(agent) &&
+        isConfiguredControlDirectorAgent({ config, agentId }) &&
+        !isConfiguredControlDirectorAgent({
+          config: {
+            ...config,
+            agents: {
+              ...config.agents,
+              list: [
+                { id: "main", name: "Control Director", model: CONTROL_DIRECTOR_DEFAULT_MODEL },
+              ],
+            },
+          },
+          agentId: "main",
+        }),
     ),
   );
   facts.push(
     fact(
-      "continue-until-complete-policy",
-      "Control Director continue-until-complete policy is present",
-      params.continueUntilCompletePolicy === true,
-      true,
+      "gemma-default",
+      "Gemma 4 31B Q8 is the canonical default",
+      registry.defaultModel === CONTROL_DIRECTOR_DEFAULT_MODEL &&
+        CONTROL_DIRECTOR_DEFAULT_ALIAS === "openclaw-control-gemma4-31b-q8" &&
+        CONTROL_DIRECTOR_DEFAULT_MODEL_ID === "openclaw-control-gemma4-31b-q8:latest" &&
+        CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG === "gemma4:31b-it-q8_0",
     ),
   );
   facts.push(
     fact(
-      "complete-evidence-policy",
-      "Control Director complete-status evidence gate is present",
-      params.completionEvidencePolicy === true,
-      true,
+      "selected-model",
+      "Selected Control Director model exists in the safe config-derived registry",
+      registry.selected.status === "ready",
+      { detail: registry.selected.status === "ready" ? selected : registry.selected.reason },
     ),
   );
   facts.push(
     fact(
-      "explicit-status-policy",
-      "Control Director explicit final status gate is present",
-      params.explicitStatusPolicy === true,
-      true,
+      "selectable-alternatives",
+      "Config-derived alternatives are selectable without changing role scope",
+      registry.entries.length > 1,
+      { critical: false, detail: `${registry.entries.length} configured model entries` },
     ),
   );
   facts.push(
-    fact(
-      "runtime-final-output-guard",
-      "Control Director runtime final-output guard is wired",
-      params.runtimeFinalOutputGuard === true,
-      true,
-    ),
+    fact("immutable-source", "Source is an immutable 40-character SHA", Boolean(sourceSha)),
   );
   facts.push(
     fact(
-      "runtime-judge-completion-gate",
-      "Control Director runtime Judge-approved completion gate is wired",
-      params.runtimeJudgeCompletionGate === true,
-      true,
+      "expected-source",
+      "Source SHA matches the explicitly expected SHA",
+      Boolean(sourceSha && expectedSha && sourceSha === expectedSha),
+      { detail: `source=${sourceSha || "missing"}; expected=${expectedSha || "missing"}` },
     ),
   );
+  facts.push(fact("clean-source", "Exact source checkout is clean", sourceState.clean === true));
   facts.push(
     fact(
-      "runtime-truth-gate",
-      "Control Director runtime truthfulness gate is wired",
-      params.runtimeTruthGate === true,
-      true,
-    ),
-  );
-  facts.push(
-    fact(
-      "runtime-truth-evidence-ingestion",
-      "Control Director runtime truth evidence ingestion is wired",
-      params.runtimeTruthEvidenceIngestion === true,
-      true,
-    ),
-  );
-  facts.push(
-    fact(
-      "context",
-      "Control Director effective context is 64000",
-      agent?.contextTokens === EFFECTIVE_CONTEXT &&
-        controlAliasDefaults?.params?.num_ctx === EFFECTIVE_CONTEXT &&
-        providerAlias?.contextTokens === EFFECTIVE_CONTEXT,
-      true,
-    ),
-  );
-  facts.push(
-    fact(
-      "think-false",
-      "Control Director alias enforces think=false",
-      controlAliasDefaults?.params?.think === false && providerAlias?.params?.think === false,
-      true,
-    ),
-  );
-  facts.push(
-    fact(
-      "temperature",
-      "Control Director temperature is conservative",
-      Number(controlAliasDefaults?.params?.temperature) <= 0.2 &&
-        Number(providerAlias?.params?.temperature) <= 0.2,
-      false,
+      "canonical-root",
+      "Readiness ran from the script-derived repository root",
+      path.resolve(sourceState.root ?? "") === CONTROL_DIRECTOR_READINESS_REPO_ROOT,
     ),
   );
 
-  if (params.ollamaModels) {
-    const primaryModel = params.ollamaModels.get(PRIMARY_OLLAMA_NAME);
-    const underlying = params.ollamaModels.get(UNDERLYING_OLLAMA_TAG);
-    const fallback = params.ollamaModels.get(FALLBACK_MODEL.replace(/^ollama\//, ""));
-    facts.push(
-      fact(
-        "ollama-primary",
-        "Ollama Qwen3.6 Control alias is installed",
-        Boolean(primaryModel),
-        true,
+  for (const [key, label] of Object.entries({
+    turnPolicyAndPromptBudget:
+      "Turn policy, prompt budget, and recent recall have production callers",
+    roleScopedDeliveryGuards: "Role-scoped delivery guards run in command and auto-reply paths",
+    governedCodexAdapter: "Governed Codex adapter has a production orchestration caller",
+    pursueGoalOrchestrator: "Pursue Goal and bounded self-healing are wired to Gateway lifecycle",
+    resourceGovernor: "Resource governor participates in runtime admission",
+    resourceResidencyProbe: "Provider-owned model residency participates in runtime admission",
+    resourceModelWarmup:
+      "Post-ready model warmup is resource-governed, cancellable, and provider verified",
+    responsiveMemoryPolicy:
+      "Hot recent recall stays deterministic while deep recall is explicit and fail-fast",
+    memoryHealthProjection: "Memory freshness and provenance are projected by execution state",
+    runtimeLineage: "Runtime lineage is projected by the canonical execution-state RPC",
+    sigClosureGovernance: "SIG Control Director closure governance has a production caller",
+    typedJourneySignals: "Every typed Control Director journey signal has a production observer",
+    independentJudge: "Independent Judge execution and signed-receipt verification are wired",
+    durableMailboxAndEvents: "Durable mailbox and typed execution events have production callers",
+    unifiedApprovalEnvelope: "One approval and execution-profile contract reaches Codex and PCC",
+    roleCapabilityCompiler: "Role prompts and runtime capability budgets share one compiler",
+    serverOwnedTurnInbox: "The server-owned mutable turn inbox is wired to Gateway lifecycle",
+    singleProductionChat: "One production Chat stack owns the Dashboard entrypoint",
+    typedPccBoundary: "Chat-to-PCC sync accepts explicit plan envelopes only",
+    acceptanceScripts: "Torture, chaos, and readiness gates are repository commands",
+  })) {
+    facts.push(fact(`wiring-${key}`, label, wiring[key] === true));
+  }
+  facts.push(fact("gate-torture", "Instruction torture gate passed", gatePassed(gates, "torture")));
+  facts.push(fact("gate-chaos", "Chaos and state-hygiene gate passed", gatePassed(gates, "chaos")));
+  facts.push(
+    fact("gate-chat-stack", "Production Chat-stack gate passed", gatePassed(gates, "chatStack")),
+  );
+  facts.push(
+    fact("gate-typecheck", "Required typecheck gates passed", gatePassed(gates, "typecheck")),
+  );
+  facts.push(fact("gate-tests", "Required targeted tests passed", gatePassed(gates, "tests")));
+  facts.push(fact("gate-build", "Production build passed", gatePassed(gates, "build")));
+
+  const runtimeSurface = { surface: "runtime" };
+  facts.push(
+    fact("runtime-proof", "Managed runtime proof is present", Boolean(runtime), runtimeSurface),
+  );
+  facts.push(
+    fact(
+      "runtime-lineage",
+      "Managed runtime reports ready exact lineage",
+      runtime?.lineage?.status === "ready" &&
+        runtime.lineage.sourceSha === sourceSha &&
+        runtime.lineage.selectedModel === selected &&
+        runtime.lineage.canary?.sourceSha === sourceSha &&
+        runtime.lineage.canary?.uiBuildId === runtime.lineage.artifactHash &&
+        /^[a-f0-9]{64}$/u.test(runtime?.artifacts?.lineage?.sha256 ?? ""),
+      runtimeSurface,
+    ),
+  );
+  const alias = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID);
+  const underlying = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG);
+  facts.push(
+    fact(
+      "runtime-model-digest",
+      "Gemma control alias exists and matches the underlying Q8 model digest",
+      Boolean(alias?.digest && underlying?.digest && alias.digest === underlying.digest),
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-ollama-env",
+      "Ollama uses bounded Flash Attention, Q8 KV cache, and one parallel request",
+      Object.entries(REQUIRED_OLLAMA_ENV).every(
+        ([key, value]) => params.ollamaEnv?.[key] === value,
       ),
-    );
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-model-smoke",
+      "Managed Gemma alias answers the deterministic model smoke",
+      params.ollamaChatSmoke?.ok === true,
+      { ...runtimeSurface, detail: params.ollamaChatSmoke?.detail },
+    ),
+  );
+  const modelEvalTrials = Array.isArray(runtime?.modelEval?.results)
+    ? runtime.modelEval.results.map((entry) => entry?.trial).filter(Boolean)
+    : [];
+  const evaluatedTaskClasses = new Set(modelEvalTrials.map((trial) => trial.taskClass));
+  facts.push(
+    fact(
+      "runtime-model-eval",
+      "Exact managed-model cold and warm routing trials pass every required task class",
+      runtime?.modelEval?.passed === true &&
+        runtime.modelEval.exactRuntime === true &&
+        runtime.modelEval.sourceSha === sourceSha &&
+        runtime.modelEval.passRate === 100 &&
+        runtime.modelEval.criticalOmissions === 0 &&
+        runtime.modelEval.coveragePassed === true &&
+        modelEvalTrials.some((trial) => trial.cold === true) &&
+        modelEvalTrials.some((trial) => trial.cold === false) &&
+        REQUIRED_MODEL_EVAL_TASK_CLASSES.every((taskClass) => evaluatedTaskClasses.has(taskClass)),
+      runtimeSurface,
+    ),
+  );
+  for (const [key, label] of Object.entries({
+    desktop: "Desktop Dashboard keeps transcript and composer visible",
+    tablet: "Tablet Dashboard keeps transcript and composer visible",
+    mobile: "Mobile Dashboard keeps transcript and composer visible",
+    restartRecovery: "Gateway restart recovers goals and pending turns",
+    rollback: "Rollback drill restores the prior verified runtime",
+    liveDiagnostic: "A safe live Control Director diagnostic produced a usable final response",
+  })) {
     facts.push(
       fact(
-        "ollama-underlying",
-        "Underlying qwen3.6:27b-q8_0 tag is installed",
-        Boolean(underlying),
-        true,
-      ),
-    );
-    facts.push(
-      fact(
-        "ollama-digest",
-        "Control alias digest matches qwen3.6 tag",
-        Boolean(
-          primaryModel?.digest && underlying?.digest && primaryModel.digest === underlying.digest,
-        ),
-        true,
-        `alias=${primaryModel?.digest ?? "missing"} tag=${underlying?.digest ?? "missing"}`,
-      ),
-    );
-    facts.push(
-      fact("ollama-fallback", "Rollback Ollama alias is installed", Boolean(fallback), true),
-    );
-    const primaryChatSmoke = params.ollamaPrimaryChatSmoke;
-    facts.push(
-      fact(
-        "ollama-primary-chat-smoke",
-        "Qwen3.6 Control alias answers Ollama /api/chat smoke",
-        primaryChatSmoke?.ok === true,
-        true,
-        primaryChatSmoke?.detail ?? "not checked",
-      ),
-    );
-  } else {
-    facts.push(
-      fact(
-        "ollama-runtime",
-        "Ollama runtime inventory checked",
-        false,
-        true,
-        params.ollamaError ?? "skipped",
+        `runtime-${key}`,
+        label,
+        runtimeEvidencePassed(runtime?.[key], sourceSha),
+        runtimeSurface,
       ),
     );
   }
+  facts.push(
+    fact(
+      "runtime-soak",
+      `Managed runtime soak passed for at least ${MINIMUM_SOAK_MS}ms`,
+      runtimeEvidencePassed(runtime?.soak, sourceSha) &&
+        runtime.soak.durationMs >= MINIMUM_SOAK_MS &&
+        Date.parse(runtime.soak.endedAt ?? "") - Date.parse(runtime.soak.startedAt ?? "") >=
+          runtime.soak.durationMs,
+      runtimeSurface,
+    ),
+  );
 
-  if (params.ollamaEnv) {
-    for (const [key, expected] of Object.entries(REQUIRED_OLLAMA_ENV)) {
-      facts.push(
-        fact(
-          `env-${key}`,
-          `${key}=${expected}`,
-          params.ollamaEnv[key] === expected,
-          true,
-          `actual=${params.ollamaEnv[key] ?? "missing"}`,
-        ),
-      );
-    }
-  } else {
-    for (const key of Object.keys(REQUIRED_OLLAMA_ENV)) {
-      facts.push(
-        fact(
-          `env-${key}`,
-          `${key} runtime env present`,
-          false,
-          true,
-          params.ollamaEnvError ?? "skipped",
-        ),
-      );
-    }
-  }
-
-  const critical = facts.filter((entry) => entry.critical);
-  const failedCritical = critical.filter((entry) => !entry.passed);
-  const passedCritical = critical.length - failedCritical.length;
+  const sourceFacts = facts.filter((entry) => entry.surface !== "runtime");
+  const sourceReady = sourceFacts.every((entry) => !entry.critical || entry.passed);
+  const productionReady = facts.every((entry) => !entry.critical || entry.passed);
+  const failedCritical = facts.filter((entry) => entry.critical && !entry.passed);
   const passed = facts.filter((entry) => entry.passed).length;
-  const criticalRatio = critical.length > 0 ? passedCritical / critical.length : 1;
-  const overallRatio = facts.length > 0 ? passed / facts.length : 0;
-  const completionGrade = Math.round((criticalRatio * 0.75 + overallRatio * 0.25) * 100) / 10;
-  const nextFailed = failedCritical[0] ?? facts.find((entry) => !entry.passed);
-
   return {
-    checkedAt: new Date().toISOString(),
-    completionGrade,
-    criticality: 10,
-    productionReady: completionGrade >= 9.5 && failedCritical.length === 0,
-    primaryAlias: PRIMARY_ALIAS,
-    primaryModel: PRIMARY_MODEL,
-    underlyingOllamaTag: UNDERLYING_OLLAMA_TAG,
-    firstFallback: FALLBACK_MODEL,
+    schemaVersion: 2,
+    sourceSha,
+    expectedSha,
+    agentId,
+    selectedModel: selected || null,
+    defaultModel: CONTROL_DIRECTOR_DEFAULT_MODEL,
+    sourceReady,
+    productionReady,
+    completionGrade: Math.round((passed / Math.max(1, facts.length)) * 10),
+    passPercent: Math.round((passed / Math.max(1, facts.length)) * 1_000) / 10,
     facts,
     failedCritical: failedCritical.map((entry) => entry.label),
-    nextBuildGap: nextFailed
-      ? `${nextFailed.label}${nextFailed.detail ? `: ${nextFailed.detail}` : ""}`
-      : "No critical Control Director build gap detected by readiness scorecard.",
+    nextBuildGap: failedCritical[0]?.label ?? "No critical Control Director readiness gap remains.",
+    mode: params.sourceOnly ? "source-only" : "production",
+  };
+}
+
+function resolveOllamaBaseUrl(config) {
+  const provider = config.models?.providers?.ollama ?? {};
+  const raw = provider.baseUrl ?? provider.baseURL ?? DEFAULT_OLLAMA_BASE_URL;
+  return String(raw).trim().replace(/\/+$/u, "").replace(/\/v1$/iu, "");
+}
+
+async function runOllamaChatSmoke(baseUrl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHAT_SMOKE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: CONTROL_DIRECTOR_DEFAULT_MODEL_ID,
+        messages: [{ role: "user", content: "Reply exactly: OK" }],
+        stream: false,
+        think: false,
+        options: { num_ctx: 2048, num_predict: 4, temperature: 0 },
+      }),
+    });
+    return { ok: response.ok, detail: `status=${response.status}` };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function readOllamaEnvironment() {
+  const values = Object.fromEntries(
+    Object.keys(REQUIRED_OLLAMA_ENV).map((key) => [key, process.env[key]]),
+  );
+  if (Object.values(values).every(Boolean)) return values;
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (uid === null) return values;
+  const launchctl = run("launchctl", ["print", `gui/${uid}/ai.openclaw.ollama`]);
+  if (!launchctl.ok) return values;
+  for (const key of Object.keys(REQUIRED_OLLAMA_ENV)) {
+    const match = launchctl.stdout.match(new RegExp(`${key}\\s*=>\\s*([^\\n]+)`, "u"));
+    if (match?.[1]) values[key] = match[1].trim();
+  }
+  return values;
+}
+
+function readSourceState(expectedSha) {
+  const head = run("git", ["-C", CONTROL_DIRECTOR_READINESS_REPO_ROOT, "rev-parse", "HEAD"]);
+  const status = run("git", [
+    "-C",
+    CONTROL_DIRECTOR_READINESS_REPO_ROOT,
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+  ]);
+  return {
+    sha: head.ok ? head.stdout : "",
+    expectedSha,
+    clean: status.ok && status.stdout === "",
+    root: CONTROL_DIRECTOR_READINESS_REPO_ROOT,
   };
 }
 
 function printText(scorecard) {
-  console.log(
-    `Control Director readiness: ${scorecard.productionReady ? "production-ready" : "not production-ready"}`,
-  );
-  console.log(`Completion Grade: ${scorecard.completionGrade}/10`);
-  console.log(`Criticality: ${scorecard.criticality}/10`);
-  console.log(`Primary: ${scorecard.primaryAlias} -> ${scorecard.primaryModel}`);
-  console.log(`Fallback: ${scorecard.firstFallback}`);
-  console.log(`Next build gap: ${scorecard.nextBuildGap}`);
-  console.log("");
-  for (const entry of scorecard.facts) {
-    console.log(
-      `${entry.passed ? "PASS" : "FAIL"} ${entry.critical ? "[critical]" : "[info]"} ${entry.label}${entry.detail ? ` (${entry.detail})` : ""}`,
-    );
+  console.log(`Control Director readiness (${scorecard.mode})`);
+  console.log(`Source SHA: ${scorecard.sourceSha || "missing"}`);
+  console.log(`Selected model: ${scorecard.selectedModel ?? "unavailable"}`);
+  console.log(`Source ready: ${scorecard.sourceReady ? "yes" : "no"}`);
+  console.log(`Production ready: ${scorecard.productionReady ? "yes" : "no"}`);
+  console.log(`Pass: ${scorecard.passPercent}%`);
+  for (const item of scorecard.facts) {
+    console.log(`${item.passed ? "PASS" : item.critical ? "FAIL" : "WARN"} ${item.label}`);
   }
+  console.log(`Next build gap: ${scorecard.nextBuildGap}`);
 }
 
-export async function main(argv = process.argv.slice(2)) {
-  const args = parseArgs(argv);
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(usage());
-    return 0;
+    return;
+  }
+  if (!args.configPath || !fs.existsSync(args.configPath)) {
+    throw new Error(`Control Director config not found: ${args.configPath || "missing"}`);
+  }
+  if (!args.gateProofPath || !fs.existsSync(args.gateProofPath)) {
+    throw new Error("A current --gate-proof JSON file is required.");
   }
   const config = readJson(args.configPath);
-  let ollamaModels;
-  let ollamaError;
-  let ollamaEnv;
-  let ollamaEnvError;
-  let ollamaPrimaryChatSmoke;
-  if (!args.skipRuntime) {
-    const ollama = runOptional("ollama", ["list"]);
-    if (ollama.ok) {
-      ollamaModels = parseOllamaList(ollama.stdout);
-    } else {
-      ollamaError = ollama.error;
-    }
-    const env = readOllamaEnvFromLaunchctl();
-    if (env.ok) {
-      ollamaEnv = env.values;
-    } else {
-      ollamaEnvError = env.error;
-    }
-    if (!args.skipChatSmoke && ollamaModels) {
-      ollamaPrimaryChatSmoke = await runOllamaChatSmoke({
-        baseUrl: resolveOllamaBaseUrl(config),
-        model: PRIMARY_OLLAMA_NAME,
-      });
-    } else if (ollamaModels) {
-      ollamaPrimaryChatSmoke = { ok: false, detail: "skipped" };
-    }
+  const sourceState = readSourceState(args.expectedSha);
+  const gates = readJson(args.gateProofPath);
+  const runtimeProof = args.runtimeProofPath ? readJson(args.runtimeProofPath) : undefined;
+  let ollamaModels = new Map();
+  let ollamaEnv = {};
+  let ollamaChatSmoke = { ok: false, detail: "source-only mode" };
+  if (!args.sourceOnly) {
+    if (!runtimeProof) throw new Error("Production mode requires --runtime-proof JSON.");
+    const list = run("ollama", ["list"]);
+    ollamaModels = list.ok ? parseOllamaList(list.stdout) : new Map();
+    ollamaEnv = readOllamaEnvironment();
+    ollamaChatSmoke = await runOllamaChatSmoke(resolveOllamaBaseUrl(config));
   }
   const scorecard = buildControlDirectorReadinessScorecard({
     config,
+    source: sourceState,
+    wiring: collectControlDirectorActiveWiring(),
+    gates,
+    runtimeProof,
     ollamaModels,
-    ollamaError,
     ollamaEnv,
-    ollamaEnvError,
-    ollamaPrimaryChatSmoke,
-    thinkingEscalationPolicy: detectControlDirectorThinkingEscalationPolicy(),
-    continueUntilCompletePolicy: detectControlDirectorContinueUntilCompletePolicy(),
-    completionEvidencePolicy: detectControlDirectorCompletionEvidencePolicy(),
-    explicitStatusPolicy: detectControlDirectorExplicitStatusPolicy(),
-    runtimeFinalOutputGuard: detectControlDirectorRuntimeFinalOutputGuard(),
-    runtimeJudgeCompletionGate: detectControlDirectorJudgeCompletionGate(),
-    runtimeTruthGate: detectControlDirectorTruthGate(),
-    runtimeTruthEvidenceIngestion: detectControlDirectorTruthEvidenceIngestion(),
+    ollamaChatSmoke,
+    sourceOnly: args.sourceOnly,
   });
-  if (args.json) {
-    console.log(JSON.stringify(scorecard, null, 2));
-  } else {
-    printText(scorecard);
-  }
-  return scorecard.productionReady ? 0 : 1;
+  if (args.json) console.log(JSON.stringify(scorecard, null, 2));
+  else printText(scorecard);
+  process.exitCode = (args.sourceOnly ? scorecard.sourceReady : scorecard.productionReady) ? 0 : 1;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  try {
-    process.exitCode = await main(process.argv.slice(2));
-  } catch (error) {
+if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  }
+  });
 }

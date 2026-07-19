@@ -688,6 +688,23 @@ describe("Project Command Center gateway methods", () => {
     expect(withSkipped.project.percentComplete).toBe(7);
   });
 
+  it("projects the Control Director resource-governor admission into PCC capacity", async () => {
+    const capacity = await pccTesting.readExecutionCapacity({
+      agents: {
+        defaults: { subagents: { maxConcurrent: 4 } },
+        list: [{ id: "director", role: "control_director" }],
+      },
+    });
+
+    expect(capacity.controlDirectorAdmission).toMatchObject({
+      selectedModel: expect.stringContaining("gemma4-31b-q8"),
+      decision: expect.stringMatching(/^(?:admit|queue)$/),
+      reason: expect.any(String),
+    });
+    expect(capacity.warnings.at(-1)).toContain("Control Director resource governor:");
+    expect(capacity.safeLocalAgentSlots).toBeLessThanOrEqual(1);
+  });
+
   it("rejects completion receipts backed by non-passing evidence", async () => {
     const { project } = okPayload<{ project: { id: string } }>(
       await invoke("pcc.projects.upsert", { project: { title: "Failed proof project" } }),

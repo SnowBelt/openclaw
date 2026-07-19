@@ -4,6 +4,241 @@
 @import "./chat/tool-cards.css";
 @import "./chat/sidebar.css";
 
+/* Compact Codex-style work controls live inside the composer instead of
+   displacing or covering the transcript. Expanded panels float above it. */
+.chat-command-rail {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+  min-height: 2.55rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0.38rem 0.48rem;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.chat-command-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-command-rail > .chat-project-picker,
+.chat-command-rail > .chat-approval-card,
+.chat-command-rail > .chat-goal,
+.chat-command-rail > .chat-work-surface,
+.chat-command-rail > .chat-queue-popover,
+.chat-command-rail > .chat-system-status {
+  flex: 0 0 auto;
+  margin: 0;
+  position: relative;
+}
+
+.chat-command-rail .chat-project-picker__summary,
+.chat-command-rail .chat-approval-card__summary,
+.chat-command-rail .chat-goal__summary,
+.chat-command-rail .chat-work-surface__summary,
+.chat-queue-popover__summary,
+.chat-system-status__summary {
+  box-shadow: none;
+  font-size: 0.76rem;
+  min-height: 1.9rem;
+  padding: 0.36rem 0.58rem;
+}
+
+.chat-command-rail .chat-goal__title,
+.chat-command-rail .chat-approval-card__summary strong,
+.chat-command-rail .chat-project-picker__summary strong {
+  max-width: min(20ch, 24vw);
+}
+
+.chat-command-rail .chat-project-picker__panel,
+.chat-command-rail .chat-approval-card__panel,
+.chat-command-rail .chat-goal__panel,
+.chat-command-rail .chat-work-surface__panel,
+.chat-queue-popover__panel,
+.chat-system-status__panel {
+  bottom: calc(100% + 0.55rem);
+  left: 0;
+  margin: 0;
+  max-height: min(64vh, 39rem);
+  max-width: min(42rem, calc(100vw - 3rem));
+  overflow: auto;
+  position: absolute;
+  width: max-content;
+  z-index: 70;
+}
+
+.chat-system-status__summary {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface, #fff) 92%, var(--muted, #64748b) 8%);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.4rem;
+  list-style: none;
+}
+
+.chat-system-status__summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-system-status__dot {
+  background: #ff9f0a;
+  border-radius: 50%;
+  height: 0.48rem;
+  width: 0.48rem;
+}
+
+.chat-system-status__dot--ready {
+  background: #30d158;
+}
+
+.chat-system-status__panel {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 1.1rem;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 18%);
+  display: grid;
+  gap: 0.7rem;
+  min-width: min(22rem, calc(100vw - 3rem));
+  padding: 0.9rem;
+  white-space: normal;
+}
+
+.chat-system-status__panel > div {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.chat-system-status__panel span,
+.chat-system-status__panel small {
+  color: var(--muted-foreground, #64748b);
+}
+
+.chat-system-status__panel ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.chat-queue-popover__summary {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface, #ffffff) 90%, var(--accent, #0a84ff) 10%);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.4rem;
+  list-style: none;
+}
+
+.chat-queue-popover__summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-queue-popover__summary strong {
+  align-items: center;
+  background: var(--accent, #0a84ff);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.68rem;
+  height: 1.15rem;
+  justify-content: center;
+  min-width: 1.15rem;
+  padding: 0 0.28rem;
+}
+
+.chat-queue-popover__panel {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 1.1rem;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 18%);
+  min-width: min(32rem, calc(100vw - 3rem));
+  padding: 0.8rem;
+}
+
+.chat-queue-popover__panel .chat-queue {
+  margin: 0;
+}
+
+.chat-goal__timeline {
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  display: grid;
+  gap: 0.55rem;
+  list-style: none;
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.72rem 0 0;
+}
+
+.chat-goal__timeline li {
+  display: grid;
+  gap: 0.14rem;
+}
+
+.chat-goal__timeline span {
+  color: var(--muted-foreground, #64748b);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: capitalize;
+}
+
+.chat-goal__timeline p {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0;
+  white-space: normal;
+}
+
+@media (max-width: 720px) {
+  .chat-command-rail {
+    min-height: 2.35rem;
+    padding: 0.28rem 0.36rem;
+  }
+
+  .chat-command-rail .chat-project-picker__summary,
+  .chat-command-rail .chat-approval-card__summary,
+  .chat-command-rail .chat-goal__summary,
+  .chat-command-rail .chat-work-surface__summary,
+  .chat-queue-popover__summary,
+  .chat-system-status__summary {
+    min-height: 1.8rem;
+  }
+
+  .chat-command-rail .chat-goal__title,
+  .chat-command-rail .chat-project-picker__summary strong {
+    max-width: 11ch;
+  }
+
+  .chat-queue-popover[open] .chat-queue-popover__panel {
+    border-radius: 1.2rem 1.2rem 0 0;
+    bottom: max(6.75rem, calc(env(safe-area-inset-bottom) + 6.25rem));
+    left: 0.75rem;
+    max-height: min(calc(100dvh - 10rem), 34rem);
+    max-width: none;
+    position: fixed;
+    right: 0.75rem;
+    width: auto;
+    z-index: 58;
+  }
+
+  .chat-system-status[open] .chat-system-status__panel {
+    bottom: max(6.75rem, calc(env(safe-area-inset-bottom) + 6.25rem));
+    left: 0.75rem;
+    max-height: min(calc(100dvh - 10rem), 34rem);
+    max-width: none;
+    position: fixed;
+    right: 0.75rem;
+    width: auto;
+    z-index: 58;
+  }
+}
+
 .chat-work-surface {
   margin: 0.75rem 0 0;
   position: relative;
@@ -434,31 +669,19 @@
   padding: 0.8rem;
 }
 
-.chat-project-picker__create label {
-  display: grid;
-  gap: 0.28rem;
+.chat-project-picker__boundary {
+  align-items: center;
+  background: color-mix(in srgb, var(--accent-subtle, #eef2ff) 72%, transparent);
+  border-radius: 0.9rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
 }
 
-.chat-project-picker__create label span {
+.chat-project-picker__boundary p {
   color: var(--muted-foreground, #64748b);
   font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.chat-project-picker__create input,
-.chat-project-picker__create textarea {
-  background: var(--surface, #ffffff);
-  border: 1px solid color-mix(in srgb, var(--border, #d0d7de) 76%, transparent);
-  border-radius: 0.82rem;
-  color: var(--text, #111827);
-  font: inherit;
-  padding: 0.62rem 0.72rem;
-  width: 100%;
-}
-
-.chat-project-picker__create textarea {
-  min-height: 4.5rem;
-  resize: vertical;
+  margin: 0.25rem 0 0;
 }
 
 .chat-approval-card {

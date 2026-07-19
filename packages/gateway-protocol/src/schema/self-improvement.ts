@@ -1,5 +1,6 @@
 import { Type, type Static } from "typebox";
 import { NonEmptyString } from "./primitives.js";
+import { PursueGoalJudgeReceiptSchema } from "./tasks.js";
 
 export const SelfImprovementRecommendationStatusSchema = Type.Union([
   Type.Literal("open"),
@@ -129,6 +130,109 @@ export const SelfImprovementModelReadinessSchema = Type.Union([
   Type.Literal("blocked"),
 ]);
 
+export const ControlDirectorJourneySignalCodeSchema = Type.Union([
+  Type.Literal("silence_after_ack"),
+  Type.Literal("activity_gap"),
+  Type.Literal("stalled_goal"),
+  Type.Literal("memory_miss"),
+  Type.Literal("layout_obstruction"),
+  Type.Literal("title_failure"),
+  Type.Literal("queue_race"),
+  Type.Literal("delivery_miss"),
+  Type.Literal("completion_without_proof"),
+  Type.Literal("runtime_lineage_mismatch"),
+]);
+
+export const ControlDirectorLayoutObstructionReasonSchema = Type.Union([
+  Type.Literal("transcript_hidden"),
+  Type.Literal("composer_hidden"),
+  Type.Literal("transcript_composer_overlap"),
+  Type.Literal("composer_outside_viewport"),
+  Type.Literal("truth_completion_in_chat"),
+  Type.Literal("pcc_projection_in_chat"),
+]);
+
+const ControlDirectorLayoutRectSchema = Type.Object(
+  {
+    top: Type.Number({ minimum: -100_000, maximum: 100_000 }),
+    right: Type.Number({ minimum: -100_000, maximum: 100_000 }),
+    bottom: Type.Number({ minimum: -100_000, maximum: 100_000 }),
+    left: Type.Number({ minimum: -100_000, maximum: 100_000 }),
+    width: Type.Number({ minimum: 0, maximum: 100_000 }),
+    height: Type.Number({ minimum: 0, maximum: 100_000 }),
+  },
+  { additionalProperties: false },
+);
+
+const ControlDirectorLayoutElementSchema = Type.Object(
+  {
+    visible: Type.Boolean(),
+    rect: Type.Optional(ControlDirectorLayoutRectSchema),
+  },
+  { additionalProperties: false },
+);
+
+export const ControlDirectorLayoutObservationReportParamsSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    sessionKey: Type.String({ minLength: 1, maxLength: 512 }),
+    observationId: Type.String({
+      minLength: 1,
+      maxLength: 128,
+      pattern: "^[A-Za-z0-9._:-]+$",
+    }),
+    observedAt: Type.Integer({ minimum: 0 }),
+    viewport: Type.Object(
+      {
+        width: Type.Integer({ minimum: 1, maximum: 20_000 }),
+        height: Type.Integer({ minimum: 1, maximum: 20_000 }),
+      },
+      { additionalProperties: false },
+    ),
+    transcript: ControlDirectorLayoutElementSchema,
+    composer: ControlDirectorLayoutElementSchema,
+    truthCompletionPresent: Type.Boolean(),
+    pccProjectionPresent: Type.Boolean(),
+    reason: ControlDirectorLayoutObstructionReasonSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const ControlDirectorLayoutObservationReportResultSchema = Type.Object(
+  {
+    accepted: Type.Literal(true),
+    signalCode: Type.Literal("layout_obstruction"),
+  },
+  { additionalProperties: false },
+);
+
+export const ControlDirectorJourneyClosureSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    recommendationId: NonEmptyString,
+    signalCode: ControlDirectorJourneySignalCodeSchema,
+    owner: NonEmptyString,
+    slaAt: Type.Integer({ minimum: 1 }),
+    observation: Type.Object(
+      {
+        startedAt: Type.Integer({ minimum: 0 }),
+        endedAt: Type.Integer({ minimum: 0 }),
+        minimumDurationMs: Type.Integer({ minimum: 0 }),
+      },
+      { additionalProperties: false },
+    ),
+    recurrenceCount: Type.Integer({ minimum: 0 }),
+    targetRecurrenceCount: Type.Integer({ minimum: 0 }),
+    lastRecurrenceAt: Type.Optional(Type.Integer({ minimum: 0 })),
+    proofReceiptId: NonEmptyString,
+    judgeReceiptId: NonEmptyString,
+    closedAt: Type.Integer({ minimum: 0 }),
+    status: Type.Union([Type.Literal("closed"), Type.Literal("reopened")]),
+    reopenReason: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
 export const SelfImprovementRecommendationSourceSchema = Type.Object(
   {
     kind: Type.Union([
@@ -154,6 +258,7 @@ export const SelfImprovementRecommendationSourceSchema = Type.Object(
     sessionKey: Type.Optional(Type.String()),
     cronJobId: Type.Optional(Type.String()),
     proposalId: Type.Optional(Type.String()),
+    signalCode: Type.Optional(ControlDirectorJourneySignalCodeSchema),
   },
   { additionalProperties: false },
 );
@@ -356,6 +461,7 @@ export const SelfImprovementRecommendationSchema = Type.Object(
     ),
     dismissalReason: Type.Optional(Type.String()),
     reopenReason: Type.Optional(Type.String()),
+    controlDirectorClosure: Type.Optional(ControlDirectorJourneyClosureSchema),
     evidence: Type.Array(Type.String()),
     actionability: Type.Optional(SelfImprovementActionabilitySchema),
   },
@@ -522,6 +628,29 @@ export const SelfImprovementRecommendationsUpdateParamsSchema = Type.Object(
     claimedBy: Type.Optional(Type.String()),
     resolutionProof: Type.Optional(Type.String()),
     dismissalReason: Type.Optional(Type.String()),
+    controlDirectorClosure: Type.Optional(
+      Type.Object(
+        {
+          signalCode: ControlDirectorJourneySignalCodeSchema,
+          owner: NonEmptyString,
+          slaAt: Type.Integer({ minimum: 1 }),
+          observation: Type.Object(
+            {
+              startedAt: Type.Integer({ minimum: 0 }),
+              endedAt: Type.Integer({ minimum: 0 }),
+              minimumDurationMs: Type.Integer({ minimum: 0 }),
+            },
+            { additionalProperties: false },
+          ),
+          recurrenceCount: Type.Integer({ minimum: 0 }),
+          targetRecurrenceCount: Type.Optional(Type.Integer({ minimum: 0 })),
+          lastRecurrenceAt: Type.Optional(Type.Integer({ minimum: 0 })),
+          proofReceiptId: NonEmptyString,
+          judgeReceipt: PursueGoalJudgeReceiptSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -895,6 +1024,7 @@ export const SelfImprovementRecommendationsGetResultSchema = Type.Object(
 export const SelfImprovementRecommendationsUpdateResultSchema = Type.Object(
   {
     recommendation: SelfImprovementRecommendationSchema,
+    controlDirectorClosure: Type.Optional(ControlDirectorJourneyClosureSchema),
   },
   { additionalProperties: false },
 );
@@ -1496,6 +1626,15 @@ export const SelfImprovementCuratorUpdateResultSchema = Type.Object(
 );
 
 export type SelfImprovementScanParams = Static<typeof SelfImprovementScanParamsSchema>;
+export type ControlDirectorLayoutObstructionReason = Static<
+  typeof ControlDirectorLayoutObstructionReasonSchema
+>;
+export type ControlDirectorLayoutObservationReportParams = Static<
+  typeof ControlDirectorLayoutObservationReportParamsSchema
+>;
+export type ControlDirectorLayoutObservationReportResult = Static<
+  typeof ControlDirectorLayoutObservationReportResultSchema
+>;
 export type SelfImprovementScorecardParams = Static<typeof SelfImprovementScorecardParamsSchema>;
 export type SelfImprovementHealthParams = Static<typeof SelfImprovementHealthParamsSchema>;
 export type SelfImprovementProductionCheckParams = Static<

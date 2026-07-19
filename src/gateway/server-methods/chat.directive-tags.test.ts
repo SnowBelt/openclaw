@@ -88,6 +88,7 @@ const mockState = vi.hoisted(() => ({
   lastDispatchImages: undefined as Array<{ mimeType: string; data: string }> | undefined,
   lastDispatchImageOrder: undefined as string[] | undefined,
   lastDispatchThinkingLevelOverride: undefined as string | undefined,
+  lastDispatchQueueModeOverride: undefined as string | undefined,
   lastDispatchUserTurnInput: undefined as unknown,
   modelCatalog: null as ModelCatalogEntry[] | null,
   emittedTranscriptUpdates: [] as Array<{
@@ -244,12 +245,14 @@ vi.mock("../../auto-reply/dispatch.js", () => ({
         images?: Array<{ mimeType: string; data: string }>;
         imageOrder?: string[];
         thinkingLevelOverride?: string;
+        queueModeOverride?: string;
       };
     }) => {
       mockState.lastDispatchCtx = params.ctx;
       mockState.lastDispatchImages = params.replyOptions?.images;
       mockState.lastDispatchImageOrder = params.replyOptions?.imageOrder;
       mockState.lastDispatchThinkingLevelOverride = params.replyOptions?.thinkingLevelOverride;
+      mockState.lastDispatchQueueModeOverride = params.replyOptions?.queueModeOverride;
       const recorder = params.replyOptions?.userTurnTranscriptRecorder;
       mockState.lastDispatchUserTurnInput = recorder?.resolveMessage
         ? await recorder.resolveMessage()
@@ -847,6 +850,7 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     mockState.lastDispatchImages = undefined;
     mockState.lastDispatchImageOrder = undefined;
     mockState.lastDispatchThinkingLevelOverride = undefined;
+    mockState.lastDispatchQueueModeOverride = undefined;
     mockState.lastDispatchUserTurnInput = undefined;
     mockState.modelCatalog = null;
     mockState.emittedTranscriptUpdates = [];
@@ -3732,6 +3736,34 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
       | undefined;
     expect(userTurnInput?.content).toBe("hello from phone");
     expect(mockState.lastDispatchThinkingLevelOverride).toBe("low");
+  });
+
+  it("chat.send applies queue or steer for one turn without changing message text", async () => {
+    await createTranscriptFixture("openclaw-chat-send-turn-mode-");
+    mockState.finalText = "ok";
+    const context = createChatContext();
+
+    await runNonStreamingChatSend({
+      context,
+      respond: vi.fn(),
+      idempotencyKey: "idem-turn-mode",
+      message: "change the active work",
+      requestParams: { turnMode: "steer" },
+      expectBroadcast: false,
+    });
+
+    expect(mockState.lastDispatchCtx?.BodyForCommands).toBe("change the active work");
+    expect(mockState.lastDispatchQueueModeOverride).toBe("steer");
+
+    await runNonStreamingChatSend({
+      context: createChatContext(),
+      respond: vi.fn(),
+      idempotencyKey: "idem-turn-mode-queue",
+      message: "do this after",
+      requestParams: { turnMode: "queue" },
+      expectBroadcast: false,
+    });
+    expect(mockState.lastDispatchQueueModeOverride).toBe("followup");
   });
 
   it("chat.send keeps explicit delivery routes for Feishu channel-scoped sessions", async () => {

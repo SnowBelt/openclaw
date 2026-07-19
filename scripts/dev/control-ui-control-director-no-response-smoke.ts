@@ -70,10 +70,23 @@ export type ControlDirectorNoResponseDiagnostics = {
   matchingSessionKeys: string[];
 };
 
+export type ControlDirectorChatLayoutProof = {
+  transcriptVisible: boolean;
+  composerVisible: boolean;
+  commandRailVisible: boolean;
+  pursueGoalCompact: boolean;
+  transcriptComposerNonOverlapping: boolean;
+  composerInsideViewport: boolean;
+  truthCompletionAbsentFromChat: boolean;
+  pccProjectionAbsentFromChat: boolean;
+  commandRailHeight: number;
+};
+
 export type ControlDirectorNoResponseSmokeSummary = {
   ok: true;
   proofKind: ControlDirectorMobileProofKind;
   webVisibleStatus: string;
+  tabletVisibleStatus: string;
   mobileVisibleStatus: string;
   livenessAuditPresent: boolean;
   missionLedgerPresent: boolean;
@@ -83,7 +96,13 @@ export type ControlDirectorNoResponseSmokeSummary = {
   mockProviderUrl: string;
   screenshots: {
     web: string;
+    tablet: string;
     mobile: string;
+  };
+  layout: {
+    web: ControlDirectorChatLayoutProof;
+    tablet: ControlDirectorChatLayoutProof;
+    mobile: ControlDirectorChatLayoutProof;
   };
   mobileDeviceCheck: ControlDirectorMobileDeviceSummary;
   sessionDiagnostics: ControlDirectorNoResponseDiagnostics;
@@ -120,6 +139,7 @@ type ChatProofResult = {
   visibleText: string;
   sessionKey: string | null;
   screenshotPath: string;
+  layout: ControlDirectorChatLayoutProof;
 };
 
 function extractSmokeText(value: unknown): string {
@@ -261,6 +281,26 @@ export function validateVisibleBlockedText(
   if (/\bStatus\s*:\s*complete\b/iu.test(text)) {
     missing.push("no unsupported delivered Status: complete");
   }
+  return missing.length === 0 ? { ok: true, missing: [] } : { ok: false, missing };
+}
+
+export function validateControlDirectorChatLayout(
+  proof: ControlDirectorChatLayoutProof,
+): ControlDirectorNoResponseVisibilityValidation {
+  const required = {
+    transcriptVisible: proof.transcriptVisible,
+    composerVisible: proof.composerVisible,
+    commandRailVisible: proof.commandRailVisible,
+    pursueGoalCompact: proof.pursueGoalCompact,
+    transcriptComposerNonOverlapping: proof.transcriptComposerNonOverlapping,
+    composerInsideViewport: proof.composerInsideViewport,
+    truthCompletionAbsentFromChat: proof.truthCompletionAbsentFromChat,
+    pccProjectionAbsentFromChat: proof.pccProjectionAbsentFromChat,
+    commandRailCompact: proof.commandRailHeight > 0 && proof.commandRailHeight <= 120,
+  };
+  const missing = Object.entries(required)
+    .filter(([, passed]) => !passed)
+    .map(([key]) => key);
   return missing.length === 0 ? { ok: true, missing: [] } : { ok: false, missing };
 }
 
@@ -534,6 +574,7 @@ async function writeGatewayConfig(params: {
         {
           id: "main",
           default: true,
+          role: "control_director",
           model: { primary: "mock-openai/gpt-5.5" },
           identity: {
             name: "Control Director",
@@ -844,6 +885,49 @@ async function readSessionDiagnostics(page: Page, sessionKey: string | null, vis
   return validateSessionDiagnostics({ sessionKey, sessions, visibleText });
 }
 
+async function inspectControlDirectorChatLayout(
+  page: Page,
+): Promise<ControlDirectorChatLayoutProof> {
+  return await page.evaluate(() => {
+    const chat = document.querySelector<HTMLElement>(".card.chat");
+    const transcript = chat?.querySelector<HTMLElement>(".chat-thread") ?? null;
+    const composer = chat?.querySelector<HTMLElement>(".agent-chat__input") ?? null;
+    const textarea = composer?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
+    const commandRail = composer?.querySelector<HTMLElement>(".chat-command-rail") ?? null;
+    const pursueGoal = commandRail?.querySelector<HTMLDetailsElement>("[data-chat-goal]") ?? null;
+    const visible = (element: HTMLElement | null) => {
+      if (!element) return false;
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const transcriptRect = transcript?.getBoundingClientRect();
+    const composerRect = composer?.getBoundingClientRect();
+    const commandRailRect = commandRail?.getBoundingClientRect();
+    return {
+      transcriptVisible: visible(transcript),
+      composerVisible: visible(composer) && visible(textarea),
+      commandRailVisible: visible(commandRail),
+      pursueGoalCompact: Boolean(pursueGoal && visible(pursueGoal) && !pursueGoal.open),
+      transcriptComposerNonOverlapping: Boolean(
+        transcriptRect && composerRect && transcriptRect.bottom <= composerRect.top + 1,
+      ),
+      composerInsideViewport: Boolean(
+        composerRect && composerRect.top >= 0 && composerRect.bottom <= window.innerHeight + 1,
+      ),
+      truthCompletionAbsentFromChat: !chat?.querySelector("[data-control-director-diagnostics]"),
+      pccProjectionAbsentFromChat: !chat?.querySelector("[data-pcc-chat-sync]"),
+      commandRailHeight: Math.round(commandRailRect?.height ?? 0),
+    };
+  });
+}
+
 async function runChatProof(params: {
   artifactDir: string;
   browser: Browser;
@@ -887,9 +971,16 @@ async function runChatProof(params: {
         `${params.label} visible response missing markers: ${validation.missing.join(", ")}. Visible text: ${normalizedVisibleText}`,
       );
     }
+    const layout = await inspectControlDirectorChatLayout(page);
+    const layoutValidation = validateControlDirectorChatLayout(layout);
+    if (!layoutValidation.ok) {
+      throw new Error(
+        `${params.label} Chat layout proof failed: ${layoutValidation.missing.join(", ")}. Layout: ${JSON.stringify(layout)}`,
+      );
+    }
     const screenshotPath = join(params.artifactDir, params.screenshotName);
     await page.screenshot({ path: screenshotPath, fullPage: false });
-    return { visibleText, sessionKey, screenshotPath };
+    return { visibleText, sessionKey, screenshotPath, layout };
   } finally {
     await context.close().catch(() => undefined);
   }
@@ -976,6 +1067,27 @@ async function runSmoke() {
       screenshotName: "02-mobile-web-viewport-blocked.png",
     });
 
+    const tabletProof = await runChatProof({
+      artifactDir,
+      browser,
+      consoleErrors,
+      contextOptions: {
+        deviceScaleFactor: 2,
+        hasTouch: true,
+        viewport: { width: 820, height: 1180 },
+      },
+      gateway,
+      label: "tablet web viewport proof",
+      metadata: {
+        deviceFamily: "tablet-web",
+        displayName: "OpenClaw Control Director no-response tablet viewport proof",
+        platform: "tablet-web",
+      },
+      pageErrors,
+      responseErrors,
+      screenshotName: "03-tablet-web-viewport-blocked.png",
+    });
+
     const diagnosticsPage = await browser.newPage();
     await diagnosticsPage.addInitScript("globalThis.__name = (fn) => fn;");
     await diagnosticsPage.goto(appendControlUiTokenFragment(gateway.url, gateway.token), {
@@ -984,20 +1096,21 @@ async function runSmoke() {
     await waitForChatReady(diagnosticsPage);
     const diagnostics = await readSessionDiagnostics(
       diagnosticsPage,
-      mobileProof.sessionKey ?? webProof.sessionKey,
-      `${webProof.visibleText}\n${mobileProof.visibleText}`,
+      mobileProof.sessionKey ?? tabletProof.sessionKey ?? webProof.sessionKey,
+      `${webProof.visibleText}\n${tabletProof.visibleText}\n${mobileProof.visibleText}`,
     );
     await diagnosticsPage.close().catch(() => undefined);
 
     assertControlDirectorNoResponseEvidence({
       diagnostics,
-      visibleText: `${webProof.visibleText}\n${mobileProof.visibleText}`,
+      visibleText: `${webProof.visibleText}\n${tabletProof.visibleText}\n${mobileProof.visibleText}`,
     });
 
     const summary: ControlDirectorNoResponseSmokeSummary = {
       ok: true,
       proofKind: mobileDecision.proofKind,
       webVisibleStatus: "visible recovery status",
+      tabletVisibleStatus: "visible recovery status",
       mobileVisibleStatus: "visible recovery status",
       livenessAuditPresent: diagnostics.livenessAuditPresent,
       missionLedgerPresent: diagnostics.missionLedgerPresent,
@@ -1007,7 +1120,13 @@ async function runSmoke() {
       mockProviderUrl: mockProvider.baseUrl,
       screenshots: {
         web: webProof.screenshotPath,
+        tablet: tabletProof.screenshotPath,
         mobile: mobileProof.screenshotPath,
+      },
+      layout: {
+        web: webProof.layout,
+        tablet: tabletProof.layout,
+        mobile: mobileProof.layout,
       },
       mobileDeviceCheck: deviceSummary,
       sessionDiagnostics: diagnostics,

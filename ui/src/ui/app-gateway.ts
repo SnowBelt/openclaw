@@ -9,6 +9,7 @@ import {
   createChatSessionsLoadOverrides,
   flushChatQueueForEvent,
   hasReconnectableQueuedChatSends,
+  loadServerChatTurns,
   markQueuedChatSendsWaitingForReconnect,
   recordChatSendServerTiming,
   recordFirstAssistantChatTiming,
@@ -49,6 +50,8 @@ import {
 } from "./controllers/assistant-identity.ts";
 import {
   loadChatHistory,
+  loadChatGoals,
+  loadChatWorkTasks,
   handleChatEvent,
   type ChatEventPayload,
   type ChatState,
@@ -181,6 +184,11 @@ type GatewayHostWithSideResults = GatewayHost & {
   chatSideResultTerminalRuns?: Set<string>;
 };
 
+type GatewayHostWithChatWorkRefresh = GatewayHost & {
+  chatGoalEventRefreshTimer?: ReturnType<typeof globalThis.setTimeout> | null;
+  chatTaskEventRefreshTimer?: ReturnType<typeof globalThis.setTimeout> | null;
+};
+
 const SESSIONS_CHANGED_RELOAD_DEBOUNCE_MS = 5_000;
 const DEFERRED_SESSION_MESSAGE_REPLAY_POLL_MS = 250;
 const DEFERRED_SESSION_MESSAGE_REPLAY_TIMEOUT_MS = 10_000;
@@ -251,6 +259,42 @@ function scheduleSessionsChangedReload(host: GatewayHost) {
     }
     void loadSessions(host as unknown as SessionsState);
   }, SESSIONS_CHANGED_RELOAD_DEBOUNCE_MS);
+}
+
+function scheduleChatWorkRefresh(host: GatewayHost, kind: "goal" | "task") {
+  if (host.tab !== "chat" || !host.connected || !host.client) {
+    return;
+  }
+  const workHost = host as GatewayHostWithChatWorkRefresh;
+  const key = kind === "goal" ? "chatGoalEventRefreshTimer" : "chatTaskEventRefreshTimer";
+  if (workHost[key]) {
+    return;
+  }
+  workHost[key] = globalThis.setTimeout(() => {
+    workHost[key] = null;
+    if (kind === "goal") {
+      void loadChatGoals(host as unknown as ChatState);
+      return;
+    }
+    void loadChatWorkTasks(host as unknown as ChatState);
+  }, 75);
+}
+
+function workEventMatchesCurrentSession(host: GatewayHost, payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return true;
+  }
+  const record = payload as {
+    ownerKey?: unknown;
+    sessionKey?: unknown;
+    task?: { ownerKey?: unknown; sessionKey?: unknown };
+  };
+  const eventKey =
+    (typeof record.ownerKey === "string" && record.ownerKey) ||
+    (typeof record.sessionKey === "string" && record.sessionKey) ||
+    (typeof record.task?.ownerKey === "string" && record.task.ownerKey) ||
+    (typeof record.task?.sessionKey === "string" && record.task.sessionKey);
+  return !eventKey || areUiSessionKeysEquivalent(eventKey, host.sessionKey);
 }
 
 type ConnectGatewayOptions = {
@@ -1321,6 +1365,24 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     const sideResultHost = host as GatewayHostWithSideResults;
     sideResultHost.chatSideResult = sideResult;
     sideResultHost.chatSideResultTerminalRuns?.add(sideResult.runId);
+    return;
+  }
+
+  if (evt.event === "taskFlow") {
+    if (workEventMatchesCurrentSession(host, evt.payload)) {
+      scheduleChatWorkRefresh(host, "goal");
+      void loadServerChatTurns(
+        host as unknown as Parameters<typeof loadServerChatTurns>[0],
+        host.sessionKey,
+      );
+    }
+    return;
+  }
+
+  if (evt.event === "task") {
+    if (workEventMatchesCurrentSession(host, evt.payload)) {
+      scheduleChatWorkRefresh(host, "task");
+    }
     return;
   }
 

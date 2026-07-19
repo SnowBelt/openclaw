@@ -21,6 +21,7 @@ export const TaskLedgerStatusSchema = Type.Union([
 export const TaskFlowStatusSchema = Type.Union([
   Type.Literal("queued"),
   Type.Literal("running"),
+  Type.Literal("paused"),
   Type.Literal("waiting"),
   Type.Literal("blocked"),
   Type.Literal("succeeded"),
@@ -35,7 +36,189 @@ export const TaskNotifyPolicySchema = Type.Union([
   Type.Literal("silent"),
 ]);
 
+/** Operator-selected admission behavior for a pending Control UI turn. */
+export const ChatTurnModeSchema = Type.Union([Type.Literal("queue"), Type.Literal("steer")]);
+
+/** Durable server-owned lifecycle for a Control UI turn before and after admission. */
+export const ChatTurnPhaseSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("dispatching"),
+  Type.Literal("admitted"),
+  Type.Literal("delivered"),
+  Type.Literal("failed"),
+  Type.Literal("cancelled"),
+]);
+
+export const ChatTurnSummarySchema = Type.Object(
+  {
+    id: NonEmptyString,
+    sessionKey: NonEmptyString,
+    agentId: Type.Optional(NonEmptyString),
+    revision: Type.Integer({ minimum: 0 }),
+    mode: ChatTurnModeSchema,
+    phase: ChatTurnPhaseSchema,
+    message: Type.String(),
+    attachmentCount: Type.Integer({ minimum: 0 }),
+    admissionOpen: Type.Boolean(),
+    runId: Type.Optional(NonEmptyString),
+    missionId: Type.Optional(NonEmptyString),
+    responseMode: Type.Optional(
+      Type.Union([
+        Type.Literal("conversation"),
+        Type.Literal("answer"),
+        Type.Literal("plan"),
+        Type.Literal("execute"),
+        Type.Literal("status"),
+        Type.Literal("steer"),
+        Type.Literal("queue"),
+        Type.Literal("goal"),
+      ]),
+    ),
+    requestHash: Type.Optional(NonEmptyString),
+    activitySummary: Type.Optional(Type.String({ maxLength: 500 })),
+    lastActivityAt: Type.Integer({ minimum: 0 }),
+    lastError: Type.Optional(Type.String()),
+    createdAt: Type.Integer({ minimum: 0 }),
+    updatedAt: Type.Integer({ minimum: 0 }),
+    endedAt: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
+export const ChatTurnsListParamsSchema = Type.Object(
+  {
+    sessionKey: NonEmptyString,
+    includeTerminal: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export const ChatTurnsListResultSchema = Type.Object(
+  { turns: Type.Array(ChatTurnSummarySchema, { maxItems: 200 }) },
+  { additionalProperties: false },
+);
+
+export const ChatTurnsCreateParamsSchema = Type.Object(
+  {
+    sessionKey: NonEmptyString,
+    agentId: Type.Optional(NonEmptyString),
+    message: Type.String(),
+    attachments: Type.Optional(Type.Array(Type.Unknown(), { maxItems: 32 })),
+    mode: ChatTurnModeSchema,
+    idempotencyKey: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const ChatTurnsCreateResultSchema = Type.Object(
+  { turn: ChatTurnSummarySchema },
+  { additionalProperties: false },
+);
+
+const ChatTurnMutationBaseSchema = {
+  turnId: NonEmptyString,
+  sessionKey: NonEmptyString,
+  expectedRevision: Type.Integer({ minimum: 0 }),
+  idempotencyKey: NonEmptyString,
+};
+
+export const ChatTurnsSetModeParamsSchema = Type.Object(
+  { ...ChatTurnMutationBaseSchema, mode: ChatTurnModeSchema },
+  { additionalProperties: false },
+);
+
+export const ChatTurnsCancelParamsSchema = Type.Object(ChatTurnMutationBaseSchema, {
+  additionalProperties: false,
+});
+
+export const ChatTurnsRetryParamsSchema = Type.Object(ChatTurnMutationBaseSchema, {
+  additionalProperties: false,
+});
+
+export const ChatTurnMutationResultSchema = Type.Object(
+  {
+    found: Type.Boolean(),
+    applied: Type.Boolean(),
+    reason: Type.Optional(Type.String()),
+    turn: Type.Optional(ChatTurnSummarySchema),
+  },
+  { additionalProperties: false },
+);
+
 const TimestampSchema = Type.Union([Type.String(), Type.Integer({ minimum: 0 })]);
+
+export const ExecutionEventSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    eventId: NonEmptyString,
+    sequence: Type.Integer({ minimum: 0 }),
+    at: Type.Integer({ minimum: 0 }),
+    flowId: NonEmptyString,
+    category: Type.Union([
+      Type.Literal("run"),
+      Type.Literal("task"),
+      Type.Literal("goal"),
+      Type.Literal("activity"),
+      Type.Literal("evidence"),
+      Type.Literal("approval"),
+      Type.Literal("judge"),
+      Type.Literal("notification"),
+    ]),
+    name: NonEmptyString,
+    actorId: NonEmptyString,
+    summary: NonEmptyString,
+    correlation: Type.Optional(
+      Type.Object(
+        {
+          missionId: Type.Optional(NonEmptyString),
+          runId: Type.Optional(NonEmptyString),
+          taskId: Type.Optional(NonEmptyString),
+          sessionKey: Type.Optional(NonEmptyString),
+          idempotencyKey: Type.Optional(NonEmptyString),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    payload: Type.Optional(Type.Unknown()),
+  },
+  { additionalProperties: false },
+);
+
+export const PursueGoalLeaseSchema = Type.Object(
+  {
+    ownerId: NonEmptyString,
+    leaseId: NonEmptyString,
+    acquiredAt: Type.Integer({ minimum: 0 }),
+    heartbeatAt: Type.Integer({ minimum: 0 }),
+    expiresAt: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const PursueGoalJudgeReceiptSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    receiptId: NonEmptyString,
+    missionId: NonEmptyString,
+    claimHash: NonEmptyString,
+    verdict: Type.Union([
+      Type.Literal("APPROVE"),
+      Type.Literal("REJECT"),
+      Type.Literal("REQUEST_MORE_EVIDENCE"),
+      Type.Literal("ESCALATE_TO_HUMAN"),
+    ]),
+    scope: NonEmptyString,
+    evidenceSummary: NonEmptyString,
+    conditions: NonEmptyString,
+    judgeRunId: NonEmptyString,
+    judgeAgentId: NonEmptyString,
+    model: Type.Optional(NonEmptyString),
+    issuedAt: Type.Integer({ minimum: 0 }),
+    signature: Type.Optional(NonEmptyString),
+    publicKeyId: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
 
 /** Public task summary returned by task list/get/cancel responses. */
 export const TaskSummarySchema = Type.Object(
@@ -127,6 +310,8 @@ export const TaskFlowSummarySchema = Type.Object(
     id: NonEmptyString,
     flowId: NonEmptyString,
     ownerKey: NonEmptyString,
+    revision: Type.Integer({ minimum: 0 }),
+    controllerId: Type.Optional(NonEmptyString),
     requesterOrigin: Type.Optional(Type.Unknown()),
     status: TaskFlowStatusSchema,
     notifyPolicy: TaskNotifyPolicySchema,
@@ -134,6 +319,21 @@ export const TaskFlowSummarySchema = Type.Object(
     currentStep: Type.Optional(Type.String()),
     blockedTaskId: Type.Optional(Type.String()),
     blockedSummary: Type.Optional(Type.String()),
+    phase: Type.Optional(NonEmptyString),
+    missionId: Type.Optional(NonEmptyString),
+    goalVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+    workerAgentId: Type.Optional(NonEmptyString),
+    workerSessionKey: Type.Optional(NonEmptyString),
+    turnCount: Type.Optional(Type.Integer({ minimum: 0 })),
+    activationCount: Type.Optional(Type.Integer({ minimum: 0 })),
+    consecutiveFailures: Type.Optional(Type.Integer({ minimum: 0 })),
+    nextAction: Type.Optional(Type.String()),
+    lastResult: Type.Optional(Type.String()),
+    lastError: Type.Optional(Type.String()),
+    retryAt: Type.Optional(TimestampSchema),
+    lease: Type.Optional(PursueGoalLeaseSchema),
+    judgeReceipt: Type.Optional(PursueGoalJudgeReceiptSchema),
+    events: Type.Optional(Type.Array(ExecutionEventSchema, { maxItems: 50 })),
     cancelRequestedAt: Type.Optional(TimestampSchema),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
@@ -200,6 +400,7 @@ export const TaskFlowsCreateParamsSchema = Type.Object(
     sessionKey: NonEmptyString,
     goal: NonEmptyString,
     currentStep: Type.Optional(Type.String()),
+    idempotencyKey: Type.Optional(NonEmptyString),
   },
   { additionalProperties: false },
 );
@@ -226,6 +427,154 @@ export const TaskFlowsCancelResultSchema = Type.Object(
     cancelled: Type.Boolean(),
     reason: Type.Optional(Type.String()),
     flow: Type.Optional(TaskFlowDetailSchema),
+  },
+  { additionalProperties: false },
+);
+
+const TaskFlowRevisionedMutationParams = {
+  flowId: NonEmptyString,
+  sessionKey: Type.Optional(NonEmptyString),
+  expectedRevision: Type.Optional(Type.Integer({ minimum: 0 })),
+  idempotencyKey: Type.Optional(NonEmptyString),
+};
+
+export const TaskFlowsPauseParamsSchema = Type.Object(TaskFlowRevisionedMutationParams, {
+  additionalProperties: false,
+});
+
+export const TaskFlowsResumeParamsSchema = Type.Object(TaskFlowRevisionedMutationParams, {
+  additionalProperties: false,
+});
+
+export const TaskFlowsRetryParamsSchema = Type.Object(TaskFlowRevisionedMutationParams, {
+  additionalProperties: false,
+});
+
+export const TaskFlowsStopParamsSchema = Type.Object(
+  {
+    ...TaskFlowRevisionedMutationParams,
+    reason: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+export const TaskFlowsEditParamsSchema = Type.Object(
+  {
+    ...TaskFlowRevisionedMutationParams,
+    goal: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const TaskFlowMutationResultSchema = Type.Object(
+  {
+    found: Type.Boolean(),
+    applied: Type.Boolean(),
+    reason: Type.Optional(Type.String()),
+    flow: Type.Optional(TaskFlowDetailSchema),
+  },
+  { additionalProperties: false },
+);
+
+/** One authoritative session-scoped projection consumed by Chat, PCC, and diagnostics. */
+export const ExecutionStateGetParamsSchema = Type.Object(
+  {
+    sessionKey: NonEmptyString,
+    includeTerminal: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export const ExecutionStateHealthSchema = Type.Object(
+  {
+    activeCount: Type.Integer({ minimum: 0 }),
+    staleGoalCount: Type.Integer({ minimum: 0 }),
+    orphanedTurnCount: Type.Integer({ minimum: 0 }),
+    pendingDeliveryCount: Type.Integer({ minimum: 0 }),
+    lostWorkerCount: Type.Integer({ minimum: 0 }),
+    healthy: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+
+export const ControlDirectorMemoryHealthSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    status: Type.Union([
+      Type.Literal("healthy"),
+      Type.Literal("empty"),
+      Type.Literal("stale"),
+      Type.Literal("corrupt"),
+      Type.Literal("conflicted"),
+    ]),
+    newestSourceAt: Type.Optional(Type.Integer({ minimum: 0 })),
+    newestRecordAt: Type.Optional(Type.Integer({ minimum: 0 })),
+    newestAgeMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    currentDaySourceCount: Type.Integer({ minimum: 0 }),
+    corruptRecordCount: Type.Integer({ minimum: 0 }),
+    sourceConflictCount: Type.Integer({ minimum: 0 }),
+    repairActions: Type.Array(
+      Type.Union([
+        Type.Literal("refresh_recent_sources"),
+        Type.Literal("rebuild_index"),
+        Type.Literal("resolve_source_conflicts"),
+      ]),
+      { maxItems: 3 },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const ControlDirectorRuntimeCanarySchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    capturedAt: Type.Integer({ minimum: 0 }),
+    sourceSha: Type.String({ pattern: "^[a-f0-9]{40}$" }),
+    runtimeVersion: NonEmptyString,
+    configHash: NonEmptyString,
+    agentId: NonEmptyString,
+    role: Type.Literal("control_director"),
+    selectedModel: NonEmptyString,
+    modelRegistryHash: NonEmptyString,
+    promptHash: NonEmptyString,
+    toolsHash: NonEmptyString,
+    skillsHash: NonEmptyString,
+    memoryBuildId: NonEmptyString,
+    uiBuildId: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const ControlDirectorRuntimeLineageSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    status: Type.Union([Type.Literal("ready"), Type.Literal("blocked")]),
+    checkedAt: Type.Integer({ minimum: 0 }),
+    agentId: NonEmptyString,
+    role: Type.Literal("control_director"),
+    selectedModel: Type.Optional(NonEmptyString),
+    sourceSha: Type.Optional(Type.String({ pattern: "^[a-f0-9]{40}$" })),
+    runtimeVersion: NonEmptyString,
+    releaseId: Type.Optional(NonEmptyString),
+    artifactHash: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })),
+    canary: Type.Optional(ControlDirectorRuntimeCanarySchema),
+    blockers: Type.Array(Type.String(), { maxItems: 20 }),
+  },
+  { additionalProperties: false },
+);
+
+export const ExecutionStateSnapshotSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    snapshotRevision: NonEmptyString,
+    generatedAt: Type.Integer({ minimum: 0 }),
+    sessionKey: NonEmptyString,
+    tasks: Type.Array(TaskSummarySchema, { maxItems: 500 }),
+    flows: Type.Array(TaskFlowDetailSchema, { maxItems: 500 }),
+    turns: Type.Array(ChatTurnSummarySchema, { maxItems: 200 }),
+    health: ExecutionStateHealthSchema,
+    memoryHealth: Type.Optional(ControlDirectorMemoryHealthSchema),
+    runtimeLineage: Type.Optional(ControlDirectorRuntimeLineageSchema),
   },
   { additionalProperties: false },
 );

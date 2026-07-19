@@ -11,7 +11,6 @@ import {
   buildCurrentChatGoalContinuationPrompt,
   cancelChatGoal,
   cancelChatWorkTask,
-  createAndAttachChatProject,
   createChatSessionInProject,
   createChatGoal,
   detachChatSessionFromProject,
@@ -146,49 +145,6 @@ describe("chat project actions", () => {
     expect(state.projectsLoading).toBe(false);
   });
 
-  it("creates a project and attaches the active chat session", async () => {
-    const request = vi
-      .fn()
-      .mockResolvedValueOnce({
-        project: {
-          id: "project-new",
-          title: "New Project",
-          status: "active",
-          updatedAt: "2026-07-13T12:00:00.000Z",
-        },
-      })
-      .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ projects: [] });
-    const state = createState({
-      client: { request } as unknown as ChatState["client"],
-      chatProjectCreateName: " New Project ",
-      chatProjectCreateDescription: " Research ",
-      chatProjectCreateInstructions: " Be precise ",
-      chatProjectPickerOpen: true,
-    });
-
-    await expect(createAndAttachChatProject(state)).resolves.toBe("project-new");
-
-    expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
-      project: {
-        title: "New Project",
-        goal: "Research",
-        metadata: {
-          chatProjectMemoryMode: "project_only",
-          chatProjectDescription: "Research",
-          chatProjectInstructions: "Be precise",
-        },
-      },
-    });
-    expect(request).toHaveBeenNthCalledWith(2, "sessions.patch", {
-      key: "main",
-      projectId: "project-new",
-    });
-    expect(state.chatProjectCreateName).toBe("");
-    expect(state.chatProjectPickerOpen).toBe(false);
-    expect(state.chatProjectBusy).toBe(false);
-  });
-
   it("attaches and detaches the active chat session", async () => {
     const request = vi
       .fn()
@@ -234,19 +190,6 @@ describe("chat project actions", () => {
       projectId: "project-1",
     });
     expect(state.chatProjectPickerOpen).toBe(false);
-  });
-
-  it("records project API failures without throwing", async () => {
-    const request = vi.fn().mockRejectedValueOnce(new Error("offline"));
-    const state = createState({
-      client: { request } as unknown as ChatState["client"],
-      chatProjectCreateName: "Project",
-    });
-
-    await expect(createAndAttachChatProject(state)).resolves.toBeNull();
-
-    expect(state.chatProjectError).toContain("offline");
-    expect(state.chatProjectBusy).toBe(false);
   });
 });
 
@@ -315,7 +258,7 @@ describe("chat pursue goal actions", () => {
   it("cancels a goal and refreshes goal state", async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ found: true, cancelled: true })
+      .mockResolvedValueOnce({ found: true, applied: true })
       .mockResolvedValueOnce({
         flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
       });
@@ -326,10 +269,11 @@ describe("chat pursue goal actions", () => {
 
     await expect(cancelChatGoal(state, "flow-1")).resolves.toBe(true);
 
-    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.cancel", {
+    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.stop", {
       flowId: "flow-1",
       sessionKey: "main",
-      reason: "cancelled from Control UI Pursue Goal",
+      idempotencyKey: expect.any(String),
+      reason: "stopped from Control UI Pursue Goal",
     });
     expect(request).toHaveBeenNthCalledWith(2, "taskFlows.list", {
       sessionKey: "main",
@@ -340,7 +284,7 @@ describe("chat pursue goal actions", () => {
   });
 
   it("deduplicates repeated goal cancellation while one is in flight", async () => {
-    const pending = createDeferred<{ found: true; cancelled: true }>();
+    const pending = createDeferred<{ found: true; applied: true }>();
     const request = vi.fn().mockReturnValueOnce(pending.promise);
     const state = createState({
       client: { request } as unknown as ChatState["client"],
@@ -355,7 +299,7 @@ describe("chat pursue goal actions", () => {
     await expect(cancelChatGoal(state, "flow-1")).resolves.toBe(false);
     expect(request).toHaveBeenCalledTimes(1);
 
-    pending.resolve({ found: true, cancelled: true });
+    pending.resolve({ found: true, applied: true });
     request.mockResolvedValueOnce({
       flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
     });

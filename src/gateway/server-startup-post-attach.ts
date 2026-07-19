@@ -331,6 +331,7 @@ function scheduleAgentRuntimePluginPrewarm(params: {
 }): GatewayPostReadySidecarHandle {
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const abortController = new AbortController();
   const isStopped = () => stopped;
   timer = setTimeout(
     () => {
@@ -350,6 +351,21 @@ function scheduleAgentRuntimePluginPrewarm(params: {
           workspaceDir: params.workspaceDir,
           allowGatewaySubagentBinding: true,
         });
+        if (!isStopped() && !shouldSkipStartupModelPrewarm()) {
+          const { warmConfiguredControlDirectorModel } =
+            await import("../agents/control-director-model-warmup.js");
+          const outcome = await warmConfiguredControlDirectorModel({
+            config: cfg,
+            signal: abortController.signal,
+          });
+          if (outcome.status === "warmed") {
+            params.log.info(`Control Director model pre-warmed: ${outcome.reason}`);
+          } else if (outcome.status === "failed") {
+            params.log.warn(`Control Director model pre-warm failed: ${outcome.reason}`);
+          } else if (outcome.status !== "not_configured" && outcome.status !== "cancelled") {
+            params.log.info(`Control Director model pre-warm ${outcome.status}: ${outcome.reason}`);
+          }
+        }
         if (!isStopped()) {
           params.log.info(
             `agent runtime plugins pre-warmed in ${(performance.now() - started).toFixed(0)}ms`,
@@ -365,6 +381,7 @@ function scheduleAgentRuntimePluginPrewarm(params: {
   return {
     stop: () => {
       stopped = true;
+      abortController.abort();
       if (timer) {
         clearTimeout(timer);
         timer = undefined;

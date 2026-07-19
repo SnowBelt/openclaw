@@ -651,6 +651,8 @@ catalog, API-key auth, and dynamic model resolution.
       | `shouldDeferSyntheticProfileAuth` | Lower synthetic stored-profile placeholders behind env/config auth |
       | `resolveDynamicModel` | Accept arbitrary upstream model IDs |
       | `prepareDynamicModel` | Async metadata fetch before resolving |
+      | `probeModelResidency` | Bounded, read-only observation of models currently loaded by a local provider |
+      | `warmModel` | Bounded, cancellable warmup of one already-installed local model after core resource admission |
       | `normalizeResolvedModel` | Transport rewrites before the runner |
       | `normalizeToolSchemas` | Provider-owned tool-schema cleanup before registration |
       | `inspectToolSchemas` | Provider-owned tool-schema diagnostics |
@@ -683,6 +685,10 @@ catalog, API-key auth, and dynamic model resolution.
       | `onModelSelected` | Post-selection callback (e.g. telemetry) |
 
       Runtime fallback notes:
+
+      - `probeModelResidency(ctx)` is optional and local-provider owned. It must honor `timeoutMs`, return only model ids, activity state, and optional memory estimates, and must never load or unload a model. OpenClaw calls only the already-loaded provider handle on capacity paths; a missing or failed probe leaves admission fail-safe.
+
+      - `warmModel(ctx)` is separate from the read-only probe because it may load exactly `ctx.modelId` and extend idle residency. It must honor `timeoutMs` and `signal`, may not pull or unload models, and must return no secrets. OpenClaw calls it only through an already-loaded provider handle after the shared resource governor admits the load. A successful hook is followed by a fresh residency probe; a claimed warmup without exact-model residency fails closed.
 
       - `normalizeConfig` resolves one owning plugin per provider id (bundled providers first, then the matched runtime plugin) and calls only that hook - there is no scan across other providers. Google's own `normalizeConfig` hook is what normalizes `google` / `google-vertex` / `google-antigravity` config entries; it is not a separate core fallback.
       - `resolveConfigApiKey` uses the provider hook when exposed. Amazon Bedrock keeps AWS env-marker resolution in its provider plugin; runtime auth itself still uses the AWS SDK default chain when configured with `auth: "aws-sdk"`.
