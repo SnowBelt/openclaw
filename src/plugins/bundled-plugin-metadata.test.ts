@@ -33,7 +33,9 @@ const BUNDLED_PLUGIN_METADATA_TEST_TIMEOUT_MS = 300_000;
 const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
   "acpx",
   "active-memory",
+  "apps",
   "bonjour",
+  "book-writer",
   "browser",
   "canvas",
   "device-pair",
@@ -59,6 +61,8 @@ const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
 ] as const;
 const EXPECTED_EMPTY_CONFIG_GATEWAY_STARTUP_PLUGIN_IDS = [
   "acpx",
+  "apps",
+  "book-writer",
   "browser",
   "canvas",
   "device-pair",
