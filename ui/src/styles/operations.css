@@ -48,6 +48,13 @@
   gap: 8px;
 }
 
+.operations-hero__actions .btn,
+.operations-row-actions .btn,
+.operations-list__aside .btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 .operations-scorecard,
 .operations-panel,
 .operations-agent,
@@ -419,9 +426,6 @@
   }
   .operations-process span:nth-of-type(1) {
     display: none;
-  }
-  .operations-row-actions .btn {
-    min-height: 44px;
   }
 }
 
