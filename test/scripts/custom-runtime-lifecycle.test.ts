@@ -22,6 +22,7 @@ const controlPlaneFiles = [
   "custom-runtime-stage.sh",
   "custom-runtime-updater.sh",
   "custom-runtime-update-approve.sh",
+  "control-director-role-config.py",
   "copy_stage_state.py",
 ] as const;
 

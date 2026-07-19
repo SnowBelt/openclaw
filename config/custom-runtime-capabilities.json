@@ -103,7 +103,8 @@
         "scripts/control-director-eval.ts",
         "scripts/control-director-readiness.mjs",
         "scripts/control-director-runtime-proof.ts",
-        "scripts/control-director-verify.mjs"
+        "scripts/control-director-verify.mjs",
+        "scripts/custom-runtime/control-director-role-config.py"
       ]
     },
     {
