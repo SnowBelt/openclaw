@@ -2216,8 +2216,7 @@ function renderControlDirectorSystemStatus(props: ChatProps) {
           <span>${memory?.status ?? "unavailable"}</span>
           ${memory
             ? html`<small
-                >${memory.currentDaySourceCount}
-                source${memory.currentDaySourceCount === 1 ? "" : "s"} today</small
+                >${`${memory.currentDaySourceCount} source${memory.currentDaySourceCount === 1 ? "" : "s"} today`}</small
               >`
             : nothing}
         </div>
