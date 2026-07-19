@@ -476,6 +476,7 @@ function actionForPccPermission(type: PccPermissionGrant["type"]): ExecutionAppr
     case "local_proof":
       return "execute_command";
   }
+  throw new Error("Unsupported PCC permission type.");
 }
 
 /** Lossless-enough bridge from PCC's existing permission ledger into the canonical contract. */
@@ -527,18 +528,23 @@ export function executionApprovalFromPccPermission(params: {
   });
   return {
     ...envelope,
-    audit: permission.auditLog.slice(-EXECUTION_APPROVAL_AUDIT_LIMIT).map((entry) => ({
-      at: Date.parse(entry.at),
-      actorId: permission.grantedBy ?? "pcc-operator",
-      event:
-        entry.status === "revoked"
-          ? "revoked"
-          : entry.status === "denied" || entry.status === "blocked"
-            ? "denied"
-            : entry.status === "used"
-              ? "consumed"
-              : "evaluated",
-      ...(entry.note ? { reason: entry.note } : {}),
-    })),
+    audit: permission.auditLog.slice(-EXECUTION_APPROVAL_AUDIT_LIMIT).map((entry) => {
+      const auditEntry: ExecutionApprovalAuditEntry = {
+        at: Date.parse(entry.at),
+        actorId: permission.grantedBy ?? "pcc-operator",
+        event:
+          entry.status === "revoked"
+            ? "revoked"
+            : entry.status === "denied" || entry.status === "blocked"
+              ? "denied"
+              : entry.status === "used"
+                ? "consumed"
+                : "evaluated",
+      };
+      if (entry.note) {
+        auditEntry.reason = entry.note;
+      }
+      return auditEntry;
+    }),
   };
 }

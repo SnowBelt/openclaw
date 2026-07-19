@@ -648,7 +648,7 @@ async function mutateChatGoal(
       if (flow.id !== normalized && flow.flowId !== normalized) {
         return flow;
       }
-      return { ...flow, status: params.optimisticStatus! };
+      return Object.assign({}, flow, { status: params.optimisticStatus! });
     });
   }
   try {

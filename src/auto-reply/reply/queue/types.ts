@@ -10,6 +10,7 @@ import type { InboundEventKind } from "../../../channels/inbound-event/kind.js";
 import type { SessionEntry } from "../../../config/sessions.js";
 import type { ReplyToMode } from "../../../config/types.base.js";
 import type { OpenClawConfig } from "../../../config/types.openclaw.js";
+import type { QueueMode } from "../../../config/types.queue.js";
 import type { PromptImageOrderEntry } from "../../../media/prompt-image-order.js";
 import type { PluginHookChannelContext } from "../../../plugins/hook-types.js";
 import type { InputProvenance } from "../../../sessions/input-provenance.js";
@@ -23,7 +24,7 @@ import type {
 import type { OriginatingChannelType } from "../../templating.js";
 import type { ElevatedLevel, ReasoningLevel, ThinkLevel, VerboseLevel } from "../directives.js";
 
-export type QueueMode = "steer" | "followup" | "collect" | "interrupt";
+export type { QueueMode } from "../../../config/types.queue.js";
 
 export type QueueDropPolicy = "old" | "new" | "summarize";
 

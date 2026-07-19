@@ -2187,7 +2187,7 @@ function renderControlDirectorSystemStatus(props: ChatProps) {
     return nothing;
   }
   const healthy =
-    state?.health.healthy === true &&
+    state?.health.healthy &&
     lineage?.status === "ready" &&
     (!memory || memory.status === "healthy" || memory.status === "empty");
   const label = healthy ? "System ready" : "System needs attention";

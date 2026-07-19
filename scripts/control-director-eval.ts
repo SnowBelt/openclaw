@@ -18,13 +18,21 @@ function parse(argv: string[]) {
   let json = false;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--input") inputPath = argv[++index] ?? "";
-    else if (value === "--source-sha") sourceSha = argv[++index] ?? "";
-    else if (value === "--json") json = true;
-    else if (value === "--") continue;
-    else usage();
+    if (value === "--input") {
+      inputPath = argv[++index] ?? "";
+    } else if (value === "--source-sha") {
+      sourceSha = argv[++index] ?? "";
+    } else if (value === "--json") {
+      json = true;
+    } else if (value === "--") {
+      continue;
+    } else {
+      usage();
+    }
   }
-  if (!inputPath || !/^[a-f0-9]{40}$/iu.test(sourceSha)) usage();
+  if (!inputPath || !/^[a-f0-9]{40}$/iu.test(sourceSha)) {
+    usage();
+  }
   return { inputPath, sourceSha, json };
 }
 

@@ -101,7 +101,7 @@ function createGoalFlow(goal = "Ship verified work") {
   const updated = updateFlowRecordByIdExpectedRevision({
     flowId: flow.flowId,
     expectedRevision: flow.revision,
-    patch: { stateJson: JSON.parse(JSON.stringify(state)) },
+    patch: { stateJson: structuredClone(state) },
   });
   if (!updated.applied) {
     throw new Error("Expected flow state creation to succeed.");
@@ -269,7 +269,7 @@ describe("Pursue Goal controller", () => {
 
     const missionId = stateForPursueGoalFlow(paused.flow!)!.missionId;
     runtime.runTurn = vi.fn(async () => ({
-      status: "complete",
+      status: "complete" as const,
       text: "Resumed and verified.",
       judgeReceipt: approvedReceipt({
         missionId,
@@ -302,7 +302,7 @@ describe("Pursue Goal controller", () => {
     const stale = updateFlowRecordByIdExpectedRevision({
       flowId: flow.flowId,
       expectedRevision: flow.revision,
-      patch: { status: "running", stateJson: JSON.parse(JSON.stringify(staleState)) },
+      patch: { status: "running", stateJson: structuredClone(staleState) },
     });
     expect(stale.applied).toBe(true);
     const runtime = baseRuntime(async () => ({

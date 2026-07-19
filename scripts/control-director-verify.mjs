@@ -105,14 +105,18 @@ function parseArgs(argv) {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--") continue;
-    if (value === "--artifact-dir") args.artifactDir = path.resolve(argv[++index] ?? "");
-    else if (value === "--expected-sha") {
+    if (value === "--") {
+      continue;
+    }
+    if (value === "--artifact-dir") {
+      args.artifactDir = path.resolve(argv[++index] ?? "");
+    } else if (value === "--expected-sha") {
       args.expectedSha = String(argv[++index] ?? "")
         .trim()
         .toLowerCase();
-    } else if (value === "--plan") args.planOnly = true;
-    else if (value === "--help" || value === "-h") {
+    } else if (value === "--plan") {
+      args.planOnly = true;
+    } else if (value === "--help" || value === "-h") {
       console.log(
         "Usage: pnpm control-director:verify -- [--expected-sha <sha>] [--artifact-dir <path>] [--plan]",
       );
@@ -317,8 +321,12 @@ function runReadiness({ configPath, expectedSha, receiptPath }) {
     encoding: "utf8",
     env: process.env,
   });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
   if (result.status !== 0) {
     throw new Error(
       `Control Director source readiness failed with status ${String(result.status)}.`,
@@ -342,7 +350,9 @@ async function main() {
   const expectedSha = args.expectedSha || head;
   const status = runGit(["status", "--porcelain=v1", "--untracked-files=all"]);
   const identity = validateControlDirectorSourceIdentity({ head, expectedSha, status });
-  if (!identity.ok) throw new Error(identity.reason);
+  if (!identity.ok) {
+    throw new Error(identity.reason);
+  }
 
   const receiptPath = path.join(args.artifactDir, `source-gates-${expectedSha}.json`);
   const configPath = path.join(args.artifactDir, `source-config-${expectedSha}.json`);
@@ -375,9 +385,12 @@ async function main() {
   }
 }
 
+/** @param {unknown} error */
+function reportMainFailure(error) {
+  console.error(error instanceof Error ? error.stack || error.message : String(error));
+  process.exitCode = 1;
+}
+
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.stack || error.message : String(error));
-    process.exitCode = 1;
-  });
+  main().catch(reportMainFailure);
 }

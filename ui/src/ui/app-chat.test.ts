@@ -2052,7 +2052,7 @@ describe("handleSendChat", () => {
     await Promise.resolve();
     const queuedId = host.chatQueue[0]?.id;
     expect(queuedId).toEqual(expect.any(String));
-    removeQueuedMessage(host, queuedId);
+    await removeQueuedMessage(host, queuedId);
 
     switchUpdate.resolve(false);
     await send;
@@ -3295,7 +3295,7 @@ describe("handleSendChat", () => {
       chatQueue: [{ id: "queued", text: "later", createdAt: 1, attachments: [attachment] }],
     });
 
-    removeQueuedMessage(host, "queued");
+    void removeQueuedMessage(host, "queued");
 
     expect(host.chatQueue).toStrictEqual([]);
     expect(getChatAttachmentDataUrl(attachment)).toBeNull();

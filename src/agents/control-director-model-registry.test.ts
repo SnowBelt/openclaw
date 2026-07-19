@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
+import type { ModelDefinitionConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { buildControlDirectorModelRegistry } from "./control-director-model-registry.js";
 import { CONTROL_DIRECTOR_DEFAULT_MODEL } from "./control-director-role.js";
+
+function modelDefinition(id: string, name: string): ModelDefinitionConfig {
+  return {
+    id,
+    name,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 64_000,
+    maxTokens: 8_000,
+  };
+}
 
 function config(model: string): OpenClawConfig {
   return {
@@ -17,14 +30,15 @@ function config(model: string): OpenClawConfig {
     models: {
       providers: {
         ollama: {
+          baseUrl: "http://127.0.0.1:11434",
           models: [
-            { id: "openclaw-control-gemma4-31b-q8:latest", name: "Gemma Control" },
-            { id: "qwen3.6:27b-q8_0", name: "Qwen local" },
+            modelDefinition("openclaw-control-gemma4-31b-q8:latest", "Gemma Control"),
+            modelDefinition("qwen3.6:27b-q8_0", "Qwen local"),
           ],
         },
       },
     },
-  } as OpenClawConfig;
+  };
 }
 
 describe("Control Director model registry", () => {

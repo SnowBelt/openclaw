@@ -7,7 +7,7 @@ import {
 } from "./control-director-role.js";
 
 describe("Control Director role scope", () => {
-  const configured = {
+  const configured: OpenClawConfig = {
     agents: {
       list: [
         {
@@ -18,13 +18,17 @@ describe("Control Director role scope", () => {
         },
       ],
     },
-  } satisfies OpenClawConfig;
+  };
 
   it("scopes a configured role independently of name and selected model", () => {
     expect(isConfiguredControlDirectorAgent({ config: configured, agentId: "main" })).toBe(true);
     const switched = structuredClone(configured);
-    switched.agents.list[0]!.name = "Director renamed by user";
-    switched.agents.list[0]!.model.primary = "openai/gpt-5.5";
+    const switchedAgent = switched.agents?.list?.[0];
+    if (!switchedAgent || !switchedAgent.model || typeof switchedAgent.model === "string") {
+      throw new Error("Expected the Control Director fixture to use an object model selection.");
+    }
+    switchedAgent.name = "Director renamed by user";
+    switchedAgent.model.primary = "openai/gpt-5.5";
     expect(isConfiguredControlDirectorAgent({ config: switched, agentId: "main" })).toBe(true);
   });
 

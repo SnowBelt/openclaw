@@ -896,7 +896,9 @@ async function inspectControlDirectorChatLayout(
     const commandRail = composer?.querySelector<HTMLElement>(".chat-command-rail") ?? null;
     const pursueGoal = commandRail?.querySelector<HTMLDetailsElement>("[data-chat-goal]") ?? null;
     const visible = (element: HTMLElement | null) => {
-      if (!element) return false;
+      if (!element) {
+        return false;
+      }
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return (

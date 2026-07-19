@@ -219,7 +219,7 @@ export function mapChatTurnSummary(flow: TaskFlowRecord): ChatTurnSummary | null
 }
 
 function asJsonValue(value: ChatTurnInboxState): JsonValue {
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
+  return structuredClone(value) as JsonValue;
 }
 
 function normalizeScopes(scopes: readonly string[] | undefined): string[] {
@@ -503,7 +503,7 @@ export function updateChatTurnControllerState(params: {
       flowId: flow.flowId,
       expectedRevision: flow.revision,
       patch: {
-        ...(params.patch?.(next) ?? {}),
+        ...params.patch?.(next),
         stateJson: asJsonValue({ ...next, updatedAt: now }),
         updatedAt: now,
       },

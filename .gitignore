@@ -144,6 +144,8 @@ USER.md
 !.agents/skills/clawsweeper/**
 !.agents/skills/control-ui-e2e/
 !.agents/skills/control-ui-e2e/**
+!.agents/skills/control-director-reliability/
+!.agents/skills/control-director-reliability/**
 !.agents/skills/crabbox/
 !.agents/skills/crabbox/**
 !.agents/skills/discord-clawd/

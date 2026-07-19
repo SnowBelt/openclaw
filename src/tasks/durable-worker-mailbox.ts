@@ -144,7 +144,7 @@ export function createDurableWorkerMailboxMessage(
     recipientId: params.recipientId.trim(),
     summary: params.summary.trim().slice(0, 8_000),
     createdAt: params.createdAt ?? Date.now(),
-    correlation: { ...(params.correlation ?? {}) },
+    correlation: { ...params.correlation },
     evidenceRefs: [
       ...new Set((params.evidenceRefs ?? []).map((entry) => entry.trim()).filter(Boolean)),
     ].slice(0, 32),

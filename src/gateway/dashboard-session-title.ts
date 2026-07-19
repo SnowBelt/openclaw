@@ -76,14 +76,14 @@ export function deriveDashboardSessionTitle(userMessage: string): string {
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/<[^>]+>/g, " ")
-    .replace(/[_*#>`~\[\](){}]/g, " ")
+    .replace(/[_*#>`~[\](){}]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const words = cleaned.match(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu) ?? [];
+  const words = cleaned.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
   const firstMeaningful = words.findIndex(
     (word) => !DASHBOARD_TITLE_PREFIX_WORDS.has(word.toLocaleLowerCase()),
   );
-  const start = firstMeaningful >= 0 ? firstMeaningful : 0;
+  const start = Math.max(firstMeaningful, 0);
   const selected = words.slice(start, start + 6);
   return normalizeDashboardSessionTitle(selected.join(" ")) ?? "New chat";
 }

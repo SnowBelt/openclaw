@@ -19,7 +19,7 @@ describe("canonical execution state snapshot", () => {
     resetTaskFlowRegistryForTests({ persist: false });
     configureTaskRegistryRuntime({
       store: {
-        loadSnapshot: () => ({ tasks: new Map() }),
+        loadSnapshot: () => ({ tasks: new Map(), deliveryStates: new Map() }),
         saveSnapshot: () => {},
         upsertTask: () => {},
       },
@@ -138,9 +138,11 @@ describe("canonical execution state snapshot", () => {
         agentId: "director",
         role: "control_director" as const,
         selectedModel: "ollama/control-director",
-        promptContractId: "prompt-v1",
-        toolPolicyId: "tools-v1",
-        skillSetHash: "c".repeat(64),
+        configHash: "c".repeat(64),
+        modelRegistryHash: "d".repeat(64),
+        promptHash: "e".repeat(64),
+        toolsHash: "f".repeat(64),
+        skillsHash: "0".repeat(64),
         memoryBuildId: "memory-v1",
         uiBuildId: "b".repeat(64),
         capturedAt: 100,

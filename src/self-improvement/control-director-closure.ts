@@ -2,25 +2,11 @@
 import { buildControlDirectorJudgeClaimHash } from "../agents/control-director-contract.js";
 import type { IndependentJudgeReceipt } from "../agents/independent-judge-service.js";
 import { verifyJudgeReceipt } from "../agents/judge-receipt-signer.js";
+import type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
 import type { ControlDirectorJourneySignalCode } from "./control-director-journeys.js";
 import type { SelfImprovementProofReceipt } from "./proof-receipts.js";
 
-export type ControlDirectorJourneyClosure = {
-  schemaVersion: 1;
-  recommendationId: string;
-  signalCode: ControlDirectorJourneySignalCode;
-  owner: string;
-  slaAt: number;
-  observation: { startedAt: number; endedAt: number; minimumDurationMs: number };
-  recurrenceCount: number;
-  targetRecurrenceCount: number;
-  lastRecurrenceAt?: number;
-  proofReceiptId: string;
-  judgeReceiptId: string;
-  closedAt: number;
-  status: "closed" | "reopened";
-  reopenReason?: string;
-};
+export type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
 
 export type ControlDirectorJourneyClosureDecision =
   | { ready: true; closure: ControlDirectorJourneyClosure }

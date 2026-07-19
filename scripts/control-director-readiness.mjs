@@ -62,15 +62,26 @@ function parseArgs(argv) {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--") continue;
-    if (value === "--json") args.json = true;
-    else if (value === "--source-only") args.sourceOnly = true;
-    else if (value === "--config") args.configPath = argv[++index] ?? "";
-    else if (value === "--expected-sha") args.expectedSha = argv[++index] ?? "";
-    else if (value === "--gate-proof") args.gateProofPath = argv[++index] ?? "";
-    else if (value === "--runtime-proof") args.runtimeProofPath = argv[++index] ?? "";
-    else if (value === "--help" || value === "-h") args.help = true;
-    else throw new Error(`Unknown argument: ${value}`);
+    if (value === "--") {
+      continue;
+    }
+    if (value === "--json") {
+      args.json = true;
+    } else if (value === "--source-only") {
+      args.sourceOnly = true;
+    } else if (value === "--config") {
+      args.configPath = argv[++index] ?? "";
+    } else if (value === "--expected-sha") {
+      args.expectedSha = argv[++index] ?? "";
+    } else if (value === "--gate-proof") {
+      args.gateProofPath = argv[++index] ?? "";
+    } else if (value === "--runtime-proof") {
+      args.runtimeProofPath = argv[++index] ?? "";
+    } else if (value === "--help" || value === "-h") {
+      args.help = true;
+    } else {
+      throw new Error(`Unknown argument: ${value}`);
+    }
   }
   return args;
 }
@@ -109,7 +120,9 @@ export function parseOllamaList(output) {
   const models = new Map();
   for (const line of String(output ?? "").split(/\r?\n/u)) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("NAME")) continue;
+    if (!trimmed || trimmed.startsWith("NAME")) {
+      continue;
+    }
     const [name, digest, size, sizeUnit] = trimmed.split(/\s+/u);
     if (name && digest) {
       models.set(name, {
@@ -587,14 +600,22 @@ function readOllamaEnvironment() {
   const values = Object.fromEntries(
     Object.keys(REQUIRED_OLLAMA_ENV).map((key) => [key, process.env[key]]),
   );
-  if (Object.values(values).every(Boolean)) return values;
+  if (Object.values(values).every(Boolean)) {
+    return values;
+  }
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
-  if (uid === null) return values;
+  if (uid === null) {
+    return values;
+  }
   const launchctl = run("launchctl", ["print", `gui/${uid}/ai.openclaw.ollama`]);
-  if (!launchctl.ok) return values;
+  if (!launchctl.ok) {
+    return values;
+  }
   for (const key of Object.keys(REQUIRED_OLLAMA_ENV)) {
     const match = launchctl.stdout.match(new RegExp(`${key}\\s*=>\\s*([^\\n]+)`, "u"));
-    if (match?.[1]) values[key] = match[1].trim();
+    if (match?.[1]) {
+      values[key] = match[1].trim();
+    }
   }
   return values;
 }
@@ -649,7 +670,9 @@ async function main() {
   let ollamaEnv = {};
   let ollamaChatSmoke = { ok: false, detail: "source-only mode" };
   if (!args.sourceOnly) {
-    if (!runtimeProof) throw new Error("Production mode requires --runtime-proof JSON.");
+    if (!runtimeProof) {
+      throw new Error("Production mode requires --runtime-proof JSON.");
+    }
     const list = run("ollama", ["list"]);
     ollamaModels = list.ok ? parseOllamaList(list.stdout) : new Map();
     ollamaEnv = readOllamaEnvironment();
@@ -666,14 +689,20 @@ async function main() {
     ollamaChatSmoke,
     sourceOnly: args.sourceOnly,
   });
-  if (args.json) console.log(JSON.stringify(scorecard, null, 2));
-  else printText(scorecard);
+  if (args.json) {
+    console.log(JSON.stringify(scorecard, null, 2));
+  } else {
+    printText(scorecard);
+  }
   process.exitCode = (args.sourceOnly ? scorecard.sourceReady : scorecard.productionReady) ? 0 : 1;
 }
 
+/** @param {unknown} error */
+function reportMainFailure(error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}
+
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  main().catch(reportMainFailure);
 }

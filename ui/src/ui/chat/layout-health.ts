@@ -29,7 +29,7 @@ export type ControlDirectorLayoutHealthHost = {
   client?: {
     request: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
   } | null;
-  querySelector: <T extends Element = Element>(selectors: string) => T | null;
+  querySelector: Element["querySelector"];
   controlDirectorLayoutFrame?: number | null;
   controlDirectorLayoutRetryTimer?: ReturnType<typeof globalThis.setTimeout> | number | null;
   controlDirectorLayoutFailureEpisode?: LayoutFailureEpisode | null;

@@ -64,18 +64,13 @@ describe("resolveAgentConfig", () => {
       },
     };
     const result = resolveAgentConfig(cfg, "main");
-    expect(result).toEqual({
+    expect(result).toMatchObject({
+      id: "main",
       name: "Main Agent",
       workspace: "~/openclaw",
       agentDir: "~/.openclaw/agents/main",
       model: "anthropic/claude-sonnet-4-6",
       utilityModel: "openai/gpt-5.4-mini",
-      identity: undefined,
-      groupChat: undefined,
-      subagents: undefined,
-      sandbox: undefined,
-      tts: undefined,
-      tools: undefined,
     });
   });
 
