@@ -23,7 +23,7 @@ describe("Operations Room shadow monitor", () => {
       log: { warn },
     });
 
-    await vi.runAllTicks();
+    vi.runAllTicks();
     await Promise.resolve();
     expect(getOperationsShadowMonitorState()).toMatchObject({
       running: true,

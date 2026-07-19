@@ -35,6 +35,11 @@ function actionSummary(action: OperationsActionKind, targetId: string): string {
     case "flow.cancel":
       return `Cancel workflow ${targetId}.`;
   }
+  return assertNeverAction(action);
+}
+
+function assertNeverAction(action: never): never {
+  throw new Error(`Unsupported Operations Room action: ${String(action)}`);
 }
 
 export function createOperationsActionPreview(params: {

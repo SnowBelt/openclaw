@@ -118,132 +118,193 @@ function buildAgentRows(params: {
   now: number;
 }): OperationsAgentSnapshot[] {
   const agents = listAgentsForGateway(params.cfg, params.modelCatalog).agents;
-  return agents.map((agent) => {
-    const agentTasks = params.tasks
-      .filter((task) => taskAgentId(task) === agent.id)
-      .toSorted((left, right) => taskUpdatedAt(right) - taskUpdatedAt(left));
-    const activeTasks = agentTasks.filter(
-      (task) => task.status === "queued" || task.status === "running",
+  const tasksByAgent = new Map<string, TaskRecord[]>();
+  for (const task of params.tasks) {
+    const agentId = taskAgentId(task);
+    if (!agentId) {
+      continue;
+    }
+    const agentTasks = tasksByAgent.get(agentId);
+    if (agentTasks) {
+      agentTasks.push(task);
+    } else {
+      tasksByAgent.set(agentId, [task]);
+    }
+  }
+
+  const rows: OperationsAgentSnapshot[] = [];
+  for (const agent of agents) {
+    const agentTasks = (tasksByAgent.get(agent.id) ?? []).toSorted(
+      (left, right) => taskUpdatedAt(right) - taskUpdatedAt(left),
     );
-    const blockedTasks = agentTasks.filter(
-      (task) =>
+    let activeTaskCount = 0;
+    let blockedTaskCount = 0;
+    for (const task of agentTasks) {
+      if (task.status === "queued" || task.status === "running") {
+        activeTaskCount += 1;
+      }
+      if (
         (task.status === "failed" || task.status === "timed_out" || task.status === "lost") &&
-        params.now - taskUpdatedAt(task) <= RECENT_AGENT_FAILURE_MS,
-    );
+        params.now - taskUpdatedAt(task) <= RECENT_AGENT_FAILURE_MS
+      ) {
+        blockedTaskCount += 1;
+      }
+    }
     const heartbeat = resolveHeartbeatSummaryForAgent(params.cfg, agent.id);
     const latestTask = agentTasks[0];
-    return {
+    const latestTaskIsBlocked =
+      latestTask !== undefined &&
+      (latestTask.status === "failed" ||
+        latestTask.status === "timed_out" ||
+        latestTask.status === "lost") &&
+      params.now - taskUpdatedAt(latestTask) <= RECENT_AGENT_FAILURE_MS;
+    const row: OperationsAgentSnapshot = {
       id: agent.id,
-      ...(agent.name || agent.identity?.name ? { name: agent.name ?? agent.identity?.name } : {}),
       workspace: agent.workspace ?? resolveAgentWorkspaceDir(params.cfg, agent.id),
       duty: heartbeat.enabled ? "always_on" : "on_demand",
-      status:
-        activeTasks.length > 0
-          ? "working"
-          : latestTask && blockedTasks.includes(latestTask)
-            ? "degraded"
-            : "idle",
-      ...(agent.model?.primary ? { model: agent.model.primary } : {}),
+      status: activeTaskCount > 0 ? "working" : latestTaskIsBlocked ? "degraded" : "idle",
       fallbackModels: agent.model?.fallbacks ?? [],
-      activeTaskCount: activeTasks.length,
-      blockedTaskCount: blockedTasks.length,
-      ...(latestTask
-        ? {
-            latestTask: latestTask.label ?? latestTask.task,
-            latestActivityAt: taskUpdatedAt(latestTask),
-          }
-        : {}),
+      activeTaskCount,
+      blockedTaskCount,
       heartbeat: {
         enabled: heartbeat.enabled,
         every: heartbeat.every,
         everyMs: heartbeat.everyMs,
         target: heartbeat.target,
-        ...(heartbeat.model ? { model: heartbeat.model } : {}),
       },
       // OpenClaw agents share the Gateway process. Per-agent RSS is not
       // measurable without allocator-level accounting, so expose unknown.
       memoryBytes: null,
       memoryAttribution: "unavailable",
-    } satisfies OperationsAgentSnapshot;
-  });
+    };
+    const agentName = agent.name ?? agent.identity?.name;
+    if (agentName) {
+      row.name = agentName;
+    }
+    if (agent.model?.primary) {
+      row.model = agent.model.primary;
+    }
+    if (latestTask) {
+      row.latestTask = latestTask.label ?? latestTask.task;
+      row.latestActivityAt = taskUpdatedAt(latestTask);
+    }
+    if (heartbeat.model) {
+      row.heartbeat.model = heartbeat.model;
+    }
+    rows.push(row);
+  }
+  return rows;
 }
 
 function buildWorkflowRows(tasks: TaskRecord[]): OperationsWorkflowSnapshot[] {
-  return listTaskFlowRecords()
-    .map((flow) => {
-      const linked = tasks.filter((task) => task.parentFlowId === flow.flowId);
-      return {
-        id: flow.flowId,
-        title: flow.goal,
-        ownerKey: flow.ownerKey,
-        ...(flow.controllerId ? { controllerId: flow.controllerId } : {}),
-        status: flowStatus(flow.status),
-        sourceStatus: flow.status,
-        ...(flow.currentStep ? { currentStep: flow.currentStep } : {}),
-        ...(flow.blockedSummary ? { blocker: flow.blockedSummary } : {}),
-        activeTaskCount: linked.filter(
-          (task) => task.status === "running" || task.status === "queued",
-        ).length,
-        failedTaskCount: linked.filter(
-          (task) =>
-            task.status === "failed" || task.status === "timed_out" || task.status === "lost",
-        ).length,
-        updatedAt: flow.updatedAt,
-      } satisfies OperationsWorkflowSnapshot;
-    })
-    .toSorted((left, right) => right.updatedAt - left.updatedAt);
+  const taskCountsByFlow = new Map<string, { active: number; failed: number }>();
+  for (const task of tasks) {
+    if (!task.parentFlowId) {
+      continue;
+    }
+    const counts = taskCountsByFlow.get(task.parentFlowId) ?? { active: 0, failed: 0 };
+    if (task.status === "running" || task.status === "queued") {
+      counts.active += 1;
+    }
+    if (task.status === "failed" || task.status === "timed_out" || task.status === "lost") {
+      counts.failed += 1;
+    }
+    taskCountsByFlow.set(task.parentFlowId, counts);
+  }
+
+  const rows: OperationsWorkflowSnapshot[] = [];
+  for (const flow of listTaskFlowRecords()) {
+    const counts = taskCountsByFlow.get(flow.flowId) ?? { active: 0, failed: 0 };
+    const row: OperationsWorkflowSnapshot = {
+      id: flow.flowId,
+      title: flow.goal,
+      ownerKey: flow.ownerKey,
+      status: flowStatus(flow.status),
+      sourceStatus: flow.status,
+      activeTaskCount: counts.active,
+      failedTaskCount: counts.failed,
+      updatedAt: flow.updatedAt,
+    };
+    if (flow.controllerId) {
+      row.controllerId = flow.controllerId;
+    }
+    if (flow.currentStep) {
+      row.currentStep = flow.currentStep;
+    }
+    if (flow.blockedSummary) {
+      row.blocker = flow.blockedSummary;
+    }
+    rows.push(row);
+  }
+  return rows.toSorted((left, right) => right.updatedAt - left.updatedAt);
 }
 
 function buildTaskRows(tasks: TaskRecord[]): OperationsTaskSnapshot[] {
-  return tasks
-    .map(
-      (task) =>
-        ({
-          id: task.taskId,
-          title: task.label ?? task.task,
-          runtime: task.runtime,
-          ...(taskAgentId(task) ? { agentId: taskAgentId(task) } : {}),
-          ...(task.parentFlowId ? { parentFlowId: task.parentFlowId } : {}),
-          status: operationsStatusForTask(task.status, task.terminalOutcome),
-          sourceStatus: task.status,
-          ...(task.progressSummary || task.terminalSummary
-            ? { progress: task.progressSummary ?? task.terminalSummary }
-            : {}),
-          ...(task.error ? { error: task.error } : {}),
-          updatedAt: taskUpdatedAt(task),
-        }) satisfies OperationsTaskSnapshot,
-    )
-    .toSorted((left, right) => {
-      const activeRank = (row: OperationsTaskSnapshot) => (row.status === "working" ? 1 : 0);
-      return activeRank(right) - activeRank(left) || right.updatedAt - left.updatedAt;
-    });
+  const rows: OperationsTaskSnapshot[] = [];
+  for (const task of tasks) {
+    const row: OperationsTaskSnapshot = {
+      id: task.taskId,
+      title: task.label ?? task.task,
+      runtime: task.runtime,
+      status: operationsStatusForTask(task.status, task.terminalOutcome),
+      sourceStatus: task.status,
+      updatedAt: taskUpdatedAt(task),
+    };
+    const agentId = taskAgentId(task);
+    if (agentId) {
+      row.agentId = agentId;
+    }
+    if (task.parentFlowId) {
+      row.parentFlowId = task.parentFlowId;
+    }
+    if (task.progressSummary || task.terminalSummary) {
+      row.progress = task.progressSummary ?? task.terminalSummary;
+    }
+    if (task.error) {
+      row.error = task.error;
+    }
+    rows.push(row);
+  }
+  return rows.toSorted((left, right) => {
+    const activeRank = (row: OperationsTaskSnapshot) => (row.status === "working" ? 1 : 0);
+    return activeRank(right) - activeRank(left) || right.updatedAt - left.updatedAt;
+  });
 }
 
 function buildCronRows(jobs: readonly CronJob[]): OperationsCronSnapshot[] {
-  return jobs
-    .map(
-      (job) =>
-        ({
-          id: job.id,
-          name: job.displayName ?? job.name,
-          ...(job.agentId ? { agentId: job.agentId } : {}),
-          duty: job.enabled ? "scheduled" : "disabled",
-          status: cronStatus(job),
-          enabled: job.enabled,
-          running: Boolean(job.state.runningAtMs),
-          ...(job.state.nextRunAtMs ? { nextRunAt: job.state.nextRunAtMs } : {}),
-          ...(job.state.lastRunAtMs ? { lastRunAt: job.state.lastRunAtMs } : {}),
-          ...(job.state.lastRunStatus || job.state.lastStatus
-            ? { lastRunStatus: job.state.lastRunStatus ?? job.state.lastStatus }
-            : {}),
-          ...(job.state.lastError ? { lastError: job.state.lastError } : {}),
-          consecutiveErrors: job.state.consecutiveErrors ?? 0,
-        }) satisfies OperationsCronSnapshot,
-    )
-    .toSorted(
-      (left, right) =>
-        Number(right.running) - Number(left.running) || left.name.localeCompare(right.name),
-    );
+  const rows: OperationsCronSnapshot[] = [];
+  for (const job of jobs) {
+    const row: OperationsCronSnapshot = {
+      id: job.id,
+      name: job.displayName ?? job.name,
+      duty: job.enabled ? "scheduled" : "disabled",
+      status: cronStatus(job),
+      enabled: job.enabled,
+      running: Boolean(job.state.runningAtMs),
+      consecutiveErrors: job.state.consecutiveErrors ?? 0,
+    };
+    if (job.agentId) {
+      row.agentId = job.agentId;
+    }
+    if (job.state.nextRunAtMs) {
+      row.nextRunAt = job.state.nextRunAtMs;
+    }
+    if (job.state.lastRunAtMs) {
+      row.lastRunAt = job.state.lastRunAtMs;
+    }
+    const lastRunStatus = job.state.lastRunStatus ?? job.state.lastStatus;
+    if (lastRunStatus) {
+      row.lastRunStatus = lastRunStatus;
+    }
+    if (job.state.lastError) {
+      row.lastError = job.state.lastError;
+    }
+    rows.push(row);
+  }
+  return rows.toSorted(
+    (left, right) =>
+      Number(right.running) - Number(left.running) || left.name.localeCompare(right.name),
+  );
 }
 
 function buildCatalogs(params: {
@@ -256,37 +317,51 @@ function buildCatalogs(params: {
     config: params.cfg,
     agentId: defaultAgentId,
   });
-  const skills: OperationsCatalogEntry[] = skillReport.skills.map((skill) => ({
-    id: skill.skillKey,
-    name: skill.name,
-    kind: "skill",
-    status: skill.disabled
-      ? "disabled"
-      : skill.eligible
-        ? "healthy"
-        : skill.platformIncompatible
-          ? "disabled"
-          : "blocked",
-    configured: true,
-    active: skill.eligible && !skill.disabled,
-    source: skill.source,
-    ...(skill.eligible || skill.disabled || skill.platformIncompatible
-      ? {}
-      : { reason: hasMissingRequirements(skill.missing) ? "Missing requirements" : "Unavailable" }),
-  }));
+  const skills: OperationsCatalogEntry[] = [];
+  for (const skill of skillReport.skills) {
+    const row: OperationsCatalogEntry = {
+      id: skill.skillKey,
+      name: skill.name,
+      kind: "skill",
+      status: skill.disabled
+        ? "disabled"
+        : skill.eligible
+          ? "healthy"
+          : skill.platformIncompatible
+            ? "disabled"
+            : "blocked",
+      configured: true,
+      active: skill.eligible && !skill.disabled,
+      source: skill.source,
+    };
+    if (!skill.eligible && !skill.disabled && !skill.platformIncompatible) {
+      row.reason = hasMissingRequirements(skill.missing) ? "Missing requirements" : "Unavailable";
+    }
+    skills.push(row);
+  }
 
   const registry = getPluginRegistryState()?.activeRegistry;
-  const plugins: OperationsCatalogEntry[] = (registry?.plugins ?? []).map((plugin) => ({
-    id: plugin.id,
-    name: plugin.name,
-    kind: "plugin",
-    status:
-      plugin.status === "loaded" ? "healthy" : plugin.status === "disabled" ? "disabled" : "failed",
-    configured: plugin.enabled,
-    active: plugin.status === "loaded",
-    source: plugin.source,
-    ...(plugin.error ? { reason: plugin.error } : {}),
-  }));
+  const plugins: OperationsCatalogEntry[] = [];
+  for (const plugin of registry?.plugins ?? []) {
+    const row: OperationsCatalogEntry = {
+      id: plugin.id,
+      name: plugin.name,
+      kind: "plugin",
+      status:
+        plugin.status === "loaded"
+          ? "healthy"
+          : plugin.status === "disabled"
+            ? "disabled"
+            : "failed",
+      configured: plugin.enabled,
+      active: plugin.status === "loaded",
+      source: plugin.source,
+    };
+    if (plugin.error) {
+      row.reason = plugin.error;
+    }
+    plugins.push(row);
+  }
 
   const coreTools = listCoreToolSections().flatMap((section) =>
     section.tools.map(
@@ -318,17 +393,23 @@ function buildCatalogs(params: {
     ),
   );
 
-  const models: OperationsCatalogEntry[] = params.modelCatalog.map((model) => ({
-    id: `${model.provider}/${model.id}`,
-    name: model.name || model.id,
-    kind: "model",
-    status: model.certification === "certified" ? "healthy" : "unknown",
-    configured: true,
-    active: null,
-    source: model.provider,
-    route: model.route ?? "unknown",
-    ...(model.certification ? { reason: `Certification: ${model.certification}` } : {}),
-  }));
+  const models: OperationsCatalogEntry[] = [];
+  for (const model of params.modelCatalog) {
+    const row: OperationsCatalogEntry = {
+      id: `${model.provider}/${model.id}`,
+      name: model.name || model.id,
+      kind: "model",
+      status: model.certification === "certified" ? "healthy" : "unknown",
+      configured: true,
+      active: null,
+      source: model.provider,
+      route: model.route ?? "unknown",
+    };
+    if (model.certification) {
+      row.reason = `Certification: ${model.certification}`;
+    }
+    models.push(row);
+  }
 
   return {
     skills: capOperationsRows(skills.toSorted((a, b) => a.name.localeCompare(b.name))),
