@@ -149,6 +149,7 @@ class ChatController internal constructor(
   private val recoveryHistoryRetryDelayMs = 750L
   private var recoveryHistoryReconciliationGeneration = -1L
   private var recoveryHistoryReconciliationJob: Job? = null
+  private var taskFlowRefreshJob: Job? = null
 
   // Drops stale history responses after session switches or refresh races.
   private val historyLoadGeneration = AtomicLong(0)
@@ -208,6 +209,8 @@ class ChatController internal constructor(
   /** Clears transient chat state when the operator gateway session disconnects. */
   fun onDisconnected(message: String) {
     historyLoadGeneration.incrementAndGet()
+    taskFlowRefreshJob?.cancel()
+    taskFlowRefreshJob = null
     restoreRunStateOnReconnect = true
     reconnectRecoveryGeneration = null
     _healthOk.value = false
@@ -969,7 +972,53 @@ class ChatController internal constructor(
         if (payloadJson.isNullOrBlank()) return
         handleAgentEvent(payloadJson)
       }
+      "taskFlow" -> {
+        handleTaskFlowEvent(payloadJson)
+      }
     }
+  }
+
+  private fun handleTaskFlowEvent(payloadJson: String?) {
+    val ownerKey =
+      runCatching {
+        payloadJson
+          ?.let { json.parseToJsonElement(it).asObjectOrNull() }
+          ?.get("ownerKey")
+          .asStringOrNull()
+          ?.trim()
+          ?.takeIf { it.isNotEmpty() }
+      }.getOrNull()
+    if (ownerKey != null && !taskFlowOwnerMatchesCurrentSession(ownerKey)) return
+
+    // Goal lifecycle mutations often arrive together. Reconcile the visible
+    // transcript and recent-session metadata once without resetting pending
+    // chat ownership or surfacing a transient error.
+    taskFlowRefreshJob?.cancel()
+    taskFlowRefreshJob =
+      scope.launch {
+        delay(75)
+        refreshCurrentHistoryBestEffort(updateSessionInfo = true)
+        fetchSessionsForCurrentWindow()
+      }
+  }
+
+  private fun taskFlowOwnerMatchesCurrentSession(ownerKey: String): Boolean {
+    val eventKey = ownerKey.trim()
+    val currentKey = normalizeRequestedSessionKey(_sessionKey.value)
+    if (eventKey.equals(currentKey, ignoreCase = true)) return true
+
+    fun mainAlias(key: String): Boolean {
+      if (key.equals("main", ignoreCase = true)) return true
+      val parts = key.split(':', limit = 3)
+      return parts.size == 3 &&
+        parts[0].equals("agent", ignoreCase = true) &&
+        parts[2].equals("main", ignoreCase = true)
+    }
+
+    if (!mainAlias(eventKey) || !mainAlias(currentKey)) return false
+    val eventAgent = resolveAgentIdFromMainSessionKey(eventKey)
+    val currentAgent = resolveAgentIdFromMainSessionKey(currentKey) ?: resolveAgentIdForSessionKey(currentKey)
+    return eventAgent == null || eventAgent.equals(currentAgent, ignoreCase = true)
   }
 
   /**

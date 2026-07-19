@@ -23,6 +23,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-ui-control-director-no-response-smoke.test.ts",
   "test/scripts/control-ui-production-chat-stack.test.ts",
   "packages/gateway-protocol/src/index.test.ts",
+  "packages/gateway-protocol/src/schema/tasks.test.ts",
   "src/agents/agent-operational-role.test.ts",
   "src/agents/agent-role-capabilities.test.ts",
   "src/agents/control-director-activity-watchdog.test.ts",
@@ -200,6 +201,8 @@ export function buildControlDirectorSourceConfig() {
 
 export function buildControlDirectorSourceGatePlan() {
   return [
+    { id: "protocol-coverage", args: ["check:protocol-coverage"] },
+    { id: "protocol-generated", args: ["protocol:check"] },
     { id: "torture", args: ["control-director:torture"] },
     { id: "chaos", args: ["control-director:chaos"] },
     { id: "tests", args: ["test", ...CONTROL_DIRECTOR_TARGETED_TESTS] },

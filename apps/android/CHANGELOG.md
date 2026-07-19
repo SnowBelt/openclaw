@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Keeps the current chat synchronized with live Pursue Goal progress without interrupting pending messages.
+
 ## 2026.7.1 - 2026-07-08
 
 Adds multi-gateway switching with isolated credentials, history, queues, and notification routing.

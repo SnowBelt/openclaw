@@ -369,6 +369,35 @@ struct IOSGatewayChatTransportTests {
         }
     }
 
+    @Test func `maps task flow event to task flow`() {
+        let payload = AnyCodable([
+            "action": AnyCodable("upserted"),
+            "flowId": AnyCodable("flow-1"),
+            "ownerKey": AnyCodable("agent:main:main"),
+            "status": AnyCodable("running"),
+            "revision": AnyCodable(3),
+            "updatedAt": AnyCodable(1234.0),
+        ])
+        let frame = EventFrame(
+            type: "event",
+            event: "taskFlow",
+            payload: payload,
+            seq: 1,
+            stateversion: nil)
+        let mapped = IOSGatewayChatTransport.mapEventFrame(frame)
+
+        switch mapped {
+        case let .taskFlow(taskFlow):
+            #expect(taskFlow.action == "upserted")
+            #expect(taskFlow.flowId == "flow-1")
+            #expect(taskFlow.ownerKey == "agent:main:main")
+            #expect(taskFlow.status == "running")
+            #expect(taskFlow.revision == 3)
+        default:
+            Issue.record("expected .taskFlow from taskFlow event, got \(String(describing: mapped))")
+        }
+    }
+
     @Test func `maps unknown event to nil`() {
         let frame = EventFrame(
             type: "event",

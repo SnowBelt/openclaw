@@ -3601,6 +3601,46 @@ struct ChatViewModelTests {
         }
     }
 
+    @Test func `task flow event coalesces a canonical chat refresh`() async throws {
+        let historyCount = AsyncCounter()
+        let initial = [chatTextMessage(role: "user", text: "keep working", timestamp: 1_000)]
+        let progressed = initial + [
+            chatTextMessage(role: "assistant", text: "goal progress", timestamp: 2_000),
+        ]
+        let (transport, vm) = await makeViewModel(
+            historyResponses: [
+                historyPayload(sessionId: "sess-main", messages: initial),
+                historyPayload(sessionId: "sess-main", messages: progressed),
+            ],
+            requestHistoryHook: { _ in
+                _ = await historyCount.increment()
+            })
+        try await loadAndWaitBootstrap(vm: vm, sessionId: "sess-main")
+
+        transport.emit(.taskFlow(OpenClawTaskFlowEventPayload(
+            action: "upserted",
+            flowId: "flow-1",
+            ownerKey: "agent:main:main",
+            status: "running",
+            revision: 2,
+            updatedAt: 2_000)))
+        transport.emit(.taskFlow(OpenClawTaskFlowEventPayload(
+            action: "upserted",
+            flowId: "flow-1",
+            ownerKey: "agent:main:main",
+            status: "running",
+            revision: 3,
+            updatedAt: 2_001)))
+
+        try await waitUntil("task flow event refreshes canonical history once") {
+            await historyCount.current() == 2
+        }
+        #expect(await MainActor.run { vm.messages.containsUserText("keep working") })
+        #expect(await MainActor.run {
+            vm.messages.contains { $0.content.contains { $0.text == "goal progress" } }
+        })
+    }
+
     @Test func `run refresh does not resurrect old user turns omitted by bounded history`() async throws {
         let sessionId = "sess-main"
         let now = Date().timeIntervalSince1970 * 1000
