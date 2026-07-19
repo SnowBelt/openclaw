@@ -1078,7 +1078,7 @@ function chatHistoryMessageIdentity(message: unknown): string | null {
   if (!message || typeof message !== "object") {
     return null;
   }
-  const metadata = (message as Record<string, unknown>).__openclaw;
+  const metadata = (message as Record<string, unknown>)["__openclaw"];
   if (!metadata || typeof metadata !== "object") {
     return null;
   }
