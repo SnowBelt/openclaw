@@ -1,34 +1,34 @@
 # Control Director Reliability V1 Continuation
 
-## Verified baseline
+## Durable execution baseline
 
-- Clean worktree: `codex/control-director-codex-chat-v1-20260718`
-- Source SHA: `a9a72db96dc2deb4dffb7ba240ede33e03b48839`
-- Runtime version represented by that source: `2026.7.1`
-- Dirty root checkout is excluded from implementation and validation.
-- Locked dependencies installed successfully in the clean worktree.
+- Final-attestation branch: `codex/control-director-final-attestation-20260719`.
+- Resolve the exact candidate with `git rev-parse HEAD`; do not trust a SHA copied into this document.
+- The historical implementation baseline remains recorded in `roadmap.json`.
+- The dirty root checkout is excluded from implementation, validation, activation, and evidence.
+- Exact-SHA receipts under `.artifacts/control-director/` are authoritative only when their `sourceSha` equals the current clean `HEAD`.
 
 ## Completion policy
 
 `roadmap.json` is authoritative. A milestone is complete only when its status is `passed` and its evidence identifies current source plus every applicable test, build, runtime, desktop, tablet, mobile, persistence, restart, soak, and rollback proof surface.
 
-Partial source implementation must remain `in_progress` or `blocked`. Do not infer completion from a plan, source-string readiness check, mock-only test, screenshot, stale receipt, or prior runtime.
+Source implementation, remote CI, managed runtime, Dashboard/device, model, restart, rollback, soak, landing, and final-ledger proof are separate gates. Do not infer completion from a plan, source-string readiness check, mock-only test, screenshot, stale receipt, or prior runtime.
 
 ## Current state
 
-- Passed: 0/61
-- In progress: M01
-- Pending: M02-M61
-- Weighted completion: 0%
+- Formal roadmap pass: 0/61 until the final evidence-bound commit is landed and the post-commit ledger exits zero.
+- Source implementation: M01-M61 present; M61 adds the update-survival control plane.
+- Current phase: exact-source and remote proof, then managed activation and live acceptance.
+- Remaining proof: exact runtime lineage; desktop, tablet, and mobile Chat; local-model routing and latency; memory; delegation; Judge; queue/steer; Pursue Goal; restart recovery; rollback/restore; five-minute soak; landing; reactivation; final ledger.
 
 ## Next dependency-ready work
 
-1. Implement M01 exact-runtime baseline and dirty-checkout protection.
-2. Implement M04 canonical identity/model registry.
-3. Implement M45 active contract wiring gate.
-4. Implement M46 proportional response contracts.
-5. Implement M47 immutable mission envelope.
-6. Implement M61 customization update-survival acceptance after M44, M45, and M60 evidence is available.
+1. Verify the clean exact candidate with `pnpm custom-runtime:update-survival` and `pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"`.
+2. Require fresh exact-head Workflow Sanity and full non-Android CI.
+3. Prepare and activate one immutable candidate through the managed lifecycle; never bypass the Keychain, staging, capability, or rollback guards.
+4. Collect all exact-runtime, browser/device, model, memory, orchestration, restart, rollback, and soak receipts.
+5. Populate M01-M61 with concrete evidence and exact-SHA bindings only after those surfaces pass.
+6. Re-run exact source and remote gates for that final evidence commit, land without a merge commit, reactivate the landed SHA, and generate the post-commit final ledger.
 
 ## Prohibited completion shortcuts
 
@@ -38,3 +38,5 @@ Partial source implementation must remain `in_progress` or `blocked`. Do not inf
 - Do not infer PCC state from ordinary assistant prose.
 - Do not use a mock GPT identity as proof for the managed Gemma Control Director.
 - Do not claim live or Dashboard completion until the exact promoted SHA is exercised there.
+- Do not mark a customization update-safe unless its capability/path inventory, exact-parent candidate proof, managed activation, browser/device proof, rollback/restore, and soak all pass.
+- Do not edit milestone status or evidence optimistically; a missing or stale binding remains pending.
