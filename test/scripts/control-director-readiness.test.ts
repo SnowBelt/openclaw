@@ -4,6 +4,7 @@ import {
   collectControlDirectorActiveWiring,
   CONTROL_DIRECTOR_READINESS_REPO_ROOT,
   parseOllamaList,
+  parseOllamaModelfileBaseDigests,
 } from "../../scripts/control-director-readiness.mjs";
 
 const sha = "a".repeat(40);
@@ -118,7 +119,11 @@ function scorecard(overrides: Record<string, unknown> = {}) {
     runtimeProof: runtimeProof(),
     ollamaModels: new Map([
       ["openclaw-control-gemma4-31b-q8:latest", { digest: "gemma" }],
-      ["gemma4:31b-it-q8_0", { digest: "gemma" }],
+      ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", { digest: "base" }],
+    ]),
+    ollamaModelBases: new Map([
+      ["openclaw-control-gemma4-31b-q8:latest", ["a".repeat(64), "b".repeat(64)]],
+      ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", ["a".repeat(64), "b".repeat(64)]],
     ]),
     ollamaEnv: {
       OLLAMA_FLASH_ATTENTION: "1",
@@ -188,9 +193,9 @@ describe("Control Director readiness", () => {
         },
       },
       {
-        ollamaModels: new Map([
-          ["openclaw-control-gemma4-31b-q8:latest", { digest: "alias" }],
-          ["gemma4:31b-it-q8_0", { digest: "underlying" }],
+        ollamaModelBases: new Map([
+          ["openclaw-control-gemma4-31b-q8:latest", ["a".repeat(64)]],
+          ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", ["b".repeat(64)]],
         ]),
       },
     ]) {
@@ -203,6 +208,7 @@ describe("Control Director readiness", () => {
       sourceOnly: true,
       runtimeProof: undefined,
       ollamaModels: new Map(),
+      ollamaModelBases: new Map(),
       ollamaEnv: {},
       ollamaChatSmoke: { ok: false },
     });
@@ -241,6 +247,16 @@ describe("Control Director readiness", () => {
         "NAME ID SIZE MODIFIED\nopenclaw-control-gemma4-31b-q8:latest abc123 31 GB now\n",
       ).get("openclaw-control-gemma4-31b-q8:latest"),
     ).toMatchObject({ digest: "abc123", size: "31 GB" });
+  });
+
+  it("compares immutable Modelfile base blobs instead of tuned manifest IDs", () => {
+    const first = "a".repeat(64);
+    const second = "b".repeat(64);
+    expect(
+      parseOllamaModelfileBaseDigests(
+        `FROM /models/blobs/sha256-${second}\nPARAMETER num_ctx 64000\nFROM /models/blobs/sha256-${first}\n`,
+      ),
+    ).toEqual([first, second]);
   });
 
   it("fails production readiness when orchestration or Judge roles are not independent", () => {
