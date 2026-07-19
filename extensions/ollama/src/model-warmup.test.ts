@@ -88,7 +88,10 @@ describe("Ollama model warmup", () => {
     };
     expect(request.url).toBe("http://127.0.0.1:11434/api/generate");
     expect(request.init.method).toBe("POST");
-    expect(JSON.parse(String(request.init.body))).toEqual({
+    if (typeof request.init.body !== "string") {
+      throw new Error("Expected Ollama warmup request body to be JSON text.");
+    }
+    expect(JSON.parse(request.init.body)).toEqual({
       model: "gemma4:31b-q8_0",
       prompt: "",
       stream: false,

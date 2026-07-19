@@ -57,7 +57,7 @@ describe("execution event protocol", () => {
         at: index,
         eventId: `event-${index}`,
       }),
-    ).map((event, index) => ({ ...event, sequence: index }));
+    ).map((event, index) => Object.assign(event, { sequence: index }));
 
     expect(appendExecutionEvent(events, events[3]!, 3).map((event) => event.eventId)).toEqual([
       "event-1",

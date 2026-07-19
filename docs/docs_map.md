@@ -206,6 +206,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: What It Inspects
   - H2: Typed Improvement Signals
+  - H3: Control Director user-journey signals
   - H2: Recommendation Records
   - H2: Dashboard Intervention Evidence
   - H2: Actionability And Closure
@@ -2417,6 +2418,20 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Sessions, compaction, and pruning (what persists)
   - H2: What /context actually reports
   - H2: Related
+
+## concepts/control-director.md
+
+- Route: /concepts/control-director
+- Headings:
+  - H2: Responsibility boundaries
+  - H2: Responsive Chat contract
+  - H3: Queue and steer
+  - H2: Pursue Goal
+  - H2: Local-first model policy and Codex
+  - H2: Memory and context continuity
+  - H2: Quality and self-improvement
+  - H2: Verification and readiness
+  - H2: Questions to ask during a reliability review
 
 ## concepts/delegate-architecture.md
 

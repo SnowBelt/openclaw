@@ -21,6 +21,8 @@ const rootEntries = [
   // Custom production support contracts are invoked by managed-runtime and
   // proof tooling that scripts/** intentionally excludes from Knip's graph.
   // Keep the real contract roots explicit instead of allowlisting findings.
+  "src/agents/control-director-instruction-torture.ts!",
+  "src/agents/control-director-model-eval.ts!",
   "src/pcc/capability-addition-registry.ts!",
   "src/pcc/learning-store.ts!",
   "src/pcc/operational-excellence-roadmap.ts!",

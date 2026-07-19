@@ -1,13 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ModelDefinitionConfig } from "../config/types.models.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PccExecutionCapacitySnapshot } from "../pcc/execution-capacity.js";
 import { assessControlDirectorResourceAdmission } from "./control-director-resource-admission.js";
 
-function config() {
+function modelDefinition(id: string): ModelDefinitionConfig {
+  return {
+    id,
+    name: id,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 64_000,
+    maxTokens: 8_000,
+  };
+}
+
+function config(): OpenClawConfig {
   return {
     models: {
       providers: {
         ollama: {
-          models: [{ id: "openclaw-control-gemma4-31b-q8:latest" }],
+          baseUrl: "http://127.0.0.1:11434",
+          models: [modelDefinition("openclaw-control-gemma4-31b-q8:latest")],
         },
       },
     },

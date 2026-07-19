@@ -581,7 +581,7 @@ export async function updateSelfImprovementRecommendationStatus(params: {
   claimedBy?: string;
   resolutionProof?: string;
   dismissalReason?: string;
-  controlDirectorClosure?: import("./control-director-closure.js").ControlDirectorJourneyClosure;
+  controlDirectorClosure?: import("./control-director-closure.types.js").ControlDirectorJourneyClosure;
   stateDir?: string;
   storePath?: string;
   now?: number;

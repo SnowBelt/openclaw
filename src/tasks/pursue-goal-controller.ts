@@ -24,12 +24,12 @@ import {
   type PursueGoalJudgeReceipt,
 } from "./pursue-goal-controller-state.js";
 import { completeTaskRunByRunId, failTaskRunByRunId, runTaskInFlow } from "./task-executor.js";
+import type { JsonValue, TaskFlowRecord } from "./task-flow-registry.types.js";
 import {
   getTaskFlowById,
   listTaskFlowRecords,
   updateFlowRecordByIdExpectedRevision,
-} from "./task-flow-registry.js";
-import type { JsonValue, TaskFlowRecord } from "./task-flow-registry.types.js";
+} from "./task-flow-runtime-internal.js";
 
 const log = createSubsystemLogger("tasks/pursue-goal-controller");
 
@@ -97,7 +97,7 @@ let judgeReceiptVerifier: (receipt: PursueGoalJudgeReceipt) => boolean = (receip
   verifyJudgeReceipt(receipt);
 
 function toJsonValue(value: unknown): JsonValue {
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
+  return structuredClone(value) as JsonValue;
 }
 
 function boundedSummary(value: string | undefined): string | undefined {
@@ -1012,7 +1012,7 @@ export function kickPursueGoalController(flowId: string): boolean {
   const abortController = new AbortController();
   const leaseId = acquired.state.lease.leaseId;
   const promise = runControllerActivation({ flowId, leaseId, abortController })
-    .catch((error) => {
+    .catch((error: unknown) => {
       log.error("Pursue Goal controller activation failed", { flowId, error });
     })
     .finally(() => {

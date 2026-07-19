@@ -65,7 +65,9 @@ const hoisted = vi.hoisted(() => {
   }));
   const ensureOpenClawModelsJson = vi.fn(async () => {});
   const ensureRuntimePluginsLoaded = vi.fn();
-  const warmConfiguredControlDirectorModel = vi.fn(async () => ({
+  const warmConfiguredControlDirectorModel = vi.fn<
+    typeof import("../agents/control-director-model-warmup.js").warmConfiguredControlDirectorModel
+  >(async () => ({
     status: "not_configured" as const,
     reason: "not configured",
   }));

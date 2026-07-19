@@ -71,7 +71,7 @@ export function loadOrCreateJudgeSigningKey(directory?: string): JudgeSigningKey
     privatePem = fs.readFileSync(paths.privatePath, "utf8");
   } else {
     const generated = crypto.generateKeyPairSync("ed25519");
-    const candidatePem = generated.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const candidatePem = generated.privateKey.export({ type: "pkcs8", format: "pem" });
     if (writePrivateKeyExclusive(paths.privatePath, candidatePem)) {
       privatePem = candidatePem;
     } else {
@@ -80,7 +80,7 @@ export function loadOrCreateJudgeSigningKey(directory?: string): JudgeSigningKey
   }
   const privateKey = crypto.createPrivateKey(privatePem);
   const publicKey = crypto.createPublicKey(privatePem);
-  const publicPem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const publicPem = publicKey.export({ type: "spki", format: "pem" });
   fs.writeFileSync(paths.publicPath, publicPem, { encoding: "utf8", mode: 0o644 });
   fs.chmodSync(paths.privatePath, 0o600);
   return { privateKey, publicKey, publicKeyId: publicKeyId(publicKey) };
@@ -113,7 +113,7 @@ export function verifyJudgeReceipt(
     if (publicKeyId(publicKey) !== receipt.publicKeyId) {
       return false;
     }
-    const verifyKey = publicKey.export({ type: "spki", format: "pem" }).toString();
+    const verifyKey = publicKey.export({ type: "spki", format: "pem" });
     return crypto.verify(
       null,
       canonicalJudgeReceiptBytes(receipt),

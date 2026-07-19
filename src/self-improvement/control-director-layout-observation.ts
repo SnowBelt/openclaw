@@ -44,6 +44,7 @@ function reasonMatchesObservation(
     case "pcc_projection_in_chat":
       return observation.pccProjectionPresent;
   }
+  return false;
 }
 
 /**

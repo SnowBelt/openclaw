@@ -158,6 +158,7 @@ function modeInstructions(mode: ControlDirectorResponseMode): string[] {
         "Continue safely until the mission is complete, genuinely blocked, or needs user input. A completion claim requires direct evidence and a valid independent signed Judge receipt.",
       ];
   }
+  return [];
 }
 
 export function compileControlDirectorTurnPolicy(params: {

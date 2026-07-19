@@ -38,12 +38,16 @@ export function startControlDirectorActivityWatchdog(params: {
   let timer: Timer | undefined;
 
   const arm = () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     timer = schedule(tick, intervalMs);
     timer.unref?.();
   };
   const tick = () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     const at = now();
     const observedGapMs = Math.max(0, at - previousTickAt);
     previousTickAt = at;
@@ -70,8 +74,12 @@ export function startControlDirectorActivityWatchdog(params: {
   };
   arm();
   return () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     stopped = true;
-    if (timer) cancel(timer);
+    if (timer) {
+      cancel(timer);
+    }
   };
 }

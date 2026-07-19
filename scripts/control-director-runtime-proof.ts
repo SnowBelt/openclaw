@@ -137,15 +137,23 @@ function parseArgs(argv: string[]) {
   const values = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
-    if (key === "--") continue;
-    if (!key?.startsWith("--")) throw new Error(`Unknown argument: ${key ?? ""}`);
+    if (key === "--") {
+      continue;
+    }
+    if (!key?.startsWith("--")) {
+      throw new Error(`Unknown argument: ${key ?? ""}`);
+    }
     const value = argv[++index];
-    if (!value) throw new Error(`Missing value for ${key}.`);
+    if (!value) {
+      throw new Error(`Missing value for ${key}.`);
+    }
     values.set(key.slice(2), value);
   }
   const required = ["source-sha", "lineage", "model-eval", ...SURFACES, "output"];
   for (const key of required) {
-    if (!values.get(key)) throw new Error(`Missing --${key}.`);
+    if (!values.get(key)) {
+      throw new Error(`Missing --${key}.`);
+    }
   }
   return values;
 }

@@ -2,6 +2,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import type { OpenKeyedStoreOptions } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
@@ -66,7 +67,7 @@ describe("active-memory plugin", () => {
       timeoutMs: 15_000,
       controlDirectorTimeoutMs: 2_000,
     });
-    const cfg = {
+    const cfg: OpenClawConfig = {
       agents: {
         list: [
           { id: "director", role: "control_director" },
@@ -86,7 +87,7 @@ describe("active-memory plugin", () => {
   });
 
   it("skips model-backed Control Director recall for ordinary turns but keeps explicit recall", () => {
-    const cfg = {
+    const cfg: OpenClawConfig = {
       agents: { list: [{ id: "director", role: "control_director" }] },
     };
     expect(

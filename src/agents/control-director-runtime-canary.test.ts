@@ -6,7 +6,7 @@ import {
   compareControlDirectorRuntimeCanary,
 } from "./control-director-runtime-canary.js";
 
-function config(model = CONTROL_DIRECTOR_DEFAULT_MODEL): OpenClawConfig {
+function config(model: string = CONTROL_DIRECTOR_DEFAULT_MODEL): OpenClawConfig {
   return {
     agents: {
       list: [{ id: "director", role: "control_director", model }],

@@ -391,7 +391,7 @@ export async function stopChatTurnInboxController(): Promise<void> {
     clearTimeout(timer);
   }
   timers.clear();
-  await Promise.allSettled([...running.values()]);
+  await Promise.allSettled(running.values());
   running.clear();
   testHooks = null;
 }

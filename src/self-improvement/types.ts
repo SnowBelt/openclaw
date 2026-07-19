@@ -1,4 +1,4 @@
-import type { ControlDirectorJourneyClosure } from "./control-director-closure.js";
+import type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
 import type { ControlDirectorJourneySignalCode } from "./control-director-journeys.js";
 
 export type SelfImprovementRecommendationStatus =

@@ -215,8 +215,12 @@ function evidence(trial: ControlDirectorModelEvalTrial, suffix: string): string 
 
 function trialEvidenceBlockers(trial: ControlDirectorModelEvalTrial): string[] {
   const required = ["latency", "coverage", "mission", "layout", "resource"];
-  if (trial.taskClass === "recall") required.push("recall");
-  if (trial.taskClass === "verification") required.push("judge");
+  if (trial.taskClass === "recall") {
+    required.push("recall");
+  }
+  if (trial.taskClass === "verification") {
+    required.push("judge");
+  }
   return required.flatMap((kind) =>
     evidence(trial, kind) ? [] : [`missing ${kind}: exact-runtime evidence reference`],
   );

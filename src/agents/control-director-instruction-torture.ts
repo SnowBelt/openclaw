@@ -340,10 +340,9 @@ function missionCases(): ControlDirectorTortureCase[] {
           missionContext: continuity,
           recentContext: "recent",
         };
-        return (
-          compileControlDirectorPromptBudget(input).prompt ===
-          compileControlDirectorPromptBudget(input).prompt
-        );
+        const first = compileControlDirectorPromptBudget(input).prompt;
+        const second = compileControlDirectorPromptBudget(structuredClone(input)).prompt;
+        return first === second;
       },
     },
   ];

@@ -37,7 +37,7 @@ describe("durable worker mailbox", () => {
       appendDurableWorkerMailboxMessage([assignment], result),
       result,
     );
-    const restored = parseDurableWorkerMailbox(JSON.parse(JSON.stringify(mailbox)));
+    const restored = parseDurableWorkerMailbox(structuredClone(mailbox));
     expect(restored).toHaveLength(2);
     expect(summarizeDurableWorkerFanIn(restored)).toMatchObject({
       assignments: 1,

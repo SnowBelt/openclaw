@@ -75,7 +75,9 @@ describe("durable chat turn inbox controller", () => {
     });
     startChatTurnInboxController(context);
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
     expect(invoke).not.toHaveBeenCalled();
     expect(stateForChatTurn(getTaskFlowById(flow.flowId)!)?.phase).toBe("pending");
 
@@ -107,14 +109,12 @@ describe("durable chat turn inbox controller", () => {
       patch: {
         status: "waiting",
         updatedAt: Date.now() - 6_000,
-        stateJson: JSON.parse(
-          JSON.stringify({
-            ...state,
-            phase: "admitted",
-            dispatchAttempts: 1,
-            updatedAt: Date.now() - 6_000,
-          }),
-        ),
+        stateJson: structuredClone({
+          ...state,
+          phase: "admitted",
+          dispatchAttempts: 1,
+          updatedAt: Date.now() - 6_000,
+        }),
       },
     });
     expect(orphaned.applied).toBe(true);
@@ -157,20 +157,24 @@ describe("durable chat turn inbox controller", () => {
       patch: {
         status: "waiting",
         updatedAt: old,
-        stateJson: JSON.parse(
-          JSON.stringify({
-            ...state,
-            phase: "admitted",
-            dispatchAttempts: 1,
-            activitySummary: "The assistant is working on the response.",
-            lastActivityAt: old,
-            updatedAt: old,
-          }),
-        ),
+        stateJson: structuredClone({
+          ...state,
+          phase: "admitted",
+          dispatchAttempts: 1,
+          activitySummary: "The assistant is working on the response.",
+          lastActivityAt: old,
+          updatedAt: old,
+        }),
       },
     });
     expect(admitted.applied).toBe(true);
-    context.chatAbortControllers.set(state.dispatchRunId, new AbortController());
+    context.chatAbortControllers.set(state.dispatchRunId, {
+      controller: new AbortController(),
+      sessionId: "session-heartbeat",
+      sessionKey: state.sessionKey,
+      startedAtMs: old,
+      expiresAtMs: old + 60_000,
+    });
     setChatTurnInboxControllerTestHooks({
       hasActiveRun: () => true,
       invokeMethod: vi.fn(async () => {

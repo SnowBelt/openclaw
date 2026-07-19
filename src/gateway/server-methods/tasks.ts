@@ -301,12 +301,13 @@ export function mapTaskFlowDetail(flow: TaskFlowRecord): TaskFlowDetail {
           ...(controllerState.retryAt !== undefined ? { retryAt: controllerState.retryAt } : {}),
           ...(controllerState.lease ? { lease: controllerState.lease } : {}),
           ...(controllerState.judgeReceipt ? { judgeReceipt: controllerState.judgeReceipt } : {}),
-          events: controllerState.events.slice(-50).map((event) => ({
-            ...event,
-            summary: sanitizeTaskStatusText(event.summary, {
-              maxChars: TASK_STATUS_DETAIL_MAX_CHARS,
+          events: controllerState.events.slice(-50).map((event) =>
+            Object.assign({}, event, {
+              summary: sanitizeTaskStatusText(event.summary, {
+                maxChars: TASK_STATUS_DETAIL_MAX_CHARS,
+              }),
             }),
-          })),
+          ),
         }
       : {}),
     ...(flow.cancelRequestedAt !== undefined ? { cancelRequestedAt: flow.cancelRequestedAt } : {}),
@@ -616,7 +617,7 @@ export const tasksHandlers: GatewayRequestHandlers = {
     const initialized = updateFlowRecordByIdExpectedRevision({
       flowId: flow.flowId,
       expectedRevision: flow.revision,
-      patch: { stateJson: JSON.parse(JSON.stringify(state)) },
+      patch: { stateJson: structuredClone(state) },
     });
     if (!initialized.applied) {
       deleteTaskFlowRecordById(flow.flowId);
