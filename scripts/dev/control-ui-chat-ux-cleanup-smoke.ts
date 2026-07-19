@@ -178,7 +178,12 @@ function baseProps(mode, overrides = {}) {
     onScrollToBottom: () => undefined,
     onRefresh: () => undefined,
     getDraft: () => draft,
-    onDraftChange: (next) => { draft = next; },
+    onDraftChange: (next) => {
+      draft = next;
+      if (next.includes("Retry the preserved original request safely")) {
+        retryDraft = next;
+      }
+    },
     onRequestUpdate: () => undefined,
     onSend: () => undefined,
     onCompact: () => undefined,
@@ -218,7 +223,6 @@ function baseProps(mode, overrides = {}) {
     onGoalContinue: () => undefined,
     onGoalCancel: () => { cancelCalls += 1; },
     onGoalRefresh: () => undefined,
-    onBlockedRetryDraft: (prompt) => { retryDraft = prompt; draft = prompt; },
     sessionWorkspace: mobile ? undefined : {
       collapsed: false,
       sessionKey: "agent:main:main",
@@ -312,7 +316,7 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const cancel = root.querySelector('[data-chat-goal-action="cancel"]');
   cancel?.click();
-  const cancellingGoalVisible = (document.body.textContent || "").includes("Cancelling…");
+  const stoppingGoalVisible = (document.body.textContent || "").includes("Stopping…");
   const cancelDedupedByDisabledButton =
     cancel instanceof HTMLButtonElement && cancel.disabled && cancelCalls === 0;
 
@@ -329,7 +333,7 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
     diagnosticsFocusRestored,
     emptyDiagnosticsHidden,
     retryDraftInserted: retryDraft.includes("Retry the preserved original request safely"),
-    cancellingGoalVisible,
+    stoppingGoalVisible,
     cancelDedupedByDisabledButton,
     transcriptHasRoom: Boolean(threadRect && threadRect.height >= minThreadHeight),
     conversationVisible: Boolean(
