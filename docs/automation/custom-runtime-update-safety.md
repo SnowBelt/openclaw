@@ -18,7 +18,7 @@ When an immutable custom runtime is active, normal `update.run` requests are rej
 
 ## Source of truth
 
-`config/custom-runtime-capabilities.json` is the versioned preservation inventory. The current inventory revision is 3 under schema v2, with preservation contract v2. It requires:
+`config/custom-runtime-capabilities.json` is the versioned preservation inventory. The current inventory revision is 4 under schema v2, with preservation contract v2. It requires:
 
 - a stable capability ID and required runtime paths,
 - required criticality,

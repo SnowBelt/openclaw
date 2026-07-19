@@ -60,7 +60,7 @@ function updateSurvival() {
     dashboardChangePolicy: "register_verify_and_block",
     approvalPolicy: "explicit_exact_candidate",
     proofCommand: "pnpm custom-runtime:update-survival",
-    manifestVersion: 3,
+    manifestVersion: 4,
     manifestSha256: "d".repeat(64),
     verificationCommands: [
       "pnpm check:custom-runtime-capabilities",

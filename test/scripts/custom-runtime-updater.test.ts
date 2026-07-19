@@ -57,7 +57,7 @@ function writePreservationProof(
     approvalPolicy: "explicit_exact_candidate",
     proofCommand: "pnpm custom-runtime:update-survival",
     activeManifestVersion: 2,
-    candidateManifestVersion: 3,
+    candidateManifestVersion: 4,
     requiredCapabilities: ["runtime:update-safe-customizations"],
     requiredPathDigests: { "config/custom-runtime-capabilities.json": "f".repeat(64) },
     verificationCommands: canonicalVerificationCommands,

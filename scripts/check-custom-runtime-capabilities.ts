@@ -20,8 +20,8 @@ if (!parsed) {
     manifest: parsed,
     dashboardSurfaceIds: DASHBOARD_SURFACES.map((surface) => surface.id),
   });
-  if (parsed.schema !== CUSTOM_RUNTIME_CAPABILITY_SCHEMA || parsed.version !== 3) {
-    errors.push("Canonical custom runtime capability manifest must use schema v2 revision 3.");
+  if (parsed.schema !== CUSTOM_RUNTIME_CAPABILITY_SCHEMA || parsed.version !== 4) {
+    errors.push("Canonical custom runtime capability manifest must use schema v2 revision 4.");
   }
   const standardsRegistry = parsed.preservation?.standardsRegistry;
   if (

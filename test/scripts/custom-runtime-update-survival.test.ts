@@ -144,8 +144,8 @@ describe("custom runtime update survival", () => {
       mergeParents: [activeSha, officialSha],
       sourceClean: true,
       contractVersion: 2,
-      activeManifestVersion: 3,
-      candidateManifestVersion: 3,
+      activeManifestVersion: 4,
+      candidateManifestVersion: 4,
       passed: true,
     });
     expect(proof.requiredPathDigests).toMatchObject({

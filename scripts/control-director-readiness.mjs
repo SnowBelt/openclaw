@@ -316,7 +316,7 @@ export function collectControlDirectorActiveWiring() {
       packageJson.scripts?.["custom-runtime:update-survival"] ===
         "node --import tsx scripts/custom-runtime/custom-runtime-update-survival.ts" &&
       capabilityManifest.schema === "openclaw.custom-runtime-capabilities.v2" &&
-      Number(capabilityManifest.version) >= 3 &&
+      Number(capabilityManifest.version) >= 4 &&
       preservation?.contractVersion === 2 &&
       preservation?.sourceStrategy === "merge_from_active_sha" &&
       preservation?.dashboardChangePolicy === "register_verify_and_block" &&

@@ -228,8 +228,8 @@ function auditCurrentManifest(
     errors.push("Update survival requires the current v2 capability manifest.");
     return errors;
   }
-  if (manifest.version < 3) {
-    errors.push("Update survival requires custom capability inventory revision 3 or newer.");
+  if (manifest.version < 4) {
+    errors.push("Update survival requires custom capability inventory revision 4 or newer.");
   }
   if (preservation.contractVersion !== 2) {
     errors.push("Update survival requires preservation contract v2.");

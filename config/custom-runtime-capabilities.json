@@ -1,6 +1,6 @@
 {
   "schema": "openclaw.custom-runtime-capabilities.v2",
-  "version": 3,
+  "version": 4,
   "preservation": {
     "contractVersion": 2,
     "criticality": "required",
