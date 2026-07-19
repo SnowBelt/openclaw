@@ -67,6 +67,8 @@ function readUiCss(): string {
     "ui/src/legacy-styles/chat/grouped.css",
     "ui/src/legacy-styles/chat/tool-cards.css",
     "ui/src/legacy-styles/chat/sidebar.css",
+    "ui/src/legacy-styles/chat.css",
+    "ui/src/styles/chat/control-director-diagnostics.css",
   ];
   return files.map((file) => readStyleSheet(file)).join("\n");
 }
@@ -183,7 +185,9 @@ function chatHeaderControlsHtml(hidden = false) {
   `;
 }
 
-function chatHtml(opts: { sideResult?: boolean; singleAgent?: boolean } = {}) {
+function chatHtml(
+  opts: { sideResult?: boolean; singleAgent?: boolean; statusChrome?: boolean } = {},
+) {
   return `
     <div class="shell shell--chat" data-chat-responsive-fixture>
       <header class="topbar">
@@ -196,10 +200,12 @@ function chatHtml(opts: { sideResult?: boolean; singleAgent?: boolean } = {}) {
       </header>
       <main class="content content--chat">
         <section class="card chat">
-          <div class="chat-split-container">
-            <div class="chat-main">
-              <div class="chat-thread" role="log">
-                <div class="chat-thread-inner">
+          <div class="chat-workbench">
+            <div class="chat-workbench__main">
+              <div class="chat-split-container">
+                <div class="chat-main">
+                  <div class="chat-thread" role="log">
+                    <div class="chat-thread-inner">
                   <div class="chat-group user">
                     <div class="chat-avatar user">V</div>
                     <div class="chat-group-messages">
@@ -216,6 +222,24 @@ function chatHtml(opts: { sideResult?: boolean; singleAgent?: boolean } = {}) {
                           <pre><code>const importantLongIdentifier = "control-ui-chat-responsive-regression-fixture-keeps-code-scrollable"; console.log(importantLongIdentifier);</code></pre>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                  ${
+                    opts.statusChrome
+                      ? `<details class="chat-control-director-diagnostics chat-control-director-diagnostics--blocked" data-control-director-diagnostics>
+                          <summary class="chat-control-director-diagnostics__summary">
+                            <span class="chat-control-director-diagnostics__dot"></span>
+                            <span class="chat-control-director-diagnostics__label">Truth &amp; Completion</span>
+                            <strong class="chat-control-director-diagnostics__status">Mission blocked</strong>
+                            <span class="chat-control-director-diagnostics__summary-detail">Collect passing command evidence.</span>
+                            <span class="chat-control-director-diagnostics__chevron">${iconSvg()}</span>
+                          </summary>
+                          <div class="chat-control-director-diagnostics__panel">
+                            <div class="chat-control-director-diagnostics__compact"><div><span>Why</span><strong>Missing command evidence.</strong></div><div><span>Next</span><strong>Collect passing command evidence.</strong></div></div>
+                          </div>
+                        </details>`
+                      : ""
+                  }
                     </div>
                   </div>
                 </div>
@@ -235,6 +259,15 @@ function chatHtml(opts: { sideResult?: boolean; singleAgent?: boolean } = {}) {
               : ""
           }
           <div class="agent-chat__input">
+            <nav class="chat-command-rail" aria-label="Chat work controls">
+              ${
+                opts.statusChrome
+                  ? `<details class="chat-project-picker"><summary class="chat-project-picker__summary"><span class="chat-project-picker__dot"></span><span class="chat-project-picker__kicker">Project</span><strong>No project</strong></summary></details>
+                    <details class="chat-goal"><summary class="chat-goal__summary"><span class="chat-goal__kicker">Pursue Goal</span><span class="chat-goal__title">No goal</span><span class="chat-goal__status">No goal</span></summary></details>
+                    <details class="chat-work-surface"><summary class="chat-work-surface__summary"><span>Nothing running</span></summary></details>`
+                  : ""
+              }
+            </nav>
             <div class="agent-chat__composer-combobox">
               <textarea rows="1">Queued follow-up for the active operator session</textarea>
             </div>
@@ -260,7 +293,7 @@ function chatHtml(opts: { sideResult?: boolean; singleAgent?: boolean } = {}) {
 async function openFixture(
   width: number,
   height: number,
-  opts: { sideResult?: boolean; singleAgent?: boolean } = {},
+  opts: { sideResult?: boolean; singleAgent?: boolean; statusChrome?: boolean } = {},
 ) {
   const page = await openBrowserPage(width, height);
   try {
@@ -436,6 +469,54 @@ describeBrowserLayout("chat responsive browser layout", () => {
       await closeBrowserPage(page);
     }
   });
+
+  it.each([
+    [390, 844],
+    [430, 932],
+    [844, 390],
+    [1366, 768],
+    [1440, 900],
+  ] as const)(
+    "keeps the transcript usable with compact session status at %sx%s",
+    async (width, height) => {
+      const page = await openFixture(width, height, { statusChrome: true });
+      try {
+        await page.locator(".shell").evaluate(async (element) => {
+          await Promise.all(element.getAnimations().map((animation) => animation.finished));
+        });
+        await expectNoHorizontalOverflow(page);
+        const metrics = await page.evaluate(() => {
+          const rect = (selector: string) =>
+            document.querySelector<HTMLElement>(selector)?.getBoundingClientRect() ?? null;
+          const thread = rect(".chat-thread");
+          const message = rect(".chat-group");
+          const diagnostics = rect("[data-control-director-diagnostics]");
+          const composer = rect(".agent-chat__input");
+          return {
+            composer,
+            diagnostics,
+            diagnosticsInThread: Boolean(
+              document
+                .querySelector("[data-control-director-diagnostics]")
+                ?.closest(".chat-thread-inner"),
+            ),
+            message,
+            thread,
+          };
+        });
+        const minimumThreadHeight = height < 500 ? 72 : Math.max(160, height * 0.24);
+        expect(metrics.diagnosticsInThread).toBe(true);
+        expect(metrics.diagnostics?.height).toBeLessThanOrEqual(56.5);
+        expect(metrics.thread?.height).toBeGreaterThanOrEqual(minimumThreadHeight);
+        expect(metrics.composer?.top).toBeGreaterThanOrEqual(0);
+        expect(metrics.composer?.bottom).toBeLessThanOrEqual(height + 1);
+        expect(metrics.message?.bottom).toBeGreaterThan(metrics.thread?.top ?? 0);
+        expect(metrics.message?.top).toBeLessThan(metrics.thread?.bottom ?? height);
+      } finally {
+        await closeBrowserPage(page);
+      }
+    },
+  );
 
   it.each([
     [320, 568],

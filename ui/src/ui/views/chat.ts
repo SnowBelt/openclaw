@@ -22,6 +22,7 @@ import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "../chat/chat-welcome.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
+import { summarizeControlDirectorDiagnostics } from "../chat/control-director-diagnostics.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
 import { exportChatMarkdown } from "../chat/export.ts";
 import {
@@ -88,6 +89,7 @@ import { formatGoalDetail, formatGoalSummary } from "../session-goal.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type {
+  GatewaySessionRow,
   ProjectRecord,
   ProjectsListResult,
   SessionGoal,
@@ -1919,6 +1921,18 @@ function closeDetailsOnEscape(event: KeyboardEvent, onClose?: () => void) {
   event.stopPropagation();
   details.open = false;
   onClose?.();
+  details.querySelector<HTMLElement>(":scope > summary")?.focus();
+}
+
+function closeDetailsFromControl(event: MouseEvent) {
+  const details = (event.currentTarget as HTMLElement | null)?.closest<HTMLDetailsElement>(
+    "details",
+  );
+  if (!details) {
+    return;
+  }
+  details.open = false;
+  details.querySelector<HTMLElement>(":scope > summary")?.focus();
 }
 
 function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
@@ -2235,6 +2249,98 @@ function renderControlDirectorSystemStatus(props: ChatProps) {
               ${memory.repairActions.map((action) => html`<li>${action.replaceAll("_", " ")}</li>`)}
             </ul>`
           : nothing}
+      </div>
+    </details>
+  `;
+}
+
+function renderControlDirectorDiagnosticsCard(
+  session: GatewaySessionRow | undefined,
+  props: Pick<ChatProps, "onDraftChange" | "onRequestUpdate">,
+) {
+  const summary = summarizeControlDirectorDiagnostics(session);
+  if (!summary.hasDiagnostics || !summary.blocked) {
+    return nothing;
+  }
+
+  const nextAction =
+    summary.details.find((detail) => detail.label === "Next build gap")?.value ??
+    "Review the blocker, then retry with concrete evidence.";
+  const retryPrompt =
+    "Retry the preserved original request safely. If blocked, explain the exact blocker and next action. Do not claim completion without evidence.";
+  const draftRetry = () => {
+    props.onDraftChange(retryPrompt);
+    props.onRequestUpdate?.();
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox textarea")?.focus();
+    });
+  };
+  return html`
+    <details
+      class="chat-control-director-diagnostics chat-control-director-diagnostics--${summary.tone}"
+      data-control-director-diagnostics
+      @keydown=${closeDetailsOnEscape}
+    >
+      <summary class="chat-control-director-diagnostics__summary">
+        <span class="chat-control-director-diagnostics__dot" aria-hidden="true"></span>
+        <span class="chat-control-director-diagnostics__label">${summary.title}</span>
+        <strong class="chat-control-director-diagnostics__status">${summary.status}</strong>
+        <span class="chat-control-director-diagnostics__summary-detail">${summary.detail}</span>
+        <span class="chat-control-director-diagnostics__chevron" aria-hidden="true">
+          ${icons.chevronDown}
+        </span>
+      </summary>
+      <div
+        class="chat-control-director-diagnostics__panel"
+        role="region"
+        aria-label="Truth and completion details"
+      >
+        <div class="chat-control-director-diagnostics__header">
+          <div>
+            <div class="chat-control-director-diagnostics__eyebrow">Control Director</div>
+            <h3>${summary.title}</h3>
+          </div>
+          <div class="chat-control-director-diagnostics__header-actions">
+            <span class="chat-control-director-diagnostics__status">${summary.status}</span>
+            <button
+              class="btn btn--sm btn--icon chat-control-director-diagnostics__close"
+              type="button"
+              aria-label="Close truth and completion details"
+              title="Close"
+              @click=${closeDetailsFromControl}
+            >
+              ${icons.x}
+            </button>
+          </div>
+        </div>
+        <div class="chat-control-director-diagnostics__compact">
+          <div>
+            <span>Why</span>
+            <strong>${summary.detail}</strong>
+          </div>
+          <div>
+            <span>Next</span>
+            <strong>${nextAction}</strong>
+          </div>
+        </div>
+        <dl class="chat-control-director-diagnostics__grid">
+          ${summary.details.slice(0, 16).map(
+            (detail) => html`
+              <div>
+                <dt>${detail.label}</dt>
+                <dd>${detail.value}</dd>
+              </div>
+            `,
+          )}
+        </dl>
+        <button
+          class="btn btn--sm chat-control-director-diagnostics__retry"
+          type="button"
+          data-chat-blocked-retry
+          @click=${draftRetry}
+        >
+          Retry safely
+        </button>
       </div>
     </details>
   `;
@@ -3377,6 +3483,7 @@ export function renderChat(props: ChatProps) {
         )}
         ${renderRealtimeTalkConversation(props)}
         ${renderSideResult(props.sideResult, props.onDismissSideResult)}
+        ${renderControlDirectorDiagnosticsCard(activeSession, props)}
       </div>
     </div>
   `;
