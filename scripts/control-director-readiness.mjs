@@ -18,6 +18,7 @@ import {
   CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG,
   isConfiguredControlDirectorAgent,
 } from "../src/agents/control-director-role.ts";
+import { readPccUpdateSafety } from "../src/pcc/update-safety.ts";
 import { auditOperationalRoleCapabilityPolicy } from "./lib/control-director-role-capability-audit.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -591,6 +592,14 @@ export function buildControlDirectorReadinessScorecard(params) {
       runtimeSurface,
     ),
   );
+  facts.push(
+    fact(
+      "runtime-update-broker",
+      "Prepare-only custom-runtime update broker is installed and scheduled",
+      params.updateSafety?.status === "protected" && params.updateSafety?.brokerConfigured === true,
+      runtimeSurface,
+    ),
+  );
   const alias = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID);
   const underlying = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG);
   const aliasBaseDigests = params.ollamaModelBases?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID) ?? [];
@@ -831,6 +840,7 @@ async function main() {
     ollamaModelBases,
     ollamaEnv,
     ollamaChatSmoke,
+    updateSafety: args.sourceOnly ? undefined : readPccUpdateSafety(),
     sourceOnly: args.sourceOnly,
   });
   if (args.json) {

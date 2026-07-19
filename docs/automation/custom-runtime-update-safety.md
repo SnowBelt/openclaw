@@ -88,6 +88,8 @@ The PCC Update Safety card reports:
 
 The card is status evidence, not permission to promote. Candidate approval remains an explicit operator action.
 
+Control Director production readiness independently calls the same status reader and fails when the prepare-only broker is missing or its weekly LaunchAgent is not loaded. This prevents a source-only scheduler claim from satisfying M61.
+
 ## Recovery
 
 Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, RPC, or update-scheduler installation restores the prior control plane and prior scheduler state. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
