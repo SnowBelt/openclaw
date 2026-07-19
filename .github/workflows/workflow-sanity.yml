@@ -971,7 +971,7 @@ jobs:
   chat-control-director-reliability-macos-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.chat-control-director-reliability-proof == 'true'
     name: Control Director Chat Reliability V1 macOS proof
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -986,10 +986,10 @@ jobs:
           echo "proof_sha=$(git rev-parse HEAD)"
           echo "branch=${GITHUB_REF_NAME}"
           swift --version
-          echo "command=swift build --package-path apps/macos"
+          echo "command=swift build --package-path apps/macos --product OpenClaw --configuration release"
 
       - name: Compile the native dashboard keyboard commands
-        run: swift build --package-path apps/macos
+        run: swift build --package-path apps/macos --product OpenClaw --configuration release
 
   pcc-foundation-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.pcc-foundation-proof == 'true'
