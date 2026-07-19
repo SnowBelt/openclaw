@@ -429,6 +429,7 @@ function createMaintenanceHandles() {
     mediaCleanup: setInterval(() => undefined, 60_000),
     worktreeCleanup: setInterval(() => undefined, 60_000),
     skillCuratorCleanup: vi.fn(),
+    operationsCleanup: vi.fn(),
     selfImprovement: null,
   };
 }

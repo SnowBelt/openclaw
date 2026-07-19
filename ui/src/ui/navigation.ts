@@ -9,7 +9,16 @@ export const TAB_GROUPS = [
   { label: "pcc", tabs: [PCC_DASHBOARD_SURFACE.tab] },
   {
     label: "control",
-    tabs: ["overview", "activity", "workboard", "instances", "sessions", "usage", "cron"],
+    tabs: [
+      "overview",
+      "operations",
+      "activity",
+      "workboard",
+      "instances",
+      "sessions",
+      "usage",
+      "cron",
+    ],
   },
   {
     label: "dashboards",
@@ -28,6 +37,7 @@ export type Tab =
   | "agents"
   | "activity"
   | "overview"
+  | "operations"
   | "workboard"
   | "appStudio"
   | "musicStudio"
@@ -73,6 +83,7 @@ const TAB_PATHS: Record<Tab, string> = {
   agents: "/agents",
   activity: "/activity",
   overview: "/overview",
+  operations: "/operations",
   workboard: "/workboard",
   appStudio: "/app-studio",
   musicStudio: "/music-studio",
@@ -212,6 +223,8 @@ export function iconForTab(tab: Tab): IconName {
       return "layoutComfortable";
     case "overview":
       return "barChart";
+    case "operations":
+      return "monitor";
     case "activity":
       return "activity";
     case "workboard":

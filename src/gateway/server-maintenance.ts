@@ -11,6 +11,7 @@ import type { HealthSummary } from "../commands/health.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { sweepStaleRunContexts } from "../infra/agent-events.js";
 import { cleanOldMedia } from "../media/store.js";
+import { startOperationsShadowMonitor } from "../operations/monitor.js";
 import {
   isSelfImprovementBackgroundEnabled,
   startSelfImprovementGovernorBackgroundTask,
@@ -70,7 +71,7 @@ export function startGatewayMaintenanceTimers(params: {
     probe?: boolean;
     includeSensitive?: boolean;
   }) => Promise<HealthSummary>;
-  logHealth: { error: (msg: string) => void };
+  logHealth: { error: (msg: string) => void; warn?: (msg: string) => void };
   dedupe: Map<string, DedupeEntry>;
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   chatQueuedTurns: QueuedChatTurnMap;
@@ -108,6 +109,7 @@ export function startGatewayMaintenanceTimers(params: {
   mediaCleanup: ReturnType<typeof setInterval> | null;
   worktreeCleanup: ReturnType<typeof setInterval>;
   skillCuratorCleanup: () => void;
+  operationsCleanup: () => void;
   selfImprovement: ReturnType<typeof startSelfImprovementGovernorBackgroundTask> | null;
 } {
   setBroadcastHealthUpdate((snap: HealthSummary) => {
@@ -172,6 +174,9 @@ export function startGatewayMaintenanceTimers(params: {
           env: params.selfImprovementEnv,
         })
       : null;
+  const operationsCleanup = startOperationsShadowMonitor({
+    log: { warn: (message) => (params.logHealth.warn ?? params.logHealth.error)(message) },
+  });
   // dedupe cache cleanup
   const dedupeCleanup = setInterval(() => {
     const AGENT_RUN_SEQ_MAX = 10_000;
@@ -366,6 +371,7 @@ export function startGatewayMaintenanceTimers(params: {
       mediaCleanup: null,
       worktreeCleanup,
       skillCuratorCleanup,
+      operationsCleanup,
       selfImprovement,
     };
   }
@@ -401,6 +407,7 @@ export function startGatewayMaintenanceTimers(params: {
     mediaCleanup,
     worktreeCleanup,
     skillCuratorCleanup,
+    operationsCleanup,
     selfImprovement,
   };
 }

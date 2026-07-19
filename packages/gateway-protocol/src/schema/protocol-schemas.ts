@@ -260,6 +260,16 @@ import {
   NodeRenameParamsSchema,
 } from "./nodes.js";
 import {
+  OperationsActionApplyParamsSchema,
+  OperationsActionApplyResultSchema,
+  OperationsActionKindSchema,
+  OperationsActionPreviewParamsSchema,
+  OperationsActionPreviewResultSchema,
+  OperationsSnapshotParamsSchema,
+  OperationsSnapshotResultSchema,
+  OperationsStatusSchema,
+} from "./operations.js";
+import {
   PccCompletionReceiptSchema,
   PccDecisionSchema,
   PccDecisionsAddParamsSchema,
@@ -765,6 +775,16 @@ export const ProtocolSchemas = {
   PccReceiptsAddResult: PccReceiptsAddResultSchema,
   PccSummaryGetParams: PccSummaryGetParamsSchema,
   PccSummaryGetResult: PccSummaryGetResultSchema,
+
+  // Operations Room runtime truth, catalogs, findings, and guarded actions.
+  OperationsStatus: OperationsStatusSchema,
+  OperationsActionKind: OperationsActionKindSchema,
+  OperationsSnapshotParams: OperationsSnapshotParamsSchema,
+  OperationsSnapshotResult: OperationsSnapshotResultSchema,
+  OperationsActionPreviewParams: OperationsActionPreviewParamsSchema,
+  OperationsActionPreviewResult: OperationsActionPreviewResultSchema,
+  OperationsActionApplyParams: OperationsActionApplyParamsSchema,
+  OperationsActionApplyResult: OperationsActionApplyResultSchema,
   ConfigGetParams: ConfigGetParamsSchema,
   ConfigSetParams: ConfigSetParamsSchema,
   ConfigApplyParams: ConfigApplyParamsSchema,

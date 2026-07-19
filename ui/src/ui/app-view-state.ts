@@ -89,6 +89,7 @@ import type {
   ModelAuthStatusResult,
   ModelCatalogEntry,
   NostrProfile,
+  OperationsSnapshot,
   PresenceEntry,
   ProjectsListResult,
   PccPortfolioSummary,
@@ -224,6 +225,12 @@ export type AppViewState = {
   chatSessionPickerResult: SessionsListResult | null;
   projectsLoading?: boolean;
   projectsList?: ProjectsListResult | null;
+  operationsLoading: boolean;
+  operationsActionBusy: boolean;
+  operationsError: string | null;
+  operationsActionNotice: string | null;
+  operationsSnapshot: OperationsSnapshot | null;
+  operationsUpdatedAt: number | null;
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;

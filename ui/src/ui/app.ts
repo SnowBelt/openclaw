@@ -300,6 +300,7 @@ import type {
   SkillStatusReport,
   StatusSummary,
   NostrProfile,
+  OperationsSnapshot,
   ToolsCatalogResult,
   ToolsEffectiveResult,
 } from "./types.ts";
@@ -472,6 +473,12 @@ export class OpenClawApp extends LitElement {
   @state() chatSessionPickerResult: SessionsListResult | null = null;
   @state() projectsLoading = false;
   @state() projectsList: ProjectsListResult | null = null;
+  @state() operationsLoading = false;
+  @state() operationsActionBusy = false;
+  @state() operationsError: string | null = null;
+  @state() operationsActionNotice: string | null = null;
+  @state() operationsSnapshot: OperationsSnapshot | null = null;
+  @state() operationsUpdatedAt: number | null = null;
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;

@@ -2010,6 +2010,7 @@
     "ui:smoke:control-director-no-response": "node --import tsx scripts/dev/control-ui-control-director-no-response-smoke.ts",
     "ui:smoke:dashboard": "node --import tsx scripts/dev/control-ui-dashboard-smoke-suite.ts",
     "ui:smoke:dashboard-codex-plus-apps": "node --import tsx scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts",
+    "ui:smoke:operations-room": "node --import tsx scripts/dev/control-ui-operations-room-smoke.ts",
     "ui:smoke:pcc-chat-sync": "node --import tsx scripts/dev/control-ui-pcc-chat-sync-smoke.ts",
     "ui:smoke:pcc-mobile": "node --import tsx scripts/dev/control-ui-pcc-mobile-section-smoke.ts",
     "ui:smoke:pcc-performance": "node --expose-gc --import tsx scripts/dev/control-ui-pcc-performance-smoke.ts",

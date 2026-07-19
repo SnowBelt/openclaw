@@ -110,6 +110,7 @@ function stopMaintenanceTimers(timers: {
   mediaCleanup: NodeJS.Timeout | null;
   worktreeCleanup: NodeJS.Timeout;
   skillCuratorCleanup: () => void;
+  operationsCleanup: () => void;
   selfImprovement?: {
     interval: NodeJS.Timeout;
     initial: NodeJS.Timeout;
@@ -124,6 +125,7 @@ function stopMaintenanceTimers(timers: {
     clearInterval(timers.mediaCleanup);
   }
   timers.skillCuratorCleanup();
+  timers.operationsCleanup();
   if (timers.selfImprovement) {
     timers.selfImprovement.stop();
   }

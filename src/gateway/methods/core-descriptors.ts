@@ -21,6 +21,9 @@ type CoreGatewayMethodSpec = {
 export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "health", scope: "operator.read" },
   { name: "diagnostics.stability", scope: "operator.read" },
+  { name: "operations.snapshot", scope: "operator.read" },
+  { name: "operations.action.preview", scope: "operator.write" },
+  { name: "operations.action.apply", scope: "operator.write", controlPlaneWrite: true },
   { name: "doctor.memory.status", scope: "operator.read" },
   { name: "doctor.memory.dreamDiary", scope: "operator.read" },
   { name: "doctor.memory.backfillDreamDiary", scope: "operator.write" },

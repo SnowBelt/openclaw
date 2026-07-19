@@ -537,6 +537,17 @@ import {
   PccReceiptsAddParamsSchema,
   type PccSummaryGetParams,
   PccSummaryGetParamsSchema,
+  type OperationsActionApplyParams,
+  OperationsActionApplyParamsSchema,
+  type OperationsActionApplyResult,
+  type OperationsActionKind,
+  type OperationsActionPreviewParams,
+  OperationsActionPreviewParamsSchema,
+  type OperationsActionPreviewResult,
+  type OperationsSnapshotParams,
+  OperationsSnapshotParamsSchema,
+  type OperationsSnapshotResult,
+  type OperationsStatus,
   type ShutdownEvent,
   ShutdownEventSchema,
   type SkillsBinsParams,
@@ -1110,6 +1121,16 @@ export const validatePccLastKnownGoodUpsertParams = lazyCompile<PccLastKnownGood
 );
 export const validatePccSummaryGetParams =
   lazyCompile<PccSummaryGetParams>(PccSummaryGetParamsSchema);
+
+export const validateOperationsSnapshotParams = lazyCompile<OperationsSnapshotParams>(
+  OperationsSnapshotParamsSchema,
+);
+export const validateOperationsActionPreviewParams = lazyCompile<OperationsActionPreviewParams>(
+  OperationsActionPreviewParamsSchema,
+);
+export const validateOperationsActionApplyParams = lazyCompile<OperationsActionApplyParams>(
+  OperationsActionApplyParamsSchema,
+);
 
 export const validateConfigGetParams = lazyCompile<ConfigGetParams>(ConfigGetParamsSchema);
 export const validateConfigSetParams = lazyCompile<ConfigSetParams>(ConfigSetParamsSchema);
@@ -1978,6 +1999,14 @@ export type {
   PccLastKnownGoodUpsertResult,
   PccSummaryGetParams,
   PccSummaryGetResult,
+  OperationsStatus,
+  OperationsActionKind,
+  OperationsSnapshotParams,
+  OperationsSnapshotResult,
+  OperationsActionPreviewParams,
+  OperationsActionPreviewResult,
+  OperationsActionApplyParams,
+  OperationsActionApplyResult,
   CronJob,
   CronListParams,
   CronStatusParams,

@@ -1006,6 +1006,20 @@ export type PccPortfolioSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPortfolioSummary;
 export type PccWorkLoopSettings = import("../../../src/pcc/work-loop.js").PccWorkLoopSettings;
 export type PccWorkLoopState = import("../../../src/pcc/work-loop.js").PccWorkLoopState;
+export type {
+  OperationsActionKind,
+  OperationsActionPreview,
+  OperationsActionReceipt,
+  OperationsAgentSnapshot,
+  OperationsCatalogEntry,
+  OperationsCronSnapshot,
+  OperationsFinding,
+  OperationsHostSnapshot,
+  OperationsProcessSnapshot,
+  OperationsSnapshot,
+  OperationsStatus,
+  OperationsWorkflowSnapshot,
+} from "../../../src/operations/types.js";
 
 export type ToolCatalogProfile =
   import("../../../packages/gateway-protocol/src/schema.js").ToolCatalogProfile;

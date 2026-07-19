@@ -179,6 +179,16 @@ export type PccReceiptsAddResult = SchemaType<"PccReceiptsAddResult">;
 export type PccSummaryGetParams = SchemaType<"PccSummaryGetParams">;
 export type PccSummaryGetResult = SchemaType<"PccSummaryGetResult">;
 
+/** Operations Room runtime truth and guarded control payloads. */
+export type OperationsStatus = SchemaType<"OperationsStatus">;
+export type OperationsActionKind = SchemaType<"OperationsActionKind">;
+export type OperationsSnapshotParams = SchemaType<"OperationsSnapshotParams">;
+export type OperationsSnapshotResult = SchemaType<"OperationsSnapshotResult">;
+export type OperationsActionPreviewParams = SchemaType<"OperationsActionPreviewParams">;
+export type OperationsActionPreviewResult = SchemaType<"OperationsActionPreviewResult">;
+export type OperationsActionApplyParams = SchemaType<"OperationsActionApplyParams">;
+export type OperationsActionApplyResult = SchemaType<"OperationsActionApplyResult">;
+
 /** Config read/write/schema payloads plus update status and run controls. */
 export type ConfigGetParams = SchemaType<"ConfigGetParams">;
 export type ConfigSetParams = SchemaType<"ConfigSetParams">;

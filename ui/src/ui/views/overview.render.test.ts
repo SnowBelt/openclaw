@@ -64,6 +64,31 @@ function compactText(node: Element | null): string | undefined {
 }
 
 describe("overview view rendering", () => {
+  it("links the overview directly to the Operations Room", async () => {
+    const container = document.createElement("div");
+    const onNavigate = vi.fn();
+    render(
+      renderOverview(
+        createOverviewProps({
+          onNavigate,
+          usageResult: {
+            ts: 0,
+            path: "",
+            totals: { totalCost: 0, totalTokens: 0 },
+            aggregates: { messages: { total: 0 } },
+          } as unknown as OverviewProps["usageResult"],
+        }),
+      ),
+      container,
+    );
+    await Promise.resolve();
+
+    const card = container.querySelector<HTMLButtonElement>(".ov-card[data-kind='operations']");
+    expect(compactText(card)).toContain("Operations Operations Room");
+    card?.click();
+    expect(onNavigate).toHaveBeenCalledWith("operations");
+  });
+
   it("promotes PCC as a dashboard overview entry point", async () => {
     const container = document.createElement("div");
     const onNavigate = vi.fn();

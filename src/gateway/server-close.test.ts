@@ -118,6 +118,7 @@ function createGatewayCloseTestDeps(
     mediaCleanup: null,
     worktreeCleanup: null,
     skillCuratorCleanup: vi.fn(),
+    operationsCleanup: vi.fn(),
     agentUnsub: null,
     taskUnsub: null,
     heartbeatUnsub: null,

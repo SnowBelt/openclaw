@@ -787,6 +787,105 @@ jobs:
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed
 
+  operations-room-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.dashboard-codex-plus-apps-proof == 'true'
+    name: Operations Room V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test packages/gateway-protocol/src/schema/operations.test.ts src/operations/status.test.ts src/operations/action-guard.test.ts src/operations/host-memory-probe.test.ts src/operations/process-probe.test.ts src/operations/monitor.test.ts src/operations/collector.test.ts src/gateway/server-methods/operations.test.ts src/gateway/server-maintenance.test.ts src/gateway/server-runtime-services.test.ts src/gateway/server-close.test.ts src/gateway/server-startup-post-attach.test.ts ui/src/ui/controllers/operations.test.ts ui/src/ui/views/operations.test.ts ui/src/ui/navigation.test.ts ui/src/ui/views/overview.render.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/custom-runtime-capabilities.test.ts
+          - pnpm tsgo:all
+          - pnpm tsgo:test:packages
+          - pnpm tsgo:test:ui
+          - pnpm ui:smoke:operations-room
+          - pnpm ui:i18n:check
+          - pnpm check:pcc-capabilities
+          - pnpm check:custom-runtime-capabilities
+          - pnpm check:workflows
+          - pnpm check:changed
+          - pnpm build
+          EOF_COMMANDS
+
+      - name: Run targeted Operations Room tests
+        run: >-
+          pnpm test
+          packages/gateway-protocol/src/schema/operations.test.ts
+          src/operations/status.test.ts
+          src/operations/action-guard.test.ts
+          src/operations/host-memory-probe.test.ts
+          src/operations/process-probe.test.ts
+          src/operations/monitor.test.ts
+          src/operations/collector.test.ts
+          src/gateway/server-methods/operations.test.ts
+          src/gateway/server-maintenance.test.ts
+          src/gateway/server-runtime-services.test.ts
+          src/gateway/server-close.test.ts
+          src/gateway/server-startup-post-attach.test.ts
+          ui/src/ui/controllers/operations.test.ts
+          ui/src/ui/views/operations.test.ts
+          ui/src/ui/navigation.test.ts
+          ui/src/ui/views/overview.render.test.ts
+          src/pcc/capability-addition-registry.test.ts
+          src/pcc/custom-runtime-capabilities.test.ts
+
+      - name: Run TypeScript proof
+        run: |
+          pnpm tsgo:all
+          pnpm tsgo:test:packages
+          pnpm tsgo:test:ui
+
+      - name: Run Operations Room smoke
+        run: |
+          pnpm ui:smoke:operations-room
+          pnpm ui:i18n:check
+
+      - name: Run capability preservation checks
+        run: |
+          pnpm check:pcc-capabilities
+          pnpm check:custom-runtime-capabilities
+
+      - name: Run workflow syntax check
+        run: pnpm check:workflows
+
+      - name: Run changed gate
+        timeout-minutes: 45
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed
+
+      - name: Run build proof
+        run: pnpm build
+
   chat-ux-cleanup-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.chat-ux-cleanup-proof == 'true'
     name: Chat UX Cleanup V1 proof

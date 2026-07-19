@@ -132,6 +132,7 @@ export const customLocaleOverlays: Partial<Record<Locale, TranslationMap>> = {
       kalshi: "Kalshi",
       patternLab: "Pattern Lab",
       pcc: "PCC",
+      operations: "Operations Room",
     },
     subtitles: {
       appStudio: "Prompt, build, validate, and prepare native iPhone apps.",
@@ -141,12 +142,16 @@ export const customLocaleOverlays: Partial<Record<Locale, TranslationMap>> = {
       kalshi: "Prediction market paper trading status.",
       patternLab: "YouTube review, approval, and learning dashboard.",
       pcc: "Project Command Center for projects, blockers, Autopilot, proof, and next actions.",
+      operations: "Agents, workflows, capabilities, models, and resources at a glance.",
     },
     overview: {
       cards: {
         pcc: "PCC",
         pccValue: "Project Command Center",
         pccHint: "Projects, blockers, Autopilot, proof",
+        operations: "Operations",
+        operationsValue: "Operations Room",
+        operationsHint: "Agents, work, reliability, models, and memory",
         truthAudit: "Control Director truth audit",
         truthAuditSubtitle: "Recent blocked or rewritten unsupported claims.",
         truthAuditOpenSessions: "Open sessions",

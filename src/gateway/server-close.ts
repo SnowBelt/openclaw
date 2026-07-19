@@ -691,6 +691,7 @@ export function createGatewayCloseHandler(
     mediaCleanup: ReturnType<typeof setInterval> | null;
     worktreeCleanup: ReturnType<typeof setInterval> | null;
     skillCuratorCleanup: () => void;
+    operationsCleanup: () => void;
     agentUnsub: (() => Promise<void> | void) | null;
     heartbeatUnsub: (() => void) | null;
     transcriptUnsub: (() => void) | null;
@@ -902,6 +903,7 @@ export function createGatewayCloseHandler(
         clearInterval(params.worktreeCleanup);
       }
       params.skillCuratorCleanup();
+      params.operationsCleanup();
       if (params.agentUnsub) {
         await shutdownStep("agent-unsub", () => params.agentUnsub!(), warnings);
       }

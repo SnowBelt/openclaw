@@ -84,3 +84,7 @@ The card is status evidence, not permission to promote. Candidate approval remai
 Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, or RPC proof restores the prior control plane. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
 
 Never delete the previous immutable release or rollback bundle until the new runtime passes restart, desktop browser, mobile browser, and bounded soak proof.
+
+The Operations Room is a required custom runtime capability. Candidate updates must preserve its
+collector, shadow monitor, guarded gateway methods, Control UI route, tests, and browser smoke. A
+candidate that removes any of those paths fails capability verification before promotion.

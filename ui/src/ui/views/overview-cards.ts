@@ -255,6 +255,13 @@ export function renderOverviewCards(props: OverviewCardsProps) {
 
   const cards: StatCard[] = [
     {
+      kind: "operations",
+      tab: "operations",
+      label: t("overview.cards.operations"),
+      value: t("overview.cards.operationsValue"),
+      hint: t("overview.cards.operationsHint"),
+    },
+    {
       kind: "pcc",
       tab: "pcc",
       label: t("overview.cards.pcc"),

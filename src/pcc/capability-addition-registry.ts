@@ -221,6 +221,23 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     proofSurfaces: ["pnpm ui:smoke:dashboard-codex-plus-apps"],
   },
   {
+    id: "runtime:operations-room",
+    kind: "runtime",
+    owner: "Operations Room",
+    tests: [
+      "src/operations/collector.test.ts",
+      "src/operations/monitor.test.ts",
+      "src/gateway/server-methods/operations.test.ts",
+      "ui/src/ui/views/operations.test.ts",
+      "ui/src/ui/controllers/operations.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm ui:smoke:operations-room",
+      "Operations Room desktop and mobile browser receipts",
+      "Gateway restart persistence proof",
+    ],
+  },
+  {
     id: "runtime:update-safe-customizations",
     kind: "runtime",
     owner: "Custom runtime update broker",

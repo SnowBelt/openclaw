@@ -31,6 +31,7 @@ describe("iconForTab", () => {
       chat: "messageSquare",
       pcc: "layoutComfortable",
       overview: "barChart",
+      operations: "monitor",
       activity: "activity",
       workboard: "folder",
       appStudio: "spark",
@@ -74,6 +75,7 @@ describe("titleForTab", () => {
       chat: "Chat",
       pcc: "PCC",
       overview: "Overview",
+      operations: "Operations Room",
       activity: "Activity",
       workboard: "Workboard",
       appStudio: "App Studio",
@@ -111,6 +113,7 @@ describe("subtitleForTab", () => {
       chat: "Gateway chat for quick interventions.",
       pcc: "Project Command Center for projects, blockers, Autopilot, proof, and next actions.",
       overview: "Status, entry points, health.",
+      operations: "Agents, workflows, capabilities, models, and resources at a glance.",
       activity: "Browser-local tool activity summaries.",
       workboard: "Agent work queue and session handoff.",
       appStudio: "Prompt, build, validate, and prepare native iPhone apps.",
@@ -184,6 +187,7 @@ describe("pathForTab", () => {
   it("returns correct path without base", () => {
     expect(pathForTab("chat")).toBe("/chat");
     expect(pathForTab("overview")).toBe("/overview");
+    expect(pathForTab("operations")).toBe("/operations");
     expect(pathForTab("pcc")).toBe("/pcc");
   });
 
@@ -197,6 +201,7 @@ describe("tabFromPath", () => {
   it("returns tab for valid path", () => {
     expect(tabFromPath("/chat")).toBe("chat");
     expect(tabFromPath("/overview")).toBe("overview");
+    expect(tabFromPath("/operations")).toBe("operations");
     expect(tabFromPath("/pcc")).toBe("pcc");
     expect(tabFromPath("/projects")).toBe("pcc");
     expect(tabFromPath("/activity")).toBe("activity");

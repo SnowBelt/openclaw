@@ -134,6 +134,7 @@ import {
 import { loadLogs } from "./controllers/logs.ts";
 import { loadModels } from "./controllers/models.ts";
 import { loadNodes } from "./controllers/nodes.ts";
+import { loadOperationsRoom, runGuardedOperationsAction } from "./controllers/operations.ts";
 import {
   addPccCompletionReceipt,
   applyPccSetupAutofill,
@@ -767,6 +768,7 @@ const lazyBookWriter = createLazyView(
 );
 const lazyLogs = createLazyView(() => import("./views/logs.ts"), notifyLazyViewChanged);
 const lazyNodes = createLazyView(() => import("./views/nodes.ts"), notifyLazyViewChanged);
+const lazyOperations = createLazyView(() => import("./views/operations.ts"), notifyLazyViewChanged);
 const lazyPatternLab = createLazyView(
   () => import("./views/pattern-lab-dashboard.ts"),
   notifyLazyViewChanged,
@@ -2867,6 +2869,29 @@ export function renderApp(state: AppViewState) {
                 ${headerError ? html`<div class="pill danger">${headerError}</div>` : nothing}
               </div>
             </section>`}
+        ${state.tab === "operations"
+          ? renderLazyView(lazyOperations, (m) =>
+              m.renderOperations({
+                loading: state.operationsLoading,
+                actionBusy: state.operationsActionBusy,
+                error: state.operationsError,
+                actionNotice: state.operationsActionNotice,
+                snapshot: state.operationsSnapshot,
+                updatedAt: state.operationsUpdatedAt,
+                onRefresh: () => void loadOperationsRoom(state),
+                onAction: (action, targetId) => {
+                  void runGuardedOperationsAction(state, {
+                    action,
+                    targetId,
+                    confirm: (preview) =>
+                      globalThis.confirm(
+                        `${preview.summary}\n\nThis guarded action expires in 60 seconds. Continue?`,
+                      ),
+                  });
+                },
+              }),
+            )
+          : nothing}
         ${state.tab === "pcc"
           ? renderLazyView(lazyPcc, (m) =>
               m.renderPccDashboard({

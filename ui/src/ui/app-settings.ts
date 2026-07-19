@@ -51,6 +51,7 @@ import {
   type ModelAuthStatusState,
 } from "./controllers/model-auth-status.ts";
 import { loadNodes, type NodesState } from "./controllers/nodes.ts";
+import { loadOperationsRoom, type OperationsState } from "./controllers/operations.ts";
 import { loadPccDashboard } from "./controllers/pcc.ts";
 import { loadPresence, type PresenceState } from "./controllers/presence.ts";
 import {
@@ -185,6 +186,7 @@ type SettingsAppHost = SettingsHost &
   ExecApprovalsState &
   LogsState &
   NodesState &
+  OperationsState &
   PresenceState &
   SelfImprovementState &
   SessionsState &
@@ -474,6 +476,9 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
         break;
       case "overview":
         await loadOverview(host);
+        break;
+      case "operations":
+        await loadOperationsRoom(app);
         break;
       case "pcc":
         await loadPccDashboard(app);

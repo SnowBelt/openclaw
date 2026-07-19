@@ -209,6 +209,18 @@
       ]
     },
     {
+      "id": "runtime:operations-room",
+      "kind": "runtime",
+      "requiredPaths": [
+        "src/operations/collector.ts",
+        "src/operations/monitor.ts",
+        "src/gateway/server-methods/operations.ts",
+        "ui/src/ui/views/operations.ts",
+        "scripts/dev/control-ui-operations-room-smoke.ts",
+        "docs/automation/operations-room.md"
+      ]
+    },
+    {
       "id": "runtime:update-safe-customizations",
       "kind": "runtime",
       "requiredPaths": [

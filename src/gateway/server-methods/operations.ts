@@ -1,0 +1,163 @@
+// Operations Room gateway handlers expose one bounded snapshot and guarded,
+// two-step controls. They never invoke an LLM or mutate live state implicitly.
+import {
+  ErrorCodes,
+  errorShape,
+  formatValidationErrors,
+  validateOperationsActionApplyParams,
+  validateOperationsActionPreviewParams,
+  validateOperationsSnapshotParams,
+} from "../../../packages/gateway-protocol/src/index.js";
+import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
+import {
+  createOperationsActionPreview,
+  consumeOperationsActionPreview,
+} from "../../operations/action-guard.js";
+import { collectOperationsSnapshot } from "../../operations/collector.js";
+import type { OperationsActionReceipt } from "../../operations/types.js";
+import { cancelDetachedTaskRunById, cancelFlowById } from "../../tasks/task-executor.js";
+import type { GatewayRequestHandlers } from "./types.js";
+
+function invalidParams(
+  respond: Parameters<GatewayRequestHandlers[string]>[0]["respond"],
+  method: string,
+  errors: Parameters<typeof formatValidationErrors>[0],
+): void {
+  respond(
+    false,
+    undefined,
+    errorShape(
+      ErrorCodes.INVALID_REQUEST,
+      `invalid ${method} params: ${formatValidationErrors(errors)}`,
+    ),
+  );
+}
+
+export const operationsHandlers: GatewayRequestHandlers = {
+  "operations.snapshot": async ({ params, respond, context }) => {
+    if (!validateOperationsSnapshotParams(params)) {
+      invalidParams(respond, "operations.snapshot", validateOperationsSnapshotParams.errors);
+      return;
+    }
+    try {
+      let modelCatalog: ModelCatalogEntry[] = [];
+      try {
+        modelCatalog = await context.loadGatewayModelCatalog({ readOnly: true });
+      } catch (err) {
+        context.logGateway.warn(`operations: model catalog unavailable: ${String(err)}`);
+      }
+      const snapshot = await collectOperationsSnapshot({
+        cfg: context.getRuntimeConfig(),
+        cron: context.cron,
+        modelCatalog,
+        eventLoop: context.getEventLoopHealth?.(),
+        includeProcesses: params.includeProcesses !== false,
+      });
+      respond(true, snapshot, undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
+    }
+  },
+  "operations.action.preview": ({ params, respond }) => {
+    if (!validateOperationsActionPreviewParams(params)) {
+      invalidParams(
+        respond,
+        "operations.action.preview",
+        validateOperationsActionPreviewParams.errors,
+      );
+      return;
+    }
+    respond(
+      true,
+      createOperationsActionPreview({ action: params.action, targetId: params.targetId }),
+      undefined,
+    );
+  },
+  "operations.action.apply": async ({ params, respond, context }) => {
+    if (!validateOperationsActionApplyParams(params)) {
+      invalidParams(respond, "operations.action.apply", validateOperationsActionApplyParams.errors);
+      return;
+    }
+    const preview = consumeOperationsActionPreview({
+      token: params.token,
+      action: params.action,
+      targetId: params.targetId,
+    });
+    if (!preview) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          "operations action preview is missing, expired, already used, or does not match",
+        ),
+      );
+      return;
+    }
+
+    const cfg = context.getRuntimeConfig();
+    let applied = false;
+    let summary = preview.summary;
+    try {
+      switch (params.action) {
+        case "cron.run": {
+          const job = await context.cron.readJob(params.targetId);
+          if (!job) {
+            throw new Error("scheduled workflow not found");
+          }
+          const result = await context.cron.enqueueRun(params.targetId, "force");
+          applied =
+            result.ok &&
+            (("enqueued" in result && result.enqueued) || ("ran" in result && result.ran));
+          const reason = "reason" in result ? result.reason : "unknown reason";
+          summary = applied
+            ? `Scheduled workflow ${params.targetId} was queued.`
+            : `Scheduled workflow ${params.targetId} was not queued: ${reason}.`;
+          break;
+        }
+        case "cron.enable":
+        case "cron.disable": {
+          const job = await context.cron.readJob(params.targetId);
+          if (!job) {
+            throw new Error("scheduled workflow not found");
+          }
+          const enabled = params.action === "cron.enable";
+          await context.cron.update(params.targetId, { enabled });
+          applied = true;
+          summary = `${enabled ? "Enabled" : "Paused"} scheduled workflow ${params.targetId}.`;
+          break;
+        }
+        case "task.cancel": {
+          const result = await cancelDetachedTaskRunById({ cfg, taskId: params.targetId });
+          applied = result.cancelled;
+          summary = result.cancelled
+            ? `Cancelled task ${params.targetId}.`
+            : `Task ${params.targetId} was not cancelled: ${result.reason ?? "unknown reason"}.`;
+          break;
+        }
+        case "flow.cancel": {
+          const result = await cancelFlowById({ cfg, flowId: params.targetId });
+          applied = result.cancelled;
+          summary = result.cancelled
+            ? `Cancelled workflow ${params.targetId}.`
+            : `Workflow ${params.targetId} was not cancelled: ${result.reason ?? "unknown reason"}.`;
+          break;
+        }
+      }
+      const receipt: OperationsActionReceipt = {
+        action: params.action,
+        targetId: params.targetId,
+        status: applied ? "applied" : "rejected",
+        summary,
+        appliedAt: Date.now(),
+      };
+      respond(true, receipt, undefined);
+    } catch (err) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, `operations action failed: ${String(err)}`),
+      );
+    }
+  },
+};

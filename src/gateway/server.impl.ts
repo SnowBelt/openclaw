@@ -1068,6 +1068,7 @@ export async function startGatewayServer(
       mediaCleanup: runtimeState.mediaCleanup,
       worktreeCleanup: runtimeState.worktreeCleanup,
       skillCuratorCleanup: runtimeState.skillCuratorCleanup,
+      operationsCleanup: runtimeState.operationsCleanup,
       agentUnsub: runtimeState.agentUnsub,
       heartbeatUnsub: runtimeState.heartbeatUnsub,
       transcriptUnsub: runtimeState.transcriptUnsub,
@@ -1819,6 +1820,7 @@ export async function startGatewayServer(
             }
             clearInterval(maintenance.worktreeCleanup);
             maintenance.skillCuratorCleanup();
+            maintenance.operationsCleanup();
             return;
           }
           runtimeState.tickInterval = maintenance.tickInterval;
@@ -1827,6 +1829,7 @@ export async function startGatewayServer(
           runtimeState.mediaCleanup = maintenance.mediaCleanup;
           runtimeState.worktreeCleanup = maintenance.worktreeCleanup;
           runtimeState.skillCuratorCleanup = maintenance.skillCuratorCleanup;
+          runtimeState.operationsCleanup = maintenance.operationsCleanup;
         },
         shouldStartCron: () => !closePreludeStarted && !gatewayCronStartHandled,
         markCronStartHandled: () => {

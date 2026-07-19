@@ -28,6 +28,7 @@ const DASHBOARD_POLL_INTERVAL_MS = 15_000;
 const KALSHI_DASHBOARD_POLL_INTERVAL_MS = 15_000;
 const DASHBOARD_POLL_TABS = new Set([
   "overview",
+  "operations",
   "activity",
   "workboard",
   "instances",

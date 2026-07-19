@@ -50,6 +50,7 @@ function clearGatewayMaintenanceHandles(maintenance: GatewayMaintenanceHandles |
     clearInterval(maintenance.mediaCleanup);
   }
   maintenance.skillCuratorCleanup();
+  maintenance.operationsCleanup();
   if (maintenance.selfImprovement) {
     maintenance.selfImprovement.stop();
   }

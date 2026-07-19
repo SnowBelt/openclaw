@@ -182,6 +182,10 @@ const loadPccHandlers = lazyHandlerModule(
   () => import("./server-methods/pcc.js"),
   (module) => module.pccHandlers,
 );
+const loadOperationsHandlers = lazyHandlerModule(
+  () => import("./server-methods/operations.js"),
+  (module) => module.operationsHandlers,
+);
 const loadPatternLabDashboardHandlers = lazyHandlerModule(
   () => import("./server-methods/pattern-lab-dashboard.js"),
   (module) => module.patternLabDashboardHandlers,
@@ -480,6 +484,10 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: ["diagnostics.stability"],
     loadHandlers: loadDiagnosticsHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: ["operations.snapshot", "operations.action.preview", "operations.action.apply"],
+    loadHandlers: loadOperationsHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: ["controlUi.githubPreview"],
