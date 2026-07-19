@@ -102,6 +102,9 @@ export function buildControlDirectorRuntimeProof(params: {
   if (strings(params.lineageReceipt.evidenceRefs).length === 0) {
     throw new Error("lineage evidence requires at least one evidenceRef.");
   }
+  if (params.lineageReceipt.sigBackgroundEnabled !== true) {
+    throw new Error("lineage evidence requires managed SIG background processing.");
+  }
   const lineage = object(params.lineageReceipt.lineage, "lineage");
   if (lineage.status !== "ready" || lineage.sourceSha !== sourceSha) {
     throw new Error("lineage must report ready from the exact source SHA.");
@@ -123,9 +126,10 @@ export function buildControlDirectorRuntimeProof(params: {
     validateSurface(surface, params.surfaces[surface], sourceSha);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha,
     generatedAt: params.generatedAt ?? new Date().toISOString(),
+    sigBackgroundEnabled: true,
     lineage,
     modelEval: params.modelEval,
     ...params.surfaces,

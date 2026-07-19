@@ -181,6 +181,7 @@ export function collectControlDirectorActiveWiring() {
   const journeySignals = source("src/self-improvement/control-director-journeys.ts");
   const layoutHealth = source("ui/src/ui/chat/layout-health.ts");
   const appLifecycle = source("ui/src/ui/app-lifecycle.ts");
+  const gatewayMaintenance = source("src/gateway/server-maintenance.ts");
   const resourceRuntime = source("src/agents/control-director-resource-runtime.ts");
   const resourceAdmission = source("src/agents/control-director-resource-admission.ts");
   const modelWarmup = source("src/agents/control-director-model-warmup.ts");
@@ -195,6 +196,7 @@ export function collectControlDirectorActiveWiring() {
   const appMain = source("ui/src/main.ts");
   const appRender = source("ui/src/ui/app-render.ts");
   const pccSync = source("ui/src/ui/pcc-chat-sync.ts");
+  const customRuntimePromote = source("scripts/custom-runtime/custom-runtime-promote.sh");
   const packageJson = readJson(path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, "package.json"));
   return {
     turnPolicyAndPromptBudget: hasAll(replyRun, [
@@ -236,6 +238,15 @@ export function collectControlDirectorActiveWiring() {
       taskServer.includes("buildControlDirectorRuntimeLineage") &&
       taskServer.includes("readGatewayRuntimeSnapshotProvenance"),
     sigClosureGovernance: selfImprovementServer.includes("evaluateControlDirectorJourneyClosure"),
+    sigBackgroundRuntime:
+      hasAll(gatewayMaintenance, [
+        "isSelfImprovementBackgroundEnabled",
+        "startSelfImprovementGovernorBackgroundTask",
+      ]) &&
+      hasAll(customRuntimePromote, [
+        "OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1",
+        "sigBackgroundEnabled",
+      ]),
     typedJourneySignals:
       hasAll(journeySignals, [
         "silence_after_ack",
@@ -475,6 +486,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     memoryHealthProjection: "Memory freshness and provenance are projected by execution state",
     runtimeLineage: "Runtime lineage is projected by the canonical execution-state RPC",
     sigClosureGovernance: "SIG Control Director closure governance has a production caller",
+    sigBackgroundRuntime: "Managed SIG background processing has an explicit production path",
     typedJourneySignals: "Every typed Control Director journey signal has a production observer",
     independentJudge: "Independent Judge execution and signed-receipt verification are wired",
     durableMailboxAndEvents: "Durable mailbox and typed execution events have production callers",
@@ -512,6 +524,14 @@ export function buildControlDirectorReadinessScorecard(params) {
         runtime.lineage.canary?.sourceSha === sourceSha &&
         runtime.lineage.canary?.uiBuildId === runtime.lineage.artifactHash &&
         /^[a-f0-9]{64}$/u.test(runtime?.artifacts?.lineage?.sha256 ?? ""),
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-sig-background",
+      "Managed SIG background processing is explicitly enabled",
+      runtime?.sigBackgroundEnabled === true,
       runtimeSurface,
     ),
   );

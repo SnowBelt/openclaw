@@ -161,7 +161,7 @@ pnpm ui:smoke:control-director-no-response
 
 `control-director:verify` runs the curated source, protocol, plugin, and UI tests, required typechecks, production build, and source-only readiness sequentially. Its ignored receipt is written under `.artifacts/control-director/`.
 
-Source acceptance is not production acceptance. A production claim also requires exact managed-runtime lineage, the selected model and runtime process, a matching Dashboard canary, a safe live diagnostic, desktop, tablet, and mobile proof, restart recovery, at least a five-minute soak, and a rollback-and-restore drill. Run `control-director:readiness` with both the source-gate receipt and runtime-proof receipt; it fails closed if any critical surface is absent or refers to another SHA.
+Source acceptance is not production acceptance. A production claim also requires exact managed-runtime lineage, explicitly enabled managed SIG background processing, the selected model and runtime process, a matching Dashboard canary, a safe live diagnostic, desktop, tablet, and mobile proof, restart recovery, at least a five-minute soak, and a rollback-and-restore drill. Run `control-director:readiness` with both the source-gate receipt and runtime-proof receipt; it fails closed if any critical surface is absent or refers to another SHA.
 
 Assemble the production receipt from separate exact-SHA evidence files instead of hand-editing a passing boolean:
 

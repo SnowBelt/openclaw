@@ -75,6 +75,7 @@ function runtimeProof() {
     ]),
   };
   return {
+    sigBackgroundEnabled: true,
     lineage: {
       status: "ready",
       sourceSha: sha,
@@ -193,6 +194,12 @@ describe("Control Director readiness", () => {
         },
       },
       {
+        runtimeProof: {
+          ...runtimeProof(),
+          sigBackgroundEnabled: false,
+        },
+      },
+      {
         ollamaModelBases: new Map([
           ["openclaw-control-gemma4-31b-q8:latest", ["a".repeat(64)]],
           ["hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0", ["b".repeat(64)]],
@@ -229,6 +236,7 @@ describe("Control Director readiness", () => {
       memoryHealthProjection: true,
       runtimeLineage: true,
       sigClosureGovernance: true,
+      sigBackgroundRuntime: true,
       typedJourneySignals: true,
       independentJudge: true,
       durableMailboxAndEvents: true,

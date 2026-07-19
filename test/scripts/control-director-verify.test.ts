@@ -89,6 +89,12 @@ describe("control-director-verify", () => {
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "src/gateway/server-methods/tasks.test.ts",
     );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toEqual(
+      expect.arrayContaining([
+        "src/gateway/server-maintenance.test.ts",
+        "src/self-improvement/background.test.ts",
+      ]),
+    );
     expect(plan.find((entry) => entry.id === "ui-tests")?.args).toContain(
       "ui/src/ui/views/chat.test.ts",
     );

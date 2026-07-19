@@ -19,6 +19,7 @@ function input() {
     sourceSha,
     lineageReceipt: {
       ...surface(),
+      sigBackgroundEnabled: true,
       lineage: { status: "ready", sourceSha },
     },
     modelEval: {
@@ -49,9 +50,10 @@ function input() {
 describe("Control Director runtime proof assembler", () => {
   it("assembles exact-SHA evidence only after every runtime surface passes", () => {
     expect(buildControlDirectorRuntimeProof(input())).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       sourceSha,
       generatedAt: checkedAt,
+      sigBackgroundEnabled: true,
       lineage: { status: "ready", sourceSha },
       desktop: { passed: true },
       tablet: { passed: true },
@@ -77,5 +79,11 @@ describe("Control Director runtime proof assembler", () => {
     const partialEval = input();
     partialEval.modelEval.coveragePassed = false;
     expect(() => buildControlDirectorRuntimeProof(partialEval)).toThrow("full coverage");
+
+    const sigDisabled = input();
+    sigDisabled.lineageReceipt.sigBackgroundEnabled = false;
+    expect(() => buildControlDirectorRuntimeProof(sigDisabled)).toThrow(
+      "managed SIG background processing",
+    );
   });
 });
