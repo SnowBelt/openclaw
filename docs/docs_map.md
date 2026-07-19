@@ -159,6 +159,16 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: How they work together
   - H2: Related
 
+## automation/operations-room.md
+
+- Route: /automation/operations-room
+- Headings:
+  - H1: Operations Room
+  - H2: Runtime policy
+  - H2: Guarded controls
+  - H2: Standard for future additions
+  - H2: Milestone and proof map
+
 ## automation/pcc-execution-teams.md
 
 - Route: /automation/pcc-execution-teams

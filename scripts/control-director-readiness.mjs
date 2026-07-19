@@ -148,7 +148,7 @@ export function parseOllamaModelfileBaseDigests(output) {
         .map((line) => line.match(/^FROM\s+.*\/sha256-([a-f0-9]{64})\s*$/iu)?.[1]?.toLowerCase())
         .filter(Boolean),
     ),
-  ].toSorted();
+  ].toSorted((left, right) => left.localeCompare(right));
 }
 
 function source(relativePath) {
