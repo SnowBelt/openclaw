@@ -60,9 +60,16 @@ function buildJudgePrompt(params: {
   return [
     "You are the independent completion Judge. Do not execute or modify anything.",
     "Evaluate only the exact mission, claim, and direct evidence below.",
-    "Return exactly six non-empty lines: VERDICT, SCOPE, EVIDENCE, RISK, REASON, CONDITIONS.",
+    "Return exactly six non-empty lines with no markdown, code fence, preface, or trailing text.",
     "VERDICT must be APPROVE, REJECT, REQUEST_MORE_EVIDENCE, or ESCALATE_TO_HUMAN.",
     "Approve only when every requested outcome is supported by direct evidence.",
+    "Use this exact output shape, including each colon:",
+    "VERDICT: <allowed verdict>",
+    "SCOPE: <exact gated item>",
+    "EVIDENCE: <strongest direct evidence or insufficient>",
+    "RISK: <low, medium, high, prohibited, or unclear>",
+    "REASON: <one or two precise sentences>",
+    "CONDITIONS: <required next step, none, or blocked>",
     "",
     `Mission id: ${params.missionId}`,
     `Claim hash: ${params.claimHash}`,
@@ -71,6 +78,29 @@ function buildJudgePrompt(params: {
     `Direct evidence: ${params.evidenceSummary}`,
     "Deterministic packet preflight (not the final verdict):",
     formatJudgeVerdict(params.deterministicVerdict),
+  ].join("\n");
+}
+
+function buildJudgeFormatRepairPrompt(params: {
+  originalPrompt: string;
+  invalidText: string;
+  errors: readonly string[];
+}): string {
+  return [
+    "Your previous Judge response was invalid. Re-evaluate the same packet; do not merely describe the formatting error.",
+    "Return exactly six non-empty lines with no markdown, code fence, preface, or trailing text:",
+    "VERDICT: <APPROVE, REJECT, REQUEST_MORE_EVIDENCE, or ESCALATE_TO_HUMAN>",
+    "SCOPE: <exact gated item>",
+    "EVIDENCE: <strongest direct evidence or insufficient>",
+    "RISK: <low, medium, high, prohibited, or unclear>",
+    "REASON: <one or two precise sentences>",
+    "CONDITIONS: <required next step, none, or blocked>",
+    "Parser errors:",
+    params.errors.join("; "),
+    "Invalid prior response:",
+    params.invalidText || "<empty>",
+    "Original review packet:",
+    params.originalPrompt,
   ].join("\n");
 }
 
@@ -148,17 +178,26 @@ export async function judgeCompletionIndependently(params: {
     return { approved: false, receipt, deterministicVerdict: deterministic.verdict };
   }
 
-  const modelResult = await params.runModel(
-    buildJudgePrompt({
-      missionId: params.missionId,
-      requestBody: params.requestBody,
-      finalText: params.finalText,
-      evidenceSummary: params.evidenceSummary,
-      claimHash,
-      deterministicVerdict: deterministic.verdict,
-    }),
-  );
-  const parsed = parseJudgeCompletionVerdict(modelResult.text);
+  const prompt = buildJudgePrompt({
+    missionId: params.missionId,
+    requestBody: params.requestBody,
+    finalText: params.finalText,
+    evidenceSummary: params.evidenceSummary,
+    claimHash,
+    deterministicVerdict: deterministic.verdict,
+  });
+  let modelResult = await params.runModel(prompt);
+  let parsed = parseJudgeCompletionVerdict(modelResult.text);
+  if (parsed.status !== "parsed") {
+    modelResult = await params.runModel(
+      buildJudgeFormatRepairPrompt({
+        originalPrompt: prompt,
+        invalidText: modelResult.text,
+        errors: parsed.errors,
+      }),
+    );
+    parsed = parseJudgeCompletionVerdict(modelResult.text);
+  }
   const parsedVerdict =
     parsed.status === "parsed" ? normalizeJudgeVerdict(parsed.verdict) : "REQUEST_MORE_EVIDENCE";
   const unsigned = unsignedReceipt({
