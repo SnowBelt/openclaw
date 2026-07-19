@@ -83,6 +83,14 @@ public enum TaskFlowStatus: String, Codable, Sendable {
     case lost = "lost"
 }
 
+public enum TaskFlowControlAction: String, Codable, Sendable {
+    case pause = "pause"
+    case resume = "resume"
+    case retry = "retry"
+    case stop = "stop"
+    case edit = "edit"
+}
+
 public enum PccStatus: String, Codable, Sendable {
     case notStarted = "not_started"
     case active = "active"
@@ -6490,6 +6498,70 @@ public struct TaskFlowsCancelResult: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case found
         case cancelled
+        case reason
+        case flow
+    }
+}
+
+public struct TaskFlowsControlParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+    public let action: TaskFlowControlAction
+    public let goal: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?,
+        action: TaskFlowControlAction,
+        goal: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+        self.action = action
+        self.goal = goal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+        case action
+        case goal
+    }
+}
+
+public struct TaskFlowsControlResult: Codable, Sendable {
+    public let found: Bool
+    public let applied: Bool
+    public let action: TaskFlowControlAction
+    public let reason: String?
+    public let flow: TaskFlowDetail?
+
+    public init(
+        found: Bool,
+        applied: Bool,
+        action: TaskFlowControlAction,
+        reason: String?,
+        flow: TaskFlowDetail?)
+    {
+        self.found = found
+        self.applied = applied
+        self.action = action
+        self.reason = reason
+        self.flow = flow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case found
+        case applied
+        case action
         case reason
         case flow
     }
