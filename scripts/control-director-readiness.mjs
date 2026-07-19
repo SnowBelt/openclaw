@@ -302,6 +302,7 @@ export function collectControlDirectorActiveWiring() {
       typeof packageJson.scripts?.["control-director:chaos"] === "string" &&
       typeof packageJson.scripts?.["control-director:readiness"] === "string" &&
       typeof packageJson.scripts?.["control-director:runtime-proof"] === "string" &&
+      typeof packageJson.scripts?.["control-director:roadmap-proof"] === "string" &&
       typeof packageJson.scripts?.["control-director:verify"] === "string",
   };
 }
@@ -495,7 +496,8 @@ export function buildControlDirectorReadinessScorecard(params) {
     serverOwnedTurnInbox: "The server-owned mutable turn inbox is wired to Gateway lifecycle",
     singleProductionChat: "One production Chat stack owns the Dashboard entrypoint",
     typedPccBoundary: "Chat-to-PCC sync accepts explicit plan envelopes only",
-    acceptanceScripts: "Torture, chaos, and readiness gates are repository commands",
+    acceptanceScripts:
+      "Torture, chaos, readiness, runtime, and roadmap gates are repository commands",
   })) {
     facts.push(fact(`wiring-${key}`, label, wiring[key] === true));
   }

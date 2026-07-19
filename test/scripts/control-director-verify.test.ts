@@ -78,6 +78,7 @@ describe("control-director-verify", () => {
       "plugin-sdk-api",
       "docs-mdx",
       "docs-links",
+      "lint-scripts",
       "format-check",
       "typecheck-core",
       "typecheck-ui",
@@ -124,5 +125,6 @@ describe("control-director-verify", () => {
     expect(plan.find((entry) => entry.id === "protocol-generated")?.args).toEqual([
       "protocol:check",
     ]);
+    expect(plan.find((entry) => entry.id === "lint-scripts")?.args).toEqual(["lint:scripts"]);
   });
 });

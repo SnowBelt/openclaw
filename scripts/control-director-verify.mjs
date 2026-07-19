@@ -226,6 +226,7 @@ export function buildControlDirectorSourceGatePlan() {
     { id: "plugin-sdk-api", args: ["plugin-sdk:api:check"] },
     { id: "docs-mdx", args: ["docs:check-mdx"] },
     { id: "docs-links", args: ["docs:check-links"] },
+    { id: "lint-scripts", args: ["lint:scripts"] },
     { id: "format-check", args: ["control-director:format-check"] },
     { id: "typecheck-core", args: ["tsgo:core"] },
     { id: "typecheck-ui", args: ["tsgo:test:ui"] },
