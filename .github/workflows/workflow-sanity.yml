@@ -769,6 +769,7 @@ jobs:
         env:
           CI: "true"
           NODE_OPTIONS: --max-old-space-size=6144
+          OPENCLAW_CONTROL_UI_SMOKE_ALLOW_SYSTEM_BROWSER: "1"
         run: pnpm ui:smoke:snes-studio
 
       - name: Run Dashboard Codex Plus Apps smoke
