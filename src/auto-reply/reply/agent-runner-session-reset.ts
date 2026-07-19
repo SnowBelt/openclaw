@@ -63,6 +63,10 @@ export async function resetReplyRunSession(params: {
     usageFamilySessionIds: Array.from(
       new Set([...(prevEntry.usageFamilySessionIds ?? []), prevEntry.sessionId, nextSessionId]),
     ),
+    chatHistoryLineageRootSessionId:
+      prevEntry.chatHistoryLineageRootSessionId ??
+      prevEntry.usageFamilySessionIds?.[0] ??
+      prevEntry.sessionId,
     lastInteractionAt: now,
     systemSent: false,
     abortedLastRun: false,

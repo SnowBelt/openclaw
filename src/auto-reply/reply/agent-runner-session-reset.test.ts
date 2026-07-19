@@ -134,6 +134,11 @@ describe("resetReplyRunSession", () => {
     expect(activeSessionEntry?.memoryFlushLastFailedAt).toBeUndefined();
     expect(activeSessionEntry?.memoryFlushLastFailureError).toBeUndefined();
     expect(activeSessionEntry?.systemPromptReport).toBeUndefined();
+    expect(activeSessionEntry?.usageFamilySessionIds).toEqual([
+      "session",
+      "00000000-0000-0000-0000-000000000123",
+    ]);
+    expect(activeSessionEntry?.chatHistoryLineageRootSessionId).toBe("session");
     expect(refreshQueuedFollowupSessionMock).toHaveBeenCalledWith({
       key: "main",
       previousSessionId: "session",
@@ -152,6 +157,7 @@ describe("resetReplyRunSession", () => {
     expect(persisted.main.memoryFlushFailureCount).toBeUndefined();
     expect(persisted.main.memoryFlushLastFailedAt).toBeUndefined();
     expect(persisted.main.memoryFlushLastFailureError).toBeUndefined();
+    expect(persisted.main.chatHistoryLineageRootSessionId).toBe("session");
   });
 
   it("cleans up the old transcript when requested", async () => {

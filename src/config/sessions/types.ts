@@ -499,6 +499,8 @@ export type SessionEntry = {
   usageFamilyKey?: string;
   /** Session ids known to belong to this usage lineage, including archived predecessors. */
   usageFamilySessionIds?: string[];
+  /** First session id that remains visible in the current user-facing chat after explicit resets. */
+  chatHistoryLineageRootSessionId?: string;
   /** Timestamp (ms) of the last user/channel interaction that should extend idle lifetime. */
   lastInteractionAt?: number;
   /** Stable first-run start time for subagent sessions, persisted after completion. */

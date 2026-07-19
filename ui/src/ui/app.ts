@@ -408,6 +408,10 @@ export class OpenClawApp extends LitElement {
   currentSessionId: string | null = null;
   reconnectResumeSessionId: string | null = null;
   @state() chatLoading = false;
+  @state() chatHistoryHasMore = false;
+  @state() chatHistoryNextOffset: number | null = null;
+  @state() chatHistoryLoadingOlder = false;
+  @state() chatHistoryTotalMessages: number | null = null;
   @state() chatSending = false;
   @state() chatMessage = "";
   @state() chatMessages: unknown[] = [];
@@ -439,7 +443,7 @@ export class OpenClawApp extends LitElement {
   @state() chatGoalFlows: ChatGoalFlowSummary[] = [];
   @state() chatGoalLoading = false;
   @state() chatGoalBusy = false;
-  @state() chatGoalCancellingFlowId: string | null = null;
+  @state() chatGoalAction: import("./chat/pursue-goal.ts").ChatGoalActionState | null = null;
   @state() chatGoalError: string | null = null;
   @state() chatGoalUpdatedAt: number | null = null;
   @state() chatExecutionState: ExecutionStateSnapshot | null = null;

@@ -102,7 +102,7 @@ let draft = "";
 let goalDraft = "";
 let startCalls = 0;
 let continueCalls: string[] = [];
-let cancelCalls: string[] = [];
+let controlCalls: Array<{ flowId: string; action: string; goal?: string }> = [];
 let sendCalls = 0;
 
 const runningGoal = {
@@ -212,8 +212,8 @@ function baseProps(overrides: Record<string, unknown> = {}) {
     onGoalContinue: (flowId: string) => {
       continueCalls.push(flowId);
     },
-    onGoalCancel: (flowId: string) => {
-      cancelCalls.push(flowId);
+    onGoalControl: (flowId: string, action: string, goal?: string) => {
+      controlCalls.push({ flowId, action, ...(goal ? { goal } : {}) });
     },
     onGoalRefresh: () => undefined,
     onGoalPanelToggle: () => undefined,
@@ -242,7 +242,7 @@ window.runOpenClawChatPursueGoalSmoke = async (mode: Mode): Promise<Result> => {
   goalDraft = "";
   startCalls = 0;
   continueCalls = [];
-  cancelCalls = [];
+  controlCalls = [];
   sendCalls = 0;
 
   await renderState({ goalPanelOpen: true });
@@ -258,6 +258,7 @@ window.runOpenClawChatPursueGoalSmoke = async (mode: Mode): Promise<Result> => {
   }
   checks.goalDraftEditable = goalDraft === "Run proof to 100%";
 
+  goalDraft = runningGoal.goal;
   await renderState({ goalPanelOpen: true, goalFlows: [runningGoal] });
   surface = root.querySelector("[data-chat-goal]");
   checks.runningGoal =
@@ -266,9 +267,51 @@ window.runOpenClawChatPursueGoalSmoke = async (mode: Mode): Promise<Result> => {
     includes(surface, "Testing gateway linkage") &&
     includes(surface, "Judge pending");
   root.querySelector<HTMLButtonElement>('[data-chat-goal-action="continue"]')?.click();
+  root.querySelector<HTMLButtonElement>('[data-chat-goal-action="pause"]')?.click();
+  const editInput = root.querySelector<HTMLTextAreaElement>("[data-chat-goal] textarea");
+  if (editInput) {
+    editInput.value = "Finish Pursue Goal V1 with remote proof";
+    editInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  root.querySelector<HTMLButtonElement>('[data-chat-goal-action="edit"]')?.click();
   root.querySelector<HTMLButtonElement>('[data-chat-goal-action="cancel"]')?.click();
   checks.continueGoal = continueCalls[0] === "flow-1";
-  checks.cancelGoal = cancelCalls[0] === "flow-1";
+  checks.pauseGoal = controlCalls.some(
+    (call) => call.flowId === "flow-1" && call.action === "pause",
+  );
+  checks.editGoal = controlCalls.some(
+    (call) =>
+      call.flowId === "flow-1" &&
+      call.action === "edit" &&
+      call.goal === "Finish Pursue Goal V1 with remote proof",
+  );
+  checks.stopGoal = controlCalls.some(
+    (call) => call.flowId === "flow-1" && call.action === "stop",
+  );
+
+  await renderState({
+    goalPanelOpen: true,
+    goalFlows: [{ ...runningGoal, status: "paused", currentStep: "Paused by user." }],
+  });
+  root.querySelector<HTMLButtonElement>('[data-chat-goal-action="resume"]')?.click();
+  checks.resumeGoal = controlCalls.some(
+    (call) => call.flowId === "flow-1" && call.action === "resume",
+  );
+
+  await renderState({
+    goalPanelOpen: true,
+    goalFlows: [
+      {
+        ...runningGoal,
+        status: "blocked",
+        blockedSummary: "Remote proof needs approval.",
+      },
+    ],
+  });
+  root.querySelector<HTMLButtonElement>('[data-chat-goal-action="retry"]')?.click();
+  checks.retryGoal = controlCalls.some(
+    (call) => call.flowId === "flow-1" && call.action === "retry",
+  );
 
   await renderState({
     goalPanelOpen: true,

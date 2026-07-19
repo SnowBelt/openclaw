@@ -489,12 +489,18 @@ import {
   PursueGoalLeaseSchema,
   type TaskFlowDetail,
   TaskFlowDetailSchema,
+  type TaskFlowControlAction,
+  TaskFlowControlActionSchema,
   type TaskFlowMutationResult,
   TaskFlowMutationResultSchema,
   type TaskFlowsCancelParams,
   TaskFlowsCancelParamsSchema,
   type TaskFlowsCancelResult,
   TaskFlowsCancelResultSchema,
+  type TaskFlowsControlParams,
+  TaskFlowsControlParamsSchema,
+  type TaskFlowsControlResult,
+  TaskFlowsControlResultSchema,
   type TaskFlowsCreateParams,
   TaskFlowsCreateParamsSchema,
   type TaskFlowsCreateResult,
@@ -1160,6 +1166,9 @@ export const validateTaskFlowsCreateParams = lazyCompile<TaskFlowsCreateParams>(
 export const validateTaskFlowsCancelParams = lazyCompile<TaskFlowsCancelParams>(
   TaskFlowsCancelParamsSchema,
 );
+export const validateTaskFlowsControlParams = lazyCompile<TaskFlowsControlParams>(
+  TaskFlowsControlParamsSchema,
+);
 export const validateTaskFlowsPauseParams = lazyCompile<TaskFlowsPauseParams>(
   TaskFlowsPauseParamsSchema,
 );
@@ -1653,6 +1662,7 @@ export {
   TaskFlowStatusSchema,
   TaskFlowSummarySchema,
   TaskFlowDetailSchema,
+  TaskFlowControlActionSchema,
   TaskFlowsListParamsSchema,
   TaskFlowsListResultSchema,
   TaskFlowsGetParamsSchema,
@@ -1661,6 +1671,8 @@ export {
   TaskFlowsCreateResultSchema,
   TaskFlowsCancelParamsSchema,
   TaskFlowsCancelResultSchema,
+  TaskFlowsControlParamsSchema,
+  TaskFlowsControlResultSchema,
   TaskFlowsPauseParamsSchema,
   TaskFlowsResumeParamsSchema,
   TaskFlowsEditParamsSchema,
@@ -2079,6 +2091,7 @@ export type {
   TaskFlowStatus,
   TaskFlowSummary,
   TaskFlowDetail,
+  TaskFlowControlAction,
   TaskFlowsListParams,
   TaskFlowsListResult,
   TaskFlowsGetParams,
@@ -2087,6 +2100,8 @@ export type {
   TaskFlowsCreateResult,
   TaskFlowsCancelParams,
   TaskFlowsCancelResult,
+  TaskFlowsControlParams,
+  TaskFlowsControlResult,
   TaskFlowsPauseParams,
   TaskFlowsResumeParams,
   TaskFlowsEditParams,

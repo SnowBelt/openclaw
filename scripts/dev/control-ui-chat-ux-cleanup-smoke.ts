@@ -67,7 +67,7 @@ import { renderChat } from "/ui/src/ui/views/chat.ts";
 const root = document.getElementById("root")!;
 let draft = "";
 let retryDraft = "";
-let cancelCalls = 0;
+let stopCalls = 0;
 
 const sessions = {
   count: 1,
@@ -207,7 +207,7 @@ function baseProps(mode, overrides = {}) {
     onChatScroll: () => undefined,
     basePath: "",
     goalPanelOpen: false,
-    goalCancellingFlowId: "flow-1",
+    goalAction: { flowId: "flow-1", action: "stop" },
     goalFlows: [
       {
         id: "flow-1",
@@ -221,7 +221,7 @@ function baseProps(mode, overrides = {}) {
     onGoalDraftChange: () => undefined,
     onGoalStart: () => undefined,
     onGoalContinue: () => undefined,
-    onGoalCancel: () => { cancelCalls += 1; },
+    onGoalControl: (_flowId, action) => { if (action === "stop") stopCalls += 1; },
     onGoalRefresh: () => undefined,
     sessionWorkspace: mobile ? undefined : {
       collapsed: false,
@@ -255,7 +255,7 @@ function baseProps(mode, overrides = {}) {
 }
 
 window.runOpenClawChatUxCleanupSmoke = async (mode) => {
-  cancelCalls = 0;
+  stopCalls = 0;
   retryDraft = "";
   render(renderChat(baseProps(mode)), root);
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -317,8 +317,8 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
   const cancel = root.querySelector('[data-chat-goal-action="cancel"]');
   cancel?.click();
   const stoppingGoalVisible = (document.body.textContent || "").includes("Stopping…");
-  const cancelDedupedByDisabledButton =
-    cancel instanceof HTMLButtonElement && cancel.disabled && cancelCalls === 0;
+  const stopDedupedByDisabledButton =
+    cancel instanceof HTMLButtonElement && cancel.disabled && stopCalls === 0;
 
   render(renderChat(baseProps(mode)), root);
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -334,7 +334,7 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
     emptyDiagnosticsHidden,
     retryDraftInserted: retryDraft.includes("Retry the preserved original request safely"),
     stoppingGoalVisible,
-    cancelDedupedByDisabledButton,
+    stopDedupedByDisabledButton,
     transcriptHasRoom: Boolean(threadRect && threadRect.height >= minThreadHeight),
     conversationVisible: Boolean(
       threadRect &&

@@ -128,6 +128,7 @@ describe("session-updates lifecycle hooks", () => {
     expect(sessionStore[sessionKey]?.sessionFile).toContain("s2.jsonl");
     expect(sessionStore[sessionKey]?.usageFamilyKey).toBe(sessionKey);
     expect(sessionStore[sessionKey]?.usageFamilySessionIds).toEqual(["s1", "s2"]);
+    expect(sessionStore[sessionKey]?.chatHistoryLineageRootSessionId).toBe("s1");
     expect(sessionStore[sessionKey]?.compactionCount).toBe(1);
     expect(sessionStore[sessionKey]?.totalTokens).toBe(123);
     expect(sessionStore[sessionKey]?.updatedAt).toBeGreaterThanOrEqual(entry.updatedAt);
@@ -135,6 +136,7 @@ describe("session-updates lifecycle hooks", () => {
     expect(persisted?.sessionFile).toContain("s2.jsonl");
     expect(persisted?.usageFamilyKey).toBe(sessionKey);
     expect(persisted?.usageFamilySessionIds).toEqual(["s1", "s2"]);
+    expect(persisted?.chatHistoryLineageRootSessionId).toBe("s1");
     expect(persisted?.compactionCount).toBe(1);
     expect(persisted?.totalTokens).toBe(123);
     expect(persisted?.updatedAt).toBeGreaterThanOrEqual(entry.updatedAt);

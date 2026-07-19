@@ -640,6 +640,10 @@ function renderChatSessionPickerPopover(
         }
       }}
     >
+      <div class="chat-session-picker__heading">
+        <strong>All conversations</strong>
+        <span>Search or browse the complete chat history.</span>
+      </div>
       <div class="chat-session-picker__search-row">
         <label class="field chat-session-picker__search">
           <input
@@ -819,12 +823,18 @@ function renderChatAgentSelect(
   }
   const activeAgentId = resolveChatAgentFilterId(state, state.sessionKey);
   const selectedLabel = options.find((entry) => entry.id === activeAgentId)?.label ?? activeAgentId;
+  const recommendedAgentId = normalizeAgentId(state.agentsList?.defaultId ?? options[0]?.id ?? "");
+  const recommended = options.filter((entry) => entry.id === recommendedAgentId);
+  const specialists = options.filter((entry) => entry.id !== recommendedAgentId);
+  const renderOption = (entry: (typeof options)[number]) => html`
+    <option value=${entry.id} ?selected=${entry.id === activeAgentId}>${entry.label}</option>
+  `;
   return html`
     <label class="field chat-controls__session chat-controls__agent">
       <select
         data-chat-agent-filter="true"
         aria-label=${t("chat.selectors.agentFilter")}
-        title=${selectedLabel}
+        title=${`${selectedLabel}. Leave the recommended Control Director selected for automatic delegation; choose a specialist only for direct control.`}
         .value=${activeAgentId}
         ?disabled=${!state.connected}
         @change=${(e: Event) => {
@@ -835,14 +845,16 @@ function renderChatAgentSelect(
           onSwitchSession(state, resolvePreferredSessionForAgent(state, nextAgentId));
         }}
       >
-        ${repeat(
-          options,
-          (entry) => entry.id,
-          (entry) =>
-            html`<option value=${entry.id} ?selected=${entry.id === activeAgentId}>
-              ${entry.label}
-            </option>`,
-        )}
+        ${recommended.length > 0
+          ? html`<optgroup label="Recommended">
+              ${repeat(recommended, (entry) => entry.id, renderOption)}
+            </optgroup>`
+          : ""}
+        ${specialists.length > 0
+          ? html`<optgroup label="Specialists (advanced)">
+              ${repeat(specialists, (entry) => entry.id, renderOption)}
+            </optgroup>`
+          : ""}
       </select>
     </label>
   `;

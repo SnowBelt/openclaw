@@ -86,6 +86,16 @@ openclaw-chat-page {
   margin-top: 0 !important;
 }
 
+.chat-history-pagination {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
 /* New messages indicator - floating pill above compose */
 .chat-new-messages {
   align-self: center;
