@@ -1,26 +1,9 @@
 // Project Command Center chat sync turns chat plans into reviewable PCC diffs.
 import { parseProposedPlanSegments } from "./chat/proposed-plan.ts";
 import type { PccChatSyncProposal, PccProjectDetail } from "./pcc/application/state.ts";
-import type { PccMilestone, PccStatus } from "./types.ts";
+import type { PccMilestone } from "./types.ts";
 
 export type { PccChatSyncProposal, PccChatSyncProposalKind } from "./pcc/application/state.ts";
-
-const STATUS_PATTERNS: Array<[RegExp, PccStatus]> = [
-  [/\b(local[- ]proof complete|local_proof_complete)\b/iu, "local_proof_complete"],
-  [/\b(remote[- ]proof complete|remote_proof_complete)\b/iu, "remote_proof_complete"],
-  [/\b(runtime[- ]proof complete|runtime_proof_complete)\b/iu, "runtime_proof_complete"],
-  [
-    /\b(persistence[- ]proof complete|persistence_proof_complete)\b/iu,
-    "persistence_proof_complete",
-  ],
-  [/\b(needs approval|needs_approval)\b/iu, "needs_approval"],
-  [/\b(on hold|on_hold)\b/iu, "on_hold"],
-  [/\bdeferred\b/iu, "deferred"],
-  [/\bblocked\b/iu, "blocked"],
-  [/\bproof pending\b/iu, "proof_pending"],
-  [/\bin progress\b/iu, "in_progress"],
-  [/\bcomplete\b/iu, "complete"],
-];
 
 function normalize(value: string): string {
   return value
@@ -50,28 +33,16 @@ function extractPlanMarkdown(text: string): string {
   return text.trim();
 }
 
+function hasExplicitPlanEnvelope(text: string): boolean {
+  return (
+    parseProposedPlanSegments(text).some((segment) => segment.kind === "proposed_plan") ||
+    text.includes("PLEASE IMPLEMENT THIS PLAN:")
+  );
+}
+
 function existingMilestone(detail: PccProjectDetail, title: string): PccMilestone | null {
   const target = normalize(title);
   return detail.milestones.find((milestone) => normalize(milestone.title) === target) ?? null;
-}
-
-function statusFromLine(line: string): PccStatus | null {
-  return STATUS_PATTERNS.find(([pattern]) => pattern.test(line))?.[1] ?? null;
-}
-
-function milestoneTitleFromStatusLine(line: string): string | null {
-  const clean = line
-    .replace(/^[-*]\s*/u, "")
-    .replace(/\*\*/gu, "")
-    .trim();
-  const separators = [" — ", " - ", ": "];
-  for (const separator of separators) {
-    const index = clean.indexOf(separator);
-    if (index > 0) {
-      return clean.slice(0, index).trim();
-    }
-  }
-  return null;
 }
 
 function inferResponsibility(text: string): string {
@@ -118,92 +89,10 @@ function splitAcceptanceCriteria(plan: string): string[] {
     .slice(0, 10);
 }
 
-function addStatusProposals(detail: PccProjectDetail, text: string): PccChatSyncProposal[] {
-  const proposals: PccChatSyncProposal[] = [];
-  const seen = new Set<string>();
-  for (const line of text.split(/\n/u)) {
-    const status = statusFromLine(line);
-    const title = milestoneTitleFromStatusLine(line);
-    if (!status || !title) {
-      continue;
-    }
-    const milestone = existingMilestone(detail, title);
-    if (!milestone || milestone.status === status) {
-      continue;
-    }
-    const key = `${milestone.id}:${status}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    proposals.push({
-      id: `chat-status-${proposals.length + 1}`,
-      kind: "update_milestone",
-      title: `Update ${milestone.title} to ${status.replace(/_/gu, " ")}`,
-      summary: line.trim(),
-      risky: status === "complete" || status === "skipped" || status === "archived",
-      milestoneId: milestone.id,
-      milestonePatch: {
-        projectId: milestone.projectId,
-        title: milestone.title,
-        status,
-      },
-    });
-  }
-  return proposals;
-}
-
-function addReceiptProposal(detail: PccProjectDetail, text: string): PccChatSyncProposal | null {
-  if (!/\breceipt\b|\bdo not redo\b|\bproof passed\b/iu.test(text)) {
-    return null;
-  }
-  const milestone = detail.milestones.find((candidate) =>
-    detail.evidence.some(
-      (evidence) => evidence.milestoneId === candidate.id && evidence.status === "passed",
-    ),
-  );
-  if (!milestone || detail.receipts.some((receipt) => receipt.milestoneId === milestone.id)) {
-    return null;
-  }
-  return {
-    id: "chat-receipt-1",
-    kind: "add_receipt",
-    title: `Add receipt for ${milestone.title}`,
-    summary: "Chat mentions passed proof or a do-not-redo receipt.",
-    risky: true,
-    milestoneId: milestone.id,
-  };
-}
-
-function permissionProposal(detail: PccProjectDetail, text: string): PccChatSyncProposal | null {
-  if (!/\bpermission\b|\bapprove\b|\bpush\b|\bworkflow sanity\b|\bremote proof\b/iu.test(text)) {
-    return null;
-  }
-  const nextMilestone =
-    detail.milestones.find(
-      (milestone) => !["complete", "skipped", "archived"].includes(milestone.status),
-    ) ?? detail.milestones[0];
-  return {
-    id: "chat-permission-1",
-    kind: "request_permission",
-    title: "Request remote proof permission",
-    summary: "Chat text requests or depends on push/remote proof permission.",
-    risky: true,
-    milestoneId: nextMilestone?.id,
-    permission: {
-      projectId: detail.project.id,
-      ...(nextMilestone ? { milestoneId: nextMilestone.id } : {}),
-      type: "remote_proof",
-      status: "needed",
-      riskLevel: "medium",
-      allowedActions: ["push branch", "run Workflow Sanity", "inspect run logs"],
-      forbiddenActions: ["merge upstream", "publish release", "runtime install"],
-      target: "SnowBelt/openclaw",
-    },
-  };
-}
-
 function planProposal(detail: PccProjectDetail, text: string): PccChatSyncProposal | null {
+  if (!hasExplicitPlanEnvelope(text)) {
+    return null;
+  }
   const plan = extractPlanMarkdown(text);
   if (plan.length < 20) {
     return null;
@@ -246,15 +135,6 @@ export function buildPccChatSyncProposals(
   const plan = planProposal(detail, text);
   if (plan) {
     proposals.push(plan);
-  }
-  proposals.push(...addStatusProposals(detail, text));
-  const permission = permissionProposal(detail, text);
-  if (permission) {
-    proposals.push(permission);
-  }
-  const receipt = addReceiptProposal(detail, text);
-  if (receipt) {
-    proposals.push(receipt);
   }
   return proposals;
 }

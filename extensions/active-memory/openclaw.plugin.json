@@ -40,6 +40,7 @@
         "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive"]
       },
       "timeoutMs": { "type": "integer", "minimum": 250, "maximum": 120000 },
+      "controlDirectorTimeoutMs": { "type": "integer", "minimum": 250, "maximum": 120000 },
       "setupGraceTimeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
       "queryMode": {
         "type": "string",
@@ -125,6 +126,10 @@
     "timeoutMs": {
       "label": "Timeout (ms)",
       "help": "Recall work budget on the main lane. Before recall, the hook allows up to 1500 ms for session/config preflight. After recall starts, it reserves another fixed 1500 ms only for abort settlement and transcript recovery."
+    },
+    "controlDirectorTimeoutMs": {
+      "label": "Control Director Timeout (ms)",
+      "help": "Fail-fast model-backed recall budget for agents with role control_director. Defaults to 2000 ms and runs only for explicit recall prompts because core already injects bounded hot recent state. Other agents keep timeoutMs."
     },
     "setupGraceTimeoutMs": {
       "label": "Setup Grace Timeout (ms)",

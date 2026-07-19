@@ -57,9 +57,24 @@ public enum SessionFileRelevance: String, Codable, Sendable {
     case mixed = "mixed"
 }
 
+public enum ChatTurnMode: String, Codable, Sendable {
+    case queue = "queue"
+    case steer = "steer"
+}
+
+public enum ChatTurnPhase: String, Codable, Sendable {
+    case pending = "pending"
+    case dispatching = "dispatching"
+    case admitted = "admitted"
+    case delivered = "delivered"
+    case failed = "failed"
+    case cancelled = "cancelled"
+}
+
 public enum TaskFlowStatus: String, Codable, Sendable {
     case queued = "queued"
     case running = "running"
+    case paused = "paused"
     case waiting = "waiting"
     case blocked = "blocked"
     case succeeded = "succeeded"
@@ -190,6 +205,7 @@ public struct SelfImprovementRecommendation: Codable, Sendable {
     public let proofoutcomestate: AnyCodable?
     public let dismissalreason: String?
     public let reopenreason: String?
+    public let controldirectorclosure: [String: AnyCodable]?
     public let evidence: [String]
     public let actionability: [String: AnyCodable]?
 
@@ -228,6 +244,7 @@ public struct SelfImprovementRecommendation: Codable, Sendable {
         proofoutcomestate: AnyCodable?,
         dismissalreason: String?,
         reopenreason: String?,
+        controldirectorclosure: [String: AnyCodable]?,
         evidence: [String],
         actionability: [String: AnyCodable]?)
     {
@@ -265,6 +282,7 @@ public struct SelfImprovementRecommendation: Codable, Sendable {
         self.proofoutcomestate = proofoutcomestate
         self.dismissalreason = dismissalreason
         self.reopenreason = reopenreason
+        self.controldirectorclosure = controldirectorclosure
         self.evidence = evidence
         self.actionability = actionability
     }
@@ -304,6 +322,7 @@ public struct SelfImprovementRecommendation: Codable, Sendable {
         case proofoutcomestate = "proofOutcomeState"
         case dismissalreason = "dismissalReason"
         case reopenreason = "reopenReason"
+        case controldirectorclosure = "controlDirectorClosure"
         case evidence
         case actionability
     }
@@ -848,6 +867,74 @@ public struct SelfImprovementDashboardInterventionResult: Codable, Sendable {
         case updated
         case reopened
         case auditeventid = "auditEventId"
+    }
+}
+
+public struct ControlDirectorLayoutObservationReportParams: Codable, Sendable {
+    public let schemaversion: Double
+    public let sessionkey: String
+    public let observationid: String
+    public let observedat: Int
+    public let viewport: [String: AnyCodable]
+    public let transcript: [String: AnyCodable]
+    public let composer: [String: AnyCodable]
+    public let truthcompletionpresent: Bool
+    public let pccprojectionpresent: Bool
+    public let reason: AnyCodable
+
+    public init(
+        schemaversion: Double,
+        sessionkey: String,
+        observationid: String,
+        observedat: Int,
+        viewport: [String: AnyCodable],
+        transcript: [String: AnyCodable],
+        composer: [String: AnyCodable],
+        truthcompletionpresent: Bool,
+        pccprojectionpresent: Bool,
+        reason: AnyCodable)
+    {
+        self.schemaversion = schemaversion
+        self.sessionkey = sessionkey
+        self.observationid = observationid
+        self.observedat = observedat
+        self.viewport = viewport
+        self.transcript = transcript
+        self.composer = composer
+        self.truthcompletionpresent = truthcompletionpresent
+        self.pccprojectionpresent = pccprojectionpresent
+        self.reason = reason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case sessionkey = "sessionKey"
+        case observationid = "observationId"
+        case observedat = "observedAt"
+        case viewport
+        case transcript
+        case composer
+        case truthcompletionpresent = "truthCompletionPresent"
+        case pccprojectionpresent = "pccProjectionPresent"
+        case reason
+    }
+}
+
+public struct ControlDirectorLayoutObservationReportResult: Codable, Sendable {
+    public let accepted: Bool
+    public let signalcode: String
+
+    public init(
+        accepted: Bool,
+        signalcode: String)
+    {
+        self.accepted = accepted
+        self.signalcode = signalcode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case accepted
+        case signalcode = "signalCode"
     }
 }
 
@@ -1771,6 +1858,7 @@ public struct SelfImprovementRecommendationsUpdateParams: Codable, Sendable {
     public let claimedby: String?
     public let resolutionproof: String?
     public let dismissalreason: String?
+    public let controldirectorclosure: [String: AnyCodable]?
 
     public init(
         id: String,
@@ -1779,7 +1867,8 @@ public struct SelfImprovementRecommendationsUpdateParams: Codable, Sendable {
         assignedtargetagentid: String?,
         claimedby: String?,
         resolutionproof: String?,
-        dismissalreason: String?)
+        dismissalreason: String?,
+        controldirectorclosure: [String: AnyCodable]?)
     {
         self.id = id
         self.status = status
@@ -1788,6 +1877,7 @@ public struct SelfImprovementRecommendationsUpdateParams: Codable, Sendable {
         self.claimedby = claimedby
         self.resolutionproof = resolutionproof
         self.dismissalreason = dismissalreason
+        self.controldirectorclosure = controldirectorclosure
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1798,20 +1888,25 @@ public struct SelfImprovementRecommendationsUpdateParams: Codable, Sendable {
         case claimedby = "claimedBy"
         case resolutionproof = "resolutionProof"
         case dismissalreason = "dismissalReason"
+        case controldirectorclosure = "controlDirectorClosure"
     }
 }
 
 public struct SelfImprovementRecommendationsUpdateResult: Codable, Sendable {
     public let recommendation: SelfImprovementRecommendation
+    public let controldirectorclosure: [String: AnyCodable]?
 
     public init(
-        recommendation: SelfImprovementRecommendation)
+        recommendation: SelfImprovementRecommendation,
+        controldirectorclosure: [String: AnyCodable]?)
     {
         self.recommendation = recommendation
+        self.controldirectorclosure = controldirectorclosure
     }
 
     private enum CodingKeys: String, CodingKey {
         case recommendation
+        case controldirectorclosure = "controlDirectorClosure"
     }
 }
 
@@ -5241,10 +5336,708 @@ public struct AuditListResult: Codable, Sendable {
     }
 }
 
+public struct ControlDirectorRuntimeCanary: Codable, Sendable {
+    public let schemaversion: Double
+    public let capturedat: Int
+    public let sourcesha: String
+    public let runtimeversion: String
+    public let confighash: String
+    public let agentid: String
+    public let role: String
+    public let selectedmodel: String
+    public let modelregistryhash: String
+    public let prompthash: String
+    public let toolshash: String
+    public let skillshash: String
+    public let memorybuildid: String
+    public let uibuildid: String
+
+    public init(
+        schemaversion: Double,
+        capturedat: Int,
+        sourcesha: String,
+        runtimeversion: String,
+        confighash: String,
+        agentid: String,
+        role: String,
+        selectedmodel: String,
+        modelregistryhash: String,
+        prompthash: String,
+        toolshash: String,
+        skillshash: String,
+        memorybuildid: String,
+        uibuildid: String)
+    {
+        self.schemaversion = schemaversion
+        self.capturedat = capturedat
+        self.sourcesha = sourcesha
+        self.runtimeversion = runtimeversion
+        self.confighash = confighash
+        self.agentid = agentid
+        self.role = role
+        self.selectedmodel = selectedmodel
+        self.modelregistryhash = modelregistryhash
+        self.prompthash = prompthash
+        self.toolshash = toolshash
+        self.skillshash = skillshash
+        self.memorybuildid = memorybuildid
+        self.uibuildid = uibuildid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case capturedat = "capturedAt"
+        case sourcesha = "sourceSha"
+        case runtimeversion = "runtimeVersion"
+        case confighash = "configHash"
+        case agentid = "agentId"
+        case role
+        case selectedmodel = "selectedModel"
+        case modelregistryhash = "modelRegistryHash"
+        case prompthash = "promptHash"
+        case toolshash = "toolsHash"
+        case skillshash = "skillsHash"
+        case memorybuildid = "memoryBuildId"
+        case uibuildid = "uiBuildId"
+    }
+}
+
+public struct ControlDirectorMemoryHealth: Codable, Sendable {
+    public let schemaversion: Double
+    public let status: AnyCodable
+    public let newestsourceat: Int?
+    public let newestrecordat: Int?
+    public let newestagems: Int?
+    public let currentdaysourcecount: Int
+    public let corruptrecordcount: Int
+    public let sourceconflictcount: Int
+    public let repairactions: [AnyCodable]
+
+    public init(
+        schemaversion: Double,
+        status: AnyCodable,
+        newestsourceat: Int?,
+        newestrecordat: Int?,
+        newestagems: Int?,
+        currentdaysourcecount: Int,
+        corruptrecordcount: Int,
+        sourceconflictcount: Int,
+        repairactions: [AnyCodable])
+    {
+        self.schemaversion = schemaversion
+        self.status = status
+        self.newestsourceat = newestsourceat
+        self.newestrecordat = newestrecordat
+        self.newestagems = newestagems
+        self.currentdaysourcecount = currentdaysourcecount
+        self.corruptrecordcount = corruptrecordcount
+        self.sourceconflictcount = sourceconflictcount
+        self.repairactions = repairactions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case status
+        case newestsourceat = "newestSourceAt"
+        case newestrecordat = "newestRecordAt"
+        case newestagems = "newestAgeMs"
+        case currentdaysourcecount = "currentDaySourceCount"
+        case corruptrecordcount = "corruptRecordCount"
+        case sourceconflictcount = "sourceConflictCount"
+        case repairactions = "repairActions"
+    }
+}
+
+public struct ControlDirectorRuntimeLineage: Codable, Sendable {
+    public let schemaversion: Double
+    public let status: AnyCodable
+    public let checkedat: Int
+    public let agentid: String
+    public let role: String
+    public let selectedmodel: String?
+    public let sourcesha: String?
+    public let runtimeversion: String
+    public let releaseid: String?
+    public let artifacthash: String?
+    public let canary: ControlDirectorRuntimeCanary?
+    public let blockers: [String]
+
+    public init(
+        schemaversion: Double,
+        status: AnyCodable,
+        checkedat: Int,
+        agentid: String,
+        role: String,
+        selectedmodel: String?,
+        sourcesha: String?,
+        runtimeversion: String,
+        releaseid: String?,
+        artifacthash: String?,
+        canary: ControlDirectorRuntimeCanary?,
+        blockers: [String])
+    {
+        self.schemaversion = schemaversion
+        self.status = status
+        self.checkedat = checkedat
+        self.agentid = agentid
+        self.role = role
+        self.selectedmodel = selectedmodel
+        self.sourcesha = sourcesha
+        self.runtimeversion = runtimeversion
+        self.releaseid = releaseid
+        self.artifacthash = artifacthash
+        self.canary = canary
+        self.blockers = blockers
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case status
+        case checkedat = "checkedAt"
+        case agentid = "agentId"
+        case role
+        case selectedmodel = "selectedModel"
+        case sourcesha = "sourceSha"
+        case runtimeversion = "runtimeVersion"
+        case releaseid = "releaseId"
+        case artifacthash = "artifactHash"
+        case canary
+        case blockers
+    }
+}
+
+public struct ChatTurnSummary: Codable, Sendable {
+    public let id: String
+    public let sessionkey: String
+    public let agentid: String?
+    public let revision: Int
+    public let mode: ChatTurnMode
+    public let phase: ChatTurnPhase
+    public let message: String
+    public let attachmentcount: Int
+    public let admissionopen: Bool
+    public let runid: String?
+    public let missionid: String?
+    public let responsemode: AnyCodable?
+    public let requesthash: String?
+    public let activitysummary: String?
+    public let lastactivityat: Int
+    public let lasterror: String?
+    public let createdat: Int
+    public let updatedat: Int
+    public let endedat: Int?
+
+    public init(
+        id: String,
+        sessionkey: String,
+        agentid: String? = nil,
+        revision: Int,
+        mode: ChatTurnMode,
+        phase: ChatTurnPhase,
+        message: String,
+        attachmentcount: Int,
+        admissionopen: Bool,
+        runid: String?,
+        missionid: String?,
+        responsemode: AnyCodable?,
+        requesthash: String?,
+        activitysummary: String?,
+        lastactivityat: Int,
+        lasterror: String?,
+        createdat: Int,
+        updatedat: Int,
+        endedat: Int?)
+    {
+        self.id = id
+        self.sessionkey = sessionkey
+        self.agentid = agentid
+        self.revision = revision
+        self.mode = mode
+        self.phase = phase
+        self.message = message
+        self.attachmentcount = attachmentcount
+        self.admissionopen = admissionopen
+        self.runid = runid
+        self.missionid = missionid
+        self.responsemode = responsemode
+        self.requesthash = requesthash
+        self.activitysummary = activitysummary
+        self.lastactivityat = lastactivityat
+        self.lasterror = lasterror
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.endedat = endedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sessionkey = "sessionKey"
+        case agentid = "agentId"
+        case revision
+        case mode
+        case phase
+        case message
+        case attachmentcount = "attachmentCount"
+        case admissionopen = "admissionOpen"
+        case runid = "runId"
+        case missionid = "missionId"
+        case responsemode = "responseMode"
+        case requesthash = "requestHash"
+        case activitysummary = "activitySummary"
+        case lastactivityat = "lastActivityAt"
+        case lasterror = "lastError"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case endedat = "endedAt"
+    }
+}
+
+public struct ChatTurnsListParams: Codable, Sendable {
+    public let sessionkey: String
+    public let includeterminal: Bool?
+
+    public init(
+        sessionkey: String,
+        includeterminal: Bool?)
+    {
+        self.sessionkey = sessionkey
+        self.includeterminal = includeterminal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case includeterminal = "includeTerminal"
+    }
+}
+
+public struct ChatTurnsListResult: Codable, Sendable {
+    public let turns: [ChatTurnSummary]
+
+    public init(
+        turns: [ChatTurnSummary])
+    {
+        self.turns = turns
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turns
+    }
+}
+
+public struct ChatTurnsCreateParams: Codable, Sendable {
+    public let sessionkey: String
+    public let agentid: String?
+    public let message: String
+    public let attachments: [AnyCodable]?
+    public let mode: ChatTurnMode
+    public let idempotencykey: String
+
+    public init(
+        sessionkey: String,
+        agentid: String? = nil,
+        message: String,
+        attachments: [AnyCodable]?,
+        mode: ChatTurnMode,
+        idempotencykey: String)
+    {
+        self.sessionkey = sessionkey
+        self.agentid = agentid
+        self.message = message
+        self.attachments = attachments
+        self.mode = mode
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case agentid = "agentId"
+        case message
+        case attachments
+        case mode
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct ChatTurnsCreateResult: Codable, Sendable {
+    public let turn: ChatTurnSummary
+
+    public init(
+        turn: ChatTurnSummary)
+    {
+        self.turn = turn
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turn
+    }
+}
+
+public struct ChatTurnsSetModeParams: Codable, Sendable {
+    public let turnid: String
+    public let sessionkey: String
+    public let expectedrevision: Int
+    public let idempotencykey: String
+    public let mode: ChatTurnMode
+
+    public init(
+        turnid: String,
+        sessionkey: String,
+        expectedrevision: Int,
+        idempotencykey: String,
+        mode: ChatTurnMode)
+    {
+        self.turnid = turnid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+        self.mode = mode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turnid = "turnId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+        case mode
+    }
+}
+
+public struct ChatTurnsCancelParams: Codable, Sendable {
+    public let turnid: String
+    public let sessionkey: String
+    public let expectedrevision: Int
+    public let idempotencykey: String
+
+    public init(
+        turnid: String,
+        sessionkey: String,
+        expectedrevision: Int,
+        idempotencykey: String)
+    {
+        self.turnid = turnid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turnid = "turnId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct ChatTurnsRetryParams: Codable, Sendable {
+    public let turnid: String
+    public let sessionkey: String
+    public let expectedrevision: Int
+    public let idempotencykey: String
+
+    public init(
+        turnid: String,
+        sessionkey: String,
+        expectedrevision: Int,
+        idempotencykey: String)
+    {
+        self.turnid = turnid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case turnid = "turnId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct ChatTurnMutationResult: Codable, Sendable {
+    public let found: Bool
+    public let applied: Bool
+    public let reason: String?
+    public let turn: ChatTurnSummary?
+
+    public init(
+        found: Bool,
+        applied: Bool,
+        reason: String?,
+        turn: ChatTurnSummary?)
+    {
+        self.found = found
+        self.applied = applied
+        self.reason = reason
+        self.turn = turn
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case found
+        case applied
+        case reason
+        case turn
+    }
+}
+
+public struct ExecutionEvent: Codable, Sendable {
+    public let schemaversion: Double
+    public let eventid: String
+    public let sequence: Int
+    public let at: Int
+    public let flowid: String
+    public let category: AnyCodable
+    public let name: String
+    public let actorid: String
+    public let summary: String
+    public let correlation: [String: AnyCodable]?
+    public let payload: AnyCodable?
+
+    public init(
+        schemaversion: Double,
+        eventid: String,
+        sequence: Int,
+        at: Int,
+        flowid: String,
+        category: AnyCodable,
+        name: String,
+        actorid: String,
+        summary: String,
+        correlation: [String: AnyCodable]?,
+        payload: AnyCodable?)
+    {
+        self.schemaversion = schemaversion
+        self.eventid = eventid
+        self.sequence = sequence
+        self.at = at
+        self.flowid = flowid
+        self.category = category
+        self.name = name
+        self.actorid = actorid
+        self.summary = summary
+        self.correlation = correlation
+        self.payload = payload
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case eventid = "eventId"
+        case sequence
+        case at
+        case flowid = "flowId"
+        case category
+        case name
+        case actorid = "actorId"
+        case summary
+        case correlation
+        case payload
+    }
+}
+
+public struct ExecutionStateGetParams: Codable, Sendable {
+    public let sessionkey: String
+    public let includeterminal: Bool?
+
+    public init(
+        sessionkey: String,
+        includeterminal: Bool?)
+    {
+        self.sessionkey = sessionkey
+        self.includeterminal = includeterminal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionkey = "sessionKey"
+        case includeterminal = "includeTerminal"
+    }
+}
+
+public struct ExecutionStateHealth: Codable, Sendable {
+    public let activecount: Int
+    public let stalegoalcount: Int
+    public let orphanedturncount: Int
+    public let pendingdeliverycount: Int
+    public let lostworkercount: Int
+    public let healthy: Bool
+
+    public init(
+        activecount: Int,
+        stalegoalcount: Int,
+        orphanedturncount: Int,
+        pendingdeliverycount: Int,
+        lostworkercount: Int,
+        healthy: Bool)
+    {
+        self.activecount = activecount
+        self.stalegoalcount = stalegoalcount
+        self.orphanedturncount = orphanedturncount
+        self.pendingdeliverycount = pendingdeliverycount
+        self.lostworkercount = lostworkercount
+        self.healthy = healthy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case activecount = "activeCount"
+        case stalegoalcount = "staleGoalCount"
+        case orphanedturncount = "orphanedTurnCount"
+        case pendingdeliverycount = "pendingDeliveryCount"
+        case lostworkercount = "lostWorkerCount"
+        case healthy
+    }
+}
+
+public struct ExecutionStateSnapshot: Codable, Sendable {
+    public let schemaversion: Double
+    public let snapshotrevision: String
+    public let generatedat: Int
+    public let sessionkey: String
+    public let tasks: [TaskSummary]
+    public let flows: [TaskFlowDetail]
+    public let turns: [ChatTurnSummary]
+    public let health: ExecutionStateHealth
+    public let memoryhealth: ControlDirectorMemoryHealth?
+    public let runtimelineage: ControlDirectorRuntimeLineage?
+
+    public init(
+        schemaversion: Double,
+        snapshotrevision: String,
+        generatedat: Int,
+        sessionkey: String,
+        tasks: [TaskSummary],
+        flows: [TaskFlowDetail],
+        turns: [ChatTurnSummary],
+        health: ExecutionStateHealth,
+        memoryhealth: ControlDirectorMemoryHealth?,
+        runtimelineage: ControlDirectorRuntimeLineage?)
+    {
+        self.schemaversion = schemaversion
+        self.snapshotrevision = snapshotrevision
+        self.generatedat = generatedat
+        self.sessionkey = sessionkey
+        self.tasks = tasks
+        self.flows = flows
+        self.turns = turns
+        self.health = health
+        self.memoryhealth = memoryhealth
+        self.runtimelineage = runtimelineage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case snapshotrevision = "snapshotRevision"
+        case generatedat = "generatedAt"
+        case sessionkey = "sessionKey"
+        case tasks
+        case flows
+        case turns
+        case health
+        case memoryhealth = "memoryHealth"
+        case runtimelineage = "runtimeLineage"
+    }
+}
+
+public struct PursueGoalLease: Codable, Sendable {
+    public let ownerid: String
+    public let leaseid: String
+    public let acquiredat: Int
+    public let heartbeatat: Int
+    public let expiresat: Int
+
+    public init(
+        ownerid: String,
+        leaseid: String,
+        acquiredat: Int,
+        heartbeatat: Int,
+        expiresat: Int)
+    {
+        self.ownerid = ownerid
+        self.leaseid = leaseid
+        self.acquiredat = acquiredat
+        self.heartbeatat = heartbeatat
+        self.expiresat = expiresat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ownerid = "ownerId"
+        case leaseid = "leaseId"
+        case acquiredat = "acquiredAt"
+        case heartbeatat = "heartbeatAt"
+        case expiresat = "expiresAt"
+    }
+}
+
+public struct PursueGoalJudgeReceipt: Codable, Sendable {
+    public let schemaversion: Double
+    public let receiptid: String
+    public let missionid: String
+    public let claimhash: String
+    public let verdict: AnyCodable
+    public let scope: String
+    public let evidencesummary: String
+    public let conditions: String
+    public let judgerunid: String
+    public let judgeagentid: String
+    public let model: String?
+    public let issuedat: Int
+    public let signature: String?
+    public let publickeyid: String?
+
+    public init(
+        schemaversion: Double,
+        receiptid: String,
+        missionid: String,
+        claimhash: String,
+        verdict: AnyCodable,
+        scope: String,
+        evidencesummary: String,
+        conditions: String,
+        judgerunid: String,
+        judgeagentid: String,
+        model: String?,
+        issuedat: Int,
+        signature: String?,
+        publickeyid: String?)
+    {
+        self.schemaversion = schemaversion
+        self.receiptid = receiptid
+        self.missionid = missionid
+        self.claimhash = claimhash
+        self.verdict = verdict
+        self.scope = scope
+        self.evidencesummary = evidencesummary
+        self.conditions = conditions
+        self.judgerunid = judgerunid
+        self.judgeagentid = judgeagentid
+        self.model = model
+        self.issuedat = issuedat
+        self.signature = signature
+        self.publickeyid = publickeyid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case receiptid = "receiptId"
+        case missionid = "missionId"
+        case claimhash = "claimHash"
+        case verdict
+        case scope
+        case evidencesummary = "evidenceSummary"
+        case conditions
+        case judgerunid = "judgeRunId"
+        case judgeagentid = "judgeAgentId"
+        case model
+        case issuedat = "issuedAt"
+        case signature
+        case publickeyid = "publicKeyId"
+    }
+}
+
 public struct TaskFlowSummary: Codable, Sendable {
     public let id: String
     public let flowid: String
     public let ownerkey: String
+    public let revision: Int
+    public let controllerid: String?
     public let requesterorigin: AnyCodable?
     public let status: TaskFlowStatus
     public let notifypolicy: AnyCodable
@@ -5252,6 +6045,21 @@ public struct TaskFlowSummary: Codable, Sendable {
     public let currentstep: String?
     public let blockedtaskid: String?
     public let blockedsummary: String?
+    public let phase: String?
+    public let missionid: String?
+    public let goalversion: Int?
+    public let workeragentid: String?
+    public let workersessionkey: String?
+    public let turncount: Int?
+    public let activationcount: Int?
+    public let consecutivefailures: Int?
+    public let nextaction: String?
+    public let lastresult: String?
+    public let lasterror: String?
+    public let retryat: AnyCodable?
+    public let lease: PursueGoalLease?
+    public let judgereceipt: PursueGoalJudgeReceipt?
+    public let events: [ExecutionEvent]?
     public let cancelrequestedat: AnyCodable?
     public let createdat: AnyCodable
     public let updatedat: AnyCodable
@@ -5261,6 +6069,8 @@ public struct TaskFlowSummary: Codable, Sendable {
         id: String,
         flowid: String,
         ownerkey: String,
+        revision: Int,
+        controllerid: String?,
         requesterorigin: AnyCodable?,
         status: TaskFlowStatus,
         notifypolicy: AnyCodable,
@@ -5268,6 +6078,21 @@ public struct TaskFlowSummary: Codable, Sendable {
         currentstep: String?,
         blockedtaskid: String?,
         blockedsummary: String?,
+        phase: String?,
+        missionid: String?,
+        goalversion: Int?,
+        workeragentid: String?,
+        workersessionkey: String?,
+        turncount: Int?,
+        activationcount: Int?,
+        consecutivefailures: Int?,
+        nextaction: String?,
+        lastresult: String?,
+        lasterror: String?,
+        retryat: AnyCodable?,
+        lease: PursueGoalLease?,
+        judgereceipt: PursueGoalJudgeReceipt?,
+        events: [ExecutionEvent]?,
         cancelrequestedat: AnyCodable?,
         createdat: AnyCodable,
         updatedat: AnyCodable,
@@ -5276,6 +6101,8 @@ public struct TaskFlowSummary: Codable, Sendable {
         self.id = id
         self.flowid = flowid
         self.ownerkey = ownerkey
+        self.revision = revision
+        self.controllerid = controllerid
         self.requesterorigin = requesterorigin
         self.status = status
         self.notifypolicy = notifypolicy
@@ -5283,6 +6110,21 @@ public struct TaskFlowSummary: Codable, Sendable {
         self.currentstep = currentstep
         self.blockedtaskid = blockedtaskid
         self.blockedsummary = blockedsummary
+        self.phase = phase
+        self.missionid = missionid
+        self.goalversion = goalversion
+        self.workeragentid = workeragentid
+        self.workersessionkey = workersessionkey
+        self.turncount = turncount
+        self.activationcount = activationcount
+        self.consecutivefailures = consecutivefailures
+        self.nextaction = nextaction
+        self.lastresult = lastresult
+        self.lasterror = lasterror
+        self.retryat = retryat
+        self.lease = lease
+        self.judgereceipt = judgereceipt
+        self.events = events
         self.cancelrequestedat = cancelrequestedat
         self.createdat = createdat
         self.updatedat = updatedat
@@ -5293,6 +6135,8 @@ public struct TaskFlowSummary: Codable, Sendable {
         case id
         case flowid = "flowId"
         case ownerkey = "ownerKey"
+        case revision
+        case controllerid = "controllerId"
         case requesterorigin = "requesterOrigin"
         case status
         case notifypolicy = "notifyPolicy"
@@ -5300,10 +6144,167 @@ public struct TaskFlowSummary: Codable, Sendable {
         case currentstep = "currentStep"
         case blockedtaskid = "blockedTaskId"
         case blockedsummary = "blockedSummary"
+        case phase
+        case missionid = "missionId"
+        case goalversion = "goalVersion"
+        case workeragentid = "workerAgentId"
+        case workersessionkey = "workerSessionKey"
+        case turncount = "turnCount"
+        case activationcount = "activationCount"
+        case consecutivefailures = "consecutiveFailures"
+        case nextaction = "nextAction"
+        case lastresult = "lastResult"
+        case lasterror = "lastError"
+        case retryat = "retryAt"
+        case lease
+        case judgereceipt = "judgeReceipt"
+        case events
         case cancelrequestedat = "cancelRequestedAt"
         case createdat = "createdAt"
         case updatedat = "updatedAt"
         case endedat = "endedAt"
+    }
+}
+
+public struct TaskFlowDetail: Codable, Sendable {
+    public let id: String
+    public let flowid: String
+    public let ownerkey: String
+    public let revision: Int
+    public let controllerid: String?
+    public let requesterorigin: AnyCodable?
+    public let status: TaskFlowStatus
+    public let notifypolicy: AnyCodable
+    public let goal: String
+    public let currentstep: String?
+    public let blockedtaskid: String?
+    public let blockedsummary: String?
+    public let phase: String?
+    public let missionid: String?
+    public let goalversion: Int?
+    public let workeragentid: String?
+    public let workersessionkey: String?
+    public let turncount: Int?
+    public let activationcount: Int?
+    public let consecutivefailures: Int?
+    public let nextaction: String?
+    public let lastresult: String?
+    public let lasterror: String?
+    public let retryat: AnyCodable?
+    public let lease: PursueGoalLease?
+    public let judgereceipt: PursueGoalJudgeReceipt?
+    public let events: [ExecutionEvent]?
+    public let cancelrequestedat: AnyCodable?
+    public let createdat: AnyCodable
+    public let updatedat: AnyCodable
+    public let endedat: AnyCodable?
+    public let tasks: [TaskSummary]
+    public let tasksummary: [String: AnyCodable]
+
+    public init(
+        id: String,
+        flowid: String,
+        ownerkey: String,
+        revision: Int,
+        controllerid: String?,
+        requesterorigin: AnyCodable?,
+        status: TaskFlowStatus,
+        notifypolicy: AnyCodable,
+        goal: String,
+        currentstep: String?,
+        blockedtaskid: String?,
+        blockedsummary: String?,
+        phase: String?,
+        missionid: String?,
+        goalversion: Int?,
+        workeragentid: String?,
+        workersessionkey: String?,
+        turncount: Int?,
+        activationcount: Int?,
+        consecutivefailures: Int?,
+        nextaction: String?,
+        lastresult: String?,
+        lasterror: String?,
+        retryat: AnyCodable?,
+        lease: PursueGoalLease?,
+        judgereceipt: PursueGoalJudgeReceipt?,
+        events: [ExecutionEvent]?,
+        cancelrequestedat: AnyCodable?,
+        createdat: AnyCodable,
+        updatedat: AnyCodable,
+        endedat: AnyCodable?,
+        tasks: [TaskSummary],
+        tasksummary: [String: AnyCodable])
+    {
+        self.id = id
+        self.flowid = flowid
+        self.ownerkey = ownerkey
+        self.revision = revision
+        self.controllerid = controllerid
+        self.requesterorigin = requesterorigin
+        self.status = status
+        self.notifypolicy = notifypolicy
+        self.goal = goal
+        self.currentstep = currentstep
+        self.blockedtaskid = blockedtaskid
+        self.blockedsummary = blockedsummary
+        self.phase = phase
+        self.missionid = missionid
+        self.goalversion = goalversion
+        self.workeragentid = workeragentid
+        self.workersessionkey = workersessionkey
+        self.turncount = turncount
+        self.activationcount = activationcount
+        self.consecutivefailures = consecutivefailures
+        self.nextaction = nextaction
+        self.lastresult = lastresult
+        self.lasterror = lasterror
+        self.retryat = retryat
+        self.lease = lease
+        self.judgereceipt = judgereceipt
+        self.events = events
+        self.cancelrequestedat = cancelrequestedat
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.endedat = endedat
+        self.tasks = tasks
+        self.tasksummary = tasksummary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case flowid = "flowId"
+        case ownerkey = "ownerKey"
+        case revision
+        case controllerid = "controllerId"
+        case requesterorigin = "requesterOrigin"
+        case status
+        case notifypolicy = "notifyPolicy"
+        case goal
+        case currentstep = "currentStep"
+        case blockedtaskid = "blockedTaskId"
+        case blockedsummary = "blockedSummary"
+        case phase
+        case missionid = "missionId"
+        case goalversion = "goalVersion"
+        case workeragentid = "workerAgentId"
+        case workersessionkey = "workerSessionKey"
+        case turncount = "turnCount"
+        case activationcount = "activationCount"
+        case consecutivefailures = "consecutiveFailures"
+        case nextaction = "nextAction"
+        case lastresult = "lastResult"
+        case lasterror = "lastError"
+        case retryat = "retryAt"
+        case lease
+        case judgereceipt = "judgeReceipt"
+        case events
+        case cancelrequestedat = "cancelRequestedAt"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case endedat = "endedAt"
+        case tasks
+        case tasksummary = "taskSummary"
     }
 }
 
@@ -5391,21 +6392,25 @@ public struct TaskFlowsCreateParams: Codable, Sendable {
     public let sessionkey: String
     public let goal: String
     public let currentstep: String?
+    public let idempotencykey: String?
 
     public init(
         sessionkey: String,
         goal: String,
-        currentstep: String?)
+        currentstep: String?,
+        idempotencykey: String?)
     {
         self.sessionkey = sessionkey
         self.goal = goal
         self.currentstep = currentstep
+        self.idempotencykey = idempotencykey
     }
 
     private enum CodingKeys: String, CodingKey {
         case sessionkey = "sessionKey"
         case goal
         case currentstep = "currentStep"
+        case idempotencykey = "idempotencyKey"
     }
 }
 
@@ -5466,6 +6471,170 @@ public struct TaskFlowsCancelResult: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case found
         case cancelled
+        case reason
+        case flow
+    }
+}
+
+public struct TaskFlowsPauseParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct TaskFlowsResumeParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct TaskFlowsEditParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+    public let goal: String
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?,
+        goal: String)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+        self.goal = goal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+        case goal
+    }
+}
+
+public struct TaskFlowsRetryParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct TaskFlowsStopParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+    public let reason: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?,
+        reason: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+        self.reason = reason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+        case reason
+    }
+}
+
+public struct TaskFlowMutationResult: Codable, Sendable {
+    public let found: Bool
+    public let applied: Bool
+    public let reason: String?
+    public let flow: TaskFlowDetail?
+
+    public init(
+        found: Bool,
+        applied: Bool,
+        reason: String?,
+        flow: TaskFlowDetail?)
+    {
+        self.found = found
+        self.applied = applied
+        self.reason = reason
+        self.flow = flow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case found
+        case applied
         case reason
         case flow
     }
@@ -12150,6 +13319,7 @@ public struct ChatSendParams: Codable, Sendable {
     public let fastmodevalue: AnyCodable?
     public var fastmode: Bool? { fastmodevalue?.value as? Bool }
     public let fastautoonseconds: Int?
+    public let turnmode: ChatTurnMode?
     public let deliver: Bool?
     public let originatingchannel: String?
     public let originatingto: String?
@@ -12172,6 +13342,7 @@ public struct ChatSendParams: Codable, Sendable {
         thinking: String?,
         fastmodevalue: AnyCodable?,
         fastautoonseconds: Int?,
+        turnmode: ChatTurnMode?,
         deliver: Bool?,
         originatingchannel: String?,
         originatingto: String?,
@@ -12193,6 +13364,7 @@ public struct ChatSendParams: Codable, Sendable {
         self.thinking = thinking
         self.fastmodevalue = fastmodevalue
         self.fastautoonseconds = fastautoonseconds
+        self.turnmode = turnmode
         self.deliver = deliver
         self.originatingchannel = originatingchannel
         self.originatingto = originatingto
@@ -12215,6 +13387,7 @@ public struct ChatSendParams: Codable, Sendable {
         message: String,
         thinking: String?,
         fastmode: Bool?,
+        turnmode: ChatTurnMode?,
         deliver: Bool?,
         originatingchannel: String?,
         originatingto: String?,
@@ -12237,6 +13410,7 @@ public struct ChatSendParams: Codable, Sendable {
             thinking: thinking,
             fastmodevalue: fastmode.map { AnyCodable($0) },
             fastautoonseconds: nil,
+            turnmode: turnmode,
             deliver: deliver,
             originatingchannel: originatingchannel,
             originatingto: originatingto,
@@ -12260,6 +13434,7 @@ public struct ChatSendParams: Codable, Sendable {
         case thinking
         case fastmodevalue = "fastMode"
         case fastautoonseconds = "fastAutoOnSeconds"
+        case turnmode = "turnMode"
         case deliver
         case originatingchannel = "originatingChannel"
         case originatingto = "originatingTo"

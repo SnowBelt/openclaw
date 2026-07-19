@@ -177,12 +177,12 @@ function createProps(overrides: Partial<AgentsProps> = {}): AgentsProps {
 }
 
 describe("renderAgents", () => {
-  it("renders the Self-Improvement panel from the Agents tab", () => {
+  it("renders the System Quality panel from the Agents tab", () => {
     const container = document.createElement("div");
     render(renderAgents(createProps({ activePanel: "self-improvement" })), container);
 
-    expectAgentTab(container, "Self-Improvement");
-    expect(container.textContent).toContain("Self-Improvement Recommendations");
+    expectAgentTab(container, "System Quality");
+    expect(container.textContent).toContain("Self-Improvement Governor · Judge · Canary");
   });
 
   it("submits dashboard intervention evidence and renders measured proof receipts", () => {
@@ -505,7 +505,7 @@ describe("renderAgents", () => {
         "技能",
         "频道",
         "Cron Jobs",
-        "Self-Improvement",
+        "System Quality",
       ]);
       const cards = container.querySelectorAll("section.card");
       expect(cards[1]?.querySelector(".muted")?.textContent?.trim()).toBe("上次刷新：从未");

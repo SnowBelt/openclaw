@@ -1312,8 +1312,10 @@ export function renderSelfImprovementPanel(props: SelfImprovementPanelProps) {
     <section class="agent-self-improvement-panel">
       <div class="agent-panel-heading">
         <div>
-          <div class="agent-panel-kicker">Self-Improvement Governor</div>
-          <h2>Self-Improvement Recommendations</h2>
+          <div class="agent-panel-kicker">
+            Self-Improvement Governor · Judge · Canary · Reliability
+          </div>
+          <h2>System Quality</h2>
           <p>
             ${props.total} active recommendation${props.total === 1 ? "" : "s"} | last scan
             ${formatTime(props.lastScan?.scannedAt)}

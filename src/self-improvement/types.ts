@@ -1,3 +1,6 @@
+import type { ControlDirectorJourneyClosure } from "./control-director-closure.types.js";
+import type { ControlDirectorJourneySignalCode } from "./control-director-journeys.js";
+
 export type SelfImprovementRecommendationStatus =
   | "open"
   | "acknowledged"
@@ -67,6 +70,8 @@ export type SelfImprovementRecommendationSource = {
   sessionKey?: string;
   cronJobId?: string;
   proposalId?: string;
+  /** Typed Control Director journey identity; absent for generic SIG evidence. */
+  signalCode?: ControlDirectorJourneySignalCode;
 };
 
 export type SelfImprovementRecommendationRoute = {
@@ -222,6 +227,7 @@ export type SelfImprovementRecommendation = {
   proofOutcomeState?: SelfImprovementOutcomeProofState;
   dismissalReason?: string;
   reopenReason?: string;
+  controlDirectorClosure?: ControlDirectorJourneyClosure;
   evidence: string[];
   observedEvidenceKeys?: string[];
   lastNovelEvidenceAt?: number;

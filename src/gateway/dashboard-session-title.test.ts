@@ -11,6 +11,7 @@ vi.mock("../config/sessions/session-accessor.js", () => ({ updateSessionEntry })
 
 import type { SessionEntry } from "../config/sessions/types.js";
 import {
+  deriveDashboardSessionTitle,
   maybeGenerateDashboardSessionTitle,
   normalizeDashboardSessionTitle,
 } from "./dashboard-session-title.js";
@@ -52,6 +53,15 @@ describe("normalizeDashboardSessionTitle", () => {
   });
 });
 
+describe("deriveDashboardSessionTitle", () => {
+  it("creates a bounded meaningful title without a model", () => {
+    expect(deriveDashboardSessionTitle("Please help me plan the Kalshi data pipeline today")).toBe(
+      "plan the Kalshi data pipeline today",
+    );
+    expect(deriveDashboardSessionTitle("https://example.com <b></b>")).toBe("New chat");
+  });
+});
+
 describe("maybeGenerateDashboardSessionTitle", () => {
   beforeEach(() => {
     generateConversationLabel.mockReset();
@@ -84,6 +94,29 @@ describe("maybeGenerateDashboardSessionTitle", () => {
     expect(await update?.({ ...baseEntry })).toEqual({
       displayName: "Release Planning",
     });
+  });
+
+  it("persists a deterministic fallback when the title model fails", async () => {
+    generateConversationLabel.mockRejectedValueOnce(new Error("model unavailable"));
+
+    await expect(maybeGenerateDashboardSessionTitle(titleParams())).resolves.toBe(true);
+    const update = updateSessionEntry.mock.calls[0]?.[1];
+    expect(await update?.({ ...baseEntry })).toEqual({ displayName: "plan the release" });
+  });
+
+  it("uses the immediate deterministic title for the Control Director without model contention", async () => {
+    await expect(
+      maybeGenerateDashboardSessionTitle({
+        ...titleParams(),
+        cfg: {
+          agents: { list: [{ id: "main", role: "control_director" as const }] },
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(generateConversationLabel).not.toHaveBeenCalled();
+    const update = updateSessionEntry.mock.calls[0]?.[1];
+    expect(await update?.({ ...baseEntry })).toEqual({ displayName: "plan the release" });
   });
 
   it("keeps utility title prompt input on a UTF-16 boundary", async () => {

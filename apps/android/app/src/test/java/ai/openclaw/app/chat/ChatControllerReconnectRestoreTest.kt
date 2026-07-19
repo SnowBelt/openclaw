@@ -31,6 +31,63 @@ class ChatControllerReconnectRestoreTest {
 
   @Test
   @OptIn(ExperimentalCoroutinesApi::class)
+  fun taskFlowEventCoalescesCanonicalChatRefreshForCurrentSession() =
+    runTest {
+      val gateway = ScriptedGateway(json)
+      gateway.respondWith("chat.history", historyResponse("session-1", listOf(userTurn)))
+      val controller = newController(gateway)
+      controller.load("main")
+      runCurrent()
+      val historyCallsAfterLoad = gateway.callCount("chat.history")
+      val sessionsCallsAfterLoad = gateway.callCount("sessions.list")
+
+      gateway.respondWith(
+        "chat.history",
+        historyResponse(
+          "session-1",
+          listOf(userTurn, ReplayHistoryMessage("assistant", "goal progress", 2_000)),
+        ),
+      )
+      repeat(2) {
+        controller.handleGatewayEvent(
+          "taskFlow",
+          """{"action":"upserted","flowId":"flow-1","ownerKey":"agent:main:main","status":"running"}""",
+        )
+      }
+      advanceTimeBy(75)
+      runCurrent()
+
+      assertEquals(historyCallsAfterLoad + 1, gateway.callCount("chat.history"))
+      assertEquals(sessionsCallsAfterLoad + 1, gateway.callCount("sessions.list"))
+      assertEquals(
+        listOf("keep working", "goal progress"),
+        controller.messages.value.map { it.content.single().text },
+      )
+    }
+
+  @Test
+  @OptIn(ExperimentalCoroutinesApi::class)
+  fun taskFlowEventIgnoresAnotherSession() =
+    runTest {
+      val gateway = ScriptedGateway(json)
+      gateway.respondWith("chat.history", historyResponse("session-1", listOf(userTurn)))
+      val controller = newController(gateway)
+      controller.load("main")
+      runCurrent()
+      val historyCallsAfterLoad = gateway.callCount("chat.history")
+
+      controller.handleGatewayEvent(
+        "taskFlow",
+        """{"action":"upserted","flowId":"flow-2","ownerKey":"agent:main:other","status":"running"}""",
+      )
+      advanceTimeBy(100)
+      runCurrent()
+
+      assertEquals(historyCallsAfterLoad, gateway.callCount("chat.history"))
+    }
+
+  @Test
+  @OptIn(ExperimentalCoroutinesApi::class)
   fun reconnectAdoptsInFlightRunAndConsumesLiveEvents() =
     runTest {
       val gateway = ScriptedGateway(json)

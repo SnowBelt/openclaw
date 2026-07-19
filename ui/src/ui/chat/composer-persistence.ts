@@ -187,6 +187,11 @@ function normalizeSkillWorkshopRevision(
 }
 
 function serializeQueueItem(item: ChatQueueItem): ChatQueueItem | null {
+  // Durable inbox turns are restored from the Gateway. Keeping a second
+  // browser-owned copy would duplicate them after reconnect or device change.
+  if (item.serverTurnId) {
+    return null;
+  }
   const id = normalizeOptionalString(item.id);
   const text = typeof item.text === "string" ? item.text : "";
   if (!id || (!text.trim() && !item.attachments?.length)) {

@@ -270,7 +270,7 @@ export function buildSeedRecommendation(now: number): SelfImprovementRecommendat
     recommendedAction:
       "Confirm the Self-Improvement dashboard renders the recommendation card, scorecard, proposals, and deterministic analysis metadata.",
     requiredEvidence: [
-      "Self-Improvement Recommendations heading rendered.",
+      "System Quality heading rendered.",
       "Last analysis metadata rendered after a deterministic analysis run.",
       "Proposal Queue rendered from the seeded recommendation.",
     ],
@@ -785,9 +785,9 @@ async function runSelfImprovementFlow(page: Page, artifactDir: string) {
   const screenshots: string[] = [];
   const snapshots: SelfImprovementSmokeSnapshot[] = [];
   await waitForAgentsTab(page);
-  const tab = page.locator("button.agent-tab", { hasText: "Self-Improvement" });
+  const tab = page.locator("button.agent-tab", { hasText: "System Quality" });
   await tab.first().click({ timeout: 20_000 });
-  await page.getByRole("heading", { name: "Self-Improvement Recommendations" }).waitFor({
+  await page.getByRole("heading", { name: "System Quality" }).waitFor({
     timeout: 30_000,
   });
   await page.waitForFunction(

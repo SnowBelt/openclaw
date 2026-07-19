@@ -33,6 +33,34 @@ const SYSTEM_EVENT_QUEUES_KEY = Symbol.for("openclaw.systemEvents.queues");
 
 const queues = resolveGlobalMap<string, SessionQueue>(SYSTEM_EVENT_QUEUES_KEY);
 
+export type SystemEventConsumptionListener = (params: {
+  sessionKey: string;
+  events: readonly SystemEvent[];
+}) => void;
+
+const consumptionListeners = new Set<SystemEventConsumptionListener>();
+
+/** Observe prompt consumption without coupling the generic queue to a controller. */
+export function registerSystemEventConsumptionListener(
+  listener: SystemEventConsumptionListener,
+): () => void {
+  consumptionListeners.add(listener);
+  return () => consumptionListeners.delete(listener);
+}
+
+function notifySystemEventConsumption(sessionKey: string, events: readonly SystemEvent[]): void {
+  if (events.length === 0) {
+    return;
+  }
+  for (const listener of consumptionListeners) {
+    try {
+      listener({ sessionKey, events: events.map(cloneSystemEvent) });
+    } catch {
+      // Consumption observers are bookkeeping only and may never block a prompt.
+    }
+  }
+}
+
 type SystemEventOptions = {
   sessionKey: string;
   contextKey?: string | null;
@@ -136,6 +164,19 @@ export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
   return enqueueSystemEventEntry(text, options) !== null;
 }
 
+/** Check durable-controller dedupe state without consuming the queued event. */
+export function hasQueuedSystemEventContext(sessionKey: string, contextKey: string): boolean {
+  const normalized = normalizeContextKey(contextKey);
+  if (normalized === null) {
+    return false;
+  }
+  return Boolean(
+    getSessionQueue(sessionKey)?.queue.some(
+      (event) => normalizeContextKey(event.contextKey) === normalized,
+    ),
+  );
+}
+
 export function drainSystemEventEntries(sessionKey: string): SystemEvent[] {
   const key = requireSessionKey(sessionKey);
   const entry = getSessionQueue(key);
@@ -212,6 +253,7 @@ export function consumeSystemEventEntries(
   }
   const removed = entry.queue.splice(0, consumedEntries.length).map(cloneSystemEvent);
   resetQueueState(key, entry);
+  notifySystemEventConsumption(key, removed);
   return removed;
 }
 
@@ -236,6 +278,7 @@ export function consumeSelectedSystemEventEntries(
     }
   }
   resetQueueState(key, entry);
+  notifySystemEventConsumption(key, removed);
   return removed;
 }
 
@@ -267,4 +310,5 @@ export function resolveSystemEventDeliveryContext(
 
 export function resetSystemEventsForTest() {
   queues.clear();
+  consumptionListeners.clear();
 }

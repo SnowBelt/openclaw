@@ -68,6 +68,21 @@ describe("active-memory manifest config schema", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts the dedicated fail-fast Control Director timeout", () => {
+    const result = validateJsonSchemaValue({
+      schema: manifest.configSchema,
+      cacheKey: "active-memory.manifest.control-director-timeout",
+      value: {
+        enabled: true,
+        agents: ["director"],
+        timeoutMs: 15_000,
+        controlDirectorTimeoutMs: 2_000,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
   it("accepts setupGraceTimeoutMs values at the runtime ceiling", () => {
     const result = validateJsonSchemaValue({
       schema: manifest.configSchema,

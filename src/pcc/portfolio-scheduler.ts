@@ -20,6 +20,7 @@ export type PccPortfolioResourceSnapshot = {
   availableRamGb: number;
   maxParallelProjects: number;
   memoryPressure: "low" | "medium" | "high";
+  thermalPressure: "nominal" | "fair" | "serious" | "critical" | "unknown";
   activeLocalModelProcesses: number;
   activeOpenClawTasks: number;
   activeCodexNeededTasks: number;
@@ -66,6 +67,7 @@ const DEFAULT_RESOURCES: PccPortfolioResourceSnapshot = {
   availableRamGb: 64,
   maxParallelProjects: 2,
   memoryPressure: "low",
+  thermalPressure: "nominal",
   activeLocalModelProcesses: 0,
   activeOpenClawTasks: 0,
   activeCodexNeededTasks: 0,
@@ -128,13 +130,15 @@ function normalizeResources(
     ? resources.activeWorkspaceLocks.filter((lock): lock is string => typeof lock === "string")
     : DEFAULT_RESOURCES.activeWorkspaceLocks;
   const maxParallelProjects =
-    merged.memoryPressure === "high"
+    merged.memoryPressure === "high" || merged.thermalPressure === "critical"
       ? 0
-      : merged.policyMode === "one_at_a_time"
+      : merged.thermalPressure === "serious"
         ? Math.min(1, merged.maxParallelProjects)
-        : merged.policyMode === "as_many_as_safe"
-          ? Math.max(merged.maxParallelProjects, 2)
-          : merged.maxParallelProjects;
+        : merged.policyMode === "one_at_a_time"
+          ? Math.min(1, merged.maxParallelProjects)
+          : merged.policyMode === "as_many_as_safe"
+            ? Math.max(merged.maxParallelProjects, 2)
+            : merged.maxParallelProjects;
   return { ...merged, activeWorkspaceLocks, maxParallelProjects };
 }
 
@@ -176,6 +180,16 @@ export function buildPccPortfolioSchedule(
     );
 
   for (const entry of candidates) {
+    if (resources.thermalPressure === "critical") {
+      resourceLimited.push({
+        projectId: entry.project.id,
+        projectTitle: entry.project.title,
+        title: entry.project.title,
+        reason: "Host thermal pressure is critical; new project starts are paused.",
+        kind: "thermal_pressure",
+      });
+      continue;
+    }
     if (resources.memoryPressure === "high") {
       resourceLimited.push({
         projectId: entry.project.id,

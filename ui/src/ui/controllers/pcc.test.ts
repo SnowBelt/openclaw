@@ -243,6 +243,7 @@ const teamCapacity = {
   load5: 1,
   load15: 1,
   memoryPressure: "low" as const,
+  thermalPressure: "nominal" as const,
   activeOpenClawTaskCount: 0,
   configuredSubagentLimit: 4,
   observedLocalModelProcessCount: 0,

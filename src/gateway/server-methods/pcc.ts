@@ -26,7 +26,7 @@ import {
   validatePccReceiptsAddParams,
   validatePccSummaryGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
-import { resolveSubagentMaxConcurrent } from "../../config/agent-limits.js";
+import { assessControlDirectorResourceAdmission } from "../../agents/control-director-resource-admission.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { evaluatePccCapabilityEvidence } from "../../pcc/capability-evidence.js";
 import {
@@ -34,7 +34,6 @@ import {
   isPccSkippedStatus,
   pccSubMilestonesAreComplete,
 } from "../../pcc/domain/completion-policy.js";
-import { collectPccExecutionCapacitySnapshot } from "../../pcc/execution-capacity.js";
 import {
   closePccLedgerStorageForTest,
   pccLedgerJsonPath as ledgerPath,
@@ -111,16 +110,13 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function readPccExecutionCapacity(config: OpenClawConfig) {
-  const activeOpenClawTaskCount = listTaskRecords().filter(
-    (task) => task.status === "queued" || task.status === "running",
-  ).length;
-  return collectPccExecutionCapacitySnapshot({
-    activeOpenClawTaskCount,
-    configuredSubagentLimit: resolveSubagentMaxConcurrent(config),
-    // OpenClaw has no portable process-level local-model registry yet. Do not guess.
-    observedLocalModelProcessCount: 0,
-  });
+async function readPccExecutionCapacity(config: OpenClawConfig) {
+  return (
+    await assessControlDirectorResourceAdmission({
+      config,
+      tasks: listTaskRecords(),
+    })
+  ).capacity;
 }
 
 function slugify(value: string): string {
@@ -1897,7 +1893,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.summary.get": ({ params, respond, context }) => {
+  "pcc.summary.get": async ({ params, respond, context }) => {
     if (!validatePccSummaryGetParams(params)) {
       respondInvalid(respond, "pcc.summary.get", validatePccSummaryGetParams.errors);
       return;
@@ -1905,7 +1901,7 @@ export const pccHandlers: GatewayRequestHandlers = {
     try {
       const ledger = readLedger();
       const index = buildPccLedgerReadIndex(ledger);
-      const executionCapacity = readPccExecutionCapacity(context.getRuntimeConfig());
+      const executionCapacity = await readPccExecutionCapacity(context.getRuntimeConfig());
       if (params.projectId) {
         const project = projectOrError(ledger, params.projectId);
         if (!project) {
@@ -1942,4 +1938,5 @@ export const pccTesting = {
   readLedger,
   summarizeProject,
   summarizePortfolio,
+  readExecutionCapacity: readPccExecutionCapacity,
 };

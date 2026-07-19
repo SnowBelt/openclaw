@@ -18,6 +18,14 @@ export type ChatQueueItem = {
   text: string;
   createdAt: number;
   kind?: "queued" | "steered";
+  /** Durable server-owned turn id. Absent for local commands and immediate sends. */
+  serverTurnId?: string;
+  serverRevision?: number;
+  serverPhase?: "pending" | "dispatching" | "admitted" | "delivered" | "failed" | "cancelled";
+  serverActivitySummary?: string;
+  serverLastActivityAt?: number;
+  serverAdmissionOpen?: boolean;
+  serverAttachmentCount?: number;
   attachments?: ChatAttachment[];
   refreshSessions?: boolean;
   localCommandArgs?: string;

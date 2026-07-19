@@ -145,6 +145,8 @@ public final class OpenClawChatViewModel {
     private nonisolated(unsafe) var eventTask: Task<Void, Never>?
     @ObservationIgnored
     private nonisolated(unsafe) var bootstrapTask: Task<Void, Never>?
+    @ObservationIgnored
+    private nonisolated(unsafe) var taskFlowRefreshTask: Task<Void, Never>?
     private var runOwnershipGeneration: UInt64 = 0
     private var latestAppliedRunSnapshotRequestID: UInt64 = 0
     private var isApplyingRunSnapshot = false
@@ -319,6 +321,7 @@ public final class OpenClawChatViewModel {
     deinit {
         self.eventTask?.cancel()
         self.bootstrapTask?.cancel()
+        self.taskFlowRefreshTask?.cancel()
         self.outboxRetryTask?.cancel()
         self.outboxChangesTask?.cancel()
         for (_, task) in self.pendingRunTimeoutTasks {
@@ -2149,6 +2152,8 @@ public final class OpenClawChatViewModel {
             self.handleSessionMessageEvent(message)
         case let .agent(agent):
             self.handleAgentEvent(agent)
+        case let .taskFlow(taskFlow):
+            self.handleTaskFlowEvent(taskFlow)
         case .seqGap:
             self.errorText = nil
             self.invalidateHistorySnapshots()
@@ -2161,6 +2166,28 @@ public final class OpenClawChatViewModel {
                 await self.refreshHistoryAfterRun(historyRequest: context)
                 await self.pollHealthIfNeeded(force: true, sessionSnapshot: context.session)
             }
+        }
+    }
+
+    private func handleTaskFlowEvent(_ payload: OpenClawTaskFlowEventPayload) {
+        if let ownerKey = payload.ownerKey,
+           !self.matchesCurrentSessionKey(incoming: ownerKey, current: self.sessionKey)
+        {
+            return
+        }
+
+        // Goal updates can arrive in bursts as a worker changes steps. Coalesce
+        // them, then refresh canonical chat and session metadata without
+        // disturbing an in-flight chat run.
+        self.taskFlowRefreshTask?.cancel()
+        let session = self.currentSessionSnapshot()
+        self.taskFlowRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 75_000_000)
+            guard !Task.isCancelled, let self, self.isCurrentSession(session) else { return }
+            self.invalidateHistorySnapshots()
+            let historyRequest = self.beginHistoryRequest(for: session)
+            _ = await self.refreshHistoryAfterRun(historyRequest: historyRequest)
+            await self.fetchSessions(limit: 50, sessionSnapshot: session)
         }
     }
 

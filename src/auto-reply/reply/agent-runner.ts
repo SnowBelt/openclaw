@@ -10,6 +10,7 @@ import {
 } from "../../agents/agent-scope.js";
 import { resolveContextTokensForModel } from "../../agents/context.js";
 import { applyControlDirectorDeliveryGuards } from "../../agents/control-director-delivery-guards.js";
+import { isConfiguredControlDirectorAgent } from "../../agents/control-director-role.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { isLikelyContextOverflowError } from "../../agents/embedded-agent-helpers/errors.js";
 import {
@@ -1835,6 +1836,10 @@ export async function runReplyAgent(params: {
           : undefined;
     const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
       agentId: followupRun.run.agentId,
+      controlDirectorScope: isConfiguredControlDirectorAgent({
+        config: cfg,
+        agentId: followupRun.run.agentId,
+      }),
       provider: runResult.meta?.agentMeta?.provider,
       model: runResult.meta?.agentMeta?.model,
       payloads: payloadArray,

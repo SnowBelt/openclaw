@@ -1817,6 +1817,44 @@
   text-transform: uppercase;
 }
 
+.pcc-runtime-projection {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.pcc-runtime-projection .pcc-section-heading p {
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.pcc-runtime-projection__summary {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.pcc-runtime-projection__items {
+  display: grid;
+  gap: 8px;
+}
+
+.pcc-runtime-projection__items article {
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.pcc-runtime-projection__items article span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
 .pcc-current-truth,
 .pcc-production-truth,
 .pcc-ready-queue article,

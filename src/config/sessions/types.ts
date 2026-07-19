@@ -304,9 +304,28 @@ export type SessionControlDirectorProviderRequestAuditEntry = {
 };
 
 export type SessionControlDirectorMissionLedgerEntry = {
+  schemaVersion?: 1;
   missionId: string;
   runId?: string;
   requestSummary: string;
+  /** Full bounded request retained across compaction and recovery. */
+  requestBody?: string;
+  requestHash?: string;
+  responseMode?:
+    | "conversation"
+    | "answer"
+    | "plan"
+    | "execute"
+    | "status"
+    | "steer"
+    | "queue"
+    | "goal";
+  idempotencyKey?: string;
+  acceptanceCriteria?: string[];
+  scope?: string[];
+  approvals?: string[];
+  provenance?: string[];
+  artifactIds?: string[];
   status:
     | "running"
     | "complete"

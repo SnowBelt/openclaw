@@ -107,6 +107,7 @@ import { resolveAgentRunContext } from "./command/run-context.js";
 import { clearRotatedSessionMetadata, resolveSession } from "./command/session.js";
 import type { AgentCommandIngressOpts, AgentCommandOpts } from "./command/types.js";
 import { applyControlDirectorDeliveryGuards } from "./control-director-delivery-guards.js";
+import { isConfiguredControlDirectorAgent } from "./control-director-role.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import {
   classifyEmbeddedAgentRunResultForModelFallback,
@@ -1300,6 +1301,10 @@ async function agentCommandInternal(
         );
         const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
           agentId: sessionAgentId,
+          controlDirectorScope: isConfiguredControlDirectorAgent({
+            config: cfg,
+            agentId: sessionAgentId,
+          }),
           payloads: result.payloads,
           finalAssistantVisibleText: finalText,
           classification: finalText.trim() ? undefined : "empty",
@@ -2582,6 +2587,10 @@ async function agentCommandInternal(
         let payloads = result.payloads ?? [];
         const controlDirectorGuardResult = await applyControlDirectorDeliveryGuards({
           agentId: sessionAgentId,
+          controlDirectorScope: isConfiguredControlDirectorAgent({
+            config: cfg,
+            agentId: sessionAgentId,
+          }),
           provider: result.meta.agentMeta?.provider ?? provider,
           model: result.meta.agentMeta?.model ?? model,
           payloads,

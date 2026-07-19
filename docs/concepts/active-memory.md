@@ -34,6 +34,7 @@ direct-message sessions only, model inherited from the session.
           queryMode: "recent",
           promptStyle: "balanced",
           timeoutMs: 15000,
+          controlDirectorTimeoutMs: 2000,
           maxSummaryChars: 220,
           persistTranscripts: false,
           logging: true,
@@ -68,6 +69,8 @@ What the key fields do:
 - `config.model` (optional) pins a dedicated recall model; unset inherits the current session model
 - `config.modelFallback` is used only when no explicit or inherited model resolves
 - `config.promptStyle: "balanced"` is the default for `recent` mode
+- `config.controlDirectorTimeoutMs` is a fail-fast model-backed recall budget used only when the configured agent has `role: "control_director"`; it defaults to `2000` ms while other agents retain `timeoutMs`
+- Control Director ordinary turns skip model-backed Active Memory because core injects bounded hot recent task/session state before the first reply. Explicit recall prompts (for example, “what did Codex do yesterday?”) still use Active Memory for deeper retrieval. Other agents retain their existing behavior.
 - active memory still runs only for eligible interactive persistent chat sessions (see [When it runs](#when-it-runs))
 
 ## How it works
@@ -104,6 +107,12 @@ more than raw prompt determinism: stable preferences, recurring habits,
 long-term context that should surface naturally. It is a poor fit for
 automation, internal workers, one-shot API tasks, or anywhere hidden
 personalization would be surprising.
+
+For a [Control Director](/concepts/control-director), active memory is deliberately
+fail-fast. The role-specific budget prevents a slow memory sub-agent from holding
+the first visible reply for the general `timeoutMs` window. A timeout or empty
+recall continues the primary reply without injected memory; it does not turn a
+recent-memory miss into a silent Chat turn.
 
 ## When it runs
 

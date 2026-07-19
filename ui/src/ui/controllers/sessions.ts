@@ -312,6 +312,8 @@ const SESSION_EVENT_ROW_FIELDS = [
   "model",
   "modelProvider",
   "outputTokens",
+  "pinned",
+  "pinnedAt",
   "reasoningLevel",
   "runtimeMs",
   "sessionId",
@@ -1202,6 +1204,7 @@ export async function patchSession(
   key: string,
   patch: {
     label?: string | null;
+    pinned?: boolean;
     thinkingLevel?: string | null;
     fastMode?: FastMode | null;
     verboseLevel?: string | null;
@@ -1217,6 +1220,7 @@ export async function patchSession(
   };
   for (const field of [
     "label",
+    "pinned",
     "thinkingLevel",
     "fastMode",
     "verboseLevel",

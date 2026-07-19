@@ -2019,9 +2019,14 @@ export async function runEmbeddedAttempt(
       (isRawModelRun ? "none" : resolvePromptModeForSession(params.sessionKey));
     const promptSurface = resolveAgentPromptSurfaceForSessionKey(params.sessionKey);
 
-    // When toolsAllow is set, use minimal prompt and strip skills catalog
+    // Narrow ad-hoc runs strip the skills catalog. A trusted policy compiler may
+    // retain it so the model can still discover role-aligned workflows while
+    // tool enforcement remains fail-closed at the runtime boundary.
     const effectivePromptMode = params.toolsAllow?.length ? ("minimal" as const) : promptMode;
-    const effectiveSkillsPrompt = params.toolsAllow?.length ? undefined : skillsPrompt;
+    const effectiveSkillsPrompt =
+      params.toolsAllow?.length && params.retainSkillsWithToolsAllow !== true
+        ? undefined
+        : skillsPrompt;
     const openClawReferences = await resolveOpenClawReferencePaths({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],

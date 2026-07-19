@@ -40,6 +40,7 @@ import { tempWorkspace, resolvePreferredOpenClawTmpDir } from "openclaw/plugin-s
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_CONTROL_DIRECTOR_TIMEOUT_MS = 2_000;
 const DEFAULT_AGENT_ID = "main";
 const DEFAULT_MAX_SUMMARY_CHARS = 220;
 const DEFAULT_RECENT_USER_TURNS = 2;
@@ -181,6 +182,7 @@ type ActiveRecallPluginConfig = {
   promptOverride?: string;
   promptAppend?: string;
   timeoutMs?: number;
+  controlDirectorTimeoutMs?: number;
   setupGraceTimeoutMs?: number;
   queryMode?: "message" | "recent" | "full";
   maxSummaryChars?: number;
@@ -222,6 +224,7 @@ type ResolvedActiveRecallPluginConfig = {
   promptOverride?: string;
   promptAppend?: string;
   timeoutMs: number;
+  controlDirectorTimeoutMs: number;
   setupGraceTimeoutMs: number;
   queryMode: "message" | "recent" | "full";
   maxSummaryChars: number;
@@ -879,6 +882,12 @@ function normalizePluginConfig(
       minimumTimeoutMs,
       MAX_TIMEOUT_MS,
     ),
+    controlDirectorTimeoutMs: clampInt(
+      parseOptionalPositiveInt(raw.controlDirectorTimeoutMs, DEFAULT_CONTROL_DIRECTOR_TIMEOUT_MS),
+      DEFAULT_CONTROL_DIRECTOR_TIMEOUT_MS,
+      minimumTimeoutMs,
+      MAX_TIMEOUT_MS,
+    ),
     setupGraceTimeoutMs: clampInt(
       raw.setupGraceTimeoutMs,
       setupGraceTimeoutMs,
@@ -919,6 +928,46 @@ function normalizePluginConfig(
       searchMode: resolveQmdSearchMode(qmd?.searchMode),
     },
   };
+}
+
+function isConfiguredControlDirectorAgent(
+  cfg: OpenClawConfig | undefined,
+  agentId: string,
+): boolean {
+  const normalizedAgentId = agentId.trim().toLowerCase();
+  if (!normalizedAgentId) {
+    return false;
+  }
+  const agents = Array.isArray(cfg?.agents?.list) ? cfg.agents.list : [];
+  const entry = agents.find(
+    (candidate) => normalizeLowercaseStringOrEmpty(candidate.id) === normalizedAgentId,
+  );
+  return normalizeLowercaseStringOrEmpty(asRecord(entry)?.role) === "control_director";
+}
+
+function configForInvocation(params: {
+  config: ResolvedActiveRecallPluginConfig;
+  cfg?: OpenClawConfig;
+  agentId: string;
+}): ResolvedActiveRecallPluginConfig {
+  return isConfiguredControlDirectorAgent(params.cfg, params.agentId)
+    ? { ...params.config, timeoutMs: params.config.controlDirectorTimeoutMs }
+    : params.config;
+}
+
+const CONTROL_DIRECTOR_EXPLICIT_RECALL_PATTERN =
+  /\b(remember|recall|yesterday|today|recent(?:ly)?|previous(?:ly)?|earlier|history|past|last\s+(?:time|night|week|session|chat)|what\s+(?:did|was|has\s+been)|codex\s+(?:did|worked|was\s+working)|pick\s+up|continue\s+from)\b/i;
+
+/** Hot recent state is injected by core; reserve model-backed recall for an explicit memory need. */
+function shouldRunControlDirectorActiveRecall(params: {
+  cfg?: OpenClawConfig;
+  agentId: string;
+  prompt: string;
+}): boolean {
+  return (
+    !isConfiguredControlDirectorAgent(params.cfg, params.agentId) ||
+    CONTROL_DIRECTOR_EXPLICIT_RECALL_PATTERN.test(params.prompt)
+  );
 }
 
 function applyActiveMemoryRuntimeConfigSnapshot(
@@ -3597,11 +3646,7 @@ export default definePluginEntry({
       "before_prompt_build",
       async (event, ctx) => {
         refreshLiveConfigFromRuntime();
-        const invocationConfig = config;
-        const liveRecallTimeoutMs =
-          invocationConfig.timeoutMs +
-          invocationConfig.setupGraceTimeoutMs +
-          HOOK_TIMEOUT_RECOVERY_GRACE_MS;
+        const baseInvocationConfig = config;
         const deadlineController = new AbortController();
         const hookDeadline = createActiveMemoryHookDeadline();
         const armHookDeadline = (timeoutMs: number, phase: "preflight" | "recall") => {
@@ -3629,6 +3674,15 @@ export default definePluginEntry({
                 : undefined);
             const effectiveAgentId =
               resolvedAgentId || resolveStatusUpdateAgentId({ sessionKey: resolvedSessionKey });
+            const invocationConfig = configForInvocation({
+              config: baseInvocationConfig,
+              cfg: api.config,
+              agentId: effectiveAgentId,
+            });
+            const liveRecallTimeoutMs =
+              invocationConfig.timeoutMs +
+              invocationConfig.setupGraceTimeoutMs +
+              HOOK_TIMEOUT_RECOVERY_GRACE_MS;
             const sessionDisabled = await isSessionActiveMemoryDisabled({
               api,
               sessionKey: resolvedSessionKey,
@@ -3643,6 +3697,20 @@ export default definePluginEntry({
               return undefined;
             }
             if (!isEnabledForAgent(invocationConfig, effectiveAgentId)) {
+              await persistPluginStatusLines({
+                api,
+                agentId: effectiveAgentId,
+                sessionKey: resolvedSessionKey,
+              });
+              return undefined;
+            }
+            if (
+              !shouldRunControlDirectorActiveRecall({
+                cfg: api.config,
+                agentId: effectiveAgentId,
+                prompt: event.prompt,
+              })
+            ) {
               await persistPluginStatusLines({
                 api,
                 agentId: effectiveAgentId,
@@ -3765,6 +3833,9 @@ const testing = {
   isCircuitBreakerOpen,
   isMissingRegisteredMemoryToolsError,
   normalizePluginConfig,
+  configForInvocation,
+  shouldRunControlDirectorActiveRecall,
+  isConfiguredControlDirectorAgent,
   readActiveMemorySearchDebug,
   readPartialAssistantText,
   shouldCacheResult,

@@ -1,6 +1,7 @@
 export type ChatGoalStatus =
   | "queued"
   | "running"
+  | "paused"
   | "waiting"
   | "blocked"
   | "succeeded"
@@ -23,15 +24,56 @@ export type ChatGoalTaskSummary = {
   judgeVerdict?: string;
 };
 
+export type ChatGoalExecutionEvent = {
+  schemaVersion: 1;
+  eventId: string;
+  sequence: number;
+  at: number;
+  flowId: string;
+  category: string;
+  name: string;
+  actorId: string;
+  summary: string;
+};
+
 export type ChatGoalFlowSummary = {
   id: string;
   flowId?: string;
   ownerKey?: string;
+  revision?: number;
+  controllerId?: string;
   status: ChatGoalStatus;
   goal: string;
   currentStep?: string;
   blockedTaskId?: string;
   blockedSummary?: string;
+  phase?: string;
+  missionId?: string;
+  goalVersion?: number;
+  workerAgentId?: string;
+  workerSessionKey?: string;
+  turnCount?: number;
+  activationCount?: number;
+  consecutiveFailures?: number;
+  nextAction?: string;
+  lastResult?: string;
+  lastError?: string;
+  retryAt?: number | string;
+  lease?: {
+    ownerId: string;
+    leaseId: string;
+    acquiredAt: number;
+    heartbeatAt: number;
+    expiresAt: number;
+  };
+  judgeReceipt?: {
+    verdict: string;
+    conditions: string;
+    evidenceSummary: string;
+    issuedAt: number;
+    signature?: string;
+  };
+  events?: ChatGoalExecutionEvent[];
   cancelRequestedAt?: number | string;
   createdAt?: number | string;
   updatedAt?: number | string;
@@ -45,7 +87,13 @@ export type ChatGoalFlowSummary = {
   };
 };
 
-const ACTIVE_GOAL_STATUSES = new Set<ChatGoalStatus>(["queued", "running", "waiting", "blocked"]);
+const ACTIVE_GOAL_STATUSES = new Set<ChatGoalStatus>([
+  "queued",
+  "running",
+  "paused",
+  "waiting",
+  "blocked",
+]);
 
 export function isActiveChatGoal(status: string | undefined): boolean {
   return ACTIVE_GOAL_STATUSES.has(status as ChatGoalStatus);
@@ -72,6 +120,8 @@ export function chatGoalStatusLabel(flow: ChatGoalFlowSummary | null | undefined
       return "Queued";
     case "running":
       return "Pursuing";
+    case "paused":
+      return "Paused";
     case "waiting":
       return "Waiting";
     case "blocked":

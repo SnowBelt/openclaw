@@ -1386,6 +1386,16 @@
   cursor: not-allowed;
 }
 
+.chat-send-btn--steer {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.chat-send-btn--steer:hover:not(:disabled) {
+  color: var(--accent-hover);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 .chat-send-btn--stop {
   background: var(--danger);
   color: var(--destructive-foreground);

@@ -1,9 +1,11 @@
 // Task gateway methods expose detached task list/get/cancel operations with
 // bounded public summaries over the runtime task registry and task-flow status.
+import { createHash } from "node:crypto";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import {
   ErrorCodes,
   errorShape,
+  type ExecutionStateSnapshot,
   formatValidationErrors,
   type TaskFlowDetail,
   type TaskFlowsListParams,
@@ -11,24 +13,61 @@ import {
   type TasksListParams,
   validateTaskFlowsCancelParams,
   validateTaskFlowsCreateParams,
+  validateTaskFlowsEditParams,
   validateTaskFlowsGetParams,
   validateTaskFlowsListParams,
+  validateTaskFlowsPauseParams,
+  validateTaskFlowsResumeParams,
+  validateTaskFlowsRetryParams,
+  validateTaskFlowsStopParams,
   validateTasksCancelParams,
   validateTasksGetParams,
   validateTasksListParams,
+  validateExecutionStateGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { resolveProgramManagerAgentId } from "../../agents/agent-scope-config.js";
+import { buildControlDirectorRuntimeMemoryState } from "../../agents/control-director-memory-runtime.js";
+import {
+  buildControlDirectorRuntimeLineage,
+  type ControlDirectorRuntimeLineage,
+} from "../../agents/control-director-runtime-lineage.js";
+import { readGatewayRuntimeSnapshotProvenance } from "../../daemon/gateway-runtime-snapshot.js";
 import { parseAgentSessionKey } from "../../routing/session-key.js";
+import { emitControlDirectorJourneySignal } from "../../self-improvement/control-director-journeys.js";
 import { cancelDetachedTaskRunById } from "../../tasks/detached-task-runtime.js";
+import {
+  createPursueGoalControllerState,
+  PURSUE_GOAL_CONTROLLER_ID,
+  stateForPursueGoalFlow,
+} from "../../tasks/pursue-goal-controller-state.js";
+import {
+  editPursueGoalFlow,
+  kickPursueGoalController,
+  pausePursueGoalFlow,
+  resumePursueGoalFlow,
+  retryPursueGoalFlow,
+  stopPursueGoalFlow,
+} from "../../tasks/pursue-goal-controller.js";
 import { getTaskById, listTaskRecords, listTasksForFlowId } from "../../tasks/runtime-internal.js";
 import { cancelFlowById } from "../../tasks/task-executor.js";
 import type { TaskFlowRecord, TaskFlowStatus } from "../../tasks/task-flow-registry.types.js";
 import {
   createManagedTaskFlow,
+  deleteTaskFlowRecordById,
   getTaskFlowById,
   listTaskFlowRecords,
+  updateFlowRecordByIdExpectedRevision,
 } from "../../tasks/task-flow-runtime-internal.js";
 import type { TaskRecord, TaskStatus } from "../../tasks/task-registry.types.js";
 import { TASK_STATUS_DETAIL_MAX_CHARS, sanitizeTaskStatusText } from "../../tasks/task-status.js";
+import { resolveRuntimeServiceVersion } from "../../version.js";
+import {
+  CHAT_TURN_INBOX_CONTROLLER_ID,
+  isTerminalChatTurnPhase,
+  listChatTurnFlows,
+  mapChatTurnSummary,
+  stateForChatTurn,
+} from "../chat-turn-inbox-state.js";
 import { mapTaskSummary, taskUpdatedAt } from "./task-summary.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
@@ -36,9 +75,62 @@ const DEFAULT_TASKS_LIST_LIMIT = 100;
 const MAX_TASKS_LIST_LIMIT = 500;
 const DEFAULT_TASK_FLOWS_LIST_LIMIT = 50;
 const MAX_TASK_FLOWS_LIST_LIMIT = 500;
-const CHAT_GOAL_CONTROLLER_ID = "control-ui-chat";
+const MAX_RUNTIME_LINEAGE_SIGNAL_AGENTS = 100;
+const runtimeLineageSignalByAgent = new Map<string, string>();
 
 type TaskLedgerStatus = TaskSummary["status"];
+
+function maybeEmitControlDirectorRuntimeLineageSignal(
+  lineage: ControlDirectorRuntimeLineage | undefined,
+): boolean {
+  if (!lineage) {
+    return false;
+  }
+  if (lineage.status === "ready") {
+    runtimeLineageSignalByAgent.delete(lineage.agentId);
+    return false;
+  }
+  const signature = createHash("sha256")
+    .update(
+      JSON.stringify({
+        sourceSha: lineage.sourceSha ?? null,
+        selectedModel: lineage.selectedModel ?? null,
+        runtimeVersion: lineage.runtimeVersion,
+        artifactHash: lineage.artifactHash ?? null,
+        blockers: lineage.blockers,
+      }),
+    )
+    .digest("hex");
+  if (runtimeLineageSignalByAgent.get(lineage.agentId) === signature) {
+    return false;
+  }
+  if (
+    !runtimeLineageSignalByAgent.has(lineage.agentId) &&
+    runtimeLineageSignalByAgent.size >= MAX_RUNTIME_LINEAGE_SIGNAL_AGENTS
+  ) {
+    const oldestAgentId = runtimeLineageSignalByAgent.keys().next().value;
+    if (typeof oldestAgentId === "string") {
+      runtimeLineageSignalByAgent.delete(oldestAgentId);
+    }
+  }
+  runtimeLineageSignalByAgent.set(lineage.agentId, signature);
+  emitControlDirectorJourneySignal({
+    code: "runtime_lineage_mismatch",
+    idempotencyKey: `${lineage.agentId}:${signature}`,
+    summary: "Control Director managed runtime lineage is blocked or inconsistent.",
+    observed: lineage.blockers.join("; ") || "Runtime lineage reported blocked without a reason.",
+    occurredAt: lineage.checkedAt,
+    evidenceRefs: [
+      `runtime-lineage:${signature}`,
+      ...(lineage.sourceSha ? [`source:${lineage.sourceSha}`] : []),
+    ],
+  });
+  return true;
+}
+
+function resetRuntimeLineageSignalStateForTests(): void {
+  runtimeLineageSignalByAgent.clear();
+}
 
 const LEDGER_STATUS_TO_TASK_STATUSES: Record<TaskLedgerStatus, TaskStatus[]> = {
   queued: ["queued"],
@@ -98,6 +190,10 @@ function flowMatchesOwner(
   return normalizeOptionalString(flow.ownerKey) === ownerKey;
 }
 
+function isPublicTaskFlow(flow: TaskFlowRecord | undefined): flow is TaskFlowRecord {
+  return Boolean(flow && flow.controllerId !== CHAT_TURN_INBOX_CONTROLLER_ID);
+}
+
 function flowMatchesStatusFilter(
   flow: TaskFlowRecord,
   status: TaskFlowsListParams["status"],
@@ -141,12 +237,15 @@ function summarizeTaskFlowTasks(tasks: TaskRecord[]): TaskFlowDetail["taskSummar
   return { total: tasks.length, active, terminal, failures };
 }
 
-function mapTaskFlowDetail(flow: TaskFlowRecord): TaskFlowDetail {
+export function mapTaskFlowDetail(flow: TaskFlowRecord): TaskFlowDetail {
   const tasks = listTasksForFlowId(flow.flowId);
+  const controllerState = stateForPursueGoalFlow(flow);
   return {
     id: flow.flowId,
     flowId: flow.flowId,
     ownerKey: flow.ownerKey,
+    revision: flow.revision,
+    ...(flow.controllerId ? { controllerId: flow.controllerId } : {}),
     ...(flow.requesterOrigin ? { requesterOrigin: flow.requesterOrigin } : {}),
     status: flow.status,
     notifyPolicy: flow.notifyPolicy,
@@ -167,12 +266,174 @@ function mapTaskFlowDetail(flow: TaskFlowRecord): TaskFlowDetail {
           }),
         }
       : {}),
+    ...(controllerState
+      ? {
+          phase: controllerState.phase,
+          missionId: controllerState.missionId,
+          goalVersion: controllerState.goalVersion,
+          workerAgentId: controllerState.workerAgentId,
+          workerSessionKey: controllerState.workerSessionKey,
+          turnCount: controllerState.turnCount,
+          activationCount: controllerState.activationCount,
+          consecutiveFailures: controllerState.consecutiveFailures,
+          ...(controllerState.nextAction
+            ? {
+                nextAction: sanitizeTaskStatusText(controllerState.nextAction, {
+                  maxChars: TASK_STATUS_DETAIL_MAX_CHARS,
+                }),
+              }
+            : {}),
+          ...(controllerState.lastResult
+            ? {
+                lastResult: sanitizeTaskStatusText(controllerState.lastResult, {
+                  maxChars: TASK_STATUS_DETAIL_MAX_CHARS,
+                }),
+              }
+            : {}),
+          ...(controllerState.lastError
+            ? {
+                lastError: sanitizeTaskStatusText(controllerState.lastError, {
+                  errorContext: true,
+                  maxChars: TASK_STATUS_DETAIL_MAX_CHARS,
+                }),
+              }
+            : {}),
+          ...(controllerState.retryAt !== undefined ? { retryAt: controllerState.retryAt } : {}),
+          ...(controllerState.lease ? { lease: controllerState.lease } : {}),
+          ...(controllerState.judgeReceipt ? { judgeReceipt: controllerState.judgeReceipt } : {}),
+          events: controllerState.events.slice(-50).map((event) =>
+            Object.assign({}, event, {
+              summary: sanitizeTaskStatusText(event.summary, {
+                maxChars: TASK_STATUS_DETAIL_MAX_CHARS,
+              }),
+            }),
+          ),
+        }
+      : {}),
     ...(flow.cancelRequestedAt !== undefined ? { cancelRequestedAt: flow.cancelRequestedAt } : {}),
     createdAt: flow.createdAt,
     updatedAt: flow.updatedAt,
     ...(flow.endedAt !== undefined ? { endedAt: flow.endedAt } : {}),
     tasks: tasks.map((task) => mapTaskSummary(task)),
     taskSummary: summarizeTaskFlowTasks(tasks),
+  };
+}
+
+function isTerminalFlowStatus(status: TaskFlowStatus): boolean {
+  return (
+    status === "succeeded" || status === "failed" || status === "cancelled" || status === "lost"
+  );
+}
+
+function buildExecutionStateSnapshot(params: {
+  sessionKey: string;
+  includeTerminal?: boolean;
+  now?: number;
+  runtimeLineage?: ExecutionStateSnapshot["runtimeLineage"];
+  memoryHealth?: ExecutionStateSnapshot["memoryHealth"];
+}): ExecutionStateSnapshot {
+  const sessionKey = params.sessionKey.trim();
+  const includeTerminal = params.includeTerminal === true;
+  const now = params.now ?? Date.now();
+  const taskRecords = listTaskRecords()
+    .filter(
+      (task) =>
+        taskMatchesSession(task, sessionKey) &&
+        (includeTerminal || isActiveTaskStatus(task.status)),
+    )
+    .toSorted((left, right) => taskUpdatedAt(right) - taskUpdatedAt(left))
+    .slice(0, 500);
+  const flowRecords = listTaskFlowRecords()
+    .filter(
+      (flow) =>
+        isPublicTaskFlow(flow) &&
+        flowMatchesOwner(flow, { sessionKey }) &&
+        (includeTerminal || !isTerminalFlowStatus(flow.status)),
+    )
+    .toSorted((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 500);
+  const turnRecords = listChatTurnFlows({ sessionKey, includeTerminal })
+    .toSorted((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 200);
+  const turns = turnRecords
+    .map((flow) => mapChatTurnSummary(flow))
+    .filter((turn): turn is NonNullable<typeof turn> => turn !== null);
+  const staleGoalCount = flowRecords.filter((flow) => {
+    const state = stateForPursueGoalFlow(flow);
+    return (
+      state?.phase === "running" &&
+      (!state.lease || state.lease.expiresAt <= now || now - state.lease.heartbeatAt > 30_000)
+    );
+  }).length;
+  const orphanedTurnCount = turnRecords.filter((flow) => {
+    const state = stateForChatTurn(flow);
+    return Boolean(
+      state &&
+      !isTerminalChatTurnPhase(state.phase) &&
+      state.phase !== "pending" &&
+      now - state.updatedAt > 30_000,
+    );
+  }).length;
+  const pendingDeliveryCount = turnRecords.filter(
+    (flow) => stateForChatTurn(flow)?.phase === "admitted",
+  ).length;
+  const lostWorkerCount = flowRecords.filter((flow) => flow.status === "lost").length;
+  const activeCount =
+    taskRecords.filter((task) => isActiveTaskStatus(task.status)).length +
+    flowRecords.filter((flow) => !isTerminalFlowStatus(flow.status)).length +
+    turns.filter((turn) => !isTerminalChatTurnPhase(turn.phase)).length;
+  const tasks = taskRecords.map((task) => mapTaskSummary(task));
+  const flows = flowRecords.map((flow) => mapTaskFlowDetail(flow));
+  const health = {
+    activeCount,
+    staleGoalCount,
+    orphanedTurnCount,
+    pendingDeliveryCount,
+    lostWorkerCount,
+    healthy:
+      staleGoalCount === 0 &&
+      orphanedTurnCount === 0 &&
+      pendingDeliveryCount === 0 &&
+      lostWorkerCount === 0,
+  };
+  // Lineage capture times prove freshness but are not execution-state content. Excluding
+  // them keeps polling clients from seeing a false revision on every snapshot request.
+  const runtimeLineageRevision = params.runtimeLineage
+    ? {
+        ...params.runtimeLineage,
+        checkedAt: 0,
+        ...(params.runtimeLineage.canary
+          ? { canary: { ...params.runtimeLineage.canary, capturedAt: 0 } }
+          : {}),
+      }
+    : undefined;
+  const memoryHealthRevision = params.memoryHealth
+    ? {
+        ...params.memoryHealth,
+        ...(params.memoryHealth.newestAgeMs === undefined ? {} : { newestAgeMs: 0 }),
+      }
+    : undefined;
+  const revisionBody = JSON.stringify({
+    schemaVersion: 1,
+    sessionKey,
+    tasks,
+    flows,
+    turns,
+    health,
+    memoryHealth: memoryHealthRevision,
+    runtimeLineage: runtimeLineageRevision,
+  });
+  return {
+    schemaVersion: 1,
+    snapshotRevision: createHash("sha256").update(revisionBody).digest("hex"),
+    generatedAt: now,
+    sessionKey,
+    tasks,
+    flows,
+    turns,
+    health,
+    ...(params.memoryHealth ? { memoryHealth: params.memoryHealth } : {}),
+    ...(params.runtimeLineage ? { runtimeLineage: params.runtimeLineage } : {}),
   };
 }
 
@@ -192,6 +453,46 @@ function parseCursor(cursor: string | undefined): number | null {
 // Control UI task methods expose the stable gateway protocol shape; helpers
 // above keep runtime registry details out of the wire result.
 export const tasksHandlers: GatewayRequestHandlers = {
+  "executionState.get": ({ params, respond, context }) => {
+    if (!validateExecutionStateGetParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid executionState.get params: ${formatValidationErrors(validateExecutionStateGetParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const agentId = parseAgentSessionKey(params.sessionKey)?.agentId;
+    const runtimeLineage = agentId
+      ? buildControlDirectorRuntimeLineage({
+          config: context.getRuntimeConfig(),
+          agentId,
+          runtimeVersion: resolveRuntimeServiceVersion(),
+          provenance: readGatewayRuntimeSnapshotProvenance({ env: process.env }),
+          expectedSourceSha: process.env.OPENCLAW_EXPECTED_SOURCE_SHA,
+        })
+      : undefined;
+    const memoryHealth =
+      agentId && runtimeLineage
+        ? buildControlDirectorRuntimeMemoryState({
+            sessionKey: params.sessionKey,
+            agentId,
+          }).health
+        : undefined;
+    maybeEmitControlDirectorRuntimeLineageSignal(runtimeLineage);
+    respond(
+      true,
+      buildExecutionStateSnapshot({
+        sessionKey: params.sessionKey,
+        includeTerminal: params.includeTerminal,
+        memoryHealth,
+        runtimeLineage,
+      }),
+    );
+  },
   "taskFlows.list": ({ params, respond }) => {
     if (!validateTaskFlowsListParams(params)) {
       respond(
@@ -218,7 +519,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
       MAX_TASK_FLOWS_LIST_LIMIT,
     );
     const filtered = listTaskFlowRecords().filter(
-      (flow) => flowMatchesOwner(flow, params) && flowMatchesStatusFilter(flow, params.status),
+      (flow) =>
+        flow.controllerId !== CHAT_TURN_INBOX_CONTROLLER_ID &&
+        flowMatchesOwner(flow, params) &&
+        flowMatchesStatusFilter(flow, params.status),
     );
     const page = filtered.slice(cursor, cursor + limit);
     const nextOffset = cursor + page.length;
@@ -240,7 +544,7 @@ export const tasksHandlers: GatewayRequestHandlers = {
       return;
     }
     const flow = getTaskFlowById(params.flowId);
-    if (!flow || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
       respond(
         false,
         undefined,
@@ -250,7 +554,7 @@ export const tasksHandlers: GatewayRequestHandlers = {
     }
     respond(true, { flow: mapTaskFlowDetail(flow) });
   },
-  "taskFlows.create": ({ params, respond }) => {
+  "taskFlows.create": ({ params, respond, context }) => {
     if (!validateTaskFlowsCreateParams(params)) {
       respond(
         false,
@@ -272,14 +576,29 @@ export const tasksHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    const idempotencyKey = normalizeOptionalString(params.idempotencyKey);
+    if (idempotencyKey) {
+      const existing = listTaskFlowRecords().find((candidate) => {
+        const state = stateForPursueGoalFlow(candidate);
+        return candidate.ownerKey === sessionKey && state?.idempotencyKey === idempotencyKey;
+      });
+      if (existing) {
+        respond(true, { flow: mapTaskFlowDetail(existing) });
+        return;
+      }
+    }
+    const ownerAgentId = parseAgentSessionKey(sessionKey)?.agentId;
+    const workerAgentId = resolveProgramManagerAgentId(context.getRuntimeConfig(), ownerAgentId);
     const flow = createManagedTaskFlow({
       ownerKey: sessionKey,
-      controllerId: CHAT_GOAL_CONTROLLER_ID,
+      controllerId: PURSUE_GOAL_CONTROLLER_ID,
       requesterOrigin: { channel: "webchat", to: sessionKey },
-      status: "running",
+      status: "queued",
       notifyPolicy: "silent",
       goal,
-      currentStep: normalizeOptionalString(params.currentStep) ?? "Goal accepted from Chat.",
+      currentStep:
+        normalizeOptionalString(params.currentStep) ??
+        "Goal accepted and waiting for a controller lease.",
     });
     if (!flow) {
       respond(
@@ -289,7 +608,32 @@ export const tasksHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    respond(true, { flow: mapTaskFlowDetail(flow) });
+    const state = createPursueGoalControllerState({
+      flowId: flow.flowId,
+      goal,
+      workerAgentId,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    });
+    const initialized = updateFlowRecordByIdExpectedRevision({
+      flowId: flow.flowId,
+      expectedRevision: flow.revision,
+      patch: { stateJson: structuredClone(state) },
+    });
+    if (!initialized.applied) {
+      deleteTaskFlowRecordById(flow.flowId);
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, "goal controller state is unavailable", {
+          retryable: true,
+        }),
+      );
+      return;
+    }
+    kickPursueGoalController(flow.flowId);
+    respond(true, {
+      flow: mapTaskFlowDetail(getTaskFlowById(flow.flowId) ?? initialized.flow),
+    });
   },
   "taskFlows.cancel": async ({ params, respond, context }) => {
     if (!validateTaskFlowsCancelParams(params)) {
@@ -304,8 +648,18 @@ export const tasksHandlers: GatewayRequestHandlers = {
       return;
     }
     const flow = getTaskFlowById(params.flowId);
-    if (!flow || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
       respond(true, { found: false, cancelled: false, reason: "Flow not found." });
+      return;
+    }
+    if (stateForPursueGoalFlow(flow)) {
+      const result = await stopPursueGoalFlow({ flowId: flow.flowId });
+      respond(true, {
+        found: result.found,
+        cancelled: result.applied || result.flow?.status === "cancelled",
+        ...(result.reason ? { reason: result.reason } : {}),
+        ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+      });
       return;
     }
     const result = await cancelFlowById({
@@ -316,6 +670,147 @@ export const tasksHandlers: GatewayRequestHandlers = {
       found: result.found,
       cancelled: result.cancelled,
       ...(result.reason ? { reason: result.reason } : {}),
+      ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.pause": async ({ params, respond }) => {
+    if (!validateTaskFlowsPauseParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.pause params: ${formatValidationErrors(validateTaskFlowsPauseParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    const result = await pausePursueGoalFlow({
+      flowId: flow.flowId,
+      ...(params.expectedRevision !== undefined
+        ? { expectedRevision: params.expectedRevision }
+        : {}),
+    });
+    respond(true, {
+      ...result,
+      ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.resume": async ({ params, respond }) => {
+    if (!validateTaskFlowsResumeParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.resume params: ${formatValidationErrors(validateTaskFlowsResumeParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    const result = await resumePursueGoalFlow({
+      flowId: flow.flowId,
+      ...(params.expectedRevision !== undefined
+        ? { expectedRevision: params.expectedRevision }
+        : {}),
+    });
+    respond(true, {
+      ...result,
+      ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.edit": async ({ params, respond }) => {
+    if (!validateTaskFlowsEditParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.edit params: ${formatValidationErrors(validateTaskFlowsEditParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    const result = await editPursueGoalFlow({
+      flowId: flow.flowId,
+      goal: params.goal,
+      ...(params.expectedRevision !== undefined
+        ? { expectedRevision: params.expectedRevision }
+        : {}),
+    });
+    respond(true, {
+      ...result,
+      ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.retry": async ({ params, respond }) => {
+    if (!validateTaskFlowsRetryParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.retry params: ${formatValidationErrors(validateTaskFlowsRetryParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    const result = await retryPursueGoalFlow({
+      flowId: flow.flowId,
+      ...(params.expectedRevision !== undefined
+        ? { expectedRevision: params.expectedRevision }
+        : {}),
+    });
+    respond(true, {
+      ...result,
+      ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.stop": async ({ params, respond }) => {
+    if (!validateTaskFlowsStopParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.stop params: ${formatValidationErrors(validateTaskFlowsStopParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    const result = await stopPursueGoalFlow({
+      flowId: flow.flowId,
+      ...(params.expectedRevision !== undefined
+        ? { expectedRevision: params.expectedRevision }
+        : {}),
+    });
+    respond(true, {
+      ...result,
       ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
     });
   },
@@ -421,6 +916,9 @@ export const tasksHandlers: GatewayRequestHandlers = {
 };
 
 export const testApi = {
+  buildExecutionStateSnapshot,
+  maybeEmitControlDirectorRuntimeLineageSignal,
   mapTaskSummary,
+  resetRuntimeLineageSignalStateForTests,
 };
 export { testApi as __test };

@@ -16,7 +16,9 @@ type AgentEntry = NonNullable<NonNullable<OpenClawConfig["agents"]>["list"]>[num
 
 /** Per-agent config after applying agent defaults and normalizing scalar fields. */
 export type ResolvedAgentConfig = {
+  id: string;
   name?: string;
+  role?: AgentEntry["role"];
   workspace?: string;
   agentDir?: string;
   model?: AgentEntry["model"];
@@ -110,6 +112,47 @@ function resolveAgentEntry(cfg: OpenClawConfig, agentId: string): AgentEntry | u
   return listAgentEntries(cfg).find((entry) => normalizeAgentId(entry.id) === id);
 }
 
+/** Resolve the first configured agent that owns a stable operational role. */
+export function resolveAgentIdByOperationalRole(
+  cfg: OpenClawConfig,
+  role: NonNullable<AgentEntry["role"]>,
+): string | undefined {
+  const entry = listAgentEntries(cfg).find((candidate) => candidate.role === role);
+  return entry ? normalizeAgentId(entry.id) : undefined;
+}
+
+export type ProgramManagerRoute = {
+  agentId: string;
+  source: "dedicated" | "owner_fallback";
+};
+
+/** Resolve the Program Manager route and preserve whether delegation is dedicated or fallback. */
+export function resolveProgramManagerRoute(
+  cfg: OpenClawConfig,
+  fallbackAgentId?: string | null,
+): ProgramManagerRoute {
+  const dedicated = resolveAgentIdByOperationalRole(cfg, "program_manager");
+  return dedicated
+    ? { agentId: dedicated, source: "dedicated" }
+    : {
+        agentId: normalizeAgentId(fallbackAgentId ?? resolveDefaultAgentId(cfg)),
+        source: "owner_fallback",
+      };
+}
+
+/** Resolve a dedicated Program Manager, falling back to the owning agent only when absent. */
+export function resolveProgramManagerAgentId(
+  cfg: OpenClawConfig,
+  fallbackAgentId?: string | null,
+): string {
+  return resolveProgramManagerRoute(cfg, fallbackAgentId).agentId;
+}
+
+/** Resolve an independently configured Judge. No fallback is permitted. */
+export function resolveJudgeAgentId(cfg: OpenClawConfig): string | undefined {
+  return resolveAgentIdByOperationalRole(cfg, "judge");
+}
+
 /** Resolves merged config for one agent id. */
 export function resolveAgentConfig(
   cfg: OpenClawConfig,
@@ -122,7 +165,9 @@ export function resolveAgentConfig(
   }
   const agentDefaults = cfg.agents?.defaults;
   return {
+    id,
     name: readStringValue(entry.name),
+    role: entry.role,
     workspace: readStringValue(entry.workspace),
     agentDir: readStringValue(entry.agentDir),
     model:

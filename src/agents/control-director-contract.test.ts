@@ -5,9 +5,12 @@ import {
   applyControlDirectorLivenessWatchdog,
   applyControlDirectorTruthGate,
   buildControlDirectorJudgeClaimHash,
+  buildControlDirectorMissionEnvelope,
   buildControlDirectorSystemPromptSection,
+  classifyControlDirectorResponseMode,
   decideControlDirectorContinuation,
   evaluateControlDirectorResponse,
+  parseControlDirectorMissionEnvelope,
   resolveControlDirectorThinkingEscalation,
   scoreControlDirectorReadiness,
   summarizeControlDirectorMissionFinalText,
@@ -22,6 +25,46 @@ describe("Control Director contract", () => {
     expect(section).toContain("requires Judge approval");
     expect(section).toContain("matching runtime evidence");
     expect(buildControlDirectorSystemPromptSection("builder")).toEqual([]);
+  });
+
+  it("classifies proportional response modes deterministically", () => {
+    expect(classifyControlDirectorResponseMode("How does memory work?")).toBe("answer");
+    expect(classifyControlDirectorResponseMode("Create a plan only. Do not implement it.")).toBe(
+      "plan",
+    );
+    expect(classifyControlDirectorResponseMode("Implement and verify the fix.")).toBe("execute");
+    expect(classifyControlDirectorResponseMode("Give me an update.")).toBe("status");
+    expect(
+      classifyControlDirectorResponseMode("Steer this toward the mobile layout instead."),
+    ).toBe("steer");
+    expect(classifyControlDirectorResponseMode("Queue this after the current task.")).toBe("queue");
+    expect(classifyControlDirectorResponseMode("Pursue this goal until complete.")).toBe("goal");
+  });
+
+  it("retains the bounded full request in an immutable mission envelope", () => {
+    const requestBody = "Line one.\nLine two with the exact approval boundary.";
+    const envelope = buildControlDirectorMissionEnvelope({
+      missionId: "mission-1",
+      idempotencyKey: "turn-1",
+      requestBody,
+      acceptanceCriteria: ["verified", "verified", "mobile proof"],
+    });
+    expect(envelope).toMatchObject({
+      schemaVersion: 1,
+      missionId: "mission-1",
+      idempotencyKey: "turn-1",
+      requestBody,
+      responseMode: "conversation",
+      acceptanceCriteria: ["mobile proof", "verified"],
+    });
+    expect(envelope.requestHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(parseControlDirectorMissionEnvelope(envelope)).toEqual(envelope);
+    expect(
+      parseControlDirectorMissionEnvelope({
+        ...envelope,
+        requestBody: `${requestBody}\nTampered after persistence.`,
+      }),
+    ).toBeNull();
   });
 
   it("requires evidence for every complete status even when evidence was not requested separately", () => {

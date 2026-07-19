@@ -12,14 +12,18 @@ import { formatErrorMessage } from "../infra/errors.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import { enqueueSessionDelivery } from "../infra/session-delivery-queue.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
+import { emitControlDirectorJourneySignal } from "../self-improvement/control-director-journeys.js";
 import { persistSessionEntry as persistSessionEntryBase } from "./command/attempt-execution.shared.js";
 import {
   applyControlDirectorFinalOutputGuard,
   applyControlDirectorJudgeCompletionGate,
   applyControlDirectorLivenessWatchdog,
   applyControlDirectorTruthGate,
-  isControlDirectorAgentId,
-  isControlDirectorPrimaryModelRef,
+  buildControlDirectorMissionEnvelope,
+  classifyControlDirectorResponseMode,
+  controlDirectorModeRepresentsMission,
+  controlDirectorModeRequiresCompletionReport,
+  controlDirectorModeRequiresEvidenceGate,
   summarizeControlDirectorMissionFinalText,
   type ControlDirectorClaimEvidence,
   type ControlDirectorContinuationDecision,
@@ -31,6 +35,8 @@ import {
   type ControlDirectorLivenessWatchdogAudit,
   type ControlDirectorLivenessWatchdogResult,
   type ControlDirectorMissionSummary,
+  type ControlDirectorMissionEnvelope,
+  type ControlDirectorResponseMode,
   type ControlDirectorTruthAudit,
 } from "./control-director-contract.js";
 import { loadControlDirectorTruthEvidence } from "./control-director-truth-evidence.js";
@@ -62,6 +68,7 @@ export type ControlDirectorDeliveryGuardResult<T extends ControlDirectorGuardabl
   watchdogActions: string[];
   judgeCompletionGate?: SessionControlDirectorJudgeCompletionGate;
   truthAudit?: SessionControlDirectorTruthAuditEntry;
+  responseMode?: ControlDirectorResponseMode;
 };
 
 function buildNoopControlDirectorContinuation(): ControlDirectorContinuationDecision {
@@ -74,43 +81,14 @@ function buildNoopControlDirectorContinuation(): ControlDirectorContinuationDeci
   };
 }
 
-function looksLikeControlDirectorReport(text: string | undefined): boolean {
-  if (!text?.trim()) {
-    return false;
-  }
-  return (
-    /\bVerified state\s*:/iu.test(text) &&
-    /\bNext build gap\s*:/iu.test(text) &&
-    /\bCompletion Grade\s*:/iu.test(text) &&
-    /\bCriticality\s*:/iu.test(text) &&
-    /\bStatus\s*:/iu.test(text)
-  );
-}
-
 function isControlDirectorDeliveryScope(params: {
   agentId?: string | undefined;
-  model?: string | null | undefined;
   explicit?: boolean | undefined;
-  hasRuntimeEvidence?: boolean | undefined;
-  hasJudgeApproval?: boolean | undefined;
-  finalText?: string | undefined;
 }): boolean {
   if (params.explicit !== undefined) {
     return params.explicit;
   }
-  const normalizedAgentId = params.agentId?.trim().toLowerCase();
-  if (normalizedAgentId === "control-director") {
-    return true;
-  }
-  if (normalizedAgentId !== "main") {
-    return false;
-  }
-  return (
-    isControlDirectorPrimaryModelRef(params.model) ||
-    params.hasRuntimeEvidence === true ||
-    params.hasJudgeApproval === true ||
-    looksLikeControlDirectorReport(params.finalText)
-  );
+  return params.agentId?.trim().toLowerCase() === "control-director";
 }
 
 function buildSessionControlDirectorGuardAuditEntry(params: {
@@ -291,7 +269,7 @@ function resolveControlDirectorMissionSeed(params: {
 function buildSessionControlDirectorMissionLedgerEntry(params: {
   missionId: string;
   runId?: string | undefined;
-  requestSummary: string;
+  envelope: ControlDirectorMissionEnvelope;
   summary: ControlDirectorMissionSummary;
   continuationCount: number;
   continuationQueued: boolean;
@@ -308,9 +286,19 @@ function buildSessionControlDirectorMissionLedgerEntry(params: {
   const ts = params.ts ?? Date.now();
   const status = params.continuationQueued ? "continuation_queued" : params.summary.status;
   return {
+    schemaVersion: 1,
     missionId: params.missionId,
     ...(params.runId ? { runId: params.runId } : {}),
-    requestSummary: params.requestSummary,
+    requestSummary: summarizeControlDirectorRequest(params.envelope.requestBody),
+    requestBody: params.envelope.requestBody,
+    requestHash: params.envelope.requestHash,
+    responseMode: params.envelope.responseMode,
+    idempotencyKey: params.envelope.idempotencyKey,
+    acceptanceCriteria: params.envelope.acceptanceCriteria,
+    scope: params.envelope.scope,
+    approvals: params.envelope.approvals,
+    provenance: params.envelope.provenance,
+    artifactIds: params.envelope.artifactIds,
     status,
     startedAt: params.existing?.startedAt ?? ts,
     updatedAt: ts,
@@ -342,7 +330,7 @@ function buildSessionControlDirectorMissionLedgerEntry(params: {
 async function recordControlDirectorMissionLedger(
   params: ControlDirectorSessionMutationParams & {
     missionId: string;
-    requestSummary: string;
+    envelope: ControlDirectorMissionEnvelope;
     summary: ControlDirectorMissionSummary;
     continuationCount: number;
     continuationQueued: boolean;
@@ -368,7 +356,7 @@ async function recordControlDirectorMissionLedger(
   const ledgerEntry = buildSessionControlDirectorMissionLedgerEntry({
     missionId: params.missionId,
     runId: params.runId,
-    requestSummary: params.requestSummary,
+    envelope: params.envelope,
     summary: params.summary,
     continuationCount: params.continuationCount,
     continuationQueued: params.continuationQueued,
@@ -651,17 +639,13 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
     judgeCompletionApproval?: ControlDirectorJudgeCompletionApproval | undefined;
     truthEvidence?: readonly ControlDirectorClaimEvidence[] | undefined;
     implementationSha?: string | undefined;
+    responseMode?: ControlDirectorResponseMode | undefined;
   },
 ): Promise<ControlDirectorDeliveryGuardResult<T>> {
   const agentId = params.agentId ?? undefined;
   const activeControlDirectorScope = isControlDirectorDeliveryScope({
     agentId,
-    model: params.model,
     explicit: params.controlDirectorScope,
-    hasRuntimeEvidence: Boolean(params.truthEvidence?.length),
-    hasJudgeApproval: Boolean(params.judgeCompletionApproval),
-    finalText:
-      params.finalAssistantVisibleText ?? collectControlDirectorPayloadText(params.payloads ?? []),
   });
   let sessionEntry = params.sessionEntry;
   if (!activeControlDirectorScope) {
@@ -676,34 +660,69 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
       watchdogActions: [],
     };
   }
+  // Contract helpers intentionally accept the canonical role id so they stay
+  // pure and reusable. Production scope, however, is role-based and may use
+  // any configured agent id. Once the config-aware boundary has admitted this
+  // turn, never re-check the mutable id/model inside the guard pipeline.
+  const contractAgentId = "control-director";
   const runId = params.runId ?? params.sessionId;
   const missionSeed = resolveControlDirectorMissionSeed({ sessionEntry, runId });
+  const responseMode =
+    params.responseMode ??
+    missionSeed.existing?.responseMode ??
+    classifyControlDirectorResponseMode(params.requestBody);
+  const strictCompletionReport = controlDirectorModeRequiresCompletionReport(responseMode);
+  const evidenceGated = controlDirectorModeRequiresEvidenceGate(responseMode);
+  const existingRequestBody = missionSeed.existing?.requestBody;
+  const envelope = buildControlDirectorMissionEnvelope({
+    missionId: missionSeed.missionId,
+    idempotencyKey: missionSeed.existing?.idempotencyKey ?? runId,
+    requestBody: existingRequestBody ?? params.requestBody,
+    responseMode,
+    acceptanceCriteria: missionSeed.existing?.acceptanceCriteria,
+    scope: missionSeed.existing?.scope,
+    approvals: missionSeed.existing?.approvals,
+    provenance: missionSeed.existing?.provenance,
+    artifactIds: missionSeed.existing?.artifactIds,
+  });
   const shouldApplyLivenessBeforeFinalGuard = isControlDirectorNoVisibleOutputClassification(
     params.classification,
   );
+  if (shouldApplyLivenessBeforeFinalGuard) {
+    emitControlDirectorJourneySignal({
+      code: "silence_after_ack",
+      idempotencyKey: runId,
+      summary: "Control Director run reached delivery without usable visible output.",
+      observed: `Final classification was ${params.classification ?? "unknown"}.`,
+      runId,
+      evidenceRefs: [`mission:${missionSeed.missionId}`],
+    });
+  }
 
   let controlDirectorGuardedFinalOutput: ControlDirectorFinalOutputGuardResult<T>;
   let livenessGuardedFinalOutput: ControlDirectorLivenessWatchdogResult<T>;
 
   if (shouldApplyLivenessBeforeFinalGuard) {
     livenessGuardedFinalOutput = applyControlDirectorLivenessWatchdog({
-      agentId,
+      agentId: contractAgentId,
       payloads: params.payloads,
       finalAssistantVisibleText: params.finalAssistantVisibleText,
       classification: params.classification,
       continuationCount: missionSeed.continuationCount,
       missionId: missionSeed.missionId,
-      requestBody: params.requestBody,
+      requestBody: envelope.requestBody,
       canQueueContinuation: params.canQueueContinuation,
       needsUserInput: params.needsUserInput,
       approvalPending: params.approvalPending,
       externalAbort: params.externalAbort,
       safeToContinue: params.safeToContinue,
     });
-    controlDirectorGuardedFinalOutput = applyControlDirectorFinalOutputGuard({
-      agentId,
-      payloads: livenessGuardedFinalOutput.payloads,
-    });
+    controlDirectorGuardedFinalOutput = strictCompletionReport
+      ? applyControlDirectorFinalOutputGuard({
+          agentId: contractAgentId,
+          payloads: livenessGuardedFinalOutput.payloads,
+        })
+      : { payloads: livenessGuardedFinalOutput.payloads, changed: false };
     if (controlDirectorGuardedFinalOutput.audit) {
       sessionEntry =
         (await recordControlDirectorGuardAudit({
@@ -717,10 +736,12 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
         })) ?? sessionEntry;
     }
   } else {
-    controlDirectorGuardedFinalOutput = applyControlDirectorFinalOutputGuard({
-      agentId,
-      payloads: params.payloads,
-    });
+    controlDirectorGuardedFinalOutput = strictCompletionReport
+      ? applyControlDirectorFinalOutputGuard({
+          agentId: contractAgentId,
+          payloads: params.payloads,
+        })
+      : { payloads: [...(params.payloads ?? [])], changed: false };
     if (controlDirectorGuardedFinalOutput.audit) {
       sessionEntry =
         (await recordControlDirectorGuardAudit({
@@ -735,13 +756,13 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
     }
 
     livenessGuardedFinalOutput = applyControlDirectorLivenessWatchdog({
-      agentId,
+      agentId: contractAgentId,
       payloads: controlDirectorGuardedFinalOutput.payloads,
       finalAssistantVisibleText: params.finalAssistantVisibleText,
       classification: params.classification,
       continuationCount: missionSeed.continuationCount,
       missionId: missionSeed.missionId,
-      requestBody: params.requestBody,
+      requestBody: envelope.requestBody,
       canQueueContinuation: params.canQueueContinuation,
       needsUserInput: params.needsUserInput,
       approvalPending: params.approvalPending,
@@ -763,15 +784,31 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
   const originalCompleteBeforeJudge =
     summarizeControlDirectorMissionFinalText(finalPayloadTextBeforeJudge).finalStatus ===
     "complete";
-  const judgeCompletionGate = applyControlDirectorJudgeCompletionGate({
-    agentId,
-    payloads: finalPayloads,
-    missionId: missionSeed.missionId,
-    requestBody: params.requestBody,
-    approval: judgeApproval,
-  });
+  const judgeCompletionGate: ControlDirectorJudgeCompletionGateResult<T> = evidenceGated
+    ? applyControlDirectorJudgeCompletionGate({
+        agentId: contractAgentId,
+        payloads: finalPayloads,
+        missionId: missionSeed.missionId,
+        requestBody: envelope.requestBody,
+        approval: judgeApproval,
+      })
+    : {
+        payloads: finalPayloads,
+        changed: false,
+        approval: judgeApproval,
+      };
   finalPayloads = judgeCompletionGate.payloads;
   if (judgeCompletionGate.audit) {
+    if (originalCompleteBeforeJudge) {
+      emitControlDirectorJourneySignal({
+        code: "completion_without_proof",
+        idempotencyKey: `${missionSeed.missionId}:${runId}`,
+        summary: "A completion claim failed the independent Judge gate.",
+        observed: judgeCompletionGate.audit.missing.join("; "),
+        runId,
+        evidenceRefs: [`mission:${missionSeed.missionId}`],
+      });
+    }
     sessionEntry =
       (await recordControlDirectorGuardAudit({
         audit: judgeCompletionGate.audit,
@@ -800,12 +837,17 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
       status: "passed",
     });
   }
-  const truthGate = applyControlDirectorTruthGate({
-    agentId,
-    payloads: finalPayloads,
-    evidence: truthEvidence,
-    implementationSha,
-  });
+  const truthGate = evidenceGated
+    ? applyControlDirectorTruthGate({
+        agentId: contractAgentId,
+        payloads: finalPayloads,
+        evidence: truthEvidence,
+        implementationSha,
+      })
+    : {
+        payloads: finalPayloads,
+        changed: false,
+      };
   finalPayloads = truthGate.payloads;
   let sessionTruthAudit: SessionControlDirectorTruthAuditEntry | undefined;
   if (truthGate.audit) {
@@ -845,6 +887,14 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
     !continuationQueued &&
     continuationQueueResult.error
   ) {
+    emitControlDirectorJourneySignal({
+      code: "delivery_miss",
+      idempotencyKey: `${missionSeed.missionId}:continuation`,
+      summary: "Control Director recovery continuation could not be queued.",
+      observed: continuationQueueResult.error,
+      runId,
+      evidenceRefs: [`mission:${missionSeed.missionId}`],
+    });
     finalPayloads = replaceFirstControlDirectorPayloadText(
       finalPayloads,
       buildControlDirectorContinuationQueueFailureText({
@@ -898,13 +948,17 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
       ]
     : [];
   const judgeGateSummary =
-    isControlDirectorAgentId(agentId) && finalPayloadText
+    activeControlDirectorScope && finalPayloadText
       ? summarizeJudgeCompletionGate({
           gate: judgeCompletionGate,
           originalComplete: originalCompleteBeforeJudge,
         })
       : undefined;
-  if (isControlDirectorAgentId(agentId) && finalPayloadText) {
+  if (
+    activeControlDirectorScope &&
+    finalPayloadText &&
+    controlDirectorModeRepresentsMission(responseMode)
+  ) {
     sessionEntry =
       (await recordControlDirectorMissionLedger({
         missionId: missionSeed.missionId,
@@ -914,7 +968,7 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
         sessionEntry,
         sessionStore: params.sessionStore,
         storePath: params.storePath,
-        requestSummary: summarizeControlDirectorRequest(params.requestBody),
+        envelope,
         summary: summarizeControlDirectorMissionFinalText(finalPayloadText),
         continuationCount: livenessGuardedFinalOutput.continuation.shouldQueue
           ? continuationQueued
@@ -948,5 +1002,6 @@ export async function applyControlDirectorDeliveryGuards<T extends ControlDirect
     watchdogActions,
     ...(judgeGateSummary ? { judgeCompletionGate: judgeGateSummary } : {}),
     ...(sessionTruthAudit ? { truthAudit: sessionTruthAudit } : {}),
+    responseMode,
   };
 }

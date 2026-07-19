@@ -1,8 +1,10 @@
 // Control UI module implements app behavior.
 import { LitElement } from "lit";
 import { state } from "lit/decorators.js";
+import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
+import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
@@ -429,9 +431,6 @@ export class OpenClawApp extends LitElement {
   @state() chatWorkError: string | null = null;
   @state() chatWorkUpdatedAt: number | null = null;
   @state() chatProjectPickerOpen = false;
-  @state() chatProjectCreateName = "";
-  @state() chatProjectCreateDescription = "";
-  @state() chatProjectCreateInstructions = "";
   @state() chatProjectBusy = false;
   @state() chatProjectError: string | null = null;
   @state() chatGoalPanelOpen = false;
@@ -442,6 +441,7 @@ export class OpenClawApp extends LitElement {
   @state() chatGoalCancellingFlowId: string | null = null;
   @state() chatGoalError: string | null = null;
   @state() chatGoalUpdatedAt: number | null = null;
+  @state() chatExecutionState: ExecutionStateSnapshot | null = null;
   @state() chatTargetRunId: string | null = null;
   @state() chatTargetAuditTs: number | null = null;
   @state() chatTargetStatus: "exact-run" | "timestamp-fallback" | "not-found" | null = null;
@@ -477,6 +477,9 @@ export class OpenClawApp extends LitElement {
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
   @state() pccUpdateSafety: PccUpdateSafety | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;
+  @state() pccExecutionProjection: PccExecutionRuntimeProjection | null = null;
+  @state() pccExecutionProjectionLoading = false;
+  @state() pccExecutionProjectionError: string | null = null;
   @state() pccLoading = false;
   @state() pccError: string | null = null;
   @state() pccUpdatedAt: number | null = null;
@@ -1781,8 +1784,8 @@ export class OpenClawApp extends LitElement {
     );
   }
 
-  removeQueuedMessage(id: string) {
-    removeQueuedMessageInternal(
+  async removeQueuedMessage(id: string) {
+    await removeQueuedMessageInternal(
       this as unknown as Parameters<typeof removeQueuedMessageInternal>[0],
       id,
     );

@@ -1,3 +1,5 @@
+import type { ExecutionStateSnapshot } from "../../../../packages/gateway-protocol/src/schema/types.js";
+import { executionApprovalFromPccPermission } from "../../../../src/agents/execution-approval-envelope.js";
 import {
   applyPccAutopilotPermissionAction,
   applyPccAutopilotPermissionRepair,
@@ -28,6 +30,7 @@ import { evaluatePccCapabilityEvidence } from "../../../../src/pcc/capability-ev
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
 import {
   createPccExecutionPlan,
+  consumePccExecutionPlanCodexApproval,
   findDuplicateActivePccExecutionPlan,
   isPccExecutionPlanActive,
   partitionPccExecutionTasks,
@@ -43,6 +46,10 @@ import {
   resolvePccExecutionProfilePreset,
   validatePccModelSelection,
 } from "../../../../src/pcc/execution-profile.js";
+import {
+  buildPccExecutionRuntimeProjection,
+  type PccExecutionRuntimeProjection,
+} from "../../../../src/pcc/execution-state-projection.js";
 import {
   evaluatePccProjectSetup,
   PCC_REQUIRED_INTAKE_QUESTIONS,
@@ -116,6 +123,7 @@ import type {
   PccProject,
   PccProjectSummary,
   PccStatus,
+  SessionsListResult,
   ModelCatalogEntry,
   SkillStatusReport,
   ToolsCatalogResult,
@@ -1421,6 +1429,9 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
       }
     }
     state.pccUpdatedAt = Date.now();
+    if (state.pccSelectedProjectId) {
+      void loadPccExecutionProjection(state, state.pccSelectedProjectId);
+    }
   } catch (err) {
     state.pccError = formatConnectError(err) || "Project Command Center unavailable";
   } finally {
@@ -1455,9 +1466,82 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
     state.pccProductFocusMode = pccWorkScopeForProject(state.pccProjectDetail.project);
     rememberPccProjectDetailForState(state, state.pccProjectDetail);
     refreshPccChatSyncProposals(state);
+    void loadPccExecutionProjection(state, detail.project.id);
   } catch (err) {
     setActionError(state, err);
   } finally {
+    state.requestUpdate?.();
+  }
+}
+
+const PCC_EXECUTION_SESSION_LIMIT = 24;
+
+export async function loadPccExecutionProjection(
+  state: PccDashboardState,
+  projectId: string,
+): Promise<PccExecutionRuntimeProjection | null> {
+  if (!state.client || !state.connected) {
+    state.pccExecutionProjection = null;
+    state.pccExecutionProjectionError = "Live execution state is unavailable while disconnected.";
+    return null;
+  }
+  const selectedProjectId = projectId.trim();
+  if (!selectedProjectId) {
+    return null;
+  }
+  state.pccExecutionProjectionLoading = true;
+  state.pccExecutionProjectionError = null;
+  state.requestUpdate?.();
+  try {
+    const sessionResult = await state.client.request<SessionsListResult>("sessions.list", {
+      limit: 200,
+      includeGlobal: false,
+      includeUnknown: false,
+    });
+    const sessions = sessionResult.sessions
+      .filter((session) => session.projectId === selectedProjectId)
+      .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .slice(0, PCC_EXECUTION_SESSION_LIMIT);
+    const settled = await Promise.allSettled(
+      sessions.map((session) =>
+        state.client!.request<ExecutionStateSnapshot>("executionState.get", {
+          sessionKey: session.key,
+          includeTerminal: false,
+        }),
+      ),
+    );
+    const snapshots = settled
+      .filter(
+        (entry): entry is PromiseFulfilledResult<ExecutionStateSnapshot> =>
+          entry.status === "fulfilled",
+      )
+      .map((entry) => entry.value);
+    if (sessions.length > 0 && snapshots.length === 0) {
+      throw new Error("No linked chat returned typed execution state.");
+    }
+    const projection = buildPccExecutionRuntimeProjection({
+      projectId: selectedProjectId,
+      snapshots,
+    });
+    if (state.pccSelectedProjectId === selectedProjectId) {
+      state.pccExecutionProjection = projection;
+      const failedCount = settled.length - snapshots.length;
+      state.pccExecutionProjectionError =
+        failedCount > 0
+          ? `${failedCount} linked chat${failedCount === 1 ? "" : "s"} could not be read.`
+          : null;
+    }
+    return projection;
+  } catch (err) {
+    if (state.pccSelectedProjectId === selectedProjectId) {
+      state.pccExecutionProjection = null;
+      state.pccExecutionProjectionError = formatConnectError(err);
+    }
+    return null;
+  } finally {
+    if (state.pccSelectedProjectId === selectedProjectId) {
+      state.pccExecutionProjectionLoading = false;
+    }
     state.requestUpdate?.();
   }
 }
@@ -3275,9 +3359,32 @@ export async function runPccExecutionTeamAction(
       partitions: partitioned.partitions,
       leases: pccExecutionWorkspaceLeases(planId, partitioned.partitions, now),
       proofRequirements: pccExecutionProofRequirements(planId, readiness.tasks),
+      approvals:
+        readiness.profile.codexRole === "off"
+          ? []
+          : detail.permissions
+              .filter((permission) => pccCodexPermissionIsUsable(permission, readiness.profile))
+              .map((permission) =>
+                executionApprovalFromPccPermission({
+                  permission,
+                  subjectActorId: readiness.coordinatorAgentId!,
+                }),
+              ),
       createdAt: now,
       statusReason: "Execution plan saved before dispatch.",
     });
+    if (plan.mode === "hybrid") {
+      const authorization = consumePccExecutionPlanCodexApproval({
+        plan,
+        actorId: readiness.coordinatorAgentId,
+        now: nowMs,
+      });
+      if (!authorization.decision.allowed) {
+        state.pccActionError = `Agent team cannot start: ${authorization.decision.reason}`;
+        return;
+      }
+      plan = authorization.plan;
+    }
     const duplicate = findDuplicateActivePccExecutionPlan(
       executionPlansFromProject(detail.project),
       plan,

@@ -812,6 +812,15 @@ struct IOSGatewayChatTransport: OpenClawChatTransport {
                 return nil
             }
             return .agent(agentPayload)
+        case "taskFlow":
+            guard let payload = evt.payload else { return nil }
+            guard let taskFlowPayload = try? GatewayPayloadDecoding.decode(
+                payload,
+                as: OpenClawTaskFlowEventPayload.self)
+            else {
+                return nil
+            }
+            return .taskFlow(taskFlowPayload)
         default:
             return nil
         }

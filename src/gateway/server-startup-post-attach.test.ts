@@ -13,6 +13,7 @@ import type {
 import type { PluginServicesHandle } from "../plugins/services.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { withEnvAsync } from "../test-utils/env.js";
+import type { GatewayPostReadySidecarHandle } from "./server-startup-post-attach.js";
 
 const hoisted = vi.hoisted(() => {
   const startPluginServices = vi.fn<() => Promise<PluginServicesHandle | null>>(async () => null);
@@ -64,6 +65,12 @@ const hoisted = vi.hoisted(() => {
   }));
   const ensureOpenClawModelsJson = vi.fn(async () => {});
   const ensureRuntimePluginsLoaded = vi.fn();
+  const warmConfiguredControlDirectorModel = vi.fn<
+    typeof import("../agents/control-director-model-warmup.js").warmConfiguredControlDirectorModel
+  >(async () => ({
+    status: "not_configured" as const,
+    reason: "not configured",
+  }));
   const clearCurrentProviderAuthState = vi.fn();
   const warmCurrentProviderAuthStateOffMainThread = vi.fn(
     async (_cfg?: unknown, _options?: unknown) => {},
@@ -103,6 +110,7 @@ const hoisted = vi.hoisted(() => {
     getModelRefStatus,
     ensureOpenClawModelsJson,
     ensureRuntimePluginsLoaded,
+    warmConfiguredControlDirectorModel,
     clearCurrentProviderAuthState,
     warmCurrentProviderAuthStateOffMainThread,
     setAuthProfileFailureHook,
@@ -210,6 +218,10 @@ vi.mock("../agents/models-config.js", () => ({
 
 vi.mock("../agents/runtime-plugins.js", () => ({
   ensureRuntimePluginsLoaded: hoisted.ensureRuntimePluginsLoaded,
+}));
+
+vi.mock("../agents/control-director-model-warmup.js", () => ({
+  warmConfiguredControlDirectorModel: hoisted.warmConfiguredControlDirectorModel,
 }));
 
 vi.mock("../agents/model-provider-auth.js", () => ({
@@ -353,6 +365,11 @@ describe("startGatewayPostAttachRuntime", () => {
     hoisted.ensureOpenClawModelsJson.mockReset();
     hoisted.ensureOpenClawModelsJson.mockResolvedValue(undefined);
     hoisted.ensureRuntimePluginsLoaded.mockReset();
+    hoisted.warmConfiguredControlDirectorModel.mockReset();
+    hoisted.warmConfiguredControlDirectorModel.mockResolvedValue({
+      status: "not_configured",
+      reason: "not configured",
+    });
     hoisted.clearCurrentProviderAuthState.mockClear();
     hoisted.warmCurrentProviderAuthStateOffMainThread.mockReset();
     hoisted.warmCurrentProviderAuthStateOffMainThread.mockResolvedValue(undefined);
@@ -1107,6 +1124,41 @@ describe("startGatewayPostAttachRuntime", () => {
     expect(hoisted.ensureRuntimePluginsLoaded).not.toHaveBeenCalledWith(
       expect.objectContaining({ config: startupConfig }),
     );
+    expect(hoisted.warmConfiguredControlDirectorModel).toHaveBeenCalledWith({
+      config: currentConfig,
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("aborts an in-flight Control Director model warmup during gateway shutdown", async () => {
+    const onGatewayLifetimeSidecars = vi.fn();
+    let observedSignal: AbortSignal | undefined;
+    hoisted.warmConfiguredControlDirectorModel.mockImplementation(
+      async ({ signal }: { signal: AbortSignal }) => {
+        observedSignal = signal;
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { status: "cancelled", reason: "shutdown" };
+      },
+    );
+
+    await startGatewayPostAttachRuntime({
+      ...createPostAttachParams(),
+      providerAuthPrewarm: { enabled: false },
+      agentRuntimePluginPrewarm: { enabled: true, delayMs: 0 },
+      onGatewayLifetimeSidecars,
+    });
+    await vi.waitFor(() => {
+      expect(observedSignal).toBeDefined();
+    });
+    expect(observedSignal?.aborted).toBe(false);
+
+    const handles = onGatewayLifetimeSidecars.mock.calls[0]?.[0] as
+      | GatewayPostReadySidecarHandle[]
+      | undefined;
+    await handles?.[0]?.stop();
+    expect(observedSignal?.aborted).toBe(true);
   });
 
   it("keeps provider auth prewarm alive when Gmail post-ready sidecars stop", async () => {

@@ -4,6 +4,7 @@ import {
   DEFAULT_PCC_EXECUTION_PROFILE,
   type PccExecutionProfile,
 } from "../../../../../src/pcc/execution-profile.js";
+import type { PccExecutionRuntimeProjection } from "../../../../../src/pcc/execution-state-projection.js";
 import type { PccAiUsePolicy, PccPlanningMode } from "../../../../../src/pcc/project-workflows.js";
 import type { PccRuntimeIdentity } from "../../../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../../../src/pcc/update-safety.js";
@@ -241,6 +242,9 @@ export type PccDashboardState = {
   pccRuntimeIdentity?: PccRuntimeIdentity | null;
   pccUpdateSafety?: PccUpdateSafety | null;
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
+  pccExecutionProjection?: PccExecutionRuntimeProjection | null;
+  pccExecutionProjectionLoading?: boolean;
+  pccExecutionProjectionError?: string | null;
   agentsList?: AgentsListResult | null;
   chatModelCatalog?: ModelCatalogEntry[];
   skillsReport?: SkillStatusReport | null;

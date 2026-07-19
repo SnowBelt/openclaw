@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPccExecutionCapacitySnapshot,
+  parseMacOsThermalPressure,
   recommendPccExecutionCapacity,
 } from "./execution-capacity.js";
 import type {
@@ -22,6 +23,7 @@ function snapshot({ host: hostOverrides, ...overrides }: SnapshotOverrides = {})
       totalMemoryBytes: 256 * GIB,
       freeMemoryBytes: 200 * GIB,
       loadAverage: [1, 1, 1],
+      thermalPressure: "nominal",
       timestamp: "2026-07-13T00:00:00.000Z",
       ...hostOverrides,
     },
@@ -69,6 +71,26 @@ describe("PCC execution capacity", () => {
 
     expect(result.memoryPressure).toBe("high");
     expect(result.safeLocalAgentSlots).toBe(0);
+  });
+
+  it("throttles or pauses local work under measured thermal pressure", () => {
+    expect(snapshot({ host: { thermalPressure: "fair" } }).safeLocalAgentSlots).toBe(2);
+    expect(snapshot({ host: { thermalPressure: "serious" } }).safeLocalAgentSlots).toBe(1);
+    const critical = snapshot({ host: { thermalPressure: "critical" } });
+    expect(critical.safeLocalAgentSlots).toBe(0);
+    expect(critical.warnings).toContain(
+      "Host thermal pressure is critical; new local agent work is paused.",
+    );
+  });
+
+  it("parses macOS thermal limits and fails unknown telemetry closed to unknown", () => {
+    expect(parseMacOsThermalPressure("CPU_Scheduler_Limit = 100\nCPU_Speed_Limit = 100")).toBe(
+      "nominal",
+    );
+    expect(parseMacOsThermalPressure("CPU_Scheduler_Limit = 70\nCPU_Speed_Limit = 60")).toBe(
+      "serious",
+    );
+    expect(parseMacOsThermalPressure("unrecognized output")).toBe("unknown");
   });
 
   it("keeps every policy constrained by the configured subagent limit", () => {

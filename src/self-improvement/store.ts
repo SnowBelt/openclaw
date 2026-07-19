@@ -534,6 +534,24 @@ export async function upsertSelfImprovementRecommendations(params: {
           : existing.reopenReason
             ? { reopenReason: existing.reopenReason }
             : {}),
+        ...(existing.controlDirectorClosure
+          ? {
+              controlDirectorClosure:
+                hasNovelEvidence &&
+                recurringResolved &&
+                recommendation.lastSeenAt > existing.controlDirectorClosure.closedAt
+                  ? {
+                      ...existing.controlDirectorClosure,
+                      status: "reopened" as const,
+                      lastRecurrenceAt: recommendation.lastSeenAt,
+                      recurrenceCount: existing.controlDirectorClosure.recurrenceCount + 1,
+                      reopenReason: `Journey recurred after closure: ${(
+                        novelEvidenceKeys[0] ?? "Recurring Control Director journey evidence."
+                      ).slice(0, 240)}`,
+                    }
+                  : existing.controlDirectorClosure,
+            }
+          : {}),
       };
       if (next.status === "reopened") {
         reopened += 1;
@@ -563,6 +581,7 @@ export async function updateSelfImprovementRecommendationStatus(params: {
   claimedBy?: string;
   resolutionProof?: string;
   dismissalReason?: string;
+  controlDirectorClosure?: import("./control-director-closure.types.js").ControlDirectorJourneyClosure;
   stateDir?: string;
   storePath?: string;
   now?: number;
@@ -602,6 +621,9 @@ export async function updateSelfImprovementRecommendationStatus(params: {
         ...(claimedBy ? { claimedBy } : {}),
         ...(resolutionProof ? { resolutionProof, resolutionProofState: "current" as const } : {}),
         ...(dismissalReason ? { dismissalReason } : {}),
+        ...(params.controlDirectorClosure
+          ? { controlDirectorClosure: structuredClone(params.controlDirectorClosure) }
+          : {}),
         evidence: note ? [...entry.evidence, note] : entry.evidence,
       };
       return updated;
