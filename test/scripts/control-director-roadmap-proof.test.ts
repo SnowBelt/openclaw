@@ -7,6 +7,8 @@ import {
 } from "../../scripts/control-director-roadmap-proof.mjs";
 
 const sourceSha = "a".repeat(40);
+const selectedModel = "ollama/openclaw-control-gemma4-31b-q8:latest";
+const checkedAt = "2026-07-19T12:05:00.000Z";
 
 function roadmap(): Record<string, unknown> {
   const value = JSON.parse(
@@ -40,24 +42,69 @@ function sourceProof() {
 }
 
 function runtimeProof() {
-  const surface = { sourceSha, passed: true };
+  const surface = {
+    sourceSha,
+    passed: true,
+    checkedAt,
+    evidenceRefs: ["artifact:synthetic"],
+  };
+  const results = [
+    "conversation",
+    "recall",
+    "planning",
+    "delegation",
+    "steering",
+    "verification",
+  ].flatMap((taskClass) =>
+    [true, false].map((cold) => ({
+      trial: {
+        trialId: `${taskClass}-${cold ? "cold" : "warm"}`,
+        taskClass,
+        cold,
+        modelRef: selectedModel,
+        route: "local",
+        evidenceRefs: ["artifact:trial"],
+      },
+      quality: { score: 100 },
+      resourcePassed: true,
+      passed: true,
+      blockers: [],
+    })),
+  );
   return {
     schemaVersion: 2,
     sourceSha,
+    generatedAt: checkedAt,
     sigBackgroundEnabled: true,
-    desktop: surface,
-    tablet: surface,
-    mobile: surface,
-    restartRecovery: surface,
-    soak: surface,
-    rollback: surface,
-    liveDiagnostic: surface,
+    lineage: {
+      status: "ready",
+      sourceSha,
+      selectedModel,
+      artifactHash: "b".repeat(64),
+      canary: { sourceSha, uiBuildId: "b".repeat(64) },
+    },
+    artifacts: { lineage: { sha256: "c".repeat(64) } },
+    desktop: { ...surface },
+    tablet: { ...surface },
+    mobile: { ...surface },
+    restartRecovery: { ...surface },
+    soak: {
+      ...surface,
+      durationMs: 300_000,
+      startedAt: "2026-07-19T12:00:00.000Z",
+      endedAt: checkedAt,
+    },
+    rollback: { ...surface },
+    liveDiagnostic: { ...surface },
     modelEval: {
+      schemaVersion: 1,
       passed: true,
       exactRuntime: true,
+      sourceSha,
       passRate: 100,
       criticalOmissions: 0,
-      results: [{ quality: { score: 100 } }],
+      coveragePassed: true,
+      results,
     },
   };
 }
@@ -81,12 +128,16 @@ function remoteProof() {
 
 function readiness() {
   return {
+    schemaVersion: 2,
     sourceSha,
     expectedSha: sourceSha,
+    selectedModel,
     sourceReady: true,
     productionReady: true,
     passPercent: 100,
     mode: "production",
+    facts: [{ id: "all", passed: true, critical: true }],
+    failedCritical: [],
   };
 }
 
@@ -156,5 +207,44 @@ describe("Control Director final roadmap proof", () => {
         readiness: readiness(),
       }),
     ).toThrow("quality score");
+
+    const staleModelEval = runtimeProof();
+    staleModelEval.modelEval.sourceSha = "b".repeat(40);
+    expect(() =>
+      validateControlDirectorRoadmap({
+        roadmap: roadmap(),
+        sourceSha,
+        sourceProof: sourceProof(),
+        runtimeProof: staleModelEval,
+        remoteProof: remoteProof(),
+        readiness: readiness(),
+      }),
+    ).toThrow("runtimeProof.modelEval sourceSha");
+
+    const incompleteCoverage = runtimeProof();
+    incompleteCoverage.modelEval.results = incompleteCoverage.modelEval.results.slice(1);
+    expect(() =>
+      validateControlDirectorRoadmap({
+        roadmap: roadmap(),
+        sourceSha,
+        sourceProof: sourceProof(),
+        runtimeProof: incompleteCoverage,
+        remoteProof: remoteProof(),
+        readiness: readiness(),
+      }),
+    ).toThrow("missing required cold or warm task coverage");
+
+    const weakReadiness = readiness();
+    weakReadiness.facts[0]!.passed = false;
+    expect(() =>
+      validateControlDirectorRoadmap({
+        roadmap: roadmap(),
+        sourceSha,
+        sourceProof: sourceProof(),
+        runtimeProof: runtimeProof(),
+        remoteProof: remoteProof(),
+        readiness: weakReadiness,
+      }),
+    ).toThrow("all-passed fact ledger");
   });
 });

@@ -34,6 +34,15 @@ const RUNTIME_SURFACES = [
   "rollback",
   "liveDiagnostic",
 ];
+const MODEL_EVAL_TASK_CLASSES = [
+  "conversation",
+  "recall",
+  "planning",
+  "delegation",
+  "steering",
+  "verification",
+];
+const MINIMUM_SOAK_MS = 300_000;
 
 function object(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -58,6 +67,43 @@ function immutableSha(value, label) {
 
 function exactSha(value, expected, label) {
   if (value !== expected) throw new Error(`${label} sourceSha does not match ${expected}.`);
+}
+
+function validDate(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function nonEmptyStrings(value) {
+  return Array.isArray(value)
+    ? value.filter((entry) => typeof entry === "string" && Boolean(entry.trim()))
+    : [];
+}
+
+function validateRuntimeSurface(name, value, sourceSha) {
+  const surface = object(value, `runtimeProof.${name}`);
+  exactSha(surface.sourceSha, sourceSha, `runtimeProof.${name}`);
+  if (
+    surface.passed !== true ||
+    !validDate(surface.checkedAt) ||
+    nonEmptyStrings(surface.evidenceRefs).length === 0
+  ) {
+    throw new Error(`Runtime surface ${name} is not a timestamped evidence-backed pass.`);
+  }
+  if (name === "soak") {
+    const durationMs = Number(surface.durationMs);
+    const startedAt = Date.parse(String(surface.startedAt ?? ""));
+    const endedAt = Date.parse(String(surface.endedAt ?? ""));
+    if (
+      !Number.isFinite(durationMs) ||
+      durationMs < MINIMUM_SOAK_MS ||
+      !Number.isFinite(startedAt) ||
+      !Number.isFinite(endedAt) ||
+      endedAt - startedAt < durationMs
+    ) {
+      throw new Error(`Runtime soak does not prove at least ${MINIMUM_SOAK_MS}ms.`);
+    }
+  }
+  return surface;
 }
 
 function git(repoRoot, args) {
@@ -147,6 +193,18 @@ export function validateControlDirectorRoadmap(params) {
     if (!evidence.some((entry) => /^(?:source|test|doc|runtime|workflow):/u.test(entry))) {
       throw new Error(`${milestone.id} has no milestone-specific evidence reference.`);
     }
+    if (
+      evidence.some((entry) => entry.startsWith("runtime:")) &&
+      !evidence.includes("binding:runtimeProof")
+    ) {
+      throw new Error(`${milestone.id} runtime evidence is not bound to runtimeProof.`);
+    }
+    if (
+      evidence.some((entry) => entry.startsWith("workflow:")) &&
+      !evidence.includes("binding:remoteProof")
+    ) {
+      throw new Error(`${milestone.id} workflow evidence is not bound to remoteProof.`);
+    }
     const dependencies = Array.isArray(milestone.dependsOn) ? milestone.dependsOn : [];
     for (const dependency of dependencies) {
       if (byId.get(dependency)?.status !== "passed") {
@@ -181,26 +239,84 @@ export function validateControlDirectorRoadmap(params) {
   if (runtimeProof.schemaVersion !== 2 || runtimeProof.sigBackgroundEnabled !== true) {
     throw new Error("Runtime proof is not the managed SIG-enabled v2 contract.");
   }
+  if (!validDate(runtimeProof.generatedAt)) {
+    throw new Error("Runtime proof has no valid generatedAt timestamp.");
+  }
+  const lineage = object(runtimeProof.lineage, "runtimeProof.lineage");
+  exactSha(lineage.sourceSha, sourceSha, "runtimeProof.lineage");
+  const canary = object(lineage.canary, "runtimeProof.lineage.canary");
+  exactSha(canary.sourceSha, sourceSha, "runtimeProof.lineage.canary");
+  if (
+    lineage.status !== "ready" ||
+    typeof lineage.selectedModel !== "string" ||
+    !lineage.selectedModel.trim() ||
+    !/^[a-f0-9]{64}$/u.test(String(lineage.artifactHash ?? "")) ||
+    canary.uiBuildId !== lineage.artifactHash
+  ) {
+    throw new Error("Runtime lineage is not a ready exact-build canary pass.");
+  }
+  const runtimeArtifacts = object(runtimeProof.artifacts, "runtimeProof.artifacts");
+  const lineageArtifact = object(runtimeArtifacts.lineage, "runtimeProof.artifacts.lineage");
+  if (!/^[a-f0-9]{64}$/u.test(String(lineageArtifact.sha256 ?? ""))) {
+    throw new Error("Runtime lineage artifact is not digest-bound.");
+  }
   for (const surface of RUNTIME_SURFACES) {
-    const value = object(runtimeProof[surface], `runtimeProof.${surface}`);
-    exactSha(value.sourceSha, sourceSha, `runtimeProof.${surface}`);
-    if (value.passed !== true) {
-      throw new Error(`Runtime surface ${surface} has not passed.`);
-    }
+    validateRuntimeSurface(surface, runtimeProof[surface], sourceSha);
   }
   const modelEval = object(runtimeProof.modelEval, "runtimeProof.modelEval");
+  exactSha(modelEval.sourceSha, sourceSha, "runtimeProof.modelEval");
   if (
+    modelEval.schemaVersion !== 1 ||
     modelEval.passed !== true ||
     modelEval.exactRuntime !== true ||
     modelEval.passRate !== 100 ||
-    modelEval.criticalOmissions !== 0
+    modelEval.criticalOmissions !== 0 ||
+    modelEval.coveragePassed !== true
   ) {
     throw new Error("Runtime model evaluation is not a 100% exact-runtime pass.");
   }
   const modelResults = Array.isArray(modelEval.results) ? modelEval.results : [];
-  const qualityScores = modelResults.map((entry) =>
-    Number(object(object(entry, "model result").quality, "model quality").score),
+  const seenTrials = new Set();
+  const coverage = new Set();
+  const qualityScores = modelResults.map((entry) => {
+    const result = object(entry, "model result");
+    const quality = object(result.quality, "model quality");
+    const trial = object(result.trial, "model trial");
+    if (
+      result.passed !== true ||
+      result.resourcePassed !== true ||
+      nonEmptyStrings(result.blockers).length !== 0
+    ) {
+      throw new Error("At least one model-evaluation result is not an unblocked pass.");
+    }
+    if (
+      typeof trial.trialId !== "string" ||
+      !trial.trialId.trim() ||
+      seenTrials.has(trial.trialId)
+    ) {
+      throw new Error("Model-evaluation trial identities must be unique and non-empty.");
+    }
+    seenTrials.add(trial.trialId);
+    if (
+      !MODEL_EVAL_TASK_CLASSES.includes(trial.taskClass) ||
+      typeof trial.cold !== "boolean" ||
+      trial.modelRef !== lineage.selectedModel ||
+      trial.route !== "local" ||
+      nonEmptyStrings(trial.evidenceRefs).length === 0
+    ) {
+      throw new Error(
+        "A model-evaluation trial is not exact-route evidence for the selected model.",
+      );
+    }
+    coverage.add(`${trial.taskClass}:${trial.cold ? "cold" : "warm"}`);
+    return Number(quality.score);
+  });
+  const missingCoverage = MODEL_EVAL_TASK_CLASSES.flatMap((taskClass) =>
+    ["cold", "warm"].filter((temperature) => !coverage.has(`${taskClass}:${temperature}`)),
   );
+  if (missingCoverage.length > 0) {
+    throw new Error("Runtime model evaluation is missing required cold or warm task coverage.");
+  }
   if (
     qualityScores.length === 0 ||
     qualityScores.some(
@@ -219,6 +335,8 @@ export function validateControlDirectorRoadmap(params) {
       value.status !== "completed" ||
       value.conclusion !== "success" ||
       value.headSha !== sourceSha ||
+      !Number.isInteger(value.totalJobs) ||
+      value.totalJobs <= 0 ||
       value.acceptedJobs !== value.totalJobs
     ) {
       throw new Error(`${gate} is not an all-jobs exact-SHA success.`);
@@ -232,13 +350,23 @@ export function validateControlDirectorRoadmap(params) {
   const readiness = object(params.readiness, "readiness");
   exactSha(readiness.sourceSha, sourceSha, "readiness");
   if (
+    readiness.schemaVersion !== 2 ||
     readiness.expectedSha !== sourceSha ||
     readiness.sourceReady !== true ||
     readiness.productionReady !== true ||
     readiness.passPercent !== 100 ||
-    readiness.mode !== "production"
+    readiness.mode !== "production" ||
+    readiness.selectedModel !== lineage.selectedModel
   ) {
     throw new Error("Production readiness is not an exact-SHA 100% pass.");
+  }
+  const readinessFacts = Array.isArray(readiness.facts) ? readiness.facts : [];
+  if (
+    readinessFacts.length === 0 ||
+    readinessFacts.some((entry) => object(entry, "readiness fact").passed !== true) ||
+    nonEmptyStrings(readiness.failedCritical).length !== 0
+  ) {
+    throw new Error("Production readiness does not contain an all-passed fact ledger.");
   }
 
   return {

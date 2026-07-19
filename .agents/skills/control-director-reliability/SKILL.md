@@ -73,7 +73,7 @@ pnpm control-director:readiness -- \
   --runtime-proof <runtime-proof.json>
 ```
 
-11. If the work uses a milestone roadmap, run `pnpm control-director:roadmap-proof` after the final commit is landed and active. Bind the clean source gate, managed runtime proof, all-job remote-gate receipt, and production-readiness receipt to that exact SHA. A roadmap's `passed` text is inert without this post-commit attestation.
+11. If the work uses a milestone roadmap, run `pnpm control-director:roadmap-proof` after the final commit is landed and active. Bind the clean source gate, managed runtime proof, all-job remote-gate receipt, and production-readiness receipt to that exact SHA. The attestation must independently recheck timestamped runtime evidence, selected-model cold/warm coverage, canary lineage, soak duration, and every readiness fact; a roadmap's `passed` text or summary boolean is inert without this post-commit proof.
 
 Do not claim production completion unless readiness and final-ledger verification exit zero, every critical fact passes, aggregate quality is at least 93, and no P0 defect remains.
 
