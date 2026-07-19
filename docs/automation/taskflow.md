@@ -70,7 +70,7 @@ The Control UI **Pursue Goal** surface uses the owner-scoped `taskFlows.control`
 
 - **Pause** persists `paused`, stops active child tasks, and rejects new child work until the flow is resumed.
 - **Resume** clears pause/wait/blocker metadata and returns the same durable flow to `running`.
-- **Retry** clears a recoverable blocker. A failed, cancelled, or lost flow gets a new managed replacement so terminal history stays truthful instead of being rewritten.
+- **Retry** clears a recoverable waiting, blocked, or failed state and queues the same durable flow for another controller lease. Cancelled and lost flows stay terminal; start a new goal instead of rewriting their history.
 - **Edit** updates the durable goal text using revision-checked writes.
 - **Stop** uses the same sticky cancellation path as the CLI and is idempotent; repeated clicks cannot create duplicate cancellation requests.
 

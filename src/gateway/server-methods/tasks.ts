@@ -452,21 +452,26 @@ function parseCursor(cursor: string | undefined): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function unsupportedTaskFlowControlAction(action: never): never {
+  throw new Error(`unsupported task flow control action: ${String(action)}`);
+}
+
 function taskFlowControlIsApplied(params: {
   action: TaskFlowControlAction;
   flow: TaskFlowRecord;
   goal?: string;
 }): boolean {
   const state = stateForPursueGoalFlow(params.flow);
-  switch (params.action) {
+  const action = params.action;
+  switch (action) {
     case "pause":
       return params.flow.status === "paused" || state?.phase === "paused";
-    case "resume":
-      return Boolean(
-        state &&
-          state.phase !== "paused" &&
-          !["blocked", "failed", "cancelled", "succeeded"].includes(state.phase),
-      );
+    case "resume": {
+      if (!state || state.phase === "paused") {
+        return false;
+      }
+      return !["blocked", "failed", "cancelled", "succeeded"].includes(state.phase);
+    }
     case "retry":
       return Boolean(state && (state.phase === "queued" || state.phase === "running"));
     case "stop":
@@ -474,6 +479,7 @@ function taskFlowControlIsApplied(params: {
     case "edit":
       return Boolean(params.goal && params.flow.goal.trim() === params.goal);
   }
+  return unsupportedTaskFlowControlAction(action);
 }
 
 async function controlPursueGoalFlow(params: {
@@ -484,11 +490,10 @@ async function controlPursueGoalFlow(params: {
 }) {
   const mutation = {
     flowId: params.flow.flowId,
-    ...(params.expectedRevision !== undefined
-      ? { expectedRevision: params.expectedRevision }
-      : {}),
+    ...(params.expectedRevision !== undefined ? { expectedRevision: params.expectedRevision } : {}),
   };
-  switch (params.action) {
+  const action = params.action;
+  switch (action) {
     case "pause":
       return await pausePursueGoalFlow(mutation);
     case "resume":
@@ -500,6 +505,7 @@ async function controlPursueGoalFlow(params: {
     case "edit":
       return await editPursueGoalFlow({ ...mutation, goal: params.goal ?? "" });
   }
+  return unsupportedTaskFlowControlAction(action);
 }
 
 // Control UI task methods expose the stable gateway protocol shape; helpers
@@ -918,16 +924,14 @@ export const tasksHandlers: GatewayRequestHandlers = {
         : {}),
     });
     const latest = result.flow ?? getTaskFlowById(flow.flowId);
-    const applied =
-      result.applied ||
-      Boolean(
-        latest &&
-          taskFlowControlIsApplied({
-            action: params.action,
-            flow: latest,
-            ...(goal ? { goal } : {}),
-          }),
-      );
+    const latestIsApplied = latest
+      ? taskFlowControlIsApplied({
+          action: params.action,
+          flow: latest,
+          ...(goal ? { goal } : {}),
+        })
+      : false;
+    const applied = result.applied || latestIsApplied;
     respond(true, {
       found: result.found,
       applied,

@@ -2300,7 +2300,9 @@ function renderControlDirectorDiagnosticsCard(
     props.onDraftChange(retryPrompt);
     props.onRequestUpdate?.();
     requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox textarea")?.focus();
+      document
+        .querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox textarea")
+        ?.focus();
     });
   };
   return html`
@@ -2852,9 +2854,7 @@ function renderPursueGoal(props: ChatProps) {
   const canPause =
     goal?.status === "queued" || goal?.status === "running" || goal?.status === "waiting";
   const canRetry =
-    Boolean(goal) &&
-    Boolean(flowId) &&
-    (goal?.status === "blocked" || goal?.status === "failed");
+    Boolean(goal) && Boolean(flowId) && (goal?.status === "blocked" || goal?.status === "failed");
   const goalChanged = Boolean(goal && editableGoalText && editableGoalText !== goal.goal.trim());
   const recentEvents = (goal?.events ?? []).slice(-8).toReversed();
   return html`

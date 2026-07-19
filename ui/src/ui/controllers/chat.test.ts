@@ -268,7 +268,9 @@ describe("chat pursue goal actions", () => {
       chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
     });
 
-    await expect(controlChatGoal(state, "flow-1", "stop")).resolves.toBeNull();
+    await expect(controlChatGoal(state, "flow-1", "stop")).resolves.toMatchObject({
+      status: "cancelled",
+    });
 
     expect(request).toHaveBeenNthCalledWith(1, "taskFlows.control", {
       flowId: "flow-1",
@@ -304,7 +306,7 @@ describe("chat pursue goal actions", () => {
     request.mockResolvedValueOnce({
       flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
     });
-    await expect(first).resolves.toBeNull();
+    await expect(first).resolves.toMatchObject({ status: "cancelled" });
   });
 
   it("pauses, resumes, and edits a goal through the canonical control method", async () => {

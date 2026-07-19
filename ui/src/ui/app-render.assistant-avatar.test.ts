@@ -472,7 +472,7 @@ describe("renderApp assistant avatar routing", () => {
     expect(chatProps.current?.error).toBe("gateway disconnected");
   });
 
-  it("continues work immediately after a goal retry creates a replacement flow", async () => {
+  it("lets the pursue-goal controller resume work without sending a duplicate chat turn", async () => {
     const handleSendChat = vi.fn(async () => undefined);
     const request = vi.fn(async (method: string) => {
       if (method === "taskFlows.control") {
@@ -480,11 +480,10 @@ describe("renderApp assistant avatar routing", () => {
           found: true,
           applied: true,
           action: "retry",
-          replacedFlowId: "flow-old",
           flow: {
-            id: "flow-new",
-            flowId: "flow-new",
-            status: "running",
+            id: "flow-old",
+            flowId: "flow-old",
+            status: "queued",
             goal: "Finish the verified work",
           },
         };
@@ -493,9 +492,9 @@ describe("renderApp assistant avatar routing", () => {
         return {
           flows: [
             {
-              id: "flow-new",
-              flowId: "flow-new",
-              status: "running",
+              id: "flow-old",
+              flowId: "flow-old",
+              status: "queued",
               goal: "Finish the verified work",
             },
           ],
@@ -524,10 +523,10 @@ describe("renderApp assistant avatar routing", () => {
       "taskFlows.control",
       expect.objectContaining({ flowId: "flow-old", action: "retry" }),
     );
-    expect(handleSendChat).toHaveBeenCalledWith(
-      expect.stringContaining("Continue pursuing this goal"),
-      { flowId: "flow-new" },
-    );
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(state.chatGoalFlows).toEqual([
+      expect.objectContaining({ flowId: "flow-old", status: "queued" }),
+    ]);
   });
 
   it("does not rebuild chat composer controls for draft-only rerenders", () => {

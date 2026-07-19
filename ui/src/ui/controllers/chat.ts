@@ -698,7 +698,13 @@ export async function controlChatGoal(
       );
     }
     await loadChatGoals(state);
-    return result.flow ?? null;
+    return (
+      result.flow ??
+      (state.chatGoalFlows ?? []).find(
+        (flow) => flow.id === normalized || flow.flowId === normalized,
+      ) ??
+      null
+    );
   } catch (err) {
     state.chatGoalFlows = previousFlows;
     setChatGoalError(state, err);
@@ -706,39 +712,6 @@ export async function controlChatGoal(
   } finally {
     state.chatGoalAction = null;
   }
-}
-
-export async function cancelChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "stop")) !== null;
-}
-
-export async function pauseChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "pause")) !== null;
-}
-
-export async function resumeChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "resume")) !== null;
-}
-
-export async function retryChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "retry")) !== null;
-}
-
-export async function editChatGoal(
-  state: ChatState,
-  flowId: string,
-  goal: string,
-): Promise<boolean> {
-  const normalizedGoal = normalizeOptionalText(goal);
-  if (!normalizedGoal) {
-    state.chatGoalError = "Goal is required.";
-    return false;
-  }
-  return (await controlChatGoal(state, flowId, "edit", normalizedGoal)) !== null;
-}
-
-export async function stopChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "stop")) !== null;
 }
 
 export function buildCurrentChatGoalContinuationPrompt(
