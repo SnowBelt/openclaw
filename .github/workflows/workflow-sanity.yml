@@ -916,14 +916,15 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF_COMMANDS'
           commands:
-          - pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
+          - pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
           - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-truth-diagnostics
           - pnpm ui:smoke:chat-ux-cleanup
           - pnpm check:changed
           EOF_COMMANDS
 
       - name: Run targeted Chat UX cleanup tests
-        run: pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
+        run: pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/chat/chat-responsive.browser.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
 
       - name: Run UI typecheck
         run: pnpm tsgo:test:ui
@@ -933,7 +934,9 @@ jobs:
         env:
           CI: "true"
           NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm ui:smoke:chat-ux-cleanup
+        run: |
+          pnpm ui:smoke:chat-truth-diagnostics
+          pnpm ui:smoke:chat-ux-cleanup
 
       - name: Run changed gate
         env:

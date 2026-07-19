@@ -1,0 +1,29 @@
+.chat-session-status {
+  display: contents;
+}
+
+@media (max-width: 900px), (max-height: 500px) {
+  .chat-session-status {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    margin: 6px 8px 0;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 2px 0 4px;
+    scrollbar-width: none;
+  }
+
+  .chat-session-status::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chat-session-status > .chat-project-picker,
+  .chat-session-status > .chat-goal,
+  .chat-session-status > .chat-work-surface {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+}

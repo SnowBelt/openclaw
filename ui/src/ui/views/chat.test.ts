@@ -693,6 +693,53 @@ describe("chat multi-agent work tree", () => {
 });
 
 describe("chat Control Director diagnostics", () => {
+  it("keeps empty diagnostics out of the conversation", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [{ key: "agent:main:main", kind: "direct", updatedAt: 100 }],
+        ts: 0,
+      },
+    });
+
+    expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
+    expect(container.textContent).not.toContain("No Control Director diagnostics recorded");
+  });
+
+  it("keeps healthy diagnostics in Sessions and Overview instead of persistent chat chrome", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+            controlDirectorTruthAudit: [
+              {
+                ts: 10,
+                status: "passed",
+                missing: [],
+                payloadsChecked: 1,
+                payloadsRewritten: 0,
+                claims: [],
+              },
+            ],
+          },
+        ],
+        ts: 0,
+      },
+    });
+
+    expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
+  });
+
   it("renders blocked truth and completion diagnostics for the active session", () => {
     const container = renderChatView({
       sessionKey: "agent:main:main",
@@ -747,25 +794,80 @@ describe("chat Control Director diagnostics", () => {
       },
     });
 
-    const card = container.querySelector("[data-control-director-diagnostics]");
+    const card = container.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
+    const summary = card?.querySelector(".chat-control-director-diagnostics__summary");
+    const panel = card?.querySelector(".chat-control-director-diagnostics__panel");
+    expect(card?.closest(".chat-thread-inner")).not.toBeNull();
+    expect(card?.open).toBe(false);
     expect(card?.textContent).toContain("Truth & Completion");
     expect(card?.textContent).toContain("Blocked unsupported claim");
     expect(card?.textContent).toContain("missing command evidence with exit code 0");
-    expect(
-      card?.querySelector(".chat-control-director-diagnostics__compact")?.textContent,
-    ).toContain("Why");
-    expect(
-      card?.querySelector(".chat-control-director-diagnostics__summary-list")?.textContent,
-    ).toContain("Next build gap");
-    expect(card?.textContent).not.toContain("Completion Grade8/10");
-
-    const details = card?.querySelector<HTMLDetailsElement>(
-      ".chat-control-director-diagnostics__details",
-    );
-    expect(details?.open).toBe(false);
-    expect(details?.textContent).toContain("Required evidence");
-    expect(details?.textContent).toContain("Completion Grade");
+    expect(summary?.textContent).not.toContain("Completion Grade");
+    expect(panel?.textContent).toContain("Why");
+    expect(panel?.textContent).toContain("Next");
+    expect(panel?.textContent).toContain("Required evidence");
+    expect(panel?.textContent).toContain("Completion Grade");
     expect(card?.textContent).not.toContain("Status: complete");
+  });
+
+  it("closes diagnostic details with Escape and restores summary focus", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      onBlockedRetryDraft: vi.fn(),
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+            controlDirectorMissionLedger: [
+              {
+                missionId: "mission-1",
+                runId: "run-1",
+                requestSummary: "finish diagnostics",
+                status: "blocked",
+                startedAt: 1,
+                updatedAt: 10,
+                continuationCount: 0,
+                finalStatus: "blocked",
+                nextBuildGap: "collect command proof",
+              },
+            ],
+          },
+        ],
+        ts: 0,
+      },
+    });
+    const card = container.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
+    const summary = card?.querySelector<HTMLElement>(".chat-control-director-diagnostics__summary");
+    const retry = card?.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]");
+    const close = card?.querySelector<HTMLButtonElement>(
+      '[aria-label="Close truth and completion details"]',
+    );
+    expect(card).not.toBeNull();
+    expect(summary).not.toBeNull();
+    expect(retry).not.toBeNull();
+    expect(close).not.toBeNull();
+
+    document.body.append(container);
+    try {
+      card!.open = true;
+      close!.click();
+      expect(card!.open).toBe(false);
+      expect(document.activeElement).toBe(summary);
+
+      card!.open = true;
+      retry!.focus();
+      retry!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+
+      expect(card!.open).toBe(false);
+      expect(document.activeElement).toBe(summary);
+    } finally {
+      container.remove();
+    }
   });
 
   it("inserts a safe retry draft without sending blocked Control Director diagnostics", () => {

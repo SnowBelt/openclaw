@@ -4,3 +4,5 @@
 @import "./chat/tool-cards.css";
 @import "./chat/sidebar.css";
 @import "./chat/split-view.css";
+@import "./chat/control-director-diagnostics.css";
+@import "./chat/session-status.css";
