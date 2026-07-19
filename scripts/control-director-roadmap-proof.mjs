@@ -77,6 +77,14 @@ function resolveBinding(repoRoot, template, sourceSha) {
   return path.resolve(repoRoot, template.replaceAll("<source-sha>", sourceSha));
 }
 
+export function controlDirectorSourceProofMatchesRoot(proofRoot, repoRoot) {
+  return (
+    typeof proofRoot === "string" &&
+    Boolean(proofRoot.trim()) &&
+    path.resolve(proofRoot) === path.resolve(repoRoot)
+  );
+}
+
 export function validateControlDirectorRoadmap(params) {
   const roadmap = object(params.roadmap, "roadmap");
   const sourceSha = immutableSha(params.sourceSha, "sourceSha");
@@ -174,7 +182,9 @@ export function validateControlDirectorRoadmap(params) {
     throw new Error("Runtime proof is not the managed SIG-enabled v2 contract.");
   }
   for (const surface of RUNTIME_SURFACES) {
-    if (object(runtimeProof[surface], `runtimeProof.${surface}`).passed !== true) {
+    const value = object(runtimeProof[surface], `runtimeProof.${surface}`);
+    exactSha(value.sourceSha, sourceSha, `runtimeProof.${surface}`);
+    if (value.passed !== true) {
       throw new Error(`Runtime surface ${surface} has not passed.`);
     }
   }
@@ -208,6 +218,7 @@ export function validateControlDirectorRoadmap(params) {
     if (
       value.status !== "completed" ||
       value.conclusion !== "success" ||
+      value.headSha !== sourceSha ||
       value.acceptedJobs !== value.totalJobs
     ) {
       throw new Error(`${gate} is not an all-jobs exact-SHA success.`);
@@ -221,6 +232,7 @@ export function validateControlDirectorRoadmap(params) {
   const readiness = object(params.readiness, "readiness");
   exactSha(readiness.sourceSha, sourceSha, "readiness");
   if (
+    readiness.expectedSha !== sourceSha ||
     readiness.sourceReady !== true ||
     readiness.productionReady !== true ||
     readiness.passPercent !== 100 ||
@@ -280,10 +292,14 @@ function main() {
     readiness: path.resolve(args.get("readiness")),
   };
   const roadmap = readJson(roadmapPath);
+  const sourceProof = readJson(inputPaths.sourceProof);
+  if (!controlDirectorSourceProofMatchesRoot(sourceProof.sourceRoot, repoRoot)) {
+    throw new Error("sourceProof sourceRoot does not match the current repository root.");
+  }
   const validation = validateControlDirectorRoadmap({
     roadmap,
     sourceSha,
-    sourceProof: readJson(inputPaths.sourceProof),
+    sourceProof,
     runtimeProof: readJson(inputPaths.runtimeProof),
     remoteProof: readJson(inputPaths.remoteProof),
     readiness: readJson(inputPaths.readiness),

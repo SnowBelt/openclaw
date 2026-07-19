@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { validateControlDirectorRoadmap } from "../../scripts/control-director-roadmap-proof.mjs";
+import {
+  controlDirectorSourceProofMatchesRoot,
+  validateControlDirectorRoadmap,
+} from "../../scripts/control-director-roadmap-proof.mjs";
 
 const sourceSha = "a".repeat(40);
 
@@ -63,6 +66,7 @@ function remoteProof() {
   const gate = {
     status: "completed",
     conclusion: "success",
+    headSha: sourceSha,
     acceptedJobs: 3,
     totalJobs: 3,
   };
@@ -78,6 +82,7 @@ function remoteProof() {
 function readiness() {
   return {
     sourceSha,
+    expectedSha: sourceSha,
     sourceReady: true,
     productionReady: true,
     passPercent: 100,
@@ -97,6 +102,12 @@ function validate(value = roadmap()) {
 }
 
 describe("Control Director final roadmap proof", () => {
+  it("requires the source receipt to name the current canonical source root", () => {
+    expect(controlDirectorSourceProofMatchesRoot("/tmp/repo", "/tmp/repo")).toBe(true);
+    expect(controlDirectorSourceProofMatchesRoot("/tmp/other", "/tmp/repo")).toBe(false);
+    expect(controlDirectorSourceProofMatchesRoot(undefined, "/tmp/repo")).toBe(false);
+  });
+
   it("accepts only the complete 60-milestone exact-proof ledger", () => {
     expect(validate()).toMatchObject({
       milestoneCount: 60,
