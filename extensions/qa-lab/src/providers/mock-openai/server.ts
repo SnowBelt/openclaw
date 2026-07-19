@@ -164,6 +164,8 @@ const QA_THINKING_VISIBILITY_OFF_PROMPT_RE = /qa thinking visibility check off/i
 const QA_THINKING_VISIBILITY_MAX_PROMPT_RE = /qa thinking visibility check max/i;
 const QA_EMPTY_RESPONSE_RECOVERY_PROMPT_RE = /empty response continuation qa check/i;
 const QA_EMPTY_RESPONSE_EXHAUSTION_PROMPT_RE = /empty response exhaustion qa check/i;
+const QA_EMPTY_RESPONSE_NO_TOOL_EXHAUSTION_PROMPT_RE =
+  /empty response no-tool exhaustion qa check/i;
 const QA_STREAMING_PROMPT_RE = /(?:partial|quiet) streaming qa check/i;
 const QA_FINAL_ONLY_MARKER_STREAMING_PROMPT_RE = /final-only marker streaming qa check/i;
 const QA_BLOCK_STREAMING_PROMPT_RE = /block streaming qa check/i;
@@ -2353,6 +2355,9 @@ async function buildResponsesPayload(
       return buildAssistantEvents("");
     }
     return buildAssistantEvents("EMPTY-RECOVERED-OK");
+  }
+  if (QA_EMPTY_RESPONSE_NO_TOOL_EXHAUSTION_PROMPT_RE.test(allInputText)) {
+    return buildAssistantEvents("");
   }
   if (QA_EMPTY_RESPONSE_EXHAUSTION_PROMPT_RE.test(allInputText)) {
     if (!toolOutput) {

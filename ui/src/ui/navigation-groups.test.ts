@@ -36,6 +36,7 @@ describe("TAB_GROUPS", () => {
     const control = TAB_GROUPS.find((group) => group.label === "control");
     expect(control?.tabs).toEqual([
       "overview",
+      "operations",
       "activity",
       "workboard",
       "instances",

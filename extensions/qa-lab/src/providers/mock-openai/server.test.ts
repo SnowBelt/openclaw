@@ -17,6 +17,8 @@ const QA_EMPTY_RESPONSE_RECOVERY_PROMPT =
   "Empty response continuation QA check: read QA_KICKOFF_TASK.md, then answer with exactly EMPTY-RECOVERED-OK.";
 const QA_EMPTY_RESPONSE_EXHAUSTION_PROMPT =
   "Empty response exhaustion QA check: read QA_KICKOFF_TASK.md, then answer with exactly EMPTY-EXHAUSTED-OK.";
+const QA_EMPTY_RESPONSE_NO_TOOL_EXHAUSTION_PROMPT =
+  "Empty response no-tool exhaustion QA check: return no visible answer.";
 const QA_REASONING_ONLY_RETRY_INSTRUCTION =
   "The previous assistant turn recorded reasoning but did not produce a user-visible answer. Continue from that partial turn and produce the visible answer now. Do not restate the reasoning or restart from scratch.";
 const QA_EMPTY_RESPONSE_RETRY_INSTRUCTION =
@@ -5064,6 +5066,25 @@ describe("qa mock openai server", () => {
       ],
     });
     expect(secondEmpty.output?.[0]?.content?.[0]?.text).toBe("");
+  });
+
+  it("can exhaust with empty turns without requesting execution tools", async () => {
+    const server = await startMockServer();
+
+    for (const prompt of [
+      QA_EMPTY_RESPONSE_NO_TOOL_EXHAUSTION_PROMPT,
+      `${QA_EMPTY_RESPONSE_NO_TOOL_EXHAUSTION_PROMPT}\n${QA_EMPTY_RESPONSE_RETRY_INSTRUCTION}`,
+    ]) {
+      const payload = await expectResponsesJson<{
+        output?: Array<{ content?: Array<{ text?: string }> }>;
+      }>(server, {
+        stream: false,
+        model: "gpt-5.5",
+        input: [makeUserInput(prompt)],
+      });
+      expect(payload.output?.[0]?.content?.[0]?.text).toBe("");
+      expect(JSON.stringify(payload)).not.toContain('"type":"function_call"');
+    }
   });
 });
 

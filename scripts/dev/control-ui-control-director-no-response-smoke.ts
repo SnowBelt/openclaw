@@ -12,7 +12,7 @@ import {
   redactControlUiSmokeSecrets,
 } from "./control-ui-smoke-url.js";
 
-export const CONTROL_DIRECTOR_NO_RESPONSE_PROMPT = "empty response exhaustion qa check";
+export const CONTROL_DIRECTOR_NO_RESPONSE_PROMPT = "empty response no-tool exhaustion qa check";
 export const CONTROL_DIRECTOR_EXPECTED_VISIBLE_MARKERS = Object.freeze([
   "Verified state",
   "Next build gap",
