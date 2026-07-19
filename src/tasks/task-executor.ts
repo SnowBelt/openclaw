@@ -26,6 +26,7 @@ import {
 import { getTaskFlowByIdForOwner } from "./task-flow-owner-access.js";
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
 import {
+  createManagedTaskFlow,
   createTaskFlowForTask,
   deleteTaskFlowRecordById,
   getTaskFlowById,
@@ -226,6 +227,17 @@ type CancelFlowResult = {
   tasks?: TaskRecord[];
 };
 
+export type TaskFlowControlAction = "pause" | "resume" | "retry" | "stop" | "edit";
+
+export type ControlFlowResult = {
+  found: boolean;
+  applied: boolean;
+  action: TaskFlowControlAction;
+  reason?: string;
+  flow?: TaskFlowRecord;
+  replacedFlowId?: string;
+};
+
 type RunTaskInFlowResult = {
   found: boolean;
   created: boolean;
@@ -238,6 +250,229 @@ function isTerminalFlowStatus(status: TaskFlowRecord["status"]): boolean {
   return (
     status === "succeeded" || status === "failed" || status === "cancelled" || status === "lost"
   );
+}
+
+type FlowOperatorPatch = Parameters<typeof updateFlowRecordByIdExpectedRevision>[0]["patch"];
+type FlowOperatorPatchResult = Omit<ControlFlowResult, "action">;
+
+function applyFlowOperatorPatch(params: {
+  flowId: string;
+  buildPatch: (flow: TaskFlowRecord) => FlowOperatorPatch | null;
+}): FlowOperatorPatchResult {
+  let current = getTaskFlowById(params.flowId);
+  if (!current) {
+    return { found: false, applied: false, reason: "Flow not found." };
+  }
+  if (current.syncMode !== "managed") {
+    return {
+      found: true,
+      applied: false,
+      reason: "Flow is not managed by an operator controller.",
+      flow: current,
+    };
+  }
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const patch = params.buildPatch(current);
+    if (!patch) {
+      return { found: true, applied: true, flow: current };
+    }
+    const updated = updateFlowRecordByIdExpectedRevision({
+      flowId: current.flowId,
+      expectedRevision: current.revision,
+      patch,
+    });
+    if (updated.applied) {
+      return { found: true, applied: true, flow: updated.flow };
+    }
+    if (updated.reason !== "revision_conflict" || !updated.current) {
+      return {
+        found: updated.reason !== "not_found",
+        applied: false,
+        reason:
+          updated.reason === "persist_failed" ? "Flow persistence failed." : "Flow not found.",
+        ...(updated.current ? { flow: updated.current } : {}),
+      };
+    }
+    current = updated.current;
+  }
+  return {
+    found: true,
+    applied: false,
+    reason: "Flow changed repeatedly; refresh and retry.",
+    flow: current,
+  };
+}
+
+function withControlAction(result: FlowOperatorPatchResult, action: TaskFlowControlAction) {
+  return { ...result, action };
+}
+
+/**
+ * Applies user-issued controls against the latest durable flow revision.
+ * UI commands are idempotent and must not fail merely because a heartbeat updated the record.
+ */
+export async function controlFlowById(params: {
+  cfg: OpenClawConfig;
+  flowId: string;
+  action: TaskFlowControlAction;
+  goal?: string;
+}): Promise<ControlFlowResult> {
+  const current = getTaskFlowById(params.flowId);
+  if (!current) {
+    return { found: false, applied: false, action: params.action, reason: "Flow not found." };
+  }
+  if (current.syncMode !== "managed") {
+    return {
+      found: true,
+      applied: false,
+      action: params.action,
+      reason: "Flow is not managed by an operator controller.",
+      flow: current,
+    };
+  }
+
+  if (params.action === "stop") {
+    const stopped = await cancelFlowById({ cfg: params.cfg, flowId: current.flowId });
+    const flow = stopped.flow ?? getTaskFlowById(current.flowId);
+    const accepted =
+      stopped.cancelled || flow?.status === "cancelled" || flow?.cancelRequestedAt != null;
+    return {
+      found: stopped.found,
+      applied: accepted,
+      action: params.action,
+      ...(stopped.reason ? { reason: stopped.reason } : {}),
+      ...(flow ? { flow } : {}),
+    };
+  }
+
+  const retryNeedsReplacement =
+    params.action === "retry" &&
+    (isTerminalFlowStatus(current.status) || current.cancelRequestedAt != null);
+  if (retryNeedsReplacement) {
+    if (current.status === "succeeded") {
+      return {
+        found: true,
+        applied: false,
+        action: params.action,
+        reason: "Completed goals do not need a retry.",
+        flow: current,
+      };
+    }
+    const replacement = createManagedTaskFlow({
+      ownerKey: current.ownerKey,
+      controllerId: current.controllerId ?? "core/operator-retry",
+      requesterOrigin: current.requesterOrigin,
+      status: "running",
+      notifyPolicy: current.notifyPolicy,
+      goal: current.goal,
+      currentStep: "Retry ready from Chat.",
+      stateJson: current.stateJson,
+    });
+    return replacement
+      ? {
+          found: true,
+          applied: true,
+          action: params.action,
+          flow: replacement,
+          replacedFlowId: current.flowId,
+        }
+      : {
+          found: true,
+          applied: false,
+          action: params.action,
+          reason: "Flow persistence failed.",
+          flow: current,
+        };
+  }
+
+  if (isTerminalFlowStatus(current.status) || current.cancelRequestedAt != null) {
+    return {
+      found: true,
+      applied: false,
+      action: params.action,
+      reason: `Flow is already ${current.status}.`,
+      flow: current,
+    };
+  }
+
+  if (params.action === "edit") {
+    const goal = params.goal?.trim();
+    if (!goal) {
+      return {
+        found: true,
+        applied: false,
+        action: params.action,
+        reason: "Goal text is required.",
+        flow: current,
+      };
+    }
+    return withControlAction(
+      applyFlowOperatorPatch({
+        flowId: current.flowId,
+        buildPatch: (flow) => (flow.goal === goal ? null : { goal, updatedAt: Date.now() }),
+      }),
+      params.action,
+    );
+  }
+
+  if (params.action === "resume" || params.action === "retry") {
+    return withControlAction(
+      applyFlowOperatorPatch({
+        flowId: current.flowId,
+        buildPatch: (flow) =>
+          flow.status === "running" &&
+          flow.cancelRequestedAt == null &&
+          !flow.blockedTaskId &&
+          !flow.blockedSummary
+            ? null
+            : {
+                status: "running",
+                currentStep:
+                  params.action === "retry" ? "Retry ready from Chat." : "Ready to continue.",
+                waitJson: null,
+                blockedTaskId: null,
+                blockedSummary: null,
+                cancelRequestedAt: null,
+                endedAt: null,
+                updatedAt: Date.now(),
+              },
+      }),
+      params.action,
+    );
+  }
+
+  const paused = withControlAction(
+    applyFlowOperatorPatch({
+      flowId: current.flowId,
+      buildPatch: (flow) =>
+        flow.status === "paused"
+          ? null
+          : {
+              status: "paused",
+              currentStep: "Paused by user.",
+              waitJson: { kind: "operator_pause", at: Date.now() },
+              blockedTaskId: null,
+              blockedSummary: null,
+              endedAt: null,
+              updatedAt: Date.now(),
+            },
+    }),
+    params.action,
+  );
+  if (!paused.applied) {
+    return paused;
+  }
+  const activeTasks = listTasksForFlowId(current.flowId).filter(isTaskFlowCancellationPending);
+  for (const task of activeTasks) {
+    await cancelDetachedTaskRunById({ cfg: params.cfg, taskId: task.taskId });
+  }
+  const remaining = listTasksForFlowId(current.flowId).filter(isTaskFlowCancellationPending);
+  const flow = getTaskFlowById(current.flowId) ?? paused.flow;
+  return {
+    ...paused,
+    ...(remaining.length > 0 ? { reason: "Paused; waiting for current work to stop." } : {}),
+    ...(flow ? { flow } : {}),
+  };
 }
 
 function markFlowCancelRequested(flow: TaskFlowRecord): TaskFlowRecord | FlowUpdateFailure {
@@ -366,6 +601,14 @@ export function runTaskInFlow(params: RunTaskInFlowParams): RunTaskInFlowResult 
       found: true,
       created: false,
       reason: `Flow is already ${flow.status}.`,
+      flow,
+    };
+  }
+  if (flow.status === "paused") {
+    return {
+      found: true,
+      created: false,
+      reason: "Flow is paused. Resume it before starting more work.",
       flow,
     };
   }

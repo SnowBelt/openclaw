@@ -472,6 +472,64 @@ describe("renderApp assistant avatar routing", () => {
     expect(chatProps.current?.error).toBe("gateway disconnected");
   });
 
+  it("continues work immediately after a goal retry creates a replacement flow", async () => {
+    const handleSendChat = vi.fn(async () => undefined);
+    const request = vi.fn(async (method: string) => {
+      if (method === "taskFlows.control") {
+        return {
+          found: true,
+          applied: true,
+          action: "retry",
+          replacedFlowId: "flow-old",
+          flow: {
+            id: "flow-new",
+            flowId: "flow-new",
+            status: "running",
+            goal: "Finish the verified work",
+          },
+        };
+      }
+      if (method === "taskFlows.list") {
+        return {
+          flows: [
+            {
+              id: "flow-new",
+              flowId: "flow-new",
+              status: "running",
+              goal: "Finish the verified work",
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState({
+      tab: "chat",
+      client: { request } as unknown as AppViewState["client"],
+      chatGoalFlows: [
+        {
+          id: "flow-old",
+          flowId: "flow-old",
+          status: "blocked",
+          goal: "Finish the verified work",
+        },
+      ],
+      handleSendChat,
+    });
+
+    renderApp(state);
+    await chatProps.current?.onGoalControl?.("flow-old", "retry");
+
+    expect(request).toHaveBeenCalledWith(
+      "taskFlows.control",
+      expect.objectContaining({ flowId: "flow-old", action: "retry" }),
+    );
+    expect(handleSendChat).toHaveBeenCalledWith(
+      expect.stringContaining("Continue pursuing this goal"),
+      { flowId: "flow-new" },
+    );
+  });
+
   it("does not rebuild chat composer controls for draft-only rerenders", () => {
     const container = document.createElement("div");
     const state = createState({ tab: "chat", chatMessage: "" });

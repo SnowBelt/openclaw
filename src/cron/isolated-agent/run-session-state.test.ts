@@ -427,6 +427,7 @@ describe("createPersistCronSessionEntry", () => {
           sessionFile: "/tmp/bound-session-rotated.jsonl",
           usageFamilyKey: "agent:main:telegram:direct:42",
           usageFamilySessionIds: ["bound-session", "bound-session-rotated"],
+          chatHistoryLineageRootSessionId: "bound-session",
           updatedAt: 1000,
           systemSent: true,
         });
@@ -448,6 +449,7 @@ describe("createPersistCronSessionEntry", () => {
       sessionFile: "/tmp/bound-session-rotated.jsonl",
       usageFamilyKey: "agent:main:telegram:direct:42",
       usageFamilySessionIds: ["bound-session", "bound-session-rotated"],
+      chatHistoryLineageRootSessionId: "bound-session",
       updatedAt: 1000,
       systemSent: true,
     });

@@ -122,6 +122,24 @@
   padding: 0.78rem;
 }
 
+.chat-work-surface__item--attention {
+  border-color: color-mix(in srgb, var(--warning, #d97706) 42%, var(--border));
+}
+
+.chat-work-surface__attention {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chat-work-surface__attention strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .chat-work-surface__item-main {
   min-width: 0;
 }
@@ -392,6 +410,23 @@
   display: grid;
   gap: 0.6rem;
   margin-top: 0.8rem;
+}
+
+.chat-project-picker__contract {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-muted) 48%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chat-project-picker__contract strong {
+  color: var(--text);
+  font-size: 12px;
 }
 
 .chat-project-picker__list {

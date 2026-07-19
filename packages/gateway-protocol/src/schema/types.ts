@@ -125,6 +125,9 @@ export type TaskFlowsCreateParams = SchemaType<"TaskFlowsCreateParams">;
 export type TaskFlowsCreateResult = SchemaType<"TaskFlowsCreateResult">;
 export type TaskFlowsCancelParams = SchemaType<"TaskFlowsCancelParams">;
 export type TaskFlowsCancelResult = SchemaType<"TaskFlowsCancelResult">;
+export type TaskFlowControlAction = SchemaType<"TaskFlowControlAction">;
+export type TaskFlowsControlParams = SchemaType<"TaskFlowsControlParams">;
+export type TaskFlowsControlResult = SchemaType<"TaskFlowsControlResult">;
 
 /** Task ledger query and cancellation payloads. */
 export type TaskSummary = SchemaType<"TaskSummary">;

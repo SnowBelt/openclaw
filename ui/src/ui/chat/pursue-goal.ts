@@ -1,6 +1,7 @@
 export type ChatGoalStatus =
   | "queued"
   | "running"
+  | "paused"
   | "waiting"
   | "blocked"
   | "succeeded"
@@ -45,7 +46,20 @@ export type ChatGoalFlowSummary = {
   };
 };
 
-const ACTIVE_GOAL_STATUSES = new Set<ChatGoalStatus>(["queued", "running", "waiting", "blocked"]);
+export type ChatGoalControlAction = "pause" | "resume" | "retry" | "stop" | "edit";
+
+export type ChatGoalActionState = {
+  flowId: string;
+  action: ChatGoalControlAction;
+};
+
+const ACTIVE_GOAL_STATUSES = new Set<ChatGoalStatus>([
+  "queued",
+  "running",
+  "paused",
+  "waiting",
+  "blocked",
+]);
 
 export function isActiveChatGoal(status: string | undefined): boolean {
   return ACTIVE_GOAL_STATUSES.has(status as ChatGoalStatus);
@@ -72,6 +86,8 @@ export function chatGoalStatusLabel(flow: ChatGoalFlowSummary | null | undefined
       return "Queued";
     case "running":
       return "Pursuing";
+    case "paused":
+      return "Paused";
     case "waiting":
       return "Waiting";
     case "blocked":

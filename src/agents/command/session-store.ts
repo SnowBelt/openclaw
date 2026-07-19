@@ -143,6 +143,8 @@ export async function updateSessionStoreAfterAgentRun(params: {
     next.usageFamilySessionIds = Array.from(
       new Set([...(entry.usageFamilySessionIds ?? []), entry.sessionId, sessionId]),
     );
+    next.chatHistoryLineageRootSessionId =
+      entry.chatHistoryLineageRootSessionId ?? entry.usageFamilySessionIds?.[0] ?? entry.sessionId;
   } else if (activeSessionFile) {
     next.sessionFile = activeSessionFile;
   }
@@ -397,6 +399,8 @@ export async function recordCliCompactionInStore(params: {
     next.usageFamilySessionIds = Array.from(
       new Set([...(entry.usageFamilySessionIds ?? []), entry.sessionId, newSessionId]),
     );
+    next.chatHistoryLineageRootSessionId =
+      entry.chatHistoryLineageRootSessionId ?? entry.usageFamilySessionIds?.[0] ?? entry.sessionId;
   } else if (sessionFileChanged && explicitNewSessionFile) {
     next.sessionFile = explicitNewSessionFile;
   }

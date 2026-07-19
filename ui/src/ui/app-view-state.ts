@@ -160,6 +160,10 @@ export type AppViewState = {
   chatSessionMessageSubscriptionKey?: string | null;
   chatSessionMessageSubscriptionRequestedKey?: string | null;
   chatLoading: boolean;
+  chatHistoryHasMore: boolean;
+  chatHistoryNextOffset: number | null;
+  chatHistoryLoadingOlder: boolean;
+  chatHistoryTotalMessages: number | null;
   chatSending: boolean;
   chatMessage: string;
   chatAttachments: ChatAttachment[];
@@ -191,7 +195,7 @@ export type AppViewState = {
   chatGoalFlows?: ChatGoalFlowSummary[];
   chatGoalLoading?: boolean;
   chatGoalBusy?: boolean;
-  chatGoalCancellingFlowId?: string | null;
+  chatGoalAction?: import("./chat/pursue-goal.ts").ChatGoalActionState | null;
   chatGoalError?: string | null;
   chatGoalUpdatedAt?: number | null;
   chatTargetRunId?: string | null;

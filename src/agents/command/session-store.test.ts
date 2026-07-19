@@ -375,6 +375,7 @@ describe("updateSessionStoreAfterAgentRun", () => {
         sessionFile: rotatedSessionFile,
         usageFamilyKey: sessionKey,
         usageFamilySessionIds: [sessionId, rotatedSessionId],
+        chatHistoryLineageRootSessionId: sessionId,
         compactionCount: 1,
       });
       expect(sessionStore[sessionKey]?.sessionStartedAt).toBeGreaterThan(1);
@@ -2494,10 +2495,12 @@ describe("recordCliCompactionInStore", () => {
       expect(sessionStore[sessionKey]?.sessionFile).toBe(nextSessionFile);
       expect(sessionStore[sessionKey]?.usageFamilyKey).toBe(sessionKey);
       expect(sessionStore[sessionKey]?.usageFamilySessionIds).toEqual([sessionId, nextSessionId]);
+      expect(sessionStore[sessionKey]?.chatHistoryLineageRootSessionId).toBe(sessionId);
 
       const persisted = loadSessionStore(storePath);
       expect(persisted[sessionKey]?.sessionId).toBe(nextSessionId);
       expect(persisted[sessionKey]?.sessionFile).toBe(nextSessionFile);
+      expect(persisted[sessionKey]?.chatHistoryLineageRootSessionId).toBe(sessionId);
     });
   });
 

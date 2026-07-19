@@ -1138,7 +1138,7 @@ describe("grouped chat rendering", () => {
     });
 
     const activity = expectElement(container, ".chat-activity-group__summary", HTMLButtonElement);
-    expect(activity.textContent).toContain("Activity: 2 tools");
+    expect(activity.textContent).toContain("What OpenClaw did: 2 steps");
     expect(activity.textContent).toContain("read_file");
     expect(activity.textContent).toContain("run_command");
     expect(container.querySelector(".chat-tool-msg-body")).toBeNull();

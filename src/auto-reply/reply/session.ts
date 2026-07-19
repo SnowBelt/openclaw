@@ -780,6 +780,15 @@ async function initSessionStateAttemptLocked(
         ]),
       )
     : baseEntry?.usageFamilySessionIds;
+  // Explicit /new and /reset start a new visible conversation. Automatic idle/daily
+  // rollover preserves the prior root so Chat pagination can cross internal rotations.
+  const chatHistoryLineageRootSessionId = previousSessionEntry
+    ? resetTriggered
+      ? sessionId
+      : (previousSessionEntry.chatHistoryLineageRootSessionId ??
+        previousSessionEntry.usageFamilySessionIds?.[0] ??
+        previousSessionEntry.sessionId)
+    : baseEntry?.chatHistoryLineageRootSessionId;
   // Track the originating channel/to for announce routing (subagent announce-back).
   const originatingChannelRaw = ctx.OriginatingChannel as string | undefined;
   const isInterSession = isInterSessionInputProvenance(ctx.InputProvenance);
@@ -868,6 +877,7 @@ async function initSessionStateAttemptLocked(
     pinnedAt: entry?.pinnedAt,
     usageFamilyKey,
     usageFamilySessionIds,
+    chatHistoryLineageRootSessionId,
     modelOverride: persistedModelOverride ?? baseEntry?.modelOverride,
     providerOverride: persistedProviderOverride ?? baseEntry?.providerOverride,
     modelOverrideSource: persistedModelOverrideSource ?? baseEntry?.modelOverrideSource,

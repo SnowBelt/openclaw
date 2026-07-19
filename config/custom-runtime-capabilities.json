@@ -191,6 +191,20 @@
       ]
     },
     {
+      "id": "runtime:control-director-chat-reliability",
+      "kind": "runtime",
+      "requiredPaths": [
+        "packages/gateway-protocol/src/schema/tasks.ts",
+        "src/tasks/task-executor.ts",
+        "src/gateway/chat-history-lineage.ts",
+        "ui/src/ui/controllers/chat.ts",
+        "ui/src/ui/views/chat.ts",
+        "scripts/dev/control-ui-chat-control-director-reliability-smoke.ts",
+        "docs/automation/taskflow.md",
+        "docs/web/control-ui.md"
+      ]
+    },
+    {
       "id": "runtime:pcc-chat-sync",
       "kind": "runtime",
       "requiredPaths": [

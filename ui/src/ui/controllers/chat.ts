@@ -10,6 +10,8 @@ import { extractText } from "../chat/message-extract.ts";
 import {
   buildChatGoalContinuationPrompt,
   resolveCurrentChatGoal,
+  type ChatGoalActionState,
+  type ChatGoalControlAction,
   type ChatGoalFlowSummary,
 } from "../chat/pursue-goal.ts";
 import { reconcileChatRunLifecycle } from "../chat/run-lifecycle.ts";
@@ -395,6 +397,10 @@ export type ChatState = {
   currentSessionId?: string | null;
   reconnectResumeSessionId?: string | null;
   chatLoading: boolean;
+  chatHistoryHasMore?: boolean;
+  chatHistoryNextOffset?: number | null;
+  chatHistoryLoadingOlder?: boolean;
+  chatHistoryTotalMessages?: number | null;
   chatMessages: unknown[];
   chatMessagesBySession?: ChatMessageCache;
   chatThinkingLevel: string | null;
@@ -417,7 +423,7 @@ export type ChatState = {
   chatGoalFlows?: ChatGoalFlowSummary[];
   chatGoalLoading?: boolean;
   chatGoalBusy?: boolean;
-  chatGoalCancellingFlowId?: string | null;
+  chatGoalAction?: ChatGoalActionState | null;
   chatGoalError?: string | null;
   chatGoalUpdatedAt?: number | null;
   projectsLoading?: boolean;
@@ -481,6 +487,10 @@ function projectRecordFromPccSummary(project: ChatPccProjectSummary): ProjectRec
 
 export type ChatHistoryResult = {
   messages?: Array<unknown>;
+  offset?: number;
+  nextOffset?: number;
+  hasMore?: boolean;
+  totalMessages?: number;
   sessionId?: string;
   thinkingLevel?: string;
   defaults?: GatewaySessionsDefaults;
@@ -619,47 +629,84 @@ export async function createChatGoal(
   }
 }
 
-export async function cancelChatGoal(state: ChatState, flowId: string): Promise<boolean> {
+type ChatGoalControlResponse = {
+  found: boolean;
+  applied: boolean;
+  action: ChatGoalControlAction;
+  reason?: string;
+  flow?: ChatGoalFlowSummary;
+  replacedFlowId?: string;
+};
+
+function optimisticGoalControl(
+  flow: ChatGoalFlowSummary,
+  action: ChatGoalControlAction,
+  goal?: string,
+): ChatGoalFlowSummary {
+  const now = Date.now();
+  if (action === "stop") {
+    return { ...flow, status: "cancelling", cancelRequestedAt: now };
+  }
+  if (action === "pause") {
+    return { ...flow, status: "paused", currentStep: "Pausing current work…" };
+  }
+  if (action === "resume" || action === "retry") {
+    return { ...flow, status: "running", currentStep: "Ready to continue." };
+  }
+  return goal ? { ...flow, goal } : flow;
+}
+
+export async function controlChatGoal(
+  state: ChatState,
+  flowId: string,
+  action: ChatGoalControlAction,
+  goal?: string,
+): Promise<ChatGoalFlowSummary | null> {
   const normalized = flowId.trim();
   if (!normalized) {
-    return false;
+    return null;
   }
-  if (state.chatGoalCancellingFlowId === normalized) {
-    return false;
+  if (state.chatGoalAction?.flowId === normalized) {
+    return null;
   }
-  state.chatGoalCancellingFlowId = normalized;
+  const normalizedGoal = normalizeOptionalText(goal);
+  if (action === "edit" && !normalizedGoal) {
+    state.chatGoalError = "Enter a goal first.";
+    return null;
+  }
+  state.chatGoalAction = { flowId: normalized, action };
   state.chatGoalError = null;
   const previousFlows = state.chatGoalFlows;
-  const cancelRequestedAt = Date.now();
   state.chatGoalFlows = (state.chatGoalFlows ?? []).map((flow) => {
     if (flow.id !== normalized && flow.flowId !== normalized) {
       return flow;
     }
-    return Object.assign({}, flow, {
-      cancelRequestedAt,
-      status: "cancelling" as ChatGoalFlowSummary["status"],
-    });
+    return optimisticGoalControl(flow, action, normalizedGoal);
   });
   try {
     const client = requireConnectedChatClient(state);
-    const result = await client.request<{ flow?: ChatGoalFlowSummary }>("taskFlows.cancel", {
+    const result = await client.request<ChatGoalControlResponse>("taskFlows.control", {
       flowId: normalized,
       sessionKey: currentChatSessionKey(state),
-      reason: "cancelled from Control UI Pursue Goal",
+      action,
+      ...(normalizedGoal ? { goal: normalizedGoal } : {}),
     });
+    if (!result.applied) {
+      throw new Error(result.reason ?? `Goal ${action} was not applied.`);
+    }
     if (result?.flow) {
       state.chatGoalFlows = (state.chatGoalFlows ?? []).map((flow) =>
         flow.id === normalized || flow.flowId === normalized ? result.flow! : flow,
       );
     }
     await loadChatGoals(state);
-    return true;
+    return result.flow ?? null;
   } catch (err) {
     state.chatGoalFlows = previousFlows;
     setChatGoalError(state, err);
-    return false;
+    return null;
   } finally {
-    state.chatGoalCancellingFlowId = null;
+    state.chatGoalAction = null;
   }
 }
 
@@ -1025,6 +1072,44 @@ function replaceCachedChatMessages(
   cacheChatMessages(state.chatMessagesBySession, state, { sessionKey, agentId }, messages);
 }
 
+function applyChatHistoryPageMetadata(state: ChatState, result: ChatHistoryResult): void {
+  state.chatHistoryHasMore = result.hasMore === true;
+  state.chatHistoryNextOffset = result.hasMore === true ? (result.nextOffset ?? null) : null;
+  state.chatHistoryTotalMessages =
+    typeof result.totalMessages === "number" ? result.totalMessages : null;
+}
+
+function chatHistoryMessageIdentity(message: unknown): string | null {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+  const metadata = (message as Record<string, unknown>).__openclaw;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+  const id = (metadata as Record<string, unknown>).id;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+
+function prependUniqueChatHistoryMessages(older: unknown[], current: unknown[]): unknown[] {
+  const knownIds = new Set(
+    current
+      .map((message) => chatHistoryMessageIdentity(message))
+      .filter((id): id is string => id !== null),
+  );
+  const uniqueOlder = older.filter((message) => {
+    const id = chatHistoryMessageIdentity(message);
+    if (id && knownIds.has(id)) {
+      return false;
+    }
+    if (id) {
+      knownIds.add(id);
+    }
+    return true;
+  });
+  return [...uniqueOlder, ...current];
+}
+
 export async function loadChatHistory(
   state: ChatState,
   opts: LoadChatHistoryOptions = {},
@@ -1108,6 +1193,10 @@ async function loadChatHistoryUncached(
   // Any pending input-history snapshot becomes invalid once we start reloading transcript state.
   state.resetChatInputHistoryNavigation?.();
   state.chatLoading = true;
+  state.chatHistoryHasMore = false;
+  state.chatHistoryNextOffset = null;
+  state.chatHistoryLoadingOlder = false;
+  state.chatHistoryTotalMessages = null;
   setChatError(state, null);
   try {
     let res: ChatHistoryResult;
@@ -1117,6 +1206,7 @@ async function loadChatHistoryUncached(
           sessionKey,
           ...(requestAgentId ? { agentId: requestAgentId } : {}),
           limit: CHAT_HISTORY_REQUEST_LIMIT,
+          offset: 0,
         });
         break;
       } catch (err) {
@@ -1136,6 +1226,7 @@ async function loadChatHistoryUncached(
             sessionKey,
             ...(requestAgentId ? { agentId: requestAgentId } : {}),
             limit: CHAT_HISTORY_REQUEST_LIMIT,
+            offset: 0,
           });
           break;
         }
@@ -1159,6 +1250,7 @@ async function loadChatHistoryUncached(
       return undefined;
     }
     const messages = Array.isArray(res.messages) ? res.messages : [];
+    applyChatHistoryPageMetadata(state, res);
     applyChatStartupAgentsList(state, res.agentsList);
     const visibleMessages = messages.filter((message) => !shouldHideHistoryMessage(message));
     const lateOptimisticTail = collectLateOptimisticTailMessages(
@@ -1295,6 +1387,54 @@ async function loadChatHistoryUncached(
     }
   }
   return undefined;
+}
+
+/** Prepends one durable transcript page without disturbing an active run or optimistic tail. */
+export async function loadOlderChatHistory(state: ChatState): Promise<boolean> {
+  const client = state.client;
+  const sessionKey = state.sessionKey;
+  const offset = state.chatHistoryNextOffset;
+  if (
+    !client ||
+    !state.connected ||
+    state.chatHistoryLoadingOlder ||
+    state.chatHistoryHasMore !== true ||
+    typeof offset !== "number"
+  ) {
+    return false;
+  }
+  const requestAgentId = isSelectedGlobalEventSessionKey(sessionKey)
+    ? resolveSelectedAgentId(state)
+    : undefined;
+  const requestVersion = chatHistoryRequestVersions.get(state as object);
+  state.chatHistoryLoadingOlder = true;
+  try {
+    const result = await client.request<ChatHistoryResult>("chat.history", {
+      sessionKey,
+      ...(requestAgentId ? { agentId: requestAgentId } : {}),
+      limit: CHAT_HISTORY_REQUEST_LIMIT,
+      offset,
+    });
+    if (
+      state.client !== client ||
+      state.sessionKey !== sessionKey ||
+      chatHistoryRequestVersions.get(state as object) !== requestVersion
+    ) {
+      return false;
+    }
+    const older = (result.messages ?? []).filter((message) => !shouldHideHistoryMessage(message));
+    state.chatMessages = prependUniqueChatHistoryMessages(older, state.chatMessages);
+    replaceCachedChatMessages(state, sessionKey, state.chatMessages, requestAgentId);
+    applyChatHistoryPageMetadata(state, result);
+    return true;
+  } catch (err) {
+    setChatError(state, String(err));
+    return false;
+  } finally {
+    if (state.client === client && state.sessionKey === sessionKey) {
+      state.chatHistoryLoadingOlder = false;
+    }
+  }
 }
 
 function dataUrlToBase64(dataUrl: string): { content: string; mimeType: string } | null {

@@ -25,7 +25,7 @@ Task Flow is the orchestration layer above [background tasks](/automation/tasks)
 A managed flow has a controller: plugin code that creates the flow through the plugin runtime Task Flow API with a goal and a required controller id, then drives it explicitly.
 
 - Each step runs as a background task created under the flow; the flow's owner key and requester origin carry over to child tasks.
-- The controller advances the flow between `running`, `waiting`, and terminal states, and stores arbitrary JSON step state on the flow record.
+- The controller advances the flow between `running`, `paused`, `waiting`, and terminal states, and stores arbitrary JSON step state on the flow record.
 - Every mutation passes the flow's expected revision. A stale write is rejected as a revision conflict instead of clobbering newer state.
 - Once cancellation is requested, new child tasks are refused, and the flow finalizes as `cancelled` when no child task remains active.
 
@@ -48,6 +48,7 @@ OpenClaw creates a mirrored one-task flow automatically when a detached ACP or s
 | ----------- | -------------------------------------------------------------------------- |
 | `queued`    | Created, not yet progressing                                               |
 | `running`   | Flow is actively progressing                                               |
+| `paused`    | User paused the managed flow; active child work is being stopped           |
 | `waiting`   | Managed flow is parked on wait metadata (timer, external event)            |
 | `blocked`   | A step finished without a usable result; `blockedTaskId`/summary say which |
 | `succeeded` | Completed successfully                                                     |
@@ -62,6 +63,18 @@ Flow records persist in the shared SQLite state database (`~/.openclaw/state/ope
 ## Cancel behavior
 
 `openclaw tasks flow cancel` sets a sticky cancel intent on the flow, cancels its active child tasks, and refuses new managed child tasks. Once no child task remains active, the flow finalizes as `cancelled` - immediately, or via the maintenance sweep if children take longer to settle. The intent is persisted, so a cancelled flow stays cancelled even if the gateway restarts before all child tasks have terminated.
+
+## Chat controls for managed flows
+
+The Control UI **Pursue Goal** surface uses the owner-scoped `taskFlows.control` Gateway method. It does not maintain a second goal store.
+
+- **Pause** persists `paused`, stops active child tasks, and rejects new child work until the flow is resumed.
+- **Resume** clears pause/wait/blocker metadata and returns the same durable flow to `running`.
+- **Retry** clears a recoverable blocker. A failed, cancelled, or lost flow gets a new managed replacement so terminal history stays truthful instead of being rewritten.
+- **Edit** updates the durable goal text using revision-checked writes.
+- **Stop** uses the same sticky cancellation path as the CLI and is idempotent; repeated clicks cannot create duplicate cancellation requests.
+
+The Chat surface reports the accepted action immediately, disables duplicate controls while it is in flight, then refreshes from the durable flow record. A controller must still decide and schedule the next concrete child step after resume or retry.
 
 ## CLI commands
 

@@ -378,8 +378,11 @@ import { PresenceEntrySchema, SnapshotSchema, StateVersionSchema } from "./snaps
 import { SystemInfoParamsSchema, SystemInfoResultSchema } from "./system-info.js";
 import {
   TaskFlowDetailSchema,
+  TaskFlowControlActionSchema,
   TaskFlowsCancelParamsSchema,
   TaskFlowsCancelResultSchema,
+  TaskFlowsControlParamsSchema,
+  TaskFlowsControlResultSchema,
   TaskFlowsCreateParamsSchema,
   TaskFlowsCreateResultSchema,
   TaskFlowsGetParamsSchema,
@@ -714,6 +717,7 @@ export const ProtocolSchemas = {
   AuditListResult: AuditListResultSchema,
   // Task ledger and config/wizard setup payloads.
   TaskFlowStatus: TaskFlowStatusSchema,
+  TaskFlowControlAction: TaskFlowControlActionSchema,
   TaskFlowSummary: TaskFlowSummarySchema,
   TaskFlowDetail: TaskFlowDetailSchema,
   TaskFlowsListParams: TaskFlowsListParamsSchema,
@@ -724,6 +728,8 @@ export const ProtocolSchemas = {
   TaskFlowsCreateResult: TaskFlowsCreateResultSchema,
   TaskFlowsCancelParams: TaskFlowsCancelParamsSchema,
   TaskFlowsCancelResult: TaskFlowsCancelResultSchema,
+  TaskFlowsControlParams: TaskFlowsControlParamsSchema,
+  TaskFlowsControlResult: TaskFlowsControlResultSchema,
   TaskSummary: TaskSummarySchema,
   TasksListParams: TasksListParamsSchema,
   TasksListResult: TasksListResultSchema,

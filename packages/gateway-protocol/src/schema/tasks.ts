@@ -21,6 +21,7 @@ export const TaskLedgerStatusSchema = Type.Union([
 export const TaskFlowStatusSchema = Type.Union([
   Type.Literal("queued"),
   Type.Literal("running"),
+  Type.Literal("paused"),
   Type.Literal("waiting"),
   Type.Literal("blocked"),
   Type.Literal("succeeded"),
@@ -226,6 +227,37 @@ export const TaskFlowsCancelResultSchema = Type.Object(
     cancelled: Type.Boolean(),
     reason: Type.Optional(Type.String()),
     flow: Type.Optional(TaskFlowDetailSchema),
+  },
+  { additionalProperties: false },
+);
+
+export const TaskFlowControlActionSchema = Type.Union([
+  Type.Literal("pause"),
+  Type.Literal("resume"),
+  Type.Literal("retry"),
+  Type.Literal("stop"),
+  Type.Literal("edit"),
+]);
+
+/** Idempotent operator control for a managed task flow. */
+export const TaskFlowsControlParamsSchema = Type.Object(
+  {
+    flowId: NonEmptyString,
+    sessionKey: Type.Optional(NonEmptyString),
+    action: TaskFlowControlActionSchema,
+    goal: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const TaskFlowsControlResultSchema = Type.Object(
+  {
+    found: Type.Boolean(),
+    applied: Type.Boolean(),
+    action: TaskFlowControlActionSchema,
+    reason: Type.Optional(Type.String()),
+    flow: Type.Optional(TaskFlowDetailSchema),
+    replacedFlowId: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );

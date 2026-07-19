@@ -10,6 +10,7 @@ import {
   type TaskSummary,
   type TasksListParams,
   validateTaskFlowsCancelParams,
+  validateTaskFlowsControlParams,
   validateTaskFlowsCreateParams,
   validateTaskFlowsGetParams,
   validateTaskFlowsListParams,
@@ -20,7 +21,7 @@ import {
 import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { cancelDetachedTaskRunById } from "../../tasks/detached-task-runtime.js";
 import { getTaskById, listTaskRecords, listTasksForFlowId } from "../../tasks/runtime-internal.js";
-import { cancelFlowById } from "../../tasks/task-executor.js";
+import { cancelFlowById, controlFlowById } from "../../tasks/task-executor.js";
 import type { TaskFlowRecord, TaskFlowStatus } from "../../tasks/task-flow-registry.types.js";
 import {
   createManagedTaskFlow,
@@ -317,6 +318,55 @@ export const tasksHandlers: GatewayRequestHandlers = {
       cancelled: result.cancelled,
       ...(result.reason ? { reason: result.reason } : {}),
       ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.control": async ({ params, respond, context }) => {
+    if (!validateTaskFlowsControlParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.control params: ${formatValidationErrors(validateTaskFlowsControlParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!flow || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, {
+        found: false,
+        applied: false,
+        action: params.action,
+        reason: "Flow not found.",
+      });
+      return;
+    }
+    const goal =
+      params.action === "edit"
+        ? sanitizeTaskStatusText(params.goal ?? "", { maxChars: TASK_STATUS_DETAIL_MAX_CHARS })
+        : undefined;
+    if (params.action === "edit" && !goal) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "goal is required when editing a task flow"),
+      );
+      return;
+    }
+    const result = await controlFlowById({
+      cfg: context.getRuntimeConfig(),
+      flowId: flow.flowId,
+      action: params.action,
+      ...(goal ? { goal } : {}),
+    });
+    respond(true, {
+      found: result.found,
+      applied: result.applied,
+      action: result.action,
+      ...(result.reason ? { reason: result.reason } : {}),
+      ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+      ...(result.replacedFlowId ? { replacedFlowId: result.replacedFlowId } : {}),
     });
   },
   "tasks.list": ({ params, respond }) => {

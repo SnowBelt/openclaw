@@ -29,6 +29,7 @@ import {
 } from "./app-render.helpers.ts";
 import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
+import { resolveCurrentChatGoal } from "./chat/pursue-goal.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
 import {
   renderChatSessionSelect,
@@ -59,7 +60,7 @@ import { loadChannels } from "./controllers/channels.ts";
 import {
   attachChatSessionToProject,
   buildCurrentChatGoalContinuationPrompt,
-  cancelChatGoal,
+  controlChatGoal,
   cancelChatWorkTask,
   createAndAttachChatProject,
   createChatGoal,
@@ -67,6 +68,7 @@ import {
   detachChatSessionFromProject,
   loadChatGoals,
   loadChatHistory,
+  loadOlderChatHistory,
   loadChatProjects,
 } from "./controllers/chat.ts";
 import {
@@ -680,6 +682,7 @@ function renderSidebarSessions(state: AppViewState) {
               <button
                 class="sidebar-recent-sessions__label"
                 type="button"
+                title="Quick links to your five most recent conversations. Use the chat picker above to find every conversation."
                 aria-expanded=${String(!state.settings.recentSessionsCollapsed)}
                 @click=${() => {
                   state.applySettings({
@@ -688,9 +691,7 @@ function renderSidebarSessions(state: AppViewState) {
                   });
                 }}
               >
-                <span class="sidebar-recent-sessions__label-text"
-                  >${t("usage.sessions.recentShort")}</span
-                >
+                <span class="sidebar-recent-sessions__label-text">Quick access</span>
                 <span class="sidebar-recent-sessions__chevron"> ${icons.chevronDown} </span>
               </button>
               <div class="sidebar-recent-sessions__list">
@@ -4712,6 +4713,9 @@ export function renderApp(state: AppViewState) {
                   showThinking,
                   showToolCalls,
                   loading: state.chatLoading,
+                  historyHasMore: state.chatHistoryHasMore,
+                  historyLoadingOlder: state.chatHistoryLoadingOlder,
+                  historyTotalMessages: state.chatHistoryTotalMessages,
                   sending: state.chatSending,
                   compactionStatus: state.compactionStatus,
                   fallbackStatus: state.fallbackStatus,
@@ -4729,7 +4733,7 @@ export function renderApp(state: AppViewState) {
                   goalFlows: state.chatGoalFlows,
                   goalLoading: state.chatGoalLoading,
                   goalBusy: state.chatGoalBusy,
-                  goalCancellingFlowId: state.chatGoalCancellingFlowId,
+                  goalAction: state.chatGoalAction,
                   goalError: state.chatGoalError,
                   goalDraft: state.chatGoalDraft,
                   goalPanelOpen: state.chatGoalPanelOpen,
@@ -4787,6 +4791,21 @@ export function renderApp(state: AppViewState) {
                     state.resetToolStream();
                     void refreshChat(state, { awaitHistory: true, scheduleScroll: false });
                   },
+                  onLoadEarlier: async () => {
+                    const thread = document.querySelector<HTMLElement>(".chat-thread");
+                    const previousHeight = thread?.scrollHeight ?? 0;
+                    const previousTop = thread?.scrollTop ?? 0;
+                    const loaded = await loadOlderChatHistory(state);
+                    if (!loaded) {
+                      return;
+                    }
+                    requestHostUpdate?.();
+                    await (state as AppViewState & { updateComplete?: Promise<unknown> })
+                      .updateComplete;
+                    if (thread) {
+                      thread.scrollTop = previousTop + (thread.scrollHeight - previousHeight);
+                    }
+                  },
                   onChatScroll: (event) => state.handleChatScroll(event),
                   getDraft: () => state.chatMessage,
                   onDraftChange: (next) => state.handleChatDraftChange(next),
@@ -4822,7 +4841,17 @@ export function renderApp(state: AppViewState) {
                   onGoalPanelToggle: (open) => {
                     state.chatGoalPanelOpen = open;
                     if (open) {
-                      void loadChatGoals(state);
+                      const goal = resolveCurrentChatGoal(state.chatGoalFlows);
+                      if (!(state.chatGoalDraft ?? "").trim() && goal) {
+                        state.chatGoalDraft = goal.goal;
+                      }
+                      void loadChatGoals(state).then(() => {
+                        const refreshedGoal = resolveCurrentChatGoal(state.chatGoalFlows);
+                        if (!(state.chatGoalDraft ?? "").trim() && refreshedGoal) {
+                          state.chatGoalDraft = refreshedGoal.goal;
+                        }
+                        requestHostUpdate?.();
+                      });
                     }
                   },
                   onGoalDraftChange: (value) => {
@@ -4847,8 +4876,21 @@ export function renderApp(state: AppViewState) {
                     await state.handleSendChat(prompt, { flowId });
                     await loadChatGoals(state);
                   },
-                  onGoalCancel: async (flowId) => {
-                    await cancelChatGoal(state, flowId);
+                  onGoalControl: async (flowId, action, goal) => {
+                    const updated = await controlChatGoal(state, flowId, action, goal);
+                    if (updated && action === "edit") {
+                      state.chatGoalDraft = updated.goal;
+                    }
+                    if (updated && (action === "resume" || action === "retry")) {
+                      const activeFlowId = updated.flowId ?? updated.id;
+                      const prompt = buildCurrentChatGoalContinuationPrompt(state, activeFlowId);
+                      if (!prompt) {
+                        state.chatGoalError = "Goal is unavailable.";
+                      } else {
+                        await state.handleSendChat(prompt, { flowId: activeFlowId });
+                        await loadChatGoals(state);
+                      }
+                    }
                     requestHostUpdate?.();
                   },
                   onBlockedRetryDraft: (prompt) => {

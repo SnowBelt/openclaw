@@ -619,6 +619,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "taskFlows.get",
       "taskFlows.create",
       "taskFlows.cancel",
+      "taskFlows.control",
       "tasks.list",
       "tasks.get",
       "tasks.cancel",

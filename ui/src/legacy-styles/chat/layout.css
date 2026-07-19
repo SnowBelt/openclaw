@@ -79,6 +79,16 @@
   margin-top: 0 !important;
 }
 
+.chat-history-pagination {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 16px;
+}
+
 /* New messages indicator - floating pill above compose */
 .chat-new-messages {
   align-self: center;
@@ -1934,6 +1944,22 @@
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+.chat-session-picker__heading {
+  display: grid;
+  gap: 2px;
+  padding: 2px 2px 8px;
+}
+
+.chat-session-picker__heading strong {
+  color: var(--text);
+  font-size: var(--control-ui-text-sm);
+}
+
+.chat-session-picker__heading span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .chat-session-picker__search {

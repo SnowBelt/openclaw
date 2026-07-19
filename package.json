@@ -1997,6 +1997,7 @@
     "ui:smoke:book-writer:audit": "node --import tsx scripts/dev/control-ui-book-writer-completion-audit.ts",
     "ui:smoke:book-writer:handoff": "node --import tsx scripts/dev/control-ui-book-writer-handoff.ts",
     "ui:smoke:chat-approval-cards": "node --import tsx scripts/dev/control-ui-chat-approval-cards-smoke.ts",
+    "ui:smoke:chat-control-director-reliability": "node --import tsx scripts/dev/control-ui-chat-control-director-reliability-smoke.ts",
     "ui:smoke:chat-multi-agent-work-tree": "node --import tsx scripts/dev/control-ui-chat-multi-agent-work-tree-smoke.ts",
     "ui:smoke:chat-network-remote-approval-cards": "node --import tsx scripts/dev/control-ui-chat-network-remote-approval-cards-smoke.ts",
     "ui:smoke:chat-plan-mode": "node --import tsx scripts/dev/control-ui-chat-plan-mode-smoke.ts",

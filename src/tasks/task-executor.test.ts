@@ -16,6 +16,7 @@ import {
   cancelFlowByIdForOwner,
   cancelDetachedTaskRunById,
   completeTaskRunByRunId,
+  controlFlowById,
   createQueuedTaskRun as createQueuedTaskRunOrNull,
   createRunningTaskRun as createRunningTaskRunOrNull,
   failTaskRunByRunId,
@@ -471,6 +472,106 @@ describe("task-executor", () => {
       const cancelledFlow = getTaskFlowById(flow.flowId);
       expect(cancelledFlow?.flowId).toBe(flow.flowId);
       expect(cancelledFlow?.status).toBe("cancelled");
+    });
+  });
+
+  it("pauses a managed flow, stops its active task, and rejects new work until resumed", async () => {
+    await withTaskExecutorStateDir(async () => {
+      hoisted.cancelSessionMock.mockResolvedValue(undefined);
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/managed-flow",
+        status: "running",
+        goal: "Ship reliable controls",
+      });
+      runTaskInFlow({
+        flowId: flow.flowId,
+        runtime: "acp",
+        childSessionKey: "agent:codex:acp:pause-child",
+        runId: "run-flow-pause",
+        task: "Implement controls",
+        status: "running",
+      });
+
+      const paused = await controlFlowById({
+        cfg: {} as never,
+        flowId: flow.flowId,
+        action: "pause",
+      });
+
+      expect(paused).toMatchObject({ found: true, applied: true, action: "pause" });
+      expect(getTaskFlowById(flow.flowId)?.status).toBe("paused");
+      expect(findTaskByRunId("run-flow-pause")?.status).toBe("cancelled");
+      expect(
+        runTaskInFlow({
+          flowId: flow.flowId,
+          runtime: "acp",
+          task: "Must wait",
+        }),
+      ).toMatchObject({
+        found: true,
+        created: false,
+        reason: "Flow is paused. Resume it before starting more work.",
+      });
+
+      const resumed = await controlFlowById({
+        cfg: {} as never,
+        flowId: flow.flowId,
+        action: "resume",
+      });
+      expect(resumed).toMatchObject({
+        found: true,
+        applied: true,
+        action: "resume",
+        flow: { status: "running" },
+      });
+    });
+  });
+
+  it("edits idempotently and retries a terminal managed flow as a replacement", async () => {
+    await withTaskExecutorStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/managed-flow",
+        status: "failed",
+        goal: "Old goal",
+      });
+
+      const retry = await controlFlowById({
+        cfg: {} as never,
+        flowId: flow.flowId,
+        action: "retry",
+      });
+      expect(retry).toMatchObject({
+        found: true,
+        applied: true,
+        action: "retry",
+        replacedFlowId: flow.flowId,
+        flow: { status: "running", goal: "Old goal" },
+      });
+      if (!retry.flow) {
+        throw new Error("Expected replacement flow");
+      }
+
+      const edited = await controlFlowById({
+        cfg: {} as never,
+        flowId: retry.flow.flowId,
+        action: "edit",
+        goal: "Updated goal",
+      });
+      expect(edited).toMatchObject({
+        found: true,
+        applied: true,
+        action: "edit",
+        flow: { goal: "Updated goal" },
+      });
+      const repeated = await controlFlowById({
+        cfg: {} as never,
+        flowId: retry.flow.flowId,
+        action: "edit",
+        goal: "Updated goal",
+      });
+      expect(repeated).toMatchObject({ found: true, applied: true, action: "edit" });
     });
   });
 

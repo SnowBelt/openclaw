@@ -170,6 +170,10 @@ export function adoptCronRunSessionMetadata(params: {
         nextSessionId,
       ]),
     );
+    params.entry.chatHistoryLineageRootSessionId =
+      params.entry.chatHistoryLineageRootSessionId ??
+      params.entry.usageFamilySessionIds?.[0] ??
+      previousSessionId;
     changed = true;
   }
 

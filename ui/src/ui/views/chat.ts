@@ -39,6 +39,8 @@ import {
   isActiveChatGoal,
   resolveCurrentChatGoal,
   type ChatGoalFlowSummary,
+  type ChatGoalActionState,
+  type ChatGoalControlAction,
 } from "../chat/pursue-goal.ts";
 import {
   REALTIME_TALK_FALLBACK_PROVIDERS,
@@ -84,13 +86,11 @@ import type {
 } from "../controllers/exec-approval.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
-import { formatGoalDetail, formatGoalSummary } from "../session-goal.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
 import { detectTextDirection } from "../text-direction.ts";
 import type {
   ProjectRecord,
   ProjectsListResult,
-  SessionGoal,
   SessionsListResult,
   GatewaySessionRow,
   SessionWorkspaceListResult,
@@ -137,6 +137,9 @@ export type ChatProps = {
   showThinking: boolean;
   showToolCalls: boolean;
   loading: boolean;
+  historyHasMore?: boolean;
+  historyLoadingOlder?: boolean;
+  historyTotalMessages?: number | null;
   sending: boolean;
   canAbort?: boolean;
   runStatus?: ChatRunUiStatus | null;
@@ -155,7 +158,7 @@ export type ChatProps = {
   goalFlows?: ChatGoalFlowSummary[];
   goalLoading?: boolean;
   goalBusy?: boolean;
-  goalCancellingFlowId?: string | null;
+  goalAction?: ChatGoalActionState | null;
   goalError?: string | null;
   goalDraft?: string;
   goalPanelOpen?: boolean;
@@ -215,6 +218,7 @@ export type ChatProps = {
   showNewMessages?: boolean;
   onScrollToBottom?: () => void;
   onRefresh: () => void;
+  onLoadEarlier?: () => void | Promise<void>;
   onToggleFocusMode?: () => void;
   getDraft?: () => string;
   onDraftChange: (next: string) => void;
@@ -240,7 +244,11 @@ export type ChatProps = {
   onGoalDraftChange?: (value: string) => void;
   onGoalStart?: () => void | Promise<void>;
   onGoalContinue?: (flowId: string) => void | Promise<void>;
-  onGoalCancel?: (flowId: string) => void | Promise<void>;
+  onGoalControl?: (
+    flowId: string,
+    action: ChatGoalControlAction,
+    goal?: string,
+  ) => void | Promise<void>;
   onBlockedRetryDraft?: (prompt: string) => void;
   onGoalRefresh?: () => void | Promise<void>;
   onProjectPickerToggle?: (open: boolean) => void;
@@ -1161,23 +1169,6 @@ function renderAttachmentPreview(props: ChatProps): TemplateResult | typeof noth
   `;
 }
 
-function renderChatGoal(goal: SessionGoal | undefined): TemplateResult | typeof nothing {
-  if (!goal) {
-    return nothing;
-  }
-  return html`
-    <div
-      class="agent-chat__goal agent-chat__goal--${goal.status}"
-      role="status"
-      title=${formatGoalDetail(goal)}
-      aria-label=${formatGoalDetail(goal)}
-    >
-      <span class="agent-chat__goal-label">${formatGoalSummary(goal)}</span>
-      <span class="agent-chat__goal-objective">${goal.objective}</span>
-    </div>
-  `;
-}
-
 function formatWorkspaceFileSize(file: { size?: number }): string {
   const size = file.size;
   if (typeof size !== "number" || !Number.isFinite(size) || size < 0) {
@@ -1902,6 +1893,8 @@ function workItemKindLabel(kind: WorkSurfaceItem["kind"]): string {
       return "Chat";
     case "queued_message":
       return "Queue";
+    case "goal":
+      return "Goal";
     case "task":
       return "Task";
     case "active_session":
@@ -1939,6 +1932,16 @@ function closeDetailsFromControl(event: MouseEvent) {
 
 function renderWorkItemActions(props: ChatProps, item: WorkSurfaceItem) {
   return html`
+    ${item.actions.includes("open_goal") && props.onGoalPanelToggle
+      ? html`<button
+          class="btn btn--sm"
+          type="button"
+          aria-label=${`Open goal ${item.title}`}
+          @click=${() => props.onGoalPanelToggle?.(true)}
+        >
+          Review
+        </button>`
+      : nothing}
     ${item.actions.includes("stop_run") && props.onAbort
       ? html`<button
           class="btn btn--sm"
@@ -2088,15 +2091,35 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
   const hasItems = hasActiveWork(items);
   const hasTree = tree.flat.length > 0;
   const visibleCount = items.length + tree.childCount;
-  const hasActiveWorkVisible = hasItems || tree.activeChildCount > 0;
   const hasError = Boolean(props.workTasksError);
-  const summaryLabel = hasActiveWorkVisible
-    ? "Working"
-    : hasError
-      ? "Work status unavailable"
-      : props.workTasksLoading
-        ? "Checking work…"
-        : "Nothing running";
+  const needsAttention = items.some((item) => item.attention);
+  const goalItem = items.find((item) => item.kind === "goal");
+  const hasExecutingWork =
+    tree.activeChildCount > 0 ||
+    items.some(
+      (item) => item.kind !== "goal" || item.status.toLowerCase().includes("worker running"),
+    );
+  let summaryLabel = "Nothing running";
+  if (props.workTasksLoading) {
+    summaryLabel = "Checking work…";
+  }
+  if (hasError) {
+    summaryLabel = "Work status unavailable";
+  }
+  if (goalItem) {
+    summaryLabel = "Goal active";
+    if (goalItem.status === "Goal paused") {
+      summaryLabel = "Goal paused";
+    } else if (goalItem.status === "Goal waiting") {
+      summaryLabel = "Goal waiting";
+    }
+  }
+  if (hasExecutingWork) {
+    summaryLabel = "Working";
+  }
+  if (needsAttention) {
+    summaryLabel = "Needs attention";
+  }
   return html`
     <details class="chat-work-surface" data-chat-work-surface @keydown=${closeDetailsOnEscape}>
       <summary
@@ -2117,7 +2140,7 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
             <h3>Working Now</h3>
             <p>
               ${hasItems || hasTree
-                ? "Current OpenClaw work and child agents."
+                ? "Current OpenClaw work, saved goals, and child agents."
                 : "Nothing is running."}
             </p>
           </div>
@@ -2131,7 +2154,9 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
                 ${items.map(
                   (item) => html`
                     <article
-                      class="chat-work-surface__item"
+                      class="chat-work-surface__item ${item.attention
+                        ? "chat-work-surface__item--attention"
+                        : ""}"
                       data-work-kind=${item.kind}
                       role="listitem"
                     >
@@ -2143,6 +2168,12 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
                         <div class="chat-work-surface__item-title">${item.title}</div>
                         ${item.detail
                           ? html`<div class="chat-work-surface__item-detail">${item.detail}</div>`
+                          : nothing}
+                        ${item.attention
+                          ? html`<div class="chat-work-surface__attention" role="status">
+                              <span><strong>Owner</strong> ${item.attention.owner}</span>
+                              <span><strong>Next</strong> ${item.attention.nextAction}</span>
+                            </div>`
                           : nothing}
                         ${item.projectId || item.sessionKey
                           ? html`
@@ -2232,6 +2263,11 @@ function renderControlDirectorDiagnosticsCard(
             <strong>${nextAction}</strong>
           </div>
         </div>
+        <p class="chat-control-director-diagnostics__explanation">
+          <strong>In plain English:</strong> OpenClaw stopped because it could not safely prove the
+          request was finished. Your conversation is still here; review the reason and next step
+          below.
+        </p>
         <dl class="chat-control-director-diagnostics__grid">
           ${summary.details.slice(0, 16).map(
             (detail) => html`
@@ -2581,7 +2617,7 @@ function renderChatProjectPicker(props: ChatProps) {
         <div class="chat-project-picker__header">
           <div>
             <h3>Project</h3>
-            <p>Attach this chat to shared project memory.</p>
+            <p>Link this chat to the same project record used by PCC.</p>
           </div>
           <button
             class="btn btn--sm btn--subtle"
@@ -2613,6 +2649,13 @@ function renderChatProjectPicker(props: ChatProps) {
               </button>
             `
           : nothing}
+        <div class="chat-project-picker__contract" data-chat-project-contract>
+          <strong>One project, two focused views</strong>
+          <span>
+            PCC owns milestones, permissions, proof, and automation. Chat uses the same project ID
+            for conversation organization and routing; it does not create a second project plan.
+          </span>
+        </div>
         <div class="chat-project-picker__section">
           <h4>Choose a project</h4>
           ${props.projectsLoading
@@ -2707,33 +2750,62 @@ function renderPursueGoal(props: ChatProps) {
     activeTask?.terminalSummary ??
     goal?.currentStep ??
     (goal ? "Goal is saved in this chat." : "Turn a request into durable work.");
-  const startText = (props.goalDraft?.trim() || props.draft.trim()).trim();
+  const editableGoalText = (
+    goal ? props.goalDraft || goal.goal : props.goalDraft || props.draft
+  ).trim();
+  const startText = editableGoalText;
   const startDisabled =
     !props.connected ||
     props.sending ||
     Boolean(props.goalBusy) ||
     Boolean(props.canAbort) ||
     !startText;
-  const cancellingThisGoal = Boolean(flowId && props.goalCancellingFlowId === flowId);
+  const goalAction = flowId && props.goalAction?.flowId === flowId ? props.goalAction.action : null;
+  const mutatingThisGoal = goalAction !== null;
+  const paused = goal?.status === "paused";
   const continueDisabled =
     !props.connected ||
     props.sending ||
     Boolean(props.goalBusy) ||
-    cancellingThisGoal ||
+    mutatingThisGoal ||
     Boolean(props.canAbort) ||
     !goal ||
     !flowId ||
     !isActiveChatGoal(goal.status) ||
+    paused ||
+    goal.status === "blocked" ||
     Boolean(goal.cancelRequestedAt);
-  const cancelDisabled =
+  const controlDisabled =
     !props.connected ||
     Boolean(props.goalBusy) ||
-    cancellingThisGoal ||
+    mutatingThisGoal ||
     !goal ||
     !flowId ||
     !isActiveChatGoal(goal.status) ||
     Boolean(goal.cancelRequestedAt);
-  const displayedStatusLabel = cancellingThisGoal ? "Cancelling…" : statusLabel;
+  const actionLabel =
+    goalAction === "stop"
+      ? "Stopping…"
+      : goalAction === "pause"
+        ? "Pausing…"
+        : goalAction === "resume"
+          ? "Resuming…"
+          : goalAction === "retry"
+            ? "Retrying…"
+            : goalAction === "edit"
+              ? "Saving…"
+              : null;
+  const displayedStatusLabel = actionLabel ?? statusLabel;
+  const canPause =
+    goal?.status === "queued" || goal?.status === "running" || goal?.status === "waiting";
+  const canRetry =
+    Boolean(goal) &&
+    Boolean(flowId) &&
+    (goal?.status === "blocked" ||
+      goal?.status === "failed" ||
+      goal?.status === "cancelled" ||
+      goal?.status === "lost");
+  const goalChanged = Boolean(goal && editableGoalText && editableGoalText !== goal.goal.trim());
   return html`
     <details
       class="chat-goal"
@@ -2818,7 +2890,7 @@ function renderPursueGoal(props: ChatProps) {
                 type="button"
                 data-chat-goal-action="start"
                 aria-label="Start pursue goal"
-                ?disabled=${startDisabled}
+                ?disabled=${startDisabled || Boolean(goal && isActiveChatGoal(goal.status))}
                 @click=${() => props.onGoalStart?.()}
               >
                 Start goal
@@ -2833,15 +2905,62 @@ function renderPursueGoal(props: ChatProps) {
               >
                 Continue
               </button>
+              ${goal && paused
+                ? html`<button
+                    class="btn"
+                    type="button"
+                    data-chat-goal-action="resume"
+                    aria-label="Resume pursue goal"
+                    ?disabled=${controlDisabled}
+                    @click=${() => props.onGoalControl?.(flowId, "resume")}
+                  >
+                    ${goalAction === "resume" ? "Resuming…" : "Resume"}
+                  </button>`
+                : goal && canPause
+                  ? html`<button
+                      class="btn"
+                      type="button"
+                      data-chat-goal-action="pause"
+                      aria-label="Pause pursue goal"
+                      ?disabled=${controlDisabled}
+                      @click=${() => props.onGoalControl?.(flowId, "pause")}
+                    >
+                      ${goalAction === "pause" ? "Pausing…" : "Pause"}
+                    </button>`
+                  : nothing}
+              ${goal
+                ? html`<button
+                    class="btn"
+                    type="button"
+                    data-chat-goal-action="edit"
+                    aria-label="Save pursue goal changes"
+                    ?disabled=${controlDisabled || !goalChanged}
+                    @click=${() => props.onGoalControl?.(flowId, "edit", editableGoalText)}
+                  >
+                    ${goalAction === "edit" ? "Saving…" : "Save changes"}
+                  </button>`
+                : nothing}
+              ${canRetry
+                ? html`<button
+                    class="btn"
+                    type="button"
+                    data-chat-goal-action="retry"
+                    aria-label="Retry pursue goal"
+                    ?disabled=${mutatingThisGoal || !props.connected}
+                    @click=${() => props.onGoalControl?.(flowId, "retry")}
+                  >
+                    ${goalAction === "retry" ? "Retrying…" : "Retry"}
+                  </button>`
+                : nothing}
               <button
                 class="btn btn--subtle"
                 type="button"
                 data-chat-goal-action="cancel"
                 aria-label="Stop pursue goal"
-                ?disabled=${cancelDisabled}
-                @click=${() => props.onGoalCancel?.(flowId)}
+                ?disabled=${controlDisabled}
+                @click=${() => props.onGoalControl?.(flowId, "stop")}
               >
-                ${cancellingThisGoal ? "Cancelling…" : "Stop goal"}
+                ${goalAction === "stop" ? "Stopping…" : "Stop goal"}
               </button>
             </div>
             ${props.goalLoading
@@ -3125,6 +3244,7 @@ export function renderChat(props: ChatProps) {
     chatRunStatus: props.runStatus,
     chatQueue: props.queue,
     currentSessionKey: props.sessionKey,
+    goals: props.goalFlows ?? [],
     sessionsResult: props.sessions,
     tasks: props.workTasks ?? [],
   });
@@ -3197,6 +3317,22 @@ export function renderChat(props: ChatProps) {
       @click=${handleCodeBlockCopy}
     >
       <div class="chat-thread-inner">
+        ${props.historyHasMore
+          ? html`<div class="chat-history-pagination">
+              <button
+                class="btn btn--subtle btn--sm"
+                type="button"
+                data-chat-load-earlier
+                ?disabled=${props.historyLoadingOlder}
+                @click=${() => props.onLoadEarlier?.()}
+              >
+                ${props.historyLoadingOlder ? "Loading earlier messages…" : "Load earlier messages"}
+              </button>
+              ${typeof props.historyTotalMessages === "number"
+                ? html`<span>${props.historyTotalMessages} messages saved</span>`
+                : nothing}
+            </div>`
+          : nothing}
         ${showLoadingSkeleton
           ? html`
               <div class="chat-loading-skeleton" aria-label="Loading chat">
@@ -3717,7 +3853,6 @@ export function renderChat(props: ChatProps) {
             compactDisabled: !props.connected || isBusy || showAbortableUi,
             onCompact: props.onCompact,
           })}
-          ${renderChatGoal(activeSession?.goal)}
         </div>
 
         <input
