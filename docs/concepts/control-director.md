@@ -159,7 +159,7 @@ pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"
 pnpm ui:smoke:control-director-no-response
 ```
 
-`control-director:verify` runs the curated source, protocol, plugin, and UI tests, required typechecks, production build, and source-only readiness sequentially. Its ignored receipt is written under `.artifacts/control-director/`.
+`control-director:verify` runs the curated source, protocol, plugin, and UI tests, script lint, required typechecks, production build, and source-only readiness sequentially. Its ignored receipt is written under `.artifacts/control-director/`.
 
 Source acceptance is not production acceptance. A production claim also requires exact managed-runtime lineage, explicitly enabled managed SIG background processing, the selected model and runtime process, a matching Dashboard canary, a safe live diagnostic, desktop, tablet, and mobile proof, restart recovery, at least a five-minute soak, and a rollback-and-restore drill. Run `control-director:readiness` with both the source-gate receipt and runtime-proof receipt; it fails closed if any critical surface is absent or refers to another SHA.
 
@@ -175,6 +175,22 @@ pnpm control-director:runtime-proof -- \
 ```
 
 The assembler hashes every input, requires timestamps and evidence references, rejects a soak shorter than five minutes, and refuses mismatched source SHAs or incomplete cold/warm model-evaluation coverage.
+
+For a milestone program, the roadmap's `passed` fields are not sufficient by themselves. Bind the final committed ledger to the clean source gate, managed runtime proof, all-job remote gates, and production-readiness scorecard after the final SHA is landed and active:
+
+```bash
+pnpm control-director:roadmap-proof -- \
+  --source-sha "$SHA" \
+  --roadmap work/control-director/reliability-v1/roadmap.json \
+  --source-proof ".artifacts/control-director/source-gates-$SHA.json" \
+  --update-survival ".artifacts/control-director/update-survival-$SHA.json" \
+  --runtime-proof ".artifacts/control-director/runtime-$SHA/runtime-proof.json" \
+  --remote-proof ".artifacts/control-director/remote-gates-$SHA.json" \
+  --readiness ".artifacts/control-director/runtime-$SHA/readiness.json" \
+  --output ".artifacts/control-director/final-ledger-$SHA.json"
+```
+
+The final-ledger command rejects a dirty or mismatched checkout, any milestone other than M01-M61 marked `passed`, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, an invalid update-survival proof, or an incomplete managed-runtime truth surface. M61 requires every Dashboard and custom capability to survive an exact-parent official-update candidate with monotonic capability/path preservation, proof-bound approval, and a loaded prepare-only weekly broker. The ledger independently rechecks timestamped runtime evidence, exact selected-model route and cold/warm task coverage, canary lineage, soak duration, and the all-passed readiness fact ledger instead of trusting summary booleans. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
 
 ## Questions to ask during a reliability review
 

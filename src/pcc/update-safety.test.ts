@@ -25,6 +25,7 @@ describe("PCC update safety", () => {
     fs.mkdirSync(path.join(homedir, "Library", "LaunchAgents"), { recursive: true });
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh"), "");
     fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh"), "");
+    fs.writeFileSync(path.join(runtimeHome, "bin", "custom-runtime-guard.sh"), "");
     fs.writeFileSync(
       path.join(
         homedir,
@@ -32,6 +33,10 @@ describe("PCC update safety", () => {
         "LaunchAgents",
         "ai.openclaw.custom-runtime.update-weekly.plist",
       ),
+      "",
+    );
+    fs.writeFileSync(
+      path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist"),
       "",
     );
     fs.writeFileSync(
@@ -59,6 +64,8 @@ describe("PCC update safety", () => {
         homedir,
         runtimeHome,
         pointerPath,
+        schedulerLoaded: true,
+        guardLoaded: true,
         argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
         env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
       }),
@@ -67,6 +74,7 @@ describe("PCC update safety", () => {
       standardUpdateBlocked: true,
       sourceDurable: true,
       brokerConfigured: true,
+      runtimeGuardConfigured: true,
       approvalPending: true,
       sourceSha: "a".repeat(40),
       sourceBranch: "codex/custom-runtime",
@@ -77,6 +85,40 @@ describe("PCC update safety", () => {
         stage: null,
       },
       issues: [],
+    });
+
+    expect(
+      readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: false,
+        guardLoaded: true,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
+      }),
+    ).toMatchObject({
+      status: "attention",
+      brokerConfigured: false,
+      runtimeGuardConfigured: true,
+      issues: ["The verified custom-runtime update broker is installed but not scheduled."],
+    });
+
+    expect(
+      readPccUpdateSafety({
+        homedir,
+        runtimeHome,
+        pointerPath,
+        schedulerLoaded: true,
+        guardLoaded: false,
+        argv: ["node", path.join(runtimeRoot, "dist", "index.js")],
+        env: { OPENCLAW_RUNTIME_SNAPSHOT_ROOT: runtimeRoot },
+      }),
+    ).toMatchObject({
+      status: "attention",
+      brokerConfigured: true,
+      runtimeGuardConfigured: false,
+      issues: ["The verified custom-runtime recovery guard is installed but not scheduled."],
     });
   });
 });

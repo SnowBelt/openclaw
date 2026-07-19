@@ -88,7 +88,7 @@ if schema not in ("openclaw.custom-runtime-capabilities.v1", "openclaw.custom-ru
     raise SystemExit(1)
 if schema == "openclaw.custom-runtime-capabilities.v2":
     preservation = data.get("preservation")
-    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 1 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer":
+    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 2 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer" or preservation.get("sourceStrategy") != "merge_from_active_sha" or preservation.get("dashboardChangePolicy") != "register_verify_and_block" or preservation.get("approvalPolicy") != "explicit_exact_candidate" or preservation.get("proofCommand") != "pnpm custom-runtime:update-survival":
         raise SystemExit(1)
     commands = preservation.get("verificationCommands")
     if not isinstance(commands, list) or not commands or not all(isinstance(command, str) and command for command in commands):

@@ -111,6 +111,10 @@ export async function main(argv = process.argv.slice(2)) {
           name: "custom runtime capability preservation",
           args: ["check:custom-runtime-capabilities"],
         },
+        {
+          name: "custom runtime update survival",
+          args: ["custom-runtime:update-survival"],
+        },
         { name: "duplicate scan target coverage", args: ["dup:check:coverage"] },
         { name: "npm shrinkwrap guard", args: ["deps:shrinkwrap:check"] },
         { name: "package patch guard", args: ["deps:patches:check"] },

@@ -268,13 +268,16 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     tests: [
       "src/infra/custom-runtime-update-policy.test.ts",
       "src/pcc/update-safety.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+      "test/scripts/custom-runtime-update-survival.test.ts",
       "test/scripts/custom-runtime-updater.test.ts",
       "src/gateway/server-methods/update.test.ts",
     ],
     proofSurfaces: [
       "pnpm check:custom-runtime-capabilities",
-      "PCC Update Safety dashboard status",
-      "custom runtime candidate and approval receipts",
+      "pnpm custom-runtime:update-survival",
+      "PCC Update Safety dashboard scheduled-broker and recovery-guard status",
+      "exact-parent candidate preservation and approval receipts",
     ],
   },
   {
