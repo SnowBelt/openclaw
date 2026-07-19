@@ -1079,6 +1079,37 @@
   backdrop-filter: blur(18px);
 }
 
+@media (min-width: 721px) {
+  .chat-work-surface__panel,
+  .chat-project-picker__panel,
+  .chat-approval-card__panel,
+  .chat-goal__panel {
+    bottom: calc(100% + 0.65rem);
+    left: 0;
+    margin: 0;
+    max-height: min(62vh, 39rem);
+    overflow: auto;
+    position: absolute;
+    z-index: 45;
+  }
+
+  .chat-work-surface__panel {
+    width: min(29rem, calc(100vw - 3rem));
+  }
+
+  .chat-project-picker__panel {
+    width: min(34rem, calc(100vw - 3rem));
+  }
+
+  .chat-approval-card__panel {
+    width: min(42rem, calc(100vw - 3rem));
+  }
+
+  .chat-goal__panel {
+    width: min(38rem, calc(100vw - 3rem));
+  }
+}
+
 @media (max-width: 720px) {
   .chat-work-surface[open] .chat-work-surface__panel {
     border-radius: 1.2rem 1.2rem 0 0;
