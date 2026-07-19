@@ -82,4 +82,60 @@ describe("buildWorkSurfaceSnapshot", () => {
 
     expect(items[0]?.actions).toEqual([]);
   });
+
+  it("projects a durable goal even when no child task is currently running", () => {
+    const items = buildWorkSurfaceSnapshot({
+      currentSessionKey: "agent:main:main",
+      goals: [
+        {
+          id: "flow-1",
+          goal: "Finish the dashboard",
+          status: "running",
+          currentStep: "Waiting for the next continuation",
+          taskSummary: { active: 0 },
+          updatedAt: 100,
+        },
+      ],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "goal",
+      title: "Finish the dashboard",
+      status: "Goal active · waiting",
+      detail: "Waiting for the next continuation",
+    });
+  });
+
+  it("labels paused goals without claiming work is running", () => {
+    const items = buildWorkSurfaceSnapshot({
+      goals: [{ id: "flow-1", goal: "Finish the dashboard", status: "paused" }],
+    });
+
+    expect(items[0]?.status).toBe("Goal paused");
+  });
+
+  it("turns a blocked goal into actionable attention with an owner and next step", () => {
+    const items = buildWorkSurfaceSnapshot({
+      goals: [
+        {
+          id: "flow-blocked",
+          goal: "Finish the dashboard",
+          status: "blocked",
+          blockedSummary: "Remote proof is missing.",
+        },
+      ],
+    });
+
+    expect(items[0]).toMatchObject({
+      kind: "goal",
+      status: "Goal blocked",
+      detail: "Remote proof is missing.",
+      attention: {
+        owner: "Pursue Goal",
+        nextAction: "Open the goal, review the blocker, then retry or edit it.",
+      },
+      actions: ["open_goal"],
+    });
+  });
 });

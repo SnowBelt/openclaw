@@ -369,6 +369,14 @@ export function runTaskInFlow(params: RunTaskInFlowParams): RunTaskInFlowResult 
       flow,
     };
   }
+  if (flow.status === "paused") {
+    return {
+      found: true,
+      created: false,
+      reason: "Flow is paused. Resume it before starting more work.",
+      flow,
+    };
+  }
 
   const common = {
     runtime: params.runtime,

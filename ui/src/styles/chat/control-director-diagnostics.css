@@ -204,6 +204,17 @@
   overflow-wrap: anywhere;
 }
 
+.chat-control-director-diagnostics__explanation {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-control-director-diagnostics__explanation strong {
+  color: var(--text);
+}
+
 .chat-control-director-diagnostics__grid,
 .session-control-director-diagnostics__grid {
   display: grid;

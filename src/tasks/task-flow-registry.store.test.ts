@@ -140,6 +140,7 @@ describe("task-flow-registry store runtime", () => {
     expect(parseOptionalTaskFlowSyncMode("managed")).toBe("managed");
     expect(parseOptionalTaskFlowSyncMode(null)).toBeUndefined();
     expect(parseTaskFlowStatus("waiting")).toBe("waiting");
+    expect(parseTaskFlowStatus("paused")).toBe("paused");
     expect(parseTaskNotifyPolicy("state_changes")).toBe("state_changes");
 
     expect(() => parseOptionalTaskFlowSyncMode("legacy")).toThrow(

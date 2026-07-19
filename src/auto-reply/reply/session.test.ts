@@ -3265,6 +3265,9 @@ describe("initSessionState preserves behavior overrides across /new and /reset",
         existingSessionId,
         result.sessionId,
       ]);
+      expect(result.sessionEntry.chatHistoryLineageRootSessionId, testCase.name).toBe(
+        result.sessionId,
+      );
 
       const stored = JSON.parse(await fs.readFile(storePath, "utf-8"));
       expect(stored[sessionKey].usageFamilyKey, testCase.name).toBe("family:user-usage-family");
@@ -3273,6 +3276,9 @@ describe("initSessionState preserves behavior overrides across /new and /reset",
         existingSessionId,
         result.sessionId,
       ]);
+      expect(stored[sessionKey].chatHistoryLineageRootSessionId, testCase.name).toBe(
+        result.sessionId,
+      );
     }
   });
 

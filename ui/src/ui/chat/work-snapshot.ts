@@ -1,10 +1,25 @@
 import type { SessionsListResult } from "../types.ts";
 import type { ChatQueueItem } from "../ui-types.ts";
+import {
+  isActiveChatGoal,
+  resolveCurrentChatGoal,
+  type ChatGoalFlowSummary,
+} from "./pursue-goal.ts";
 import type { ChatRunUiStatus } from "./run-lifecycle.ts";
 
-export type WorkSurfaceAction = "cancel_task" | "open_session" | "remove_queue" | "stop_run";
+export type WorkSurfaceAction =
+  | "cancel_task"
+  | "open_goal"
+  | "open_session"
+  | "remove_queue"
+  | "stop_run";
 
-export type WorkSurfaceItemKind = "active_session" | "chat_run" | "queued_message" | "task";
+export type WorkSurfaceItemKind =
+  | "active_session"
+  | "chat_run"
+  | "goal"
+  | "queued_message"
+  | "task";
 
 export type WorkSurfaceItem = {
   id: string;
@@ -17,6 +32,10 @@ export type WorkSurfaceItem = {
   projectId?: string;
   runId?: string;
   taskId?: string;
+  attention?: {
+    owner: string;
+    nextAction: string;
+  };
   actions: WorkSurfaceAction[];
 };
 
@@ -44,6 +63,7 @@ export type BuildWorkSurfaceSnapshotInput = {
   chatRunStatus?: ChatRunUiStatus | null;
   chatQueue?: ChatQueueItem[];
   currentSessionKey?: string | null;
+  goals?: ChatGoalFlowSummary[] | null;
   sessionsResult?: SessionsListResult | null;
   tasks?: WorkSurfaceTaskSummary[] | null;
 };
@@ -123,13 +143,36 @@ function itemRank(item: WorkSurfaceItem): number {
   if (item.kind === "queued_message") {
     return 1;
   }
-  if (item.kind === "task" && item.status.toLowerCase() === "running") {
+  if (item.kind === "goal") {
     return 2;
   }
-  if (item.kind === "task") {
+  if (item.kind === "task" && item.status.toLowerCase() === "running") {
     return 3;
   }
-  return 4;
+  if (item.kind === "task") {
+    return 4;
+  }
+  return 5;
+}
+
+function goalStatusLabel(goal: ChatGoalFlowSummary): string {
+  if (goal.cancelRequestedAt) {
+    return "Stopping";
+  }
+  switch (goal.status) {
+    case "queued":
+      return "Goal queued";
+    case "running":
+      return goal.taskSummary?.active ? "Goal active · worker running" : "Goal active · waiting";
+    case "paused":
+      return "Goal paused";
+    case "waiting":
+      return "Goal waiting";
+    case "blocked":
+      return "Goal blocked";
+    default:
+      return "Goal active";
+  }
 }
 
 export function buildWorkSurfaceSnapshot(input: BuildWorkSurfaceSnapshotInput): WorkSurfaceItem[] {
@@ -161,6 +204,30 @@ export function buildWorkSurfaceSnapshot(input: BuildWorkSurfaceSnapshotInput): 
       updatedAt: item.createdAt,
       runId: item.pendingRunId,
       actions: ["remove_queue"],
+    });
+  }
+
+  const goal = resolveCurrentChatGoal(input.goals ?? undefined);
+  if (goal && isActiveChatGoal(goal.status)) {
+    const flowId = normalizeText(goal.flowId) ?? normalizeText(goal.id);
+    const blocked = goal.status === "blocked";
+    items.push({
+      id: `goal:${flowId ?? goal.goal}`,
+      kind: "goal",
+      title: goal.goal,
+      status: goalStatusLabel(goal),
+      detail: normalizeText(goal.blockedSummary) ?? normalizeText(goal.currentStep),
+      updatedAt: normalizeTimestamp(goal.updatedAt) ?? normalizeTimestamp(goal.createdAt),
+      sessionKey: currentSessionKey,
+      ...(blocked
+        ? {
+            attention: {
+              owner: "Pursue Goal",
+              nextAction: "Open the goal, review the blocker, then retry or edit it.",
+            },
+          }
+        : {}),
+      actions: ["open_goal"],
     });
   }
 

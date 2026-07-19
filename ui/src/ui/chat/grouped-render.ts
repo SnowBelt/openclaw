@@ -541,6 +541,7 @@ export function renderMessageGroup(
     const hasError = cards.some(isToolCardError);
     const activityDisclosureId = `activity:${group.key}`;
     const activityExpanded = opts.isToolMessageExpanded?.(activityDisclosureId) ?? hasError;
+    const activityLabel = group.isStreaming ? "OpenClaw is working" : "What OpenClaw did";
 
     return html`
       <div class="chat-group tool chat-group--activity">
@@ -564,13 +565,14 @@ export function renderMessageGroup(
                 ? "chat-activity-group__summary--error"
                 : ""}"
               type="button"
+              aria-label=${`${activityLabel}: ${toolCount} ${toolCount === 1 ? "step" : "steps"}. ${preview}`}
               aria-expanded=${String(activityExpanded)}
               @click=${() =>
                 opts.onToggleToolMessageExpanded?.(activityDisclosureId, activityExpanded)}
             >
               <span class="chat-activity-group__icon">${icons.activity}</span>
               <span class="chat-activity-group__label"
-                >Activity: ${toolCount} tool${toolCount === 1 ? "" : "s"}</span
+                >${activityLabel}: ${toolCount} step${toolCount === 1 ? "" : "s"}</span
               >
               <span class="chat-activity-group__preview">${preview}</span>
               ${hasError

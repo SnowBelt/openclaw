@@ -640,6 +640,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "taskFlows.edit",
       "taskFlows.retry",
       "taskFlows.stop",
+      "taskFlows.control",
       "tasks.list",
       "tasks.get",
       "tasks.cancel",

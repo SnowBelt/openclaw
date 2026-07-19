@@ -172,6 +172,7 @@ import {
   projectRecentChatDisplayMessages,
   resolveEffectiveChatHistoryMaxChars,
 } from "../chat-display-projection.js";
+import { hasChatHistoryLineage, readChatHistoryLineagePage } from "../chat-history-lineage.js";
 import { sanitizeChatSendMessageInput } from "../chat-input-sanitize.js";
 import {
   abortQueuedChatTurnById,
@@ -3031,19 +3032,30 @@ async function readChatHistoryPage(params: {
     sessionKey: canonicalKey,
     storePath,
   };
+  const hasLineage = hasChatHistoryLineage(entry, sessionId);
   if (offset !== undefined) {
     const rawHistoryWindow = resolveSessionHistoryTailReadOptions(max);
-    const readPage =
-      offset === 0
+    const pageMaxMessages = offset === 0 ? rawHistoryWindow.maxMessages + 1 : max + 1;
+    const readPage = hasLineage
+      ? await readChatHistoryLineagePage({
+          agentId: sessionAgentId,
+          canonicalKey,
+          entry,
+          maxMessages: pageMaxMessages,
+          offset,
+          sessionId,
+          storePath,
+        })
+      : offset === 0
         ? await readRecentSessionMessagesWithStatsAsync(readScope, {
-            maxMessages: rawHistoryWindow.maxMessages + 1,
+            maxMessages: pageMaxMessages,
             maxLines: rawHistoryWindow.maxLines + 1,
             maxBytes: Math.max(maxHistoryBytes * 2, 1024 * 1024),
             allowResetArchiveFallback: true,
           })
         : await readSessionMessagesPageWithStatsAsync(readScope, {
             offset,
-            maxMessages: max + 1,
+            maxMessages: pageMaxMessages,
             allowResetArchiveFallback: true,
           });
     const overreadContextMessage =
@@ -3104,11 +3116,23 @@ async function readChatHistoryPage(params: {
     maxMessages: rawHistoryWindow.maxMessages + 1,
     maxLines: rawHistoryWindow.maxLines + 1,
   };
-  const localMessages = await readRecentSessionMessagesAsync(readScope, {
-    ...localHistoryReadOptions,
-    maxBytes: Math.max(maxHistoryBytes * 2, 1024 * 1024),
-    allowResetArchiveFallback: true,
-  });
+  const localMessages = hasLineage
+    ? (
+        await readChatHistoryLineagePage({
+          agentId: sessionAgentId,
+          canonicalKey,
+          entry,
+          maxMessages: localHistoryReadOptions.maxMessages,
+          offset: 0,
+          sessionId,
+          storePath,
+        })
+      ).messages
+    : await readRecentSessionMessagesAsync(readScope, {
+        ...localHistoryReadOptions,
+        maxBytes: Math.max(maxHistoryBytes * 2, 1024 * 1024),
+        allowResetArchiveFallback: true,
+      });
   const overreadContextMessage =
     localMessages.length > rawHistoryWindow.maxMessages ? localMessages[0] : undefined;
   const localMessagesWithBoundaryFilter = dropLocalHistoryOverreadContextMessage(

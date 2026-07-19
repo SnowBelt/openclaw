@@ -4215,6 +4215,128 @@ describe("gateway server chat", () => {
     });
   });
 
+  test("chat.history paginates across internal session rotations without splitting the chat", async () => {
+    await withGatewayChatHarness(async ({ ws, createSessionDir }) => {
+      await connectOk(ws);
+      const sessionDir = await createSessionDir();
+      const previousSessionId = "sess-main-previous";
+      const currentSessionId = "sess-main-current";
+      await writeSessionStore({
+        entries: {
+          main: {
+            sessionId: currentSessionId,
+            sessionFile: testSessionFilePath(sessionDir, currentSessionId),
+            updatedAt: futureFixtureUpdatedAt(),
+            usageFamilyKey: "main",
+            usageFamilySessionIds: [previousSessionId, currentSessionId],
+          },
+        },
+      });
+      await fs.writeFile(
+        `${testSessionFilePath(sessionDir, previousSessionId)}.reset.2026-07-19T12-00-00.000Z`,
+        [
+          JSON.stringify({ type: "session", version: 1, id: previousSessionId }),
+          JSON.stringify({
+            id: "previous-question",
+            message: { role: "user", content: [{ type: "text", text: "previous question" }] },
+          }),
+          JSON.stringify({
+            id: "previous-answer",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "previous answer" }],
+            },
+          }),
+        ].join("\n"),
+        "utf-8",
+      );
+      await writeMainSessionTranscript(
+        sessionDir,
+        [
+          JSON.stringify({ type: "session", version: 1, id: currentSessionId }),
+          JSON.stringify({
+            id: "current-question",
+            message: { role: "user", content: [{ type: "text", text: "current question" }] },
+          }),
+          JSON.stringify({
+            id: "current-answer",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "current answer" }],
+            },
+          }),
+        ],
+        currentSessionId,
+      );
+
+      const firstPage = await rpcReq<{
+        messages?: unknown[];
+        nextOffset?: number;
+        hasMore?: boolean;
+        totalMessages?: number;
+      }>(ws, "chat.history", {
+        sessionKey: "main",
+        limit: 2,
+        offset: 0,
+        maxChars: 100,
+      });
+      expect(firstPage.ok).toBe(true);
+      expect(JSON.stringify(firstPage.payload?.messages)).toContain("current question");
+      expect(JSON.stringify(firstPage.payload?.messages)).toContain("current answer");
+      expect(firstPage.payload?.messages?.map(readOpenClawSeq)).toEqual([3, 4]);
+      expect(firstPage.payload?.nextOffset).toBe(2);
+      expect(firstPage.payload?.hasMore).toBe(true);
+      expect(firstPage.payload?.totalMessages).toBe(4);
+
+      const secondPage = await rpcReq<{
+        messages?: unknown[];
+        nextOffset?: number;
+        hasMore?: boolean;
+      }>(ws, "chat.history", {
+        sessionKey: "main",
+        limit: 2,
+        offset: firstPage.payload?.nextOffset,
+        maxChars: 100,
+      });
+      expect(secondPage.ok).toBe(true);
+      expect(JSON.stringify(secondPage.payload?.messages)).toContain("previous question");
+      expect(JSON.stringify(secondPage.payload?.messages)).toContain("previous answer");
+      expect(secondPage.payload?.messages?.map(readOpenClawSeq)).toEqual([1, 2]);
+      expect(secondPage.payload?.hasMore).toBe(false);
+      expect(secondPage.payload?.nextOffset).toBeUndefined();
+
+      await writeSessionStore({
+        entries: {
+          main: {
+            sessionId: currentSessionId,
+            sessionFile: testSessionFilePath(sessionDir, currentSessionId),
+            updatedAt: futureFixtureUpdatedAt(),
+            usageFamilyKey: "main",
+            usageFamilySessionIds: [previousSessionId, currentSessionId],
+            chatHistoryLineageRootSessionId: currentSessionId,
+          },
+        },
+      });
+      const explicitResetPage = await rpcReq<{
+        messages?: unknown[];
+        hasMore?: boolean;
+        totalMessages?: number;
+      }>(ws, "chat.history", {
+        sessionKey: "main",
+        limit: 10,
+        offset: 0,
+        maxChars: 100,
+      });
+      expect(explicitResetPage.ok).toBe(true);
+      expect(JSON.stringify(explicitResetPage.payload?.messages)).not.toContain(
+        "previous question",
+      );
+      expect(JSON.stringify(explicitResetPage.payload?.messages)).toContain("current question");
+      expect(explicitResetPage.payload?.totalMessages).toBe(2);
+      expect(explicitResetPage.payload?.hasMore).toBe(false);
+    });
+  });
+
   test("chat.history offset pagination advances from the final budgeted page", async () => {
     await withGatewayChatHarness(async ({ ws, createSessionDir }) => {
       const sessionDir = await prepareMainHistoryHarness({
