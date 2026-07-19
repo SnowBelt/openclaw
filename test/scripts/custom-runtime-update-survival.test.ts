@@ -9,6 +9,7 @@ import {
   validateCapabilityMonotonicity,
 } from "../../scripts/custom-runtime/custom-runtime-update-survival.js";
 import {
+  findUnregisteredCustomRuntimePaths,
   parseCustomRuntimeCapabilityManifest,
   type CustomRuntimeCapabilityManifest,
 } from "../../src/pcc/custom-runtime-capabilities.js";
@@ -59,6 +60,17 @@ afterEach(() => {
 describe("custom runtime update survival", () => {
   it("audits every repository wiring surface required by M61", () => {
     expect(auditUpdateSurvivalRepository(process.cwd())).toEqual([]);
+  });
+
+  it("fails closed when a tracked custom-runtime control-plane file has no capability owner", () => {
+    expect(
+      findUnregisteredCustomRuntimePaths(currentManifest(), [
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/unregistered.ts",
+        "src/unrelated.ts",
+        "scripts/custom-runtime/unregistered.ts",
+      ]),
+    ).toEqual(["scripts/custom-runtime/unregistered.ts"]);
   });
 
   it("fails closed when a candidate removes or changes an active capability", () => {
@@ -144,8 +156,8 @@ describe("custom runtime update survival", () => {
       mergeParents: [activeSha, officialSha],
       sourceClean: true,
       contractVersion: 2,
-      activeManifestVersion: 4,
-      candidateManifestVersion: 4,
+      activeManifestVersion: 5,
+      candidateManifestVersion: 5,
       passed: true,
     });
     expect(proof.requiredPathDigests).toMatchObject({

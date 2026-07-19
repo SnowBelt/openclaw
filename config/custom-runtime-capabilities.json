@@ -1,6 +1,6 @@
 {
   "schema": "openclaw.custom-runtime-capabilities.v2",
-  "version": 4,
+  "version": 5,
   "preservation": {
     "contractVersion": 2,
     "criticality": "required",
@@ -292,6 +292,7 @@
         "test/scripts/control-director-roadmap-proof.test.ts",
         "test/scripts/control-director-verify.test.ts",
         "test/scripts/custom-runtime-lifecycle.test.ts",
+        "test/scripts/custom-runtime-stage-promote.test.ts",
         "test/scripts/custom-runtime-update-survival.test.ts",
         "test/scripts/custom-runtime-updater.test.ts",
         "ui/src/ui/views/pcc.test.ts",
@@ -311,6 +312,8 @@
       "requiredPaths": [
         "src/self-improvement/production-readiness.ts",
         "src/gateway/server-methods/self-improvement.ts",
+        "scripts/custom-runtime/ai.openclaw.custom-runtime.guard.plist",
+        "scripts/custom-runtime/copy_stage_state.py",
         "scripts/custom-runtime/custom-runtime-activate.sh",
         "scripts/custom-runtime/custom-runtime-auth.sh",
         "scripts/custom-runtime/custom-runtime-guard.sh",

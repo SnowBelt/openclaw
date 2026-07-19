@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+  findUnregisteredCustomRuntimePaths,
   parseCustomRuntimeCapabilityManifest,
   validateCustomRuntimeCapabilityManifest,
 } from "./custom-runtime-capabilities.js";
@@ -112,5 +113,29 @@ describe("custom runtime capability manifest", () => {
         capabilities: [],
       }),
     ).toBeNull();
+  });
+
+  it("reports tracked custom-runtime files without a capability owner", () => {
+    const manifest = parseCustomRuntimeCapabilityManifest({
+      schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+      version: 5,
+      preservation,
+      capabilities: [
+        {
+          id: "runtime:update-safe-customizations",
+          kind: "runtime",
+          requiredPaths: ["scripts/custom-runtime/registered.sh"],
+        },
+      ],
+    });
+
+    expect(
+      findUnregisteredCustomRuntimePaths(manifest!, [
+        "scripts/custom-runtime/registered.sh",
+        "scripts/custom-runtime/unregistered.ts",
+        "src/unrelated.ts",
+        "scripts/custom-runtime/unregistered.ts",
+      ]),
+    ).toEqual(["scripts/custom-runtime/unregistered.ts"]);
   });
 });

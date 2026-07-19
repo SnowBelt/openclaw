@@ -269,7 +269,7 @@ export function validateControlDirectorRoadmap(params) {
     updateSurvival.approvalPolicy !== "explicit_exact_candidate" ||
     updateSurvival.proofCommand !== "pnpm custom-runtime:update-survival" ||
     !Number.isInteger(updateSurvival.manifestVersion) ||
-    updateSurvival.manifestVersion < 4 ||
+    updateSurvival.manifestVersion < 5 ||
     updateSurvival.passed !== true ||
     !validDate(updateSurvival.checkedAt) ||
     !/^[a-f0-9]{64}$/u.test(String(updateSurvival.manifestSha256 ?? "")) ||

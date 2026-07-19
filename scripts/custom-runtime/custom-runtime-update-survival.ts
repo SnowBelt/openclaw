@@ -7,6 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+  findUnregisteredCustomRuntimePaths,
   parseCustomRuntimeCapabilityManifest,
   validateCustomRuntimeCapabilityManifest,
   type CustomRuntimeCapability,
@@ -53,6 +54,7 @@ const REQUIRED_UPDATE_SAFE_PATHS = Object.freeze([
   "test/scripts/control-director-roadmap-proof.test.ts",
   "test/scripts/control-director-verify.test.ts",
   "test/scripts/custom-runtime-lifecycle.test.ts",
+  "test/scripts/custom-runtime-stage-promote.test.ts",
   "test/scripts/custom-runtime-update-survival.test.ts",
   "test/scripts/custom-runtime-updater.test.ts",
   "ui/src/ui/views/pcc.test.ts",
@@ -228,8 +230,8 @@ function auditCurrentManifest(
     errors.push("Update survival requires the current v2 capability manifest.");
     return errors;
   }
-  if (manifest.version < 4) {
-    errors.push("Update survival requires custom capability inventory revision 4 or newer.");
+  if (manifest.version < 5) {
+    errors.push("Update survival requires custom capability inventory revision 5 or newer.");
   }
   if (preservation.contractVersion !== 2) {
     errors.push("Update survival requires preservation contract v2.");
@@ -268,12 +270,26 @@ function auditCurrentManifest(
 }
 
 export function auditUpdateSurvivalRepository(repoRoot: string): string[] {
+  const manifest = parseCustomRuntimeCapabilityManifest(
+    readJson(path.join(repoRoot, "config", "custom-runtime-capabilities.json")),
+  );
   const errors = auditCurrentManifest(
-    parseCustomRuntimeCapabilityManifest(
-      readJson(path.join(repoRoot, "config", "custom-runtime-capabilities.json")),
-    ),
+    manifest,
     DASHBOARD_SURFACES.map((surface) => surface.id),
   );
+  if (manifest) {
+    const trackedCustomRuntimePaths = git(repoRoot, ["ls-files", "--", "scripts/custom-runtime"])
+      .stdout.split(/\r?\n/u)
+      .filter(Boolean);
+    for (const unregisteredPath of findUnregisteredCustomRuntimePaths(
+      manifest,
+      trackedCustomRuntimePaths,
+    )) {
+      errors.push(
+        `Tracked custom-runtime control-plane file is not registered by any capability: ${unregisteredPath}.`,
+      );
+    }
+  }
   const packageJson = readJson(path.join(repoRoot, "package.json"));
   const scripts = object(packageJson.scripts, "package scripts");
   if (

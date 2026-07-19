@@ -63,6 +63,7 @@ Every Control Director and Dashboard change must survive an official OpenClaw up
 5. The prepared receipt binds the preservation proof by SHA-256. Explicit approval revalidates that exact proof, candidate, active base, immutable release, and source branch before managed staging.
 6. Staging, promotion, restart, browser/device proof, rollback, restore, and soak remain separate required truth surfaces. Missing preservation, approval, rollback, or live proof blocks completion.
 7. Managed promotion installs and loads the prepare-only weekly update broker. PCC must report it as scheduled; a plist that merely exists but is not loaded is not update-safe.
+8. Every tracked file under `scripts/custom-runtime/` has an explicit owning capability. Adding an unregistered control-plane file fails M61 before candidate construction.
 
 Never describe a customization as update-safe merely because its source file still exists. It is update-safe only after its registered capability, exact-parent candidate proof, manifest gates, proof-bound approval, loaded prepare-only broker, managed activation, rollback, and live acceptance all pass.
 

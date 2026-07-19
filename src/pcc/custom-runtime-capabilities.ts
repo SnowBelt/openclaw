@@ -198,3 +198,20 @@ export function validateCustomRuntimeCapabilityManifest(params: {
   }
   return errors;
 }
+
+export function findUnregisteredCustomRuntimePaths(
+  manifest: CustomRuntimeCapabilityManifest,
+  trackedPaths: readonly string[],
+): string[] {
+  const registeredPaths = new Set(
+    manifest.capabilities.flatMap((capability) => capability.requiredPaths),
+  );
+  return [
+    ...new Set(
+      trackedPaths.filter(
+        (trackedPath) =>
+          trackedPath.startsWith("scripts/custom-runtime/") && !registeredPaths.has(trackedPath),
+      ),
+    ),
+  ].toSorted((left, right) => left.localeCompare(right));
+}

@@ -18,7 +18,7 @@ When an immutable custom runtime is active, normal `update.run` requests are rej
 
 ## Source of truth
 
-`config/custom-runtime-capabilities.json` is the versioned preservation inventory. The current inventory revision is 4 under schema v2, with preservation contract v2. It requires:
+`config/custom-runtime-capabilities.json` is the versioned preservation inventory. The current inventory revision is 5 under schema v2, with preservation contract v2. It requires:
 
 - a stable capability ID and required runtime paths,
 - required criticality,
@@ -39,7 +39,7 @@ pnpm check:pcc-capabilities
 pnpm custom-runtime:update-survival
 ```
 
-Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries and its executable preservation proof fails the build. A candidate may add requirements. It cannot silently remove an active capability identity or required path.
+Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries and its executable preservation proof fails the build. Every tracked file under `scripts/custom-runtime/` must have an explicit capability owner, so a new control-plane file cannot silently fall outside the cumulative digest-bound inventory. A candidate may add requirements. It cannot silently remove an active capability identity or required path.
 
 ## Durable source requirement
 
