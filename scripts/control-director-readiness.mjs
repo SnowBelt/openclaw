@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { auditOperationalRoleCapabilityPolicy } from "../src/agents/agent-role-capability-audit.ts";
 import {
   resolveAgentIdByOperationalRole,
   resolveJudgeAgentId,
@@ -187,6 +188,7 @@ export function collectControlDirectorActiveWiring() {
   const activeMemory = source("extensions/active-memory/index.ts");
   const postAttachStartup = source("src/gateway/server-startup-post-attach.ts");
   const roleCapabilities = source("src/agents/agent-role-capabilities.ts");
+  const roleCapabilityAudit = source("src/agents/agent-role-capability-audit.ts");
   const systemPrompt = source("src/agents/system-prompt-config.ts");
   const gatewayImpl = source("src/gateway/server.impl.ts");
   const gatewayStartup = source("src/gateway/server-startup-early.ts");
@@ -271,7 +273,8 @@ export function collectControlDirectorActiveWiring() {
       resourceAdmission.includes("compileControlDirectorExecutionProfile"),
     roleCapabilityCompiler:
       roleCapabilities.includes("compileOperationalRoleCapabilityBudget") &&
-      systemPrompt.includes("buildAgentRoleCapabilitySystemPromptSection"),
+      systemPrompt.includes("buildAgentRoleCapabilitySystemPromptSection") &&
+      roleCapabilityAudit.includes("auditOperationalRoleCapabilityPolicy"),
     serverOwnedTurnInbox:
       chatTurnServer.includes("createChatTurnFlow") &&
       gatewayImpl.includes("startChatTurnInboxController"),
@@ -327,6 +330,12 @@ export function buildControlDirectorReadinessScorecard(params) {
   );
   const programManagerAgentId = resolveAgentIdByOperationalRole(config, "program_manager");
   const judgeAgentId = resolveJudgeAgentId(config);
+  const programManagerCapabilityAudit = programManagerAgentId
+    ? auditOperationalRoleCapabilityPolicy({ config, agentId: programManagerAgentId })
+    : undefined;
+  const judgeCapabilityAudit = judgeAgentId
+    ? auditOperationalRoleCapabilityPolicy({ config, agentId: judgeAgentId })
+    : undefined;
   const agentId = params.agentId ?? agent?.id ?? "control-director";
   const registry = buildControlDirectorModelRegistry({ config, agentId });
   const selected = registry.selected.status === "ready" ? registry.selected.effective : "";
@@ -356,9 +365,33 @@ export function buildControlDirectorReadinessScorecard(params) {
   );
   facts.push(
     fact(
+      "program-manager-capabilities",
+      "Program Manager configured policy admits every required dispatch and fan-in tool",
+      programManagerCapabilityAudit?.passed === true,
+      {
+        detail: programManagerCapabilityAudit?.missingTools.length
+          ? `missing: ${programManagerCapabilityAudit.missingTools.join(", ")}`
+          : "required role tools admitted",
+      },
+    ),
+  );
+  facts.push(
+    fact(
       "judge-role",
       "A distinct independent Judge owns read-only completion review",
       Boolean(judgeAgentId) && judgeAgentId !== agent?.id && judgeAgentId !== programManagerAgentId,
+    ),
+  );
+  facts.push(
+    fact(
+      "judge-capabilities",
+      "Judge configured policy admits every required read-only evidence tool",
+      judgeCapabilityAudit?.passed === true,
+      {
+        detail: judgeCapabilityAudit?.missingTools.length
+          ? `missing: ${judgeCapabilityAudit.missingTools.join(", ")}`
+          : "required role tools admitted",
+      },
     ),
   );
   facts.push(

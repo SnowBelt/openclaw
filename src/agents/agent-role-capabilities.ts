@@ -46,7 +46,6 @@ const CONTRACTS: Partial<Record<AgentOperationalRole, AgentRoleCapabilityContrac
     toolsAllow: [
       ...READ_EVIDENCE_TOOLS,
       "sessions_spawn",
-      "sessions_send",
       "sessions_yield",
       "subagents",
       "update_plan",

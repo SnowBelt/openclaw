@@ -463,9 +463,9 @@ function roleCases(): ControlDirectorTortureCase[] {
           compileOperationalRoleCapabilityBudget({
             config: TORTURE_CONFIG,
             agentId: "pm",
-            upstreamToolsAllow: ["sessions_send", "exec"],
+            upstreamToolsAllow: ["sessions_spawn", "sessions_send", "exec"],
           })?.toolsAllow,
-        ) === JSON.stringify(["sessions_send"]),
+        ) === JSON.stringify(["sessions_spawn"]),
     },
     {
       id: "role-prompt-denies-name-authority",

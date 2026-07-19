@@ -270,4 +270,27 @@ describe("Control Director readiness", () => {
     duplicateDirector.agents.list.push({ id: "director-2", role: "control_director" as const });
     expect(scorecard({ config: duplicateDirector }).productionReady).toBe(false);
   });
+
+  it("fails closed when configured policy removes a required Program Manager or Judge tool", () => {
+    const restricted = config();
+    const programManager = restricted.agents.list.find(
+      (agent) => agent.role === "program_manager",
+    )!;
+    const judge = restricted.agents.list.find((agent) => agent.role === "judge")!;
+    Object.assign(programManager, {
+      tools: { profile: "minimal", alsoAllow: ["read"], deny: ["sessions_spawn"] },
+    });
+    Object.assign(judge, {
+      tools: { profile: "minimal", alsoAllow: ["read"], deny: ["get_goal"] },
+    });
+
+    const result = scorecard({ config: restricted });
+    expect(result.productionReady).toBe(false);
+    expect(result.failedCritical).toEqual(
+      expect.arrayContaining([
+        "Program Manager configured policy admits every required dispatch and fan-in tool",
+        "Judge configured policy admits every required read-only evidence tool",
+      ]),
+    );
+  });
 });

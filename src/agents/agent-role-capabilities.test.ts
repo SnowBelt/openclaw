@@ -20,13 +20,9 @@ describe("operational-role capability contracts", () => {
   it("lets Program Manager dispatch and fan in without mutation tools", () => {
     const budget = compileOperationalRoleCapabilityBudget({ config, agentId: "pm" });
     expect(budget?.toolsAllow).toEqual(
-      expect.arrayContaining([
-        "sessions_spawn",
-        "sessions_send",
-        "sessions_history",
-        "update_plan",
-      ]),
+      expect.arrayContaining(["sessions_spawn", "sessions_history", "update_plan"]),
     );
+    expect(budget?.toolsAllow).not.toContain("sessions_send");
     expect(budget?.toolsAllow).not.toEqual(
       expect.arrayContaining(["exec", "write", "apply_patch"]),
     );
@@ -50,9 +46,9 @@ describe("operational-role capability contracts", () => {
       compileOperationalRoleCapabilityBudget({
         config,
         agentId: "pm",
-        upstreamToolsAllow: ["sessions_send", "exec"],
+        upstreamToolsAllow: ["sessions_spawn", "sessions_send", "exec"],
       })?.toolsAllow,
-    ).toEqual(["sessions_send"]);
+    ).toEqual(["sessions_spawn"]);
     expect(compileOperationalRoleCapabilityBudget({ config, agentId: "chat" })).toBeUndefined();
   });
 });
