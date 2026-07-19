@@ -81,6 +81,9 @@ describe("control-director-verify", () => {
       "test/scripts/custom-runtime-lifecycle.test.ts",
     );
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "src/tasks/pursue-goal-blocker.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "packages/gateway-protocol/src/schema/tasks.test.ts",
     );
     expect(plan.find((entry) => entry.id === "ui-tests")?.args).toContain(

@@ -15,6 +15,10 @@ import {
 import { resolveStorePath } from "../config/sessions/paths.js";
 import type { SessionGoalStatus } from "../config/sessions/types.js";
 import { DEFAULT_PCC_EXECUTION_PROFILE } from "../pcc/execution-profile.js";
+import {
+  nextPursueGoalBlockerCount,
+  PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS,
+} from "./pursue-goal-blocker.js";
 import type {
   PursueGoalControllerRuntime,
   PursueGoalTurnInput,
@@ -156,7 +160,10 @@ export function resolvePursueGoalCodexRoute(input: PursueGoalTurnInput) {
   });
 }
 
-function buildWorkerPrompt(input: PursueGoalTurnInput, routeReason: string): string {
+export function buildPursueGoalWorkerPrompt(
+  input: PursueGoalTurnInput,
+  routeReason: string,
+): string {
   const prior = input.state.lastResult?.trim();
   return [
     "Durable Pursue Goal execution turn.",
@@ -171,6 +178,9 @@ function buildWorkerPrompt(input: PursueGoalTurnInput, routeReason: string): str
     "Act now; do not stop at a plan unless an external approval or user decision is truly required.",
     "Delegate scoped execution to workers when tools or specialist agents are available, then fan results back in.",
     "Record direct evidence for every completion claim. Do not repeat completed mutating work.",
+    "The controller owns independent Judge execution. Never request, fabricate, or wait for a Judge receipt.",
+    "When the work is complete, call update_goal status=complete; the controller will then run the independent Judge automatically.",
+    `Worker blocker confirmation is ${input.state.consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS}. An unrun Judge is not a blocker.`,
     "Use update_goal status=complete only when the entire goal is achieved and directly verified.",
     "Use update_goal status=blocked only after the same genuine blocker persists for three consecutive goal turns.",
     "Otherwise leave the goal active so the controller can schedule the next execution turn.",
@@ -180,14 +190,17 @@ function buildWorkerPrompt(input: PursueGoalTurnInput, routeReason: string): str
     .join("\n\n");
 }
 
-async function loadWorkerGoalStatus(
+async function loadWorkerGoal(
   input: PursueGoalTurnInput,
-): Promise<SessionGoalStatus | undefined> {
+): Promise<{ status?: SessionGoalStatus; note?: string }> {
   const snapshot = await getSessionGoal({
     sessionKey: input.state.workerSessionKey,
     storePath: workerStorePath(input),
   });
-  return snapshot.goal?.status;
+  return {
+    status: snapshot.goal?.status,
+    ...(snapshot.goal?.lastStatusNote?.trim() ? { note: snapshot.goal.lastStatusNote.trim() } : {}),
+  };
 }
 
 async function runIndependentJudge(params: {
@@ -244,7 +257,7 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
     };
   }
   const result = await agentCommand({
-    message: buildWorkerPrompt(input, route.reason),
+    message: buildPursueGoalWorkerPrompt(input, route.reason),
     transcriptMessage: `Pursue Goal turn ${input.state.turnCount + 1}: ${input.goal}`,
     agentId: input.state.workerAgentId,
     sessionKey: input.state.workerSessionKey,
@@ -262,7 +275,8 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
   });
   const text = collectResultText(result);
   const artifactIds = collectResultArtifactIds(result);
-  const goalStatus = await loadWorkerGoalStatus(input);
+  const workerGoal = await loadWorkerGoal(input);
+  const goalStatus = workerGoal.status;
   if (goalStatus === "complete") {
     const evidenceSummary = text || "Worker marked the goal complete without a visible summary.";
     const judge = await runIndependentJudge({
@@ -284,11 +298,31 @@ async function runTurn(input: PursueGoalTurnInput): Promise<PursueGoalTurnResult
     };
   }
   if (goalStatus === "blocked") {
+    const blocker = workerGoal.note || text || "Worker recorded a persistent blocker.";
+    const blockerCount = nextPursueGoalBlockerCount({
+      previousSummary: input.state.lastError,
+      previousCount: input.state.consecutiveBlockers,
+      currentSummary: blocker,
+    });
+    if (blockerCount < PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS) {
+      await updateWorkerGoalStatus(
+        input.state,
+        "active",
+        `Controller retrying provisional blocker (${blockerCount}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS}).`,
+      );
+      return {
+        status: "active",
+        text,
+        artifactIds,
+        provisionalBlocker: blocker,
+        model: resultModel(result),
+      };
+    }
     return {
       status: "blocked",
       text,
       artifactIds,
-      blocker: text || "Worker recorded a persistent blocker.",
+      blocker,
       model: resultModel(result),
     };
   }

@@ -72,6 +72,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "src/tasks/durable-worker-mailbox.test.ts",
   "src/tasks/execution-event.test.ts",
   "src/tasks/pursue-goal-controller-state.test.ts",
+  "src/tasks/pursue-goal-blocker.test.ts",
   "src/tasks/pursue-goal-controller.runtime.test.ts",
   "src/tasks/pursue-goal-controller.test.ts",
 ]);
