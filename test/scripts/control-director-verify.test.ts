@@ -99,6 +99,9 @@ describe("control-director-verify", () => {
       "test/scripts/custom-runtime-lifecycle.test.ts",
     );
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "test/scripts/custom-runtime-stage-promote.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "test/scripts/custom-runtime-update-survival.test.ts",
     );
     expect(plan.find((entry) => entry.id === "update-survival")?.args).toEqual([

@@ -23,6 +23,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-runtime-proof.test.ts",
   "test/scripts/control-director-verify.test.ts",
   "test/scripts/custom-runtime-lifecycle.test.ts",
+  "test/scripts/custom-runtime-stage-promote.test.ts",
   "test/scripts/custom-runtime-update-survival.test.ts",
   "test/scripts/control-ui-i18n.test.ts",
   "test/scripts/control-ui-control-director-no-response-smoke.test.ts",
