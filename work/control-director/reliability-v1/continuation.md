@@ -17,7 +17,7 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 ## Current state
 
 - Formal roadmap pass: 0/61 until the final evidence-bound commit is landed and the post-commit ledger exits zero.
-- Source implementation: M01-M61 present; M61 inventory revision 5 adds the update-survival control plane, requires an explicit capability owner for every tracked `scripts/custom-runtime/` file, and gates the managed stage/promotion regression fixture.
+- Source implementation: M01-M61 present; M61 inventory revision 5 adds the update-survival control plane, requires an explicit capability owner for every tracked `scripts/custom-runtime/` file, gates the managed stage/promotion regression fixture, and makes promotion install, load, report, and transactionally restore both the update broker and runtime recovery guard from the selected release.
 - Current phase: exact-source and remote proof, then managed activation and live acceptance.
 - Remaining proof: exact runtime lineage; desktop, tablet, and mobile Chat; local-model routing and latency; memory; delegation; Judge; queue/steer; Pursue Goal; restart recovery; rollback/restore; five-minute soak; landing; reactivation; final ledger.
 
@@ -38,5 +38,5 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 - Do not infer PCC state from ordinary assistant prose.
 - Do not use a mock GPT identity as proof for the managed Gemma Control Director.
 - Do not claim live or Dashboard completion until the exact promoted SHA is exercised there.
-- Do not mark a customization update-safe unless its capability/path inventory, exact-parent candidate proof, loaded prepare-only update broker, managed activation, browser/device proof, rollback/restore, and soak all pass.
+- Do not mark a customization update-safe unless its capability/path inventory, exact-parent candidate proof, loaded prepare-only update broker and runtime recovery guard, managed activation, browser/device proof, rollback/restore, and soak all pass.
 - Do not edit milestone status or evidence optimistically; a missing or stale binding remains pending.

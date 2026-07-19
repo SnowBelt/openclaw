@@ -100,6 +100,20 @@ function writeCandidateContracts(release: string, sourceSha: string) {
       "",
     ].join("\n"),
   );
+  writeFile(
+    path.join(release, "scripts", "custom-runtime", "ai.openclaw.custom-runtime.guard.plist"),
+    [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<plist version="1.0"><dict>',
+      "<key>Label</key><string>ai.openclaw.custom-runtime.guard</string>",
+      "<key>ProgramArguments</key><array><string>/stale/guard</string></array>",
+      "<key>RunAtLoad</key><true/>",
+      "<key>StartInterval</key><integer>60</integer>",
+      "<key>WatchPaths</key><array><string>/stale/gateway.plist</string></array>",
+      "</dict></plist>",
+      "",
+    ].join("\n"),
+  );
   writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFile(
     path.join(release, "snapshot.json"),
@@ -122,13 +136,14 @@ function writeCandidateContracts(release: string, sourceSha: string) {
   );
 }
 
-function readPlistProgramArguments(plistPath: string): string[] {
+function readPlistArray(plistPath: string, key: string): string[] {
   const result = spawnSync(
     "python3",
     [
       "-c",
-      "import json, plistlib, sys; print(json.dumps(plistlib.load(open(sys.argv[1], 'rb')).get('ProgramArguments', [])))",
+      "import json, plistlib, sys; print(json.dumps(plistlib.load(open(sys.argv[1], 'rb')).get(sys.argv[2], [])))",
       plistPath,
+      key,
     ],
     { encoding: "utf8" },
   );
@@ -505,7 +520,7 @@ describe("custom runtime lifecycle", () => {
     expect(serviceEnv).toContain(
       `export OPENCLAW_BUNDLED_PLUGINS_DIR=${release}/dist-runtime/extensions`,
     );
-    expect(readPlistProgramArguments(plistPath)).toEqual([
+    expect(readPlistArray(plistPath, "ProgramArguments")).toEqual([
       envWrapper,
       envFile,
       launcher,
@@ -514,18 +529,30 @@ describe("custom runtime lifecycle", () => {
       "18789",
     ]);
     expect(
-      readPlistProgramArguments(
+      readPlistArray(
         path.join(
           home,
           "Library",
           "LaunchAgents",
           "ai.openclaw.custom-runtime.update-weekly.plist",
         ),
+        "ProgramArguments",
       ),
     ).toEqual([path.join(runtimeHome, "bin", "custom-runtime-updater.sh")]);
+    const guardPlistPath = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.custom-runtime.guard.plist",
+    );
+    expect(readPlistArray(guardPlistPath, "ProgramArguments")).toEqual([
+      path.join(runtimeHome, "bin", "custom-runtime-guard.sh"),
+    ]);
+    expect(readPlistArray(guardPlistPath, "WatchPaths")).toEqual([plistPath]);
     expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(
       path.join(home, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.update-weekly.plist"),
     );
+    expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(guardPlistPath);
     const pointer = JSON.parse(
       fs.readFileSync(path.join(runtimeHome, "active-runtime.json"), "utf8"),
     ) as {
@@ -566,10 +593,10 @@ describe("custom runtime lifecycle", () => {
           .map((entry) => fs.readFileSync(path.join(runtimeHome, "receipts", entry), "utf8"))
           .find((entry) => JSON.parse(entry).result === "promoted")!,
       ),
-    ).toMatchObject({ updateBrokerScheduled: true });
+    ).toMatchObject({ runtimeGuardScheduled: true, updateBrokerScheduled: true });
   });
 
-  it("restores the previous launcher before a failed promotion restart", () => {
+  it("restores the previous control plane when loading the runtime guard fails", () => {
     const root = createRoot("openclaw-custom-promote-rollback-");
     const home = path.join(root, "home");
     const runtimeHome = path.join(home, ".openclaw-custom-runtime");
@@ -582,13 +609,39 @@ describe("custom runtime lifecycle", () => {
     const plistPath = path.join(root, "ai.openclaw.gateway.plist");
     const fakeBin = path.join(root, "bin");
     const bootstrapCount = path.join(root, "bootstrap-count");
+    const bootstrapMarker = path.join(root, "bootstrap-args");
+    const updatePlistPath = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.custom-runtime.update-weekly.plist",
+    );
+    const guardPlistPath = path.join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "ai.openclaw.custom-runtime.guard.plist",
+    );
     const sourceSha = "d".repeat(64);
     const previousPointer = { releaseId: "previous", runtimeRoot: "/previous/release" };
     const previousLauncherText = '#!/bin/sh\n[ "${1:-}" = --verify ]\n# previous\n';
 
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
     writeCandidateContracts(release, sourceSha);
-    writeFile(launcher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n# candidate\n', 0o700);
+    writeFile(
+      launcher,
+      [
+        "#!/bin/sh",
+        'if [ "${1:-}" = --verify ]; then exit 0; fi',
+        'if [ "${1:-}" = self-improvement ]; then',
+        "  printf '%s\\n' '{\"scorecard\":{},\"groups\":[]}'",
+        "  exit 0",
+        "fi",
+        "exit 1",
+        "",
+      ].join("\n"),
+      0o700,
+    );
     writeFile(rollbackLauncher, previousLauncherText, 0o700);
     writeFile(
       path.join(runtimeHome, "active-runtime.json"),
@@ -600,14 +653,16 @@ describe("custom runtime lifecycle", () => {
       plistPath,
       '<?xml version="1.0"?><plist version="1.0"><dict><key>ProgramArguments</key><array><string>/previous</string></array></dict></plist>\n',
     );
+    writeFile(updatePlistPath, "previous update scheduler\n", 0o600);
+    writeFile(guardPlistPath, "previous runtime guard\n", 0o600);
     writeFile(
       path.join(fakeBin, "launchctl"),
       [
         "#!/bin/sh",
         'case "${1:-}" in',
         "  bootout) exit 0;;",
-        "  print) exit 1;;",
-        `  bootstrap) count=$(cat ${JSON.stringify(bootstrapCount)} 2>/dev/null || printf 0); count=$((count + 1)); printf '%s\\n' "$count" > ${JSON.stringify(bootstrapCount)}; exit 0;;`,
+        "  print) exit 0;;",
+        `  bootstrap) count=$(cat ${JSON.stringify(bootstrapCount)} 2>/dev/null || printf 0); count=$((count + 1)); printf '%s\\n' "$count" > ${JSON.stringify(bootstrapCount)}; printf '%s\\n' "$*" >> ${JSON.stringify(bootstrapMarker)}; [ "$count" -ne 3 ] && exit 0 || exit 1;;`,
         "esac",
         "exit 1",
         "",
@@ -618,13 +673,21 @@ describe("custom runtime lifecycle", () => {
       path.join(fakeBin, "curl"),
       [
         "#!/bin/sh",
-        `count=$(cat ${JSON.stringify(bootstrapCount)} 2>/dev/null || printf 0)`,
-        '[ "$count" -ge 2 ] || exit 1',
-        "printf '{\"ok\":true}'",
+        "header= write_out=false",
+        "while [ $# -gt 0 ]; do",
+        '  case "$1" in',
+        "    --dump-header) header=$2; shift 2;;",
+        "    --write-out) write_out=true; shift 2;;",
+        "    *) shift;;",
+        "  esac",
+        "done",
+        'if [ -n "$header" ]; then printf \'HTTP/1.1 101 Switching Protocols\\r\\n\\r\\n\' > "$header"; exit 0; fi',
+        'if [ "$write_out" = true ]; then printf 200; else printf \'{\"ok\":true}\'; fi',
         "",
       ].join("\n"),
       0o700,
     );
+    writeFile(path.join(fakeBin, "pgrep"), "#!/bin/sh\nexit 0\n", 0o700);
     writeFile(path.join(fakeBin, "sleep"), "#!/bin/sh\nexit 0\n", 0o700);
 
     const result = spawnSync(
@@ -659,6 +722,11 @@ describe("custom runtime lifecycle", () => {
     expect(
       JSON.parse(fs.readFileSync(path.join(runtimeHome, "active-runtime.json"), "utf8")),
     ).toEqual(previousPointer);
+    expect(fs.readFileSync(updatePlistPath, "utf8")).toBe("previous update scheduler\n");
+    expect(fs.readFileSync(guardPlistPath, "utf8")).toBe("previous runtime guard\n");
+    expect(fs.readFileSync(bootstrapCount, "utf8").trim()).toBe("6");
+    expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(updatePlistPath);
+    expect(fs.readFileSync(bootstrapMarker, "utf8")).toContain(guardPlistPath);
     const receipt = fs
       .readdirSync(path.join(runtimeHome, "receipts"))
       .find((entry) => entry.startsWith("promotion-"));
@@ -672,7 +740,7 @@ describe("custom runtime lifecycle", () => {
     expect(failureReceipt).toBeTruthy();
     expect(
       JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", failureReceipt!), "utf8")),
-    ).toMatchObject({ gate: "health", result: "promotion_gate_failed" });
+    ).toMatchObject({ gate: "runtime_guard", result: "promotion_gate_failed" });
   });
 
   it("restores the preregistered custom runtime control plane and verifies it", () => {

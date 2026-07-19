@@ -337,6 +337,9 @@ export function collectControlDirectorActiveWiring() {
         "ai.openclaw.custom-runtime.update-weekly.plist",
         "install_update_scheduler",
         "updateBrokerScheduled",
+        "ai.openclaw.custom-runtime.guard.plist",
+        "install_runtime_guard",
+        "runtimeGuardScheduled",
       ]) &&
       hasAll(customRuntimeUpdateApprove, [
         "preservationProof",
@@ -597,6 +600,15 @@ export function buildControlDirectorReadinessScorecard(params) {
       "runtime-update-broker",
       "Prepare-only custom-runtime update broker is installed and scheduled",
       params.updateSafety?.status === "protected" && params.updateSafety?.brokerConfigured === true,
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-recovery-guard",
+      "Custom-runtime recovery guard is installed and scheduled",
+      params.updateSafety?.status === "protected" &&
+        params.updateSafety?.runtimeGuardConfigured === true,
       runtimeSurface,
     ),
   );

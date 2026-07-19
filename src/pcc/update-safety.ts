@@ -19,6 +19,7 @@ export type PccUpdateSafety = {
   standardUpdateBlocked: boolean;
   sourceDurable: boolean;
   brokerConfigured: boolean;
+  runtimeGuardConfigured: boolean;
   approvalPending: boolean;
   sourceSha: string | null;
   sourceBranch: string | null;
@@ -31,9 +32,12 @@ export type PccUpdateSafetyOptions = CustomRuntimeUpdatePolicyOptions & {
   runtimeHome?: string;
   launchAgentPath?: string;
   schedulerLoaded?: boolean;
+  guardLaunchAgentPath?: string;
+  guardLoaded?: boolean;
 };
 
 const UPDATE_SCHEDULER_LABEL = "ai.openclaw.custom-runtime.update-weekly";
+const RUNTIME_GUARD_LABEL = "ai.openclaw.custom-runtime.guard";
 
 function readJson(filePath: string): Record<string, unknown> | null {
   try {
@@ -71,15 +75,14 @@ function latestReceipt(receiptsDir: string): PccUpdateSafetyReceipt | null {
   return null;
 }
 
-function isUpdateSchedulerLoaded(): boolean {
+function isLaunchAgentLoaded(label: string): boolean {
   if (process.platform !== "darwin" || typeof process.getuid !== "function") {
     return false;
   }
-  const result = spawnSync(
-    "/bin/launchctl",
-    ["print", `gui/${process.getuid()}/${UPDATE_SCHEDULER_LABEL}`],
-    { stdio: "ignore", timeout: 1_000 },
-  );
+  const result = spawnSync("/bin/launchctl", ["print", `gui/${process.getuid()}/${label}`], {
+    stdio: "ignore",
+    timeout: 1_000,
+  });
   return result.status === 0;
 }
 
@@ -100,8 +103,16 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
     fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
     fs.existsSync(launchAgentPath);
-  const schedulerLoaded = options.schedulerLoaded ?? isUpdateSchedulerLoaded();
+  const schedulerLoaded = options.schedulerLoaded ?? isLaunchAgentLoaded(UPDATE_SCHEDULER_LABEL);
   const brokerConfigured = brokerInstalled && schedulerLoaded;
+  const guardLaunchAgentPath =
+    options.guardLaunchAgentPath ??
+    path.join(homedir, "Library", "LaunchAgents", "ai.openclaw.custom-runtime.guard.plist");
+  const runtimeGuardInstalled =
+    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-guard.sh")) &&
+    fs.existsSync(guardLaunchAgentPath);
+  const guardLoaded = options.guardLoaded ?? isLaunchAgentLoaded(RUNTIME_GUARD_LABEL);
+  const runtimeGuardConfigured = runtimeGuardInstalled && guardLoaded;
   const pending = readJson(path.join(runtimeHome, "pending-update.json"));
   const approvalPending = pending?.result === "ready_for_approval";
   const issues: string[] = [];
@@ -118,6 +129,11 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   } else if (policy.managedRuntime && !schedulerLoaded) {
     issues.push("The verified custom-runtime update broker is installed but not scheduled.");
   }
+  if (policy.managedRuntime && !runtimeGuardInstalled) {
+    issues.push("The verified custom-runtime recovery guard is not fully installed.");
+  } else if (policy.managedRuntime && !guardLoaded) {
+    issues.push("The verified custom-runtime recovery guard is installed but not scheduled.");
+  }
   const status = !policy.managedRuntime
     ? "unmanaged"
     : issues.length === 0
@@ -128,6 +144,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     standardUpdateBlocked: policy.standardUpdateBlocked,
     sourceDurable: policy.sourceDurable,
     brokerConfigured,
+    runtimeGuardConfigured,
     approvalPending,
     sourceSha: policy.sourceSha,
     sourceBranch: policy.sourceBranch,

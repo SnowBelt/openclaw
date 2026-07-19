@@ -43,6 +43,12 @@ function fixture() {
     "custom-runtime",
     "ai.openclaw.custom-runtime.update-weekly.plist",
   );
+  const guardSchedulerPath = path.join(
+    release,
+    "scripts",
+    "custom-runtime",
+    "ai.openclaw.custom-runtime.guard.plist",
+  );
   const entrypoint = path.join(release, "dist", "index.js");
   const sourceSha = "abcdef1234567890abcdef1234567890abcdef12";
   for (const directory of [
@@ -50,6 +56,7 @@ function fixture() {
     path.dirname(capabilityManifestPath),
     path.dirname(pluginManifestPath),
     path.dirname(updateSchedulerPath),
+    path.dirname(guardSchedulerPath),
     path.join(runtimeHome, "bin"),
   ]) {
     mkdirSync(directory, { recursive: true });
@@ -64,6 +71,10 @@ function fixture() {
       "ai.openclaw.custom-runtime.update-weekly.plist",
     ),
     updateSchedulerPath,
+  );
+  cpSync(
+    path.join(process.cwd(), "scripts", "custom-runtime", "ai.openclaw.custom-runtime.guard.plist"),
+    guardSchedulerPath,
   );
   writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);

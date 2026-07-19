@@ -334,9 +334,14 @@ export function auditUpdateSurvivalRepository(repoRoot: string): string[] {
       "ai.openclaw.custom-runtime.update-weekly.plist",
       "install_update_scheduler",
       "updateBrokerScheduled",
+      "ai.openclaw.custom-runtime.guard.plist",
+      "install_runtime_guard",
+      "runtimeGuardScheduled",
     ].some((fragment) => !promotion.includes(fragment))
   ) {
-    errors.push("Managed promotion does not install the proof-gated update scheduler.");
+    errors.push(
+      "Managed promotion does not install the proof-gated update scheduler and recovery guard.",
+    );
   }
   for (const script of [
     "custom-runtime-stage.sh",
@@ -529,6 +534,7 @@ function sourceContractProof(repoRoot: string, output?: string): string {
       "exact-parent-update-broker",
       "proof-bound-approval",
       "managed-stage-and-rollback",
+      "managed-runtime-guard",
       "workflow-sanity",
       "control-director-readiness",
       "reliability-skill",

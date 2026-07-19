@@ -276,7 +276,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     proofSurfaces: [
       "pnpm check:custom-runtime-capabilities",
       "pnpm custom-runtime:update-survival",
-      "PCC Update Safety dashboard scheduled-broker status",
+      "PCC Update Safety dashboard scheduled-broker and recovery-guard status",
       "exact-parent candidate preservation and approval receipts",
     ],
   },

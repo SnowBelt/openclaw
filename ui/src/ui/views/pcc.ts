@@ -1506,6 +1506,10 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
           <dd>${safety.brokerConfigured ? "Scheduled" : "Missing or inactive"}</dd>
         </div>
         <div>
+          <dt>Runtime guard</dt>
+          <dd>${safety.runtimeGuardConfigured ? "Scheduled" : "Missing or inactive"}</dd>
+        </div>
+        <div>
           <dt>Approval</dt>
           <dd>${safety.approvalPending ? "Waiting for you" : "No candidate waiting"}</dd>
         </div>

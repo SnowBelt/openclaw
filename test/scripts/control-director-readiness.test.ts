@@ -132,7 +132,11 @@ function scorecard(overrides: Record<string, unknown> = {}) {
       OLLAMA_NUM_PARALLEL: "1",
     },
     ollamaChatSmoke: { ok: true, detail: "status=200" },
-    updateSafety: { status: "protected", brokerConfigured: true },
+    updateSafety: {
+      status: "protected",
+      brokerConfigured: true,
+      runtimeGuardConfigured: true,
+    },
     ...overrides,
   });
 }
@@ -201,7 +205,20 @@ describe("Control Director readiness", () => {
           sigBackgroundEnabled: false,
         },
       },
-      { updateSafety: { status: "attention", brokerConfigured: false } },
+      {
+        updateSafety: {
+          status: "attention",
+          brokerConfigured: false,
+          runtimeGuardConfigured: true,
+        },
+      },
+      {
+        updateSafety: {
+          status: "attention",
+          brokerConfigured: true,
+          runtimeGuardConfigured: false,
+        },
+      },
       {
         ollamaModelBases: new Map([
           ["openclaw-control-gemma4-31b-q8:latest", ["a".repeat(64)]],
