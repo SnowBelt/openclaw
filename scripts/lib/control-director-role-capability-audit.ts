@@ -1,10 +1,10 @@
-// Readiness-only audit that proves configured tool policy does not contradict an operational role.
-import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { resolveAgentRoleCapabilityContract } from "./agent-role-capabilities.js";
-import { resolveAgentConfig } from "./agent-scope.js";
-import { resolveEffectiveToolPolicy } from "./agent-tools.policy.js";
-import { isToolAllowedByPolicies } from "./tool-policy-match.js";
-import { mergeAlsoAllowPolicy, resolveToolProfilePolicy } from "./tool-policy.js";
+import { resolveAgentRoleCapabilityContract } from "../../src/agents/agent-role-capabilities.js";
+import { resolveAgentConfig } from "../../src/agents/agent-scope.js";
+import { resolveEffectiveToolPolicy } from "../../src/agents/agent-tools.policy.js";
+import { isToolAllowedByPolicies } from "../../src/agents/tool-policy-match.js";
+import { mergeAlsoAllowPolicy, resolveToolProfilePolicy } from "../../src/agents/tool-policy.js";
+// Readiness audit that proves configured tool policy does not contradict an operational role.
+import type { OpenClawConfig } from "../../src/config/types.openclaw.js";
 
 export type AgentRoleCapabilityPolicyAudit = {
   agentId: string;

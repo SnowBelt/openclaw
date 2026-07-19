@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { auditOperationalRoleCapabilityPolicy } from "../src/agents/agent-role-capability-audit.ts";
 import {
   resolveAgentIdByOperationalRole,
   resolveJudgeAgentId,
@@ -19,6 +18,7 @@ import {
   CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG,
   isConfiguredControlDirectorAgent,
 } from "../src/agents/control-director-role.ts";
+import { auditOperationalRoleCapabilityPolicy } from "./lib/control-director-role-capability-audit.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const CONTROL_DIRECTOR_READINESS_REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -188,7 +188,7 @@ export function collectControlDirectorActiveWiring() {
   const activeMemory = source("extensions/active-memory/index.ts");
   const postAttachStartup = source("src/gateway/server-startup-post-attach.ts");
   const roleCapabilities = source("src/agents/agent-role-capabilities.ts");
-  const roleCapabilityAudit = source("src/agents/agent-role-capability-audit.ts");
+  const roleCapabilityAudit = source("scripts/lib/control-director-role-capability-audit.ts");
   const systemPrompt = source("src/agents/system-prompt-config.ts");
   const gatewayImpl = source("src/gateway/server.impl.ts");
   const gatewayStartup = source("src/gateway/server-startup-early.ts");
