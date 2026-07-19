@@ -74,6 +74,7 @@ describe("control-director-verify", () => {
       "extension-tests",
       "ui-i18n",
       "custom-runtime-contracts",
+      "update-survival",
       "pcc-contracts",
       "plugin-sdk-api",
       "docs-mdx",
@@ -97,6 +98,12 @@ describe("control-director-verify", () => {
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "test/scripts/custom-runtime-lifecycle.test.ts",
     );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "test/scripts/custom-runtime-update-survival.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "update-survival")?.args).toEqual([
+      "custom-runtime:update-survival",
+    ]);
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "src/tasks/pursue-goal-blocker.test.ts",
     );

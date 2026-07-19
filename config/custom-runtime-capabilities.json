@@ -1,15 +1,24 @@
 {
   "schema": "openclaw.custom-runtime-capabilities.v2",
-  "version": 2,
+  "version": 3,
   "preservation": {
-    "contractVersion": 1,
+    "contractVersion": 2,
     "criticality": "required",
     "migrationPolicy": "preserve_or_block",
     "rollbackPolicy": "immutable_release_pointer",
+    "sourceStrategy": "merge_from_active_sha",
+    "dashboardChangePolicy": "register_verify_and_block",
+    "approvalPolicy": "explicit_exact_candidate",
+    "proofCommand": "pnpm custom-runtime:update-survival",
     "standardsRegistry": "src/pcc/capability-addition-registry.ts",
     "verificationCommands": [
       "pnpm check:custom-runtime-capabilities",
-      "pnpm check:pcc-capabilities"
+      "pnpm check:pcc-capabilities",
+      "pnpm control-director:verify -- --expected-sha <candidate-sha>",
+      "pnpm check",
+      "pnpm ui:build",
+      "pnpm build",
+      "pnpm ui:smoke:dashboard --artifact-profile release --artifact-root .artifacts/custom-runtime-update"
     ]
   },
   "capabilities": [
@@ -259,11 +268,36 @@
       "id": "runtime:update-safe-customizations",
       "kind": "runtime",
       "requiredPaths": [
+        "config/custom-runtime-capabilities.json",
+        "package.json",
         "src/infra/custom-runtime-update-policy.ts",
+        "src/pcc/capability-addition-registry.ts",
+        "src/pcc/custom-runtime-capabilities.test.ts",
+        "src/pcc/custom-runtime-capabilities.ts",
         "src/pcc/update-safety.ts",
+        "scripts/check.mjs",
+        "scripts/check-custom-runtime-capabilities.ts",
+        "scripts/control-director-readiness.mjs",
+        "scripts/control-director-roadmap-proof.mjs",
+        "scripts/control-director-verify.mjs",
+        "scripts/custom-runtime/custom-runtime-update-survival.ts",
         "scripts/custom-runtime/custom-runtime-updater.sh",
         "scripts/custom-runtime/custom-runtime-update-approve.sh",
-        "docs/automation/custom-runtime-update-safety.md"
+        "scripts/custom-runtime/custom-runtime-stage.sh",
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-launcher.sh",
+        "test/scripts/control-director-readiness.test.ts",
+        "test/scripts/control-director-roadmap-proof.test.ts",
+        "test/scripts/control-director-verify.test.ts",
+        "test/scripts/custom-runtime-update-survival.test.ts",
+        "test/scripts/custom-runtime-updater.test.ts",
+        ".agents/skills/control-director-reliability/SKILL.md",
+        ".github/workflows/workflow-sanity.yml",
+        "work/control-director/reliability-v1/roadmap.json",
+        "work/control-director/reliability-v1/continuation.md",
+        "docs/automation/custom-runtime-update-safety.md",
+        "docs/automation/pcc-operational-excellence.md",
+        "docs/concepts/control-director.md"
       ]
     },
     {

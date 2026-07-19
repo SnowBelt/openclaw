@@ -18,12 +18,16 @@ When an immutable custom runtime is active, normal `update.run` requests are rej
 
 ## Source of truth
 
-`config/custom-runtime-capabilities.json` is the versioned preservation inventory. Its v2 contract requires:
+`config/custom-runtime-capabilities.json` is the versioned preservation inventory. The current inventory revision is 3 under schema v2, with preservation contract v2. It requires:
 
 - a stable capability ID and required runtime paths,
 - required criticality,
 - preserve-or-block migration policy,
 - immutable-pointer rollback policy,
+- exact-active-SHA merge strategy,
+- register-verify-and-block policy for every Dashboard customization,
+- explicit approval of one exact proof-bound candidate,
+- the canonical `pnpm custom-runtime:update-survival` proof command,
 - deterministic verification commands,
 - a matching owner, tests, proof surfaces, observability, upgrade impact, rollback, and documentation entry in `src/pcc/capability-addition-registry.ts`.
 
@@ -32,9 +36,10 @@ Both files are checked by:
 ```bash
 pnpm check:custom-runtime-capabilities
 pnpm check:pcc-capabilities
+pnpm custom-runtime:update-survival
 ```
 
-Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries fails the build. A candidate may add requirements. It cannot silently remove an active requirement.
+Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries and its executable preservation proof fails the build. A candidate may add requirements. It cannot silently remove an active capability identity or required path.
 
 ## Durable source requirement
 
@@ -56,7 +61,7 @@ The scheduled broker only prepares a candidate:
 custom-runtime-updater.sh --prepare
 ```
 
-It fetches the selected official stable release, merges it onto the exact active custom commit on a dedicated candidate branch, runs the complete check/build/test/browser surface, constructs an immutable release, and writes a `ready_for_approval` receipt. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
+It fetches the selected official stable release and creates an exact two-parent merge on a dedicated candidate branch: parent one is the exact active custom commit and parent two is the selected official commit. The broker proves that ancestry, checks the cumulative capability/path inventory, digest-binds every required candidate path, then runs the ordered verification commands from the preservation manifest. It constructs an immutable release and writes a `ready_for_approval` receipt that binds the update-survival proof by SHA-256. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
 
 After reviewing the receipt, an operator approves that exact candidate:
 
@@ -64,7 +69,11 @@ After reviewing the receipt, an operator approves that exact candidate:
 custom-runtime-update-approve.sh --receipt /path/to/update-receipt.json
 ```
 
-Approval fails if the active runtime changed after preparation, the release moved outside the immutable release root, or the source stamp changed. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
+Approval fails if the active runtime changed after preparation, the preservation proof or digest changed, the proof names another candidate or parent pair, the release moved outside the immutable release root, or the source stamp changed. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
+
+## Dashboard customization rule
+
+Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, desktop/tablet/mobile acceptance, restart recovery, rollback-and-restore, and soak remain separate truth surfaces.
 
 ## Project Command Center status
 

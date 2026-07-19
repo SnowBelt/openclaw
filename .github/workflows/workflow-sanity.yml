@@ -345,10 +345,14 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF'
           commands:
+          - pnpm custom-runtime:update-survival
           - pnpm control-director:verify -- --expected-sha "$GITHUB_SHA"
           - pnpm ui:smoke:control-director-no-response
           - pnpm check:changed
           EOF
+
+      - name: Run update-survival contract
+        run: pnpm custom-runtime:update-survival
 
       - name: Run exact-SHA Control Director source acceptance
         timeout-minutes: 70
@@ -836,6 +840,7 @@ jobs:
           - pnpm ui:i18n:check
           - pnpm check:pcc-capabilities
           - pnpm check:custom-runtime-capabilities
+          - pnpm custom-runtime:update-survival
           - pnpm check:workflows
           - pnpm check:changed
           - pnpm build
@@ -878,6 +883,7 @@ jobs:
         run: |
           pnpm check:pcc-capabilities
           pnpm check:custom-runtime-capabilities
+          pnpm custom-runtime:update-survival
 
       - name: Run workflow syntax check
         run: pnpm check:workflows
@@ -2151,6 +2157,7 @@ jobs:
           - pnpm check:architecture
           - pnpm check:pcc-capabilities
           - pnpm check:custom-runtime-capabilities
+          - pnpm custom-runtime:update-survival
           - node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
           - pnpm ui:smoke:pcc-performance
           - pnpm ui:smoke:chat-projects
@@ -2233,6 +2240,7 @@ jobs:
         run: |
           pnpm check:pcc-capabilities
           pnpm check:custom-runtime-capabilities
+          pnpm custom-runtime:update-survival
           node --import tsx scripts/dev/control-ui-pcc-runtime-integrity-smoke.ts
 
       - name: Run PCC performance budgets

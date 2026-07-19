@@ -36,9 +36,11 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 3. Preserve the immutable mission envelope: request, acceptance criteria, scope, approvals, provenance, idempotency identity, and evidence references.
 4. Add executable production callers for every contract. A helper with no caller is incomplete.
 5. Update source, protocol, server, UI, plugin, skill, docs, and workflow surfaces together when the contract crosses them.
-6. Run narrow tests while editing. Before handoff, run:
+6. Treat every Dashboard, plugin, skill, workflow, model-policy, and runtime customization as update-sensitive. Register its stable capability ID and required paths in `config/custom-runtime-capabilities.json`, align `src/pcc/capability-addition-registry.ts`, and make its executable proof part of the preservation gate. An unregistered customization is incomplete.
+7. Run narrow tests while editing. Before handoff, run:
 
 ```bash
+pnpm custom-runtime:update-survival
 pnpm control-director:torture
 pnpm control-director:chaos
 pnpm control-director:format-check
@@ -48,7 +50,20 @@ pnpm ui:smoke:control-director-no-response
 
 `control-director:verify` intentionally requires a clean exact-SHA checkout. Commit intended files before the final source gate. It runs the curated tests, core/UI/plugin typechecks, build, and source-only readiness sequentially and writes an ignored receipt under `.artifacts/control-director/`.
 
-7. Run `pnpm check:changed` on remote CI or Testbox when it selects broad/shared lanes. Never replace a failed gate with a prose assertion.
+8. Run `pnpm check:changed` on remote CI or Testbox when it selects broad/shared lanes. Never replace a failed gate with a prose assertion.
+
+## Update survival acceptance (M61)
+
+Every Control Director and Dashboard change must survive an official OpenClaw update. M61 is fail-closed and requires all of the following:
+
+1. Normal in-place and automatic updates remain blocked while the immutable custom runtime is active.
+2. The update broker starts from the exact active SHA and creates an exact two-parent merge whose first parent is that active SHA and whose second parent is the selected official SHA.
+3. The candidate preserves every active capability identity and every active required path. New requirements may be added; existing requirements may not be removed or repurposed.
+4. `pnpm custom-runtime:update-survival` proves repository wiring and digest-binds every candidate required path. The broker then runs the ordered verification commands from the manifest rather than a divergent hard-coded list.
+5. The prepared receipt binds the preservation proof by SHA-256. Explicit approval revalidates that exact proof, candidate, active base, immutable release, and source branch before managed staging.
+6. Staging, promotion, restart, browser/device proof, rollback, restore, and soak remain separate required truth surfaces. Missing preservation, approval, rollback, or live proof blocks completion.
+
+Never describe a customization as update-safe merely because its source file still exists. It is update-safe only after its registered capability, exact-parent candidate proof, manifest gates, proof-bound approval, managed activation, rollback, and live acceptance all pass.
 
 ## Runtime acceptance
 

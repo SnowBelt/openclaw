@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const EXPECTED_MILESTONES = Array.from(
-  { length: 60 },
+  { length: 61 },
   (_, index) => `M${String(index + 1).padStart(2, "0")}`,
 );
 const REQUIRED_TRUTH_SURFACES = [
@@ -16,6 +16,7 @@ const REQUIRED_TRUTH_SURFACES = [
   "targeted-tests",
   "build",
   "full-tests",
+  "update-survival",
   "managed-runtime",
   "dashboard-desktop",
   "dashboard-tablet",
@@ -24,7 +25,22 @@ const REQUIRED_TRUTH_SURFACES = [
   "soak",
   "rollback",
 ];
-const REQUIRED_BINDINGS = ["sourceProof", "runtimeProof", "remoteProof", "readiness"];
+const REQUIRED_BINDINGS = [
+  "sourceProof",
+  "updateSurvival",
+  "runtimeProof",
+  "remoteProof",
+  "readiness",
+];
+const UPDATE_SURVIVAL_COMMANDS = [
+  "pnpm check:custom-runtime-capabilities",
+  "pnpm check:pcc-capabilities",
+  "pnpm control-director:verify -- --expected-sha <candidate-sha>",
+  "pnpm check",
+  "pnpm ui:build",
+  "pnpm build",
+  "pnpm ui:smoke:dashboard --artifact-profile release --artifact-root .artifacts/custom-runtime-update",
+];
 const RUNTIME_SURFACES = [
   "desktop",
   "tablet",
@@ -170,7 +186,7 @@ export function validateControlDirectorRoadmap(params) {
     : [];
   const milestoneIds = milestones.map((milestone) => milestone.id);
   if (JSON.stringify(milestoneIds) !== JSON.stringify(EXPECTED_MILESTONES)) {
-    throw new Error("Roadmap must contain exactly M01 through M60 in order.");
+    throw new Error("Roadmap must contain exactly M01 through M61 in order.");
   }
   const byId = new Map(milestones.map((milestone) => [milestone.id, milestone]));
   for (const milestone of milestones) {
@@ -236,6 +252,45 @@ export function validateControlDirectorRoadmap(params) {
     commands.some((entry) => object(entry, "source command").status !== "passed")
   ) {
     throw new Error("Source proof does not contain an all-passed command ledger.");
+  }
+  if (!commands.some((entry) => object(entry, "source command").id === "update-survival")) {
+    throw new Error("Source proof command ledger omits update survival.");
+  }
+
+  const updateSurvival = object(params.updateSurvival, "updateSurvival");
+  exactSha(updateSurvival.sourceSha, sourceSha, "updateSurvival");
+  if (
+    updateSurvival.schema !== "openclaw.custom-runtime-update-survival.v1" ||
+    updateSurvival.mode !== "source-contract" ||
+    updateSurvival.sourceClean !== true ||
+    updateSurvival.contractVersion !== 2 ||
+    updateSurvival.sourceStrategy !== "merge_from_active_sha" ||
+    updateSurvival.dashboardChangePolicy !== "register_verify_and_block" ||
+    updateSurvival.approvalPolicy !== "explicit_exact_candidate" ||
+    updateSurvival.proofCommand !== "pnpm custom-runtime:update-survival" ||
+    !Number.isInteger(updateSurvival.manifestVersion) ||
+    updateSurvival.manifestVersion < 3 ||
+    updateSurvival.passed !== true ||
+    !validDate(updateSurvival.checkedAt) ||
+    !/^[a-f0-9]{64}$/u.test(String(updateSurvival.manifestSha256 ?? "")) ||
+    nonEmptyStrings(updateSurvival.evidenceRefs).length === 0 ||
+    JSON.stringify(updateSurvival.verificationCommands) !== JSON.stringify(UPDATE_SURVIVAL_COMMANDS)
+  ) {
+    throw new Error("Update-survival proof is not a clean exact-source v1 pass.");
+  }
+  const updateFacts = Array.isArray(updateSurvival.facts) ? updateSurvival.facts : [];
+  if (
+    updateFacts.length === 0 ||
+    updateFacts.some((entry) => object(entry, "update-survival fact").passed !== true)
+  ) {
+    throw new Error("Update-survival proof does not contain an all-passed fact ledger.");
+  }
+  const milestone61 = byId.get("M61");
+  if (
+    !Array.isArray(milestone61?.evidence) ||
+    !milestone61.evidence.includes("binding:updateSurvival")
+  ) {
+    throw new Error("M61 is not bound to update-survival proof.");
   }
 
   const runtimeProof = object(params.runtimeProof, "runtimeProof");
@@ -405,6 +460,7 @@ function parseArgs(argv) {
     "source-sha",
     "roadmap",
     "source-proof",
+    "update-survival",
     "runtime-proof",
     "remote-proof",
     "readiness",
@@ -431,6 +487,7 @@ function main() {
   }
   const inputPaths = {
     sourceProof: path.resolve(args.get("source-proof")),
+    updateSurvival: path.resolve(args.get("update-survival")),
     runtimeProof: path.resolve(args.get("runtime-proof")),
     remoteProof: path.resolve(args.get("remote-proof")),
     readiness: path.resolve(args.get("readiness")),
@@ -444,6 +501,7 @@ function main() {
     roadmap,
     sourceSha,
     sourceProof,
+    updateSurvival: readJson(inputPaths.updateSurvival),
     runtimeProof: readJson(inputPaths.runtimeProof),
     remoteProof: readJson(inputPaths.remoteProof),
     readiness: readJson(inputPaths.readiness),

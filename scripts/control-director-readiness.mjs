@@ -197,7 +197,23 @@ export function collectControlDirectorActiveWiring() {
   const appRender = source("ui/src/ui/app-render.ts");
   const pccSync = source("ui/src/ui/pcc-chat-sync.ts");
   const customRuntimePromote = source("scripts/custom-runtime/custom-runtime-promote.sh");
+  const customRuntimeUpdater = source("scripts/custom-runtime/custom-runtime-updater.sh");
+  const customRuntimeUpdateApprove = source(
+    "scripts/custom-runtime/custom-runtime-update-approve.sh",
+  );
+  const customRuntimeUpdateSurvival = source(
+    "scripts/custom-runtime/custom-runtime-update-survival.ts",
+  );
   const packageJson = readJson(path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, "package.json"));
+  const capabilityManifest = readJson(
+    path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, "config/custom-runtime-capabilities.json"),
+  );
+  const preservation = capabilityManifest.preservation;
+  const updateSafeCapability = Array.isArray(capabilityManifest.capabilities)
+    ? capabilityManifest.capabilities.find(
+        (capability) => capability?.id === "runtime:update-safe-customizations",
+      )
+    : undefined;
   return {
     turnPolicyAndPromptBudget: hasAll(replyRun, [
       "compileControlDirectorTurnPolicy",
@@ -296,6 +312,36 @@ export function collectControlDirectorActiveWiring() {
     typedPccBoundary:
       !/milestone.*(?:complete|status).*regex/iu.test(pccSync) &&
       pccSync.includes("hasExplicitPlanEnvelope"),
+    updateSafeCustomizationLifecycle:
+      packageJson.scripts?.["custom-runtime:update-survival"] ===
+        "node --import tsx scripts/custom-runtime/custom-runtime-update-survival.ts" &&
+      capabilityManifest.schema === "openclaw.custom-runtime-capabilities.v2" &&
+      Number(capabilityManifest.version) >= 3 &&
+      preservation?.contractVersion === 2 &&
+      preservation?.sourceStrategy === "merge_from_active_sha" &&
+      preservation?.dashboardChangePolicy === "register_verify_and_block" &&
+      preservation?.approvalPolicy === "explicit_exact_candidate" &&
+      preservation?.proofCommand === "pnpm custom-runtime:update-survival" &&
+      Array.isArray(updateSafeCapability?.requiredPaths) &&
+      updateSafeCapability.requiredPaths.includes(
+        "scripts/custom-runtime/custom-runtime-update-survival.ts",
+      ) &&
+      hasAll(customRuntimeUpdater, [
+        "custom-runtime:update-survival",
+        "preservationProof",
+        "executedVerificationCommands",
+        "active_sha:config/custom-runtime-capabilities.json",
+      ]) &&
+      hasAll(customRuntimeUpdateApprove, [
+        "preservationProof",
+        "executedVerificationCommands",
+        "runtime:update-safe-customizations",
+      ]) &&
+      hasAll(customRuntimeUpdateSurvival, [
+        "merge_from_active_sha",
+        "register_verify_and_block",
+        "explicit_exact_candidate",
+      ]),
     acceptanceScripts:
       typeof packageJson.scripts?.["control-director:format-check"] === "string" &&
       typeof packageJson.scripts?.["control-director:torture"] === "string" &&
@@ -303,7 +349,8 @@ export function collectControlDirectorActiveWiring() {
       typeof packageJson.scripts?.["control-director:readiness"] === "string" &&
       typeof packageJson.scripts?.["control-director:runtime-proof"] === "string" &&
       typeof packageJson.scripts?.["control-director:roadmap-proof"] === "string" &&
-      typeof packageJson.scripts?.["control-director:verify"] === "string",
+      typeof packageJson.scripts?.["control-director:verify"] === "string" &&
+      typeof packageJson.scripts?.["custom-runtime:update-survival"] === "string",
   };
 }
 
@@ -496,6 +543,8 @@ export function buildControlDirectorReadinessScorecard(params) {
     serverOwnedTurnInbox: "The server-owned mutable turn inbox is wired to Gateway lifecycle",
     singleProductionChat: "One production Chat stack owns the Dashboard entrypoint",
     typedPccBoundary: "Chat-to-PCC sync accepts explicit plan envelopes only",
+    updateSafeCustomizationLifecycle:
+      "Update-safe customization lifecycle is manifest-driven and proof-bound",
     acceptanceScripts:
       "Torture, chaos, readiness, runtime, and roadmap gates are repository commands",
   })) {

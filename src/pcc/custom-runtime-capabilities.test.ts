@@ -7,10 +7,14 @@ import {
 
 describe("custom runtime capability manifest", () => {
   const preservation = {
-    contractVersion: 1,
+    contractVersion: 2,
     criticality: "required",
     migrationPolicy: "preserve_or_block",
     rollbackPolicy: "immutable_release_pointer",
+    sourceStrategy: "merge_from_active_sha",
+    dashboardChangePolicy: "register_verify_and_block",
+    approvalPolicy: "explicit_exact_candidate",
+    proofCommand: "pnpm custom-runtime:update-survival",
     standardsRegistry: "src/pcc/capability-addition-registry.ts",
     verificationCommands: ["pnpm check:custom-runtime-capabilities"],
   } as const;
@@ -86,6 +90,25 @@ describe("custom runtime capability manifest", () => {
       parseCustomRuntimeCapabilityManifest({
         schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
         version: 2,
+        capabilities: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("fails closed when update-survival policy is absent or weakened", () => {
+    expect(
+      parseCustomRuntimeCapabilityManifest({
+        schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+        version: 2,
+        preservation: { ...preservation, dashboardChangePolicy: "best_effort" },
+        capabilities: [],
+      }),
+    ).toBeNull();
+    expect(
+      parseCustomRuntimeCapabilityManifest({
+        schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+        version: 2,
+        preservation: { ...preservation, proofCommand: "pnpm test" },
         capabilities: [],
       }),
     ).toBeNull();

@@ -183,13 +183,14 @@ pnpm control-director:roadmap-proof -- \
   --source-sha "$SHA" \
   --roadmap work/control-director/reliability-v1/roadmap.json \
   --source-proof ".artifacts/control-director/source-gates-$SHA.json" \
+  --update-survival ".artifacts/control-director/update-survival-$SHA.json" \
   --runtime-proof ".artifacts/control-director/runtime-$SHA/runtime-proof.json" \
   --remote-proof ".artifacts/control-director/remote-gates-$SHA.json" \
   --readiness ".artifacts/control-director/runtime-$SHA/readiness.json" \
   --output ".artifacts/control-director/final-ledger-$SHA.json"
 ```
 
-The final-ledger command rejects a dirty or mismatched checkout, any milestone other than M01-M60 marked `passed`, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, or an incomplete managed-runtime truth surface. It independently rechecks timestamped runtime evidence, exact selected-model route and cold/warm task coverage, canary lineage, soak duration, and the all-passed readiness fact ledger instead of trusting summary booleans. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
+The final-ledger command rejects a dirty or mismatched checkout, any milestone other than M01-M61 marked `passed`, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, an invalid update-survival proof, or an incomplete managed-runtime truth surface. M61 requires every Dashboard and custom capability to survive an exact-parent official-update candidate with monotonic capability/path preservation and proof-bound approval. The ledger independently rechecks timestamped runtime evidence, exact selected-model route and cold/warm task coverage, canary lineage, soak duration, and the all-passed readiness fact ledger instead of trusting summary booleans. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
 
 ## Questions to ask during a reliability review
 

@@ -16,9 +16,9 @@ Partial source implementation must remain `in_progress` or `blocked`. Do not inf
 
 ## Current state
 
-- Passed: 0/60
+- Passed: 0/61
 - In progress: M01
-- Pending: M02-M60
+- Pending: M02-M61
 - Weighted completion: 0%
 
 ## Next dependency-ready work
@@ -28,6 +28,7 @@ Partial source implementation must remain `in_progress` or `blocked`. Do not inf
 3. Implement M45 active contract wiring gate.
 4. Implement M46 proportional response contracts.
 5. Implement M47 immutable mission envelope.
+6. Implement M61 customization update-survival acceptance after M44, M45, and M60 evidence is available.
 
 ## Prohibited completion shortcuts
 

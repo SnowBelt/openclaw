@@ -16,6 +16,7 @@ function roadmap(): Record<string, unknown> {
   ) as Record<string, unknown>;
   value.evidenceBinding = {
     sourceProof: ".artifacts/control-director/source-gates-<source-sha>.json",
+    updateSurvival: ".artifacts/control-director/update-survival-<source-sha>.json",
     runtimeProof: ".artifacts/control-director/runtime-<source-sha>/runtime-proof.json",
     remoteProof: ".artifacts/control-director/remote-gates-<source-sha>.json",
     readiness: ".artifacts/control-director/runtime-<source-sha>/readiness.json",
@@ -25,6 +26,10 @@ function roadmap(): Record<string, unknown> {
     milestone.status = "passed";
     milestone.evidence = ["binding:sourceProof", "test:synthetic"];
   }
+  const milestone61 = (value.milestones as Array<Record<string, unknown>>).find(
+    (milestone) => milestone.id === "M61",
+  );
+  milestone61!.evidence = ["binding:updateSurvival", "test:update-survival"];
   return value;
 }
 
@@ -37,7 +42,39 @@ function sourceProof() {
     sourceClean: true,
     identityVerified: true,
     passed: true,
-    commands: [{ id: "tests", status: "passed" }],
+    commands: [
+      { id: "tests", status: "passed" },
+      { id: "update-survival", status: "passed" },
+    ],
+  };
+}
+
+function updateSurvival() {
+  return {
+    schema: "openclaw.custom-runtime-update-survival.v1",
+    mode: "source-contract",
+    sourceSha,
+    sourceClean: true,
+    contractVersion: 2,
+    sourceStrategy: "merge_from_active_sha",
+    dashboardChangePolicy: "register_verify_and_block",
+    approvalPolicy: "explicit_exact_candidate",
+    proofCommand: "pnpm custom-runtime:update-survival",
+    manifestVersion: 3,
+    manifestSha256: "d".repeat(64),
+    verificationCommands: [
+      "pnpm check:custom-runtime-capabilities",
+      "pnpm check:pcc-capabilities",
+      "pnpm control-director:verify -- --expected-sha <candidate-sha>",
+      "pnpm check",
+      "pnpm ui:build",
+      "pnpm build",
+      "pnpm ui:smoke:dashboard --artifact-profile release --artifact-root .artifacts/custom-runtime-update",
+    ],
+    facts: [{ id: "all", passed: true }],
+    checkedAt,
+    evidenceRefs: ["config/custom-runtime-capabilities.json"],
+    passed: true,
   };
 }
 
@@ -146,6 +183,7 @@ function validate(value = roadmap()) {
     roadmap: value,
     sourceSha,
     sourceProof: sourceProof(),
+    updateSurvival: updateSurvival(),
     runtimeProof: runtimeProof(),
     remoteProof: remoteProof(),
     readiness: readiness(),
@@ -159,10 +197,10 @@ describe("Control Director final roadmap proof", () => {
     expect(controlDirectorSourceProofMatchesRoot(undefined, "/tmp/repo")).toBe(false);
   });
 
-  it("accepts only the complete 60-milestone exact-proof ledger", () => {
+  it("accepts only the complete 61-milestone exact-proof ledger", () => {
     expect(validate()).toMatchObject({
-      milestoneCount: 60,
-      passedMilestones: 60,
+      milestoneCount: 61,
+      passedMilestones: 61,
       weightedCompletionPercent: 100,
       minimumQualityScore: 100,
       requiredQualityScore: 93,
@@ -189,6 +227,7 @@ describe("Control Director final roadmap proof", () => {
         roadmap: roadmap(),
         sourceSha,
         sourceProof: staleSource,
+        updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
         remoteProof: remoteProof(),
         readiness: readiness(),
@@ -202,6 +241,7 @@ describe("Control Director final roadmap proof", () => {
         roadmap: roadmap(),
         sourceSha,
         sourceProof: sourceProof(),
+        updateSurvival: updateSurvival(),
         runtimeProof: weakRuntime,
         remoteProof: remoteProof(),
         readiness: readiness(),
@@ -215,6 +255,7 @@ describe("Control Director final roadmap proof", () => {
         roadmap: roadmap(),
         sourceSha,
         sourceProof: sourceProof(),
+        updateSurvival: updateSurvival(),
         runtimeProof: staleModelEval,
         remoteProof: remoteProof(),
         readiness: readiness(),
@@ -228,6 +269,7 @@ describe("Control Director final roadmap proof", () => {
         roadmap: roadmap(),
         sourceSha,
         sourceProof: sourceProof(),
+        updateSurvival: updateSurvival(),
         runtimeProof: incompleteCoverage,
         remoteProof: remoteProof(),
         readiness: readiness(),
@@ -241,10 +283,36 @@ describe("Control Director final roadmap proof", () => {
         roadmap: roadmap(),
         sourceSha,
         sourceProof: sourceProof(),
+        updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
         remoteProof: remoteProof(),
         readiness: weakReadiness,
       }),
     ).toThrow("all-passed fact ledger");
+  });
+
+  it("rejects weakened or unbound M61 update-survival evidence", () => {
+    const weakened = updateSurvival();
+    weakened.dashboardChangePolicy = "ignore";
+    expect(() =>
+      validateControlDirectorRoadmap({
+        roadmap: roadmap(),
+        sourceSha,
+        sourceProof: sourceProof(),
+        updateSurvival: weakened,
+        runtimeProof: runtimeProof(),
+        remoteProof: remoteProof(),
+        readiness: readiness(),
+      }),
+    ).toThrow("Update-survival proof");
+
+    const unbound = roadmap() as {
+      milestones: Array<{ id: string; evidence: string[] }>;
+    };
+    unbound.milestones.find((milestone) => milestone.id === "M61")!.evidence = [
+      "binding:sourceProof",
+      "test:update-survival",
+    ];
+    expect(() => validate(unbound)).toThrow("M61 is not bound to update-survival proof");
   });
 });

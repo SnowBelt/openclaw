@@ -171,6 +171,7 @@ describe("Control Director readiness", () => {
         source: { sha, expectedSha: sha, clean: false, root: CONTROL_DIRECTOR_READINESS_REPO_ROOT },
       },
       { wiring: { ...allTrue(), governedCodexAdapter: false } },
+      { wiring: { ...allTrue(), updateSafeCustomizationLifecycle: false } },
       {
         runtimeProof: {
           ...runtimeProof(),
@@ -245,6 +246,7 @@ describe("Control Director readiness", () => {
       serverOwnedTurnInbox: true,
       singleProductionChat: true,
       typedPccBoundary: true,
+      updateSafeCustomizationLifecycle: true,
       acceptanceScripts: true,
     });
   });
