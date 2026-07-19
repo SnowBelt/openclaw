@@ -37,18 +37,34 @@ function fixture() {
   const assetPath = path.join(release, "dist", "control-ui", "assets", "pcc.js");
   const capabilityManifestPath = path.join(release, "config", "custom-runtime-capabilities.json");
   const pluginManifestPath = path.join(release, "extensions", "apps", "openclaw.plugin.json");
+  const updateSchedulerPath = path.join(
+    release,
+    "scripts",
+    "custom-runtime",
+    "ai.openclaw.custom-runtime.update-weekly.plist",
+  );
   const entrypoint = path.join(release, "dist", "index.js");
   const sourceSha = "abcdef1234567890abcdef1234567890abcdef12";
   for (const directory of [
     path.dirname(assetPath),
     path.dirname(capabilityManifestPath),
     path.dirname(pluginManifestPath),
+    path.dirname(updateSchedulerPath),
     path.join(runtimeHome, "bin"),
   ]) {
     mkdirSync(directory, { recursive: true });
   }
   writeFileSync(assetPath, "// pcc\n");
   writeFileSync(pluginManifestPath, "{}\n");
+  cpSync(
+    path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "ai.openclaw.custom-runtime.update-weekly.plist",
+    ),
+    updateSchedulerPath,
+  );
   writeFileSync(path.join(release, "package.json"), '{"type":"module","version":"2026.6.11"}\n');
   writeFileSync(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
   writeFileSync(
