@@ -4,6 +4,7 @@ import type { CronJob } from "../cron/types.js";
 import type { TaskRecord } from "../tasks/task-registry.types.js";
 import { listSelfImprovementAuditEvents } from "./audit-events.js";
 import { resolveSelfImprovementCapabilityRoutingDecision } from "./capability-routing.js";
+import { isControlDirectorJourneySignalCode } from "./control-director-journeys.js";
 import { deriveSelfImprovementEvidenceKeys } from "./evidence.js";
 import { resolveSelfImprovementRoute } from "./routing.js";
 import { buildSelfImprovementSafety } from "./safety.js";
@@ -846,6 +847,10 @@ function auditTypedSignal(
       kind: "workflow",
       label: `${signal.source.component} improvement signal`,
       runId: `signal:${signal.id}`,
+      ...(signal.source.component === "control-director" &&
+      isControlDirectorJourneySignalCode(signal.errorCode)
+        ? { signalCode: signal.errorCode }
+        : {}),
     },
     route: resolveSelfImprovementRoute({ cfg: params.cfg, category }),
     recommendedAction: capabilityRouting?.recommended.length

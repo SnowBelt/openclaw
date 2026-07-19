@@ -109,6 +109,28 @@ describe("PCC portfolio scheduler", () => {
     expect(schedule.resourceLimited[0]?.kind).toBe("memory_pressure");
   });
 
+  it("pauses starts under critical thermal pressure and serializes serious pressure", () => {
+    const inputs = [
+      { project: project("one", { priority: 1 }), milestones: [milestone("one")] },
+      { project: project("two", { priority: 2 }), milestones: [milestone("two")] },
+    ];
+    const critical = buildPccPortfolioSchedule(inputs, {
+      thermalPressure: "critical",
+      maxParallelProjects: 2,
+      availableLocalModelSlots: 2,
+    });
+    expect(critical.ready).toHaveLength(0);
+    expect(critical.resourceLimited[0]?.kind).toBe("thermal_pressure");
+
+    const serious = buildPccPortfolioSchedule(inputs, {
+      thermalPressure: "serious",
+      maxParallelProjects: 2,
+      availableLocalModelSlots: 2,
+    });
+    expect(serious.ready).toHaveLength(1);
+    expect(serious.resourceLimited[0]?.kind).toBe("max_parallel_projects");
+  });
+
   it("honors one-at-a-time portfolio policy", () => {
     const schedule = buildPccPortfolioSchedule(
       [

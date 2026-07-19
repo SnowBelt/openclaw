@@ -447,8 +447,50 @@ import {
   SessionsSendParamsSchema,
   type SessionsUsageParams,
   SessionsUsageParamsSchema,
+  type ExecutionEvent,
+  ExecutionEventSchema,
+  type ExecutionStateGetParams,
+  ExecutionStateGetParamsSchema,
+  type ExecutionStateHealth,
+  ExecutionStateHealthSchema,
+  type ControlDirectorMemoryHealth,
+  ControlDirectorMemoryHealthSchema,
+  type ControlDirectorRuntimeCanary,
+  ControlDirectorRuntimeCanarySchema,
+  type ControlDirectorRuntimeLineage,
+  ControlDirectorRuntimeLineageSchema,
+  type ExecutionStateSnapshot,
+  ExecutionStateSnapshotSchema,
+  type ChatTurnMode,
+  ChatTurnModeSchema,
+  type ChatTurnPhase,
+  ChatTurnPhaseSchema,
+  type ChatTurnSummary,
+  ChatTurnSummarySchema,
+  type ChatTurnsListParams,
+  ChatTurnsListParamsSchema,
+  type ChatTurnsListResult,
+  ChatTurnsListResultSchema,
+  type ChatTurnsCreateParams,
+  ChatTurnsCreateParamsSchema,
+  type ChatTurnsCreateResult,
+  ChatTurnsCreateResultSchema,
+  type ChatTurnsSetModeParams,
+  ChatTurnsSetModeParamsSchema,
+  type ChatTurnsCancelParams,
+  ChatTurnsCancelParamsSchema,
+  type ChatTurnsRetryParams,
+  ChatTurnsRetryParamsSchema,
+  type ChatTurnMutationResult,
+  ChatTurnMutationResultSchema,
+  type PursueGoalJudgeReceipt,
+  PursueGoalJudgeReceiptSchema,
+  type PursueGoalLease,
+  PursueGoalLeaseSchema,
   type TaskFlowDetail,
   TaskFlowDetailSchema,
+  type TaskFlowMutationResult,
+  TaskFlowMutationResultSchema,
   type TaskFlowsCancelParams,
   TaskFlowsCancelParamsSchema,
   type TaskFlowsCancelResult,
@@ -457,6 +499,8 @@ import {
   TaskFlowsCreateParamsSchema,
   type TaskFlowsCreateResult,
   TaskFlowsCreateResultSchema,
+  type TaskFlowsEditParams,
+  TaskFlowsEditParamsSchema,
   type TaskFlowsGetParams,
   TaskFlowsGetParamsSchema,
   type TaskFlowsGetResult,
@@ -465,6 +509,14 @@ import {
   TaskFlowsListParamsSchema,
   type TaskFlowsListResult,
   TaskFlowsListResultSchema,
+  type TaskFlowsPauseParams,
+  TaskFlowsPauseParamsSchema,
+  type TaskFlowsResumeParams,
+  TaskFlowsResumeParamsSchema,
+  type TaskFlowsRetryParams,
+  TaskFlowsRetryParamsSchema,
+  type TaskFlowsStopParams,
+  TaskFlowsStopParamsSchema,
   type TaskFlowStatus,
   TaskFlowStatusSchema,
   type TaskFlowSummary,
@@ -795,6 +847,15 @@ export const validateSelfImprovementDashboardInterventionResult = asPublicResult
     SelfImprovementProtocol.SelfImprovementDashboardInterventionResultSchema,
   ),
 );
+export const validateControlDirectorLayoutObservationReportParams =
+  lazyCompile<SelfImprovementProtocol.ControlDirectorLayoutObservationReportParams>(
+    SelfImprovementProtocol.ControlDirectorLayoutObservationReportParamsSchema,
+  );
+export const validateControlDirectorLayoutObservationReportResult = asPublicResultValidator(
+  lazyCompile<SelfImprovementProtocol.ControlDirectorLayoutObservationReportResult>(
+    SelfImprovementProtocol.ControlDirectorLayoutObservationReportResultSchema,
+  ),
+);
 export const validateSelfImprovementProofReceiptsListParams =
   lazyCompile<SelfImprovementProtocol.SelfImprovementProofReceiptsListParams>(
     SelfImprovementProtocol.SelfImprovementProofReceiptsListParamsSchema,
@@ -1073,6 +1134,23 @@ export const validateSessionsCompactionRestoreParams = lazyCompile<SessionsCompa
 );
 export const validateSessionsUsageParams =
   lazyCompile<SessionsUsageParams>(SessionsUsageParamsSchema);
+export const validateChatTurnsListParams =
+  lazyCompile<ChatTurnsListParams>(ChatTurnsListParamsSchema);
+export const validateChatTurnsCreateParams = lazyCompile<ChatTurnsCreateParams>(
+  ChatTurnsCreateParamsSchema,
+);
+export const validateChatTurnsSetModeParams = lazyCompile<ChatTurnsSetModeParams>(
+  ChatTurnsSetModeParamsSchema,
+);
+export const validateChatTurnsCancelParams = lazyCompile<ChatTurnsCancelParams>(
+  ChatTurnsCancelParamsSchema,
+);
+export const validateChatTurnsRetryParams = lazyCompile<ChatTurnsRetryParams>(
+  ChatTurnsRetryParamsSchema,
+);
+export const validateExecutionStateGetParams = lazyCompile<ExecutionStateGetParams>(
+  ExecutionStateGetParamsSchema,
+);
 export const validateTaskFlowsListParams =
   lazyCompile<TaskFlowsListParams>(TaskFlowsListParamsSchema);
 export const validateTaskFlowsGetParams = lazyCompile<TaskFlowsGetParams>(TaskFlowsGetParamsSchema);
@@ -1082,6 +1160,19 @@ export const validateTaskFlowsCreateParams = lazyCompile<TaskFlowsCreateParams>(
 export const validateTaskFlowsCancelParams = lazyCompile<TaskFlowsCancelParams>(
   TaskFlowsCancelParamsSchema,
 );
+export const validateTaskFlowsPauseParams = lazyCompile<TaskFlowsPauseParams>(
+  TaskFlowsPauseParamsSchema,
+);
+export const validateTaskFlowsResumeParams = lazyCompile<TaskFlowsResumeParams>(
+  TaskFlowsResumeParamsSchema,
+);
+export const validateTaskFlowsEditParams =
+  lazyCompile<TaskFlowsEditParams>(TaskFlowsEditParamsSchema);
+export const validateTaskFlowsRetryParams = lazyCompile<TaskFlowsRetryParams>(
+  TaskFlowsRetryParamsSchema,
+);
+export const validateTaskFlowsStopParams =
+  lazyCompile<TaskFlowsStopParams>(TaskFlowsStopParamsSchema);
 export const validateTasksListParams = lazyCompile<TasksListParams>(TasksListParamsSchema);
 export const validateTasksGetParams = lazyCompile<TasksGetParams>(TasksGetParamsSchema);
 export const validateTasksCancelParams = lazyCompile<TasksCancelParams>(TasksCancelParamsSchema);
@@ -1539,6 +1630,26 @@ export {
   AuditEventSchema,
   AuditListParamsSchema,
   AuditListResultSchema,
+  ChatTurnModeSchema,
+  ChatTurnPhaseSchema,
+  ChatTurnSummarySchema,
+  ChatTurnsListParamsSchema,
+  ChatTurnsListResultSchema,
+  ChatTurnsCreateParamsSchema,
+  ChatTurnsCreateResultSchema,
+  ChatTurnsSetModeParamsSchema,
+  ChatTurnsCancelParamsSchema,
+  ChatTurnsRetryParamsSchema,
+  ChatTurnMutationResultSchema,
+  ExecutionEventSchema,
+  ExecutionStateGetParamsSchema,
+  ExecutionStateHealthSchema,
+  ControlDirectorMemoryHealthSchema,
+  ControlDirectorRuntimeCanarySchema,
+  ControlDirectorRuntimeLineageSchema,
+  ExecutionStateSnapshotSchema,
+  PursueGoalLeaseSchema,
+  PursueGoalJudgeReceiptSchema,
   TaskFlowStatusSchema,
   TaskFlowSummarySchema,
   TaskFlowDetailSchema,
@@ -1550,6 +1661,12 @@ export {
   TaskFlowsCreateResultSchema,
   TaskFlowsCancelParamsSchema,
   TaskFlowsCancelResultSchema,
+  TaskFlowsPauseParamsSchema,
+  TaskFlowsResumeParamsSchema,
+  TaskFlowsEditParamsSchema,
+  TaskFlowsRetryParamsSchema,
+  TaskFlowsStopParamsSchema,
+  TaskFlowMutationResultSchema,
   TaskSummarySchema,
   TasksListParamsSchema,
   TasksListResultSchema,
@@ -1939,6 +2056,26 @@ export type {
   AuditEvent,
   AuditListParams,
   AuditListResult,
+  ChatTurnMode,
+  ChatTurnPhase,
+  ChatTurnSummary,
+  ChatTurnsListParams,
+  ChatTurnsListResult,
+  ChatTurnsCreateParams,
+  ChatTurnsCreateResult,
+  ChatTurnsSetModeParams,
+  ChatTurnsCancelParams,
+  ChatTurnsRetryParams,
+  ChatTurnMutationResult,
+  ExecutionEvent,
+  ExecutionStateGetParams,
+  ExecutionStateHealth,
+  ControlDirectorMemoryHealth,
+  ControlDirectorRuntimeCanary,
+  ControlDirectorRuntimeLineage,
+  ExecutionStateSnapshot,
+  PursueGoalLease,
+  PursueGoalJudgeReceipt,
   TaskFlowStatus,
   TaskFlowSummary,
   TaskFlowDetail,
@@ -1950,6 +2087,12 @@ export type {
   TaskFlowsCreateResult,
   TaskFlowsCancelParams,
   TaskFlowsCancelResult,
+  TaskFlowsPauseParams,
+  TaskFlowsResumeParams,
+  TaskFlowsEditParams,
+  TaskFlowsRetryParams,
+  TaskFlowsStopParams,
+  TaskFlowMutationResult,
   TaskSummary,
   TasksListParams,
   TasksListResult,

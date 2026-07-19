@@ -35,12 +35,13 @@ import {
 import { CHAT_SEND_SESSION_KEY_MAX_LENGTH } from "../../../packages/gateway-protocol/src/schema.js";
 import {
   listAgentIds,
-  resolveAgentConfig,
   resolveDefaultAgentId,
   resolveAgentWorkspaceDir,
   resolveSessionAgentId,
 } from "../../agents/agent-scope.js";
+import { startControlDirectorActivityWatchdog } from "../../agents/control-director-activity-watchdog.js";
 import { applyControlDirectorDeliveryGuards } from "../../agents/control-director-delivery-guards.js";
+import { isConfiguredControlDirectorAgent } from "../../agents/control-director-role.js";
 import { rewriteTranscriptEntriesInRuntimeTranscript } from "../../agents/embedded-agent-runner/transcript-rewrite.js";
 import { runAgentHarnessBeforeMessageWriteHook } from "../../agents/harness/hook-helpers.js";
 import { modelCatalogBrowseRequiresFullDiscovery } from "../../agents/model-catalog-browse.js";
@@ -108,6 +109,7 @@ import { createChannelMessageReplyPipeline } from "../../plugin-sdk/channel-outb
 import type { ChannelRouteRef } from "../../plugin-sdk/channel-route.js";
 import { isPluginOwnedSessionBindingRecord } from "../../plugins/conversation-binding.js";
 import { normalizeAgentId, scopeLegacySessionKeyToAgent } from "../../routing/session-key.js";
+import { emitControlDirectorJourneySignal } from "../../self-improvement/control-director-journeys.js";
 import { normalizeInputProvenance, type InputProvenance } from "../../sessions/input-provenance.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
@@ -117,7 +119,12 @@ import {
   type UserTurnInput,
   type UserTurnTranscriptRecorder,
 } from "../../sessions/user-turn-transcript.js";
-import { createRunningTaskRun } from "../../tasks/detached-task-runtime.js";
+import {
+  completeTaskRunByRunId,
+  createRunningTaskRun,
+  failTaskRunByRunId,
+  recordTaskRunProgressByRunId,
+} from "../../tasks/detached-task-runtime.js";
 import type { TaskFlowRecord } from "../../tasks/task-flow-registry.types.js";
 import { getTaskFlowById } from "../../tasks/task-flow-runtime-internal.js";
 import {
@@ -2167,12 +2174,6 @@ function isTerminalTaskFlowStatus(status: TaskFlowRecord["status"]): boolean {
   );
 }
 
-function isConfiguredControlDirectorAgent(cfg: OpenClawConfig, agentId: string): boolean {
-  return (
-    resolveAgentConfig(cfg, agentId)?.identity?.name?.trim().toLowerCase() === "control director"
-  );
-}
-
 function normalizeExplicitChatSendOrigin(
   params: ChatSendExplicitOrigin,
 ): { ok: true; value?: ChatSendExplicitOrigin } | { ok: false; error: string } {
@@ -3740,6 +3741,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       thinking?: string;
       fastMode?: FastMode;
       fastAutoOnSeconds?: number;
+      turnMode?: "queue" | "steer";
       deliver?: boolean;
       originatingChannel?: string;
       originatingTo?: string;
@@ -4409,6 +4411,49 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
 
+    let trackedTaskId: string | undefined;
+    let trackedTaskFailure: string | undefined;
+    let queuedFollowupEnqueued = false;
+    let stopControlDirectorActivityWatchdog: (() => void) | undefined;
+    const finalizeTrackedChatTask = (status?: "succeeded" | "failed" | "cancelled") => {
+      stopControlDirectorActivityWatchdog?.();
+      stopControlDirectorActivityWatchdog = undefined;
+      if (!trackedTaskId) {
+        return;
+      }
+      try {
+        const terminalStatus = status ?? (trackedTaskFailure ? "failed" : "succeeded");
+        if (terminalStatus === "succeeded") {
+          completeTaskRunByRunId({
+            runId: clientRunId,
+            runtime: "cli",
+            endedAt: Date.now(),
+            terminalSummary: queuedFollowupEnqueued
+              ? "Follow-up turn was durably admitted to the session queue."
+              : "Assistant chat work item reached terminal delivery.",
+          });
+        } else {
+          failTaskRunByRunId({
+            runId: clientRunId,
+            runtime: "cli",
+            status: terminalStatus,
+            endedAt: Date.now(),
+            ...(trackedTaskFailure ? { error: trackedTaskFailure } : {}),
+            terminalSummary:
+              terminalStatus === "cancelled"
+                ? "Assistant chat work item was cancelled."
+                : "Assistant chat work item failed before terminal delivery.",
+          });
+        }
+      } catch (taskError) {
+        context.logGateway.warn(
+          `failed to finalize tracked chat task ${clientRunId}: ${formatForLog(taskError)}`,
+        );
+      } finally {
+        trackedTaskId = undefined;
+      }
+    };
+
     try {
       const serverTiming = shouldIncludeChatSendAckServerTiming(clientInfo)
         ? {
@@ -4431,7 +4476,6 @@ export const chatHandlers: GatewayRequestHandlers = {
         clientRunId,
         ...(chatSendTiming ? { chatSendTiming } : {}),
       });
-      let trackedTaskId: string | undefined;
       try {
         const trackedTask = createRunningTaskRun({
           runtime: "cli",
@@ -4458,6 +4502,38 @@ export const chatHandlers: GatewayRequestHandlers = {
           progressSummary: "Assistant accepted the request and is working on it.",
         });
         trackedTaskId = trackedTask?.taskId;
+        if (
+          trackedTaskId &&
+          !parentFlowId &&
+          isConfiguredControlDirectorAgent({ config: cfg, agentId: selectedAgent.agentId })
+        ) {
+          stopControlDirectorActivityWatchdog = startControlDirectorActivityWatchdog({
+            runId: clientRunId,
+            onHeartbeat: (at, sequence) => {
+              const updated = recordTaskRunProgressByRunId({
+                runId: clientRunId,
+                runtime: "cli",
+                lastEventAt: at,
+                progressSummary: "Control Director is still working; Chat remains available.",
+                eventSummary: `Visible activity heartbeat ${sequence}.`,
+              });
+              if (updated.length === 0) {
+                throw new Error("tracked Chat task was unavailable for heartbeat persistence");
+              }
+            },
+            onGap: (gap) => {
+              emitControlDirectorJourneySignal({
+                code: "activity_gap",
+                idempotencyKey: `${clientRunId}:${gap.reason}`,
+                summary: "Control Director visible activity heartbeat missed its SLO.",
+                observed: gap.detail,
+                runId: clientRunId,
+                evidenceRefs: [`task:${trackedTaskId}`, `session:${sessionKey}`],
+                sloMs: 15_000,
+              });
+            },
+          });
+        }
       } catch {
         // Task tracking is best-effort; chat delivery must remain available.
       }
@@ -4656,7 +4732,6 @@ export const chatHandlers: GatewayRequestHandlers = {
       const deliveredReplies: Array<{ payload: ReplyPayload; kind: "block" | "final" }> = [];
       let appendedWebchatAgentMedia = false;
       let agentRunStarted = false;
-      let queuedFollowupEnqueued = false;
       let pendingDispatchLifecycleError:
         | {
             endedAt: number;
@@ -4924,6 +4999,12 @@ export const chatHandlers: GatewayRequestHandlers = {
                   imageOrder: imageOrder.length > 0 ? imageOrder : undefined,
                   thinkingLevelOverride: p.thinking,
                   fastModeOverride: p.fastMode,
+                  queueModeOverride:
+                    p.turnMode === "queue"
+                      ? "followup"
+                      : p.turnMode === "steer"
+                        ? "steer"
+                        : undefined,
                   userTurnTranscriptRecorder: userTurnRecorder,
                   fastModeAutoOnSecondsOverride: p.fastAutoOnSeconds,
                   onAgentRunStart: (runId) => {
@@ -5535,9 +5616,10 @@ export const chatHandlers: GatewayRequestHandlers = {
                     agentId,
                     provider: resolvedSessionModel.provider,
                     model: resolvedSessionModel.model,
-                    controlDirectorScope: isConfiguredControlDirectorAgent(cfg, agentId)
-                      ? true
-                      : undefined,
+                    controlDirectorScope: isConfiguredControlDirectorAgent({
+                      config: cfg,
+                      agentId,
+                    }),
                     payloads: rawAgentFinalPayloads,
                     finalAssistantVisibleText: buildTranscriptReplyText(rawAgentFinalPayloads),
                     classification:
@@ -5874,6 +5956,9 @@ export const chatHandlers: GatewayRequestHandlers = {
               const shouldBroadcastAgentError =
                 returnedAgentErrorPayloads.length > 0 && !broadcastedSourceReplyFinal;
               if (shouldBroadcastAgentError) {
+                trackedTaskFailure = returnedAgentErrorMessage ?? "agent returned an error payload";
+              }
+              if (shouldBroadcastAgentError) {
                 broadcastChatError({
                   context,
                   runId: clientRunId,
@@ -5933,6 +6018,9 @@ export const chatHandlers: GatewayRequestHandlers = {
         })
         .catch(async (err: unknown) => {
           const errorMessage = String(err);
+          if (!queuedFollowupEnqueued) {
+            trackedTaskFailure = errorMessage;
+          }
           if (queuedFollowupEnqueued) {
             context.logGateway.warn(
               `webchat dispatch failed after followup queue admission: ${formatForLog(err)}`,
@@ -6001,6 +6089,13 @@ export const chatHandlers: GatewayRequestHandlers = {
           });
         })
         .finally(() => {
+          finalizeTrackedChatTask(
+            context.chatAbortedRuns.has(clientRunId)
+              ? "cancelled"
+              : trackedTaskFailure
+                ? "failed"
+                : "succeeded",
+          );
           cleanupAdmittedRun();
           clearAgentRunContext(clientRunId, lifecycleGeneration);
           context.removeChatRun(clientRunId, clientRunId, sessionKey);
@@ -6053,6 +6148,8 @@ export const chatHandlers: GatewayRequestHandlers = {
           void persistDispatchLifecycleError();
         });
     } catch (err) {
+      trackedTaskFailure = String(err);
+      finalizeTrackedChatTask("failed");
       cleanupAdmittedRun({ force: true });
       clearAgentRunContext(clientRunId, lifecycleGeneration);
       context.removeChatRun(clientRunId, clientRunId, sessionKey);

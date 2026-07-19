@@ -17,6 +17,7 @@ export type TaskFlowSyncMode = "task_mirrored" | "managed";
 export type TaskFlowStatus =
   | "queued"
   | "running"
+  | "paused"
   | "waiting"
   | "blocked"
   | "succeeded"
@@ -28,6 +29,7 @@ const TASK_FLOW_SYNC_MODES = new Set<TaskFlowSyncMode>(["task_mirrored", "manage
 const TASK_FLOW_STATUSES = new Set<TaskFlowStatus>([
   "queued",
   "running",
+  "paused",
   "waiting",
   "blocked",
   "succeeded",

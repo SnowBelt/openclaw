@@ -655,12 +655,45 @@ export const PccSummaryGetResultSchema = Type.Object(
             Type.Literal("medium"),
             Type.Literal("high"),
           ]),
+          thermalPressure: Type.Union([
+            Type.Literal("nominal"),
+            Type.Literal("fair"),
+            Type.Literal("serious"),
+            Type.Literal("critical"),
+            Type.Literal("unknown"),
+          ]),
           activeOpenClawTaskCount: Type.Integer({ minimum: 0 }),
           configuredSubagentLimit: Type.Integer({ minimum: 0 }),
           observedLocalModelProcessCount: Type.Integer({ minimum: 0 }),
           safeLocalAgentSlots: Type.Integer({ minimum: 0, maximum: 12 }),
           timestamp: TimestampSchema,
           warnings: StringListSchema,
+          controlDirectorAdmission: Type.Optional(
+            Type.Object(
+              {
+                decision: Type.Union([
+                  Type.Literal("admit"),
+                  Type.Literal("unload_idle_then_admit"),
+                  Type.Literal("queue"),
+                ]),
+                reason: NonEmptyString,
+                selectedModel: NonEmptyString,
+                residency: Type.Optional(
+                  Type.Union([Type.Literal("already_resident"), Type.Literal("load")]),
+                ),
+                unloadModels: Type.Optional(Type.Array(NonEmptyString, { maxItems: 20 })),
+                retryWhen: Type.Optional(
+                  Type.Union([
+                    Type.Literal("capacity"),
+                    Type.Literal("memory"),
+                    Type.Literal("thermal"),
+                    Type.Literal("active_model"),
+                  ]),
+                ),
+              },
+              { additionalProperties: false },
+            ),
+          ),
         },
         { additionalProperties: false },
       ),

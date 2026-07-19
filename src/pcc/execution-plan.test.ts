@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { createExecutionApprovalEnvelope } from "../agents/execution-approval-envelope.js";
 import {
   accountPccExecutionFanIn,
   assessPccExecutionPlanCompletion,
   canTransitionPccExecutionPlan,
+  consumePccExecutionPlanCodexApproval,
   createPccExecutionPlan,
   findDuplicateActivePccExecutionPlan,
   findPccExecutionWorkspaceLeaseCollision,
@@ -45,6 +47,17 @@ describe("PCC multi-agent execution plans", () => {
   });
 
   it("snapshots an explicit hybrid profile without invoking a model", () => {
+    const approval = createExecutionApprovalEnvelope({
+      approvalId: "codex-approval",
+      subjectActorId: "program-manager",
+      grantedBy: "user",
+      action: "use_codex",
+      resource: { kind: "project", id: "project-1" },
+      risk: "high",
+      maxUses: 2,
+      issuedAt: Date.parse("2026-07-13T00:00:00.000Z"),
+      expiresAt: Date.parse("2026-07-14T00:00:00.000Z"),
+    });
     const created = createPccExecutionPlan({
       id: "hybrid",
       projectId: "project-1",
@@ -52,10 +65,32 @@ describe("PCC multi-agent execution plans", () => {
       profile: resolvePccExecutionProfilePreset("ultra_hybrid"),
       coordinator,
       admittedWorkerCount: 12,
+      approvals: [approval],
+      createdAt: "2026-07-13T12:00:00.000Z",
     });
 
     expect(created.mode).toBe("hybrid");
     expect(created.profile.codexRole).toBe("lead");
+    const consumed = consumePccExecutionPlanCodexApproval({
+      plan: created,
+      actorId: "program-manager",
+      now: Date.parse("2026-07-13T12:01:00.000Z"),
+    });
+    expect(consumed.decision.allowed).toBe(true);
+    expect(consumed.plan.approvals[0]?.budget.usedCount).toBe(1);
+  });
+
+  it("fails closed when a hybrid plan has no governed Codex approval", () => {
+    expect(() =>
+      createPccExecutionPlan({
+        id: "hybrid-unapproved",
+        projectId: "project-1",
+        projectRevision: "revision-2",
+        profile: resolvePccExecutionProfilePreset("balanced"),
+        coordinator,
+        admittedWorkerCount: 2,
+      }),
+    ).toThrow("require an active project-bound Codex approval");
   });
 
   it("enforces strict legal status transitions", () => {

@@ -10,6 +10,7 @@ import type { SubsystemLogger } from "../logging/subsystem.js";
 import { onSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
 import { onInternalSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { createLazyPromise } from "../shared/lazy-runtime.js";
+import type { TaskFlowRegistryObserverEvent } from "../tasks/task-flow-registry.store.js";
 import type { TaskRegistryObserverEvent } from "../tasks/task-registry.store.js";
 import {
   type ChatAbortControllerEntry,
@@ -345,19 +346,59 @@ export function startGatewayEventSubscriptions(params: {
   void taskObserverRuntimePromise.catch((error: unknown) => {
     params.log.warn("Task registry observer registration failed", { error });
   });
+  let taskFlowObserverDisposed = false;
+  const taskFlowObservers = {
+    onEvent: (event: TaskFlowRegistryObserverEvent) => {
+      const payload =
+        event.kind === "upserted"
+          ? {
+              action: "upserted",
+              flowId: event.flow.flowId,
+              ownerKey: event.flow.ownerKey,
+              status: event.flow.status,
+              revision: event.flow.revision,
+              updatedAt: event.flow.updatedAt,
+            }
+          : event.kind === "deleted"
+            ? { action: "deleted", flowId: event.flowId, ownerKey: event.previous.ownerKey }
+            : { action: "restored" };
+      params.broadcast("taskFlow", payload, { dropIfSlow: true });
+    },
+  };
+  const taskFlowObserverRuntimePromise = import("../tasks/task-flow-registry.store.js").then(
+    (module) => {
+      if (!taskFlowObserverDisposed) {
+        module.configureTaskFlowRegistryRuntime({ observers: taskFlowObservers });
+      }
+      return module;
+    },
+  );
+  void taskFlowObserverRuntimePromise.catch((error: unknown) => {
+    params.log.warn("Task flow registry observer registration failed", { error });
+  });
   // The observer slot is a process-wide singleton. Cleanup returns its promise
   // so shutdown can await it, and only clears the slot when it still holds
   // this subscription's observer — a replacement gateway may have registered
   // its own observer before a stale deferred dispose runs.
   const taskUnsub = () => {
     taskObserverDisposed = true;
-    return taskObserverRuntimePromise
-      .then((module) => {
-        if (module.getTaskRegistryObservers() === taskObservers) {
-          module.configureTaskRegistryRuntime({ observers: null });
-        }
-      })
-      .catch(() => undefined);
+    taskFlowObserverDisposed = true;
+    return Promise.all([
+      taskObserverRuntimePromise
+        .then((module) => {
+          if (module.getTaskRegistryObservers() === taskObservers) {
+            module.configureTaskRegistryRuntime({ observers: null });
+          }
+        })
+        .catch(() => undefined),
+      taskFlowObserverRuntimePromise
+        .then((module) => {
+          if (module.getTaskFlowRegistryObservers() === taskFlowObservers) {
+            module.configureTaskFlowRegistryRuntime({ observers: null });
+          }
+        })
+        .catch(() => undefined),
+    ]).then(() => undefined);
   };
 
   return {

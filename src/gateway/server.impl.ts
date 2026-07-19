@@ -425,8 +425,17 @@ function formatRuntimeGatewayAuthTokenWarning(): string {
 }
 
 async function stopTaskRegistryMaintenanceOnDemand(): Promise<void> {
-  const { stopTaskRegistryMaintenance } = await import("../tasks/task-registry.maintenance.js");
+  const [
+    { stopTaskRegistryMaintenance },
+    { stopPursueGoalControllers },
+    { stopChatTurnInboxController },
+  ] = await Promise.all([
+    import("../tasks/task-registry.maintenance.js"),
+    import("../tasks/pursue-goal-controller.js"),
+    import("./chat-turn-inbox-controller.js"),
+  ]);
   stopTaskRegistryMaintenance();
+  await Promise.all([stopPursueGoalControllers(), stopChatTurnInboxController()]);
 }
 
 type AuthRateLimitConfig = Parameters<typeof createAuthRateLimiter>[0];
@@ -1520,6 +1529,11 @@ export async function startGatewayServer(
       },
     );
     currentPluginRegistryGatewayContext = gatewayRequestContext;
+
+    if (!minimalTestGateway) {
+      const { startChatTurnInboxController } = await import("./chat-turn-inbox-controller.js");
+      startChatTurnInboxController(gatewayRequestContext);
+    }
 
     const fallbackGatewayContextCleanup: unknown = setFallbackGatewayContextResolver(
       () => gatewayRequestContext,

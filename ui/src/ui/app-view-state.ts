@@ -1,4 +1,6 @@
+import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/src/index.js";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
+import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 // Control UI module implements app view state behavior.
@@ -181,9 +183,6 @@ export type AppViewState = {
   chatWorkError?: string | null;
   chatWorkUpdatedAt?: number | null;
   chatProjectPickerOpen?: boolean;
-  chatProjectCreateName?: string;
-  chatProjectCreateDescription?: string;
-  chatProjectCreateInstructions?: string;
   chatProjectBusy?: boolean;
   chatProjectError?: string | null;
   chatGoalPanelOpen?: boolean;
@@ -194,6 +193,7 @@ export type AppViewState = {
   chatGoalCancellingFlowId?: string | null;
   chatGoalError?: string | null;
   chatGoalUpdatedAt?: number | null;
+  chatExecutionState?: ExecutionStateSnapshot | null;
   chatTargetRunId?: string | null;
   chatTargetAuditTs?: number | null;
   chatTargetStatus?: "exact-run" | "timestamp-fallback" | "not-found" | null;
@@ -258,6 +258,9 @@ export type AppViewState = {
   pccChatSyncText: string;
   pccChatSyncProposals: PccChatSyncProposal[];
   pccChatSyncError: string | null;
+  pccExecutionProjection?: PccExecutionRuntimeProjection | null;
+  pccExecutionProjectionLoading?: boolean;
+  pccExecutionProjectionError?: string | null;
   pccViewMode: PccViewMode;
   pccProductFocusMode?: "pcc_product" | "project_work";
   pccReorderMode?: boolean;

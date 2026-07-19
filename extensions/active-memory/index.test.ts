@@ -61,6 +61,57 @@ vi.mock("openclaw/plugin-sdk/session-store-runtime", async () => {
 });
 
 describe("active-memory plugin", () => {
+  it("uses the fail-fast timeout only for the configured Control Director role", () => {
+    const resolved = testing.normalizePluginConfig({
+      timeoutMs: 15_000,
+      controlDirectorTimeoutMs: 2_000,
+    });
+    const cfg = {
+      agents: {
+        list: [
+          { id: "director", role: "control_director" },
+          { id: "worker", role: "worker" },
+        ],
+      },
+    };
+
+    expect(
+      testing.configForInvocation({ config: resolved, cfg, agentId: "director" }).timeoutMs,
+    ).toBe(2_000);
+    expect(
+      testing.configForInvocation({ config: resolved, cfg, agentId: "worker" }).timeoutMs,
+    ).toBe(15_000);
+    expect(testing.isConfiguredControlDirectorAgent(cfg, "main")).toBe(false);
+    expect(testing.isConfiguredControlDirectorAgent(cfg, "control-director")).toBe(false);
+  });
+
+  it("skips model-backed Control Director recall for ordinary turns but keeps explicit recall", () => {
+    const cfg = {
+      agents: { list: [{ id: "director", role: "control_director" }] },
+    };
+    expect(
+      testing.shouldRunControlDirectorActiveRecall({
+        cfg,
+        agentId: "director",
+        prompt: "Draft a concise plan for this feature.",
+      }),
+    ).toBe(false);
+    expect(
+      testing.shouldRunControlDirectorActiveRecall({
+        cfg,
+        agentId: "director",
+        prompt: "What did Codex work on yesterday?",
+      }),
+    ).toBe(true);
+    expect(
+      testing.shouldRunControlDirectorActiveRecall({
+        cfg,
+        agentId: "worker",
+        prompt: "Draft a concise plan for this feature.",
+      }),
+    ).toBe(true);
+  });
+
   it("keeps previous-message query context UTF-16 well-formed", () => {
     const query = testing.buildSearchQuery({
       latestUserMessage: "why?",

@@ -671,7 +671,8 @@ export async function resolveReplyDirectives(params: {
   ) {
     resolvedReasoningLevel = await modelState.resolveDefaultReasoningLevel();
   }
-  const { directiveAck, perMessageQueueMode, perMessageQueueOptions } = applyResult;
+  const { directiveAck, perMessageQueueOptions } = applyResult;
+  const perMessageQueueMode = opts?.queueModeOverride ?? applyResult.perMessageQueueMode;
   const resolvedFastModeState = resolveFastModeState({
     cfg,
     provider,

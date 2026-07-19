@@ -303,6 +303,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Default max characters retained from AGENTS.md during post-compaction context refresh injection. Lower this to make compaction recovery cheaper, or raise it for agents that depend on longer startup guidance.",
   "agents.list":
     "Explicit list of configured agents with IDs and optional overrides for model, tools, identity, and workspace. Keep IDs stable over time so bindings, approvals, and session routing remain deterministic.",
+  "agents.list[].role":
+    'Stable runtime responsibility: "control_director", "program_manager", "judge", "worker", or "general". Runtime policy uses this instead of editable display names or selectable model IDs.',
   "agents.list[].skillsLimits":
     "Optional per-agent overrides for skills subsystem budgets. Use this when an agent needs a different skills prompt budget without introducing a second generic context-limits path.",
   "agents.list[].skillsLimits.maxSkillsPromptChars":

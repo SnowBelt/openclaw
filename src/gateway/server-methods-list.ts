@@ -53,6 +53,7 @@ export const GATEWAY_EVENTS = [
   "heartbeat",
   "cron",
   "task",
+  "taskFlow",
   "node.pair.requested",
   "node.pair.resolved",
   "node.invoke.request",

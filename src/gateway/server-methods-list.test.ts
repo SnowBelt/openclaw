@@ -29,6 +29,20 @@ describe("listGatewayMethods", () => {
     expect(listGatewayMethods()).toContain("controlUi.githubPreview");
   });
 
+  it("advertises every durable chat-turn method with a registered handler", () => {
+    for (const method of [
+      "chat.turns.list",
+      "chat.turns.create",
+      "chat.turns.setMode",
+      "chat.turns.cancel",
+      "chat.turns.retry",
+      "executionState.get",
+    ]) {
+      expect(listGatewayMethods()).toContain(method);
+      expect(coreGatewayHandlers[method]).toBeTypeOf("function");
+    }
+  });
+
   it("does not advertise hidden core handlers", () => {
     const methods = listGatewayMethods();
     expect(methods).not.toContain("config.openFile");

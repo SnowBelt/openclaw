@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { asDateTimestampMs } from "@openclaw/normalization-core/number-coercion";
 import { type FastMode, normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { compileOperationalRoleCapabilityBudget } from "../../agents/agent-role-capabilities.js";
 import {
   clearAutoFallbackPrimaryProbeSelection,
   hasLegacyAutoFallbackWithoutOrigin,
@@ -11,6 +12,12 @@ import {
 } from "../../agents/agent-scope.js";
 import { resolveSessionAuthProfileOverride } from "../../agents/auth-profiles/session-override.js";
 import type { ExecToolDefaults } from "../../agents/bash-tools.js";
+import {
+  buildControlDirectorMissionContinuityContext,
+  compileControlDirectorPromptBudget,
+  selectActiveControlDirectorMission,
+} from "../../agents/control-director-context-budget.js";
+import { compileControlDirectorTurnPolicy } from "../../agents/control-director-turn-policy.js";
 import { resolveEmbeddedFullAccessState } from "../../agents/embedded-agent-runner/sandbox-info.js";
 import type { EmbeddedFullAccessBlockedReason } from "../../agents/embedded-agent-runner/types.js";
 import { resolveFastModeState } from "../../agents/fast-mode.js";
@@ -71,6 +78,7 @@ import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { ReplyPayload } from "../types.js";
 import { applySessionHints } from "./body.js";
 import type { buildCommandContext } from "./commands.js";
+import { buildControlDirectorRecentContext } from "./control-director-recent-context.js";
 import { resolveCurrentTurnImages } from "./current-turn-images.js";
 import type { InlineDirectives } from "./directive-handling.js";
 import { isSystemEventProvider, resolveEffectiveReplyRoute } from "./effective-reply-route.js";
@@ -690,6 +698,42 @@ export async function runPreparedReply(
     fullAccessAvailable: fullAccessState.available,
     fullAccessBlockedReason: fullAccessState.blockedReason,
   });
+  const baseBody = sessionCtx.BodyStripped ?? sessionCtx.Body ?? "";
+  const controlDirectorTurnPolicy = compileControlDirectorTurnPolicy({
+    config: cfg,
+    agentId,
+    requestText: baseBody,
+    queueMode: opts?.queueModeOverride,
+    upstreamToolsAllow: opts?.toolsAllow,
+  });
+  const operationalRoleCapabilityBudget = controlDirectorTurnPolicy
+    ? undefined
+    : compileOperationalRoleCapabilityBudget({
+        config: cfg,
+        agentId,
+        upstreamToolsAllow: opts?.toolsAllow,
+      });
+  const controlDirectorRecentContext = controlDirectorTurnPolicy
+    ? await buildControlDirectorRecentContext({
+        cfg,
+        agentId,
+        sessionKey,
+        workspaceDir,
+        storePath,
+        requestText: baseBody,
+        firstTurn: isNewSession,
+      })
+    : null;
+  const controlDirectorPromptBudget = controlDirectorTurnPolicy
+    ? compileControlDirectorPromptBudget({
+        mode: controlDirectorTurnPolicy.mode,
+        policyPrompt: controlDirectorTurnPolicy.prompt,
+        missionContext: buildControlDirectorMissionContinuityContext(
+          selectActiveControlDirectorMission(sessionEntry?.controlDirectorMissionLedger),
+        ),
+        recentContext: controlDirectorRecentContext,
+      })
+    : null;
   const extraSystemPromptParts = [
     inboundMetaPrompt,
     directChatContext,
@@ -697,6 +741,7 @@ export async function runPreparedReply(
     groupIntro,
     groupSystemPrompt,
     execOverridePromptHint,
+    controlDirectorPromptBudget?.prompt,
   ].filter(Boolean);
   const extraSystemPromptStatic = [
     directChatContext,
@@ -717,7 +762,6 @@ export async function runPreparedReply(
     directChatContext || groupChatContext || sourceReplyDeliveryMode === "message_tool_only"
       ? "none"
       : "generic";
-  const baseBody = sessionCtx.BodyStripped ?? sessionCtx.Body ?? "";
   // Use CommandBody/RawBody for bare reset detection (clean message without structural context).
   const rawBodyTrimmed = (ctx.CommandBody ?? ctx.RawBody ?? ctx.Body ?? "").trim();
   const baseBodyTrimmedRaw = baseBody.trim();
@@ -1597,6 +1641,20 @@ export async function runPreparedReply(
         }
       : undefined;
 
+  const effectiveReplyOptions = controlDirectorTurnPolicy
+    ? {
+        ...opts,
+        toolsAllow: controlDirectorTurnPolicy.toolsAllow,
+        retainSkillsWithToolsAllow: controlDirectorTurnPolicy.retainSkillsWithToolsAllow,
+      }
+    : operationalRoleCapabilityBudget
+      ? {
+          ...opts,
+          toolsAllow: operationalRoleCapabilityBudget.toolsAllow,
+          retainSkillsWithToolsAllow: operationalRoleCapabilityBudget.retainSkillsWithToolsAllow,
+        }
+      : opts;
+
   return runReplyAgent({
     commandBody: prefixedCommandBody,
     transcriptCommandBody,
@@ -1614,7 +1672,7 @@ export async function runPreparedReply(
       return embeddedAgentRuntime?.isEmbeddedAgentRunActive(latestActiveSessionId) ?? false;
     },
     isStreaming,
-    opts,
+    opts: effectiveReplyOptions,
     typing,
     sessionEntry: preparedSessionState.sessionEntry,
     sessionStore,

@@ -13,7 +13,7 @@ export type ChatRunControlsProps = {
   onAbort?: () => void;
   onExport: () => void;
   onNewSession: () => void;
-  onSend: () => void;
+  onSend: (mode?: "queue" | "steer") => void;
   onStoreDraft: (draft: string) => void;
   showSecondary?: boolean;
 };
@@ -57,7 +57,7 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
                 if (props.draft.trim()) {
                   props.onStoreDraft(props.draft);
                 }
-                props.onSend();
+                props.onSend("queue");
               }}
               ?disabled=${!props.connected || props.sending}
               title=${t("chat.runControls.queue")}
@@ -65,6 +65,21 @@ export function renderChatRunControls(props: ChatRunControlsProps) {
             >
               ${icons.send}
               <span class="agent-chat__control-label">${t("chat.runControls.queue")}</span>
+            </button>
+            <button
+              class="chat-send-btn chat-send-btn--steer"
+              @click=${() => {
+                if (props.draft.trim()) {
+                  props.onStoreDraft(props.draft);
+                }
+                props.onSend("steer");
+              }}
+              ?disabled=${!props.connected || props.sending}
+              title="Steer the active run"
+              aria-label="Steer the active run now"
+            >
+              ${icons.cornerDownRight}
+              <span class="agent-chat__control-label">Steer</span>
             </button>
             <button
               class="chat-send-btn chat-send-btn--stop"

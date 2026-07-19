@@ -3222,6 +3222,7 @@ describe("renderPccDashboard", () => {
           load5: 1,
           load15: 1,
           memoryPressure: "low",
+          thermalPressure: "nominal",
           activeOpenClawTaskCount: 0,
           configuredSubagentLimit: 4,
           observedLocalModelProcessCount: 0,
@@ -3911,7 +3912,7 @@ describe("renderPccDashboard", () => {
     );
 
     expect(container.querySelector("[data-pcc-chat-sync]")).not.toBeNull();
-    expect(container.textContent).toContain("Suggested updates from chat");
+    expect(container.textContent).toContain("Import a proposed plan");
     expect(container.textContent).toContain("Add milestone: Chat Sync");
 
     container.querySelector<HTMLTextAreaElement>(".pcc-chat-sync__input")!.value = "updated";
@@ -3921,7 +3922,7 @@ describe("renderPccDashboard", () => {
     expect(onChatSyncTextChange).toHaveBeenCalledWith("updated");
 
     [...container.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Review chat updates"))
+      .find((button) => button.textContent?.includes("Review plan draft"))
       ?.click();
     expect(onPreviewChatSync).toHaveBeenCalledTimes(1);
 

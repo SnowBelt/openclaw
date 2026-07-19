@@ -598,6 +598,55 @@ function renderChatView(overrides: Partial<Parameters<typeof renderChat>[0]> = {
 }
 
 describe("chat multi-agent work tree", () => {
+  it("keeps runtime and memory health in a compact command-rail disclosure", () => {
+    const container = renderChatView({
+      sessionKey: "agent:director:dashboard:status",
+      executionState: {
+        schemaVersion: 1,
+        snapshotRevision: "revision",
+        generatedAt: 100,
+        sessionKey: "agent:director:dashboard:status",
+        tasks: [],
+        flows: [],
+        turns: [],
+        health: {
+          activeCount: 0,
+          staleGoalCount: 0,
+          orphanedTurnCount: 0,
+          pendingDeliveryCount: 0,
+          lostWorkerCount: 0,
+          healthy: true,
+        },
+        memoryHealth: {
+          schemaVersion: 1,
+          status: "healthy",
+          currentDaySourceCount: 2,
+          corruptRecordCount: 0,
+          sourceConflictCount: 0,
+          repairActions: [],
+        },
+        runtimeLineage: {
+          schemaVersion: 1,
+          status: "ready",
+          checkedAt: 100,
+          agentId: "director",
+          role: "control_director",
+          selectedModel: "ollama/gemma",
+          sourceSha: "a".repeat(40),
+          runtimeVersion: "2026.7.1",
+          blockers: [],
+        },
+      },
+    });
+
+    const status = container.querySelector<HTMLDetailsElement>("[data-chat-system-status]");
+    expect(status).toBeTruthy();
+    expect(status?.querySelector("summary")?.textContent).toContain("System ready");
+    status?.setAttribute("open", "");
+    expect(status?.textContent).toContain("2 sources today");
+    expect(status?.textContent).toContain("Source aaaaaaaaaaaa");
+  });
+
   it("renders active child agents in the Working Now panel", () => {
     const container = renderChatView({
       sessionKey: "agent:main:main",
@@ -747,33 +796,15 @@ describe("chat Control Director diagnostics", () => {
       },
     });
 
-    const card = container.querySelector("[data-control-director-diagnostics]");
-    expect(card?.textContent).toContain("Truth & Completion");
-    expect(card?.textContent).toContain("Blocked unsupported claim");
-    expect(card?.textContent).toContain("missing command evidence with exit code 0");
-    expect(
-      card?.querySelector(".chat-control-director-diagnostics__compact")?.textContent,
-    ).toContain("Why");
-    expect(
-      card?.querySelector(".chat-control-director-diagnostics__summary-list")?.textContent,
-    ).toContain("Next build gap");
-    expect(card?.textContent).not.toContain("Completion Grade8/10");
-
-    const details = card?.querySelector<HTMLDetailsElement>(
-      ".chat-control-director-diagnostics__details",
-    );
-    expect(details?.open).toBe(false);
-    expect(details?.textContent).toContain("Required evidence");
-    expect(details?.textContent).toContain("Completion Grade");
-    expect(card?.textContent).not.toContain("Status: complete");
+    expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
+    expect(container.querySelector(".chat-thread")).not.toBeNull();
+    expect(container.querySelector(".agent-chat__input")).not.toBeNull();
   });
 
-  it("inserts a safe retry draft without sending blocked Control Director diagnostics", () => {
-    const onBlockedRetryDraft = vi.fn();
+  it("keeps blocked diagnostics out of the Chat transcript flow", () => {
     const onSend = vi.fn();
     const container = renderChatView({
       sessionKey: "agent:main:main",
-      onBlockedRetryDraft,
       onSend,
       sessions: {
         count: 1,
@@ -805,11 +836,8 @@ describe("chat Control Director diagnostics", () => {
       },
     });
 
-    container.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]")?.click();
-
-    expect(onBlockedRetryDraft).toHaveBeenCalledWith(
-      expect.stringContaining("Retry the preserved original request safely"),
-    );
+    expect(container.querySelector("[data-chat-blocked-retry]")).toBeNull();
+    expect(container.textContent).not.toContain("Truth & Completion");
     expect(onSend).not.toHaveBeenCalled();
   });
 });
@@ -4939,7 +4967,6 @@ describe("chat polish accessibility", () => {
       goalPanelOpen: true,
       goalDraft: "Polish the chat",
       projectPickerOpen: true,
-      projectCreateName: "Polish",
       projectsList: {
         ok: true as const,
         ts: 1,
@@ -5120,15 +5147,13 @@ describe("chat project picker", () => {
     );
   });
 
-  it("exposes attach, detach, new-chat, and create actions", () => {
+  it("keeps Chat limited to project context while PCC owns project management", () => {
     const onProjectAttach = vi.fn();
     const onProjectDetach = vi.fn();
     const onNewProjectChat = vi.fn();
-    const onProjectCreateAndAttach = vi.fn();
-    const onProjectCreateFieldChange = vi.fn();
+    const onOpenPcc = vi.fn();
     const container = renderChatView({
       projectPickerOpen: true,
-      projectCreateName: "New plan",
       projectsList,
       sessions: {
         ts: 0,
@@ -5147,26 +5172,21 @@ describe("chat project picker", () => {
       onProjectAttach,
       onProjectDetach,
       onNewProjectChat,
-      onProjectCreateAndAttach,
-      onProjectCreateFieldChange,
+      onOpenPcc,
     });
 
     const picker = container.querySelector<HTMLElement>("[data-chat-project-picker]")!;
     picker.querySelector<HTMLButtonElement>('[data-chat-project-action="attach"]')?.click();
     picker.querySelector<HTMLButtonElement>('[data-chat-project-action="detach"]')?.click();
     picker.querySelector<HTMLButtonElement>('[data-chat-project-action="new-chat"]')?.click();
-    picker
-      .querySelector<HTMLButtonElement>('[data-chat-project-action="create-and-attach"]')
-      ?.click();
-    const nameInput = picker.querySelector<HTMLInputElement>('input[placeholder="Project name"]')!;
-    nameInput.value = "Edited plan";
-    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    picker.querySelector<HTMLButtonElement>('[data-chat-project-action="open-pcc"]')?.click();
 
     expect(onProjectAttach).toHaveBeenCalledWith("project-beta");
     expect(onProjectDetach).toHaveBeenCalledTimes(1);
     expect(onNewProjectChat).toHaveBeenCalledWith("project-alpha");
-    expect(onProjectCreateAndAttach).toHaveBeenCalledTimes(1);
-    expect(onProjectCreateFieldChange).toHaveBeenCalledWith("name", "Edited plan");
+    expect(onOpenPcc).toHaveBeenCalledWith("project-alpha");
+    expect(picker.textContent).toContain("PCC owns project planning and management");
+    expect(picker.querySelector('input[placeholder="Project name"]')).toBeNull();
   });
 
   it("renders project loading failures without disabling chat", () => {
@@ -5213,8 +5233,9 @@ describe("chat Pursue Goal surface", () => {
     expect(onGoalDraftChange).toHaveBeenCalledWith("Updated goal");
   });
 
-  it("renders running goal details and exposes continue and cancel actions", () => {
-    const onGoalContinue = vi.fn();
+  it("renders running goal details and exposes pause, edit, and stop actions", () => {
+    const onGoalPause = vi.fn();
+    const onGoalEdit = vi.fn();
     const onGoalCancel = vi.fn();
     const container = renderChatView({
       goalPanelOpen: true,
@@ -5225,6 +5246,19 @@ describe("chat Pursue Goal surface", () => {
           status: "running",
           goal: "Finish Pursue Goal V1",
           currentStep: "Running local proof.",
+          events: [
+            {
+              schemaVersion: 1,
+              eventId: "event-1",
+              sequence: 0,
+              at: 1,
+              flowId: "flow-1",
+              category: "activity",
+              name: "activity.working",
+              actorId: "program-manager",
+              summary: "Worker is testing the gateway linkage.",
+            },
+          ],
           tasks: [
             {
               taskId: "task-1",
@@ -5235,7 +5269,9 @@ describe("chat Pursue Goal surface", () => {
           ],
         },
       ],
-      onGoalContinue,
+      goalDraft: "Finish Pursue Goal V1 with updated proof",
+      onGoalPause,
+      onGoalEdit,
       onGoalCancel,
     });
 
@@ -5245,11 +5281,14 @@ describe("chat Pursue Goal surface", () => {
     expect(surface.textContent).toContain("Testing gateway linkage");
     expect(surface.textContent).toContain("Judge pending");
 
-    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="continue"]')?.click();
+    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="pause"]')?.click();
+    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="edit"]')?.click();
     surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="cancel"]')?.click();
 
-    expect(onGoalContinue).toHaveBeenCalledWith("flow-1");
+    expect(onGoalPause).toHaveBeenCalledWith("flow-1");
+    expect(onGoalEdit).toHaveBeenCalledWith("flow-1", "Finish Pursue Goal V1 with updated proof");
     expect(onGoalCancel).toHaveBeenCalledWith("flow-1");
+    expect(surface.textContent).toContain("Worker is testing the gateway linkage.");
     expect(surface.textContent).toContain("Stop goal");
   });
 
@@ -5272,13 +5311,14 @@ describe("chat Pursue Goal surface", () => {
 
     const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
     const cancel = surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="cancel"]')!;
-    expect(surface.textContent).toContain("Cancelling…");
+    expect(surface.textContent).toContain("Stopping…");
     expect(cancel.disabled).toBe(true);
     cancel.click();
     expect(onGoalCancel).not.toHaveBeenCalled();
   });
 
-  it("shows blocked and cancelled states without enabling unsafe continuation", () => {
+  it("shows blocked retry and no unsafe controls for a cancelled goal", () => {
+    const onGoalRetry = vi.fn();
     const blocked = renderChatView({
       goalPanelOpen: true,
       goalFlows: [
@@ -5289,11 +5329,14 @@ describe("chat Pursue Goal surface", () => {
           blockedSummary: "Waiting for GitHub Actions result.",
         },
       ],
+      onGoalRetry,
     });
     expect(blocked.querySelector("[data-chat-goal]")?.textContent).toContain("Blocked");
     expect(blocked.querySelector("[data-chat-goal]")?.textContent).toContain(
       "Waiting for GitHub Actions result.",
     );
+    blocked.querySelector<HTMLButtonElement>('[data-chat-goal-action="retry"]')?.click();
+    expect(onGoalRetry).toHaveBeenCalledWith("flow-blocked");
 
     const cancelled = renderChatView({
       goalPanelOpen: true,
@@ -5306,11 +5349,10 @@ describe("chat Pursue Goal surface", () => {
         },
       ],
     });
-    const continueButton = cancelled.querySelector<HTMLButtonElement>(
-      '[data-chat-goal-action="continue"]',
-    );
     expect(cancelled.querySelector("[data-chat-goal]")?.textContent).toContain("Cancelled");
-    expect(continueButton?.disabled).toBe(true);
+    expect(cancelled.querySelector('[data-chat-goal-action="pause"]')).toBeNull();
+    expect(cancelled.querySelector('[data-chat-goal-action="resume"]')).toBeNull();
+    expect(cancelled.querySelector('[data-chat-goal-action="retry"]')).toBeNull();
   });
 
   it("renders goal loading failures while keeping chat usable", () => {

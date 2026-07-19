@@ -20,6 +20,7 @@ import {
   type PccExecutionProfile,
   type PccExecutionProfilePresetId,
 } from "../../../../src/pcc/execution-profile.js";
+import type { PccExecutionRuntimeProjection } from "../../../../src/pcc/execution-state-projection.js";
 import {
   buildPccAttentionInbox,
   buildPccDependencyInsights,
@@ -149,6 +150,9 @@ export type PccDashboardProps = {
   runtimeIdentity?: PccRuntimeIdentity | null;
   updateSafety?: PccUpdateSafety | null;
   executionCapacity?: PccExecutionCapacitySnapshot | null;
+  executionProjection?: PccExecutionRuntimeProjection | null;
+  executionProjectionLoading?: boolean;
+  executionProjectionError?: string | null;
   onRefreshModelCatalog?: () => void;
   onSetViewMode?: (mode: PccViewMode) => void;
   onSetProductFocusMode?: (mode: "pcc_product" | "project_work") => void;
@@ -4501,6 +4505,7 @@ function renderPortfolioWorkConsole(props: PccDashboardProps) {
       availableRamGb: 256,
       policyMode: "as_many_as_safe",
       memoryPressure: "low",
+      thermalPressure: "nominal",
       activeLocalModelProcesses: 0,
       activeOpenClawTasks: 0,
       activeCodexNeededTasks: 0,
@@ -6632,6 +6637,10 @@ function renderProjectDetail(props: PccDashboardProps) {
                 </section>
               </details>
               <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
+                <summary>Live execution</summary>
+                ${renderExecutionRuntimeProjection(props)}
+              </details>
+              <details class="pcc-detail-drawer" ?open=${mode === "agent"}>
                 <summary>Chat sync</summary>
                 ${renderChatSyncCard(props)}
               </details>
@@ -6745,22 +6754,23 @@ function renderChatSyncCard(props: PccDashboardProps) {
   return html`<section class="pcc-chat-sync" data-pcc-chat-sync aria-label="Chat sync">
     <div class="pcc-section-heading">
       <div>
-        <h4>Suggested updates from chat</h4>
-        <p>Paste an OpenClaw or Codex plan. PCC previews safe diffs before anything changes.</p>
+        <h4>Import a proposed plan</h4>
+        <p>
+          Paste an OpenClaw or Codex plan. PCC can draft milestone text, but never infers status,
+          proof, or permissions from a transcript.
+        </p>
       </div>
       <span>${props.chatSyncProposals.length} suggested</span>
     </div>
     <textarea
       class="pcc-chat-sync__input"
-      placeholder="Paste a proposed plan, status summary, proof receipt, or permission request"
+      placeholder="Paste a proposed plan"
       .value=${props.chatSyncText}
       @input=${(event: Event) =>
         props.onChatSyncTextChange((event.target as HTMLTextAreaElement).value)}
     ></textarea>
     <div class="pcc-context-package__actions">
-      <button class="btn" type="button" @click=${props.onPreviewChatSync}>
-        Review chat updates
-      </button>
+      <button class="btn" type="button" @click=${props.onPreviewChatSync}>Review plan draft</button>
       <button class="btn btn--subtle" type="button" @click=${props.onDismissChatSync}>Clear</button>
     </div>
     ${props.chatSyncError
@@ -6771,6 +6781,58 @@ function renderChatSyncCard(props: PccDashboardProps) {
           ${props.chatSyncProposals.map((proposal) => renderChatSyncProposal(proposal, props))}
         </div>`
       : html`<div class="pcc-empty pcc-empty--small">No chat updates ready to apply</div>`}
+  </section>`;
+}
+
+function renderExecutionRuntimeProjection(props: PccDashboardProps) {
+  const projection = props.executionProjection;
+  return html`<section
+    class="pcc-runtime-projection"
+    data-pcc-runtime-projection
+    aria-label="Read-only live execution"
+  >
+    <div class="pcc-section-heading">
+      <div>
+        <h4>Read-only live execution</h4>
+        <p>
+          Typed task, goal, and queued-turn state from project-linked chats. This view never edits
+          PCC milestones, proof, or completion status.
+        </p>
+      </div>
+      <span
+        >${props.executionProjectionLoading
+          ? "Loading"
+          : projection
+            ? `${projection.activeCount} active`
+            : "Unavailable"}</span
+      >
+    </div>
+    ${props.executionProjectionError
+      ? html`<div class="pcc-error" role="status">${props.executionProjectionError}</div>`
+      : nothing}
+    ${projection
+      ? html`
+          <div class="pcc-runtime-projection__summary">
+            <strong>${projection.healthy ? "Healthy" : "Needs attention"}</strong>
+            <span
+              >${projection.sessionKeys.length} linked
+              chat${projection.sessionKeys.length === 1 ? "" : "s"}</span
+            >
+          </div>
+          ${projection.items.length
+            ? html`<div class="pcc-runtime-projection__items" role="list">
+                ${projection.items.slice(0, 12).map(
+                  (item) => html`<article role="listitem">
+                    <span>${item.kind} · ${item.status}</span>
+                    <strong>${item.summary}</strong>
+                  </article>`,
+                )}
+              </div>`
+            : html`<div class="pcc-empty pcc-empty--small">No active execution</div>`}
+        `
+      : props.executionProjectionLoading
+        ? html`<div class="pcc-empty pcc-empty--small">Loading linked chat state…</div>`
+        : html`<div class="pcc-empty pcc-empty--small">No linked execution state</div>`}
   </section>`;
 }
 

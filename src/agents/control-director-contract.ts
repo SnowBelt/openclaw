@@ -1,16 +1,60 @@
 import { createHash } from "node:crypto";
 import { judgeTaskCompletion } from "../tasks/task-completion-judge.js";
+import {
+  CONTROL_DIRECTOR_DEFAULT_ALIAS,
+  CONTROL_DIRECTOR_DEFAULT_DISPLAY_LABEL,
+  CONTROL_DIRECTOR_DEFAULT_MODEL,
+  CONTROL_DIRECTOR_DEFAULT_MODEL_ID,
+  CONTROL_DIRECTOR_DEFAULT_PROVIDER,
+  CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG,
+} from "./control-director-role.js";
 
 export const CONTROL_DIRECTOR_AGENT_IDS = ["main", "control-director"] as const;
 
-export const CONTROL_DIRECTOR_PRIMARY_PROVIDER = "ollama";
-export const CONTROL_DIRECTOR_PRIMARY_ALIAS = "openclaw-control-qwen36-27b";
-export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = "openclaw-control-qwen36-27b:latest";
-export const CONTROL_DIRECTOR_PRIMARY_MODEL = `${CONTROL_DIRECTOR_PRIMARY_PROVIDER}/${CONTROL_DIRECTOR_PRIMARY_MODEL_ID}`;
-export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG = "qwen3.6:27b-q8_0";
-export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = "OpenClaw Control Qwen3.6 27B Q8_0";
+export const CONTROL_DIRECTOR_PRIMARY_PROVIDER = CONTROL_DIRECTOR_DEFAULT_PROVIDER;
+export const CONTROL_DIRECTOR_PRIMARY_ALIAS = CONTROL_DIRECTOR_DEFAULT_ALIAS;
+export const CONTROL_DIRECTOR_PRIMARY_MODEL_ID = CONTROL_DIRECTOR_DEFAULT_MODEL_ID;
+export const CONTROL_DIRECTOR_PRIMARY_MODEL = CONTROL_DIRECTOR_DEFAULT_MODEL;
+export const CONTROL_DIRECTOR_UNDERLYING_OLLAMA_TAG =
+  CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG;
+export const CONTROL_DIRECTOR_PRIMARY_DISPLAY_LABEL = CONTROL_DIRECTOR_DEFAULT_DISPLAY_LABEL;
 export const CONTROL_DIRECTOR_FIRST_FALLBACK_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 export const CONTROL_DIRECTOR_EFFECTIVE_CONTEXT_TOKENS = 64_000;
+
+export type ControlDirectorResponseMode =
+  | "conversation"
+  | "answer"
+  | "plan"
+  | "execute"
+  | "status"
+  | "steer"
+  | "queue"
+  | "goal";
+
+export type ControlDirectorMissionEnvelope = {
+  schemaVersion: 1;
+  missionId: string;
+  idempotencyKey: string;
+  responseMode: ControlDirectorResponseMode;
+  requestBody: string;
+  requestHash: string;
+  acceptanceCriteria: string[];
+  scope: string[];
+  approvals: string[];
+  provenance: string[];
+  artifactIds: string[];
+};
+
+const CONTROL_DIRECTOR_RESPONSE_MODES = new Set<ControlDirectorResponseMode>([
+  "conversation",
+  "answer",
+  "plan",
+  "execute",
+  "status",
+  "steer",
+  "queue",
+  "goal",
+]);
 
 export type ControlDirectorFinalStatus = "complete" | "blocked" | "needs_user_input" | "continuing";
 export type ControlDirectorThinkingEscalationLevel = "off" | "medium" | "high";
@@ -220,6 +264,23 @@ const CRITICALITY_PATTERN = /\bcriticality\s*:\s*(?:10|[0-9](?:\.\d+)?)\s*\/\s*1
 const NEXT_BUILD_GAP_PATTERN = /\bnext (?:most impactful )?build gap\b/i;
 const CONTROL_DIRECTOR_GUARD_ORIGINAL_SUMMARY_MAX = 420;
 export const CONTROL_DIRECTOR_MAX_SAFE_CONTINUATIONS = 2;
+export const CONTROL_DIRECTOR_MISSION_REQUEST_MAX_CHARS = 64_000;
+
+const PLAN_ONLY_PATTERN =
+  /\b(?:do not|don't) implement\b|\bplan only\b|\bwithout implement(?:ing|ation)\b|\bdo not (?:change|edit|run|execute) anything\b/iu;
+const ACKNOWLEDGEMENT_ONLY_PATTERN =
+  /^(?:thanks(?: for (?:the )?update)?|thank you|got it|okay|ok|sounds good|that makes sense)[.!\s]*$/iu;
+const EXECUTION_LEADING_PATTERN =
+  /^(?:please\s+)?(?:implement|fix|repair|debug|build|create|write|edit|change|update|run|test|verify|deploy|restart|install|remove|redo|audit|investigate|search|find|compile|convert|generate|make|add)\b/iu;
+const STEER_PATTERN = /\b(?:steer|interrupt|change direction|instead,? (?:do|focus|use))\b/iu;
+const QUEUE_PATTERN = /\b(?:queue|after (?:that|this)|next task|when (?:that|this) finishes)\b/iu;
+const GOAL_PATTERN = /\b(?:pursue goal|keep (?:going|working)|until (?:it is )?complete)\b/iu;
+const STATUS_REQUEST_PATTERN =
+  /\b(?:give me an update|status update|what(?:'s| is) (?:the )?(?:status|progress)|report (?:the )?status|what has been done)\b/iu;
+const EXECUTION_REQUEST_PATTERN =
+  /\b(?:implement|fix|repair|debug|build|create|write|edit|change|update|run|test|verify|deploy|restart|install|remove|redo|audit|investigate|search|find|compile|convert|generate|make|add)\b/iu;
+const QUESTION_PATTERN =
+  /(?:\?|\b(?:who|what|when|where|why|how|should|can|could|would|is|are|do|does)\b)/iu;
 
 const CONTROL_DIRECTOR_FINAL_OUTPUT_REQUIREMENTS: ControlDirectorResponseRequirements = {
   completionState: true,
@@ -256,6 +317,149 @@ export function isControlDirectorAgentId(agentId: string | undefined | null): bo
   }
   const normalized = agentId.trim().toLowerCase();
   return CONTROL_DIRECTOR_AGENT_IDS.some((candidate) => candidate === normalized);
+}
+
+/** Deterministic first-pass intent contract; explicit protocol mode may override this upstream. */
+export function classifyControlDirectorResponseMode(
+  text: string | undefined | null,
+): ControlDirectorResponseMode {
+  const normalized = text?.trim() ?? "";
+  if (!normalized) {
+    return "conversation";
+  }
+  if (ACKNOWLEDGEMENT_ONLY_PATTERN.test(normalized)) {
+    return "conversation";
+  }
+  if (PLAN_ONLY_PATTERN.test(normalized)) {
+    return "plan";
+  }
+  if (STEER_PATTERN.test(normalized)) {
+    return "steer";
+  }
+  if (GOAL_PATTERN.test(normalized)) {
+    return "goal";
+  }
+  if (EXECUTION_LEADING_PATTERN.test(normalized)) {
+    return "execute";
+  }
+  if (QUEUE_PATTERN.test(normalized)) {
+    return "queue";
+  }
+  if (STATUS_REQUEST_PATTERN.test(normalized)) {
+    return "status";
+  }
+  if (EXECUTION_REQUEST_PATTERN.test(normalized)) {
+    return "execute";
+  }
+  if (QUESTION_PATTERN.test(normalized)) {
+    return "answer";
+  }
+  return "conversation";
+}
+
+export function controlDirectorModeRequiresCompletionReport(
+  mode: ControlDirectorResponseMode,
+): boolean {
+  return mode === "execute" || mode === "goal";
+}
+
+export function controlDirectorModeRequiresEvidenceGate(
+  mode: ControlDirectorResponseMode,
+): boolean {
+  return mode === "execute" || mode === "goal" || mode === "status";
+}
+
+export function controlDirectorModeRepresentsMission(mode: ControlDirectorResponseMode): boolean {
+  return mode === "execute" || mode === "goal" || mode === "status" || mode === "plan";
+}
+
+function normalizeControlDirectorMissionRequest(requestBody: string): string {
+  return requestBody.length <= CONTROL_DIRECTOR_MISSION_REQUEST_MAX_CHARS
+    ? requestBody
+    : requestBody.slice(0, CONTROL_DIRECTOR_MISSION_REQUEST_MAX_CHARS);
+}
+
+export function buildControlDirectorMissionEnvelope(params: {
+  missionId: string;
+  idempotencyKey?: string;
+  requestBody: string;
+  responseMode?: ControlDirectorResponseMode;
+  acceptanceCriteria?: readonly string[];
+  scope?: readonly string[];
+  approvals?: readonly string[];
+  provenance?: readonly string[];
+  artifactIds?: readonly string[];
+}): ControlDirectorMissionEnvelope {
+  const requestBody = normalizeControlDirectorMissionRequest(params.requestBody);
+  const requestHash = createHash("sha256").update(requestBody).digest("hex");
+  const stable = (values: readonly string[] | undefined) =>
+    [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].toSorted();
+  return {
+    schemaVersion: 1,
+    missionId: params.missionId,
+    idempotencyKey: params.idempotencyKey?.trim() || params.missionId,
+    responseMode: params.responseMode ?? classifyControlDirectorResponseMode(requestBody),
+    requestBody,
+    requestHash,
+    acceptanceCriteria: stable(params.acceptanceCriteria),
+    scope: stable(params.scope),
+    approvals: stable(params.approvals),
+    provenance: stable(params.provenance),
+    artifactIds: stable(params.artifactIds),
+  };
+}
+
+/** Parse and integrity-check a persisted mission before any continuation trusts it. */
+export function parseControlDirectorMissionEnvelope(
+  value: unknown,
+): ControlDirectorMissionEnvelope | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const stringArray = (candidate: unknown): string[] | null =>
+    Array.isArray(candidate) && candidate.every((entry) => typeof entry === "string")
+      ? candidate.map((entry) => entry.trim()).filter(Boolean)
+      : null;
+  const acceptanceCriteria = stringArray(record.acceptanceCriteria);
+  const scope = stringArray(record.scope);
+  const approvals = stringArray(record.approvals);
+  const provenance = stringArray(record.provenance);
+  const artifactIds = stringArray(record.artifactIds);
+  if (
+    record.schemaVersion !== 1 ||
+    typeof record.missionId !== "string" ||
+    !record.missionId.trim() ||
+    typeof record.idempotencyKey !== "string" ||
+    !record.idempotencyKey.trim() ||
+    !CONTROL_DIRECTOR_RESPONSE_MODES.has(record.responseMode as ControlDirectorResponseMode) ||
+    typeof record.requestBody !== "string" ||
+    typeof record.requestHash !== "string" ||
+    acceptanceCriteria === null ||
+    scope === null ||
+    approvals === null ||
+    provenance === null ||
+    artifactIds === null
+  ) {
+    return null;
+  }
+  const requestHash = createHash("sha256").update(record.requestBody).digest("hex");
+  if (requestHash !== record.requestHash) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    missionId: record.missionId.trim(),
+    idempotencyKey: record.idempotencyKey.trim(),
+    responseMode: record.responseMode as ControlDirectorResponseMode,
+    requestBody: record.requestBody,
+    requestHash,
+    acceptanceCriteria,
+    scope,
+    approvals,
+    provenance,
+    artifactIds,
+  };
 }
 
 function normalizeControlDirectorModelCandidate(value: string | undefined | null): string {
@@ -331,27 +535,31 @@ export function isStaleControlDirectorPrimaryModelProvider(params: {
 
 export function buildControlDirectorSystemPromptSection(
   agentId: string | undefined | null,
+  responseMode?: ControlDirectorResponseMode,
 ): string[] {
   if (!isControlDirectorAgentId(agentId)) {
     return [];
   }
+  const activeMode = responseMode ? `Active response mode: ${responseMode}.` : undefined;
   return [
     "## Control Director Operating Contract",
-    "You are the Control Director for this OpenClaw deployment. Treat the latest user request as the active mission.",
-    "Do not stop at advice or a proposed next step when you can safely continue executing the user's requested work.",
-    "Continue until the requested task is complete, a real blocker is proven, or user input is genuinely required.",
+    "You are the always-available conversational Control Director for this OpenClaw deployment. Preserve the user's full request and route non-trivial execution to a Program Manager or narrowly scoped workers whenever delegation is available.",
+    "Use one proportional response mode: conversation, answer, plan, execute, status, steer, queue, or goal. A plan-only request must not mutate anything. An ordinary conversation or answer must be natural and must not be forced into project-report fields.",
+    "For execute and goal modes, do not stop at advice or a proposed next step when safe work can continue. Continue through delegated execution and fan-in until the request is complete, a real blocker is proven, or user input is genuinely required.",
+    "For status mode, report only verified current state and the next useful action. For steer and queue modes, acknowledge the mutation and preserve ordering/idempotency.",
+    activeMode,
     "Before saying a task is finished, verify the requested outcome with concrete evidence such as source inspection, config proof, runtime status, tests, smoke output, or command results when feasible.",
-    "A completion claim must include the concrete evidence used to verify it; if that evidence is missing, report `Status: blocked` or `Status: needs_user_input` instead of `Status: complete`.",
-    "A `Status: complete` claim also requires Judge approval for this exact mission, final answer, and evidence. If Judge approval is missing, invalid, stale, or scope-mismatched, report `Status: blocked` instead.",
+    "An execute/goal completion claim must include concrete evidence; if it is missing, report `Status: blocked` or `Status: needs_user_input` instead of `Status: complete`.",
+    "An execute/goal `Status: complete` claim also requires Judge approval from an independent Judge for this exact mission, final answer, and evidence. Missing, invalid, stale, or scope-mismatched approval means the execution report is blocked, not that ordinary conversation must stop.",
     "Any factual, verification, remote-proof, dashboard-tested, implemented/fixed, or success claim must be backed by matching runtime evidence. If evidence is unavailable, say it is unknown/unverified or report `Status: blocked`.",
     "If work is incomplete, do not call it complete. State the exact blocker or the next build gap and the smallest action that would close it.",
     "When the user asks for Completion Grade, Criticality, verified state, or next build gap, include those fields in every response until the user changes that reporting requirement.",
     "When reporting Completion Grade or Criticality, use numeric `/10` values unless the user explicitly asks for another scale.",
     "If the user gives an exact response format, follow that format exactly. Do not ask what task the format applies to when the current prompt itself defines a smoke, verification, or implementation task.",
     "Thinking policy: default to non-thinking for routine turns, but use thinking only as needed for implementation, evaluation, debugging, verification, rollback, model, runtime, service, or production-risk work.",
-    "End task reports with an explicit status line using one of: `Status: complete`, `Status: blocked`, or `Status: needs_user_input`. Runtime recovery/progress handoffs may use `Status: continuing` only when a durable recovery turn has been queued.",
+    "End execute/goal task reports with an explicit status line using one of: `Status: complete`, `Status: blocked`, or `Status: needs_user_input`. Runtime recovery/progress handoffs may use `Status: continuing` only when a durable recovery turn has been queued. Do not append these fields to ordinary conversation, answers, plan-only responses, steering acknowledgements, or queue acknowledgements unless the user explicitly asks for them.",
     "",
-  ];
+  ].filter((line): line is string => line !== undefined);
 }
 
 export function resolveControlDirectorThinkingEscalation(params: {
@@ -561,11 +769,16 @@ function buildControlDirectorContinuationPrompt(params: {
 }): string {
   const requestSummary = summarizeControlDirectorPromptRequest(params.requestBody);
   const requestHash = hashControlDirectorPromptRequest(params.requestBody);
+  const requestBody = normalizeControlDirectorMissionRequest(params.requestBody ?? "");
   return [
     "Control Director recovery supervisor request.",
     params.missionId ? `Mission id: ${params.missionId}` : undefined,
     requestHash ? `Original request hash: ${requestHash}` : undefined,
     requestSummary ? `Original request summary: ${requestSummary}` : undefined,
+    requestBody ? "Original request (verbatim, authoritative):" : undefined,
+    requestBody ? "<control-director-original-request>" : undefined,
+    requestBody || undefined,
+    requestBody ? "</control-director-original-request>" : undefined,
     `Continuation attempt: ${params.nextContinuationCount}/${CONTROL_DIRECTOR_MAX_SAFE_CONTINUATIONS}`,
     `Reason: ${params.reason}`,
     "This is a liveness recovery turn. Bypass continuation-skip behavior and load the needed bootstrap/context before acting.",

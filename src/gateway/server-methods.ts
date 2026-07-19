@@ -94,6 +94,10 @@ const loadChatHandlers = lazyHandlerModule(
   () => import("./server-methods/chat.js"),
   (module) => module.chatHandlers,
 );
+const loadChatTurnsHandlers = lazyHandlerModule(
+  () => import("./server-methods/chat-turns.js"),
+  (module) => module.chatTurnsHandlers,
+);
 const loadCommandsHandlers = lazyHandlerModule(
   () => import("./server-methods/commands.js"),
   (module) => module.commandsHandlers,
@@ -407,6 +411,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: [
       "selfImprovement.auditEvents.list",
+      "selfImprovement.controlDirector.layout.report",
       "selfImprovement.dashboardInterventions.record",
       "selfImprovement.proofReceipts.list",
       "selfImprovement.proofReceipts.record",
@@ -447,6 +452,16 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "chat.inject",
     ],
     loadHandlers: loadChatHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "chat.turns.list",
+      "chat.turns.create",
+      "chat.turns.setMode",
+      "chat.turns.cancel",
+      "chat.turns.retry",
+    ],
+    loadHandlers: loadChatTurnsHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: ["commands.list"],
@@ -615,10 +630,16 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   }),
   ...createLazyCoreHandlers({
     methods: [
+      "executionState.get",
       "taskFlows.list",
       "taskFlows.get",
       "taskFlows.create",
       "taskFlows.cancel",
+      "taskFlows.pause",
+      "taskFlows.resume",
+      "taskFlows.edit",
+      "taskFlows.retry",
+      "taskFlows.stop",
       "tasks.list",
       "tasks.get",
       "tasks.cancel",

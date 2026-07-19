@@ -4,6 +4,7 @@ import { guard } from "lit/directives/guard.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { ref } from "lit/directives/ref.js";
 import { repeat } from "lit/directives/repeat.js";
+import type { ExecutionStateSnapshot } from "../../../../packages/gateway-protocol/src/index.ts";
 import { formatApprovalDisplayPath } from "../../../../src/infra/approval-display-paths.ts";
 import { t } from "../../i18n/index.ts";
 import type { CompactionStatus, FallbackStatus } from "../app-tool-stream.ts";
@@ -21,7 +22,6 @@ import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "../chat/chat-welcome.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
-import { summarizeControlDirectorDiagnostics } from "../chat/control-director-diagnostics.ts";
 import { DeletedMessages } from "../chat/deleted-messages.ts";
 import { exportChatMarkdown } from "../chat/export.ts";
 import {
@@ -92,7 +92,6 @@ import type {
   ProjectsListResult,
   SessionGoal,
   SessionsListResult,
-  GatewaySessionRow,
   SessionWorkspaceListResult,
 } from "../types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
@@ -159,14 +158,12 @@ export type ChatProps = {
   goalError?: string | null;
   goalDraft?: string;
   goalPanelOpen?: boolean;
+  executionState?: ExecutionStateSnapshot | null;
   projectsList?: ProjectsListResult | null;
   projectsLoading?: boolean;
   projectPickerOpen?: boolean;
   projectBusy?: boolean;
   projectError?: string | null;
-  projectCreateName?: string;
-  projectCreateDescription?: string;
-  projectCreateInstructions?: string;
   execApprovalQueue?: ExecApprovalRequest[];
   execApprovalBusy?: boolean;
   execApprovalError?: string | null;
@@ -221,7 +218,7 @@ export type ChatProps = {
   onRequestUpdate?: () => void;
   onHistoryKeydown?: (input: ChatInputHistoryKeyInput) => ChatInputHistoryKeyResult;
   onSlashIntent?: () => void | Promise<void>;
-  onSend: () => void;
+  onSend: (mode?: "queue" | "steer") => void;
   onCompact?: () => void | Promise<void>;
   onOpenSessionCheckpoints?: () => void | Promise<void>;
   onToggleRealtimeTalk?: () => void;
@@ -240,19 +237,18 @@ export type ChatProps = {
   onGoalDraftChange?: (value: string) => void;
   onGoalStart?: () => void | Promise<void>;
   onGoalContinue?: (flowId: string) => void | Promise<void>;
+  onGoalPause?: (flowId: string) => void | Promise<void>;
+  onGoalResume?: (flowId: string) => void | Promise<void>;
+  onGoalRetry?: (flowId: string) => void | Promise<void>;
+  onGoalEdit?: (flowId: string, goal: string) => void | Promise<void>;
   onGoalCancel?: (flowId: string) => void | Promise<void>;
-  onBlockedRetryDraft?: (prompt: string) => void;
   onGoalRefresh?: () => void | Promise<void>;
   onProjectPickerToggle?: (open: boolean) => void;
-  onProjectCreateFieldChange?: (
-    field: "name" | "description" | "instructions",
-    value: string,
-  ) => void;
-  onProjectCreateAndAttach?: () => void | Promise<void>;
   onProjectAttach?: (projectId: string) => void | Promise<void>;
   onProjectDetach?: () => void | Promise<void>;
   onNewProjectChat?: (projectId: string) => void | Promise<void>;
   onProjectRefresh?: () => void | Promise<void>;
+  onOpenPcc?: (projectId?: string) => void;
   onExecApprovalDecision?: (
     decision: "allow-once" | "allow-always" | "deny",
   ) => void | Promise<void>;
@@ -2158,88 +2154,90 @@ function renderWorkingNow(props: ChatProps, items: WorkSurfaceItem[], tree: Agen
   `;
 }
 
-function renderControlDirectorDiagnosticsCard(
-  session: GatewaySessionRow | undefined,
-  props?: Pick<ChatProps, "onBlockedRetryDraft">,
-) {
-  const summary = summarizeControlDirectorDiagnostics(session);
-  const priorityDetails = summary.details
-    .filter((detail) =>
-      ["Missing evidence", "Liveness reason", "Next build gap", "Mission", "Guard"].includes(
-        detail.label,
-      ),
-    )
-    .slice(0, 3);
-  const nextAction =
-    summary.details.find((detail) => detail.label === "Next build gap")?.value ??
-    (summary.blocked ? "Review the blocker, then retry with concrete evidence." : summary.detail);
-  const retryPrompt =
-    "Retry the preserved original request safely. If blocked, explain the exact blocker and next action. Do not claim completion without evidence.";
+function renderQueuePopover(props: ChatProps, canAbort: boolean) {
+  if (props.queue.length === 0) {
+    return nothing;
+  }
   return html`
-    <section
-      class="chat-control-director-diagnostics chat-control-director-diagnostics--${summary.tone}"
-      data-control-director-diagnostics
-      aria-label="Truth and completion diagnostics"
-    >
-      <div class="chat-control-director-diagnostics__header">
-        <div>
-          <div class="chat-control-director-diagnostics__eyebrow">Control Director</div>
-          <h3>${summary.title}</h3>
-        </div>
-        <span class="chat-control-director-diagnostics__status">${summary.status}</span>
+    <details class="chat-queue-popover" data-chat-queue-popover @keydown=${closeDetailsOnEscape}>
+      <summary
+        class="chat-queue-popover__summary"
+        aria-label=${`${props.queue.length} queued items`}
+      >
+        <span>Queue</span><strong>${props.queue.length}</strong>
+      </summary>
+      <div class="chat-queue-popover__panel">
+        ${renderChatQueue({
+          queue: props.queue,
+          canAbort,
+          onQueueRetry: props.onQueueRetry,
+          onQueueSteer: props.onQueueSteer,
+          onQueueRemove: props.onQueueRemove,
+        })}
       </div>
-      <div class="chat-control-director-diagnostics__compact">
+    </details>
+  `;
+}
+
+function renderControlDirectorSystemStatus(props: ChatProps) {
+  const state = props.executionState?.sessionKey === props.sessionKey ? props.executionState : null;
+  const lineage = state?.runtimeLineage;
+  const memory = state?.memoryHealth;
+  if (!lineage && !memory) {
+    return nothing;
+  }
+  const healthy =
+    state?.health.healthy === true &&
+    lineage?.status === "ready" &&
+    (!memory || memory.status === "healthy" || memory.status === "empty");
+  const label = healthy ? "System ready" : "System needs attention";
+  return html`
+    <details class="chat-system-status" data-chat-system-status @keydown=${closeDetailsOnEscape}>
+      <summary class="chat-system-status__summary" aria-label=${`Control Director: ${label}`}>
+        <span
+          class="chat-system-status__dot ${healthy ? "chat-system-status__dot--ready" : ""}"
+        ></span>
+        <span>${label}</span>
+      </summary>
+      <div
+        class="chat-system-status__panel"
+        role="region"
+        aria-label="Control Director system status"
+      >
         <div>
-          <span>Why</span>
-          <strong>${summary.detail}</strong>
+          <strong>Runtime</strong>
+          <span>${lineage?.status ?? "unavailable"}</span>
+          ${lineage?.sourceSha
+            ? html`<small>Source ${lineage.sourceSha.slice(0, 12)}</small>`
+            : nothing}
         </div>
         <div>
-          <span>Next</span>
-          <strong>${nextAction}</strong>
+          <strong>Recent memory</strong>
+          <span>${memory?.status ?? "unavailable"}</span>
+          ${memory
+            ? html`<small
+                >${memory.currentDaySourceCount}
+                source${memory.currentDaySourceCount === 1 ? "" : "s"} today</small
+              >`
+            : nothing}
         </div>
-      </div>
-      ${priorityDetails.length > 0
-        ? html`
-            <dl class="chat-control-director-diagnostics__summary-list">
-              ${priorityDetails.map(
-                (detail) => html`
-                  <div>
-                    <dt>${detail.label}</dt>
-                    <dd>${detail.value}</dd>
-                  </div>
-                `,
-              )}
-            </dl>
-          `
-        : nothing}
-      <div class="chat-control-director-diagnostics__actions">
-        ${summary.blocked && props?.onBlockedRetryDraft
-          ? html`<button
-              class="btn btn--sm"
-              type="button"
-              data-chat-blocked-retry
-              @click=${() => props.onBlockedRetryDraft?.(retryPrompt)}
-            >
-              Retry safely
-            </button>`
+        <div>
+          <strong>Execution</strong>
+          <span>${state?.health.healthy ? "healthy" : "attention required"}</span>
+          <small>${state?.health.activeCount ?? 0} active</small>
+        </div>
+        ${lineage?.blockers?.length
+          ? html`<ul>
+              ${lineage.blockers.map((blocker) => html`<li>${blocker}</li>`)}
+            </ul>`
           : nothing}
-        ${summary.details.length > 0
-          ? html`<details class="chat-control-director-diagnostics__details">
-              <summary>Show details</summary>
-              <dl class="chat-control-director-diagnostics__grid">
-                ${summary.details.slice(0, 16).map(
-                  (detail) => html`
-                    <div>
-                      <dt>${detail.label}</dt>
-                      <dd>${detail.value}</dd>
-                    </div>
-                  `,
-                )}
-              </dl>
-            </details>`
+        ${memory?.repairActions?.length
+          ? html`<ul>
+              ${memory.repairActions.map((action) => html`<li>${action.replaceAll("_", " ")}</li>`)}
+            </ul>`
           : nothing}
       </div>
-    </section>
+    </details>
   `;
 }
 
@@ -2538,7 +2536,6 @@ function renderChatProjectPicker(props: ChatProps) {
   const { projectId } = resolveCurrentChatProject(props);
   const summaryLabel = renderProjectSummaryLabel(props);
   const hasError = Boolean(props.projectError);
-  const createDisabled = Boolean(props.projectBusy) || !(props.projectCreateName ?? "").trim();
   return html`
     <details
       class="chat-project-picker"
@@ -2566,8 +2563,8 @@ function renderChatProjectPicker(props: ChatProps) {
       <div class="chat-project-picker__panel" role="region" aria-label="Chat project">
         <div class="chat-project-picker__header">
           <div>
-            <h3>Project</h3>
-            <p>Attach this chat to shared project memory.</p>
+            <h3>Chat project context</h3>
+            <p>Attach this chat to project memory. PCC owns project planning and management.</p>
           </div>
           <button
             class="btn btn--sm btn--subtle"
@@ -2623,56 +2620,22 @@ function renderChatProjectPicker(props: ChatProps) {
                 `
               : html`<div class="chat-project-picker__empty">No projects yet.</div>`}
         </div>
-        <div class="chat-project-picker__section chat-project-picker__create">
-          <h4>Create a project</h4>
-          <label>
-            <span>Name</span>
-            <input
-              type="text"
-              placeholder="Project name"
-              .value=${props.projectCreateName ?? ""}
-              @input=${(event: Event) =>
-                props.onProjectCreateFieldChange?.(
-                  "name",
-                  (event.currentTarget as HTMLInputElement).value,
-                )}
-            />
-          </label>
-          <label>
-            <span>Description</span>
-            <input
-              type="text"
-              placeholder="Optional description"
-              .value=${props.projectCreateDescription ?? ""}
-              @input=${(event: Event) =>
-                props.onProjectCreateFieldChange?.(
-                  "description",
-                  (event.currentTarget as HTMLInputElement).value,
-                )}
-            />
-          </label>
-          <label>
-            <span>Instructions</span>
-            <input
-              type="text"
-              placeholder="Optional project instructions"
-              .value=${props.projectCreateInstructions ?? ""}
-              @input=${(event: Event) =>
-                props.onProjectCreateFieldChange?.(
-                  "instructions",
-                  (event.currentTarget as HTMLInputElement).value,
-                )}
-            />
-          </label>
+        <div class="chat-project-picker__section chat-project-picker__boundary">
+          <div>
+            <h4>Manage projects in PCC</h4>
+            <p>
+              Create projects, edit instructions, track milestones, and review evidence in the
+              Project Command Center. Chat only selects context and starts conversations.
+            </p>
+          </div>
           <button
-            class="btn"
+            class="btn btn--sm"
             type="button"
-            data-chat-project-action="create-and-attach"
-            aria-label="Create project and attach this chat"
-            ?disabled=${createDisabled}
-            @click=${() => props.onProjectCreateAndAttach?.()}
+            data-chat-project-action="open-pcc"
+            aria-label="Open Project Command Center"
+            @click=${() => props.onOpenPcc?.(projectId ?? undefined)}
           >
-            Create and attach
+            Open PCC
           </button>
         </div>
       </div>
@@ -2689,6 +2652,8 @@ function renderPursueGoal(props: ChatProps) {
     goal?.tasks?.[0];
   const detail =
     goal?.blockedSummary ??
+    goal?.lastError ??
+    goal?.lastResult ??
     activeTask?.progressSummary ??
     activeTask?.terminalSummary ??
     goal?.currentStep ??
@@ -2701,16 +2666,6 @@ function renderPursueGoal(props: ChatProps) {
     Boolean(props.canAbort) ||
     !startText;
   const cancellingThisGoal = Boolean(flowId && props.goalCancellingFlowId === flowId);
-  const continueDisabled =
-    !props.connected ||
-    props.sending ||
-    Boolean(props.goalBusy) ||
-    cancellingThisGoal ||
-    Boolean(props.canAbort) ||
-    !goal ||
-    !flowId ||
-    !isActiveChatGoal(goal.status) ||
-    Boolean(goal.cancelRequestedAt);
   const cancelDisabled =
     !props.connected ||
     Boolean(props.goalBusy) ||
@@ -2719,7 +2674,15 @@ function renderPursueGoal(props: ChatProps) {
     !flowId ||
     !isActiveChatGoal(goal.status) ||
     Boolean(goal.cancelRequestedAt);
-  const displayedStatusLabel = cancellingThisGoal ? "Cancelling…" : statusLabel;
+  const displayedStatusLabel = cancellingThisGoal ? "Stopping…" : statusLabel;
+  const controlDisabled = !props.connected || Boolean(props.goalBusy) || cancellingThisGoal;
+  const canPause = Boolean(
+    goal && ["queued", "running", "waiting"].includes(goal.status) && !goal.cancelRequestedAt,
+  );
+  const canResume = goal?.status === "paused";
+  const canRetry = goal?.status === "blocked" || goal?.status === "failed";
+  const canEdit = Boolean(goal && !["succeeded", "cancelled"].includes(goal.status));
+  const recentEvents = (goal?.events ?? []).slice(-8).toReversed();
   return html`
     <details
       class="chat-goal"
@@ -2785,6 +2748,14 @@ function renderPursueGoal(props: ChatProps) {
                           </div>
                         `
                       : nothing}
+                    <div class="chat-goal__meta">
+                      ${goal.lease
+                        ? html`<span>Live lease · ${goal.workerAgentId ?? "worker"}</span>`
+                        : html`<span>${goal.nextAction ?? "No live lease"}</span>`}
+                      ${goal.judgeReceipt
+                        ? html`<span>Judge ${goal.judgeReceipt.verdict}</span>`
+                        : nothing}
+                    </div>
                   </div>
                 `
               : nothing}
@@ -2812,13 +2783,46 @@ function renderPursueGoal(props: ChatProps) {
               <button
                 class="btn"
                 type="button"
-                data-chat-goal-action="continue"
-                aria-label="Continue pursue goal"
-                ?disabled=${continueDisabled}
-                @click=${() => props.onGoalContinue?.(flowId)}
+                data-chat-goal-action="edit"
+                aria-label="Save edited pursue goal"
+                ?disabled=${controlDisabled || !canEdit || !startText}
+                @click=${() => props.onGoalEdit?.(flowId, startText)}
               >
-                Continue
+                Save edit
               </button>
+              ${canPause
+                ? html`<button
+                    class="btn"
+                    type="button"
+                    data-chat-goal-action="pause"
+                    ?disabled=${controlDisabled}
+                    @click=${() => props.onGoalPause?.(flowId)}
+                  >
+                    Pause
+                  </button>`
+                : nothing}
+              ${canResume
+                ? html`<button
+                    class="btn primary"
+                    type="button"
+                    data-chat-goal-action="resume"
+                    ?disabled=${controlDisabled}
+                    @click=${() => props.onGoalResume?.(flowId)}
+                  >
+                    Resume
+                  </button>`
+                : nothing}
+              ${canRetry
+                ? html`<button
+                    class="btn primary"
+                    type="button"
+                    data-chat-goal-action="retry"
+                    ?disabled=${controlDisabled}
+                    @click=${() => props.onGoalRetry?.(flowId)}
+                  >
+                    Retry
+                  </button>`
+                : nothing}
               <button
                 class="btn btn--subtle"
                 type="button"
@@ -2827,9 +2831,19 @@ function renderPursueGoal(props: ChatProps) {
                 ?disabled=${cancelDisabled}
                 @click=${() => props.onGoalCancel?.(flowId)}
               >
-                ${cancellingThisGoal ? "Cancelling…" : "Stop goal"}
+                ${cancellingThisGoal ? "Stopping…" : "Stop goal"}
               </button>
             </div>
+            ${recentEvents.length > 0
+              ? html`<ol class="chat-goal__timeline" aria-label="Recent goal activity">
+                  ${recentEvents.map(
+                    (event) => html`<li>
+                      <span>${event.name.replaceAll(".", " ")}</span>
+                      <p>${event.summary}</p>
+                    </li>`,
+                  )}
+                </ol>`
+              : nothing}
             ${props.goalLoading
               ? html`<div class="chat-goal__loading">Loading goal status...</div>`
               : nothing}
@@ -3363,6 +3377,7 @@ export function renderChat(props: ChatProps) {
             ),
         )}
         ${renderRealtimeTalkConversation(props)}
+        ${renderSideResult(props.sideResult, props.onDismissSideResult)}
       </div>
     </div>
   `;
@@ -3569,9 +3584,9 @@ export function renderChat(props: ChatProps) {
     const target = e.target as HTMLTextAreaElement;
     commitComposerDraft(props, target.value);
   };
-  const handleSend = () => {
+  const handleSend = (mode?: "queue" | "steer") => {
     commitComposerDraft(props, draftMirror.value);
-    props.onSend();
+    props.onSend(mode);
     syncComposerDraftAfterSend(composerTextarea);
   };
   const slashMenuVisible = isSlashMenuVisible();
@@ -3667,17 +3682,6 @@ export function renderChat(props: ChatProps) {
         </div>
       </div>
 
-      ${renderChatProjectPicker(props)} ${renderChatApprovalCard(props)} ${renderPursueGoal(props)}
-      ${renderControlDirectorDiagnosticsCard(activeSession, props)}
-      ${renderWorkingNow(props, workItems, workTree)}
-      ${renderChatQueue({
-        queue: props.queue,
-        canAbort: showAbortableUi,
-        onQueueRetry: props.onQueueRetry,
-        onQueueSteer: props.onQueueSteer,
-        onQueueRemove: props.onQueueRemove,
-      })}
-      ${renderSideResult(props.sideResult, props.onDismissSideResult)}
       ${props.showNewMessages
         ? html`
             <button class="chat-new-messages" type="button" @click=${props.onScrollToBottom}>
@@ -3691,6 +3695,11 @@ export function renderChat(props: ChatProps) {
         class="agent-chat__input"
         @click=${(event: MouseEvent) => focusComposerFromChrome(event, props.connected)}
       >
+        <nav class="chat-command-rail" aria-label="Chat work controls">
+          ${renderChatProjectPicker(props)} ${renderChatApprovalCard(props)}
+          ${renderPursueGoal(props)} ${renderWorkingNow(props, workItems, workTree)}
+          ${renderQueuePopover(props, showAbortableUi)} ${renderControlDirectorSystemStatus(props)}
+        </nav>
         ${renderSlashMenu(requestUpdate, props, visibleDraft)} ${renderAttachmentPreview(props)}
         <div class="agent-chat__composer-status-stack">
           ${renderFallbackIndicator(props.fallbackStatus)}

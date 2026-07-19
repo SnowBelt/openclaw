@@ -109,6 +109,30 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     id: "runtime:control-director-truth-gates",
     kind: "runtime",
     owner: "Control Director",
+    tests: [
+      "src/agents/control-director-delivery-guards.test.ts",
+      "src/agents/independent-judge-service.test.ts",
+      "src/tasks/pursue-goal-controller.test.ts",
+      "src/gateway/server-methods/execution-state.test.ts",
+    ],
+    proofSurfaces: ["pnpm control-director:verify", "exact-SHA managed runtime readiness receipt"],
+  },
+  {
+    id: "runtime:control-director-codex-chat",
+    kind: "runtime",
+    owner: "Control Director and Control UI Chat",
+    tests: [
+      "ui/src/ui/views/chat.test.ts",
+      "ui/src/ui/chat/layout-health.test.ts",
+      "src/gateway/chat-turn-inbox-state.test.ts",
+      "src/gateway/server-methods/self-improvement.test.ts",
+      "test/scripts/control-ui-production-chat-stack.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm control-director:verify",
+      "pnpm ui:smoke:control-director-no-response",
+      "exact-SHA desktop and mobile Dashboard receipts",
+    ],
   },
   {
     id: "runtime:local-first-model-intelligence",

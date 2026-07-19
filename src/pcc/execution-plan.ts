@@ -1,3 +1,9 @@
+import {
+  consumeExecutionApprovalEnvelope,
+  evaluateExecutionApprovalEnvelope,
+  type ExecutionApprovalDecision,
+  type ExecutionApprovalEnvelope,
+} from "../agents/execution-approval-envelope.js";
 import type { PccExecutionProfile } from "./execution-profile.js";
 
 export const PCC_EXECUTION_PLAN_SCHEMA_VERSION = 1 as const;
@@ -77,6 +83,7 @@ export type PccExecutionPlan = {
   partitions: readonly PccExecutionTaskPartition[];
   leases: readonly PccExecutionWorkspaceLease[];
   proofRequirements: readonly PccExecutionProofRequirement[];
+  approvals: readonly ExecutionApprovalEnvelope[];
   createdAt: string;
   updatedAt: string;
   statusReason?: string;
@@ -165,6 +172,7 @@ export function createPccExecutionPlan(input: {
   partitions?: readonly PccExecutionTaskPartition[];
   leases?: readonly PccExecutionWorkspaceLease[];
   proofRequirements?: readonly PccExecutionProofRequirement[];
+  approvals?: readonly ExecutionApprovalEnvelope[];
   createdAt?: string;
   statusReason?: string;
 }): PccExecutionPlan {
@@ -177,6 +185,22 @@ export function createPccExecutionPlan(input: {
   }
   const createdAt = timestamp(input.createdAt, "createdAt");
   const statusReason = input.statusReason?.trim();
+  const approvals = structuredClone(input.approvals ?? []);
+  if (input.profile.codexRole !== "off") {
+    const hasMatchingApproval = approvals.some(
+      (approval) =>
+        evaluateExecutionApprovalEnvelope(approval, {
+          actorId: approval.subjectActorId,
+          action: "use_codex",
+          resource: { kind: "project", id: input.projectId },
+          useCount: 0,
+          now: Date.parse(createdAt),
+        }).allowed,
+    );
+    if (!hasMatchingApproval) {
+      throw new Error("hybrid PCC execution plans require an active project-bound Codex approval");
+    }
+  }
   return {
     schemaVersion: PCC_EXECUTION_PLAN_SCHEMA_VERSION,
     id: nonEmpty(input.id, "id"),
@@ -193,6 +217,7 @@ export function createPccExecutionPlan(input: {
     partitions: [...(input.partitions ?? [])],
     leases: [...(input.leases ?? [])],
     proofRequirements: [...(input.proofRequirements ?? [])],
+    approvals,
     createdAt,
     updatedAt: createdAt,
     ...(statusReason ? { statusReason } : {}),
@@ -203,6 +228,59 @@ export function createPccExecutionPlan(input: {
         ...(statusReason ? { reason: statusReason } : {}),
       },
     ],
+  };
+}
+
+/** Consume one use before a hybrid plan can dispatch a Codex-capable coordinator. */
+export function consumePccExecutionPlanCodexApproval(params: {
+  plan: PccExecutionPlan;
+  actorId: string;
+  now?: number;
+}): { plan: PccExecutionPlan; decision: ExecutionApprovalDecision } {
+  if (params.plan.profile.codexRole === "off") {
+    return { plan: params.plan, decision: { allowed: true, code: "approved" } };
+  }
+  const request = {
+    actorId: params.actorId,
+    action: "use_codex" as const,
+    resource: { kind: "project" as const, id: params.plan.projectId },
+    useCount: 1,
+    now: params.now ?? Date.now(),
+  };
+  const index = params.plan.approvals.findIndex(
+    (approval) => evaluateExecutionApprovalEnvelope(approval, request).allowed,
+  );
+  if (index < 0) {
+    const candidate = params.plan.approvals.find((approval) => approval.action === "use_codex");
+    const decision = candidate
+      ? evaluateExecutionApprovalEnvelope(candidate, request)
+      : ({
+          allowed: false,
+          code: "denied",
+          reason: "No project-bound Codex approval is attached to this plan.",
+        } as const);
+    return { plan: params.plan, decision };
+  }
+  const consumed = consumeExecutionApprovalEnvelope({
+    envelope: params.plan.approvals[index]!,
+    request,
+  });
+  const approvals = [...params.plan.approvals];
+  approvals[index] = consumed.envelope;
+  return {
+    decision: consumed.decision,
+    plan: {
+      ...params.plan,
+      approvals,
+      auditEvents: [
+        ...params.plan.auditEvents,
+        {
+          at: new Date(request.now).toISOString(),
+          status: params.plan.status,
+          reason: `Consumed governed Codex approval ${consumed.envelope.approvalId}.`,
+        },
+      ].slice(-MAX_AUDIT_EVENTS),
+    },
   };
 }
 

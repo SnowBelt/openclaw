@@ -8,6 +8,10 @@ import {
   validateChatHistoryParams,
   validateChatMetadataParams,
   validateChatSendParams,
+  validateChatTurnsCancelParams,
+  validateChatTurnsCreateParams,
+  validateChatTurnsListParams,
+  validateChatTurnsSetModeParams,
   validateChatEvent,
   validateCommandsListParams,
   validateConnectParams,
@@ -76,6 +80,40 @@ describe("lazy protocol validators", () => {
     expect(
       formatValidationErrors(protocol.validateSelfImprovementDashboardInterventionResult.errors),
     ).toContain("must have required");
+  });
+
+  it("validates bounded Control Director layout-obstruction observations", () => {
+    const observation = {
+      schemaVersion: 1,
+      sessionKey: "agent:director:dashboard:layout",
+      observationId: "layout-1",
+      observedAt: 1,
+      viewport: { width: 390, height: 844 },
+      transcript: {
+        visible: true,
+        rect: { top: 48, right: 390, bottom: 700, left: 0, width: 390, height: 652 },
+      },
+      composer: {
+        visible: true,
+        rect: { top: 620, right: 390, bottom: 844, left: 0, width: 390, height: 224 },
+      },
+      truthCompletionPresent: false,
+      pccProjectionPresent: false,
+      reason: "transcript_composer_overlap",
+    };
+    expect(protocol.validateControlDirectorLayoutObservationReportParams(observation)).toBe(true);
+    expect(
+      protocol.validateControlDirectorLayoutObservationReportParams({
+        ...observation,
+        reason: "arbitrary_client_prose",
+      }),
+    ).toBe(false);
+    expect(
+      protocol.validateControlDirectorLayoutObservationReportResult({
+        accepted: true,
+        signalCode: "layout_obstruction",
+      }),
+    ).toBe(true);
   });
 
   it("keeps validation errors readable on the exported validator", () => {
@@ -813,6 +851,33 @@ describe("validateChatSendParams", () => {
     ).toBe(true);
     expect(validateChatSendParams({ ...base, fastAutoOnSeconds: 2 })).toBe(true);
     expect(validateChatSendParams({ ...base, fastAutoOnSeconds: 0 })).toBe(false);
+    expect(validateChatSendParams({ ...base, turnMode: "queue" })).toBe(true);
+    expect(validateChatSendParams({ ...base, turnMode: "steer" })).toBe(true);
+    expect(validateChatSendParams({ ...base, turnMode: "later" })).toBe(false);
+  });
+});
+
+describe("durable chat turn validators", () => {
+  it("keeps create, list, mode, and cancel payloads closed and revisioned", () => {
+    expect(validateChatTurnsListParams({ sessionKey: "agent:main" })).toBe(true);
+    expect(
+      validateChatTurnsCreateParams({
+        sessionKey: "agent:main",
+        message: "continue",
+        mode: "queue",
+        idempotencyKey: "create-1",
+      }),
+    ).toBe(true);
+    const mutation = {
+      turnId: "turn-1",
+      sessionKey: "agent:main",
+      expectedRevision: 2,
+      idempotencyKey: "mutation-1",
+    };
+    expect(validateChatTurnsSetModeParams({ ...mutation, mode: "steer" })).toBe(true);
+    expect(validateChatTurnsCancelParams(mutation)).toBe(true);
+    expect(validateChatTurnsSetModeParams({ ...mutation, mode: "interrupt" })).toBe(false);
+    expect(validateChatTurnsCancelParams({ ...mutation, unexpected: true })).toBe(false);
   });
 });
 

@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildControlDirectorJudgeClaimHash } from "../../agents/control-director-contract.js";
+import { signJudgeReceipt } from "../../agents/judge-receipt-signer.js";
+import { onInternalDiagnosticEvent } from "../../infra/diagnostic-events.js";
 import {
   appendSelfImprovementAuditEvent,
   listSelfImprovementAuditEvents,
@@ -99,7 +102,11 @@ function proposal(overrides: Partial<SelfImprovementProposal> = {}): SelfImprove
   };
 }
 
-async function callSelfImprovementHandler(method: string, params: Record<string, unknown>) {
+async function callSelfImprovementHandler(
+  method: string,
+  params: Record<string, unknown>,
+  config: Record<string, unknown> = {},
+) {
   const handler = selfImprovementHandlers[method] as GatewayRequestHandler | undefined;
   if (!handler) {
     throw new Error(`missing handler ${method}`);
@@ -119,7 +126,7 @@ async function callSelfImprovementHandler(method: string, params: Record<string,
     respond: (ok, payload, error) => {
       response = { ok, payload, error };
     },
-    context: { getRuntimeConfig: () => ({}) } as never,
+    context: { getRuntimeConfig: () => config } as never,
   });
   if (!response) {
     throw new Error(`handler ${method} did not respond`);
@@ -158,6 +165,67 @@ describe("selfImprovement server methods", () => {
     const events = await listSelfImprovementAuditEvents({ stateDir: tmpDir });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: "dashboard_intervention_recorded" });
+  });
+
+  it("converts only coherent Control Director layout measurements into trusted SIG evidence", async () => {
+    const events: Array<{ errorCode?: string; observed?: string }> = [];
+    const stop = onInternalDiagnosticEvent((event, metadata) => {
+      if (
+        metadata.trusted &&
+        event.type === "improvement.signal" &&
+        event.errorCode === "layout_obstruction"
+      ) {
+        events.push(event);
+      }
+    });
+    const params = {
+      schemaVersion: 1,
+      sessionKey: "agent:director:dashboard:layout",
+      observationId: "layout-server-1",
+      observedAt: Date.now(),
+      viewport: { width: 390, height: 844 },
+      transcript: {
+        visible: true,
+        rect: { top: 48, right: 390, bottom: 700, left: 0, width: 390, height: 652 },
+      },
+      composer: {
+        visible: true,
+        rect: { top: 620, right: 390, bottom: 844, left: 0, width: 390, height: 224 },
+      },
+      truthCompletionPresent: false,
+      pccProjectionPresent: false,
+      reason: "transcript_composer_overlap",
+    };
+    const config = {
+      agents: { list: [{ id: "director", role: "control_director" }] },
+    };
+    try {
+      const accepted = await callSelfImprovementHandler(
+        "selfImprovement.controlDirector.layout.report",
+        params,
+        config,
+      );
+      expect(accepted).toMatchObject({
+        ok: true,
+        payload: { accepted: true, signalCode: "layout_obstruction" },
+      });
+      await vi.waitFor(() => expect(events).toHaveLength(1));
+      expect(events[0]).toMatchObject({
+        errorCode: "layout_obstruction",
+      });
+      expect(events[0]?.observed).toContain("transcriptBottom=700");
+
+      const rejected = await callSelfImprovementHandler(
+        "selfImprovement.controlDirector.layout.report",
+        { ...params, observationId: "layout-server-2", reason: "composer_hidden" },
+        config,
+      );
+      expect(rejected.ok).toBe(false);
+      expect(rejected.error?.message).toContain("does not match");
+      expect(events).toHaveLength(1);
+    } finally {
+      stop();
+    }
   });
 
   it("blocks proof-required recommendation resolution without proof", async () => {
@@ -219,6 +287,103 @@ describe("selfImprovement server methods", () => {
     expect(listed).toMatchObject({
       ok: true,
       payload: { total: 1, receipts: [{ recommendationId: "sir_gateway" }] },
+    });
+  });
+
+  it("fails closed and then resolves a Control Director journey with exact proof and Judge binding", async () => {
+    await upsertSelfImprovementRecommendations({
+      stateDir: tmpDir,
+      recommendations: [
+        recommendation({
+          source: {
+            kind: "workflow",
+            label: "Control Director delivery signal",
+            runId: "signal:sis_control_director_delivery",
+            signalCode: "delivery_miss",
+          },
+          outcomeProofRequired: true,
+          assignedTargetAgentId: "qa-test-agent",
+          recurrenceCount: 1,
+        }),
+      ],
+    });
+
+    const recorded = await callSelfImprovementHandler("selfImprovement.proofReceipts.record", {
+      recommendationId: "sir_gateway",
+      signalId: "sis_control_director_delivery",
+      diagnosis: "The terminal update was not delivered.",
+      action: "Repair bounded terminal delivery and observe the exact journey.",
+      metric: {
+        name: "delivery misses",
+        target: "0",
+        observed: "0",
+        passed: true,
+      },
+      observation: { startedAt: now, endedAt: now + 60_000, minimumDurationMs: 60_000 },
+      evidenceRefs: ["flow:delivery-proof"],
+    });
+    expect(recorded.ok).toBe(true);
+    const proofReceipt = (recorded.payload as { receipt: { id: string } }).receipt;
+
+    const missingClosure = await callSelfImprovementHandler(
+      "selfImprovement.recommendations.update",
+      { id: "sir_gateway", status: "resolved" },
+    );
+    expect(missingClosure.ok).toBe(false);
+    expect(missingClosure.error?.message).toContain("typed closure evidence");
+
+    const missionId = "sig:sir_gateway";
+    const requestBody = "delivery_miss must remain at or below 0 recurrences.";
+    const finalText = "Observed 0 recurrences for qa-test-agent.";
+    const evidenceSummary = `Proof receipt ${proofReceipt.id}; observation ${now}-${now + 60_000}.`;
+    const judgeReceipt = signJudgeReceipt(
+      {
+        schemaVersion: 1 as const,
+        receiptId: "judge-control-director-closure",
+        missionId,
+        claimHash: buildControlDirectorJudgeClaimHash({
+          missionId,
+          requestBody,
+          finalText,
+          evidenceSummary,
+          artifactIds: [proofReceipt.id],
+        }),
+        verdict: "APPROVE" as const,
+        scope: "exact Control Director journey closure",
+        evidenceSummary,
+        conditions: "none",
+        judgeRunId: "judge-run-control-director-closure",
+        judgeAgentId: "independent-judge",
+        issuedAt: now + 60_000,
+      },
+      { directory: path.join(tmpDir, "credentials") },
+    );
+    const resolved = await callSelfImprovementHandler("selfImprovement.recommendations.update", {
+      id: "sir_gateway",
+      status: "resolved",
+      controlDirectorClosure: {
+        signalCode: "delivery_miss",
+        owner: "qa-test-agent",
+        slaAt: now + 120_000,
+        observation: { startedAt: now, endedAt: now + 60_000, minimumDurationMs: 60_000 },
+        recurrenceCount: 0,
+        targetRecurrenceCount: 0,
+        proofReceiptId: proofReceipt.id,
+        judgeReceipt,
+      },
+    });
+
+    expect(resolved.ok).toBe(true);
+    expect(resolved.payload).toMatchObject({
+      recommendation: {
+        status: "resolved",
+        controlDirectorClosure: {
+          status: "closed",
+          signalCode: "delivery_miss",
+          proofReceiptId: proofReceipt.id,
+        },
+      },
+      controlDirectorClosure: { judgeReceiptId: "judge-control-director-closure" },
     });
   });
 

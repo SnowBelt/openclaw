@@ -61,13 +61,16 @@ import {
   buildCurrentChatGoalContinuationPrompt,
   cancelChatGoal,
   cancelChatWorkTask,
-  createAndAttachChatProject,
   createChatGoal,
   createChatSessionInProject,
   detachChatSessionFromProject,
+  editChatGoal,
   loadChatGoals,
   loadChatHistory,
   loadChatProjects,
+  pauseChatGoal,
+  resumeChatGoal,
+  retryChatGoal,
 } from "./controllers/chat.ts";
 import {
   applyConfig,
@@ -259,8 +262,9 @@ import {
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
 } from "./session-key.ts";
-import "./components/dashboard-header.ts";
 import type { SidebarContent } from "./sidebar-content.ts";
+import "./components/dashboard-header.ts";
+import { selectSidebarRecentSessions } from "./sidebar-recents.ts";
 import { loadLocalAssistantIdentity } from "./storage.ts";
 import { normalizeStringEntries } from "./string-coerce.ts";
 import { normalizeOptionalString } from "./string-coerce.ts";
@@ -610,20 +614,18 @@ function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] 
   const selectedAgentId = resolveSidebarSelectedAgentId(state);
   const shouldFilterByAgent =
     normalizeOptionalString(state.sessionKey)?.toLowerCase() !== "unknown";
-  return (state.sessionsResult?.sessions ?? [])
-    .filter(
-      (row) =>
-        !row.archived &&
-        row.kind !== "global" &&
-        row.kind !== "unknown" &&
-        row.kind !== "cron" &&
-        !isCronSessionKey(row.key) &&
-        !isSubagentSessionKey(row.key) &&
-        !row.spawnedBy &&
-        (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
-    )
-    .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-    .slice(0, 5);
+  const eligible = (state.sessionsResult?.sessions ?? []).filter(
+    (row) =>
+      !row.archived &&
+      row.kind !== "global" &&
+      row.kind !== "unknown" &&
+      row.kind !== "cron" &&
+      !isCronSessionKey(row.key) &&
+      !isSubagentSessionKey(row.key) &&
+      !row.spawnedBy &&
+      (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
+  );
+  return selectSidebarRecentSessions(eligible, state.sessionKey);
 }
 
 function renderSidebarSessions(state: AppViewState) {
@@ -708,41 +710,71 @@ function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow)
   const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
   const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
   return html`
-    <a
-      href=${href}
-      class="sidebar-recent-session ${active ? "sidebar-recent-session--active" : ""}"
-      data-session-key=${row.key}
-      title=${`${label} · ${row.key}`}
-      @click=${(event: MouseEvent) => {
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
-          return;
-        }
-        event.preventDefault();
-        if (row.key !== state.sessionKey) {
-          switchChatSession(state, row.key);
-        }
-        state.setTab("chat" as import("./navigation.ts").Tab);
-      }}
-    >
-      <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
-      <span class="sidebar-recent-session__body">
-        <span class="sidebar-recent-session__name">${label}</span>
-        <span class="sidebar-recent-session__meta">${meta}</span>
+    <div class="sidebar-recent-session-row" title=${`${label} · ${row.key}`}>
+      <a
+        href=${href}
+        class="sidebar-recent-session sidebar-recent-session__link ${active
+          ? "sidebar-recent-session--active"
+          : ""}"
+        data-session-key=${row.key}
+        aria-current=${active ? "page" : nothing}
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          if (row.key !== state.sessionKey) {
+            switchChatSession(state, row.key);
+          }
+          state.setTab("chat" as import("./navigation.ts").Tab);
+        }}
+      >
+        <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
+        <span class="sidebar-recent-session__body">
+          <span class="sidebar-recent-session__name">${label}</span>
+          <span class="sidebar-recent-session__meta">${meta}</span>
+        </span>
+        ${row.hasActiveRun
+          ? html`<span
+              class="sidebar-recent-session__live"
+              aria-label=${t("sessions.sessionDetails.activeRun")}
+            ></span>`
+          : nothing}
+      </a>
+      <span class="sidebar-recent-session__actions">
+        <button
+          type="button"
+          class="sidebar-recent-session__action"
+          title=${row.pinned ? "Unpin chat" : "Pin chat"}
+          aria-label=${row.pinned ? `Unpin ${label}` : `Pin ${label}`}
+          @click=${() => void patchSession(state, row.key, { pinned: !row.pinned })}
+        >
+          ${row.pinned ? icons.pinOff : icons.pin}
+        </button>
+        <button
+          type="button"
+          class="sidebar-recent-session__action"
+          title="Rename chat"
+          aria-label=${`Rename ${label}`}
+          @click=${() => {
+            const next = window.prompt("Rename chat", label);
+            if (next === null) {
+              return;
+            }
+            void patchSession(state, row.key, { label: next.trim() || null });
+          }}
+        >
+          ${icons.edit}
+        </button>
       </span>
-      ${row.hasActiveRun
-        ? html`<span
-            class="sidebar-recent-session__live"
-            aria-label=${t("sessions.sessionDetails.activeRun")}
-          ></span>`
-        : nothing}
-    </a>
+    </div>
   `;
 }
 
@@ -2930,6 +2962,9 @@ export function renderApp(state: AppViewState) {
                 runtimeIdentity: state.pccRuntimeIdentity,
                 updateSafety: state.pccUpdateSafety,
                 executionCapacity: state.pccExecutionCapacity,
+                executionProjection: state.pccExecutionProjection,
+                executionProjectionLoading: state.pccExecutionProjectionLoading,
+                executionProjectionError: state.pccExecutionProjectionError,
                 onRefreshModelCatalog: () => {
                   if (!state.client) {
                     return;
@@ -4733,14 +4768,12 @@ export function renderApp(state: AppViewState) {
                   goalError: state.chatGoalError,
                   goalDraft: state.chatGoalDraft,
                   goalPanelOpen: state.chatGoalPanelOpen,
+                  executionState: state.chatExecutionState,
                   projectsList: state.projectsList,
                   projectsLoading: state.projectsLoading,
                   projectPickerOpen: state.chatProjectPickerOpen,
                   projectBusy: state.chatProjectBusy,
                   projectError: state.chatProjectError,
-                  projectCreateName: state.chatProjectCreateName,
-                  projectCreateDescription: state.chatProjectCreateDescription,
-                  projectCreateInstructions: state.chatProjectCreateInstructions,
                   execApprovalQueue: state.execApprovalQueue,
                   execApprovalBusy: state.execApprovalBusy,
                   execApprovalError: state.execApprovalError,
@@ -4795,7 +4828,8 @@ export function renderApp(state: AppViewState) {
                   onSlashIntent: () => refreshChatCommands(state).finally(requestHostUpdate),
                   attachments: state.chatAttachments,
                   onAttachmentsChange: (next) => (state.chatAttachments = next),
-                  onSend: () => void state.handleSendChat(),
+                  onSend: (mode) =>
+                    void state.handleSendChat(undefined, mode ? { turnMode: mode } : undefined),
                   onCompact: () => void state.handleSendChat("/compact", { restoreDraft: true }),
                   onOpenSessionCheckpoints: () => {
                     state.sessionsExpandedCheckpointKey = state.sessionKey;
@@ -4822,6 +4856,14 @@ export function renderApp(state: AppViewState) {
                   onGoalPanelToggle: (open) => {
                     state.chatGoalPanelOpen = open;
                     if (open) {
+                      const currentGoal = state.chatGoalFlows?.find((flow) =>
+                        ["queued", "running", "paused", "waiting", "blocked", "failed"].includes(
+                          flow.status,
+                        ),
+                      );
+                      if (!state.chatGoalDraft?.trim() && currentGoal?.goal) {
+                        state.chatGoalDraft = currentGoal.goal;
+                      }
                       void loadChatGoals(state);
                     }
                   },
@@ -4847,12 +4889,24 @@ export function renderApp(state: AppViewState) {
                     await state.handleSendChat(prompt, { flowId });
                     await loadChatGoals(state);
                   },
-                  onGoalCancel: async (flowId) => {
-                    await cancelChatGoal(state, flowId);
+                  onGoalPause: async (flowId) => {
+                    await pauseChatGoal(state, flowId);
                     requestHostUpdate?.();
                   },
-                  onBlockedRetryDraft: (prompt) => {
-                    state.chatMessage = prompt;
+                  onGoalResume: async (flowId) => {
+                    await resumeChatGoal(state, flowId);
+                    requestHostUpdate?.();
+                  },
+                  onGoalRetry: async (flowId) => {
+                    await retryChatGoal(state, flowId);
+                    requestHostUpdate?.();
+                  },
+                  onGoalEdit: async (flowId, goal) => {
+                    await editChatGoal(state, flowId, goal);
+                    requestHostUpdate?.();
+                  },
+                  onGoalCancel: async (flowId) => {
+                    await cancelChatGoal(state, flowId);
                     requestHostUpdate?.();
                   },
                   onGoalRefresh: () => loadChatGoals(state),
@@ -4861,25 +4915,6 @@ export function renderApp(state: AppViewState) {
                     if (open) {
                       void loadChatProjects(state);
                     }
-                  },
-                  onProjectCreateFieldChange: (field, value) => {
-                    if (field === "name") {
-                      state.chatProjectCreateName = value;
-                    } else if (field === "description") {
-                      state.chatProjectCreateDescription = value;
-                    } else {
-                      state.chatProjectCreateInstructions = value;
-                    }
-                  },
-                  onProjectCreateAndAttach: async () => {
-                    const projectId = await createAndAttachChatProject(state);
-                    if (!projectId) {
-                      return;
-                    }
-                    await loadSessions(state, {
-                      ...createChatSessionsLoadOverrides(state),
-                      ...scopedAgentListParamsForSession(state, state.sessionKey),
-                    });
                   },
                   onProjectAttach: async (projectId) => {
                     const attached = await attachChatSessionToProject(state, projectId);
@@ -4913,6 +4948,13 @@ export function renderApp(state: AppViewState) {
                     switchChatSession(state, nextKey);
                   },
                   onProjectRefresh: () => loadChatProjects(state),
+                  onOpenPcc: (projectId) => {
+                    if (projectId) {
+                      state.pccSelectedProjectId = projectId;
+                    }
+                    state.chatProjectPickerOpen = false;
+                    state.setTab("pcc" as import("./navigation.ts").Tab);
+                  },
                   onExecApprovalDecision: (decision) => state.handleExecApprovalDecision(decision),
                   onDismissSideResult: () => {
                     state.chatSideResult = null;

@@ -79,6 +79,8 @@ git -C "$candidate" diff --check || fail merge_whitespace
 pnpm -C "$candidate" install --frozen-lockfile || fail install
 pnpm -C "$candidate" deps:shrinkwrap:generate || fail shrinkwrap_generate
 git -C "$candidate" diff --quiet || fail generated_drift
+sha=$(git -C "$candidate" rev-parse HEAD)
+pnpm -C "$candidate" control-director:verify -- --expected-sha "$sha" || fail control_director_verify
 pnpm -C "$candidate" check || fail check
 pnpm -C "$candidate" ui:build || fail ui_build
 pnpm -C "$candidate" build || fail build
@@ -110,7 +112,6 @@ pnpm -C "$candidate" test \
   || fail custom_surface_tests
 pnpm -C "$candidate" ui:smoke:dashboard --artifact-profile release \
   --artifact-root "$candidate/.artifacts/custom-runtime-update" || fail dashboard_smoke
-sha=$(git -C "$candidate" rev-parse HEAD)
 short_sha=$(printf '%s' "$sha" | cut -c1-8)
 release="$releases/$stamp-$short_sha"
 [ ! -e "$release" ] || fail release_exists

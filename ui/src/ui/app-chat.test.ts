@@ -2378,6 +2378,158 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("queued while busy");
   });
 
+  it("persists busy sends on the Gateway and switches queue to steer by revision", async () => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      const payload = requireRecord(params, `${method} payload`);
+      if (method === "chat.turns.create") {
+        expect(payload).toMatchObject({
+          sessionKey: "agent:main",
+          message: "change the active work",
+          mode: "queue",
+        });
+        return {
+          turn: {
+            id: "turn-1",
+            sessionKey: "agent:main",
+            revision: 1,
+            mode: "queue",
+            phase: "pending",
+            message: "change the active work",
+            attachmentCount: 0,
+            admissionOpen: true,
+            runId: "dispatch-1",
+            activitySummary: "Message acknowledged.",
+            lastActivityAt: 100,
+            createdAt: 100,
+            updatedAt: 100,
+          },
+        };
+      }
+      if (method === "chat.turns.setMode") {
+        expect(payload).toMatchObject({
+          turnId: "turn-1",
+          sessionKey: "agent:main",
+          expectedRevision: 1,
+          mode: "steer",
+        });
+        return {
+          found: true,
+          applied: true,
+          turn: {
+            id: "turn-1",
+            sessionKey: "agent:main",
+            revision: 2,
+            mode: "steer",
+            phase: "pending",
+            message: "change the active work",
+            attachmentCount: 0,
+            admissionOpen: true,
+            runId: "dispatch-1",
+            activitySummary: "Steer acknowledged.",
+            lastActivityAt: 110,
+            createdAt: 100,
+            updatedAt: 110,
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "change the active work",
+      chatRunId: "active-1",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.setMode", "chat.turns.list"],
+        },
+      },
+    });
+
+    await handleSendChat(host);
+
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        id: "turn-1",
+        serverTurnId: "turn-1",
+        serverRevision: 1,
+        serverAdmissionOpen: true,
+        kind: "queued",
+      }),
+    ]);
+
+    await steerQueuedChatMessage(host, "turn-1");
+
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        id: "turn-1",
+        serverRevision: 2,
+        kind: "steered",
+      }),
+    ]);
+  });
+
+  it("persists an idle normal send before dispatch instead of bypassing the server inbox", async () => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method !== "chat.turns.create") {
+        throw new Error(`Unexpected request: ${method}`);
+      }
+      const payload = requireRecord(params, "chat.turns.create payload");
+      expect(payload).toMatchObject({
+        sessionKey: "agent:main",
+        message: "acknowledge this immediately",
+        mode: "queue",
+      });
+      return {
+        turn: {
+          id: "turn-idle-1",
+          sessionKey: "agent:main",
+          revision: 1,
+          mode: "queue",
+          phase: "pending",
+          message: "acknowledge this immediately",
+          attachmentCount: 0,
+          admissionOpen: true,
+          runId: "dispatch-idle-1",
+          activitySummary: "Message acknowledged.",
+          lastActivityAt: 100,
+          createdAt: 100,
+          updatedAt: 100,
+        },
+      };
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "acknowledge this immediately",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    await handleSendChat(host);
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("chat.turns.create", expect.any(Object));
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        id: "turn-idle-1",
+        serverTurnId: "turn-idle-1",
+        serverPhase: "pending",
+        serverActivitySummary: "Message acknowledged.",
+      }),
+    ]);
+    expect(host.chatMessages).toStrictEqual([]);
+  });
+
   it("coalesces duplicate in-flight chat submits before the gateway acknowledges them", async () => {
     const sent = createDeferred<unknown>();
     const request = vi.fn((method: string) => {

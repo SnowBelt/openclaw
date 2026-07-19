@@ -58,6 +58,8 @@ import {
 } from "./src/embedding-provider.js";
 import { ollamaMediaUnderstandingProvider } from "./src/media-understanding-provider.js";
 import { ollamaMemoryEmbeddingProviderAdapter } from "./src/memory-embedding-adapter.js";
+import { probeOllamaModelResidency } from "./src/model-residency.js";
+import { warmOllamaModel } from "./src/model-warmup.js";
 import {
   createOllamaNodeHostCommands,
   createOllamaNodeInferenceTool,
@@ -671,6 +673,8 @@ export default definePluginEntry({
           ),
         });
       },
+      probeModelResidency: probeOllamaModelResidency,
+      warmModel: warmOllamaModel,
       ...OPENAI_COMPATIBLE_REPLAY_HOOKS,
       buildReplayPolicy: (ctx) =>
         ctx.modelApi === "ollama"

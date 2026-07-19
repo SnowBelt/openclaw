@@ -97,6 +97,13 @@ export type ProviderPrepareExtraParamsContext =
   import("../plugins/types.js").ProviderPrepareExtraParamsContext;
 export type ProviderPrepareRuntimeAuthContext =
   import("../plugins/types.js").ProviderPrepareRuntimeAuthContext;
+export type ProviderModelResidencyContext =
+  import("../plugins/types.js").ProviderModelResidencyContext;
+export type ProviderModelResidencySnapshot =
+  import("../plugins/types.js").ProviderModelResidencySnapshot;
+export type ProviderResidentModel = import("../plugins/types.js").ProviderResidentModel;
+export type ProviderModelWarmupContext = import("../plugins/types.js").ProviderModelWarmupContext;
+export type ProviderModelWarmupResult = import("../plugins/types.js").ProviderModelWarmupResult;
 export type ProviderPreparedRuntimeAuth = import("../plugins/types.js").ProviderPreparedRuntimeAuth;
 export type ProviderReasoningOutputMode = import("../plugins/types.js").ProviderReasoningOutputMode;
 export type ProviderReasoningOutputModeContext =

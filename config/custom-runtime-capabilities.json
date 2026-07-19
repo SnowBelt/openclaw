@@ -83,7 +83,41 @@
     {
       "id": "runtime:control-director-truth-gates",
       "kind": "runtime",
-      "requiredPaths": ["src/agents/control-director-delivery-guards.ts"]
+      "requiredPaths": [
+        "src/agents/control-director-delivery-guards.ts",
+        "src/agents/control-director-activity-watchdog.ts",
+        "src/agents/agent-role-capabilities.ts",
+        "src/agents/control-director-memory-runtime.ts",
+        "src/agents/control-director-model-warmup.ts",
+        "src/agents/control-director-resource-admission.ts",
+        "src/agents/control-director-resource-runtime.ts",
+        "src/agents/independent-judge-service.ts",
+        "extensions/ollama/src/model-residency.ts",
+        "extensions/ollama/src/model-warmup.ts",
+        "src/tasks/durable-worker-mailbox.ts",
+        "src/tasks/execution-event.ts",
+        "src/tasks/pursue-goal-controller.ts",
+        "src/gateway/chat-turn-inbox-state.ts",
+        "src/self-improvement/control-director-layout-observation.ts",
+        "scripts/control-director-format-check.mjs",
+        "scripts/control-director-eval.ts",
+        "scripts/control-director-readiness.mjs",
+        "scripts/control-director-runtime-proof.ts",
+        "scripts/control-director-verify.mjs"
+      ]
+    },
+    {
+      "id": "runtime:control-director-codex-chat",
+      "kind": "runtime",
+      "requiredPaths": [
+        "ui/src/ui/views/chat.ts",
+        "ui/src/ui/chat/run-controls.ts",
+        "ui/src/ui/chat/layout-health.ts",
+        "ui/src/ui/sidebar-recents.ts",
+        "src/gateway/server-methods/chat-turns.ts",
+        "scripts/dev/control-ui-control-director-no-response-smoke.ts",
+        "docs/concepts/control-director.md"
+      ]
     },
     {
       "id": "runtime:local-first-model-intelligence",

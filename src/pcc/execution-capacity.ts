@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 
 export type PccMemoryPressure = "low" | "medium" | "high";
+export type PccThermalPressure = "nominal" | "fair" | "serious" | "critical" | "unknown";
 export type PccExecutionCapacityPolicy = "automatic" | "conservative" | "maximum_safe";
 
 /** Serializable host facts. Callers may supply these to make capacity decisions deterministic. */
@@ -10,6 +12,7 @@ export type PccExecutionCapacityHostValues = {
   totalMemoryBytes: number;
   freeMemoryBytes: number;
   loadAverage: readonly [number, number, number];
+  thermalPressure?: PccThermalPressure;
   timestamp?: string;
 };
 
@@ -30,12 +33,21 @@ export type PccExecutionCapacitySnapshot = {
   load5: number;
   load15: number;
   memoryPressure: PccMemoryPressure;
+  thermalPressure: PccThermalPressure;
   activeOpenClawTaskCount: number;
   configuredSubagentLimit: number;
   observedLocalModelProcessCount: number;
   safeLocalAgentSlots: number;
   timestamp: string;
   warnings: string[];
+  controlDirectorAdmission?: {
+    decision: "admit" | "unload_idle_then_admit" | "queue";
+    reason: string;
+    selectedModel: string;
+    residency?: "already_resident" | "load";
+    unloadModels?: string[];
+    retryWhen?: "capacity" | "memory" | "thermal" | "active_model";
+  };
 };
 
 export type PccExecutionCapacityRecommendation = {
@@ -46,6 +58,8 @@ export type PccExecutionCapacityRecommendation = {
 
 const GIB = 1024 ** 3;
 const MAX_SLOTS = 12;
+const THERMAL_CACHE_MS = 30_000;
+let cachedThermal: { value: PccThermalPressure; expiresAt: number } | undefined;
 
 function finiteNonNegative(value: number | undefined | null): number {
   return Number.isFinite(value) && value != null ? Math.max(0, value) : 0;
@@ -80,6 +94,66 @@ function resolveMemoryPressure(
   return "low";
 }
 
+/** Parse macOS `pmset -g therm` without treating missing telemetry as nominal. */
+export function parseMacOsThermalPressure(output: string): PccThermalPressure {
+  const normalized = output.trim().toLowerCase();
+  if (!normalized) {
+    return "unknown";
+  }
+  if (/no thermal warning level has been recorded/u.test(normalized)) {
+    return "nominal";
+  }
+  const limits = [...output.matchAll(/CPU_(?:Scheduler|Speed)_Limit\s*=\s*(\d+)/giu)].map((match) =>
+    Number(match[1]),
+  );
+  if (limits.length === 0) {
+    return "unknown";
+  }
+  const lowest = Math.min(...limits.filter(Number.isFinite));
+  if (lowest < 50) {
+    return "critical";
+  }
+  if (lowest < 75) {
+    return "serious";
+  }
+  if (lowest < 100) {
+    return "fair";
+  }
+  return "nominal";
+}
+
+function runtimeThermalPressure(now = Date.now()): PccThermalPressure {
+  const configured = process.env.OPENCLAW_THERMAL_PRESSURE?.trim().toLowerCase();
+  if (
+    configured === "nominal" ||
+    configured === "fair" ||
+    configured === "serious" ||
+    configured === "critical" ||
+    configured === "unknown"
+  ) {
+    return configured;
+  }
+  if (cachedThermal && cachedThermal.expiresAt > now) {
+    return cachedThermal.value;
+  }
+  let value: PccThermalPressure = "unknown";
+  if (process.platform === "darwin") {
+    try {
+      value = parseMacOsThermalPressure(
+        execFileSync("pmset", ["-g", "therm"], {
+          encoding: "utf8",
+          timeout: 750,
+          stdio: ["ignore", "pipe", "ignore"],
+        }),
+      );
+    } catch {
+      value = "unknown";
+    }
+  }
+  cachedThermal = { value, expiresAt: now + THERMAL_CACHE_MS };
+  return value;
+}
+
 /**
  * Creates a conservative local-agent capacity snapshot from supplied host facts.
  * Unified memory is treated only as RAM: this helper intentionally never estimates VRAM.
@@ -103,6 +177,7 @@ export function buildPccExecutionCapacitySnapshot(
   const configuredSubagentLimit = wholeNonNegative(input.configuredSubagentLimit);
   const observedLocalModelProcessCount = wholeNonNegative(input.observedLocalModelProcessCount);
   const memoryPressure = resolveMemoryPressure(totalMemoryBytes, freeMemoryBytes);
+  const thermalPressure = input.host.thermalPressure ?? "unknown";
   const warnings: string[] = [];
 
   if (input.host.performanceCpuCount == null) {
@@ -152,6 +227,21 @@ export function buildPccExecutionCapacitySnapshot(
     warnings.push("Free RAM is limited; limiting local agent capacity.");
   }
 
+  if (thermalPressure === "critical") {
+    hostCapacity = 0;
+    warnings.push("Host thermal pressure is critical; new local agent work is paused.");
+  } else if (thermalPressure === "serious") {
+    hostCapacity = Math.min(hostCapacity, 1);
+    warnings.push("Host thermal pressure is serious; local agent capacity is limited to one.");
+  } else if (thermalPressure === "fair") {
+    hostCapacity = Math.min(hostCapacity, 2);
+    warnings.push("Host thermal pressure is elevated; local agent capacity is limited.");
+  } else if (thermalPressure === "unknown") {
+    warnings.push(
+      "Host thermal pressure is unavailable; CPU and RAM limits remain fail-safe guards.",
+    );
+  }
+
   const occupiedSlots = activeOpenClawTaskCount + observedLocalModelProcessCount;
   const safeLocalAgentSlots = boundedSlots(hostCapacity - occupiedSlots);
   if (occupiedSlots > 0) {
@@ -170,6 +260,7 @@ export function buildPccExecutionCapacitySnapshot(
     load5,
     load15,
     memoryPressure,
+    thermalPressure,
     activeOpenClawTaskCount,
     configuredSubagentLimit,
     observedLocalModelProcessCount,
@@ -198,28 +289,42 @@ export function recommendPccExecutionCapacity(
   if (snapshot.memoryPressure !== "low") {
     rationale.push("Memory pressure is constraining the recommendation.");
   }
+  if (snapshot.thermalPressure !== "nominal") {
+    rationale.push(`Thermal pressure is ${snapshot.thermalPressure}.`);
+  }
   return { policy, slots, rationale };
 }
 
 /** Collects the only runtime host facts needed for a serializable PCC capacity snapshot. */
 export function collectPccExecutionCapacitySnapshot(
-  input: Omit<PccExecutionCapacityInput, "host">,
+  input: Omit<PccExecutionCapacityInput, "host"> & {
+    localModelObservationAvailable?: boolean;
+  },
 ): PccExecutionCapacitySnapshot {
+  const { localModelObservationAvailable, ...capacityInput } = input;
   const snapshot = buildPccExecutionCapacitySnapshot({
-    ...input,
+    ...capacityInput,
     host: {
       logicalCpuCount: os.cpus().length,
       performanceCpuCount: null,
       totalMemoryBytes: os.totalmem(),
       freeMemoryBytes: os.freemem(),
       loadAverage: os.loadavg() as [number, number, number],
+      thermalPressure: runtimeThermalPressure(),
     },
   });
   return {
     ...snapshot,
-    warnings: [
-      ...snapshot.warnings,
-      "External local-model process occupancy is unavailable; this is a CPU/RAM safety ceiling, not a throughput guarantee.",
-    ],
+    warnings:
+      localModelObservationAvailable === true
+        ? snapshot.warnings
+        : [
+            ...snapshot.warnings,
+            "External local-model process occupancy is unavailable; this is a CPU/RAM safety ceiling, not a throughput guarantee.",
+          ],
   };
+}
+
+export function resetPccThermalPressureCacheForTests(): void {
+  cachedThermal = undefined;
 }

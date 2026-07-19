@@ -12,6 +12,7 @@ import {
   resolveMobileProofDecision,
   extractControlDirectorSmokeHistoryMessages,
   validateSessionDiagnostics,
+  validateControlDirectorChatLayout,
   validateVisibleBlockedText,
 } from "../../scripts/dev/control-ui-control-director-no-response-smoke.ts";
 
@@ -85,6 +86,32 @@ iPad unavailable (17.5) (0000)`),
         "Status: continuing",
         "no unsupported delivered Status: complete",
       ]),
+    });
+  });
+
+  it("requires an unobstructed compact Chat layout on every browser proof", () => {
+    const valid = {
+      transcriptVisible: true,
+      composerVisible: true,
+      commandRailVisible: true,
+      pursueGoalCompact: true,
+      transcriptComposerNonOverlapping: true,
+      composerInsideViewport: true,
+      truthCompletionAbsentFromChat: true,
+      pccProjectionAbsentFromChat: true,
+      commandRailHeight: 42,
+    };
+    expect(validateControlDirectorChatLayout(valid)).toEqual({ ok: true, missing: [] });
+    expect(
+      validateControlDirectorChatLayout({
+        ...valid,
+        composerVisible: false,
+        truthCompletionAbsentFromChat: false,
+        commandRailHeight: 240,
+      }),
+    ).toEqual({
+      ok: false,
+      missing: ["composerVisible", "truthCompletionAbsentFromChat", "commandRailCompact"],
     });
   });
 

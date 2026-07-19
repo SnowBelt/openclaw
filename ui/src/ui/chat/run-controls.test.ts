@@ -134,7 +134,11 @@ describe("chat run controls", () => {
     expect(queueButton.disabled).toBe(false);
     queueButton.click();
     expect(onStoreDraft).toHaveBeenCalledWith(" follow up ");
-    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("queue");
+
+    const steerButton = getButton(container, 'button[title="Steer the active run"]');
+    steerButton.click();
+    expect(onSend).toHaveBeenCalledWith("steer");
   });
 
   it("keeps Stop clickable while disconnected when a run is abortable", () => {

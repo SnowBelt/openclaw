@@ -31,6 +31,23 @@ afterEach(() => {
 });
 
 describe("Control Director delivery truth evidence ingestion", () => {
+  it("leaves ordinary conversation proportional instead of appending project report fields", async () => {
+    const text = "Yes. Codex should be an escalation lane, not the default for every turn.";
+    const result = await applyControlDirectorDeliveryGuards({
+      agentId: "main",
+      controlDirectorScope: true,
+      payloads: [{ text }],
+      finalAssistantVisibleText: text,
+      sessionId: "session-conversation",
+      requestBody: "Should the Control Director default to Codex?",
+      queueContinuation: false,
+    });
+
+    expect(result.payloads).toEqual([{ text }]);
+    expect(result.guardActions).toEqual([]);
+    expect(result.responseMode).toBe("answer");
+  });
+
   it("allows supported verification claims from session command evidence", async () => {
     const text = [
       "Verified state: targeted tests passed.",
@@ -48,6 +65,7 @@ describe("Control Director delivery truth evidence ingestion", () => {
 
     const result = await applyControlDirectorDeliveryGuards({
       agentId: "main",
+      controlDirectorScope: true,
       payloads: [{ text }],
       finalAssistantVisibleText: text,
       sessionId: "session-1",
