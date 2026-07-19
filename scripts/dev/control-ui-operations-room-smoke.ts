@@ -214,8 +214,8 @@ async function main(): Promise<void> {
   const artifactDir = join(".artifacts", "control-ui-operations-room-smoke", stamp());
   mkdirSync(artifactDir, { recursive: true });
   const css = readFileSync("ui/src/styles/operations.css", "utf8");
-  if (!css.includes("@media (max-width: 560px)") || !css.includes("min-height: 44px")) {
-    throw new Error("Operations Room responsive/touch CSS contract is missing");
+  if (!css.includes("@media (max-width: 560px)")) {
+    throw new Error("Operations Room responsive CSS contract is missing");
   }
 
   const dom = new JSDOM(`<!doctype html><main id="root"></main>`, {
@@ -233,6 +233,28 @@ async function main(): Promise<void> {
   (globalThis as { Node?: unknown }).Node = dom.window.Node;
 
   try {
+    const style = dom.window.document.createElement("style");
+    style.textContent = css;
+    dom.window.document.head.append(style);
+    const rules = Array.from(style.sheet?.cssRules ?? []).filter(
+      (rule): rule is CSSStyleRule => "selectorText" in rule,
+    );
+    for (const selector of [
+      ".operations-hero__actions .btn",
+      ".operations-row-actions .btn",
+      ".operations-list__aside .btn",
+    ]) {
+      const rule = rules.find((entry) =>
+        entry.selectorText
+          .split(",")
+          .map((value) => value.trim())
+          .includes(selector),
+      );
+      if (rule?.style.minHeight !== "44px" || rule.style.minWidth !== "44px") {
+        throw new Error(`Operations Room touch target contract failed: ${selector}`);
+      }
+    }
+
     const { render } = await import("lit");
     const { tabFromPath, pathForTab } = await import("../../ui/src/ui/navigation.ts");
     const { renderOperations } = await import("../../ui/src/ui/views/operations.ts");
