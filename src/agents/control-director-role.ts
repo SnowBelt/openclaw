@@ -12,7 +12,8 @@ export const CONTROL_DIRECTOR_DEFAULT_MODEL =
   `${CONTROL_DIRECTOR_DEFAULT_PROVIDER}/${CONTROL_DIRECTOR_DEFAULT_MODEL_ID}` as const;
 export const CONTROL_DIRECTOR_DEFAULT_DISPLAY_LABEL =
   "OpenClaw Control Gemma 4 31B IT Dense Q8" as const;
-export const CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG = "gemma4:31b-it-q8_0" as const;
+export const CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG =
+  "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0" as const;
 
 export type ControlDirectorConfiguredAgent = Pick<
   AgentConfig,

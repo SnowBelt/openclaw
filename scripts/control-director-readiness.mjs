@@ -135,6 +135,22 @@ export function parseOllamaList(output) {
   return models;
 }
 
+/**
+ * Ollama model-list IDs identify the complete manifest, so a tuned alias and
+ * its base model legitimately have different IDs. The generated Modelfile
+ * names the immutable model blobs and is the correct local lineage boundary.
+ */
+export function parseOllamaModelfileBaseDigests(output) {
+  return [
+    ...new Set(
+      String(output ?? "")
+        .split(/\r?\n/u)
+        .map((line) => line.match(/^FROM\s+.*\/sha256-([a-f0-9]{64})\s*$/iu)?.[1]?.toLowerCase())
+        .filter(Boolean),
+    ),
+  ].toSorted();
+}
+
 function source(relativePath) {
   return fs.readFileSync(path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, relativePath), "utf8");
 }
@@ -372,7 +388,7 @@ export function buildControlDirectorReadinessScorecard(params) {
       registry.defaultModel === CONTROL_DIRECTOR_DEFAULT_MODEL &&
         CONTROL_DIRECTOR_DEFAULT_ALIAS === "openclaw-control-gemma4-31b-q8" &&
         CONTROL_DIRECTOR_DEFAULT_MODEL_ID === "openclaw-control-gemma4-31b-q8:latest" &&
-        CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG === "gemma4:31b-it-q8_0",
+        CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG === "hf.co/unsloth/gemma-4-31B-it-GGUF:Q8_0",
     ),
   );
   facts.push(
@@ -468,11 +484,20 @@ export function buildControlDirectorReadinessScorecard(params) {
   );
   const alias = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID);
   const underlying = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG);
+  const aliasBaseDigests = params.ollamaModelBases?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID) ?? [];
+  const underlyingBaseDigests =
+    params.ollamaModelBases?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG) ?? [];
   facts.push(
     fact(
       "runtime-model-digest",
-      "Gemma control alias exists and matches the underlying Q8 model digest",
-      Boolean(alias?.digest && underlying?.digest && alias.digest === underlying.digest),
+      "Gemma control alias exists and matches the immutable underlying Q8 model blobs",
+      Boolean(
+        alias?.digest &&
+        underlying?.digest &&
+        aliasBaseDigests.length > 0 &&
+        aliasBaseDigests.length === underlyingBaseDigests.length &&
+        aliasBaseDigests.every((digest, index) => digest === underlyingBaseDigests[index]),
+      ),
       runtimeSurface,
     ),
   );
@@ -667,6 +692,7 @@ async function main() {
   const gates = readJson(args.gateProofPath);
   const runtimeProof = args.runtimeProofPath ? readJson(args.runtimeProofPath) : undefined;
   let ollamaModels = new Map();
+  let ollamaModelBases = new Map();
   let ollamaEnv = {};
   let ollamaChatSmoke = { ok: false, detail: "source-only mode" };
   if (!args.sourceOnly) {
@@ -675,6 +701,14 @@ async function main() {
     }
     const list = run("ollama", ["list"]);
     ollamaModels = list.ok ? parseOllamaList(list.stdout) : new Map();
+    ollamaModelBases = new Map(
+      [CONTROL_DIRECTOR_DEFAULT_MODEL_ID, CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG].map(
+        (modelId) => {
+          const shown = run("ollama", ["show", modelId, "--modelfile"]);
+          return [modelId, shown.ok ? parseOllamaModelfileBaseDigests(shown.stdout) : []];
+        },
+      ),
+    );
     ollamaEnv = readOllamaEnvironment();
     ollamaChatSmoke = await runOllamaChatSmoke(resolveOllamaBaseUrl(config));
   }
@@ -685,6 +719,7 @@ async function main() {
     gates,
     runtimeProof,
     ollamaModels,
+    ollamaModelBases,
     ollamaEnv,
     ollamaChatSmoke,
     sourceOnly: args.sourceOnly,
