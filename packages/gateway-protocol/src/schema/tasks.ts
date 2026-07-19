@@ -143,24 +143,22 @@ export const TaskFlowSummarySchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const TaskFlowDetailSchema = Type.Intersect([
-  TaskFlowSummarySchema,
-  Type.Object(
-    {
-      tasks: Type.Array(TaskSummarySchema),
-      taskSummary: Type.Object(
-        {
-          total: Type.Integer({ minimum: 0 }),
-          active: Type.Integer({ minimum: 0 }),
-          terminal: Type.Integer({ minimum: 0 }),
-          failures: Type.Integer({ minimum: 0 }),
-        },
-        { additionalProperties: false },
-      ),
-    },
-    { additionalProperties: false },
-  ),
-]);
+export const TaskFlowDetailSchema = Type.Object(
+  {
+    ...TaskFlowSummarySchema.properties,
+    tasks: Type.Array(TaskSummarySchema),
+    taskSummary: Type.Object(
+      {
+        total: Type.Integer({ minimum: 0 }),
+        active: Type.Integer({ minimum: 0 }),
+        terminal: Type.Integer({ minimum: 0 }),
+        failures: Type.Integer({ minimum: 0 }),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
 
 export const TaskFlowsListParamsSchema = Type.Object(
   {

@@ -60,12 +60,21 @@ public enum SessionFileRelevance: String, Codable, Sendable {
 public enum TaskFlowStatus: String, Codable, Sendable {
     case queued = "queued"
     case running = "running"
+    case paused = "paused"
     case waiting = "waiting"
     case blocked = "blocked"
     case succeeded = "succeeded"
     case failed = "failed"
     case cancelled = "cancelled"
     case lost = "lost"
+}
+
+public enum TaskFlowControlAction: String, Codable, Sendable {
+    case pause = "pause"
+    case resume = "resume"
+    case retry = "retry"
+    case stop = "stop"
+    case edit = "edit"
 }
 
 public enum PccStatus: String, Codable, Sendable {
@@ -153,6 +162,25 @@ public enum PccEvidenceStatus: String, Codable, Sendable {
     case failed = "failed"
     case blocked = "blocked"
     case notApplicable = "not_applicable"
+}
+
+public enum OperationsStatus: String, Codable, Sendable {
+    case healthy = "healthy"
+    case working = "working"
+    case idle = "idle"
+    case degraded = "degraded"
+    case blocked = "blocked"
+    case failed = "failed"
+    case disabled = "disabled"
+    case unknown = "unknown"
+}
+
+public enum OperationsActionKind: String, Codable, Sendable {
+    case cronRun = "cron.run"
+    case cronEnable = "cron.enable"
+    case cronDisable = "cron.disable"
+    case taskCancel = "task.cancel"
+    case flowCancel = "flow.cancel"
 }
 
 public struct SelfImprovementRecommendation: Codable, Sendable {
@@ -5307,6 +5335,80 @@ public struct TaskFlowSummary: Codable, Sendable {
     }
 }
 
+public struct TaskFlowDetail: Codable, Sendable {
+    public let id: String
+    public let flowid: String
+    public let ownerkey: String
+    public let requesterorigin: AnyCodable?
+    public let status: TaskFlowStatus
+    public let notifypolicy: AnyCodable
+    public let goal: String
+    public let currentstep: String?
+    public let blockedtaskid: String?
+    public let blockedsummary: String?
+    public let cancelrequestedat: AnyCodable?
+    public let createdat: AnyCodable
+    public let updatedat: AnyCodable
+    public let endedat: AnyCodable?
+    public let tasks: [TaskSummary]
+    public let tasksummary: [String: AnyCodable]
+
+    public init(
+        id: String,
+        flowid: String,
+        ownerkey: String,
+        requesterorigin: AnyCodable?,
+        status: TaskFlowStatus,
+        notifypolicy: AnyCodable,
+        goal: String,
+        currentstep: String?,
+        blockedtaskid: String?,
+        blockedsummary: String?,
+        cancelrequestedat: AnyCodable?,
+        createdat: AnyCodable,
+        updatedat: AnyCodable,
+        endedat: AnyCodable?,
+        tasks: [TaskSummary],
+        tasksummary: [String: AnyCodable])
+    {
+        self.id = id
+        self.flowid = flowid
+        self.ownerkey = ownerkey
+        self.requesterorigin = requesterorigin
+        self.status = status
+        self.notifypolicy = notifypolicy
+        self.goal = goal
+        self.currentstep = currentstep
+        self.blockedtaskid = blockedtaskid
+        self.blockedsummary = blockedsummary
+        self.cancelrequestedat = cancelrequestedat
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.endedat = endedat
+        self.tasks = tasks
+        self.tasksummary = tasksummary
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case flowid = "flowId"
+        case ownerkey = "ownerKey"
+        case requesterorigin = "requesterOrigin"
+        case status
+        case notifypolicy = "notifyPolicy"
+        case goal
+        case currentstep = "currentStep"
+        case blockedtaskid = "blockedTaskId"
+        case blockedsummary = "blockedSummary"
+        case cancelrequestedat = "cancelRequestedAt"
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case endedat = "endedAt"
+        case tasks
+        case tasksummary = "taskSummary"
+    }
+}
+
 public struct TaskFlowsListParams: Codable, Sendable {
     public let sessionkey: String?
     public let ownerkey: String?
@@ -5468,6 +5570,66 @@ public struct TaskFlowsCancelResult: Codable, Sendable {
         case cancelled
         case reason
         case flow
+    }
+}
+
+public struct TaskFlowsControlParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let action: TaskFlowControlAction
+    public let goal: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        action: TaskFlowControlAction,
+        goal: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.action = action
+        self.goal = goal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case action
+        case goal
+    }
+}
+
+public struct TaskFlowsControlResult: Codable, Sendable {
+    public let found: Bool
+    public let applied: Bool
+    public let action: TaskFlowControlAction
+    public let reason: String?
+    public let flow: TaskFlowDetail?
+    public let replacedflowid: String?
+
+    public init(
+        found: Bool,
+        applied: Bool,
+        action: TaskFlowControlAction,
+        reason: String?,
+        flow: TaskFlowDetail?,
+        replacedflowid: String?)
+    {
+        self.found = found
+        self.applied = applied
+        self.action = action
+        self.reason = reason
+        self.flow = flow
+        self.replacedflowid = replacedflowid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case found
+        case applied
+        case action
+        case reason
+        case flow
+        case replacedflowid = "replacedFlowId"
     }
 }
 
@@ -6808,6 +6970,214 @@ public struct PccSummaryGetResult: Codable, Sendable {
         case executioncapacity = "executionCapacity"
         case runtimeidentity = "runtimeIdentity"
         case updatesafety = "updateSafety"
+    }
+}
+
+public struct OperationsSnapshotParams: Codable, Sendable {
+    public let includeprocesses: Bool?
+
+    public init(
+        includeprocesses: Bool?)
+    {
+        self.includeprocesses = includeprocesses
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case includeprocesses = "includeProcesses"
+    }
+}
+
+public struct OperationsSnapshotResult: Codable, Sendable {
+    public let schema: String
+    public let generatedat: Double
+    public let qualitytarget: Double
+    public let qualityscore: Double
+    public let overallstatus: OperationsStatus
+    public let summary: [String: AnyCodable]
+    public let host: [String: AnyCodable]
+    public let agents: [[String: AnyCodable]]
+    public let tasks: [[String: AnyCodable]]
+    public let workflows: [[String: AnyCodable]]
+    public let cronjobs: [[String: AnyCodable]]
+    public let skills: [[String: AnyCodable]]
+    public let plugins: [[String: AnyCodable]]
+    public let tools: [[String: AnyCodable]]
+    public let models: [[String: AnyCodable]]
+    public let processes: [[String: AnyCodable]]
+    public let findings: [[String: AnyCodable]]
+    public let reconciler: [String: AnyCodable]
+    public let controls: [String: AnyCodable]
+
+    public init(
+        schema: String,
+        generatedat: Double,
+        qualitytarget: Double,
+        qualityscore: Double,
+        overallstatus: OperationsStatus,
+        summary: [String: AnyCodable],
+        host: [String: AnyCodable],
+        agents: [[String: AnyCodable]],
+        tasks: [[String: AnyCodable]],
+        workflows: [[String: AnyCodable]],
+        cronjobs: [[String: AnyCodable]],
+        skills: [[String: AnyCodable]],
+        plugins: [[String: AnyCodable]],
+        tools: [[String: AnyCodable]],
+        models: [[String: AnyCodable]],
+        processes: [[String: AnyCodable]],
+        findings: [[String: AnyCodable]],
+        reconciler: [String: AnyCodable],
+        controls: [String: AnyCodable])
+    {
+        self.schema = schema
+        self.generatedat = generatedat
+        self.qualitytarget = qualitytarget
+        self.qualityscore = qualityscore
+        self.overallstatus = overallstatus
+        self.summary = summary
+        self.host = host
+        self.agents = agents
+        self.tasks = tasks
+        self.workflows = workflows
+        self.cronjobs = cronjobs
+        self.skills = skills
+        self.plugins = plugins
+        self.tools = tools
+        self.models = models
+        self.processes = processes
+        self.findings = findings
+        self.reconciler = reconciler
+        self.controls = controls
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case generatedat = "generatedAt"
+        case qualitytarget = "qualityTarget"
+        case qualityscore = "qualityScore"
+        case overallstatus = "overallStatus"
+        case summary
+        case host
+        case agents
+        case tasks
+        case workflows
+        case cronjobs = "cronJobs"
+        case skills
+        case plugins
+        case tools
+        case models
+        case processes
+        case findings
+        case reconciler
+        case controls
+    }
+}
+
+public struct OperationsActionPreviewParams: Codable, Sendable {
+    public let action: OperationsActionKind
+    public let targetid: String
+
+    public init(
+        action: OperationsActionKind,
+        targetid: String)
+    {
+        self.action = action
+        self.targetid = targetid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case targetid = "targetId"
+    }
+}
+
+public struct OperationsActionPreviewResult: Codable, Sendable {
+    public let token: String
+    public let action: OperationsActionKind
+    public let targetid: String
+    public let summary: String
+    public let risk: AnyCodable
+    public let expiresat: Double
+    public let requiresconfirmation: Bool
+
+    public init(
+        token: String,
+        action: OperationsActionKind,
+        targetid: String,
+        summary: String,
+        risk: AnyCodable,
+        expiresat: Double,
+        requiresconfirmation: Bool)
+    {
+        self.token = token
+        self.action = action
+        self.targetid = targetid
+        self.summary = summary
+        self.risk = risk
+        self.expiresat = expiresat
+        self.requiresconfirmation = requiresconfirmation
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case token
+        case action
+        case targetid = "targetId"
+        case summary
+        case risk
+        case expiresat = "expiresAt"
+        case requiresconfirmation = "requiresConfirmation"
+    }
+}
+
+public struct OperationsActionApplyParams: Codable, Sendable {
+    public let token: String
+    public let action: OperationsActionKind
+    public let targetid: String
+
+    public init(
+        token: String,
+        action: OperationsActionKind,
+        targetid: String)
+    {
+        self.token = token
+        self.action = action
+        self.targetid = targetid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case token
+        case action
+        case targetid = "targetId"
+    }
+}
+
+public struct OperationsActionApplyResult: Codable, Sendable {
+    public let action: OperationsActionKind
+    public let targetid: String
+    public let status: AnyCodable
+    public let summary: String
+    public let appliedat: Double
+
+    public init(
+        action: OperationsActionKind,
+        targetid: String,
+        status: AnyCodable,
+        summary: String,
+        appliedat: Double)
+    {
+        self.action = action
+        self.targetid = targetid
+        self.status = status
+        self.summary = summary
+        self.appliedat = appliedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case targetid = "targetId"
+        case status
+        case summary
+        case appliedat = "appliedAt"
     }
 }
 
