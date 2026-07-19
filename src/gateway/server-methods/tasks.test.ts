@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   createTaskRecord as createTaskRecordOrNull,
   getTaskById,
@@ -70,9 +71,9 @@ function captureRespond() {
   return { calls, respond };
 }
 
-function createContext() {
+function createContext(config: OpenClawConfig = {}) {
   return {
-    getRuntimeConfig: () => ({}),
+    getRuntimeConfig: () => config,
   } as never;
 }
 
@@ -122,6 +123,54 @@ async function getTaskPayload(taskId: string) {
 }
 
 describe("tasks gateway handlers", () => {
+  it("includes recent Control Director sessions in execution memory health", async () => {
+    const storePath = path.join(stateDir, "agents", "main", "sessions", "sessions.json");
+    await fs.mkdir(path.dirname(storePath), { recursive: true });
+    await fs.writeFile(
+      storePath,
+      JSON.stringify({
+        "agent:main:dashboard:recent": {
+          sessionId: "recent-session",
+          updatedAt: Date.now(),
+          label: "Recent ML pipeline review",
+        },
+      }),
+      "utf8",
+    );
+    const config: OpenClawConfig = {
+      agents: {
+        list: [
+          {
+            id: "main",
+            role: "control_director",
+            model: "ollama/openclaw-control-gemma4-31b-q8:latest",
+          },
+        ],
+      },
+      session: { store: storePath },
+    };
+    const { calls, respond } = captureRespond();
+
+    await tasksHandlers["executionState.get"]({
+      req: { type: "req", id: "req-execution-state", method: "executionState.get" },
+      params: { sessionKey: "agent:main:dashboard:current" },
+      respond,
+      context: createContext(config),
+      client: null,
+      isWebchatConnect: () => false,
+    });
+
+    expect(calls[0]?.[0]).toBe(true);
+    expect(calls[0]?.[1]).toMatchObject({
+      memoryHealth: {
+        status: "healthy",
+        currentDaySourceCount: 1,
+        corruptRecordCount: 0,
+        sourceConflictCount: 0,
+      },
+    });
+  });
+
   it("lists task summaries with SDK-facing statuses and filters", async () => {
     const running = createTaskRecord({
       runtime: "subagent",

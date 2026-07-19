@@ -31,6 +31,7 @@ import {
   buildControlDirectorRuntimeLineage,
   type ControlDirectorRuntimeLineage,
 } from "../../agents/control-director-runtime-lineage.js";
+import { resolveStorePath } from "../../config/sessions/paths.js";
 import { readGatewayRuntimeSnapshotProvenance } from "../../daemon/gateway-runtime-snapshot.js";
 import { parseAgentSessionKey } from "../../routing/session-key.js";
 import { emitControlDirectorJourneySignal } from "../../self-improvement/control-director-journeys.js";
@@ -466,9 +467,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
       return;
     }
     const agentId = parseAgentSessionKey(params.sessionKey)?.agentId;
+    const runtimeConfig = context.getRuntimeConfig();
     const runtimeLineage = agentId
       ? buildControlDirectorRuntimeLineage({
-          config: context.getRuntimeConfig(),
+          config: runtimeConfig,
           agentId,
           runtimeVersion: resolveRuntimeServiceVersion(),
           provenance: readGatewayRuntimeSnapshotProvenance({ env: process.env }),
@@ -480,6 +482,7 @@ export const tasksHandlers: GatewayRequestHandlers = {
         ? buildControlDirectorRuntimeMemoryState({
             sessionKey: params.sessionKey,
             agentId,
+            storePath: resolveStorePath(runtimeConfig.session?.store, { agentId }),
           }).health
         : undefined;
     maybeEmitControlDirectorRuntimeLineageSignal(runtimeLineage);
