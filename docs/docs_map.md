@@ -2440,6 +2440,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Local-first model policy and Codex
   - H2: Memory and context continuity
   - H2: Quality and self-improvement
+  - H2: Managed role activation and rollback
   - H2: Verification and readiness
   - H2: Questions to ask during a reliability review
 
