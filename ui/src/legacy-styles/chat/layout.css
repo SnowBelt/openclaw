@@ -579,6 +579,9 @@
 
 .agent-chat__input {
   position: relative;
+  /* The composer owns upward-opening work-control sheets. Keep its stacking
+     context above the transcript so those visible controls remain clickable. */
+  z-index: 80;
   display: flex;
   flex-direction: column;
   margin: 0 18px 14px;
