@@ -2671,6 +2671,9 @@ function renderProjectPickerActions(
   `;
 }
 
+const CHAT_PROJECT_CONTEXT_CONTRACT =
+  "PCC owns milestones, permissions, proof, and automation. Chat uses the same project record used by PCC for conversation organization and routing; it does not create a second project plan.";
+
 function renderChatProjectPicker(props: ChatProps) {
   const activeProjects = activeChatProjects(props.projectsList);
   const { projectId } = resolveCurrentChatProject(props);
@@ -2738,10 +2741,7 @@ function renderChatProjectPicker(props: ChatProps) {
           : nothing}
         <div class="chat-project-picker__contract" data-chat-project-contract>
           <strong>One project, two focused views</strong>
-          <span>
-            PCC owns milestones, permissions, proof, and automation. Chat uses the same project ID
-            for conversation organization and routing; it does not create a second project plan.
-          </span>
+          <span>${CHAT_PROJECT_CONTEXT_CONTRACT}</span>
         </div>
         <div class="chat-project-picker__section">
           <h4>Choose a project</h4>
