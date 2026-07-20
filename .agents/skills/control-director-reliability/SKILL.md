@@ -27,7 +27,7 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Warm the selected local model only after Gateway readiness and shared resource admission. Use the provider-owned cancellable warmup hook, never evict or pull automatically, and verify exact residency afterward. The standard initial keep-alive is 15 minutes; ordinary inference retains its configured idle policy.
 - Inject bounded hot recent task/session state deterministically. Reserve model-backed Active Memory for explicit recall prompts so a second local-model request cannot delay every ordinary turn.
 - Escalate to Codex only through the governed adapter with an explicit mission packet, approval, budget, scope, attribution, and fail-closed behavior.
-- Recommended Codex route for approved complex implementation: `gpt-5.5` with high reasoning. Use xhigh only for architecture, difficult debugging, security, or final independent review where the incremental cost is justified. Use low only for a fully deterministic, mechanically verified runbook.
+- Preferred Codex route: the explicit current quality-first model `openai/gpt-5.6-sol`. Use high effort for approved complex implementation, xhigh for difficult architecture/debugging/security or independent review, and maximum only for the hardest quality-first lead work. Use medium for bounded mechanical checkpoints. Do not silently downgrade or substitute another model; an explicit user override remains authoritative. When OpenAI ships a newer preferred Codex model, update the shared source constants, executable tests, this skill, the Control Director docs, and the update-survival capability together.
 
 ## Source workflow
 

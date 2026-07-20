@@ -1,5 +1,8 @@
 // Governed Codex escalation decision and compact mission handoff.
-import type { PccExecutionProfile } from "../pcc/execution-profile.js";
+import {
+  resolvePccCodexEffortForWorkClass,
+  type PccExecutionProfile,
+} from "../pcc/execution-profile.js";
 import type { ControlDirectorMissionEnvelope } from "./control-director-contract.js";
 import { CONTROL_DIRECTOR_OUTPUT_QUALITY_MINIMUM } from "./control-director-quality-rubric.js";
 import {
@@ -154,7 +157,10 @@ export function prepareGovernedControlDirectorCodexEscalation(params: {
     route: "codex",
     reason: `Codex owns this ${params.workClass} step under the ${params.profile.codexRole} profile role.`,
     modelId: params.profile.codexModelId,
-    effort: params.profile.codexEffort,
+    effort: resolvePccCodexEffortForWorkClass(
+      params.profile.codexEffort,
+      params.workClass === "conversation" ? "routine" : params.workClass,
+    ),
     role: params.profile.codexRole as Exclude<PccExecutionProfile["codexRole"], "off">,
     packet: buildCompactCodexMissionPacket({
       mission: params.mission,

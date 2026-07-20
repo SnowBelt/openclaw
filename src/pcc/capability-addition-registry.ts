@@ -135,6 +135,18 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     ],
   },
   {
+    id: "plugin:codex-preferred-model-policy",
+    kind: "plugin",
+    owner: "Control Director and Codex plugin",
+    tests: [
+      "src/pcc/execution-profile.test.ts",
+      "src/agents/control-director-codex-adapter.test.ts",
+      "extensions/codex/provider.test.ts",
+      "extensions/codex/index.test.ts",
+    ],
+    proofSurfaces: ["pnpm control-director:verify", "pnpm custom-runtime:update-survival"],
+  },
+  {
     id: "runtime:local-first-model-intelligence",
     kind: "runtime",
     owner: "Model routing",

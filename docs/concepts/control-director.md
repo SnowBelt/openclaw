@@ -92,9 +92,11 @@ Use Codex as a governed implementation and review capability:
 - include the goal, constraints, approvals, state, evidence, acceptance criteria, and budget;
 - require explicit approval for hosted or otherwise paid execution;
 - attribute the route and fail closed when it is unavailable;
-- use GPT-5.5 with high reasoning for approved complex implementation;
-- reserve xhigh reasoning for difficult architecture, debugging, security, or final independent review;
-- use low reasoning only for deterministic runbooks with exhaustive automated verification.
+- prefer the explicit current quality-first Codex model `openai/gpt-5.6-sol` rather than a catalog-order-dependent “best available” alias;
+- use high effort for approved complex implementation;
+- reserve xhigh effort for difficult architecture, debugging, security, or final independent review;
+- use maximum effort only for the hardest quality-first lead work, and medium for bounded mechanical checkpoints;
+- fail closed instead of silently downgrading or substituting another model; an explicit user model override remains authoritative.
 
 This hybrid pattern lets the local model remain responsive while Codex is used where its incremental quality is measurable.
 

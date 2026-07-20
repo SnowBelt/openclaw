@@ -93,6 +93,8 @@
       "id": "runtime:control-director-truth-gates",
       "kind": "runtime",
       "requiredPaths": [
+        "src/pcc/execution-profile.ts",
+        "src/agents/control-director-codex-adapter.ts",
         "src/agents/control-director-delivery-guards.ts",
         "src/agents/control-director-activity-watchdog.ts",
         "src/agents/agent-role-capabilities.ts",
@@ -114,6 +116,28 @@
         "scripts/control-director-runtime-proof.ts",
         "scripts/control-director-verify.mjs",
         "scripts/custom-runtime/control-director-role-config.py"
+      ]
+    },
+    {
+      "id": "plugin:codex-preferred-model-policy",
+      "kind": "plugin",
+      "pluginId": "codex",
+      "requiredPaths": [
+        "CHANGELOG.md",
+        "AGENTS.md",
+        ".agents/skills/control-director-reliability/SKILL.md",
+        "docs/automation/self-improvement-governor.md",
+        "docs/concepts/control-director.md",
+        "extensions/codex/provider-catalog.ts",
+        "extensions/codex/src/migration/auth.ts",
+        "extensions/codex/openclaw.plugin.json",
+        "extensions/codex/index.test.ts",
+        "scripts/dev/control-ui-pcc-audit-closure-v1-smoke.ts",
+        "scripts/dev/control-ui-pcc-usability-completion-v2-smoke.ts",
+        "scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts",
+        "src/agents/control-director-codex-adapter.test.ts",
+        "src/agents/control-director-execution-profile.test.ts",
+        "src/pcc/execution-profile.test.ts"
       ]
     },
     {

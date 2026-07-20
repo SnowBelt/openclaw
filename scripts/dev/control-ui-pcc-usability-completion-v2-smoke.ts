@@ -240,7 +240,7 @@ async function main(): Promise<void> {
         workflowTemplateId: "software-product",
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
-        plannerModelId: "gpt-5.5-high-reasoning",
+        plannerModelId: "openai/gpt-5.6-sol",
         executionProfile: resolvePccExecutionProfilePreset("balanced"),
         planPreviewAccepted: false,
         codexPlanningAllowed: false,

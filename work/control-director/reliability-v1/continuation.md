@@ -17,13 +17,13 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 ## Current state
 
 - Formal roadmap pass: 0/61 until the final evidence-bound commit is landed and the post-commit ledger exits zero.
-- Source implementation: M01-M61 present; M61 inventory revision 5 adds the update-survival control plane, requires an explicit capability owner for every tracked `scripts/custom-runtime/` file, gates the managed stage/promotion regression fixture, and makes promotion install, load, report, and transactionally restore both the update broker and runtime recovery guard from the selected release.
+- Source implementation: M01-M61 present. M25 now defaults governed Codex work explicitly to `openai/gpt-5.6-sol`, upgrades the old automatic alias, keeps explicit user overrides, and uses preset effort by bounded work class. M61 inventory revision 5 adds the update-survival control plane, requires an explicit capability owner for every tracked `scripts/custom-runtime/` file, gates the managed stage/promotion regression fixture, and makes promotion install, load, report, and transactionally restore both the update broker and runtime recovery guard from the selected release.
 - Current phase: exact-source and remote proof, then managed activation and live acceptance.
 - Remaining proof: exact runtime lineage; desktop, tablet, and mobile Chat; local-model routing and latency; memory; delegation; Judge; queue/steer; Pursue Goal; restart recovery; rollback/restore; five-minute soak; landing; reactivation; final ledger.
 
 ## Next dependency-ready work
 
-1. Verify the clean exact candidate with `pnpm custom-runtime:update-survival` and `pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"`.
+1. Commit the M25 preferred-Codex-model policy, then verify that clean exact candidate with `pnpm custom-runtime:update-survival` and `pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"`.
 2. Require fresh exact-head Workflow Sanity and full non-Android CI.
 3. Prepare and activate one immutable candidate through the managed lifecycle; never bypass the Keychain, staging, capability, or rollback guards.
 4. Collect all exact-runtime, browser/device, model, memory, orchestration, restart, rollback, and soak receipts.

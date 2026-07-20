@@ -86,7 +86,7 @@ describe("governed Control Director Codex adapter", () => {
     });
     expect(decision).toMatchObject({
       route: "codex",
-      modelId: "best_available",
+      modelId: "openai/gpt-5.6-sol",
       effort: "max",
       role: "lead",
       approval: { budget: { usedCount: 1, usedTokens: 4_000 } },
@@ -99,6 +99,34 @@ describe("governed Control Director Codex adapter", () => {
     expect(decision.route === "codex" && JSON.stringify(decision.packet)).not.toContain(
       "transcript line one",
     );
+  });
+
+  it("caps routine and checkpoint effort while reserving Maximum for hard work", () => {
+    const profile = resolvePccExecutionProfilePreset("ultra_hybrid");
+    const route = (workClass: "routine" | "checkpoint") =>
+      prepareGovernedControlDirectorCodexEscalation({
+        profile,
+        mission,
+        actorId: "program-manager",
+        resourceId: "project-1",
+        workClass,
+        localAttempted: true,
+        localQualityScore: 80,
+        state: "Escalation required.",
+        approvals: [approval()],
+        now: 500,
+      });
+
+    expect(route("routine")).toMatchObject({
+      route: "codex",
+      modelId: "openai/gpt-5.6-sol",
+      effort: "medium",
+    });
+    expect(route("checkpoint")).toMatchObject({
+      route: "codex",
+      modelId: "openai/gpt-5.6-sol",
+      effort: "xhigh",
+    });
   });
 
   it("rejects token-budget overrun without dispatch", () => {

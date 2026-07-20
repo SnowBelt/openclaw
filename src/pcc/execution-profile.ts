@@ -2,11 +2,18 @@ import type { PccAiUsePolicy } from "./project-workflows.js";
 
 export const PCC_EXECUTION_PROFILE_SCHEMA_VERSION = 1 as const;
 export const PCC_BEST_AVAILABLE_MODEL_ID = "best_available" as const;
+/**
+ * Current quality-first Codex default for PCC and Control Director escalation.
+ * Keep this explicit rather than resolving `best_available`: a catalog reorder
+ * must not silently move approved work to a different quality tier.
+ */
+export const PCC_PREFERRED_CODEX_MODEL_ID = "openai/gpt-5.6-sol" as const;
 
 export type PccExecutionSpeed = "focused" | "parallel" | "ultra";
 export type PccCodexRole = "off" | "checkpoints" | "hard_work" | "lead";
 export type PccCapacityPolicy = "automatic" | "conservative" | "maximum_safe";
 export type PccCodexEffort = "medium" | "high" | "xhigh" | "max";
+export type PccCodexEffortWorkClass = "routine" | "checkpoint" | "hard_work";
 export type PccApprovalScope = "plan" | "project" | "ask";
 export type PccExecutionProfilePresetId =
   | "local_focused"
@@ -62,7 +69,7 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
     codexRole: "off",
     capacityPolicy: "conservative",
     localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
-    codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexModelId: PCC_PREFERRED_CODEX_MODEL_ID,
     codexEffort: "medium",
     approvalScope: "plan",
   },
@@ -73,7 +80,7 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
     codexRole: "off",
     capacityPolicy: "automatic",
     localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
-    codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexModelId: PCC_PREFERRED_CODEX_MODEL_ID,
     codexEffort: "medium",
     approvalScope: "plan",
   },
@@ -84,7 +91,7 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
     codexRole: "off",
     capacityPolicy: "maximum_safe",
     localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
-    codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexModelId: PCC_PREFERRED_CODEX_MODEL_ID,
     codexEffort: "medium",
     approvalScope: "project",
   },
@@ -95,7 +102,7 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
     codexRole: "checkpoints",
     capacityPolicy: "automatic",
     localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
-    codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexModelId: PCC_PREFERRED_CODEX_MODEL_ID,
     codexEffort: "high",
     approvalScope: "project",
   },
@@ -106,7 +113,7 @@ const PRESETS: Record<PccExecutionProfilePresetId, PccExecutionProfile> = {
     codexRole: "lead",
     capacityPolicy: "maximum_safe",
     localModelId: PCC_BEST_AVAILABLE_MODEL_ID,
-    codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+    codexModelId: PCC_PREFERRED_CODEX_MODEL_ID,
     codexEffort: "max",
     approvalScope: "ask",
   },
@@ -137,6 +144,11 @@ function modelId(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function codexModelId(value: unknown, fallback: string): string {
+  const selected = modelId(value, fallback);
+  return selected === PCC_BEST_AVAILABLE_MODEL_ID ? PCC_PREFERRED_CODEX_MODEL_ID : selected;
+}
+
 function presetId(value: unknown): PccExecutionProfilePresetId | undefined {
   return isOneOf(value, PRESET_IDS) ? value : undefined;
 }
@@ -153,7 +165,7 @@ function profileFromCanonical(value: unknown): PccExecutionProfile {
       ? source.capacityPolicy
       : base.capacityPolicy,
     localModelId: modelId(source.localModelId, base.localModelId),
-    codexModelId: modelId(source.codexModelId, base.codexModelId),
+    codexModelId: codexModelId(source.codexModelId, base.codexModelId),
     codexEffort:
       normalizedText(source.codexEffort) === "ultra"
         ? "max"
@@ -224,7 +236,7 @@ function profileFromLegacy(metadata: Record<string, unknown>): PccExecutionProfi
       metadata.pccLocalModelId ?? routing.localModelId ?? metadata.pccPlannerLocalModelId,
       base.localModelId,
     ),
-    codexModelId: modelId(metadata.pccCodexModelId ?? plannerModelId, base.codexModelId),
+    codexModelId: codexModelId(metadata.pccCodexModelId ?? plannerModelId, base.codexModelId),
     codexEffort:
       legacyEffort === "ultra"
         ? "max"
@@ -301,6 +313,24 @@ export function pccCodexEffortIsSupported(modelRef: string, effort: PccCodexEffo
     return true;
   }
   return /(?:^|[/:])gpt-5\.6(?:-|$)/u.test(modelRef.trim().toLowerCase());
+}
+
+/**
+ * Applies the configured depth as a ceiling while avoiding expensive depth on
+ * bounded work. Maximum is reserved for hard implementation work; checkpoints
+ * top out at xhigh and routine mechanical work stays medium.
+ */
+export function resolvePccCodexEffortForWorkClass(
+  configured: PccCodexEffort,
+  workClass: PccCodexEffortWorkClass,
+): PccCodexEffort {
+  if (workClass === "routine") {
+    return "medium";
+  }
+  if (workClass === "checkpoint" && configured === "max") {
+    return "xhigh";
+  }
+  return configured;
 }
 
 function safeCapacity(value: number): number {
