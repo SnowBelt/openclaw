@@ -281,6 +281,16 @@
       ]
     },
     {
+      "id": "runtime:tailscale-primary-continuity",
+      "kind": "runtime",
+      "requiredPaths": [
+        "scripts/custom-runtime/custom-runtime-tailscale-primary.sh",
+        "scripts/custom-runtime/custom-runtime-guard.sh",
+        "test/scripts/custom-runtime-tailscale-primary.test.ts",
+        "docs/automation/custom-runtime-update-safety.md"
+      ]
+    },
+    {
       "id": "runtime:self-improvement-governor",
       "kind": "runtime",
       "requiredPaths": [

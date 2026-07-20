@@ -295,6 +295,20 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     ],
   },
   {
+    id: "runtime:tailscale-primary-continuity",
+    kind: "runtime",
+    owner: "Custom runtime transport guard",
+    tests: [
+      "test/scripts/custom-runtime-tailscale-primary.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+    ],
+    proofSurfaces: [
+      "custom-runtime-tailscale-primary.sh status",
+      "primary Tailnet route HTTP proof",
+      "authenticated mobile Control UI proof",
+    ],
+  },
+  {
     id: "runtime:self-improvement-governor",
     kind: "runtime",
     owner: "Self-Improvement Governor",
