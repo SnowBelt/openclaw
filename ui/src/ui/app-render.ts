@@ -4912,6 +4912,16 @@ export function renderApp(state: AppViewState) {
                     if (updated && action === "edit") {
                       state.chatGoalDraft = updated.goal;
                     }
+                    if (updated && action === "retry") {
+                      const replacementFlowId = updated.flowId || updated.id;
+                      const prompt = buildCurrentChatGoalContinuationPrompt(
+                        state,
+                        replacementFlowId,
+                      );
+                      if (prompt) {
+                        await state.handleSendChat(prompt, { flowId: replacementFlowId });
+                      }
+                    }
                     requestHostUpdate?.();
                   },
                   onGoalRefresh: () => loadChatGoals(state),
