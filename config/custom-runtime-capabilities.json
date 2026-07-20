@@ -137,7 +137,9 @@
         "scripts/dev/control-ui-pcc-usability-completion-v3-smoke.ts",
         "src/agents/control-director-codex-adapter.test.ts",
         "src/agents/control-director-execution-profile.test.ts",
-        "src/pcc/execution-profile.test.ts"
+        "src/pcc/execution-profile.test.ts",
+        "ui/src/ui/controllers/pcc.test.ts",
+        "ui/src/ui/pcc/application/execution-readiness.ts"
       ]
     },
     {

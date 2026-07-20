@@ -143,6 +143,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "src/agents/control-director-codex-adapter.test.ts",
       "extensions/codex/provider.test.ts",
       "extensions/codex/index.test.ts",
+      "ui/src/ui/controllers/pcc.test.ts",
     ],
     proofSurfaces: ["pnpm control-director:verify", "pnpm custom-runtime:update-survival"],
   },

@@ -2095,6 +2095,7 @@ describe("PCC CRUD controller", () => {
     const request = vi.fn();
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      chatModelCatalog: teamModels,
       pccProjectForm: {
         ...EMPTY_PCC_PROJECT_FORM,
         title: "Approval contract",
