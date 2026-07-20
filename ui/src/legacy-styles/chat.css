@@ -114,6 +114,17 @@
   gap: 0.12rem;
 }
 
+.chat-system-status__panel > .chat-system-status__header,
+.chat-panel-header-actions {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.chat-system-status__panel > .chat-system-status__header {
+  justify-content: space-between;
+}
+
 .chat-system-status__panel span,
 .chat-system-status__panel small {
   color: var(--muted-foreground, #64748b);
