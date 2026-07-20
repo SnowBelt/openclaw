@@ -79,6 +79,26 @@ The PCC Update Safety card reports:
 
 The card is status evidence, not permission to promote. Candidate approval remains an explicit operator action.
 
+## Primary Tailnet route continuity
+
+An installation that has a userspace Tailscale state file also installs an independent primary-route guard. The route is optional on systems without that state. On configured systems, the guard:
+
+- recreates the expected LaunchAgent through an atomic, validated plist replacement,
+- backs up a malformed or drifted service definition before repair,
+- requires the userspace node itself to be online instead of treating a separate GUI-node fallback as healthy,
+- restores the HTTPS Serve target with persistent `--bg` state when it is missing, and
+- records a redaction-safe receipt without retaining the full Tailscale peer or Serve status payload.
+
+The custom-runtime guard runs this check independently of Gateway process health. A healthy GUI fallback therefore keeps emergency access available, but it no longer hides a failed primary mobile route.
+
+Inspect the configured primary route without repairing it:
+
+```bash
+~/.openclaw-custom-runtime/bin/custom-runtime-tailscale-primary.sh status
+```
+
+The command exits nonzero when the configured service definition, node health, or persistent Serve target is not ready.
+
 ## Recovery
 
 Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, or RPC proof restores the prior control plane. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.

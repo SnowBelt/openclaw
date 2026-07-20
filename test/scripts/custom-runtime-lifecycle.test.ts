@@ -20,6 +20,7 @@ const controlPlaneFiles = [
   "custom-runtime-restart.sh",
   "custom-runtime-rollback.sh",
   "custom-runtime-stage.sh",
+  "custom-runtime-tailscale-primary.sh",
   "custom-runtime-updater.sh",
   "custom-runtime-update-approve.sh",
   "control-director-role-config.py",

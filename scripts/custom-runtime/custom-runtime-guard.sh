@@ -9,6 +9,7 @@ launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
 port=${OPENCLAW_GATEWAY_PORT:-18789}
+tailscale_primary_guard="$runtime_home/bin/custom-runtime-tailscale-primary.sh"
 uid=$(id -u)
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
 for operation in activation promotion restart rollback; do
@@ -33,6 +34,15 @@ trap 'rmdir "$lock"' EXIT
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 receipt() { printf '{"at":"%s","result":"%s"}\n' "$stamp" "$1" > "$runtime_home/receipts/guard-$stamp.json"; }
 
+tailscale_primary_ok=true
+if [ -x "$tailscale_primary_guard" ] && ! "$tailscale_primary_guard" guard; then
+  tailscale_primary_ok=false
+fi
+complete_guard() {
+  [ "$tailscale_primary_ok" = true ] && exit 0
+  exit 1
+}
+
 runtime_root=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
 import json, sys
 try:
@@ -56,7 +66,7 @@ then
 fi
 if "$launcher" --verify >/dev/null 2>&1 && [ "$plist_uses_launcher" = true ] && [ -n "$runtime_root" ] && pgrep -f "$runtime_root/dist/index.js gateway" >/dev/null 2>&1
 then
-  exit 0
+  complete_guard
 fi
 
 # Never restart into a configuration that cannot retrieve its required secret.
@@ -91,7 +101,7 @@ PY
     --rollback-release "$rollback_release" \
     --port "$port"; then
     receipt repaired_by_registered_rollback
-    exit 0
+    complete_guard
   fi
   receipt registered_rollback_failed
   exit 1
@@ -134,7 +144,7 @@ fi
 for _ in $(seq 1 45); do
   if curl --silent --fail --max-time 3 "http://127.0.0.1:$port/health" | grep -q '"ok":true'; then
     receipt repaired
-    exit 0
+    complete_guard
   fi
   sleep 2
 done
