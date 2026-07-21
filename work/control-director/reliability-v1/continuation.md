@@ -16,20 +16,19 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 
 ## Current state
 
-- Formal roadmap pass: 1/68. M62 has source and deterministic local proof; the overall program remains incomplete until every milestone has exact-SHA evidence and the post-commit ledger exits zero.
-- Source implementation: M01-M62 present. M25 defaults governed Codex work explicitly to `openai/gpt-5.6-sol`, preserves explicit user overrides, and uses preset effort by bounded work class. M61 inventory revision 5 adds the update-survival control plane. M62 adds sanitized deterministic reproduction for the six observed subagent orchestration incident classes. M63-M68 remain unimplemented.
-- Current phase: exact-source and remote proof, then managed activation and live acceptance.
+- Formal roadmap pass: 4/68. M62-M65 have exact-source evidence; the overall program remains incomplete until every milestone has exact-SHA evidence and the post-commit ledger exits zero.
+- Source implementation: M01-M65 present. M25 defaults governed Codex work explicitly to `openai/gpt-5.6-sol`, preserves explicit user overrides, and uses preset effort by bounded work class. M61 inventory revision 5 adds the update-survival control plane. M62 adds sanitized deterministic reproduction for the six observed subagent orchestration incident classes. M63-M65 add validated task-root inheritance, executable worker discovery and recovery guidance, and one typed least-privilege handoff contract. M66-M68 remain unimplemented.
+- Current phase: deployment consistency and evidence-bound diagnostic truth, then managed activation and live acceptance.
 - Remaining proof: exact runtime lineage; desktop, tablet, and mobile Chat; local-model routing and latency; memory; delegation; Judge; queue/steer; Pursue Goal; restart recovery; rollback/restore; five-minute soak; landing; reactivation; final ledger.
 
 ## Next dependency-ready work
 
-1. Repair and test task-root inheritance and worktree confinement (M63).
-2. Repair worker discovery and caller-actionable spawn guidance (M64).
-3. Align Program Manager, worker, Judge, SIG, PCC, prompts, tools, and handoffs (M65-M67).
-4. Require fresh exact-head Workflow Sanity and full non-Android CI.
-5. Prepare and activate one immutable candidate through the managed lifecycle; never bypass Keychain, staging, capability, or rollback guards.
-6. Collect all exact-runtime, browser/device, model, memory, orchestration, restart, rollback, and soak receipts for M68.
-7. Populate M01-M68 with concrete exact-SHA evidence, land without a merge commit, reactivate the landed SHA, and generate the post-commit final ledger.
+1. Verify mandatory skill, plugin, prompt, workflow, runtime-helper, and customization inventory deployment consistency (M66).
+2. Bind completion, blocker, worker, and task-root diagnostics to typed fresh evidence and independent rejection (M67).
+3. Require fresh exact-head Workflow Sanity and full non-Android CI; dependency advisories remain out of scope until separately approved.
+4. Prepare and activate one immutable candidate through the managed lifecycle; never bypass Keychain, staging, capability, or rollback guards.
+5. Collect all exact-runtime, browser/device, model, memory, orchestration, restart, rollback, and soak receipts for M68.
+6. Populate M01-M68 with concrete exact-SHA evidence, land without a merge commit, reactivate the landed SHA, and generate the post-commit final ledger.
 
 ## Prohibited completion shortcuts
 
