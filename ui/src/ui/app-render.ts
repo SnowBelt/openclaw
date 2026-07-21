@@ -1524,7 +1524,8 @@ export function renderApp(state: AppViewState) {
 
   // Gate: require successful gateway connection before showing the dashboard.
   // The gateway URL confirmation overlay is always rendered so URL-param flows still work.
-  if (!state.connected) {
+  const canShowLastKnownOperations = state.tab === "operations" && state.operationsSnapshot != null;
+  if (!state.connected && !canShowLastKnownOperations) {
     return html` ${renderLoginGate(state)} ${renderGatewayUrlConfirmation(state)} `;
   }
 
@@ -2914,7 +2915,9 @@ export function renderApp(state: AppViewState) {
                 snapshot: state.operationsSnapshot,
                 updatedAt: state.operationsUpdatedAt,
                 lastSuccessfulAt: state.operationsLastSuccessfulAt,
-                refreshFailedAt: state.operationsRefreshFailedAt,
+                refreshFailedAt: state.connected
+                  ? state.operationsRefreshFailedAt
+                  : (state.operationsRefreshFailedAt ?? Date.now()),
                 section: state.operationsSection,
                 agentQuery: state.operationsAgentQuery,
                 agentSort: state.operationsAgentSort,

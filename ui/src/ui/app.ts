@@ -1381,7 +1381,7 @@ export class OpenClawApp extends LitElement {
   private saveOperationsPreferences() {
     saveOperationsPreferences({
       agentSort: this.operationsAgentSort,
-      lastVisitedAt: this.operationsVisitStartedAt ?? this.operationsLastVisitedAt,
+      lastVisitedAt: this.operationsLastVisitedAt,
       pinnedAgentIds: this.operationsPinnedAgentIds,
     });
   }

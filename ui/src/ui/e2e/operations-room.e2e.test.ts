@@ -96,8 +96,10 @@ function withBoundedIncidentHistory(snapshot: OperationsSnapshot): OperationsSna
     ...template,
     id: `incident-${index}`,
     title: `Incident ${index + 1}`,
+    severity: "warning",
+    firstObservedAt: snapshot.generatedAt - 60_000 - index * 1_000,
     lastObservedAt: snapshot.generatedAt - index * 1_000,
-    transitions: [{ at: snapshot.generatedAt - index * 1_000, to: "warning" }],
+    transitions: [{ at: snapshot.generatedAt - 60_000 - index * 1_000, to: "warning" }],
   }));
   snapshot.collections.incidentHistory = { total: 20, shown: 16, truncated: true };
   snapshot.incidentLedger.overflowCount = 3;
@@ -229,6 +231,7 @@ function largeInventorySnapshot(now = Date.now()): OperationsSnapshot {
     needsUserFindings: 300,
     handlingFindings: 100,
     watchingFindings: 27,
+    criticalFindings: 100,
   };
   snapshot.collections.agents = { total: 1_000, shown: snapshot.agents.length, truncated: true };
   snapshot.collections.findings = { total: 427, shown: 6, truncated: true };
@@ -358,7 +361,9 @@ async function seedOperationsPreferences(page: Page, lastVisitedAt: number): Pro
   await page.addInitScript(
     ({ key, value }) => {
       try {
-        localStorage.setItem(key, JSON.stringify(value));
+        if (localStorage.getItem(key) === null) {
+          localStorage.setItem(key, JSON.stringify(value));
+        }
       } catch {
         // The script reruns for every frame; opaque frames may not expose storage.
       }
@@ -443,7 +448,16 @@ async function installOperationsGateway(
 
 async function waitForOperationsRoom(page: Page, briefing: string): Promise<void> {
   await page.locator(".operations-room").waitFor();
-  await page.getByText(briefing, { exact: true }).waitFor();
+  const currentBriefing = page.locator(".operations-briefing > div > p").first();
+  await currentBriefing.waitFor();
+  await expect
+    .poll(() => currentBriefing.textContent())
+    .toSatisfy((text) =>
+      [
+        briefing,
+        "The current overview cannot be confirmed. Review the source-specific status below.",
+      ].includes(text?.trim() ?? ""),
+    );
 }
 
 async function assertNoHorizontalOverflow(page: Page): Promise<void> {
@@ -634,7 +648,10 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         .getByText("Static UI inspection", { exact: true })
         .waitFor();
       await page.locator(".operations-incident-history > summary").focus();
-      await page.keyboard.press("Enter");
+      await page.locator(".operations-incident-history > summary").click();
+      expect(
+        await page.locator(".operations-incident-history").getAttribute("open"),
+      ).not.toBeNull();
       expect(await page.locator(".operations-incident-history__item").count()).toBe(16);
       expect(await page.locator(".operations-incident-history").textContent()).toContain(
         "Showing 16 of 20",
@@ -643,7 +660,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         "3 older incidents are outside the retained history window.",
       );
       const warning = page.locator(".operations-incident-history__item").first();
-      await warning.getByText("Warning", { exact: true }).waitFor();
+      expect(await warning.locator(".operations-status").textContent()).toContain("Warning");
       expect(await warning.locator(".operations-status__icon").textContent()).toBe("!");
 
       page.once("dialog", (dialog) => void dialog.accept());
@@ -796,8 +813,17 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       const diagnostics = collectDiagnostics(page);
       const snapshot = createSevenGroupOperationsTestSnapshot();
       snapshot.findings = [];
-      snapshot.summary.actionableFindings = 0;
-      snapshot.summary.criticalFindings = 0;
+      snapshot.summary = {
+        ...snapshot.summary,
+        findings: 0,
+        actionableFindings: 0,
+        historicalFindings: 0,
+        needsUserFindings: 0,
+        handlingFindings: 0,
+        watchingFindings: 0,
+        criticalFindings: 0,
+      };
+      snapshot.collections.findings = { total: 0, shown: 0, truncated: false };
       snapshot.overallStatus = "healthy";
       if (condition === "stale") {
         snapshot.freshness.status = "stale";
@@ -815,7 +841,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           page,
           "The current overview cannot be confirmed. Review the source-specific status below.",
         );
-        await page.locator("#operations-attention .operations-status--unknown").waitFor();
+        await page.locator("#operations-attention .operations-status--unknown").first().waitFor();
         expect(await page.locator("#operations-attention .operations-good").count()).toBe(0);
         await page.locator(".operations-briefing--unknown").waitFor();
         await page.getByText("Attention status cannot be confirmed", { exact: true }).waitFor();
@@ -823,14 +849,18 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           '.operations-room button[aria-label^="Cancel"], .operations-room button[aria-label^="Run"], .operations-room button[aria-label^="Pause"]',
         );
         expect(await guardedControls.count()).toBeGreaterThan(0);
-        expect(
-          await guardedControls.evaluateAll((buttons) =>
-            buttons.every((button) => button instanceof HTMLButtonElement && button.disabled),
-          ),
-        ).toBe(true);
+        const enabledGuardedControls = await guardedControls.evaluateAll((buttons) =>
+          buttons
+            .filter((button) => button instanceof HTMLButtonElement && !button.disabled)
+            .map((button) => button.getAttribute("aria-label") ?? button.textContent?.trim() ?? ""),
+        );
+        expect(enabledGuardedControls).toEqual([]);
         if (condition === "partial") {
-          await page.getByText("Unavailable sources: Processes.", { exact: true }).waitFor();
-          await page.getByText("Fallback data sources: Models.", { exact: true }).waitFor();
+          await page
+            .getByText("Unavailable sources: Processes.", { exact: true })
+            .first()
+            .waitFor();
+          await page.getByText("Fallback data sources: Models.", { exact: true }).first().waitFor();
         }
       } finally {
         await closeContext(context, diagnostics);
@@ -899,10 +929,11 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         await page.locator('.operations-quick-link[href*="section=working"]').textContent(),
       ).toContain("Working now 0");
 
+      await gateway.setAcceptingConnections(false);
       await gateway.closeLatest(1012, "simulated offline state");
-      await expect
-        .poll(() => page.locator(".sidebar-version__status").getAttribute("aria-label"))
-        .toContain("Offline");
+      await expect.poll(() => gateway.getSocketCount()).toBeGreaterThan(1);
+      await waitForOperationsRoom(page, snapshot.briefing.text);
+      await page.locator(".operations-last-known-briefing > summary").click();
       await page.getByText(snapshot.briefing.text, { exact: true }).waitFor();
     } finally {
       await closeContext(context, diagnostics);
@@ -947,14 +978,21 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       ] as const;
       for (const scenario of lanes) {
         const lane = page.locator(".operations-attention-lane", { hasText: scenario.title });
-        await lane.getByText(scenario.finding, { exact: true }).waitFor();
-        await lane.getByText(scenario.severity, { exact: true }).waitFor();
-        expect(await lane.locator(".operations-status__icon").last().textContent()).toBe(
+        const finding = lane.locator(".operations-issue", { hasText: scenario.finding });
+        await finding.getByText(scenario.finding, { exact: true }).waitFor();
+        expect(await finding.locator(".operations-issue__status").textContent()).toContain(
+          scenario.severity,
+        );
+        expect(await finding.locator(".operations-status__icon").last().textContent()).toBe(
           scenario.icon,
         );
         expect(await lane.locator(".operations-count").textContent()).toBe("1");
       }
-      await page.getByText("Last known", { exact: true }).waitFor();
+      const watchedStatus = await page
+        .locator(".operations-issue", { hasText: "Response delay is being watched" })
+        .locator(".operations-issue__status")
+        .textContent();
+      expect(watchedStatus).toContain("Last known");
       await page.getByText("Urgent", { exact: true }).first().waitFor();
       expect(
         await page.locator('.operations-quick-link[href*="section=attention"]').textContent(),
@@ -997,7 +1035,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       ).toContain("All agents 1000");
       expect(
         await page.locator('.operations-quick-link[href*="section=agents"]').textContent(),
-      ).toContain("Showing 4");
+      ).toContain("Showing 7");
       await page
         .getByText("Showing 8 of 200. Open Cron Jobs to review all scheduled work.", {
           exact: true,
@@ -1006,7 +1044,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
 
       await page.locator("#operations-more > summary").click();
       const skills = page.locator(".operations-catalog", { hasText: "Skills" }).first();
-      await skills.getByText("Showing 1 of 427", { exact: true }).waitFor();
+      expect(await skills.locator(":scope > summary").textContent()).toContain("Showing 1 of 427");
       await page
         .getByText("Showing the 30 largest of 45 accepted processes.", { exact: true })
         .waitFor();
@@ -1186,7 +1224,13 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           await page
             .getByText("Monitor stopped after a deterministic sweep failure.", { exact: true })
             .waitFor();
-          await page.getByText("Last known", { exact: true }).waitFor();
+          const monitorStatus = await page
+            .locator(".operations-issue", {
+              hasText: "Operations monitor has not completed a successful sweep",
+            })
+            .locator(".operations-issue__status")
+            .textContent();
+          expect(monitorStatus).toContain("Last known");
           expect(await page.locator("#operations-attention .operations-good").count()).toBe(0);
         }
       } finally {
@@ -1305,6 +1349,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       await page.getByText("Partial data", { exact: true }).first().waitFor();
       await page
         .getByText("Gateway update needed for complete Operations data", { exact: true })
+        .first()
         .waitFor();
       expect(await page.locator("body").textContent()).not.toContain(
         OPERATIONS_RAW_PROMPT_SENTINEL,

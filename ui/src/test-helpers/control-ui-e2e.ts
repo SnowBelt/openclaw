@@ -91,6 +91,7 @@ export type MockGatewayControls = {
   ) => Promise<void>;
   resolveDeferred: (method: string, payload?: unknown) => Promise<void>;
   setHistoryMessages: (messages: unknown[]) => Promise<void>;
+  setAcceptingConnections: (accepting: boolean) => Promise<void>;
   waitForRequest: (method: string) => Promise<MockGatewayRequest>;
 };
 
@@ -293,6 +294,7 @@ function installControlUiMockGateway(input: {
     requests: BrowserRequest[];
     resolveDeferred: (method: string, payload?: unknown) => void;
     setHistoryMessages: (messages: unknown[]) => void;
+    setAcceptingConnections: (accepting: boolean) => void;
     socketCount: () => number;
     socketUrls: () => string[];
   };
@@ -308,6 +310,7 @@ function installControlUiMockGateway(input: {
   const sessionPatches = new Map<string, Record<string, unknown>>();
   const sockets: Array<{ readonly url: string }> = [];
   let seq = 0;
+  let acceptingConnections = true;
 
   function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -628,6 +631,9 @@ function installControlUiMockGateway(input: {
         if (this.readyState !== MockWebSocket.CONNECTING) {
           return;
         }
+        if (!acceptingConnections) {
+          return;
+        }
         this.readyState = MockWebSocket.OPEN;
         this.dispatchEvent(new Event("open"));
         this.deliver({
@@ -765,6 +771,9 @@ function installControlUiMockGateway(input: {
     },
     setHistoryMessages(messages) {
       scenario.historyMessages = Array.isArray(messages) ? messages : [];
+    },
+    setAcceptingConnections(accepting) {
+      acceptingConnections = accepting;
     },
     socketCount() {
       return sockets.length;
@@ -914,6 +923,21 @@ function createMockGatewayControls(page: Page, defaultSessionKey: string): MockG
         ).openclawControlUiE2eGateway;
         return gateway?.socketUrls() ?? [];
       });
+    },
+    async setAcceptingConnections(accepting) {
+      await page.evaluate((next) => {
+        const gateway = (
+          window as Window & {
+            openclawControlUiE2eGateway?: {
+              setAcceptingConnections: (accepting: boolean) => void;
+            };
+          }
+        ).openclawControlUiE2eGateway;
+        if (!gateway) {
+          throw new Error("Mock Gateway is not installed");
+        }
+        gateway.setAcceptingConnections(next);
+      }, accepting);
     },
     async rejectDeferred(method, error) {
       await page.evaluate(

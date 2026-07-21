@@ -228,7 +228,9 @@ function mutationSourceConfirmed(
   props: OperationsProps,
   source: keyof OperationsSnapshot["freshness"]["sources"],
 ): boolean {
-  return sectionSourcesConfirmed(snapshot, props, source);
+  return (
+    snapshot.completeness.status === "complete" && sectionSourcesConfirmed(snapshot, props, source)
+  );
 }
 
 function openOperationsMore() {
@@ -1547,8 +1549,11 @@ function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
   const workflowsConfirmed = sectionSourcesConfirmed(snapshot, props, "workflows");
   const capabilitiesConfirmed = sectionSourcesConfirmed(snapshot, props, "capabilities");
   const modelsConfirmed = sectionSourcesConfirmed(snapshot, props, "models");
-  const processesConfirmed = sectionSourcesConfirmed(snapshot, props, "processes");
-  const processesOmitted = snapshot.freshness.sources.processes.status === "omitted";
+  const processSourceStatus = snapshot.freshness.sources.processes.status;
+  const processesReadable =
+    !isOperationsSnapshotStale(snapshot, Date.now(), props.refreshFailedAt) &&
+    (processSourceStatus === "available" || processSourceStatus === "fallback");
+  const processesOmitted = processSourceStatus === "omitted";
   return html`<details id="operations-more" class="operations-more">
     <summary>
       <span class="operations-more__summary-copy">
@@ -1660,7 +1665,7 @@ function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
           ? html`<p class="operations-muted" role="status">
               ${t("operationsRoom.more.processesOmitted")}
             </p>`
-          : !processesConfirmed
+          : !processesReadable
             ? html`<p class="operations-muted" role="status">
                 ${t("operationsRoom.more.processesUnavailable")}
               </p>`
@@ -1675,7 +1680,7 @@ function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
               )}
             </p>`
           : nothing}
-        ${processesConfirmed && snapshot.collections.processes.truncated
+        ${processesReadable && snapshot.collections.processes.truncated
           ? html`<p class="operations-muted operations-bounded-status" role="status">
               ${t("operationsRoom.more.processesShowing", {
                 shown: String(snapshot.collections.processes.shown),
@@ -1685,7 +1690,7 @@ function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
           : nothing}
         <div class="operations-processes">
           ${snapshot.processes.length === 0
-            ? processesConfirmed
+            ? processesReadable
               ? html`<p class="operations-muted">${t("operationsRoom.more.noProcesses")}</p>`
               : nothing
             : repeat(
