@@ -8,10 +8,12 @@ import {
   type ExecutionStateSnapshot,
   formatValidationErrors,
   type TaskFlowDetail,
+  type TaskFlowControlAction,
   type TaskFlowsListParams,
   type TaskSummary,
   type TasksListParams,
   validateTaskFlowsCancelParams,
+  validateTaskFlowsControlParams,
   validateTaskFlowsCreateParams,
   validateTaskFlowsEditParams,
   validateTaskFlowsGetParams,
@@ -450,6 +452,56 @@ function parseCursor(cursor: string | undefined): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function taskFlowControlIsApplied(params: {
+  action: TaskFlowControlAction;
+  flow: TaskFlowRecord;
+  goal?: string;
+}): boolean {
+  const state = stateForPursueGoalFlow(params.flow);
+  switch (params.action) {
+    case "pause":
+      return params.flow.status === "paused" || state?.phase === "paused";
+    case "resume":
+      return Boolean(
+        state &&
+        state.phase !== "paused" &&
+        !["blocked", "failed", "cancelled", "succeeded"].includes(state.phase),
+      );
+    case "retry":
+      return Boolean(state && (state.phase === "queued" || state.phase === "running"));
+    case "stop":
+      return params.flow.status === "cancelled" || state?.phase === "cancelled";
+    case "edit":
+      return Boolean(params.goal && params.flow.goal.trim() === params.goal);
+  }
+  return params.action satisfies never;
+}
+
+async function controlPursueGoalFlow(params: {
+  action: TaskFlowControlAction;
+  flow: TaskFlowRecord;
+  goal?: string;
+  expectedRevision?: number;
+}) {
+  const mutation = {
+    flowId: params.flow.flowId,
+    ...(params.expectedRevision !== undefined ? { expectedRevision: params.expectedRevision } : {}),
+  };
+  switch (params.action) {
+    case "pause":
+      return await pausePursueGoalFlow(mutation);
+    case "resume":
+      return await resumePursueGoalFlow(mutation);
+    case "retry":
+      return await retryPursueGoalFlow(mutation);
+    case "stop":
+      return await stopPursueGoalFlow(mutation);
+    case "edit":
+      return await editPursueGoalFlow({ ...mutation, goal: params.goal ?? "" });
+  }
+  return params.action satisfies never;
+}
+
 // Control UI task methods expose the stable gateway protocol shape; helpers
 // above keep runtime registry details out of the wire result.
 export const tasksHandlers: GatewayRequestHandlers = {
@@ -812,6 +864,76 @@ export const tasksHandlers: GatewayRequestHandlers = {
     respond(true, {
       ...result,
       ...(result.flow ? { flow: mapTaskFlowDetail(result.flow) } : {}),
+    });
+  },
+  "taskFlows.control": async ({ params, respond }) => {
+    if (!validateTaskFlowsControlParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid taskFlows.control params: ${formatValidationErrors(validateTaskFlowsControlParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const flow = getTaskFlowById(params.flowId);
+    if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
+      respond(true, {
+        found: false,
+        applied: false,
+        action: params.action,
+        reason: "Flow not found.",
+      });
+      return;
+    }
+    const goal =
+      params.action === "edit"
+        ? sanitizeTaskStatusText(params.goal ?? "", { maxChars: TASK_STATUS_DETAIL_MAX_CHARS })
+        : undefined;
+    if (params.action === "edit" && !goal) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "goal is required when editing a task flow"),
+      );
+      return;
+    }
+    if (taskFlowControlIsApplied({ action: params.action, flow, ...(goal ? { goal } : {}) })) {
+      respond(true, {
+        found: true,
+        applied: true,
+        action: params.action,
+        flow: mapTaskFlowDetail(flow),
+      });
+      return;
+    }
+    const result = await controlPursueGoalFlow({
+      action: params.action,
+      flow,
+      ...(goal ? { goal } : {}),
+      ...(params.expectedRevision !== undefined
+        ? { expectedRevision: params.expectedRevision }
+        : {}),
+    });
+    const latest = result.flow ?? getTaskFlowById(flow.flowId);
+    const applied =
+      result.applied ||
+      Boolean(
+        latest &&
+        taskFlowControlIsApplied({
+          action: params.action,
+          flow: latest,
+          ...(goal ? { goal } : {}),
+        }),
+      );
+    respond(true, {
+      found: result.found,
+      applied,
+      action: params.action,
+      ...(!applied && result.reason ? { reason: result.reason } : {}),
+      ...(latest ? { flow: mapTaskFlowDetail(latest) } : {}),
     });
   },
   "tasks.list": ({ params, respond }) => {

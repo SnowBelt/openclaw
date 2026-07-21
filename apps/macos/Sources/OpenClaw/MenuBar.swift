@@ -99,6 +99,27 @@ struct OpenClawApp: App {
         .defaultSize(width: SettingsTab.windowWidth, height: SettingsTab.windowHeight)
         .windowResizability(.contentSize)
         .commands {
+            CommandGroup(replacing: .pasteboard) {
+                Button("Cut") {
+                    _ = NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button("Copy") {
+                    _ = NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("c", modifiers: .command)
+
+                Button("Paste") {
+                    _ = NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("v", modifiers: .command)
+
+                Button("Select All") {
+                    _ = NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("a", modifiers: .command)
+            }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") {
                     self.openWindow(id: SettingsWindowOpener.windowID)

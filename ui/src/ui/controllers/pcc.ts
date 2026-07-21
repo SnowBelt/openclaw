@@ -71,6 +71,7 @@ import {
   type PccAiUsePolicy,
   type PccPlanningMode,
 } from "../../../../src/pcc/project-workflows.js";
+import type { ReleaseGovernanceStatus } from "../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../../src/pcc/update-safety.js";
 // Control UI controller loads and edits Project Command Center ledger entries.
@@ -164,6 +165,7 @@ type PccSummaryGetResult = {
   executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
   updateSafety?: PccUpdateSafety;
+  releaseGovernance?: ReleaseGovernanceStatus | null;
 };
 
 type PccProjectsGetResult = {
@@ -1379,6 +1381,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccUpdateSafety = summaryResult.updateSafety ?? null;
+    state.pccReleaseGovernance = summaryResult.releaseGovernance ?? null;
     if (state.pccProjectDetail) {
       rememberPccProjectDetailForState(state, state.pccProjectDetail);
     }

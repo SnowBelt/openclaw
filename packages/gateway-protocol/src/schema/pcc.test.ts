@@ -10,7 +10,7 @@ import {
   validatePccSubMilestonesListParams,
   validatePccSubMilestonesUpsertParams,
 } from "../index.js";
-import { PccProjectSummarySchema } from "./pcc.js";
+import { PccProjectSummarySchema, PccSummaryGetResultSchema } from "./pcc.js";
 
 describe("Project Command Center protocol schemas", () => {
   it("registers canonical PCC schemas", () => {
@@ -71,6 +71,43 @@ describe("Project Command Center protocol schemas", () => {
     };
 
     expect(Value.Check(PccProjectSummarySchema, summary)).toBe(true);
+  });
+
+  it("validates the Release Governor summary surface", () => {
+    expect(
+      Value.Check(PccSummaryGetResultSchema, {
+        portfolio: {
+          projectsTotal: 0,
+          active: 0,
+          blocked: 0,
+          needsApproval: 0,
+          complete: 0,
+          archived: 0,
+          averagePercentComplete: 0,
+          nextActions: [],
+        },
+        releaseGovernance: {
+          schema: "openclaw.release-governance-status.v1",
+          policyVersion: 1,
+          candidateSha: "a".repeat(40),
+          activeRuntimeSha: "b".repeat(40),
+          riskLevel: "P1",
+          protectedPaths: [],
+          capabilityDiff: [],
+          checks: [],
+          approvalStatus: "none",
+          approvalScope: null,
+          reviews: [],
+          rollbackTarget: "b".repeat(40),
+          decision: "escalate",
+          evidenceReceiptHash: null,
+          evidencePath: null,
+          exactBlocker: "Explicit approval is required.",
+          approvalWording: "Approve exact candidate SHA.",
+          updatedAt: "2026-07-15T12:00:00.000Z",
+        },
+      }),
+    ).toBe(true);
   });
 
   it("validates sub-milestone list and upsert params", () => {

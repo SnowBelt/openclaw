@@ -74,6 +74,7 @@ function writeSmokeApp(appDir: string) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>OpenClaw Chat Truth Diagnostics Smoke</title>
+    <style>html,body,#root{height:100%;margin:0;overflow:hidden}#root{display:flex;min-height:0}</style>
   </head>
   <body>
     <main id="root"></main>
@@ -161,7 +162,13 @@ function baseProps(overrides: Record<string, unknown> = {}) {
     sending: false,
     compactionStatus: null,
     fallbackStatus: null,
-    messages: [],
+    messages: [
+      {
+        role: "assistant",
+        content: "The transcript remains visible while truth details stay available on demand.",
+        timestamp: 1,
+      },
+    ],
     sideResult: null,
     toolMessages: [],
     streamSegments: [],
@@ -247,13 +254,38 @@ window.runOpenClawChatTruthDiagnosticsSmoke = async (mode: Mode): Promise<Result
   const calls = { sent: 0 };
 
   await renderState();
-  const diagnostics = root.querySelector("[data-control-director-diagnostics]");
+  const diagnostics = root.querySelector<HTMLDetailsElement>(
+    "[data-control-director-diagnostics]",
+  );
+  const thread = root.querySelector<HTMLElement>(".chat-thread");
+  const composer = root.querySelector<HTMLElement>(".agent-chat__input");
+  const diagnosticsRect = diagnostics?.getBoundingClientRect();
+  const threadRect = thread?.getBoundingClientRect();
+  const composerRect = composer?.getBoundingClientRect();
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   checks.cardVisible = includes(diagnostics, "Truth & Completion");
+  checks.cardCollapsed = diagnostics instanceof HTMLDetailsElement && !diagnostics.open;
+  checks.cardInConversation = Boolean(diagnostics?.closest(".chat-thread-inner"));
+  checks.cardCompact = Boolean(diagnosticsRect && diagnosticsRect.height <= 56.5);
   checks.blockedStatus = includes(diagnostics, "Blocked unsupported claim");
   checks.missingCondition = includes(diagnostics, "missing command evidence with exit code 0");
   checks.requiredEvidence = includes(diagnostics, "Required evidence") && includes(diagnostics, "command");
   checks.gradeAndCriticality = includes(diagnostics, "Completion Grade") && includes(diagnostics, "8/10") && includes(diagnostics, "Criticality") && includes(diagnostics, "10/10");
   checks.noCompleteClaim = !includes(diagnostics, "Status: complete");
+  checks.transcriptVisible = Boolean(
+    threadRect && threadRect.height >= Math.max(160, viewportHeight * 0.24),
+  );
+  checks.composerInsideViewport = Boolean(
+    composerRect && composerRect.top >= 0 && composerRect.bottom <= viewportHeight + 1,
+  );
+
+  await renderState({
+    sessions: {
+      ...sessions,
+      sessions: [{ key: "agent:main:main", kind: "direct", updatedAt: 100 }],
+    },
+  });
+  checks.emptyDiagnosticsHidden = !root.querySelector("[data-control-director-diagnostics]");
 
   await renderState({
     draft: "hello",
@@ -280,7 +312,7 @@ window.runOpenClawChatTruthDiagnosticsSmoke = async (mode: Mode): Promise<Result
 
 async function runMode(page: Page, mode: "desktop" | "mobile"): Promise<SmokeModeResult> {
   await page.setViewportSize(
-    mode === "mobile" ? { height: 844, width: 390 } : { height: 900, width: 1280 },
+    mode === "mobile" ? { height: 844, width: 390 } : { height: 768, width: 1366 },
   );
   const result = await page.evaluate(async (nextMode) => {
     return await window.runOpenClawChatTruthDiagnosticsSmoke(nextMode);
@@ -344,12 +376,12 @@ async function main() {
     await page.goto(url, { waitUntil: "networkidle" });
     const desktop = await runMode(page, "desktop");
     const desktopScreenshot = join(artifactDir, "desktop.png");
-    await page.screenshot({ fullPage: true, path: desktopScreenshot });
+    await page.screenshot({ path: desktopScreenshot });
     screenshots.push(desktopScreenshot);
 
     const mobile = await runMode(page, "mobile");
     const mobileScreenshot = join(artifactDir, "mobile.png");
-    await page.screenshot({ fullPage: true, path: mobileScreenshot });
+    await page.screenshot({ path: mobileScreenshot });
     screenshots.push(mobileScreenshot);
 
     if (consoleErrors.length > 0 || pageErrors.length > 0 || responseErrors.length > 0) {

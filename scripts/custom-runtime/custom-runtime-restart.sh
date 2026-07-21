@@ -70,12 +70,19 @@ with open(os.path.join(root, "snapshot.json"), encoding="utf-8") as f:
 release_id = snapshot.get("releaseId")
 if not isinstance(release_id, str) or not release_id:
     raise SystemExit("active runtime release id is missing")
+source_sha = pointer.get("sourceSha")
+if not isinstance(source_sha, str) or not source_sha:
+    raise SystemExit("active runtime source SHA is missing")
 print(root)
 print(release_id)
+print(source_sha)
 PY
 ) || exit 64
 runtime_root=$(printf '%s\n' "$identity" | sed -n '1p')
 runtime_release_id=$(printf '%s\n' "$identity" | sed -n '2p')
+runtime_source_sha=$(printf '%s\n' "$identity" | sed -n '3p')
+
+custom_runtime_require_release_governance restart "$runtime_source_sha" "$runtime_root"
 
 if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! launchctl print "gui/$uid/$label" >/dev/null 2>&1; then

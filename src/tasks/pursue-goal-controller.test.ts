@@ -204,6 +204,44 @@ describe("Pursue Goal controller", () => {
     expect(consumed.events.at(-1)).toMatchObject({ name: "notification.delivered" });
   });
 
+  it("keeps a worker-reported blocker provisional until repeated confirmation", async () => {
+    const flow = createGoalFlow("Finish instead of stopping at an unrun Judge");
+    const missionId = stateForPursueGoalFlow(flow)!.missionId;
+    const runtime = baseRuntime(async ({ state }) =>
+      state.consecutiveBlockers < 2
+        ? {
+            status: "active" as const,
+            text: "Waiting for a Judge receipt.",
+            provisionalBlocker: "Waiting for a Judge receipt.",
+          }
+        : {
+            status: "complete" as const,
+            text: "Implemented and verified after retry.",
+            evidenceSummary: "Controller retried the premature blocker.",
+            judgeReceipt: approvedReceipt({
+              missionId,
+              goal: flow.goal,
+              text: "Implemented and verified after retry.",
+              evidenceSummary: "Controller retried the premature blocker.",
+            }),
+          },
+    );
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const completed = await waitForFlow(
+      flow.flowId,
+      (candidate) => candidate.status === "succeeded",
+    );
+    const state = stateForPursueGoalFlow(completed)!;
+
+    expect(runtime.runTurn).toHaveBeenCalledTimes(3);
+    expect(state.phase).toBe("succeeded");
+    expect(state.consecutiveBlockers).toBe(0);
+    expect(state.events.filter((event) => event.name === "activity.waiting")).toHaveLength(2);
+    expect(state.events.some((event) => event.name === "goal.blocked")).toBe(false);
+  });
+
   it("blocks an unbound or cryptographically invalid completion receipt", async () => {
     const flow = createGoalFlow();
     const state = stateForPursueGoalFlow(flow)!;

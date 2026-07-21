@@ -9,8 +9,8 @@ import {
   abortChatRun,
   attachChatSessionToProject,
   buildCurrentChatGoalContinuationPrompt,
-  cancelChatGoal,
   cancelChatWorkTask,
+  controlChatGoal,
   createChatSessionInProject,
   createChatGoal,
   detachChatSessionFromProject,
@@ -19,6 +19,7 @@ import {
   loadChatProjects,
   loadChatWorkTasks,
   loadChatHistory,
+  loadOlderChatHistory,
   requestChatSend,
   requestSkillWorkshopRevisionChatSend,
   sendChatMessage,
@@ -255,10 +256,10 @@ describe("chat pursue goal actions", () => {
     );
   });
 
-  it("cancels a goal and refreshes goal state", async () => {
+  it("stops a goal and refreshes goal state", async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ found: true, applied: true })
+      .mockResolvedValueOnce({ found: true, applied: true, action: "stop" })
       .mockResolvedValueOnce({
         flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
       });
@@ -267,43 +268,99 @@ describe("chat pursue goal actions", () => {
       chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
     });
 
-    await expect(cancelChatGoal(state, "flow-1")).resolves.toBe(true);
+    await expect(controlChatGoal(state, "flow-1", "stop")).resolves.toBeNull();
 
-    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.stop", {
+    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.control", {
       flowId: "flow-1",
       sessionKey: "main",
+      action: "stop",
       idempotencyKey: expect.any(String),
-      reason: "stopped from Control UI Pursue Goal",
     });
     expect(request).toHaveBeenNthCalledWith(2, "taskFlows.list", {
       sessionKey: "main",
       limit: 20,
     });
     expect(state.chatGoalFlows?.[0]?.status).toBe("cancelled");
-    expect(state.chatGoalCancellingFlowId).toBeNull();
+    expect(state.chatGoalAction).toBeNull();
   });
 
-  it("deduplicates repeated goal cancellation while one is in flight", async () => {
-    const pending = createDeferred<{ found: true; applied: true }>();
+  it("deduplicates repeated goal controls while one is in flight", async () => {
+    const pending = createDeferred<{ found: true; applied: true; action: "stop" }>();
     const request = vi.fn().mockReturnValueOnce(pending.promise);
     const state = createState({
       client: { request } as unknown as ChatState["client"],
       chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
     });
 
-    const first = cancelChatGoal(state, "flow-1");
+    const first = controlChatGoal(state, "flow-1", "stop");
     await Promise.resolve();
 
-    expect(state.chatGoalCancellingFlowId).toBe("flow-1");
+    expect(state.chatGoalAction).toEqual({ flowId: "flow-1", action: "stop" });
     expect(state.chatGoalFlows?.[0]?.status).toBe("cancelling");
-    await expect(cancelChatGoal(state, "flow-1")).resolves.toBe(false);
+    await expect(controlChatGoal(state, "flow-1", "stop")).resolves.toBeNull();
     expect(request).toHaveBeenCalledTimes(1);
 
-    pending.resolve({ found: true, applied: true });
+    pending.resolve({ found: true, applied: true, action: "stop" });
     request.mockResolvedValueOnce({
       flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
     });
-    await expect(first).resolves.toBe(true);
+    await expect(first).resolves.toBeNull();
+  });
+
+  it("pauses, resumes, and edits a goal through the canonical control method", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        found: true,
+        applied: true,
+        action: "pause",
+        flow: { id: "flow-1", goal: "Finish", status: "paused" },
+      })
+      .mockResolvedValueOnce({ flows: [{ id: "flow-1", goal: "Finish", status: "paused" }] })
+      .mockResolvedValueOnce({
+        found: true,
+        applied: true,
+        action: "resume",
+        flow: { id: "flow-1", goal: "Finish", status: "running" },
+      })
+      .mockResolvedValueOnce({ flows: [{ id: "flow-1", goal: "Finish", status: "running" }] })
+      .mockResolvedValueOnce({
+        found: true,
+        applied: true,
+        action: "edit",
+        flow: { id: "flow-1", goal: "Finish safely", status: "running" },
+      })
+      .mockResolvedValueOnce({
+        flows: [{ id: "flow-1", goal: "Finish safely", status: "running" }],
+      });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
+    });
+
+    await expect(controlChatGoal(state, "flow-1", "pause")).resolves.toMatchObject({
+      status: "paused",
+    });
+    await expect(controlChatGoal(state, "flow-1", "resume")).resolves.toMatchObject({
+      status: "running",
+    });
+    await expect(
+      controlChatGoal(state, "flow-1", "edit", " Finish safely "),
+    ).resolves.toMatchObject({ goal: "Finish safely" });
+
+    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.control", {
+      flowId: "flow-1",
+      sessionKey: "main",
+      action: "pause",
+      idempotencyKey: expect.any(String),
+    });
+    expect(request).toHaveBeenNthCalledWith(5, "taskFlows.control", {
+      flowId: "flow-1",
+      sessionKey: "main",
+      action: "edit",
+      goal: "Finish safely",
+      idempotencyKey: expect.any(String),
+    });
   });
 
   it("records goal API failures without throwing", async () => {
@@ -2102,6 +2159,7 @@ describe("loadChatHistory filtering", () => {
     expect(request).toHaveBeenCalledWith("chat.startup", {
       sessionKey: "global",
       limit: 100,
+      offset: 0,
     });
     expect(state.chatMessages).toEqual([
       { role: "assistant", content: [{ type: "text", text: "ready" }] },
@@ -2129,7 +2187,54 @@ describe("loadChatHistory filtering", () => {
     expect(request).toHaveBeenCalledWith("chat.history", {
       sessionKey: "main",
       limit: 100,
+      offset: 0,
     });
+  });
+
+  it("prepends durable older history and preserves the active transcript tail", async () => {
+    const recent = {
+      role: "assistant",
+      content: [{ type: "text", text: "recent" }],
+      __openclaw: { id: "message-2" },
+    };
+    const older = {
+      role: "user",
+      content: [{ type: "text", text: "older" }],
+      __openclaw: { id: "message-1" },
+    };
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        messages: [recent],
+        offset: 0,
+        nextOffset: 1,
+        hasMore: true,
+        totalMessages: 2,
+      })
+      .mockResolvedValueOnce({
+        messages: [older],
+        offset: 1,
+        hasMore: false,
+        totalMessages: 2,
+      });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      connected: true,
+    });
+
+    await loadChatHistory(state);
+    await expect(loadOlderChatHistory(state)).resolves.toBe(true);
+
+    expect(request).toHaveBeenNthCalledWith(2, "chat.history", {
+      sessionKey: "main",
+      limit: 100,
+      offset: 1,
+    });
+    expect(state.chatMessages).toEqual([older, recent]);
+    expect(state.chatHistoryHasMore).toBe(false);
+    expect(state.chatHistoryNextOffset).toBeNull();
+    expect(state.chatHistoryTotalMessages).toBe(2);
+    expect(state.chatHistoryLoadingOlder).toBe(false);
   });
 });
 
@@ -2716,10 +2821,12 @@ describe("loadChatHistory retry handling", () => {
     expect(request).toHaveBeenNthCalledWith(1, "chat.startup", {
       sessionKey: "main",
       limit: 100,
+      offset: 0,
     });
     expect(request).toHaveBeenNthCalledWith(2, "chat.history", {
       sessionKey: "main",
       limit: 100,
+      offset: 0,
     });
     expect(state.chatMessages).toEqual([
       { role: "assistant", content: [{ type: "text", text: "fallback" }] },
@@ -2788,6 +2895,7 @@ describe("loadChatHistory retry handling", () => {
     expect(request).toHaveBeenCalledWith("chat.history", {
       sessionKey: "main",
       limit: 100,
+      offset: 0,
     });
     expect(state.chatMessages).toEqual([
       { role: "assistant", content: [{ type: "text", text: "visible answer" }] },

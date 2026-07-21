@@ -484,8 +484,8 @@ window.runOpenClawDashboardCodexPlusAppsSmoke = async () => {
       label: "Codex Chat surfaces",
       path: "/chat",
       template: renderChat(chatProps()),
-      requiredText: ["Working Now", "Pursue Goal", "Truth & Completion"],
-      selectors: [".chat-work-surface", ".chat-goal", ".chat-control-director-diagnostics"],
+      requiredText: ["Working Now", "Pursue Goal", "Chat project context"],
+      selectors: [".chat-work-surface", ".chat-goal", "[data-chat-project-picker]"],
     },
     { label: "App Studio", path: "/app-studio", template: renderAppStudioDashboard(appStudioProps()), requiredText: ["App Studio"], selectors: [".app-studio"] },
     { label: "Music Studio", path: "/music-studio", template: renderMusicStudio({}), requiredText: ["Music Studio"], selectors: [".music-studio"] },
@@ -585,9 +585,9 @@ async function runLiveSmoke(input: {
         label: "Codex Chat surfaces",
         page,
         path: "/chat",
-        requiredText: ["Working Now", "Pursue Goal", "Truth & Completion"],
+        requiredText: ["Working Now", "Pursue Goal", "Chat project context"],
         screenshotPath: chatScreenshot,
-        selectors: [".chat-work-surface", ".chat-goal", ".chat-control-director-diagnostics"],
+        selectors: [".chat-work-surface", ".chat-goal", "[data-chat-project-picker]"],
       }),
     );
 

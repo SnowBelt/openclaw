@@ -165,6 +165,7 @@ export const CORE_GATEWAY_METHOD_SPECS: readonly CoreGatewayMethodSpec[] = [
   { name: "taskFlows.edit", scope: "operator.write" },
   { name: "taskFlows.retry", scope: "operator.write" },
   { name: "taskFlows.stop", scope: "operator.write" },
+  { name: "taskFlows.control", scope: "operator.write" },
   { name: "selfImprovement.auditEvents.list", scope: "operator.read" },
   { name: "selfImprovement.summary", scope: "operator.read" },
   { name: "selfImprovement.scorecard", scope: "operator.read" },

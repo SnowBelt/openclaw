@@ -742,6 +742,53 @@ describe("chat multi-agent work tree", () => {
 });
 
 describe("chat Control Director diagnostics", () => {
+  it("keeps empty diagnostics out of the conversation", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [{ key: "agent:main:main", kind: "direct", updatedAt: 100 }],
+        ts: 0,
+      },
+    });
+
+    expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
+    expect(container.textContent).not.toContain("No Control Director diagnostics recorded");
+  });
+
+  it("keeps healthy diagnostics in Sessions and Overview instead of persistent chat chrome", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+            controlDirectorTruthAudit: [
+              {
+                ts: 10,
+                status: "passed",
+                missing: [],
+                payloadsChecked: 1,
+                payloadsRewritten: 0,
+                claims: [],
+              },
+            ],
+          },
+        ],
+        ts: 0,
+      },
+    });
+
+    expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
+  });
+
   it("renders blocked truth and completion diagnostics for the active session", () => {
     const container = renderChatView({
       sessionKey: "agent:main:main",
@@ -796,15 +843,90 @@ describe("chat Control Director diagnostics", () => {
       },
     });
 
-    expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
-    expect(container.querySelector(".chat-thread")).not.toBeNull();
-    expect(container.querySelector(".agent-chat__input")).not.toBeNull();
+    const card = container.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
+    const summary = card?.querySelector(".chat-control-director-diagnostics__summary");
+    const panel = card?.querySelector(".chat-control-director-diagnostics__panel");
+    expect(card?.closest(".chat-thread-inner")).not.toBeNull();
+    expect(card?.open).toBe(false);
+    expect(card?.textContent).toContain("Truth & Completion");
+    expect(card?.textContent).toContain("Blocked unsupported claim");
+    expect(card?.textContent).toContain("missing command evidence with exit code 0");
+    expect(summary?.textContent).not.toContain("Completion Grade");
+    expect(panel?.textContent).toContain("Why");
+    expect(panel?.textContent).toContain("Next");
+    expect(panel?.textContent).toContain("Required evidence");
+    expect(panel?.textContent).toContain("Completion Grade");
+    expect(panel?.textContent?.replace(/\s+/g, " ")).toContain(
+      "OpenClaw stopped because it could not safely prove the request was finished",
+    );
+    expect(card?.textContent).not.toContain("Status: complete");
   });
 
-  it("keeps blocked diagnostics out of the Chat transcript flow", () => {
+  it("closes diagnostic details with Escape and restores summary focus", () => {
+    const container = renderChatView({
+      sessionKey: "agent:main:main",
+      sessions: {
+        count: 1,
+        defaults: { contextTokens: null, model: null, modelProvider: null },
+        path: "",
+        sessions: [
+          {
+            key: "agent:main:main",
+            kind: "direct",
+            updatedAt: 100,
+            controlDirectorMissionLedger: [
+              {
+                missionId: "mission-1",
+                runId: "run-1",
+                requestSummary: "finish diagnostics",
+                status: "blocked",
+                startedAt: 1,
+                updatedAt: 10,
+                continuationCount: 0,
+                finalStatus: "blocked",
+                nextBuildGap: "collect command proof",
+              },
+            ],
+          },
+        ],
+        ts: 0,
+      },
+    });
+    const card = container.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
+    const summary = card?.querySelector<HTMLElement>(".chat-control-director-diagnostics__summary");
+    const retry = card?.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]");
+    const close = card?.querySelector<HTMLButtonElement>(
+      '[aria-label="Close truth and completion details"]',
+    );
+    expect(card).not.toBeNull();
+    expect(summary).not.toBeNull();
+    expect(retry).not.toBeNull();
+    expect(close).not.toBeNull();
+
+    document.body.append(container);
+    try {
+      card!.open = true;
+      close!.click();
+      expect(card!.open).toBe(false);
+      expect(document.activeElement).toBe(summary);
+
+      card!.open = true;
+      retry!.focus();
+      retry!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+
+      expect(card!.open).toBe(false);
+      expect(document.activeElement).toBe(summary);
+    } finally {
+      container.remove();
+    }
+  });
+
+  it("inserts a safe retry draft without sending blocked Control Director diagnostics", () => {
+    const onDraftChange = vi.fn();
     const onSend = vi.fn();
     const container = renderChatView({
       sessionKey: "agent:main:main",
+      onDraftChange,
       onSend,
       sessions: {
         count: 1,
@@ -836,8 +958,11 @@ describe("chat Control Director diagnostics", () => {
       },
     });
 
-    expect(container.querySelector("[data-chat-blocked-retry]")).toBeNull();
-    expect(container.textContent).not.toContain("Truth & Completion");
+    container.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]")?.click();
+
+    expect(onDraftChange).toHaveBeenCalledWith(
+      expect.stringContaining("Retry the preserved original request safely"),
+    );
     expect(onSend).not.toHaveBeenCalled();
   });
 });
@@ -875,6 +1000,21 @@ describe("chat compaction divider", () => {
 });
 
 describe("chat history render window", () => {
+  it("loads older persisted messages without creating another visible chat", () => {
+    const onLoadEarlier = vi.fn();
+    const container = renderChatView({
+      historyHasMore: true,
+      historyTotalMessages: 240,
+      onLoadEarlier,
+    });
+
+    expect(container.querySelector(".chat-history-pagination")?.textContent).toContain(
+      "240 messages saved",
+    );
+    container.querySelector<HTMLButtonElement>("[data-chat-load-earlier]")?.click();
+    expect(onLoadEarlier).toHaveBeenCalledTimes(1);
+  });
+
   it("starts freshly loaded large histories with a small render window", () => {
     const messages = Array.from({ length: 80 }, (_, index) => ({
       role: index % 2 === 0 ? "user" : "assistant",
@@ -1105,7 +1245,7 @@ describe("chat history render window", () => {
 });
 
 describe("chat goal status", () => {
-  it("renders the active session goal inside the composer", () => {
+  it("keeps model-internal session goals out of the operator Pursue Goal surface", () => {
     const container = renderChatView({
       sessions: createSessionsResultFromRows([
         {
@@ -1128,12 +1268,8 @@ describe("chat goal status", () => {
       ]),
     });
 
-    const goal = container.querySelector(".agent-chat__goal");
-    expect(goal?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "Pursuing goal (12k/50k) Land the web goal UI",
-    );
-    expect(goal?.getAttribute("aria-label")).toBe("Pursuing goal (12k/50k): Land the web goal UI");
-    expect(goal?.closest(".agent-chat__composer-status-stack")).not.toBeNull();
+    expect(container.querySelector(".agent-chat__goal")).toBeNull();
+    expect(container.querySelector("[data-chat-goal]")?.textContent).toContain("No goal");
   });
 });
 
@@ -2956,6 +3092,10 @@ describe("chat session controls", () => {
     );
 
     expect(agentSelect?.value).toBe("alpha");
+    expect(agentSelect?.title).toContain("automatic delegation");
+    expect(
+      Array.from(agentSelect?.querySelectorAll("optgroup") ?? []).map((group) => group.label),
+    ).toEqual(["Recommended", "Specialists (advanced)"]);
     expect(sessionTrigger?.textContent).toContain("main");
 
     agentSelect!.value = "beta";
@@ -3083,6 +3223,12 @@ describe("chat session controls", () => {
 
     container.querySelector<HTMLButtonElement>('button[data-chat-session-select="true"]')!.click();
     render(renderChatSessionSelect(state), container);
+    expect(container.querySelector(".chat-session-picker__heading")?.textContent).toContain(
+      "All conversations",
+    );
+    expect(container.querySelector(".chat-session-picker__heading")?.textContent).toContain(
+      "complete chat history",
+    );
     const input = container.querySelector<HTMLInputElement>(
       'input[data-chat-session-picker-search="true"]',
     );
@@ -4666,6 +4812,69 @@ describe("chat Working Now surface", () => {
     );
   });
 
+  it("shows an active goal instead of contradicting it with Nothing running", () => {
+    const container = renderChatView({
+      goalFlows: [
+        {
+          id: "flow-1",
+          goal: "Finish the dashboard",
+          status: "running",
+          currentStep: "Waiting for the next continuation",
+        },
+      ],
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-work-surface]");
+    expect(surface?.textContent).toContain("Goal active");
+    expect(surface?.textContent).toContain("Finish the dashboard");
+    expect(surface?.textContent).toContain("Goal active · waiting");
+    expect(surface?.textContent).not.toContain("Nothing is running.");
+  });
+
+  it("does not describe a paused goal as working", () => {
+    const container = renderChatView({
+      goalFlows: [
+        {
+          id: "flow-paused",
+          goal: "Finish the dashboard",
+          status: "paused",
+          currentStep: "Paused by user.",
+        },
+      ],
+    });
+
+    const summary = container.querySelector<HTMLElement>(".chat-work-surface__summary");
+    expect(summary?.textContent).toContain("Goal paused");
+    expect(summary?.textContent).not.toContain("Working");
+    expect(summary?.getAttribute("aria-label")).toBe("Working Now: Goal paused");
+  });
+
+  it("makes a blocked goal an actionable attention disclosure", () => {
+    const onGoalPanelToggle = vi.fn();
+    const container = renderChatView({
+      goalFlows: [
+        {
+          id: "flow-blocked",
+          goal: "Finish the dashboard",
+          status: "blocked",
+          blockedSummary: "Remote proof is missing.",
+        },
+      ],
+      onGoalPanelToggle,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-work-surface]");
+    expect(surface?.textContent).toContain("Needs attention");
+    expect(surface?.textContent).toContain("Remote proof is missing.");
+    expect(surface?.textContent).toContain("Owner Pursue Goal");
+    expect(surface?.textContent).toContain("Next Open the goal");
+
+    surface
+      ?.querySelector<HTMLButtonElement>('[aria-label="Open goal Finish the dashboard"]')
+      ?.click();
+    expect(onGoalPanelToggle).toHaveBeenCalledWith(true);
+  });
+
   it("renders active run, queue, task, and active session actions", () => {
     const onAbort = vi.fn();
     const onQueueRemove = vi.fn();
@@ -5121,6 +5330,9 @@ describe("chat project picker", () => {
     expect(container.querySelector("[data-chat-project-picker]")?.textContent).toContain(
       "No Project",
     );
+    const contract = container.querySelector("[data-chat-project-contract]")?.textContent;
+    expect(contract).toContain("PCC owns milestones, permissions, proof, and automation");
+    expect(contract).toContain("does not create a second project plan");
   });
 
   it("renders the current project name from the active session row", () => {
@@ -5233,12 +5445,12 @@ describe("chat Pursue Goal surface", () => {
     expect(onGoalDraftChange).toHaveBeenCalledWith("Updated goal");
   });
 
-  it("renders running goal details and exposes pause, edit, and stop actions", () => {
-    const onGoalPause = vi.fn();
-    const onGoalEdit = vi.fn();
-    const onGoalCancel = vi.fn();
+  it("renders running goal details and exposes continue, pause, edit, and stop actions", () => {
+    const onGoalContinue = vi.fn();
+    const onGoalControl = vi.fn();
     const container = renderChatView({
       goalPanelOpen: true,
+      goalDraft: "Finish Pursue Goal V1 safely",
       goalFlows: [
         {
           id: "flow-1",
@@ -5269,10 +5481,8 @@ describe("chat Pursue Goal surface", () => {
           ],
         },
       ],
-      goalDraft: "Finish Pursue Goal V1 with updated proof",
-      onGoalPause,
-      onGoalEdit,
-      onGoalCancel,
+      onGoalContinue,
+      onGoalControl,
     });
 
     const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
@@ -5281,22 +5491,29 @@ describe("chat Pursue Goal surface", () => {
     expect(surface.textContent).toContain("Testing gateway linkage");
     expect(surface.textContent).toContain("Judge pending");
 
+    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="continue"]')?.click();
     surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="pause"]')?.click();
     surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="edit"]')?.click();
     surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="cancel"]')?.click();
 
-    expect(onGoalPause).toHaveBeenCalledWith("flow-1");
-    expect(onGoalEdit).toHaveBeenCalledWith("flow-1", "Finish Pursue Goal V1 with updated proof");
-    expect(onGoalCancel).toHaveBeenCalledWith("flow-1");
+    expect(onGoalContinue).toHaveBeenCalledWith("flow-1");
+    expect(onGoalControl).toHaveBeenNthCalledWith(1, "flow-1", "pause");
+    expect(onGoalControl).toHaveBeenNthCalledWith(
+      2,
+      "flow-1",
+      "edit",
+      "Finish Pursue Goal V1 safely",
+    );
+    expect(onGoalControl).toHaveBeenNthCalledWith(3, "flow-1", "stop");
     expect(surface.textContent).toContain("Worker is testing the gateway linkage.");
     expect(surface.textContent).toContain("Stop goal");
   });
 
-  it("shows an immediate cancelling state and disables duplicate goal cancellation", () => {
-    const onGoalCancel = vi.fn();
+  it("shows an immediate stopping state and disables duplicate goal control", () => {
+    const onGoalControl = vi.fn();
     const container = renderChatView({
       goalPanelOpen: true,
-      goalCancellingFlowId: "flow-1",
+      goalAction: { flowId: "flow-1", action: "stop" },
       goalFlows: [
         {
           id: "flow-1",
@@ -5306,7 +5523,7 @@ describe("chat Pursue Goal surface", () => {
           currentStep: "Stopping work.",
         },
       ],
-      onGoalCancel,
+      onGoalControl,
     });
 
     const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
@@ -5314,11 +5531,27 @@ describe("chat Pursue Goal surface", () => {
     expect(surface.textContent).toContain("Stopping…");
     expect(cancel.disabled).toBe(true);
     cancel.click();
-    expect(onGoalCancel).not.toHaveBeenCalled();
+    expect(onGoalControl).not.toHaveBeenCalled();
   });
 
-  it("shows blocked retry and no unsafe controls for a cancelled goal", () => {
-    const onGoalRetry = vi.fn();
+  it("resumes a paused goal and does not claim it is running", () => {
+    const onGoalControl = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      goalDraft: "Paused goal",
+      goalFlows: [{ id: "flow-1", status: "paused", goal: "Paused goal" }],
+      onGoalControl,
+    });
+
+    const surface = container.querySelector<HTMLElement>("[data-chat-goal]")!;
+    expect(surface.textContent).toContain("Paused");
+    expect(surface.querySelector('[data-chat-goal-action="pause"]')).toBeNull();
+    surface.querySelector<HTMLButtonElement>('[data-chat-goal-action="resume"]')?.click();
+    expect(onGoalControl).toHaveBeenCalledWith("flow-1", "resume");
+  });
+
+  it("routes blocked goals through retry instead of unsafe continuation", () => {
+    const onGoalControl = vi.fn();
     const blocked = renderChatView({
       goalPanelOpen: true,
       goalFlows: [
@@ -5329,14 +5562,17 @@ describe("chat Pursue Goal surface", () => {
           blockedSummary: "Waiting for GitHub Actions result.",
         },
       ],
-      onGoalRetry,
+      onGoalControl,
     });
-    expect(blocked.querySelector("[data-chat-goal]")?.textContent).toContain("Blocked");
-    expect(blocked.querySelector("[data-chat-goal]")?.textContent).toContain(
-      "Waiting for GitHub Actions result.",
-    );
-    blocked.querySelector<HTMLButtonElement>('[data-chat-goal-action="retry"]')?.click();
-    expect(onGoalRetry).toHaveBeenCalledWith("flow-blocked");
+    const blockedGoal = blocked.querySelector<HTMLElement>("[data-chat-goal]")!;
+    expect(blockedGoal.textContent).toContain("Blocked");
+    expect(blockedGoal.textContent).toContain("Waiting for GitHub Actions result.");
+    expect(
+      blockedGoal.querySelector<HTMLButtonElement>('[data-chat-goal-action="continue"]')?.disabled,
+    ).toBe(true);
+    expect(blockedGoal.querySelector('[data-chat-goal-action="pause"]')).toBeNull();
+    blockedGoal.querySelector<HTMLButtonElement>('[data-chat-goal-action="retry"]')?.click();
+    expect(onGoalControl).toHaveBeenCalledWith("flow-blocked", "retry");
 
     const cancelled = renderChatView({
       goalPanelOpen: true,

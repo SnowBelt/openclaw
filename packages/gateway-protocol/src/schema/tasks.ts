@@ -477,6 +477,35 @@ export const TaskFlowMutationResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const TaskFlowControlActionSchema = Type.Union([
+  Type.Literal("pause"),
+  Type.Literal("resume"),
+  Type.Literal("retry"),
+  Type.Literal("stop"),
+  Type.Literal("edit"),
+]);
+
+/** Idempotent web operator control over the existing Pursue Goal controller. */
+export const TaskFlowsControlParamsSchema = Type.Object(
+  {
+    ...TaskFlowRevisionedMutationParams,
+    action: TaskFlowControlActionSchema,
+    goal: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const TaskFlowsControlResultSchema = Type.Object(
+  {
+    found: Type.Boolean(),
+    applied: Type.Boolean(),
+    action: TaskFlowControlActionSchema,
+    reason: Type.Optional(Type.String()),
+    flow: Type.Optional(TaskFlowDetailSchema),
+  },
+  { additionalProperties: false },
+);
+
 /** One authoritative session-scoped projection consumed by Chat, PCC, and diagnostics. */
 export const ExecutionStateGetParamsSchema = Type.Object(
   {

@@ -5,6 +5,7 @@ import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
+import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
@@ -423,6 +424,10 @@ export class OpenClawApp extends LitElement {
   currentSessionId: string | null = null;
   reconnectResumeSessionId: string | null = null;
   @state() chatLoading = false;
+  @state() chatHistoryHasMore = false;
+  @state() chatHistoryNextOffset: number | null = null;
+  @state() chatHistoryLoadingOlder = false;
+  @state() chatHistoryTotalMessages: number | null = null;
   @state() chatSending = false;
   @state() chatMessage = "";
   @state() chatMessages: unknown[] = [];
@@ -454,7 +459,7 @@ export class OpenClawApp extends LitElement {
   @state() chatGoalFlows: ChatGoalFlowSummary[] = [];
   @state() chatGoalLoading = false;
   @state() chatGoalBusy = false;
-  @state() chatGoalCancellingFlowId: string | null = null;
+  @state() chatGoalAction: import("./chat/pursue-goal.ts").ChatGoalActionState | null = null;
   @state() chatGoalError: string | null = null;
   @state() chatGoalUpdatedAt: number | null = null;
   @state() chatExecutionState: ExecutionStateSnapshot | null = null;
@@ -508,6 +513,7 @@ export class OpenClawApp extends LitElement {
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
   @state() pccUpdateSafety: PccUpdateSafety | null = null;
+  @state() pccReleaseGovernance: ReleaseGovernanceStatus | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;
   @state() pccExecutionProjection: PccExecutionRuntimeProjection | null = null;
   @state() pccExecutionProjectionLoading = false;

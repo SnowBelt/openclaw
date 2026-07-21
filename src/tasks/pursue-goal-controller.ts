@@ -17,6 +17,10 @@ import {
   createDurableWorkerMailboxMessage,
 } from "./durable-worker-mailbox.js";
 import {
+  nextPursueGoalBlockerCount,
+  PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS,
+} from "./pursue-goal-blocker.js";
+import {
   isPursueGoalLeaseCurrent,
   stateForPursueGoalFlow,
   withPursueGoalEvent,
@@ -54,6 +58,7 @@ export type PursueGoalTurnResult = {
   status: "active" | "complete" | "blocked" | "paused";
   text: string;
   blocker?: string;
+  provisionalBlocker?: string;
   evidenceSummary?: string;
   artifactIds?: string[];
   judgeReceipt?: PursueGoalJudgeReceipt;
@@ -533,20 +538,34 @@ function applyTurnResult(params: {
       return undefined;
     }
     const summary = boundedSummary(params.result.text);
+    const observedBlocker = boundedSummary(
+      params.result.provisionalBlocker ??
+        (params.result.status === "blocked"
+          ? (params.result.blocker ?? params.result.text)
+          : undefined),
+    );
+    const consecutiveBlockers = observedBlocker
+      ? nextPursueGoalBlockerCount({
+          previousSummary: state.lastError,
+          previousCount: state.consecutiveBlockers,
+          currentSummary: observedBlocker,
+        })
+      : 0;
     const correlation = { runId: params.runId, taskId: params.taskId };
     const resultKind =
       params.result.status === "complete"
         ? "success"
-        : params.result.status === "blocked"
+        : params.result.status === "blocked" || params.result.provisionalBlocker
           ? "blocked"
           : "progress";
     let next: PursueGoalControllerState = {
       ...state,
       turnCount: state.turnCount + 1,
       consecutiveFailures: 0,
+      consecutiveBlockers,
       staleGoalRepairAttempts: 0,
       lastResult: summary,
-      lastError: undefined,
+      lastError: observedBlocker,
       mailbox: appendDurableWorkerMailboxMessage(
         state.mailbox,
         createDurableWorkerMailboxMessage({
@@ -679,7 +698,6 @@ function applyTurnResult(params: {
         ...next,
         phase: "blocked",
         lease: undefined,
-        consecutiveBlockers: state.consecutiveBlockers + 1,
         lastError: blocker,
         nextAction: "Resolve the recorded blocker, then retry the goal.",
         ...(params.result.judgeReceipt ? { judgeReceipt: params.result.judgeReceipt } : {}),
@@ -749,14 +767,18 @@ function applyTurnResult(params: {
     next = {
       ...next,
       phase: "running",
-      nextAction: "Continue with the next delegated worker turn.",
+      nextAction: params.result.provisionalBlocker
+        ? `Re-evaluate the same provisional blocker; confirmation ${consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS} is not terminal.`
+        : "Continue with the next delegated worker turn.",
     };
     next = withPursueGoalEvent(next, {
       flowId: params.flowId,
-      category: "task",
-      name: "task.completed",
+      category: params.result.provisionalBlocker ? "activity" : "task",
+      name: params.result.provisionalBlocker ? "activity.waiting" : "task.completed",
       actorId: state.workerAgentId,
-      summary: summary ?? "Delegated worker turn completed and returned control.",
+      summary: params.result.provisionalBlocker
+        ? `Worker blocker is provisional (${consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS}); the controller will retry before stopping.`
+        : (summary ?? "Delegated worker turn completed and returned control."),
       correlation,
       at: now,
     });
@@ -1315,6 +1337,7 @@ export async function editPursueGoalFlow(params: {
       lease: undefined,
       retryAt: undefined,
       lastError: undefined,
+      consecutiveBlockers: 0,
       judgeReceipt: undefined,
       nextAction: stayPaused
         ? "Resume the edited goal when ready."
@@ -1375,6 +1398,7 @@ export async function retryPursueGoalFlow(params: {
       retryAt: undefined,
       lastError: undefined,
       consecutiveFailures: 0,
+      consecutiveBlockers: 0,
       nextAction: "Acquire a controller lease and retry from durable mission state.",
     };
     next = withPursueGoalEvent(next, {

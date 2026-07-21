@@ -38,8 +38,8 @@ on:
         description: Run Dashboard Codex Plus Apps proof
         required: false
         default: "false"
-      chat-ux-cleanup-proof:
-        description: Run Chat UX Cleanup V1 proof
+      chat-control-director-reliability-proof:
+        description: Run Control Director Chat Reliability V1 proof
         required: false
         default: "false"
       pcc-foundation-proof:
@@ -298,7 +298,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-ux-cleanup-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true' && inputs.pcc-context-package-proof != 'true' && inputs.pcc-chat-sync-proof != 'true' && inputs.pcc-submilestones-proof != 'true' && inputs.pcc-skimmability-work-controls-proof != 'true' && inputs.pcc-portfolio-orchestration-proof != 'true' && inputs.pcc-production-governor-proof != 'true' && inputs.pcc-phase1-skimmability-proof != 'true' && inputs.pcc-phase2-workflow-intake-proof != 'true' && inputs.pcc-project-agnostic-proof != 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.control-director-proof != 'true' && inputs.chat-codex-stack-proof != 'true' && inputs.chat-multi-agent-work-tree-proof != 'true' && inputs.chat-truth-diagnostics-proof != 'true' && inputs.chat-polish-a11y-proof != 'true' && inputs.chat-network-remote-approval-cards-proof != 'true' && inputs.dashboard-codex-plus-apps-proof != 'true' && inputs.chat-control-director-reliability-proof != 'true' && inputs.pcc-foundation-proof != 'true' && inputs.pcc-ui-shell-proof != 'true' && inputs.pcc-crud-proof != 'true' && inputs.pcc-permissions-proof != 'true' && inputs.pcc-work-loop-proof != 'true' && inputs.pcc-receipts-proof != 'true' && inputs.pcc-phase-template-proof != 'true' && inputs.pcc-routing-proof != 'true' && inputs.pcc-context-package-proof != 'true' && inputs.pcc-chat-sync-proof != 'true' && inputs.pcc-submilestones-proof != 'true' && inputs.pcc-skimmability-work-controls-proof != 'true' && inputs.pcc-portfolio-orchestration-proof != 'true' && inputs.pcc-production-governor-proof != 'true' && inputs.pcc-phase1-skimmability-proof != 'true' && inputs.pcc-phase2-workflow-intake-proof != 'true' && inputs.pcc-project-agnostic-proof != 'true'
     runs-on: ubuntu-24.04
     steps:
       - *workflow_sanity_checkout_step
@@ -799,11 +799,14 @@ jobs:
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
         run: pnpm check:changed
 
-  chat-ux-cleanup-proof:
-    if: github.event_name == 'workflow_dispatch' && inputs.chat-ux-cleanup-proof == 'true'
-    name: Chat UX Cleanup V1 proof
+  chat-control-director-reliability-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-control-director-reliability-proof == 'true'
+    name: Control Director Chat Reliability V1 proof
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
+    env:
+      CHAT_RELIABILITY_CHANGED_FILES: >-
+        .github/workflows/workflow-sanity.yml CHANGELOG.md apps/macos/Sources/OpenClaw/MenuBar.swift config/custom-runtime-capabilities.json docs/automation/taskflow.md docs/web/control-ui.md package.json packages/gateway-protocol/src/index.ts packages/gateway-protocol/src/schema/protocol-schemas.ts packages/gateway-protocol/src/schema/tasks.test.ts packages/gateway-protocol/src/schema/tasks.ts packages/gateway-protocol/src/schema/types.ts scripts/dev/control-ui-chat-control-director-reliability-smoke.ts scripts/dev/control-ui-chat-pursue-goal-smoke.ts scripts/dev/control-ui-chat-ux-cleanup-smoke.ts src/agents/command/session-store.test.ts src/agents/command/session-store.ts src/auto-reply/reply/agent-runner-session-reset.test.ts src/auto-reply/reply/agent-runner-session-reset.ts src/auto-reply/reply/session-updates.lifecycle.test.ts src/auto-reply/reply/session-updates.ts src/auto-reply/reply/session.test.ts src/auto-reply/reply/session.ts src/config/sessions/types.ts src/cron/isolated-agent/run-session-state.test.ts src/cron/isolated-agent/run-session-state.ts src/gateway/chat-history-lineage.ts src/gateway/methods/core-descriptors.ts src/gateway/server-methods.ts src/gateway/server-methods/chat.ts src/gateway/server-methods/tasks.test.ts src/gateway/server-methods/tasks.ts src/gateway/server.chat.gateway-server-chat-b.test.ts src/pcc/capability-addition-registry.ts src/plugins/session-entry-slot-keys.ts src/tasks/task-executor.test.ts src/tasks/task-executor.ts src/tasks/task-flow-registry.store.test.ts src/tasks/task-flow-registry.types.ts ui/src/legacy-styles/chat.css ui/src/legacy-styles/chat/layout.css ui/src/styles/chat/control-director-diagnostics.css ui/src/styles/chat/layout.css ui/src/ui/app-chat.test.ts ui/src/ui/app-render.assistant-avatar.test.ts ui/src/ui/app-render.ts ui/src/ui/app-view-state.ts ui/src/ui/app.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/chat/grouped-render.ts ui/src/ui/chat/pursue-goal.ts ui/src/ui/chat/session-controls.ts ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/chat/work-snapshot.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/controllers/chat.ts ui/src/ui/views/chat.test.ts ui/src/ui/views/chat.ts
     steps:
       - name: Checkout
         timeout-minutes: 10
@@ -828,24 +831,37 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF_COMMANDS'
           commands:
-          - pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
+          - pnpm test packages/gateway-protocol/src/schema/tasks.test.ts src/tasks/task-flow-registry.store.test.ts src/tasks/task-executor.test.ts src/gateway/server-methods/tasks.test.ts src/gateway/server.chat.gateway-server-chat-b.test.ts src/agents/command/session-store.test.ts src/auto-reply/reply/agent-runner-session-reset.test.ts src/auto-reply/reply/session-updates.lifecycle.test.ts src/auto-reply/reply/session.test.ts src/cron/isolated-agent/run-session-state.test.ts ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app-render.assistant-avatar.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/custom-runtime-capabilities.test.ts
           - pnpm tsgo:test:ui
+          - pnpm ui:smoke:chat-pursue-goal
           - pnpm ui:smoke:chat-ux-cleanup
-          - pnpm check:changed
+          - pnpm ui:smoke:chat-control-director-reliability
+          - pnpm check:custom-runtime-capabilities
+          - pnpm check:pcc-capabilities
+          - pnpm check:changed -- $CHAT_RELIABILITY_CHANGED_FILES
+          - pnpm build
           EOF_COMMANDS
 
-      - name: Run targeted Chat UX cleanup tests
-        run: pnpm test ui/src/ui/chat/control-director-diagnostics.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/app-chat.test.ts
+      - name: Run targeted Control Director Chat reliability tests
+        run: pnpm test packages/gateway-protocol/src/schema/tasks.test.ts src/tasks/task-flow-registry.store.test.ts src/tasks/task-executor.test.ts src/gateway/server-methods/tasks.test.ts src/gateway/server.chat.gateway-server-chat-b.test.ts src/agents/command/session-store.test.ts src/auto-reply/reply/agent-runner-session-reset.test.ts src/auto-reply/reply/session-updates.lifecycle.test.ts src/auto-reply/reply/session.test.ts src/cron/isolated-agent/run-session-state.test.ts ui/src/ui/chat/work-snapshot.test.ts ui/src/ui/chat/grouped-render.test.ts ui/src/ui/controllers/chat.test.ts ui/src/ui/views/chat.test.ts ui/src/ui/app-chat.test.ts ui/src/ui/app-render.assistant-avatar.test.ts src/pcc/capability-addition-registry.test.ts src/pcc/custom-runtime-capabilities.test.ts
 
       - name: Run UI typecheck
         run: pnpm tsgo:test:ui
 
-      - name: Run Chat UX cleanup smoke
-        timeout-minutes: 20
+      - name: Run desktop and mobile Chat reliability smokes
+        timeout-minutes: 30
         env:
           CI: "true"
           NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm ui:smoke:chat-ux-cleanup
+        run: |
+          pnpm ui:smoke:chat-pursue-goal
+          pnpm ui:smoke:chat-ux-cleanup
+          pnpm ui:smoke:chat-control-director-reliability
+
+      - name: Verify custom runtime and PCC capability contracts
+        run: |
+          pnpm check:custom-runtime-capabilities
+          pnpm check:pcc-capabilities
 
       - name: Run changed gate
         env:
@@ -854,7 +870,38 @@ jobs:
           OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
-        run: pnpm check:changed
+        run: |
+          read -r -a changed_files <<< "$CHAT_RELIABILITY_CHANGED_FILES"
+          printf 'pnpm check:changed --'
+          printf ' %q' "${changed_files[@]}"
+          printf '\n'
+          pnpm check:changed -- "${changed_files[@]}"
+
+      - name: Run build proof
+        run: pnpm build
+
+  chat-control-director-reliability-macos-proof:
+    if: github.event_name == 'workflow_dispatch' && inputs.chat-control-director-reliability-proof == 'true'
+    name: Control Director Chat Reliability V1 macOS proof
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Print proof identity and command
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "branch=${GITHUB_REF_NAME}"
+          swift --version
+          echo "command=swift build --package-path apps/macos"
+
+      - name: Compile the native dashboard keyboard commands
+        run: swift build --package-path apps/macos
 
   pcc-foundation-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.pcc-foundation-proof == 'true'

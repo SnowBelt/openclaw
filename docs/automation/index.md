@@ -34,22 +34,23 @@ flowchart TD
     Q6 -->|Yes| COMMITMENTS[Inferred Commitments]
 ```
 
-| Use case                                | Recommended               | Why                                                   |
-| --------------------------------------- | ------------------------- | ----------------------------------------------------- |
-| Send daily report at 9 AM sharp         | Scheduled Tasks (Cron)    | Exact timing, isolated execution                      |
-| Remind me in 20 minutes                 | Scheduled Tasks (Cron)    | One-shot with precise timing (`--at`)                 |
-| Run weekly deep analysis                | Scheduled Tasks (Cron)    | Standalone task, can use different model              |
-| Check inbox every 30 min                | Heartbeat                 | Batches with other checks, context-aware              |
-| Monitor calendar for upcoming events    | Heartbeat                 | Natural fit for periodic awareness                    |
-| Check in after a mentioned interview    | Inferred Commitments      | Memory-like follow-up, no exact reminder request      |
-| Gentle care check-in after user context | Inferred Commitments      | Scoped to the same agent and channel                  |
-| Inspect status of a subagent or ACP run | Background Tasks          | Tasks ledger tracks all detached work                 |
-| Audit what ran and when                 | Background Tasks          | `openclaw tasks list` and `openclaw tasks audit`      |
-| Multi-step research then summarize      | Task Flow                 | Durable orchestration with revision tracking          |
-| Run a script on session reset           | Hooks                     | Event-driven, fires on lifecycle events               |
-| Execute code on every tool call         | Plugin hooks              | In-process hooks can intercept tool calls             |
-| Always check compliance before replying | Standing Orders           | Injected into every session automatically             |
-| Review recurring operating problems     | Self-Improvement Governor | Default-off, recommendation-only evidence and routing |
+| Use case                                | Recommended               | Why                                                      |
+| --------------------------------------- | ------------------------- | -------------------------------------------------------- |
+| Send daily report at 9 AM sharp         | Scheduled Tasks (Cron)    | Exact timing, isolated execution                         |
+| Remind me in 20 minutes                 | Scheduled Tasks (Cron)    | One-shot with precise timing (`--at`)                    |
+| Run weekly deep analysis                | Scheduled Tasks (Cron)    | Standalone task, can use different model                 |
+| Check inbox every 30 min                | Heartbeat                 | Batches with other checks, context-aware                 |
+| Monitor calendar for upcoming events    | Heartbeat                 | Natural fit for periodic awareness                       |
+| Check in after a mentioned interview    | Inferred Commitments      | Memory-like follow-up, no exact reminder request         |
+| Gentle care check-in after user context | Inferred Commitments      | Scoped to the same agent and channel                     |
+| Inspect status of a subagent or ACP run | Background Tasks          | Tasks ledger tracks all detached work                    |
+| Audit what ran and when                 | Background Tasks          | `openclaw tasks list` and `openclaw tasks audit`         |
+| Multi-step research then summarize      | Task Flow                 | Durable orchestration with revision tracking             |
+| Run a script on session reset           | Hooks                     | Event-driven, fires on lifecycle events                  |
+| Execute code on every tool call         | Plugin hooks              | In-process hooks can intercept tool calls                |
+| Always check compliance before replying | Standing Orders           | Injected into every session automatically                |
+| Stage or promote an immutable runtime   | Release Governor          | Verifies risk, evidence, approvals, health, and rollback |
+| Review recurring operating problems     | Self-Improvement Governor | Default-off, recommendation-only evidence and routing    |
 
 ### Scheduled Tasks (Cron) vs Heartbeat
 
@@ -64,6 +65,13 @@ flowchart TD
 Use Scheduled Tasks (Cron) when you need precise timing or isolated execution. Use Heartbeat when the work benefits from full session context and approximate timing is fine.
 
 ## Core concepts
+
+### Release Governor
+
+The [Release Governor](/automation/release-governor) is the fail-closed policy
+boundary for custom-runtime staging, promotion, restart, rollback, and final
+release receipts. It uses deterministic risk and protected-path rules before
+structured agent reviews and never lets consensus override a blocker.
 
 ### Scheduled tasks (cron)
 
@@ -134,6 +142,7 @@ See [Heartbeat](/gateway/heartbeat).
 
 ## Related
 
+- [Release Governor](/automation/release-governor) — exact-SHA release policy, evidence, approval, health, and rollback
 - [Scheduled Tasks](/automation/cron-jobs) — precise scheduling and one-shot reminders
 - [Inferred Commitments](/concepts/commitments) — memory-like follow-up check-ins
 - [Background Tasks](/automation/tasks) — task ledger for all detached work

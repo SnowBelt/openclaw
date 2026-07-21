@@ -159,6 +159,7 @@ with open(target, "w", encoding="utf-8") as f:
     json.dump(snapshot, f, indent=2, sort_keys=True)
     f.write("\n")
 PY
+"$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
   "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" <<'PY'
 import json, os, sys

@@ -5,8 +5,16 @@ import { chromium, type Browser, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { controlUiSmokeViteResolve } from "./control-ui-smoke-vite.ts";
 
-type Mode = "desktop" | "mobile";
+type Mode = "mobile" | "mobile-large" | "mobile-landscape" | "macbook" | "desktop";
 type Result = { mode: Mode; ok: boolean; checks: Record<string, boolean>; bodyText: string };
+
+const MODE_VIEWPORTS: Record<Mode, { width: number; height: number }> = {
+  mobile: { width: 390, height: 844 },
+  "mobile-large": { width: 430, height: 932 },
+  "mobile-landscape": { width: 844, height: 390 },
+  macbook: { width: 1366, height: 768 },
+  desktop: { width: 1440, height: 900 },
+};
 
 type Summary = {
   artifactDir: string;
@@ -48,7 +56,7 @@ function writeSmokeApp(appDir: string) {
   mkdirSync(appDir, { recursive: true });
   writeFileSync(
     join(appDir, "index.html"),
-    `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>OpenClaw Chat UX Cleanup Smoke</title></head><body><main id="root"></main><script type="module" src="./main.ts"></script></body></html>`,
+    `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>OpenClaw Chat UX Cleanup Smoke</title><style>html,body,#root{height:100%;margin:0;overflow:hidden}#root{display:flex;min-height:0}</style></head><body><main id="root"></main><script type="module" src="./main.ts"></script></body></html>`,
   );
   writeFileSync(
     join(appDir, "main.ts"),
@@ -59,7 +67,7 @@ import { renderChat } from "/ui/src/ui/views/chat.ts";
 const root = document.getElementById("root")!;
 let draft = "";
 let retryDraft = "";
-let cancelCalls = 0;
+let stopCalls = 0;
 
 const sessions = {
   count: 1,
@@ -112,8 +120,8 @@ const sessions = {
   ts: 0,
 };
 
-function baseProps(mode) {
-  const mobile = mode === "mobile";
+function baseProps(mode, overrides = {}) {
+  const mobile = mode.startsWith("mobile");
   return {
     sessionKey: "agent:main:main",
     onSessionKeyChange: () => undefined,
@@ -124,7 +132,13 @@ function baseProps(mode) {
     sending: false,
     compactionStatus: null,
     fallbackStatus: null,
-    messages: [],
+    messages: [
+      {
+        role: "assistant",
+        content: "This conversation stays visible while blocked diagnostics remain available on demand.",
+        timestamp: 1,
+      },
+    ],
     sideResult: null,
     toolMessages: [],
     streamSegments: [],
@@ -164,7 +178,12 @@ function baseProps(mode) {
     onScrollToBottom: () => undefined,
     onRefresh: () => undefined,
     getDraft: () => draft,
-    onDraftChange: (next) => { draft = next; },
+    onDraftChange: (next) => {
+      draft = next;
+      if (next.includes("Retry the preserved original request safely")) {
+        retryDraft = next;
+      }
+    },
     onRequestUpdate: () => undefined,
     onSend: () => undefined,
     onCompact: () => undefined,
@@ -187,8 +206,8 @@ function baseProps(mode) {
     onSplitRatioChange: () => undefined,
     onChatScroll: () => undefined,
     basePath: "",
-    goalPanelOpen: true,
-    goalCancellingFlowId: "flow-1",
+    goalPanelOpen: false,
+    goalAction: { flowId: "flow-1", action: "stop" },
     goalFlows: [
       {
         id: "flow-1",
@@ -202,9 +221,8 @@ function baseProps(mode) {
     onGoalDraftChange: () => undefined,
     onGoalStart: () => undefined,
     onGoalContinue: () => undefined,
-    onGoalCancel: () => { cancelCalls += 1; },
+    onGoalControl: (_flowId, action) => { if (action === "stop") stopCalls += 1; },
     onGoalRefresh: () => undefined,
-    onBlockedRetryDraft: (prompt) => { retryDraft = prompt; draft = prompt; },
     sessionWorkspace: mobile ? undefined : {
       collapsed: false,
       sessionKey: "agent:main:main",
@@ -232,29 +250,106 @@ function baseProps(mode) {
       onSearch: () => undefined,
       onOpenArtifact: () => undefined,
     },
+    ...overrides,
   };
 }
 
 window.runOpenClawChatUxCleanupSmoke = async (mode) => {
-  cancelCalls = 0;
+  stopCalls = 0;
   retryDraft = "";
   render(renderChat(baseProps(mode)), root);
   await new Promise((resolve) => requestAnimationFrame(resolve));
+
+  const diagnostics = root.querySelector("[data-control-director-diagnostics]");
+  const diagnosticSummary = diagnostics?.querySelector(
+    ".chat-control-director-diagnostics__summary",
+  );
+  const thread = root.querySelector(".chat-thread");
+  const message = root.querySelector(".chat-group");
+  const composer = root.querySelector(".agent-chat__input");
+  const rect = (element) => element?.getBoundingClientRect();
+  const diagnosticsRect = rect(diagnostics);
+  const diagnosticsInConversation = Boolean(diagnostics?.closest(".chat-thread-inner"));
+  const threadRect = rect(thread);
+  const messageRect = rect(message);
+  const composerRect = rect(composer);
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const minThreadHeight = viewportHeight < 500 ? 72 : Math.max(160, viewportHeight * 0.24);
+
+  diagnosticSummary?.click();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  const diagnosticPanel = root.querySelector(".chat-control-director-diagnostics__panel");
+  const diagnosticClose = root.querySelector(
+    '[aria-label="Close truth and completion details"]',
+  );
+  diagnosticClose?.click();
+  const diagnosticsClosedWithButton =
+    diagnostics instanceof HTMLDetailsElement && !diagnostics.open;
+  const diagnosticsButtonFocusRestored = document.activeElement === diagnosticSummary;
+
+  diagnosticSummary?.click();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   const retry = root.querySelector("[data-chat-blocked-retry]");
   retry?.click();
+  retry?.focus();
+  retry?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+  const diagnosticsClosedWithEscape =
+    diagnostics instanceof HTMLDetailsElement && !diagnostics.open;
+  const diagnosticsFocusRestored = document.activeElement === diagnosticSummary;
+
+  const emptySessions = {
+    ...sessions,
+    sessions: [
+      {
+        key: "agent:main:main",
+        kind: "direct",
+        updatedAt: 100,
+        displayName: "Main Control Director chat",
+      },
+    ],
+  };
+  render(renderChat(baseProps(mode, { sessions: emptySessions })), root);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  const emptyDiagnosticsHidden = !root.querySelector("[data-control-director-diagnostics]");
+
+  render(renderChat(baseProps(mode, { goalPanelOpen: true })), root);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   const cancel = root.querySelector('[data-chat-goal-action="cancel"]');
   cancel?.click();
+  const stoppingGoalVisible = (document.body.textContent || "").includes("Stopping…");
+  const stopDedupedByDisabledButton =
+    cancel instanceof HTMLButtonElement && cancel.disabled && stopCalls === 0;
+
+  render(renderChat(baseProps(mode)), root);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
   const text = document.body.textContent || "";
-  const details = root.querySelector(".chat-control-director-diagnostics__details");
   const checks = {
-    compactDiagnostics: !!root.querySelector(".chat-control-director-diagnostics__compact") && text.includes("Why") && text.includes("Next"),
-    detailsCollapsed: details instanceof HTMLDetailsElement && !details.open,
+    diagnosticsInConversation,
+    diagnosticsCollapsedHeight: Boolean(diagnosticsRect && diagnosticsRect.height <= 56.5),
+    diagnosticsPanelAvailable: Boolean(diagnosticPanel),
+    diagnosticsClosedWithButton,
+    diagnosticsButtonFocusRestored,
+    diagnosticsClosedWithEscape,
+    diagnosticsFocusRestored,
+    emptyDiagnosticsHidden,
     retryDraftInserted: retryDraft.includes("Retry the preserved original request safely"),
-    cancellingGoalVisible: text.includes("Cancelling…"),
-    cancelDedupedByDisabledButton: cancel instanceof HTMLButtonElement && cancel.disabled && cancelCalls === 0,
-    composerUsable: !!root.querySelector('[aria-label="Message"]') || !!root.querySelector("textarea"),
+    stoppingGoalVisible,
+    stopDedupedByDisabledButton,
+    transcriptHasRoom: Boolean(threadRect && threadRect.height >= minThreadHeight),
+    conversationVisible: Boolean(
+      threadRect &&
+        messageRect &&
+        messageRect.bottom > threadRect.top &&
+        messageRect.top < threadRect.bottom,
+    ),
+    composerInsideViewport: Boolean(
+      composerRect && composerRect.top >= 0 && composerRect.bottom <= viewportHeight + 1,
+    ),
+    viewportDoesNotScroll: document.documentElement.scrollHeight <= viewportHeight + 1,
+    composerUsable:
+      !!root.querySelector('[aria-label="Message"]') || !!root.querySelector("textarea"),
     workspaceReadable:
-      mode === "mobile" ||
+      mode.startsWith("mobile") ||
       (!!root.querySelector(".chat-workspace-rail") &&
         !!root.querySelector('input[placeholder="Search files"]') &&
         text.includes("todd-world/src/game.js")),
@@ -270,15 +365,13 @@ async function runMode(
   mode: Mode,
   artifactDir: string,
 ): Promise<{ result: Result; screenshot: string }> {
-  await page.setViewportSize(
-    mode === "desktop" ? { width: 1440, height: 960 } : { width: 390, height: 844 },
-  );
+  await page.setViewportSize(MODE_VIEWPORTS[mode]);
   const result = (await page.evaluate(
     (value) => window.runOpenClawChatUxCleanupSmoke(value),
     mode,
   )) as Result;
   const screenshot = join(artifactDir, `chat-ux-cleanup-${mode}.png`);
-  await page.screenshot({ path: screenshot, fullPage: true });
+  await page.screenshot({ path: screenshot });
   return { result, screenshot };
 }
 
@@ -313,10 +406,12 @@ async function main() {
     });
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    const desktop = await runMode(page, "desktop", artifactDir);
-    const mobile = await runMode(page, "mobile", artifactDir);
-    const modeResults = [desktop.result, mobile.result];
-    const screenshots = [desktop.screenshot, mobile.screenshot];
+    const runs: Array<Awaited<ReturnType<typeof runMode>>> = [];
+    for (const mode of Object.keys(MODE_VIEWPORTS) as Mode[]) {
+      runs.push(await runMode(page, mode, artifactDir));
+    }
+    const modeResults = runs.map((run) => run.result);
+    const screenshots = runs.map((run) => run.screenshot);
     const failed = modeResults.filter((result) => !result.ok);
     if (failed.length) {
       throw new Error(`chat UX cleanup smoke failed: ${JSON.stringify(failed, null, 2)}`);

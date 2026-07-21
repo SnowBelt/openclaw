@@ -15,6 +15,16 @@ import {
   resetTaskRegistryForTests,
   setTaskRegistryControlRuntimeForTests,
 } from "../../tasks/runtime-internal.js";
+import {
+  createManagedTaskFlow,
+  getTaskFlowById,
+  resetTaskFlowRegistryForTests,
+  updateFlowRecordByIdExpectedRevision,
+} from "../../tasks/task-flow-registry.js";
+import {
+  createPursueGoalControllerState,
+  PURSUE_GOAL_CONTROLLER_ID,
+} from "../../tasks/pursue-goal-controller-state.js";
 import { saveTaskRegistryStateToSqlite } from "../../tasks/task-registry.store.sqlite.js";
 import type { TaskRecord } from "../../tasks/task-registry.types.js";
 import { captureEnv, setTestEnvValue } from "../../test-utils/env.js";
@@ -29,6 +39,10 @@ type TaskResponsePayload = {
   task?: Record<string, unknown>;
   found?: boolean;
   cancelled?: boolean;
+  applied?: boolean;
+  action?: string;
+  reason?: string;
+  flow?: Record<string, unknown>;
 };
 
 let stateDir: string;
@@ -45,6 +59,7 @@ beforeEach(async () => {
   stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gateway-tasks-"));
   setTestEnvValue("OPENCLAW_STATE_DIR", stateDir);
   resetTaskRegistryForTests();
+  resetTaskFlowRegistryForTests();
   cancelSessionMock.mockReset();
   killSubagentRunAdminMock.mockReset();
   setTaskRegistryControlRuntimeForTests({
@@ -58,6 +73,7 @@ beforeEach(async () => {
 afterEach(async () => {
   resetTaskRegistryControlRuntimeForTests();
   resetTaskRegistryForTests();
+  resetTaskFlowRegistryForTests();
   stateDirEnvSnapshot.restore();
   await fs.rm(stateDir, { recursive: true, force: true });
 });
@@ -114,6 +130,30 @@ async function runTaskHandler(
   };
 }
 
+async function runTaskFlowHandler(
+  method:
+    | "taskFlows.list"
+    | "taskFlows.get"
+    | "taskFlows.create"
+    | "taskFlows.cancel"
+    | "taskFlows.control",
+  params: Record<string, unknown>,
+) {
+  const { calls, respond } = captureRespond();
+  await tasksHandlers[method]({
+    req: { type: "req", id: `req-${method}`, method },
+    params,
+    respond,
+    context: createContext(),
+    client: null,
+    isWebchatConnect: () => false,
+  });
+  return {
+    calls,
+    payload: calls[0]?.[1] as TaskResponsePayload | undefined,
+  };
+}
+
 async function getTaskPayload(taskId: string) {
   const { calls, payload } = await runTaskHandler("tasks.get", { taskId });
   expect(calls[0]?.[0]).toBe(true);
@@ -122,6 +162,97 @@ async function getTaskPayload(taskId: string) {
 }
 
 describe("tasks gateway handlers", () => {
+  it("controls a session-owned managed flow through one canonical method", async () => {
+    const flow = createManagedTaskFlow({
+      ownerKey: "agent:main:main",
+      controllerId: PURSUE_GOAL_CONTROLLER_ID,
+      status: "running",
+      goal: "Finish the dashboard",
+    });
+    if (!flow) {
+      throw new Error("expected managed flow");
+    }
+    expect(
+      updateFlowRecordByIdExpectedRevision({
+        flowId: flow.flowId,
+        expectedRevision: flow.revision,
+        patch: {
+          stateJson: structuredClone(
+            createPursueGoalControllerState({
+              flowId: flow.flowId,
+              goal: flow.goal,
+              workerAgentId: "program-manager",
+            }),
+          ),
+        },
+      }).applied,
+    ).toBe(true);
+
+    const paused = await runTaskFlowHandler("taskFlows.control", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:main",
+      action: "pause",
+    });
+    expect(paused.calls[0]?.[0]).toBe(true);
+    expect(paused.payload).toMatchObject({
+      found: true,
+      applied: true,
+      action: "pause",
+      flow: { id: flow.flowId, status: "paused" },
+    });
+
+    const edited = await runTaskFlowHandler("taskFlows.control", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:main",
+      action: "edit",
+      goal: "Finish the dashboard safely",
+    });
+    expect(edited.payload).toMatchObject({
+      found: true,
+      applied: true,
+      action: "edit",
+      flow: { goal: "Finish the dashboard safely" },
+    });
+    expect(getTaskFlowById(flow.flowId)?.goal).toBe("Finish the dashboard safely");
+  });
+
+  it("hides a managed flow from a different session owner", async () => {
+    const flow = createManagedTaskFlow({
+      ownerKey: "agent:main:main",
+      controllerId: PURSUE_GOAL_CONTROLLER_ID,
+      status: "running",
+      goal: "Protected goal",
+    });
+    if (!flow) {
+      throw new Error("expected managed flow");
+    }
+    expect(
+      updateFlowRecordByIdExpectedRevision({
+        flowId: flow.flowId,
+        expectedRevision: flow.revision,
+        patch: {
+          stateJson: structuredClone(
+            createPursueGoalControllerState({
+              flowId: flow.flowId,
+              goal: flow.goal,
+              workerAgentId: "program-manager",
+            }),
+          ),
+        },
+      }).applied,
+    ).toBe(true);
+
+    const result = await runTaskFlowHandler("taskFlows.control", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:other",
+      action: "stop",
+    });
+
+    expect(result.calls[0]?.[0]).toBe(true);
+    expect(result.payload).toMatchObject({ found: false, applied: false, action: "stop" });
+    expect(getTaskFlowById(flow.flowId)?.status).toBe("running");
+  });
+
   it("lists task summaries with SDK-facing statuses and filters", async () => {
     const running = createTaskRecord({
       runtime: "subagent",

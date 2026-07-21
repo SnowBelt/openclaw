@@ -104,7 +104,8 @@
         "scripts/control-director-eval.ts",
         "scripts/control-director-readiness.mjs",
         "scripts/control-director-runtime-proof.ts",
-        "scripts/control-director-verify.mjs"
+        "scripts/control-director-verify.mjs",
+        "scripts/custom-runtime/control-director-role-config.py"
       ]
     },
     {
@@ -223,6 +224,20 @@
         "ui/src/ui/views/chat.ts",
         "ui/src/styles/chat.css",
         "scripts/dev/control-ui-chat-ux-cleanup-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:control-director-chat-reliability",
+      "kind": "runtime",
+      "requiredPaths": [
+        "packages/gateway-protocol/src/schema/tasks.ts",
+        "src/tasks/task-executor.ts",
+        "src/gateway/chat-history-lineage.ts",
+        "ui/src/ui/controllers/chat.ts",
+        "ui/src/ui/views/chat.ts",
+        "scripts/dev/control-ui-chat-control-director-reliability-smoke.ts",
+        "docs/automation/taskflow.md",
+        "docs/web/control-ui.md"
       ]
     },
     {
@@ -366,6 +381,28 @@
         "scripts/custom-runtime/custom-runtime-rollback.sh",
         "scripts/custom-runtime/custom-runtime-stage.sh",
         "scripts/dev/control-ui-self-improvement-smoke.ts"
+      ]
+    },
+    {
+      "id": "runtime:release-governor",
+      "kind": "runtime",
+      "requiredPaths": [
+        "config/release-governor-policy.json",
+        "src/pcc/release-governance/decision.ts",
+        "src/pcc/release-governance/evidence.ts",
+        "src/pcc/release-governance/cli.ts",
+        "src/pcc/release-governance/governor.ts",
+        "scripts/custom-runtime/custom-runtime-activate.sh",
+        "scripts/custom-runtime/custom-runtime-auth.sh",
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-restart.sh",
+        "scripts/custom-runtime/custom-runtime-rollback.sh",
+        "scripts/custom-runtime/custom-runtime-seal.sh",
+        "scripts/custom-runtime/custom-runtime-stage.sh",
+        "scripts/custom-runtime/custom-runtime-status.sh",
+        "scripts/custom-runtime/custom-runtime-updater.sh",
+        "scripts/dev/control-ui-pcc-release-governor-smoke.ts",
+        "ui/src/ui/views/pcc.ts"
       ]
     }
   ]

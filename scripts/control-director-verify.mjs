@@ -18,8 +18,10 @@ const IMMUTABLE_SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-format-check.test.ts",
   "test/scripts/control-director-readiness.test.ts",
+  "test/scripts/control-director-role-config.test.ts",
   "test/scripts/control-director-runtime-proof.test.ts",
   "test/scripts/control-director-verify.test.ts",
+  "test/scripts/custom-runtime-lifecycle.test.ts",
   "test/scripts/control-ui-i18n.test.ts",
   "test/scripts/control-ui-control-director-no-response-smoke.test.ts",
   "test/scripts/control-ui-production-chat-stack.test.ts",
@@ -70,6 +72,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "src/tasks/durable-worker-mailbox.test.ts",
   "src/tasks/execution-event.test.ts",
   "src/tasks/pursue-goal-controller-state.test.ts",
+  "src/tasks/pursue-goal-blocker.test.ts",
   "src/tasks/pursue-goal-controller.runtime.test.ts",
   "src/tasks/pursue-goal-controller.test.ts",
 ]);

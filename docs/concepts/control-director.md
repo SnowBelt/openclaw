@@ -120,6 +120,34 @@ Automatic repair is limited to allowlisted, reversible actions with an attempt b
 
 The independent Judge is deliberately separate from the Control Director and workers. It validates the immutable mission against observed evidence and signs the exact claim it approved. A plan, progress update, plausible prose answer, or worker self-report is not completion evidence by itself.
 
+## Managed role activation and rollback
+
+The runtime role graph must be applied through the transactional helper rather than by manually editing agent entries. The helper controls only role, delegation, and role-tool fields; preserves unrelated configuration; writes an atomic state record; creates a timestamped backup before every operation; and refuses to overwrite controlled fields that changed outside the helper.
+
+After activating a candidate that supports the role schema:
+
+```bash
+runtime_home="${OPENCLAW_CUSTOM_RUNTIME_HOME:-$HOME/.openclaw-custom-runtime}"
+"$runtime_home/bin/control-director-role-config.py" apply
+"$runtime_home/bin/custom-runtime-launcher.sh" config validate
+"$runtime_home/bin/custom-runtime-restart.sh" --port 18789
+"$runtime_home/bin/custom-runtime-launcher.sh" gateway status --deep
+```
+
+The Director delegates only to the Program Manager. The Program Manager delegates only to the curated worker set and receives worker results through the subagent announce/fan-in path; it does not need `sessions_send`. The Judge receives read-only evidence and goal-inspection tools while goal mutation, delegation, and direct execution remain denied.
+
+When rolling back to a runtime that predates the role schema, restore the baseline fields before changing the runtime pointer:
+
+```bash
+runtime_home="${OPENCLAW_CUSTOM_RUNTIME_HOME:-$HOME/.openclaw-custom-runtime}"
+"$runtime_home/bin/control-director-role-config.py" remove
+"$runtime_home/bin/custom-runtime-launcher.sh" config validate
+# Run the managed custom-runtime rollback here.
+"$runtime_home/bin/custom-runtime-launcher.sh" gateway status --deep
+```
+
+If the new candidate is restored after a rollback drill, run `apply`, validate the config, and restart once more. Never bypass a helper refusal: inspect the current config and its backup/state receipts, reconcile the out-of-band edit, and then retry.
+
 ## Verification and readiness
 
 Source acceptance from a clean immutable checkout:

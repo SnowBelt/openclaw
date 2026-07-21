@@ -10,6 +10,13 @@ export type ChatGoalStatus =
   | "cancelled"
   | "lost";
 
+export type ChatGoalControlAction = "pause" | "resume" | "retry" | "stop" | "edit";
+
+export type ChatGoalActionState = {
+  flowId: string;
+  action: ChatGoalControlAction;
+};
+
 export type ChatGoalTaskSummary = {
   id?: string;
   taskId?: string;

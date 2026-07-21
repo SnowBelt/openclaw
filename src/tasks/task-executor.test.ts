@@ -474,6 +474,29 @@ describe("task-executor", () => {
     });
   });
 
+  it("rejects new child work while a managed TaskFlow is paused", async () => {
+    await withTaskExecutorStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/managed-flow",
+        status: "paused",
+        goal: "Wait for an operator",
+      });
+
+      expect(
+        runTaskInFlow({
+          flowId: flow.flowId,
+          runtime: "acp",
+          task: "Must wait",
+        }),
+      ).toMatchObject({
+        found: true,
+        created: false,
+        reason: "Flow is paused. Resume it before starting more work.",
+      });
+    });
+  });
+
   it("promotes provisional subagent kills before cancelling a managed TaskFlow", async () => {
     await withTaskExecutorStateDir(async () => {
       const flow = createManagedTaskFlow({

@@ -235,6 +235,23 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     proofSurfaces: ["pnpm ui:smoke:chat-ux-cleanup"],
   },
   {
+    id: "runtime:control-director-chat-reliability",
+    kind: "runtime",
+    owner: "TaskFlow, Control Director, and Control UI Chat",
+    tests: [
+      "packages/gateway-protocol/src/schema/tasks.test.ts",
+      "src/tasks/task-executor.test.ts",
+      "src/gateway/server-methods/tasks.test.ts",
+      "src/gateway/server.chat.gateway-server-chat-b.test.ts",
+      "ui/src/ui/controllers/chat.test.ts",
+      "ui/src/ui/views/chat.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm ui:smoke:chat-control-director-reliability",
+      "authenticated desktop and mobile Control UI proof",
+    ],
+  },
+  {
     id: "runtime:pcc-chat-sync",
     kind: "runtime",
     owner: "Project Command Center and Control UI Chat",
@@ -335,6 +352,16 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "test/scripts/custom-runtime-lifecycle.test.ts",
     ],
     proofSurfaces: ["pnpm ui:smoke:self-improvement", "Self-Improvement production soak"],
+  },
+  {
+    id: "runtime:release-governor",
+    kind: "runtime",
+    owner: "PCC Release Governor",
+    tests: [
+      "src/pcc/release-governance/release-governance.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+    ],
+    proofSurfaces: ["pnpm check:release-governor-policy", "PCC deployment-governance view"],
   },
 ];
 

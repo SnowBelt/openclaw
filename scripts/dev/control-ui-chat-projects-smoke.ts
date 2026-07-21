@@ -221,8 +221,7 @@ window.runOpenClawChatProjectsSmoke = async (mode: Mode): Promise<Result> => {
     attach: [] as string[],
     detach: 0,
     newChat: [] as string[],
-    create: 0,
-    fields: [] as string[],
+    openPcc: [] as Array<string | undefined>,
     sent: 0,
   };
 
@@ -241,7 +240,6 @@ window.runOpenClawChatProjectsSmoke = async (mode: Mode): Promise<Result> => {
 
   await renderState({
     projectPickerOpen: true,
-    projectCreateName: "New project",
     projectsList,
     sessions: {
       ts: 0,
@@ -253,8 +251,7 @@ window.runOpenClawChatProjectsSmoke = async (mode: Mode): Promise<Result> => {
     onProjectAttach: (projectId: string) => calls.attach.push(projectId),
     onProjectDetach: () => calls.detach++,
     onNewProjectChat: (projectId: string) => calls.newChat.push(projectId),
-    onProjectCreateAndAttach: () => calls.create++,
-    onProjectCreateFieldChange: (field: string, value: string) => calls.fields.push(field + ":" + value),
+    onOpenPcc: (projectId?: string) => calls.openPcc.push(projectId),
   });
   picker = root.querySelector("[data-chat-project-picker]");
   checks.currentProject = includes(picker, "Alpha Project");
@@ -262,16 +259,15 @@ window.runOpenClawChatProjectsSmoke = async (mode: Mode): Promise<Result> => {
   root.querySelector<HTMLButtonElement>('[data-chat-project-action="attach"]')?.click();
   root.querySelector<HTMLButtonElement>('[data-chat-project-action="detach"]')?.click();
   root.querySelector<HTMLButtonElement>('[data-chat-project-action="new-chat"]')?.click();
-  root.querySelector<HTMLButtonElement>('[data-chat-project-action="create-and-attach"]')?.click();
-  const input = root.querySelector<HTMLInputElement>('input[placeholder="Project name"]')!;
-  input.value = "Edited";
-  input.dispatchEvent(new Event("input", { bubbles: true }));
+  root.querySelector<HTMLButtonElement>('[data-chat-project-action="open-pcc"]')?.click();
   checks.actions =
     calls.attach[0] === "project-beta" &&
     calls.detach === 1 &&
     calls.newChat[0] === "project-alpha" &&
-    calls.create === 1 &&
-    calls.fields.includes("name:Edited");
+    calls.openPcc[0] === "project-alpha";
+  checks.pccOwnsProjectManagement =
+    includes(picker, "PCC owns project planning and management") &&
+    root.querySelector('input[placeholder="Project name"]') === null;
 
   await renderState({
     projectPickerOpen: true,
