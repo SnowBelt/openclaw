@@ -181,7 +181,21 @@
           "type": "string"
         },
         "cwd": {
+          "description": "Optional descendant of the trusted current task root. Omit to inherit the exact approved root.",
           "type": "string"
+        },
+        "handoff": {
+          "properties": {
+            "kind": {
+              "enum": ["coordination", "implementation", "verification"],
+              "type": "string"
+            },
+            "requiresMutation": {
+              "type": "boolean"
+            }
+          },
+          "required": ["kind", "requiresMutation"],
+          "type": "object"
         },
         "label": {
           "type": "string"
