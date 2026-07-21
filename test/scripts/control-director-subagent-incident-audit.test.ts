@@ -3,7 +3,7 @@ import {
   auditControlDirectorSubagentIncident,
   CONTROL_DIRECTOR_SUBAGENT_INCIDENT_CODES,
   runControlDirectorSubagentIncidentBaseline,
-} from "./control-director-subagent-incident-audit.js";
+} from "../../scripts/lib/control-director-subagent-incident-audit.js";
 
 describe("Control Director subagent incident baseline", () => {
   it("reproduces every observed incident with one typed finding", () => {

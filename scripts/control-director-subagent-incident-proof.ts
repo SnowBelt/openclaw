@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { runControlDirectorSubagentIncidentBaseline } from "../src/agents/control-director-subagent-incident-audit.js";
+import { runControlDirectorSubagentIncidentBaseline } from "./lib/control-director-subagent-incident-audit.js";
 
 function git(repoRoot: string, args: string[]): string {
   const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
