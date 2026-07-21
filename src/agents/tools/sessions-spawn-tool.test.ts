@@ -19,6 +19,8 @@ const hoisted = vi.hoisted(() => {
 vi.mock("../subagent-spawn.js", () => ({
   SUBAGENT_SPAWN_CONTEXT_MODES: ["isolated", "fork"],
   SUBAGENT_SPAWN_MODES: ["run", "session"],
+  formatInvalidSubagentAgentIdError: (agentId: string) =>
+    `Invalid agentId "${agentId}". Retry with an id matching the documented format.`,
   spawnSubagentDirect: (...args: unknown[]) => hoisted.spawnSubagentDirectMock(...args),
 }));
 
@@ -436,6 +438,18 @@ describe("sessions_spawn tool", () => {
       status: "forbidden",
       recommendedAction: { code: "correct_and_retry" },
     });
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+
+    const malformed = await directorTool.execute("call-malformed-agent", {
+      task: "coordinate work",
+      agentId: "Agent not found: pm",
+      handoff: { kind: "coordination", requiresMutation: false },
+    });
+    expect(malformed.details).toMatchObject({
+      status: "error",
+      recommendedAction: { code: "retry_allowed_agent" },
+    });
+    expect(String((malformed.details as { error?: string }).error)).toContain("Invalid agentId");
     expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
 
     const accepted = await directorTool.execute("call-coordination-handoff", {
