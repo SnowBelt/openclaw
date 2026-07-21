@@ -7,6 +7,7 @@ import {
   validateOperationsActionApplyParams,
   validateOperationsActionPreviewParams,
   validateOperationsSnapshotParams,
+  validateOperationsSnapshotV2Params,
 } from "../../../packages/gateway-protocol/src/index.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import {
@@ -14,6 +15,7 @@ import {
   consumeOperationsActionPreview,
 } from "../../operations/action-guard.js";
 import { collectOperationsSnapshot } from "../../operations/collector.js";
+import { projectOperationsSnapshotV1 } from "../../operations/compat.js";
 import type { OperationsActionReceipt } from "../../operations/types.js";
 import { cancelDetachedTaskRunById, cancelFlowById } from "../../tasks/task-executor.js";
 import type { GatewayRequestHandlers } from "./types.js";
@@ -41,15 +43,45 @@ export const operationsHandlers: GatewayRequestHandlers = {
     }
     try {
       let modelCatalog: ModelCatalogEntry[] = [];
+      let modelCatalogAvailable = true;
       try {
         modelCatalog = await context.loadGatewayModelCatalog({ readOnly: true });
       } catch (err) {
+        modelCatalogAvailable = false;
         context.logGateway.warn(`operations: model catalog unavailable: ${String(err)}`);
       }
       const snapshot = await collectOperationsSnapshot({
         cfg: context.getRuntimeConfig(),
         cron: context.cron,
         modelCatalog,
+        modelCatalogAvailable,
+        eventLoop: context.getEventLoopHealth?.(),
+        includeProcesses: params.includeProcesses !== false,
+      });
+      respond(true, projectOperationsSnapshotV1(snapshot), undefined);
+    } catch (err) {
+      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, String(err)));
+    }
+  },
+  "operations.snapshot.v2": async ({ params, respond, context }) => {
+    if (!validateOperationsSnapshotV2Params(params)) {
+      invalidParams(respond, "operations.snapshot.v2", validateOperationsSnapshotV2Params.errors);
+      return;
+    }
+    try {
+      let modelCatalog: ModelCatalogEntry[] = [];
+      let modelCatalogAvailable = true;
+      try {
+        modelCatalog = await context.loadGatewayModelCatalog({ readOnly: true });
+      } catch (err) {
+        modelCatalogAvailable = false;
+        context.logGateway.warn(`operations: model catalog unavailable: ${String(err)}`);
+      }
+      const snapshot = await collectOperationsSnapshot({
+        cfg: context.getRuntimeConfig(),
+        cron: context.cron,
+        modelCatalog,
+        modelCatalogAvailable,
         eventLoop: context.getEventLoopHealth?.(),
         includeProcesses: params.includeProcesses !== false,
       });

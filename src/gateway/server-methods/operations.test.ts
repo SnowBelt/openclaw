@@ -44,6 +44,11 @@ async function invoke(
 describe("Operations Room gateway methods", () => {
   beforeEach(() => resetOperationsActionPreviewsForTests());
 
+  it("keeps the legacy snapshot method and exposes V2 separately", () => {
+    expect(operationsHandlers["operations.snapshot"]).toBeTypeOf("function");
+    expect(operationsHandlers["operations.snapshot.v2"]).toBeTypeOf("function");
+  });
+
   it("rejects unsupported actions before touching runtime state", async () => {
     const result = await invoke("operations.action.preview", {
       action: "process.kill",

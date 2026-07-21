@@ -13,6 +13,16 @@ import type { Locale, TranslationMap } from "./types.ts";
 
 type Subscriber = (locale: Locale) => void;
 
+const RTL_LOCALES = new Set<Locale>(["ar", "fa"]);
+
+function syncDocumentLocale(locale: Locale): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+  document.documentElement.lang = locale;
+  document.documentElement.dir = RTL_LOCALES.has(locale) ? "rtl" : "ltr";
+}
+
 function mergeTranslationMaps(base: TranslationMap, overlay: TranslationMap): TranslationMap {
   const merged: TranslationMap = { ...base };
   for (const [key, value] of Object.entries(overlay)) {
@@ -36,6 +46,7 @@ class I18nManager {
 
   constructor() {
     this.loadLocale();
+    syncDocumentLocale(this.locale);
   }
 
   private readStoredLocale(): string | null {
@@ -110,6 +121,7 @@ class I18nManager {
     }
 
     this.locale = locale;
+    syncDocumentLocale(locale);
     this.persistLocale(locale);
     this.notify();
   }

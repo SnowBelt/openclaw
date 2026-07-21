@@ -14,6 +14,61 @@ Use this for Control UI changes that need a real browser flow with deterministic
 - Keep scenarios deterministic. Do not use live provider keys, real channel credentials, or a real Gateway unless the user explicitly asks for live proof.
 - Prefer existing `.browser.test.ts` or unit tests for narrow rendering logic; use this E2E lane when the proof should cover routing, app boot, Gateway handshake, requests, and visible UI behavior together.
 
+## Operations Room proof
+
+Operations Room work must use `ui/src/ui/e2e/operations-room.e2e.test.ts` in addition to the
+cheap DOM smoke. The E2E scenario must use deterministic Gateway responses and prove:
+
+- the one-sentence current briefing, actionable issue count, working-now count, and system state;
+- Needs you, OpenClaw is handling it, and Watching issue lanes without mixing history into action;
+- priority agent ordering plus a stable directory sort, with Ready and Off groups collapsed by default;
+- top-summary navigation that updates URL state, moves focus to the destination heading, and keeps
+  browser Back and Forward usable;
+- current work versus last activity, bounded display text, full detail disclosure, and recurring-run
+  rollups keyed by the generic task `runtime` and `sourceId` contracts;
+- stale, partial, offline, zero-issue, warning, critical, and large-inventory states without a false
+  all-clear;
+- authoritative V2 loading, exact V1 fallback only for an explicitly unsupported V2 method, and no
+  fallback for authentication, connectivity, validation, timeout, or collector errors;
+- unresolved Last known incidents when a source becomes non-authoritative, fail-closed monitor
+  health, and available, partial, omitted, and unavailable process-probe states;
+- guarded preview, cancel, apply, replay rejection, and post-action refresh behavior; and
+- keyboard focus, non-color status cues, reduced motion, 200% zoom, and desktop, tablet, and mobile
+  layouts in light, dark, and increased-contrast modes.
+
+The focused command is:
+
+```bash
+pnpm ui:smoke:operations-room:e2e
+```
+
+Run both Operations Room smoke layers with:
+
+```bash
+pnpm ui:smoke:operations-room
+```
+
+Write a compact receipt plus desktop and mobile screenshots beneath
+`.artifacts/control-ui-e2e/operations-room/`. The dedicated Operations Room V2 Proof workflow uploads
+that exact directory for the exact SHA supplied at dispatch.
+Do not describe the DOM smoke as browser, accessibility, mobile, or interaction proof.
+
+The receipt set is a gate, not optional evidence. It must contain nonempty `receipt.json`,
+`desktop-light.png`, `desktop-dark.png`, `mobile-320.png`, `mobile-rtl.png`, and
+`tablet-768-increased-contrast.png`. The browser receipt must use schema
+`openclaw.operations-room.e2e-receipt.v3`, name all five screenshots with byte counts and SHA-256
+digests, bind the run to its source SHA and runtime versions, and mark every required boolean check
+true. The exact-SHA workflow validates those fields, writes `browser-receipt.sha256`, and emits a
+passing `workflow-receipt.json` with the checked-out SHA, dispatched SHA, run identity, commands, and
+artifact digests. A green test process without this complete receipt set is not browser proof.
+
+Use `pnpm operations-room:verify` for the complete focused source gate. It includes the full
+Operations and task-registry test inventory, `tsgo:test:src` and the other type lanes, both smoke
+layers, i18n, capability and workflow checks, and build. Human learnability is a separate production
+gate: follow the zero-instruction protocol in `docs/automation/operations-room.md`, preserve every
+attempt, and require every first-use participant to finish all four outcomes in 60 seconds or less
+with zero hints and zero unsafe actions.
+
 ## Commands
 
 - Target one E2E test in a Codex worktree:

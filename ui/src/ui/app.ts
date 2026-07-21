@@ -219,6 +219,17 @@ import {
   type KalshiDashboardSnapshot,
 } from "./controllers/kalshi-dashboard.ts";
 import {
+  focusOperationsSection,
+  updateOperationsSectionUrl,
+  type OperationsSection,
+} from "./controllers/operations-navigation.ts";
+import {
+  loadOperationsPreferences,
+  saveOperationsPreferences,
+  type OperationsAgentSort,
+} from "./controllers/operations-preferences.ts";
+import { loadOperationsRoom as loadOperationsRoomInternal } from "./controllers/operations.ts";
+import {
   approvePatternLabAssetType as approvePatternLabAssetTypeInternal,
   loadPatternLabDashboard as loadPatternLabDashboardInternal,
   type PatternLabAssetType,
@@ -360,6 +371,10 @@ export class OpenClawApp extends LitElement {
     if (isSupportedLocale(this.settings.locale)) {
       void i18n.setLocale(this.settings.locale);
     }
+    const operationsPreferences = loadOperationsPreferences();
+    this.operationsAgentSort = operationsPreferences.agentSort;
+    this.operationsLastVisitedAt = operationsPreferences.lastVisitedAt;
+    this.operationsPinnedAgentIds = operationsPreferences.pinnedAgentIds;
   }
   @state() password = "";
   @state() loginShowGatewayToken = false;
@@ -477,8 +492,17 @@ export class OpenClawApp extends LitElement {
   @state() operationsActionBusy = false;
   @state() operationsError: string | null = null;
   @state() operationsActionNotice: string | null = null;
+  @state() operationsActionNoticeTone: "info" | "success" | null = null;
   @state() operationsSnapshot: OperationsSnapshot | null = null;
   @state() operationsUpdatedAt: number | null = null;
+  @state() operationsLastSuccessfulAt: number | null = null;
+  @state() operationsRefreshFailedAt: number | null = null;
+  @state() operationsSection: OperationsSection | null = null;
+  @state() operationsAgentQuery = "";
+  @state() operationsAgentSort: OperationsAgentSort = "priority";
+  @state() operationsPinnedAgentIds: string[] = [];
+  @state() operationsLastVisitedAt: number | null = null;
+  private operationsVisitStartedAt: number | null = null;
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
   @state() pccRuntimeIdentity: PccRuntimeIdentity | null = null;
@@ -1183,6 +1207,7 @@ export class OpenClawApp extends LitElement {
     this.removeEventListener("focusin", this.nativeTitleTooltipFocusInHandler);
     this.removeEventListener("focusout", this.nativeTitleTooltipFocusOutHandler);
     clearActiveFloatingTooltips(this);
+    this.saveOperationsPreferences();
     if (this.sessionSwitchNoticeTimer !== null) {
       window.clearTimeout(this.sessionSwitchNoticeTimer);
       this.sessionSwitchNoticeTimer = null;
@@ -1199,6 +1224,29 @@ export class OpenClawApp extends LitElement {
   protected override updated(changed: Map<PropertyKey, unknown>) {
     handleUpdated(this as unknown as Parameters<typeof handleUpdated>[0], changed);
     refreshActiveFloatingTooltip(this);
+    if (changed.has("tab")) {
+      const previousTab = changed.get("tab");
+      if (this.tab === "operations" && previousTab !== "operations") {
+        this.operationsVisitStartedAt = Date.now();
+        this.saveOperationsPreferences();
+      } else if (previousTab === "operations" && this.tab !== "operations") {
+        if (this.operationsVisitStartedAt != null) {
+          this.operationsLastVisitedAt = this.operationsVisitStartedAt;
+        }
+        this.operationsVisitStartedAt = null;
+        this.saveOperationsPreferences();
+      }
+    }
+    if (
+      this.tab === "operations" &&
+      this.operationsSection &&
+      this.operationsSnapshot &&
+      changed.has("operationsSnapshot") &&
+      changed.get("operationsSnapshot") == null
+    ) {
+      const section = this.operationsSection;
+      requestAnimationFrame(() => focusOperationsSection(section, this));
+    }
     // Some render callbacks assign tab directly while preparing nested panel state.
     if (changed.has("tab") && this.tab !== "chat" && this.chatMobileControlsOpen) {
       this.setChatMobileControlsOpen(false);
@@ -1302,6 +1350,40 @@ export class OpenClawApp extends LitElement {
       this.setChatMobileControlsOpen(false);
     }
     this.navDrawerOpen = false;
+  }
+
+  async setOperationsSection(next: OperationsSection, syncUrl = true) {
+    this.operationsSection = next;
+    if (syncUrl && typeof window !== "undefined") {
+      const nextUrl = updateOperationsSectionUrl(new URL(window.location.href), next);
+      window.history.pushState({}, "", nextUrl.toString());
+    }
+    await this.updateComplete;
+    focusOperationsSection(next, this);
+  }
+
+  setOperationsAgentSort(next: OperationsAgentSort) {
+    this.operationsAgentSort = next;
+    this.saveOperationsPreferences();
+  }
+
+  toggleOperationsAgentPin(agentId: string) {
+    const pinned = new Set(this.operationsPinnedAgentIds);
+    if (pinned.has(agentId)) {
+      pinned.delete(agentId);
+    } else {
+      pinned.add(agentId);
+    }
+    this.operationsPinnedAgentIds = [...pinned];
+    this.saveOperationsPreferences();
+  }
+
+  private saveOperationsPreferences() {
+    saveOperationsPreferences({
+      agentSort: this.operationsAgentSort,
+      lastVisitedAt: this.operationsVisitStartedAt ?? this.operationsLastVisitedAt,
+      pinnedAgentIds: this.operationsPinnedAgentIds,
+    });
   }
 
   setChatMobileControlsOpen(
@@ -1758,6 +1840,9 @@ export class OpenClawApp extends LitElement {
         break;
       case "patternLab":
         await this.loadPatternLabDashboard();
+        break;
+      case "operations":
+        await loadOperationsRoomInternal(this, { quiet: true });
         break;
       default:
         break;

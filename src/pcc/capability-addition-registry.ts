@@ -83,6 +83,10 @@ type CustomRuntimeAdditionInput = {
   owner: string;
   tests?: readonly string[];
   proofSurfaces?: readonly string[];
+  observability?: readonly string[];
+  upgradeImpact?: string;
+  rollback?: string;
+  docs?: readonly string[];
 };
 
 const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
@@ -249,17 +253,61 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     kind: "runtime",
     owner: "Operations Room",
     tests: [
+      "packages/gateway-protocol/src/schema/operations.test.ts",
+      "src/operations/status.test.ts",
+      "src/operations/compat.test.ts",
+      "src/operations/action-guard.test.ts",
+      "src/operations/host-memory-probe.test.ts",
+      "src/operations/process-probe.test.ts",
+      "src/operations/incident-ledger.test.ts",
       "src/operations/collector.test.ts",
       "src/operations/monitor.test.ts",
+      "src/operations/monitor-health.test.ts",
+      "src/tasks/task-registry.store.test.ts",
+      "src/tasks/task-flow-registry.store.test.ts",
+      "src/tasks/task-registry.maintenance.issue-60299.test.ts",
+      "src/tasks/task-registry.test.ts",
+      "src/tasks/task-flow-registry.test.ts",
       "src/gateway/server-methods/operations.test.ts",
+      "src/gateway/method-scopes.test.ts",
+      "src/gateway/server-maintenance.test.ts",
+      "src/gateway/server-runtime-services.test.ts",
+      "src/gateway/server-close.test.ts",
+      "src/gateway/server-startup-post-attach.test.ts",
+      "ui/src/ui/app.operations-polling.test.ts",
       "ui/src/ui/views/operations.test.ts",
       "ui/src/ui/controllers/operations.test.ts",
+      "ui/src/ui/views/operations-model.test.ts",
+      "ui/src/ui/controllers/operations-navigation.test.ts",
+      "ui/src/ui/controllers/operations-preferences.test.ts",
+      "ui/src/ui/navigation.test.ts",
+      "ui/src/ui/views/overview.render.test.ts",
+      "ui/src/ui/e2e/operations-room.e2e.test.ts",
+      "src/pcc/capability-addition-registry.test.ts",
+      "src/pcc/custom-runtime-capabilities.test.ts",
     ],
     proofSurfaces: [
-      "pnpm ui:smoke:operations-room",
-      "Operations Room desktop and mobile browser receipts",
-      "Gateway restart persistence proof",
+      "pnpm operations-room:verify",
+      "pnpm ui:smoke:operations-room:dom",
+      "pnpm ui:smoke:operations-room:e2e",
+      "pnpm ui:i18n:check",
+      "pnpm check:pcc-capabilities",
+      "pnpm check:custom-runtime-capabilities",
+      "exact-SHA Operations Room workflow receipt",
+      "zero-instruction usability receipt with every participant at or below 60 seconds",
     ],
+    observability: [
+      "Gateway operations.snapshot V1 compatibility RPC",
+      "Gateway operations.snapshot.v2 truth RPC",
+      "bounded Operations incident ledger",
+      "Operations Room desktop and mobile browser receipts",
+      "exact-SHA source, restart, persistence, soak, rollback, and usability receipts",
+    ],
+    upgradeImpact:
+      "Preserve the additive Operations protocol, collectors, incident history, guarded actions, Control UI, and exact-SHA proof workflow.",
+    rollback:
+      "Restore the previous immutable runtime pointer and verify its Operations snapshot, browser receipt, and incident ledger.",
+    docs: ["docs/automation/operations-room.md", "docs/automation/custom-runtime-update-safety.md"],
   },
   {
     id: "runtime:update-safe-customizations",
@@ -317,10 +365,13 @@ const customRuntimeAdditions = CUSTOM_RUNTIME_ADDITIONS.map((entry) =>
       "pnpm check:custom-runtime-capabilities",
       "custom runtime stage and rollback receipts",
     ],
-    observability: ["active-runtime.json", "PCC runtime identity"],
-    upgradeImpact: "The active required-capability set is monotonic across candidate updates.",
-    rollback: "Restore the previous pointer, service files, and last-known-good release.",
-    docs: ["docs/automation/pcc-operational-excellence.md"],
+    observability: entry.observability ?? ["active-runtime.json", "PCC runtime identity"],
+    upgradeImpact:
+      entry.upgradeImpact ??
+      "The active required-capability set is monotonic across candidate updates.",
+    rollback:
+      entry.rollback ?? "Restore the previous pointer, service files, and last-known-good release.",
+    docs: entry.docs ?? ["docs/automation/pcc-operational-excellence.md"],
   }),
 );
 

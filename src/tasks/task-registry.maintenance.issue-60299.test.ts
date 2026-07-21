@@ -123,7 +123,7 @@ function createTaskRegistryMaintenanceHarness(params: {
       );
     },
     deleteTaskRecordById: (taskId: string) => currentTasks.delete(taskId),
-    ensureTaskRegistryReady: () => {},
+    ensureTaskRegistryReady: () => true,
     getTaskById: (taskId: string) => currentTasks.get(taskId),
     listTaskRecords: () => Array.from(currentTasks.values()),
     markTaskLostById: (patch) => {

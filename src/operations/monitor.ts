@@ -1,97 +1,115 @@
-// Lightweight Operations Room shadow monitor. This loop observes only local
-// runtime facts and never starts agents, invokes models, or mutates config.
-import { listTaskRecords } from "../tasks/runtime-internal.js";
-import { listTaskFlowRecords } from "../tasks/task-flow-runtime-internal.js";
+// Lightweight Operations Room shadow monitor. This loop observes local facts,
+// persists bounded incident transitions, and never starts agents, invokes
+// models, or mutates runtime configuration.
+import { getTaskRegistryRestoreFailure, listTaskRecords } from "../tasks/runtime-internal.js";
+import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
+import {
+  getTaskFlowRegistryRestoreFailure,
+  listTaskFlowRecords,
+} from "../tasks/task-flow-runtime-internal.js";
+import type { TaskRecord } from "../tasks/task-registry.types.js";
+import { buildOperationsFindings, buildOperationsWorkflowRows } from "./collector.js";
 import { collectOperationsHostMemory } from "./host-memory-probe.js";
-import { operationsFindingSeverityForWorkflow } from "./status.js";
+import {
+  reconcileOperationsIncidentLedger,
+  type OperationsIncidentLedgerOptions,
+} from "./incident-ledger.js";
+import {
+  getOperationsShadowMonitorState,
+  OPERATIONS_SHADOW_INTERVAL_MS,
+  resetOperationsShadowMonitorStateForTest,
+  setOperationsShadowMonitorState,
+  updateOperationsShadowMonitorState,
+} from "./monitor-state.js";
+import type { OperationsFinding } from "./types.js";
 
-export const OPERATIONS_SHADOW_INTERVAL_MS = 60_000;
-const STALE_RUNNING_TASK_MS = 2 * 60 * 60_000;
+export {
+  getOperationsShadowMonitorState,
+  OPERATIONS_SHADOW_INTERVAL_MS,
+  resetOperationsShadowMonitorStateForTest,
+};
+export type { OperationsShadowMonitorState } from "./monitor-state.js";
 
-export type OperationsShadowMonitorState = {
-  running: boolean;
-  intervalMs: number;
-  startedAt: number | null;
-  lastSweepAt: number | null;
-  nextSweepAt: number | null;
-  lastDurationMs: number | null;
-  sweepCount: number;
-  lastError: string | null;
-  findingIds: string[];
+export type OperationsShadowObservation = {
+  findings: OperationsFinding[];
+  authoritativeCategories: OperationsFinding["category"][];
 };
 
-let state: OperationsShadowMonitorState = {
-  running: false,
-  intervalMs: OPERATIONS_SHADOW_INTERVAL_MS,
-  startedAt: null,
-  lastSweepAt: null,
-  nextSweepAt: null,
-  lastDurationMs: null,
-  sweepCount: 0,
-  lastError: null,
-  findingIds: [],
-};
-
-export function getOperationsShadowMonitorState(): OperationsShadowMonitorState {
-  return { ...state, findingIds: [...state.findingIds] };
+export async function collectOperationsShadowObservation(
+  now = Date.now(),
+): Promise<OperationsShadowObservation> {
+  const hostMemory = await collectOperationsHostMemory();
+  let tasks: TaskRecord[] = [];
+  let taskSourceAvailable = true;
+  try {
+    tasks = listTaskRecords();
+    taskSourceAvailable = getTaskRegistryRestoreFailure() == null;
+  } catch {
+    taskSourceAvailable = false;
+  }
+  let flows: TaskFlowRecord[] = [];
+  let flowSourceAvailable = true;
+  try {
+    flows = listTaskFlowRecords();
+    flowSourceAvailable = getTaskFlowRegistryRestoreFailure() == null;
+  } catch {
+    flowSourceAvailable = false;
+  }
+  const workflows = buildOperationsWorkflowRows(tasks, flows, now);
+  const findings = buildOperationsFindings({
+    now,
+    hostMemoryUsedPercent: hostMemory.memoryUsedPercent,
+    tasks,
+    taskSourceAvailable,
+    workflows,
+    workflowSourceAvailable: flowSourceAvailable,
+    cronJobs: [],
+    scheduleSourceAvailable: false,
+    catalogs: { skills: [], plugins: [] },
+    skillSourceAvailable: false,
+    pluginSourceAvailable: false,
+  });
+  return {
+    findings,
+    authoritativeCategories: [
+      "resource",
+      ...(taskSourceAvailable && flowSourceAvailable ? (["workflow"] as const) : []),
+    ],
+  };
 }
 
 export async function collectOperationsShadowFindingIds(now = Date.now()): Promise<string[]> {
-  const findings: string[] = [];
-  const { memoryUsedPercent } = await collectOperationsHostMemory();
-  if (memoryUsedPercent >= 90) {
-    findings.push("resource:memory:critical");
-  } else if (memoryUsedPercent >= 80) {
-    findings.push("resource:memory:warning");
-  }
-
-  for (const task of listTaskRecords()) {
-    const lastAt = task.lastEventAt ?? task.endedAt ?? task.startedAt ?? task.createdAt;
-    if (task.status === "running" && now - lastAt >= STALE_RUNNING_TASK_MS) {
-      findings.push(`task:${task.taskId}:stale`);
-    }
-  }
-  let hasStaleQueuedWorkflow = false;
-  for (const flow of listTaskFlowRecords()) {
-    const severity = operationsFindingSeverityForWorkflow(flow.status, flow.updatedAt, now);
-    if (flow.status === "queued" && severity === "warning") {
-      hasStaleQueuedWorkflow = true;
-      continue;
-    }
-    if (severity === "critical" || severity === "warning") {
-      findings.push(`workflow:${flow.flowId}:${flow.status}`);
-    }
-  }
-  if (hasStaleQueuedWorkflow) {
-    findings.push("workflow:queued:stale");
-  }
-  return findings.toSorted();
+  const observation = await collectOperationsShadowObservation(now);
+  return observation.findings.map((finding) => finding.id).toSorted();
 }
 
 export function startOperationsShadowMonitor(params: {
   intervalMs?: number;
   log: { warn: (message: string) => void };
   now?: () => number;
-  collect?: (now: number) => string[] | Promise<string[]>;
+  collect?: (now: number) => OperationsShadowObservation | Promise<OperationsShadowObservation>;
+  incidentLedgerOptions?: OperationsIncidentLedgerOptions;
 }): () => void {
   const intervalMs = Math.max(5_000, params.intervalMs ?? OPERATIONS_SHADOW_INTERVAL_MS);
   const now = params.now ?? Date.now;
-  const collect = params.collect ?? collectOperationsShadowFindingIds;
+  const collect = params.collect ?? collectOperationsShadowObservation;
   let stopped = false;
   let sweepInFlight = false;
   let knownFindings = new Set<string>();
 
-  state = {
+  setOperationsShadowMonitorState({
     running: true,
     intervalMs,
     startedAt: now(),
+    lastAttemptAt: null,
     lastSweepAt: null,
     nextSweepAt: null,
     lastDurationMs: null,
+    attemptCount: 0,
     sweepCount: 0,
     lastError: null,
     findingIds: [],
-  };
+  });
 
   const sweep = async () => {
     if (stopped || sweepInFlight) {
@@ -100,41 +118,63 @@ export function startOperationsShadowMonitor(params: {
     sweepInFlight = true;
     const startedAt = now();
     try {
-      const findingIds = await collect(startedAt);
+      const observation = await collect(startedAt);
       if (stopped) {
         return;
       }
+      const ledger = reconcileOperationsIncidentLedger({
+        findings: observation.findings,
+        now: startedAt,
+        authoritativeCategories: observation.authoritativeCategories,
+        ...(params.incidentLedgerOptions ? { options: params.incidentLedgerOptions } : {}),
+      });
+      const findingIds = ledger.findings.map((finding) => finding.id).toSorted();
       const nextFindings = new Set(findingIds);
-      const newFindings = findingIds.filter((id) => !knownFindings.has(id));
+      const recurrenceIds = new Set(
+        ledger.recurrences
+          .filter((recurrence) => recurrence.reopenedAt >= startedAt)
+          .map((recurrence) => recurrence.incidentId),
+      );
+      const newFindings = ledger.findings.filter(
+        (finding) =>
+          recurrenceIds.has(finding.id) ||
+          (!knownFindings.has(finding.id) && (finding.firstObservedAt ?? startedAt) >= startedAt),
+      );
       if (newFindings.length > 0) {
-        params.log.warn(`operations shadow monitor found: ${newFindings.join(", ")}`);
+        params.log.warn(
+          `operations shadow monitor found: ${newFindings.map((finding) => finding.id).join(", ")}`,
+        );
       }
       knownFindings = nextFindings;
       const finishedAt = now();
-      state = {
-        ...state,
+      const current = getOperationsShadowMonitorState();
+      setOperationsShadowMonitorState({
+        ...current,
         running: true,
+        lastAttemptAt: finishedAt,
         lastSweepAt: finishedAt,
         nextSweepAt: finishedAt + intervalMs,
         lastDurationMs: Math.max(0, finishedAt - startedAt),
-        sweepCount: state.sweepCount + 1,
+        attemptCount: current.attemptCount + 1,
+        sweepCount: current.sweepCount + 1,
         lastError: null,
         findingIds,
-      };
+      });
     } catch (err) {
       if (!stopped) {
         const message = err instanceof Error ? err.message : String(err);
         params.log.warn(`operations shadow monitor sweep failed: ${message}`);
         const finishedAt = now();
-        state = {
-          ...state,
+        const current = getOperationsShadowMonitorState();
+        setOperationsShadowMonitorState({
+          ...current,
           running: true,
-          lastSweepAt: finishedAt,
+          lastAttemptAt: finishedAt,
           nextSweepAt: finishedAt + intervalMs,
           lastDurationMs: Math.max(0, finishedAt - startedAt),
-          sweepCount: state.sweepCount + 1,
+          attemptCount: current.attemptCount + 1,
           lastError: message,
-        };
+        });
       }
     } finally {
       sweepInFlight = false;
@@ -151,20 +191,10 @@ export function startOperationsShadowMonitor(params: {
     }
     stopped = true;
     clearInterval(timer);
-    state = { ...state, running: false, nextSweepAt: null };
-  };
-}
-
-export function resetOperationsShadowMonitorStateForTest(): void {
-  state = {
-    running: false,
-    intervalMs: OPERATIONS_SHADOW_INTERVAL_MS,
-    startedAt: null,
-    lastSweepAt: null,
-    nextSweepAt: null,
-    lastDurationMs: null,
-    sweepCount: 0,
-    lastError: null,
-    findingIds: [],
+    updateOperationsShadowMonitorState((current) => ({
+      ...current,
+      running: false,
+      nextSweepAt: null,
+    }));
   };
 }

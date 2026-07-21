@@ -51,6 +51,12 @@ import {
   type ModelAuthStatusState,
 } from "./controllers/model-auth-status.ts";
 import { loadNodes, type NodesState } from "./controllers/nodes.ts";
+import {
+  focusOperationsSection,
+  operationsSectionFromUrl,
+  updateOperationsSectionUrl,
+  type OperationsSection,
+} from "./controllers/operations-navigation.ts";
 import { loadOperationsRoom, type OperationsState } from "./controllers/operations.ts";
 import { loadPccDashboard } from "./controllers/pcc.ts";
 import { loadPresence, type PresenceState } from "./controllers/presence.ts";
@@ -117,6 +123,7 @@ type SettingsHost = {
   eventLogBuffer: unknown[];
   basePath: string;
   agentsList?: AgentsListResult | null;
+  operationsSection?: OperationsSection | null;
   selectedAgentId?: string | null;
   agentsSelectedId?: string | null;
   agentsPanel?:
@@ -704,6 +711,8 @@ export function syncTabWithLocation(host: SettingsHost, replace: boolean) {
     return;
   }
   const resolved = tabFromPath(window.location.pathname, host.basePath) ?? "chat";
+  host.operationsSection =
+    resolved === "operations" ? operationsSectionFromUrl(new URL(window.location.href)) : null;
   setTabFromRoute(host, resolved);
   syncUrlWithTab(host, resolved, replace);
 }
@@ -723,7 +732,13 @@ export function onPopState(host: SettingsHost) {
     applySessionSelection(host, session);
   }
 
+  host.operationsSection = resolved === "operations" ? operationsSectionFromUrl(url) : null;
+
   setTabFromRoute(host, resolved);
+  if (resolved === "operations" && host.operationsSection) {
+    const section = host.operationsSection;
+    void Promise.resolve(host.updateComplete).then(() => focusOperationsSection(section));
+  }
 }
 
 export function setTabFromRoute(host: SettingsHost, next: Tab) {
@@ -802,7 +817,7 @@ export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
   }
   const targetPath = normalizePath(pathForTab(tab, host.basePath));
   const currentPath = normalizePath(pathname);
-  const url = new URL(href);
+  let url = new URL(href);
 
   if (tab === "chat" && host.sessionKey) {
     url.searchParams.set("session", host.sessionKey);
@@ -813,6 +828,11 @@ export function syncUrlWithTab(host: SettingsHost, tab: Tab, replace: boolean) {
   if (currentPath !== targetPath) {
     url.pathname = targetPath;
   }
+
+  url = updateOperationsSectionUrl(
+    url,
+    tab === "operations" ? (host.operationsSection ?? null) : null,
+  );
 
   updateBrowserHistory(url, replace);
 }

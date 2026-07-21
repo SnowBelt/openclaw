@@ -501,7 +501,12 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
     loadHandlers: loadDiagnosticsHandlers,
   }),
   ...createLazyCoreHandlers({
-    methods: ["operations.snapshot", "operations.action.preview", "operations.action.apply"],
+    methods: [
+      "operations.snapshot",
+      "operations.snapshot.v2",
+      "operations.action.preview",
+      "operations.action.apply",
+    ],
     loadHandlers: loadOperationsHandlers,
   }),
   ...createLazyCoreHandlers({

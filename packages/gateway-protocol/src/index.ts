@@ -8,6 +8,7 @@ export {
   type ClawHubTrustErrorCode,
   type ClawHubTrustErrorDetails,
 } from "./clawhub-trust-error-details.js";
+export { assertOperationsSnapshotV2Integrity } from "./operations-snapshot-integrity.js";
 import { Compile, type Validator as TypeBoxValidator } from "typebox/compile";
 import {
   type AgentEvent,
@@ -599,6 +600,14 @@ import {
   type OperationsSnapshotParams,
   OperationsSnapshotParamsSchema,
   type OperationsSnapshotResult,
+  type OperationsSnapshotV1Params,
+  OperationsSnapshotV1ParamsSchema,
+  type OperationsSnapshotV1Result,
+  OperationsSnapshotV1ResultSchema,
+  type OperationsSnapshotV2Params,
+  OperationsSnapshotV2ParamsSchema,
+  type OperationsSnapshotV2Result,
+  OperationsSnapshotV2ResultSchema,
   type OperationsStatus,
   type ShutdownEvent,
   ShutdownEventSchema,
@@ -1215,6 +1224,18 @@ export const validatePccSummaryGetParams =
 
 export const validateOperationsSnapshotParams = lazyCompile<OperationsSnapshotParams>(
   OperationsSnapshotParamsSchema,
+);
+export const validateOperationsSnapshotV1Params = lazyCompile<OperationsSnapshotV1Params>(
+  OperationsSnapshotV1ParamsSchema,
+);
+export const validateOperationsSnapshotV1Result = lazyCompile<OperationsSnapshotV1Result>(
+  OperationsSnapshotV1ResultSchema,
+);
+export const validateOperationsSnapshotV2Params = lazyCompile<OperationsSnapshotV2Params>(
+  OperationsSnapshotV2ParamsSchema,
+);
+export const validateOperationsSnapshotV2Result = lazyCompile<OperationsSnapshotV2Result>(
+  OperationsSnapshotV2ResultSchema,
 );
 export const validateOperationsActionPreviewParams = lazyCompile<OperationsActionPreviewParams>(
   OperationsActionPreviewParamsSchema,
@@ -2146,6 +2167,10 @@ export type {
   OperationsActionKind,
   OperationsSnapshotParams,
   OperationsSnapshotResult,
+  OperationsSnapshotV1Params,
+  OperationsSnapshotV1Result,
+  OperationsSnapshotV2Params,
+  OperationsSnapshotV2Result,
   OperationsActionPreviewParams,
   OperationsActionPreviewResult,
   OperationsActionApplyParams,

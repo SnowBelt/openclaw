@@ -18,6 +18,34 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Chat owns conversation, input admission, inline activity, and compact controls. PCC owns explicit plan records and evidence. System Quality owns Judge, SIG, canary, and diagnostic detail. Never infer PCC state from assistant prose.
 - Use one production Chat implementation. Do not create a parallel Chat page or duplicate state store.
 
+## Operations Room truth contract
+
+- Treat activity, health, and attention as separate facts. An agent may be working and still need
+  attention; never flatten that into one color or status.
+- Never display work as current unless its task or workflow is active. Terminal work is last activity
+  or history, and `running` requires a live owner, active task, or explicit waiting state.
+- Compute exact aggregates before row limits. Every bounded collection must expose total, shown, and
+  truncated state instead of presenting a cap as the total.
+- Treat snapshot time, source freshness, and source completeness as operational facts. A stale,
+  partial, or failed required source can never produce an unconditional healthy state.
+- Treat `operations.snapshot.v2` as authoritative. Preserve the exact V1 wire contract and use it in
+  the Control UI only after an explicit unsupported-method response; never hide a real V2 failure
+  behind fallback. The adapted V1 view is always Partial and unverified.
+- Do not resolve an incident merely because its source disappeared. Carry unresolved findings as
+  Last known until the category is authoritatively observed without the issue.
+- Separate monitor attempts from successful sweeps. Stopped, never-successful, stale, and
+  latest-attempt-failed states must fail closed without fabricating sweep timestamps.
+- Treat rejected process rows as partial source evidence, an entirely rejected or empty probe as
+  unavailable, and an intentionally omitted probe as omitted. Never expose process arguments.
+- Restore task and TaskFlow registries through staged atomic replacement. An initial restore failure
+  blocks writes; retry failure preserves the last complete authoritative state.
+- Build the concise briefing deterministically from structured facts. A model may not replace or
+  contradict the canonical briefing, counts, issue ownership, or next action.
+- Use generic task contracts for display and rollup: `label`, `progressSummary`, `terminalSummary`,
+  `taskKind`, and `sourceId`. Do not parse raw prompts or add plugin-specific Operations imports.
+- Separate Needs you, OpenClaw is handling it, Watching, and History. Every actionable issue needs
+  impact, response owner, response state, last progress, next action, and next check when known.
+
 ## Model policy
 
 - Default conversational Control Director model: `ollama/openclaw-control-gemma4-31b-q8:latest`.
@@ -50,6 +78,12 @@ pnpm ui:smoke:control-director-no-response
 
 7. Run `pnpm check:changed` on remote CI or Testbox when it selects broad/shared lanes. Never replace a failed gate with a prose assertion.
 
+For Operations Room source work, run `pnpm operations-room:verify`. That canonical command owns the
+complete Operations and task-registry regression list, `tsgo:all`, all three test typecheck lanes
+including `tsgo:test:src`, DOM and browser proof, localization, both capability registries, workflow
+validation, and build. The exact-SHA workflow adds the remote changed gate; do not maintain a shorter
+ad hoc command list in a handoff.
+
 ## Runtime acceptance
 
 Source proof is not production proof. Production acceptance requires all of the following against the same landed SHA:
@@ -74,6 +108,21 @@ pnpm control-director:readiness -- \
 ```
 
 Do not claim production completion unless the readiness command exits zero, every critical fact passes, aggregate quality is at least 93, and no P0 defect remains.
+
+For Operations Room changes, production acceptance additionally requires the same exact SHA in the
+canonical custom-source branch, immutable runtime pointer, capability manifest, Gateway process,
+desktop and mobile receipts, restart receipt, at least five minutes of bounded soak, and the verified
+rollback bundle. Source tests, a DOM smoke, and an unpromoted candidate do not satisfy that gate.
+
+The source artifact must include a validated V2 browser receipt, five nonempty desktop/mobile/tablet
+screenshots including `tablet-768-increased-contrast.png`, a browser-receipt checksum, and a passing
+exact-SHA workflow receipt with artifact digests.
+The production artifact must separately bind that SHA to runtime identity, persistence across
+restart, soak, and rollback proof. It must also include the machine-readable zero-instruction
+usability receipt defined in `docs/automation/operations-room.md`: at least five first-use
+participants spanning 7-12, 13-64, and 65-90, every participant completing all four outcomes in
+60,000 milliseconds or less, with zero hints and zero unsafe actions. Never omit or retry a failed
+attempt to turn the aggregate green.
 
 ## Failure handling
 

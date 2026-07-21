@@ -2854,7 +2854,7 @@ export function renderApp(state: AppViewState) {
               </span>
             </div>`
           : nothing}
-        ${state.tab === "config" || isChat
+        ${state.tab === "config" || state.tab === "operations" || isChat
           ? nothing
           : html`<section
               class=${chatHeaderHidden
@@ -2906,18 +2906,45 @@ export function renderApp(state: AppViewState) {
               m.renderOperations({
                 loading: state.operationsLoading,
                 actionBusy: state.operationsActionBusy,
+                canWrite: hasOperatorWriteAccess(state.hello?.auth ?? null),
+                canAdmin: hasOperatorAdminAccess(state.hello?.auth ?? null),
                 error: state.operationsError,
                 actionNotice: state.operationsActionNotice,
+                actionNoticeTone: state.operationsActionNoticeTone,
                 snapshot: state.operationsSnapshot,
                 updatedAt: state.operationsUpdatedAt,
+                lastSuccessfulAt: state.operationsLastSuccessfulAt,
+                refreshFailedAt: state.operationsRefreshFailedAt,
+                section: state.operationsSection,
+                agentQuery: state.operationsAgentQuery,
+                agentSort: state.operationsAgentSort,
+                pinnedAgentIds: state.operationsPinnedAgentIds,
+                lastVisitedAt: state.operationsLastVisitedAt,
                 onRefresh: () => void loadOperationsRoom(state),
+                onSectionChange: (section) => void state.setOperationsSection(section),
+                onAgentQueryChange: (value) => {
+                  state.operationsAgentQuery = value;
+                },
+                onAgentSortChange: (value) => state.setOperationsAgentSort(value),
+                onToggleAgentPin: (agentId) => state.toggleOperationsAgentPin(agentId),
+                onOpenAgent: (agentId) => {
+                  state.agentsSelectedId = agentId;
+                  state.setTab("agents" as import("./navigation.ts").Tab);
+                },
+                onNavigate: (target) => {
+                  state.setTab(target as import("./navigation.ts").Tab);
+                },
                 onAction: (action, targetId) => {
                   void runGuardedOperationsAction(state, {
                     action,
                     targetId,
                     confirm: (preview) =>
                       globalThis.confirm(
-                        `${preview.summary}\n\nThis guarded action expires in 60 seconds. Continue?`,
+                        t("operationsRoom.actions.confirm", {
+                          summary: preview.summary,
+                          risk: t(`operationsRoom.actions.risks.${preview.risk}`),
+                          expires: formatRelativeTimestamp(preview.expiresAt),
+                        }),
                       ),
                   });
                 },

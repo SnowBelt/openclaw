@@ -138,6 +138,18 @@ function resolveSessionActionLeastPrivilegeScopes(params: unknown): OperatorScop
   return [WRITE_SCOPE];
 }
 
+function resolveOperationsActionRequiredScopes(params: unknown): OperatorScope[] {
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    // Malformed requests cannot mutate state; let the handler return its precise validation error.
+    return [WRITE_SCOPE];
+  }
+  const action = (params as { action?: unknown }).action;
+  if (action === "cron.run" || action === "cron.enable" || action === "cron.disable") {
+    return [ADMIN_SCOPE];
+  }
+  return [WRITE_SCOPE];
+}
+
 function resolveDynamicLeastPrivilegeOperatorScopesForMethod(
   method: string,
   params: unknown,
@@ -152,6 +164,9 @@ function resolveDynamicLeastPrivilegeOperatorScopesForMethod(
   }
   if (method === "sessions.delete") {
     return resolveSessionsDeleteRequiredScopes(params);
+  }
+  if (method === "operations.action.preview" || method === "operations.action.apply") {
+    return resolveOperationsActionRequiredScopes(params);
   }
   return [WRITE_SCOPE];
 }
@@ -230,6 +245,13 @@ export function authorizeOperatorScopesForMethod(
     if (method === "sessions.delete") {
       const missingScope = findMissingOperatorScope(
         resolveSessionsDeleteRequiredScopes(params),
+        scopes,
+      );
+      return missingScope ? { allowed: false, missingScope } : { allowed: true };
+    }
+    if (method === "operations.action.preview" || method === "operations.action.apply") {
+      const missingScope = findMissingOperatorScope(
+        resolveOperationsActionRequiredScopes(params),
         scopes,
       );
       return missingScope ? { allowed: false, missingScope } : { allowed: true };

@@ -8,6 +8,7 @@ import {
   getTaskFlowRegistryStore,
   resetTaskFlowRegistryRuntimeForTests,
   type TaskFlowRegistryObserverEvent,
+  type TaskFlowRegistryStoreSnapshot,
 } from "./task-flow-registry.store.js";
 import type {
   TaskFlowRecord,
@@ -21,6 +22,7 @@ const log = createSubsystemLogger("tasks/task-flow-registry");
 const flows = new Map<string, TaskFlowRecord>();
 let restoreAttempted = false;
 let restoreFailureMessage: string | null = null;
+let hasAuthoritativeRegistryState = false;
 
 type FlowRecordPatch = Omit<
   Partial<
@@ -244,33 +246,56 @@ function resolveTaskMirroredFlowTiming(
   return { updatedAt: endedAt, endedAt };
 }
 
-function ensureFlowRegistryReady() {
-  if (restoreAttempted) {
-    return;
+function stageFlowRegistryState(
+  snapshot: TaskFlowRegistryStoreSnapshot,
+): Map<string, TaskFlowRecord> {
+  const staged = new Map<string, TaskFlowRecord>();
+  for (const [flowId, flow] of snapshot.flows) {
+    staged.set(flowId, normalizeRestoredFlowRecord(flow));
   }
+  return staged;
+}
+
+function commitStagedFlowRegistryState(staged: ReadonlyMap<string, TaskFlowRecord>): void {
+  flows.clear();
+  for (const [flowId, flow] of staged) {
+    flows.set(flowId, flow);
+  }
+}
+
+function restoreFlowRegistryFromStore(): boolean {
   restoreAttempted = true;
   try {
-    const restored = getTaskFlowRegistryStore().loadSnapshot();
-    flows.clear();
-    for (const [flowId, flow] of restored.flows) {
-      flows.set(flowId, normalizeRestoredFlowRecord(flow));
-    }
+    const staged = stageFlowRegistryState(getTaskFlowRegistryStore().loadSnapshot());
+    commitStagedFlowRegistryState(staged);
+    hasAuthoritativeRegistryState = true;
     restoreFailureMessage = null;
   } catch (error) {
-    flows.clear();
     restoreFailureMessage = formatErrorMessage(error);
     log.warn("Failed to restore task-flow registry", { error });
-    return;
+    return false;
   }
   emitFlowRegistryObserverEvent(() => ({
     kind: "restored",
     flows: snapshotFlowRecords(flows),
   }));
+  return true;
+}
+
+function ensureFlowRegistryReady(): boolean {
+  if (!restoreAttempted) {
+    restoreFlowRegistryFromStore();
+  }
+  return hasAuthoritativeRegistryState;
 }
 
 export function getTaskFlowRegistryRestoreFailure(): string | null {
   ensureFlowRegistryReady();
   return restoreFailureMessage;
+}
+
+export function reloadTaskFlowRegistryFromStore(): boolean {
+  return restoreFlowRegistryFromStore();
 }
 
 function createFlowSnapshotWith(next?: TaskFlowRecord, deletedFlowId?: string) {
@@ -417,6 +442,9 @@ function applyFlowPatch(current: TaskFlowRecord, patch: FlowRecordPatch): TaskFl
 }
 
 function writeFlowRecord(next: TaskFlowRecord, previous?: TaskFlowRecord): TaskFlowRecord | null {
+  if (!hasAuthoritativeRegistryState) {
+    return null;
+  }
   if (!tryPersistFlowUpsert(next, previous ? "update" : "create")) {
     return null;
   }
@@ -430,7 +458,9 @@ function writeFlowRecord(next: TaskFlowRecord, previous?: TaskFlowRecord): TaskF
 }
 
 export function createFlowRecord(params: CreateFlowRecordParams): TaskFlowRecord | null {
-  ensureFlowRegistryReady();
+  if (!ensureFlowRegistryReady()) {
+    return null;
+  }
   const record = buildFlowRecord(params);
   return writeFlowRecord(record);
 }
@@ -763,7 +793,9 @@ export function listTaskFlowRecords(): TaskFlowRecord[] {
 }
 
 export function deleteTaskFlowRecordById(flowId: string): boolean {
-  ensureFlowRegistryReady();
+  if (!ensureFlowRegistryReady()) {
+    return false;
+  }
   const current = flows.get(flowId);
   if (!current) {
     return false;
@@ -784,6 +816,7 @@ export function resetTaskFlowRegistryForTests(opts?: { persist?: boolean }) {
   flows.clear();
   restoreAttempted = false;
   restoreFailureMessage = null;
+  hasAuthoritativeRegistryState = false;
   resetTaskFlowRegistryRuntimeForTests();
   if (opts?.persist !== false) {
     persistFlowRegistry();

@@ -57,7 +57,11 @@ OpenClaw creates a mirrored one-task flow automatically when a detached ACP or s
 
 ## Durable state and revision tracking
 
-Flow records persist in the shared SQLite state database (`~/.openclaw/state/openclaw.sqlite`, `flow_runs` table) alongside task records, so progress survives gateway restarts. Each write bumps the flow's `revision`; concurrent writers that pass a stale expected revision get a conflict and must re-read. WAL growth is bounded by SQLite autocheckpointing plus periodic passive checkpoints, with truncate checkpoints on shutdown. The legacy `flows/registry.sqlite` sidecar from older installs is imported by `openclaw doctor`.
+Flow records persist in the shared SQLite state database (`~/.openclaw/state/openclaw.sqlite`, `flow_runs` table) alongside task records, so progress survives gateway restarts. Each write bumps the flow's `revision`; concurrent writers that pass a stale expected revision get a conflict and must re-read.
+
+Restore is atomic. OpenClaw loads and normalizes the complete candidate snapshot before replacing the live flow map. A failed load or normalization keeps the previous complete map. If the first restore fails, writes are refused because no authoritative flow state exists; Operations Room marks workflows unavailable. The internal reload seam can retry safely, clearing the failure only after a successful replacement.
+
+WAL growth is bounded by SQLite autocheckpointing plus periodic passive checkpoints, with truncate checkpoints on shutdown. The legacy `flows/registry.sqlite` sidecar from older installs is imported by `openclaw doctor`.
 
 ## Cancel behavior
 

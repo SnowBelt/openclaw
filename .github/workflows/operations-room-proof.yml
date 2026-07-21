@@ -1,0 +1,304 @@
+name: Operations Room V2 Proof
+
+run-name: Operations Room V2 Proof at ${{ inputs.expected_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Branch or tag containing the Operations Room candidate
+        required: false
+        default: main
+        type: string
+      expected_sha:
+        description: Exact 40-character commit SHA that target_ref must resolve to
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operations-room-v2-proof-${{ inputs.expected_sha }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  operations-room-proof:
+    name: Exact-SHA Operations Room proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout candidate
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 0
+          fetch-tags: false
+          persist-credentials: false
+          submodules: false
+
+      - name: Verify exact candidate identity
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          TARGET_REF: ${{ inputs.target_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_sha must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          fi
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
+            echo "target_ref resolved to $actual_sha, expected $EXPECTED_SHA" >&2
+            exit 1
+          fi
+          echo "proof_sha=$actual_sha"
+          echo "target_ref=$TARGET_REF"
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+
+      - name: Run canonical Operations Room verification
+        timeout-minutes: 60
+        env:
+          CI: "true"
+          GITHUB_REF_NAME: ${{ inputs.target_ref }}
+          GITHUB_SHA: ${{ inputs.expected_sha }}
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm operations-room:verify
+
+      - name: Validate browser proof receipt
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          TARGET_REF: ${{ inputs.target_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync, statSync, writeFileSync } from "node:fs";
+          import path from "node:path";
+
+          const directory = path.resolve(".artifacts/control-ui-e2e/operations-room");
+          const screenshots = [
+            "desktop-light.png",
+            "desktop-dark.png",
+            "mobile-320.png",
+            "mobile-rtl.png",
+            "tablet-768-increased-contrast.png",
+          ];
+          const receiptPath = path.join(directory, "receipt.json");
+          for (const filename of ["receipt.json", ...screenshots]) {
+            const filePath = path.join(directory, filename);
+            if (statSync(filePath).size === 0) {
+              throw new Error(`Operations Room proof artifact is empty: ${filename}`);
+            }
+          }
+
+          const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+          if (receipt.schema !== "openclaw.operations-room.e2e-receipt.v3") {
+            throw new Error(`Unexpected Operations Room receipt schema: ${String(receipt.schema)}`);
+          }
+          if (receipt.route !== "/operations") {
+            throw new Error(`Unexpected Operations Room proof route: ${String(receipt.route)}`);
+          }
+          if (receipt.result !== "passed") {
+            throw new Error(`Operations Room browser receipt did not pass: ${String(receipt.result)}`);
+          }
+          const startedAt = Date.parse(receipt.startedAt);
+          const completedAt = Date.parse(receipt.completedAt);
+          if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) {
+            throw new Error("Operations Room browser receipt timestamps are invalid.");
+          }
+          if (receipt.commands?.canonicalFocused !== "pnpm ui:smoke:operations-room:e2e") {
+            throw new Error("Operations Room browser receipt has an unexpected canonical command.");
+          }
+          for (const field of ["node", "v8", "chromium"]) {
+            if (typeof receipt.runtimeVersions?.[field] !== "string" || receipt.runtimeVersions[field].length === 0) {
+              throw new Error(`Operations Room browser receipt is missing runtime version: ${field}`);
+            }
+          }
+          const expectedSha = process.env.EXPECTED_SHA;
+          if (receipt.source?.gitSha !== expectedSha || receipt.source?.ciSha !== expectedSha) {
+            throw new Error("Operations Room browser receipt is not bound to the checked-out CI SHA.");
+          }
+          if (receipt.source?.ciRef !== process.env.TARGET_REF) {
+            throw new Error("Operations Room browser receipt is not bound to the dispatched ref.");
+          }
+          if (typeof receipt.source?.gitRef !== "string" || receipt.source.gitRef.length === 0) {
+            throw new Error("Operations Room browser receipt is missing its Git ref provenance.");
+          }
+          if (receipt.source?.workingTree !== "clean") {
+            throw new Error("Operations Room browser receipt must come from a clean tracked worktree.");
+          }
+          if (!Array.isArray(receipt.artifacts)) {
+            throw new Error("Operations Room browser receipt artifacts must be an array.");
+          }
+          const artifactNames = receipt.artifacts.map((artifact) => artifact?.file);
+          if (JSON.stringify(artifactNames) !== JSON.stringify(screenshots)) {
+            throw new Error("Operations Room receipt does not name the required screenshots.");
+          }
+          for (const artifact of receipt.artifacts) {
+            const filePath = path.join(directory, artifact.file);
+            const contents = readFileSync(filePath);
+            const digest = createHash("sha256").update(contents).digest("hex");
+            if (artifact.bytes !== contents.length || artifact.bytes <= 0 || artifact.sha256 !== digest) {
+              throw new Error(`Operations Room screenshot evidence mismatch: ${String(artifact.file)}`);
+            }
+          }
+          const requiredChecks = [
+            "agentGroupOrder",
+            "ariaLive",
+            "browserHistoryAndFocus",
+            "computedTouchTargets44px",
+            "contrastLightAndDark",
+            "guardedActionCancel",
+            "guardedActionExpired",
+            "guardedActionPreviewApply",
+            "guardedActionReplayRejected",
+            "incidentHistoryBoundedAndSafe",
+            "increasedContrast",
+            "issueLanesAndNonColorCues",
+            "largeInventoryDisclosed",
+            "legacyFallbackOnlyWhenUnsupported",
+            "monitorFailClosed",
+            "noFallbackForOperationalErrors",
+            "offlineState",
+            "postActionRefresh",
+            "primaryControls",
+            "processProbeStates",
+            "rawPromptAbsent",
+            "reducedMotion",
+            "responsive320px",
+            "responsiveTablet",
+            "rtl",
+            "sameSessionVisitBoundary",
+            "staleAndPartialFailClosed",
+            "zeroIssueState",
+            "zoom200Percent",
+          ];
+          if (JSON.stringify(Object.keys(receipt.checks ?? {}).sort()) !== JSON.stringify([...requiredChecks].sort())) {
+            throw new Error("Operations Room browser receipt has an unexpected proof-check contract.");
+          }
+          for (const check of requiredChecks) {
+            if (receipt.checks?.[check] !== true) {
+              throw new Error(`Operations Room browser receipt check did not pass: ${check}`);
+            }
+          }
+
+          const digest = createHash("sha256").update(readFileSync(receiptPath)).digest("hex");
+          writeFileSync(path.join(directory, "browser-receipt.sha256"), `${digest}  receipt.json\n`);
+          NODE
+
+      - name: Run changed gate
+        timeout-minutes: 45
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        run: pnpm check:changed
+
+      - name: Write exact-SHA workflow receipt
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          TARGET_REF: ${{ inputs.target_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { execFileSync } from "node:child_process";
+          import path from "node:path";
+
+          const directory = path.resolve(".artifacts/control-ui-e2e/operations-room");
+          const expectedSha = process.env.EXPECTED_SHA;
+          const actualSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+          if (actualSha !== expectedSha) {
+            throw new Error(`Workflow receipt SHA mismatch: ${actualSha} != ${expectedSha}`);
+          }
+          const browserReceipt = readFileSync(path.join(directory, "receipt.json"));
+          const browserReceiptDigest = createHash("sha256").update(browserReceipt).digest("hex");
+          const expectedSidecar = `${browserReceiptDigest}  receipt.json\n`;
+          const actualSidecar = readFileSync(
+            path.join(directory, "browser-receipt.sha256"),
+            "utf8",
+          );
+          if (actualSidecar !== expectedSidecar) {
+            throw new Error("browser-receipt.sha256 does not match the current browser receipt.");
+          }
+          const artifactNames = [
+            "receipt.json",
+            "browser-receipt.sha256",
+            "desktop-light.png",
+            "desktop-dark.png",
+            "mobile-320.png",
+            "mobile-rtl.png",
+            "tablet-768-increased-contrast.png",
+          ];
+          const artifacts = Object.fromEntries(
+            artifactNames.map((filename) => [
+              filename,
+              createHash("sha256")
+                .update(readFileSync(path.join(directory, filename)))
+                .digest("hex"),
+            ]),
+          );
+          const receipt = {
+            schema: "openclaw.operations-room.workflow-receipt.v1",
+            status: "passed",
+            completedAt: new Date().toISOString(),
+            source: {
+              actualSha,
+              expectedSha,
+              targetRef: process.env.TARGET_REF,
+            },
+            github: {
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+              runId: process.env.GITHUB_RUN_ID,
+              workflow: process.env.GITHUB_WORKFLOW,
+            },
+            commands: ["pnpm operations-room:verify", "pnpm check:changed"],
+            browserReceipt: {
+              file: "receipt.json",
+              sha256: browserReceiptDigest,
+            },
+            artifacts,
+          };
+          writeFileSync(
+            path.join(directory, "workflow-receipt.json"),
+            `${JSON.stringify(receipt, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Upload Operations Room proof receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: operations-room-v2-proof-receipts-${{ inputs.expected_sha }}
+          path: .artifacts/control-ui-e2e/operations-room/
+          if-no-files-found: error
+          retention-days: 14

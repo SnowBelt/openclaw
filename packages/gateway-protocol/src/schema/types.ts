@@ -208,8 +208,14 @@ export type PccSummaryGetResult = SchemaType<"PccSummaryGetResult">;
 /** Operations Room runtime truth and guarded control payloads. */
 export type OperationsStatus = SchemaType<"OperationsStatus">;
 export type OperationsActionKind = SchemaType<"OperationsActionKind">;
+/** @deprecated Use the explicitly versioned V1 or V2 snapshot types. */
 export type OperationsSnapshotParams = SchemaType<"OperationsSnapshotParams">;
+/** @deprecated This alias is the legacy V1 `operations.snapshot` result. */
 export type OperationsSnapshotResult = SchemaType<"OperationsSnapshotResult">;
+export type OperationsSnapshotV1Params = SchemaType<"OperationsSnapshotV1Params">;
+export type OperationsSnapshotV1Result = SchemaType<"OperationsSnapshotV1Result">;
+export type OperationsSnapshotV2Params = SchemaType<"OperationsSnapshotV2Params">;
+export type OperationsSnapshotV2Result = SchemaType<"OperationsSnapshotV2Result">;
 export type OperationsActionPreviewParams = SchemaType<"OperationsActionPreviewParams">;
 export type OperationsActionPreviewResult = SchemaType<"OperationsActionPreviewResult">;
 export type OperationsActionApplyParams = SchemaType<"OperationsActionApplyParams">;

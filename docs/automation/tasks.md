@@ -315,7 +315,11 @@ Task records and delivery state persist in the shared OpenClaw SQLite state data
 
 Set `OPENCLAW_STATE_DIR` to move the whole state root (default `~/.openclaw`) elsewhere; the shared database path moves with it.
 
-The registry loads into memory on first use and persists every write back to SQLite, so records survive gateway restarts. WAL growth stays bounded through SQLite's default autocheckpoint threshold plus periodic `PASSIVE` checkpoints; shutdown and explicit maintenance checkpoints use `TRUNCATE` so normal closes reclaim WAL space without making the background sweeper wait on active readers.
+The registry loads into memory on first use and persists every write back to SQLite, so records survive gateway restarts. Restore is atomic: OpenClaw loads, normalizes, and builds every lookup index in temporary maps before replacing the live task and delivery-state maps. A load, normalization, or index failure preserves the previous complete in-memory snapshot instead of clearing it or applying a partial overlay.
+
+If the initial restore fails, no authoritative task state exists. Task writes are refused, the restore failure remains inspectable, and Operations Room reports the task source as unavailable. The runtime has an explicit retryable reload seam: success atomically replaces the registry and clears the failure, while another failure leaves the last complete state untouched.
+
+WAL growth stays bounded through SQLite's default autocheckpoint threshold plus periodic `PASSIVE` checkpoints; shutdown and explicit maintenance checkpoints use `TRUNCATE` so normal closes reclaim WAL space without making the background sweeper wait on active readers.
 
 Legacy sidecar stores from older installs (`tasks/runs.sqlite`, `flows/registry.sqlite`) are imported into the shared database by `openclaw doctor`.
 
