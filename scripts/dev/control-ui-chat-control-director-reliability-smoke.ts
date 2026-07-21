@@ -325,6 +325,9 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
   checks.goalControls =
     controlCalls.some((call) => call.action === "retry") &&
     controlCalls.some((call) => call.action === "stop");
+  root.querySelector<HTMLButtonElement>('[aria-label="Close pursue goal panel"]')?.click();
+  checks.goalPointerClose =
+    goalPanelOpen === false && !root.querySelector<HTMLDetailsElement>("[data-chat-goal]")?.open;
 
   projectPanelOpen = true;
   await draw(mode, { projectPickerOpen: true, goalPanelOpen: false });
@@ -332,9 +335,13 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
   checks.sharedProjectContract = Boolean(
     project &&
       project.textContent?.includes("Dashboard Reliability") &&
-      project.textContent?.includes("same project record used by PCC") &&
+      project.textContent?.includes("same project ID") &&
       project.textContent?.includes("does not create a second project plan"),
   );
+  root.querySelector<HTMLButtonElement>('[aria-label="Close project panel"]')?.click();
+  checks.projectPointerClose =
+    projectPanelOpen === false &&
+    !root.querySelector<HTMLDetailsElement>("[data-chat-project-picker]")?.open;
 
   const composer = root.querySelector<HTMLElement>(".agent-chat__input");
   const thread = root.querySelector<HTMLElement>(".chat-thread");
