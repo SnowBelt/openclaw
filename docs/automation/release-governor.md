@@ -128,3 +128,22 @@ pnpm build
 The PCC deployment-governance panel displays candidate and active SHAs, risk,
 protected paths, capability changes, checks, approvals, reviewer decisions,
 rollback target, decision, blocker, evidence receipt, and approval wording.
+
+## Safe runtime inspection
+
+Do not run `pnpm`, `npm`, or another package manager from an immutable release
+directory. Package-manager dependency reconciliation is a mutation, not a
+status check. Inspect the active managed runtime through its direct launcher:
+
+```bash
+$HOME/.openclaw-custom-runtime/bin/custom-runtime-status.sh --deep --json
+```
+
+Prepared releases are sealed after their snapshot is written. Every directory
+inside the release is non-writable, so an accidental package-manager command
+fails before it can relocate runtime dependencies. The seal verifier is:
+
+```bash
+$HOME/.openclaw-custom-runtime/bin/custom-runtime-seal.sh \
+  --verify --release "$RELEASE_ROOT"
+```

@@ -310,7 +310,9 @@
         "scripts/custom-runtime/custom-runtime-promote.sh",
         "scripts/custom-runtime/custom-runtime-restart.sh",
         "scripts/custom-runtime/custom-runtime-rollback.sh",
+        "scripts/custom-runtime/custom-runtime-seal.sh",
         "scripts/custom-runtime/custom-runtime-stage.sh",
+        "scripts/custom-runtime/custom-runtime-status.sh",
         "scripts/custom-runtime/custom-runtime-updater.sh",
         "scripts/dev/control-ui-pcc-release-governor-smoke.ts",
         "ui/src/ui/views/pcc.ts"
