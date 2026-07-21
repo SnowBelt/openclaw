@@ -64,7 +64,11 @@ async function resolveLineageSegments(params: {
   );
   let startSeq = 0;
   return counts.map((count) => {
-    const segment = { ...count, startSeq };
+    const segment: ChatHistoryLineageSegment = {
+      messageCount: count.messageCount,
+      sessionId: count.sessionId,
+      startSeq,
+    };
     startSeq += count.messageCount;
     return segment;
   });
@@ -114,7 +118,7 @@ export async function readChatHistoryLineagePage(params: {
       return page.messages.map((message) => {
         const localSeq =
           message && typeof message === "object" && !Array.isArray(message)
-            ? (message as { __openclaw?: { seq?: unknown } }).__openclaw?.seq
+            ? (message as { __openclaw?: { seq?: unknown } })["__openclaw"]?.seq
             : undefined;
         return typeof localSeq === "number"
           ? attachOpenClawTranscriptMeta(message, { seq: segment.startSeq + localSeq })

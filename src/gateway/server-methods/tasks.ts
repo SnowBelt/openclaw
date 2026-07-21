@@ -464,8 +464,8 @@ function taskFlowControlIsApplied(params: {
     case "resume":
       return Boolean(
         state &&
-          state.phase !== "paused" &&
-          !["blocked", "failed", "cancelled", "succeeded"].includes(state.phase),
+        state.phase !== "paused" &&
+        !["blocked", "failed", "cancelled", "succeeded"].includes(state.phase),
       );
     case "retry":
       return Boolean(state && (state.phase === "queued" || state.phase === "running"));
@@ -474,6 +474,7 @@ function taskFlowControlIsApplied(params: {
     case "edit":
       return Boolean(params.goal && params.flow.goal.trim() === params.goal);
   }
+  return params.action satisfies never;
 }
 
 async function controlPursueGoalFlow(params: {
@@ -484,9 +485,7 @@ async function controlPursueGoalFlow(params: {
 }) {
   const mutation = {
     flowId: params.flow.flowId,
-    ...(params.expectedRevision !== undefined
-      ? { expectedRevision: params.expectedRevision }
-      : {}),
+    ...(params.expectedRevision !== undefined ? { expectedRevision: params.expectedRevision } : {}),
   };
   switch (params.action) {
     case "pause":
@@ -500,6 +499,7 @@ async function controlPursueGoalFlow(params: {
     case "edit":
       return await editPursueGoalFlow({ ...mutation, goal: params.goal ?? "" });
   }
+  return params.action satisfies never;
 }
 
 // Control UI task methods expose the stable gateway protocol shape; helpers
@@ -922,11 +922,11 @@ export const tasksHandlers: GatewayRequestHandlers = {
       result.applied ||
       Boolean(
         latest &&
-          taskFlowControlIsApplied({
-            action: params.action,
-            flow: latest,
-            ...(goal ? { goal } : {}),
-          }),
+        taskFlowControlIsApplied({
+          action: params.action,
+          flow: latest,
+          ...(goal ? { goal } : {}),
+        }),
       );
     respond(true, {
       found: result.found,
