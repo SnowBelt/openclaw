@@ -1008,7 +1008,9 @@ export function createOpenClawCodingTools(options?: {
           fsPolicy,
           workspaceDir: workspaceRoot,
           spawnWorkspaceDir: capabilityProfile.workspace.spawnWorkspaceRoot,
-          taskRoot: capabilityProfile.workspace.runtimeRoot,
+          taskRoot: sandbox?.enabled
+            ? capabilityProfile.workspace.spawnWorkspaceRoot
+            : capabilityProfile.workspace.runtimeRoot,
           sandboxed: Boolean(sandbox),
           config: options?.config,
           pluginToolAllowlist,
