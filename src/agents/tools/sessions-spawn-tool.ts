@@ -41,6 +41,7 @@ import { registerSubagentRun } from "../subagent-registry.js";
 import { resolveSubagentSpawnOwnership } from "../subagent-spawn-ownership.js";
 import { addSubagentSpawnRecommendedAction } from "../subagent-spawn-recovery.js";
 import {
+  formatInvalidSubagentAgentIdError,
   SUBAGENT_SPAWN_CONTEXT_MODES,
   SUBAGENT_SPAWN_MODES,
   spawnSubagentDirect,
@@ -438,10 +439,18 @@ export function createSessionsSpawnTool(
             : undefined) ??
           DEFAULT_AGENT_ID,
       );
-      const targetAgentId =
-        requestedAgentId && isValidAgentId(requestedAgentId)
-          ? normalizeAgentId(requestedAgentId)
-          : requesterAgentId;
+      if (requestedAgentId && !isValidAgentId(requestedAgentId)) {
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "error",
+            error: formatInvalidSubagentAgentIdError(requestedAgentId),
+            ...roleContext,
+          }),
+        );
+      }
+      const targetAgentId = requestedAgentId
+        ? normalizeAgentId(requestedAgentId)
+        : requesterAgentId;
       const handoffValidation = validateAgentRoleHandoff({
         requesterRole: resolveAgentConfig(cfg, requesterAgentId)?.role,
         targetRole: resolveAgentConfig(cfg, targetAgentId)?.role,
@@ -529,14 +538,14 @@ export function createSessionsSpawnTool(
         const shouldTrackViaRegistry =
           result.status === "accepted" && Boolean(childSessionKey) && Boolean(childRunId);
         if (shouldTrackViaRegistry && childSessionKey && childRunId) {
-          const cfg = getRuntimeConfig();
+          const trackingCfg = getRuntimeConfig();
           const trackedSpawnMode = resolveTrackedSpawnMode({
             requestedMode: result.mode,
             threadRequested: thread,
           });
           const trackedCleanup = trackedSpawnMode === "session" ? "keep" : cleanup;
           const ownership = resolveSubagentSpawnOwnership({
-            cfg,
+            cfg: trackingCfg,
             agentSessionKey: opts?.agentSessionKey,
             completionOwnerKey: opts?.completionOwnerKey,
           });
