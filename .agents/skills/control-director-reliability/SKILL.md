@@ -27,7 +27,7 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Warm the selected local model only after Gateway readiness and shared resource admission. Use the provider-owned cancellable warmup hook, never evict or pull automatically, and verify exact residency afterward. The standard initial keep-alive is 15 minutes; ordinary inference retains its configured idle policy.
 - Inject bounded hot recent task/session state deterministically. Reserve model-backed Active Memory for explicit recall prompts so a second local-model request cannot delay every ordinary turn.
 - Escalate to Codex only through the governed adapter with an explicit mission packet, approval, budget, scope, attribution, and fail-closed behavior.
-- Recommended Codex route for approved complex implementation: `gpt-5.5` with high reasoning. Use xhigh only for architecture, difficult debugging, security, or final independent review where the incremental cost is justified. Use low only for a fully deterministic, mechanically verified runbook.
+- Preferred Codex route: the explicit current quality-first model `openai/gpt-5.6-sol`. Use high effort for approved complex implementation, xhigh for difficult architecture/debugging/security or independent review, and maximum only for the hardest quality-first lead work. Use medium for bounded mechanical checkpoints. Do not silently downgrade or substitute another model; an explicit user override remains authoritative. When OpenAI ships a newer preferred Codex model, update the shared source constants, executable tests, this skill, the Control Director docs, and the update-survival capability together.
 
 ## Source workflow
 
@@ -66,6 +66,18 @@ Every Control Director and Dashboard change must survive an official OpenClaw up
 8. Every tracked file under `scripts/custom-runtime/` has an explicit owning capability. Adding an unregistered control-plane file fails M61 before candidate construction.
 
 Never describe a customization as update-safe merely because its source file still exists. It is update-safe only after its registered capability, exact-parent candidate proof, manifest gates, proof-bound approval, loaded prepare-only broker and recovery guard, managed activation, rollback, and live acceptance all pass.
+
+## Subagent orchestration repair (M62-M68)
+
+Start with `pnpm control-director:subagent-incident-proof`. Keep its observations synthetic and its output sanitized: receipts may contain scenario ids, typed issue codes, and repository-relative evidence references, but never secrets or raw user diagnostic paths. Do not treat this reproduction baseline as a repair.
+
+Repair in dependency order: task-root inheritance and worktree confinement (M63), worker discovery (M64), role-capability and handoff alignment (M65), deployed skill and workflow consistency (M66), and evidence-bound completion truth (M67). M68 requires the landed exact SHA to pass managed Control Director-to-Program Manager-to-worker-to-Judge execution plus the existing live, device, restart, rollback, and soak gates. A source-only or mock-only pass cannot complete M63-M68.
+
+- Treat the current runtime cwd as the trusted task root. `sessions_spawn` must inherit it for both native and ACP workers; an explicit `cwd` may select only an existing real descendant. Reject missing roots, outside paths, and symlink escapes before launch. User-visible diagnostics may expose only the typed issue code and task-root fingerprint, never the raw root.
+- Every orchestrator execution budget must include `agents_list` whenever it includes `sessions_spawn`. Discovery returns only configured, allowlisted, spawnable targets and their operational handoff requirements.
+- Control Director delegates to Program Manager with `{ handoff: { kind: "coordination", requiresMutation: false } }`. Program Manager delegates to workers with `kind: "implementation"` and an honest mutation flag. Judge accepts only read-only `verification`; operational-role spawns without a compatible typed envelope fail before launch.
+- PCC receives typed plan/evidence commands, never prose-derived runtime state. SIG receives typed systemic-defect signals and proof-bound closure evidence, never silent mutation, deployment, closure, or self-approval.
+- Every rejected spawn returns one caller-performable recommended action. Never recommend an unavailable discovery or mutation tool as the only recovery path.
 
 ## Runtime acceptance
 

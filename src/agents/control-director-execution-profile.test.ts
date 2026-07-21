@@ -18,7 +18,12 @@ describe("Control Director execution profile", () => {
       localModel: CONTROL_DIRECTOR_DEFAULT_MODEL,
       localSelectionReady: true,
       qualityMinimum: 93,
-      codex: { role: "checkpoints", effort: "high", approvalScope: "project" },
+      codex: {
+        role: "checkpoints",
+        modelId: "openai/gpt-5.6-sol",
+        effort: "high",
+        approvalScope: "project",
+      },
       resourcePolicy: {
         maxConcurrentLocalRuns: 1,
         modelMemoryEstimateGb: 36,

@@ -25,12 +25,13 @@ import {
   isRecord,
   normalizeOptionalString as readString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { PREFERRED_OPENAI_CODEX_MODEL_REF } from "../../provider-catalog.js";
 import { readJsonObject } from "./helpers.js";
 import type { CodexSource } from "./source.js";
 import type { resolveCodexMigrationTargets } from "./targets.js";
 
 const OPENAI_PROVIDER_ID = "openai";
-const OPENAI_CODEX_DEFAULT_MODEL = "openai/gpt-5.6-sol";
+const OPENAI_CODEX_DEFAULT_MODEL = PREFERRED_OPENAI_CODEX_MODEL_REF;
 const CODEX_IMPORT_DISPLAY_NAME = "Codex import";
 const CODEX_REASON_AUTH_NOT_SELECTED = "auth credential migration not selected";
 const CODEX_REASON_AUTH_PROFILE_EXISTS = "auth profile exists";

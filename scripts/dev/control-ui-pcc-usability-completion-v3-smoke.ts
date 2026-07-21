@@ -252,10 +252,10 @@ async function main(): Promise<void> {
         workflowTemplateId: "software-product",
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
-        plannerModelId: "openai:gpt-5.5-high-reasoning",
+        plannerModelId: "openai/gpt-5.6-sol",
         executionProfile: {
           ...resolvePccExecutionProfilePreset("balanced"),
-          codexModelId: "openai:gpt-5.5-high-reasoning",
+          codexModelId: "openai/gpt-5.6-sol",
         },
         plannerPermissionScope: "plan",
         plannerPermissionBudget: "",
@@ -289,8 +289,8 @@ async function main(): Promise<void> {
       projectEditMode: "ai",
       modelCatalog: [
         {
-          id: "gpt-5.5-high-reasoning",
-          name: "GPT-5.5 High Reasoning",
+          id: "gpt-5.6-sol",
+          name: "GPT-5.6 Sol",
           provider: "openai",
           reasoning: true,
         },
@@ -399,7 +399,7 @@ async function main(): Promise<void> {
     requireText(text, "Stale Project");
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
-    requireText(text, "GPT-5.5 High Reasoning");
+    requireText(text, "GPT-5.6 Sol");
     requireText(text, "One Codex permission");
     requireText(text, "Approve the selected Codex role");
     requireText(text, "Regenerate any section");

@@ -224,10 +224,10 @@ async function main(): Promise<void> {
         workflowTemplateId: "software-product",
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
-        plannerModelId: "openai:gpt-5.5-high-reasoning",
+        plannerModelId: "openai/gpt-5.6-sol",
         executionProfile: {
           ...resolvePccExecutionProfilePreset("balanced"),
-          codexModelId: "openai:gpt-5.5-high-reasoning",
+          codexModelId: "openai/gpt-5.6-sol",
         },
         plannerPermissionScope: "project",
         plannerPermissionBudget: "50k tokens",
@@ -269,9 +269,7 @@ async function main(): Promise<void> {
       chatSyncProposals: [],
       chatSyncError: null,
       viewMode: "detailed",
-      modelCatalog: [
-        { id: "gpt-5.5-high-reasoning", name: "GPT-5.5 High Reasoning", provider: "openai" },
-      ],
+      modelCatalog: [{ id: "gpt-5.6-sol", name: "GPT-5.6 Sol", provider: "openai" }],
       modelsLoading: false,
       modelsLastRefreshedAt: Date.parse(now),
       onRefreshModelCatalog: () => calls.push("refresh-models"),

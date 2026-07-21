@@ -2435,6 +2435,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /concepts/control-director
 - Headings:
   - H2: Responsibility boundaries
+  - H3: Executable delegation handoffs
   - H2: Responsive Chat contract
   - H3: Queue and steer
   - H2: Pursue Goal

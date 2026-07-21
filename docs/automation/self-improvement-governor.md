@@ -781,7 +781,7 @@ openclaw self-improvement preflight
 openclaw self-improvement analyze
 openclaw self-improvement analyze --local-first
 openclaw self-improvement analyze --local-first --allow-strategic-local
-OPENCLAW_SELF_IMPROVEMENT_LLM=1 openclaw self-improvement analyze --local-first --allow-hosted-escalation --approve-llm-review --model openai/gpt-5.5
+OPENCLAW_SELF_IMPROVEMENT_LLM=1 openclaw self-improvement analyze --local-first --allow-hosted-escalation --approve-llm-review --model openai/gpt-5.6-sol
 openclaw self-improvement scorecard
 openclaw self-improvement health
 openclaw self-improvement health --fail-on-degraded

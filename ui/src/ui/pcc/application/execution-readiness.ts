@@ -368,7 +368,7 @@ export function buildPccExecutionTeamReadiness(
       return {
         ...base,
         status: "blocked",
-        reason: "Refresh models and choose an available Codex model for this profile.",
+        reason: `The selected Codex model ${profile.codexModelId} is unavailable.${profile.codexEffort === "max" ? " Maximum Codex depth requires a configured GPT-5.6 model." : ""} Refresh models and choose an available Codex model for this profile.`,
       };
     }
     if (!pccCodexEffortIsSupported(codexModelId, profile.codexEffort)) {

@@ -47,6 +47,22 @@ Each surface has one owner so status, authority, and proof do not drift:
 
 Chat and PCC are intentionally separate. Chat may attach to or open an explicit PCC plan, but ordinary assistant prose cannot create, complete, or rewrite PCC milestones. Execution state is a typed, read-only projection of the orchestrator rather than a second PCC state store.
 
+### Executable delegation handoffs
+
+Operational delegation uses one fail-closed contract rather than role names in prose:
+
+- every execution-capable orchestrator has both `agents_list` and `sessions_spawn` in the same effective capability budget;
+- `agents_list` returns only configured, allowlisted targets and includes each target's accepted handoff kinds and mutation boundary;
+- Control Director may hand off only `coordination` work to Program Manager, with `requiresMutation: false`;
+- Program Manager may hand off only `implementation` work to workers, with an explicit and honest `requiresMutation` value;
+- Judge accepts only `verification` work and never mutation;
+- workers cannot reinterpret the mission, expand scope, self-approve, or delegate unless a separate assignment contract explicitly grants it;
+- PCC accepts typed plan, milestone, dependency, approval, and evidence commands only; SIG accepts typed systemic-defect signals and proof-bound closure evidence only.
+
+Every operational-role call to `sessions_spawn` includes a typed `handoff` object. A missing or incompatible handoff is rejected before either a native or ACP worker launches. Rejected spawns include a caller-performable recommended action that does not assume the caller has another tool.
+
+The active run's real cwd is the trusted task root. Both native and ACP workers inherit that same canonical root. An explicit `cwd` can narrow the worker to an existing real descendant but cannot replace the root or escape it through `..` or a symlink. The result reports only a versioned root fingerprint and source/scope classification; raw task paths are not diagnostic output.
+
 ## Responsive Chat contract
 
 An accepted turn receives a durable run identity and visible acknowledgement before long work begins. The server owns the mutable turn inbox and outbox, so a browser refresh or second client cannot lose or duplicate the turn.
@@ -92,9 +108,11 @@ Use Codex as a governed implementation and review capability:
 - include the goal, constraints, approvals, state, evidence, acceptance criteria, and budget;
 - require explicit approval for hosted or otherwise paid execution;
 - attribute the route and fail closed when it is unavailable;
-- use GPT-5.5 with high reasoning for approved complex implementation;
-- reserve xhigh reasoning for difficult architecture, debugging, security, or final independent review;
-- use low reasoning only for deterministic runbooks with exhaustive automated verification.
+- prefer the explicit current quality-first Codex model `openai/gpt-5.6-sol` rather than a catalog-order-dependent “best available” alias;
+- use high effort for approved complex implementation;
+- reserve xhigh effort for difficult architecture, debugging, security, or final independent review;
+- use maximum effort only for the hardest quality-first lead work, and medium for bounded mechanical checkpoints;
+- fail closed instead of silently downgrading or substituting another model; an explicit user model override remains authoritative.
 
 This hybrid pattern lets the local model remain responsive while Codex is used where its incremental quality is measurable.
 
@@ -190,7 +208,7 @@ pnpm control-director:roadmap-proof -- \
   --output ".artifacts/control-director/final-ledger-$SHA.json"
 ```
 
-The final-ledger command rejects a dirty or mismatched checkout, any milestone other than M01-M61 marked `passed`, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, an invalid update-survival proof, or an incomplete managed-runtime truth surface. M61 requires every Dashboard and custom capability to survive an exact-parent official-update candidate with monotonic capability/path preservation, proof-bound approval, and a loaded prepare-only weekly broker. The ledger independently rechecks timestamped runtime evidence, exact selected-model route and cold/warm task coverage, canary lineage, soak duration, and the all-passed readiness fact ledger instead of trusting summary booleans. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
+The final-ledger command rejects a dirty or mismatched checkout, any milestone other than M01-M68 marked `passed`, missing milestone evidence, a quality score below 93, partial CI, a non-exact landing, an invalid update-survival proof, or an incomplete managed-runtime truth surface. M61 requires every Dashboard and custom capability to survive an exact-parent official-update candidate with monotonic capability/path preservation, proof-bound approval, and a loaded prepare-only weekly broker. M62 adds a deterministic, sanitized reproduction baseline for task-root, workspace, worker-discovery, self-spawn, role-capability, and unsupported-completion incidents; M63-M68 repair those contracts and prove exact-runtime orchestration end to end. The ledger independently rechecks timestamped runtime evidence, exact selected-model route and cold/warm task coverage, canary lineage, soak duration, and the all-passed readiness fact ledger instead of trusting summary booleans. This post-commit receipt avoids the impossible and unsafe pattern of embedding a Git commit's own SHA inside that commit.
 
 ## Questions to ask during a reliability review
 

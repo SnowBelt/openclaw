@@ -13,6 +13,9 @@ export const CODEX_PROVIDER_ID = "codex";
 export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 /** Synthetic auth marker understood by Codex app-server runtime paths. */
 export const CODEX_APP_SERVER_AUTH_MARKER = "codex-app-server";
+/** Latest quality-first Codex model used by defaults; explicit user overrides remain valid. */
+export const PREFERRED_CODEX_MODEL_ID = "gpt-5.6-sol" as const;
+export const PREFERRED_OPENAI_CODEX_MODEL_REF = `openai/${PREFERRED_CODEX_MODEL_ID}` as const;
 
 const DEFAULT_CONTEXT_WINDOW = 272_000;
 const DEFAULT_MAX_TOKENS = 128_000;
@@ -20,8 +23,8 @@ const DEFAULT_MAX_TOKENS = 128_000;
 /** Current known Codex model capabilities used for explicit dynamic resolution. */
 export const KNOWN_CODEX_MODELS = [
   {
-    id: "gpt-5.6-sol",
-    model: "gpt-5.6-sol",
+    id: PREFERRED_CODEX_MODEL_ID,
+    model: PREFERRED_CODEX_MODEL_ID,
     displayName: "GPT-5.6 Sol",
     description: "Flagship GPT-5.6 model for the hardest quality-first work.",
     isDefault: true,

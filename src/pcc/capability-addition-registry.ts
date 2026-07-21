@@ -110,8 +110,13 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     kind: "runtime",
     owner: "Control Director",
     tests: [
+      "src/agents/agent-role-capabilities.test.ts",
       "src/agents/control-director-delivery-guards.test.ts",
       "src/agents/independent-judge-service.test.ts",
+      "src/agents/subagent-spawn-recovery.test.ts",
+      "src/agents/subagent-task-root.test.ts",
+      "src/agents/tools/agents-list-tool.test.ts",
+      "src/agents/tools/sessions-spawn-tool.test.ts",
       "src/tasks/pursue-goal-controller.test.ts",
       "src/gateway/server-methods/execution-state.test.ts",
     ],
@@ -133,6 +138,19 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "pnpm ui:smoke:control-director-no-response",
       "exact-SHA desktop and mobile Dashboard receipts",
     ],
+  },
+  {
+    id: "plugin:codex-preferred-model-policy",
+    kind: "plugin",
+    owner: "Control Director and Codex plugin",
+    tests: [
+      "src/pcc/execution-profile.test.ts",
+      "src/agents/control-director-codex-adapter.test.ts",
+      "extensions/codex/provider.test.ts",
+      "extensions/codex/index.test.ts",
+      "ui/src/ui/controllers/pcc.test.ts",
+    ],
+    proofSurfaces: ["pnpm control-director:verify", "pnpm custom-runtime:update-survival"],
   },
   {
     id: "runtime:local-first-model-intelligence",

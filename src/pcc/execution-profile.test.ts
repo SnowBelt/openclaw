@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
+  PCC_PREFERRED_CODEX_MODEL_ID,
   derivePccAiUsePolicy,
   normalizePccExecutionProfile,
   pccCodexEffortIsSupported,
+  resolvePccCodexEffortForWorkClass,
   resolvePccEstimatedAgentCounts,
   resolvePccExecutionProfilePreset,
   validatePccModelSelection,
@@ -30,12 +32,28 @@ describe("PCC canonical execution profile", () => {
     expect(profile.speed).toBe("ultra");
     expect(profile.codexRole).toBe("lead");
     expect(profile.codexEffort).toBe("max");
+    expect(profile.codexModelId).toBe(PCC_PREFERRED_CODEX_MODEL_ID);
     expect(derivePccAiUsePolicy(profile)).toBe("codex_everything");
     expect(resolvePccEstimatedAgentCounts(profile, 12)).toEqual({
       availableCapacity: 12,
       localAgents: 12,
       codexAgents: 1,
       totalAgents: 13,
+    });
+  });
+
+  it("upgrades the old automatic Codex selection to the current explicit quality default", () => {
+    const profile = normalizePccExecutionProfile({
+      pccExecutionProfile: {
+        presetId: "balanced",
+        codexModelId: PCC_BEST_AVAILABLE_MODEL_ID,
+      },
+    });
+
+    expect(profile.codexModelId).toBe("openai/gpt-5.6-sol");
+    expect(resolvePccExecutionProfilePreset("balanced")).toMatchObject({
+      codexModelId: "openai/gpt-5.6-sol",
+      codexEffort: "high",
     });
   });
 
@@ -152,5 +170,12 @@ describe("PCC canonical execution profile", () => {
     expect(pccCodexEffortIsSupported("codex:gpt-5.6-terra", "max")).toBe(true);
     expect(pccCodexEffortIsSupported("openai/gpt-5.5", "max")).toBe(false);
     expect(pccCodexEffortIsSupported("openai/custom-model", "high")).toBe(true);
+  });
+
+  it("spends Codex reasoning depth according to the bounded work class", () => {
+    expect(resolvePccCodexEffortForWorkClass("max", "routine")).toBe("medium");
+    expect(resolvePccCodexEffortForWorkClass("max", "checkpoint")).toBe("xhigh");
+    expect(resolvePccCodexEffortForWorkClass("max", "hard_work")).toBe("max");
+    expect(resolvePccCodexEffortForWorkClass("high", "checkpoint")).toBe("high");
   });
 });

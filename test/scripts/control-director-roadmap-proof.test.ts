@@ -197,10 +197,10 @@ describe("Control Director final roadmap proof", () => {
     expect(controlDirectorSourceProofMatchesRoot(undefined, "/tmp/repo")).toBe(false);
   });
 
-  it("accepts only the complete 61-milestone exact-proof ledger", () => {
+  it("accepts only the complete 68-milestone exact-proof ledger", () => {
     expect(validate()).toMatchObject({
-      milestoneCount: 61,
-      passedMilestones: 61,
+      milestoneCount: 68,
+      passedMilestones: 68,
       weightedCompletionPercent: 100,
       minimumQualityScore: 100,
       requiredQualityScore: 93,
