@@ -55,6 +55,7 @@ READ_EVIDENCE_TOOLS = (
 )
 PROGRAM_MANAGER_TOOLS = (
     *READ_EVIDENCE_TOOLS,
+    "agents_list",
     "sessions_spawn",
     "sessions_yield",
     "subagents",

@@ -110,8 +110,13 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     kind: "runtime",
     owner: "Control Director",
     tests: [
+      "src/agents/agent-role-capabilities.test.ts",
       "src/agents/control-director-delivery-guards.test.ts",
       "src/agents/independent-judge-service.test.ts",
+      "src/agents/subagent-spawn-recovery.test.ts",
+      "src/agents/subagent-task-root.test.ts",
+      "src/agents/tools/agents-list-tool.test.ts",
+      "src/agents/tools/sessions-spawn-tool.test.ts",
       "src/tasks/pursue-goal-controller.test.ts",
       "src/gateway/server-methods/execution-state.test.ts",
     ],

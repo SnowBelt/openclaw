@@ -47,6 +47,8 @@ describe("Control Director turn policy compiler", () => {
 
     expect(policy).toMatchObject({ mode: "execute", modelRoute: "local_orchestrator" });
     expect(policy?.toolsAllow).toContain("sessions_spawn");
+    expect(policy?.toolsAllow).toContain("agents_list");
+    expect(policy?.prompt).toContain("handoff.kind=coordination");
     expect(policy?.toolsAllow).not.toEqual(
       expect.arrayContaining(["exec", "write", "apply_patch"]),
     );

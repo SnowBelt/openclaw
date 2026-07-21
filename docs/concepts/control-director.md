@@ -47,6 +47,22 @@ Each surface has one owner so status, authority, and proof do not drift:
 
 Chat and PCC are intentionally separate. Chat may attach to or open an explicit PCC plan, but ordinary assistant prose cannot create, complete, or rewrite PCC milestones. Execution state is a typed, read-only projection of the orchestrator rather than a second PCC state store.
 
+### Executable delegation handoffs
+
+Operational delegation uses one fail-closed contract rather than role names in prose:
+
+- every execution-capable orchestrator has both `agents_list` and `sessions_spawn` in the same effective capability budget;
+- `agents_list` returns only configured, allowlisted targets and includes each target's accepted handoff kinds and mutation boundary;
+- Control Director may hand off only `coordination` work to Program Manager, with `requiresMutation: false`;
+- Program Manager may hand off only `implementation` work to workers, with an explicit and honest `requiresMutation` value;
+- Judge accepts only `verification` work and never mutation;
+- workers cannot reinterpret the mission, expand scope, self-approve, or delegate unless a separate assignment contract explicitly grants it;
+- PCC accepts typed plan, milestone, dependency, approval, and evidence commands only; SIG accepts typed systemic-defect signals and proof-bound closure evidence only.
+
+Every operational-role call to `sessions_spawn` includes a typed `handoff` object. A missing or incompatible handoff is rejected before either a native or ACP worker launches. Rejected spawns include a caller-performable recommended action that does not assume the caller has another tool.
+
+The active run's real cwd is the trusted task root. Both native and ACP workers inherit that same canonical root. An explicit `cwd` can narrow the worker to an existing real descendant but cannot replace the root or escape it through `..` or a symlink. The result reports only a versioned root fingerprint and source/scope classification; raw task paths are not diagnostic output.
+
 ## Responsive Chat contract
 
 An accepted turn receives a durable run identity and visible acknowledgement before long work begins. The server owns the mutable turn inbox and outbox, so a browser refresh or second client cannot lose or duplicate the turn.

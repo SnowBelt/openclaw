@@ -73,6 +73,12 @@ Start with `pnpm control-director:subagent-incident-proof`. Keep its observation
 
 Repair in dependency order: task-root inheritance and worktree confinement (M63), worker discovery (M64), role-capability and handoff alignment (M65), deployed skill and workflow consistency (M66), and evidence-bound completion truth (M67). M68 requires the landed exact SHA to pass managed Control Director-to-Program Manager-to-worker-to-Judge execution plus the existing live, device, restart, rollback, and soak gates. A source-only or mock-only pass cannot complete M63-M68.
 
+- Treat the current runtime cwd as the trusted task root. `sessions_spawn` must inherit it for both native and ACP workers; an explicit `cwd` may select only an existing real descendant. Reject missing roots, outside paths, and symlink escapes before launch. User-visible diagnostics may expose only the typed issue code and task-root fingerprint, never the raw root.
+- Every orchestrator execution budget must include `agents_list` whenever it includes `sessions_spawn`. Discovery returns only configured, allowlisted, spawnable targets and their operational handoff requirements.
+- Control Director delegates to Program Manager with `{ handoff: { kind: "coordination", requiresMutation: false } }`. Program Manager delegates to workers with `kind: "implementation"` and an honest mutation flag. Judge accepts only read-only `verification`; operational-role spawns without a compatible typed envelope fail before launch.
+- PCC receives typed plan/evidence commands, never prose-derived runtime state. SIG receives typed systemic-defect signals and proof-bound closure evidence, never silent mutation, deployment, closure, or self-approval.
+- Every rejected spawn returns one caller-performable recommended action. Never recommend an unavailable discovery or mutation tool as the only recovery path.
+
 ## Runtime acceptance
 
 Source proof is not production proof. Production acceptance requires all of the following against the same landed SHA:
