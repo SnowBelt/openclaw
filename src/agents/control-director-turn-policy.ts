@@ -75,6 +75,7 @@ const READ_ONLY_TOOLS = [
 
 const DELEGATION_TOOLS = [
   ...READ_ONLY_TOOLS,
+  "agents_list",
   "sessions_spawn",
   "sessions_send",
   "sessions_yield",
@@ -154,6 +155,7 @@ function modeInstructions(mode: ControlDirectorResponseMode): string[] {
     case "goal":
       return [
         "Preserve the immutable mission envelope. Delegate mutations to the Program Manager or scoped workers; do not directly use exec, write, or patch tools.",
+        "Discover a spawnable target with agents_list, then include handoff.kind=coordination and handoff.requiresMutation=false when delegating to the Program Manager.",
         "Fan worker events and evidence back into concise inline updates. Keep chat responsive while work continues.",
         "Continue safely until the mission is complete, genuinely blocked, or needs user input. A completion claim requires direct evidence and a valid independent signed Judge receipt.",
       ];

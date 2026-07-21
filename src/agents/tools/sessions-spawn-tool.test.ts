@@ -1,5 +1,8 @@
 // sessions_spawn tool tests cover model-visible schema gating, ACP/subagent
 // dispatch, and result details for spawned child sessions.
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const hoisted = vi.hoisted(() => {
@@ -341,6 +344,123 @@ describe("sessions_spawn tool", () => {
     const spawnContext = mockCallArg(hoisted.spawnSubagentDirectMock, 0, 1, "spawnSubagentDirect");
     expect(spawnContext.agentSessionKey).toBe("agent:main:main");
     expect(hoisted.spawnAcpDirectMock).not.toHaveBeenCalled();
+  });
+
+  it("inherits one sanitized task root for native workers and rejects escapes before launch", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-spawn-root-"));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-spawn-outside-"));
+    try {
+      const tool = createSessionsSpawnTool({
+        agentSessionKey: "agent:main:main",
+        taskRoot: root,
+      });
+
+      const accepted = await tool.execute("call-task-root", { task: "build in task root" });
+      const acceptedDetails = requireRecord(accepted.details, "accepted details");
+      const taskRoot = requireRecord(acceptedDetails.taskRoot, "task root receipt");
+      expect(taskRoot).toMatchObject({
+        schemaVersion: 1,
+        source: "inherited",
+        scope: "task_root",
+      });
+      expect(JSON.stringify(taskRoot)).not.toContain(root);
+      const spawnArgs = mockCallArg(hoisted.spawnSubagentDirectMock, 0, 0, "spawnSubagentDirect");
+      expect(spawnArgs.cwd).toBe(await fs.realpath(root));
+
+      hoisted.spawnSubagentDirectMock.mockClear();
+      const rejected = await tool.execute("call-task-root-escape", {
+        task: "escape task root",
+        cwd: outside,
+      });
+      expect(rejected.details).toMatchObject({
+        status: "forbidden",
+        issueCode: "task_root_mismatch",
+        recommendedAction: { code: "inherit_task_root" },
+      });
+      expect(JSON.stringify(rejected.details)).not.toContain(root);
+      expect(JSON.stringify(rejected.details)).not.toContain(outside);
+      expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the same validated descendant root to ACP workers", async () => {
+    registerAcpBackendForTest();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-spawn-root-"));
+    const child = path.join(root, "child");
+    await fs.mkdir(child);
+    try {
+      const tool = createSessionsSpawnTool({
+        agentSessionKey: "agent:main:main",
+        taskRoot: root,
+      });
+      const result = await tool.execute("call-acp-task-root", {
+        runtime: "acp",
+        task: "inspect child",
+        agentId: "codex",
+        cwd: child,
+      });
+
+      expect(result.details).toMatchObject({
+        status: "accepted",
+        taskRoot: { source: "requested", scope: "descendant" },
+      });
+      const spawnArgs = mockCallArg(hoisted.spawnAcpDirectMock, 0, 0, "spawnAcpDirect");
+      expect(spawnArgs.cwd).toBe(await fs.realpath(child));
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects impossible operational-role handoffs before launching a worker", async () => {
+    const config = {
+      agents: {
+        list: [
+          { id: "director", role: "control_director" as const },
+          { id: "pm", role: "program_manager" as const },
+          { id: "builder", role: "worker" as const },
+        ],
+      },
+    };
+    const directorTool = createSessionsSpawnTool({
+      agentSessionKey: "agent:director:main",
+      config,
+    });
+    const missing = await directorTool.execute("call-missing-handoff", {
+      task: "coordinate work",
+      agentId: "pm",
+    });
+    expect(missing.details).toMatchObject({
+      status: "forbidden",
+      recommendedAction: { code: "correct_and_retry" },
+    });
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+
+    const accepted = await directorTool.execute("call-coordination-handoff", {
+      task: "coordinate work",
+      agentId: "pm",
+      handoff: { kind: "coordination", requiresMutation: false },
+    });
+    expect(accepted.details).toMatchObject({ status: "accepted" });
+
+    hoisted.spawnSubagentDirectMock.mockClear();
+    const pmTool = createSessionsSpawnTool({ agentSessionKey: "agent:pm:main", config });
+    const impossible = await pmTool.execute("call-impossible-worker-handoff", {
+      task: "coordinate only",
+      agentId: "builder",
+      handoff: { kind: "coordination", requiresMutation: false },
+    });
+    expect(impossible.details).toMatchObject({ status: "forbidden" });
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
+
+    const implementation = await pmTool.execute("call-worker-handoff", {
+      task: "implement scoped change",
+      agentId: "builder",
+      handoff: { kind: "implementation", requiresMutation: true },
+    });
+    expect(implementation.details).toMatchObject({ status: "accepted" });
   });
 
   it("passes inherited tool denies to subagent spawns", async () => {

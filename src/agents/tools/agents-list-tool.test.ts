@@ -13,8 +13,14 @@ type AgentListDetails = {
     id?: string;
     name?: string;
     configured?: boolean;
+    spawnable?: boolean;
     model?: string;
     agentRuntime?: { id?: string; source?: string };
+    operationalRole?: {
+      role?: string;
+      acceptedHandoffs?: string[];
+      acceptsMutation?: boolean;
+    };
   }>;
 };
 
@@ -70,6 +76,7 @@ describe("agents_list tool", () => {
           id: "codex",
           name: "Codex",
           configured: true,
+          spawnable: true,
           model: "openai/gpt-5.5",
           agentRuntime: { id: "codex", source: "model" },
         },
@@ -105,6 +112,39 @@ describe("agents_list tool", () => {
     });
   });
 
+  it("advertises the executable handoff contract for each spawnable operational role", async () => {
+    loadConfigMock.mockReturnValue({
+      agents: {
+        list: [
+          {
+            id: "director",
+            default: true,
+            role: "control_director",
+            subagents: { allowAgents: ["pm"] },
+          },
+          { id: "pm", role: "program_manager" },
+        ],
+      },
+    } satisfies OpenClawConfig);
+
+    const result = await createAgentsListTool({
+      agentSessionKey: "agent:director:main",
+    }).execute("call", {});
+    const details = result.details as AgentListDetails;
+
+    expect(details.agents).toEqual([
+      expect.objectContaining({
+        id: "pm",
+        spawnable: true,
+        operationalRole: {
+          role: "program_manager",
+          acceptedHandoffs: ["coordination"],
+          acceptsMutation: false,
+        },
+      }),
+    ]);
+  });
+
   it("returns requester as the only target when no subagent allowlist is configured", async () => {
     loadConfigMock.mockReturnValue({
       agents: {
@@ -126,6 +166,7 @@ describe("agents_list tool", () => {
           id: "main",
           name: undefined,
           configured: true,
+          spawnable: true,
           model: undefined,
           agentRuntime: { id: "codex", source: "implicit" },
         },
@@ -156,6 +197,7 @@ describe("agents_list tool", () => {
           id: "main",
           name: undefined,
           configured: true,
+          spawnable: true,
           model: undefined,
           agentRuntime: { id: "codex", source: "implicit" },
         },
@@ -190,6 +232,7 @@ describe("agents_list tool", () => {
           id: "main",
           name: undefined,
           configured: true,
+          spawnable: true,
           model: "openai/gpt-5.5",
           agentRuntime: { id: "codex", source: "implicit" },
         },
@@ -225,6 +268,7 @@ describe("agents_list tool", () => {
           id: "strict",
           name: undefined,
           configured: true,
+          spawnable: true,
           model: undefined,
           agentRuntime: { id: "codex", source: "implicit" },
         },

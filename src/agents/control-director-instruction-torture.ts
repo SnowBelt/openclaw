@@ -4,6 +4,7 @@ import {
   buildAgentRoleCapabilitySystemPromptSection,
   compileOperationalRoleCapabilityBudget,
   resolveAgentRoleCapabilityContract,
+  validateAgentRoleHandoff,
 } from "./agent-role-capabilities.js";
 import {
   buildControlDirectorMissionContinuityContext,
@@ -61,6 +62,7 @@ const TORTURE_CONFIG: OpenClawConfig = {
       { id: "director", role: "control_director" },
       { id: "pm", role: "program_manager" },
       { id: "judge", role: "judge" },
+      { id: "worker", role: "worker" },
       { id: "chat", role: "general" },
     ],
   },
@@ -434,6 +436,12 @@ function roleCases(): ControlDirectorTortureCase[] {
       run: () => Boolean(pm?.toolsAllow.includes("sessions_spawn")),
     },
     {
+      id: "role-pm-worker-discovery",
+      domain: "delegation",
+      critical: true,
+      run: () => Boolean(pm?.toolsAllow.includes("agents_list")),
+    },
+    {
       id: "role-pm-no-mutation",
       domain: "role_boundary",
       critical: true,
@@ -475,6 +483,38 @@ function roleCases(): ControlDirectorTortureCase[] {
         buildAgentRoleCapabilitySystemPromptSection(judge)?.includes(
           "Do not infer authority from your display name",
         ) === true,
+    },
+    {
+      id: "role-director-pm-handoff",
+      domain: "delegation",
+      critical: true,
+      run: () =>
+        validateAgentRoleHandoff({
+          requesterRole: "control_director",
+          targetRole: "program_manager",
+          handoff: { kind: "coordination", requiresMutation: false },
+        }).ok,
+    },
+    {
+      id: "role-pm-worker-handoff",
+      domain: "delegation",
+      critical: true,
+      run: () =>
+        validateAgentRoleHandoff({
+          requesterRole: "program_manager",
+          targetRole: "worker",
+          handoff: { kind: "implementation", requiresMutation: true },
+        }).ok,
+    },
+    {
+      id: "role-judge-mutation-rejected",
+      domain: "role_boundary",
+      critical: true,
+      run: () =>
+        !validateAgentRoleHandoff({
+          targetRole: "judge",
+          handoff: { kind: "verification", requiresMutation: true },
+        }).ok,
     },
   ];
 }

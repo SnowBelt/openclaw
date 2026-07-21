@@ -3,6 +3,7 @@ import {
   buildAgentRoleCapabilitySystemPromptSection,
   compileOperationalRoleCapabilityBudget,
   resolveAgentRoleCapabilityContract,
+  validateAgentRoleHandoff,
 } from "./agent-role-capabilities.js";
 
 const config = {
@@ -22,6 +23,7 @@ describe("operational-role capability contracts", () => {
     expect(budget?.toolsAllow).toEqual(
       expect.arrayContaining(["sessions_spawn", "sessions_history", "update_plan"]),
     );
+    expect(budget?.toolsAllow).toContain("agents_list");
     expect(budget?.toolsAllow).not.toContain("sessions_send");
     expect(budget?.toolsAllow).not.toEqual(
       expect.arrayContaining(["exec", "write", "apply_patch"]),
@@ -50,5 +52,50 @@ describe("operational-role capability contracts", () => {
       })?.toolsAllow,
     ).toEqual(["sessions_spawn"]);
     expect(compileOperationalRoleCapabilityBudget({ config, agentId: "chat" })).toBeUndefined();
+  });
+
+  it("enforces executable least-privilege handoffs", () => {
+    expect(
+      validateAgentRoleHandoff({
+        requesterRole: "control_director",
+        targetRole: "program_manager",
+        handoff: { kind: "coordination", requiresMutation: false },
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      validateAgentRoleHandoff({
+        requesterRole: "program_manager",
+        targetRole: "worker",
+        handoff: { kind: "implementation", requiresMutation: true },
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      validateAgentRoleHandoff({
+        requesterRole: "control_director",
+        targetRole: "control_director",
+        handoff: { kind: "coordination", requiresMutation: false },
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      validateAgentRoleHandoff({
+        requesterRole: "program_manager",
+        targetRole: "worker",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      validateAgentRoleHandoff({
+        targetRole: "judge",
+        handoff: { kind: "verification", requiresMutation: true },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("projects agent, PCC, and SIG handoff boundaries into runtime prompts", () => {
+    const prompt = buildAgentRoleCapabilitySystemPromptSection(
+      resolveAgentRoleCapabilityContract({ config, agentId: "pm" }),
+    );
+    expect(prompt).toContain("Every sessions_spawn call between operational roles");
+    expect(prompt).toContain("PCC accepts typed plan");
+    expect(prompt).toContain("SIG accepts typed recurring-system-defect signals");
   });
 });

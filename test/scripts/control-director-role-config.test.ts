@@ -127,6 +127,7 @@ describe("Control Director managed role configuration", () => {
     expect(programManagerTools.profile).toBe("minimal");
     expect(programManagerTools.alsoAllow).toEqual(
       expect.arrayContaining([
+        "agents_list",
         "sessions_spawn",
         "sessions_yield",
         "subagents",
