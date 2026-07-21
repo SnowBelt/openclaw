@@ -330,6 +330,7 @@ function carriedFindingFromRow(row: StoredIncidentRow): OperationsFinding {
     responseState: history.responseState === "resolved" ? "monitoring" : history.responseState,
     impact:
       "The last known issue may still affect operations, but its current state is unverified.",
+    ownerId: "OpenClaw",
     recommendedAction: "Restore the source and verify whether the incident is still active.",
     nextAction: "Restore source visibility before resolving or dismissing this incident.",
   };

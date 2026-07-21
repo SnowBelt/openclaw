@@ -166,6 +166,7 @@ jobs:
           }
           const requiredChecks = [
             "agentGroupOrder",
+            "attentionOwnershipAndResponse",
             "ariaLive",
             "browserHistoryAndFocus",
             "computedTouchTargets44px",
@@ -177,6 +178,7 @@ jobs:
             "incidentHistoryBoundedAndSafe",
             "increasedContrast",
             "issueLanesAndNonColorCues",
+            "keyboardOnlyIssueJourney",
             "largeInventoryDisclosed",
             "legacyFallbackOnlyWhenUnsupported",
             "monitorFailClosed",

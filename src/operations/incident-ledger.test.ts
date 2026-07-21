@@ -409,6 +409,8 @@ describe("Operations incident ledger", () => {
         severity: "warning",
         disposition: "watching",
         responseState: "monitoring",
+        ownerId: "OpenClaw",
+        nextAction: "Restore source visibility before resolving or dismissing this incident.",
         firstObservedAt: 100,
         lastObservedAt: 100,
       }),

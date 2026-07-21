@@ -502,6 +502,7 @@ export class OpenClawApp extends LitElement {
   @state() operationsAgentSort: OperationsAgentSort = "priority";
   @state() operationsPinnedAgentIds: string[] = [];
   @state() operationsLastVisitedAt: number | null = null;
+  private operationsSectionFocusPending: OperationsSection | null = null;
   private operationsVisitStartedAt: number | null = null;
   @state() pccProjects: PccProjectSummary[] = [];
   @state() pccPortfolioSummary: PccPortfolioSummary | null = null;
@@ -1237,15 +1238,24 @@ export class OpenClawApp extends LitElement {
         this.saveOperationsPreferences();
       }
     }
+    if (changed.has("operationsSection")) {
+      this.operationsSectionFocusPending = this.operationsSection;
+    }
+    const initialOperationsSnapshot =
+      changed.has("operationsSnapshot") && changed.get("operationsSnapshot") == null;
     if (
       this.tab === "operations" &&
       this.operationsSection &&
       this.operationsSnapshot &&
-      changed.has("operationsSnapshot") &&
-      changed.get("operationsSnapshot") == null
+      (this.operationsSectionFocusPending === this.operationsSection || initialOperationsSnapshot)
     ) {
       const section = this.operationsSection;
-      requestAnimationFrame(() => focusOperationsSection(section, this));
+      this.operationsSectionFocusPending = section;
+      requestAnimationFrame(() => {
+        if (this.operationsSection === section && focusOperationsSection(section, this)) {
+          this.operationsSectionFocusPending = null;
+        }
+      });
     }
     // Some render callbacks assign tab directly while preparing nested panel state.
     if (changed.has("tab") && this.tab !== "chat" && this.chatMobileControlsOpen) {

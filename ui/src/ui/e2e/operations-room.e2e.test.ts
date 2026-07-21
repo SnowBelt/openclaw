@@ -32,6 +32,7 @@ let proofStartedAt = "";
 
 const proofCheckDefaults = {
   agentGroupOrder: false,
+  attentionOwnershipAndResponse: false,
   ariaLive: false,
   browserHistoryAndFocus: false,
   computedTouchTargets44px: false,
@@ -43,6 +44,7 @@ const proofCheckDefaults = {
   incidentHistoryBoundedAndSafe: false,
   increasedContrast: false,
   issueLanesAndNonColorCues: false,
+  keyboardOnlyIssueJourney: false,
   largeInventoryDisclosed: false,
   legacyFallbackOnlyWhenUnsupported: false,
   monitorFailClosed: false,
@@ -183,6 +185,7 @@ function issueLaneSnapshot(now = Date.now()): OperationsSnapshot {
       title: "OpenClaw is retrying an agent",
       disposition: "handling",
       responseState: "in_progress",
+      ownerId: "OpenClaw",
       impact: "One agent is temporarily delayed while OpenClaw retries it.",
       nextAction: "No action is needed while the retry is active.",
     },
@@ -195,6 +198,7 @@ function issueLaneSnapshot(now = Date.now()): OperationsSnapshot {
       disposition: "watching",
       responseState: "monitoring",
       evidenceState: "last_known",
+      ownerId: "OpenClaw",
       impact: "The last measurement was elevated and remains under observation.",
       nextAction: "Wait for the next deterministic sweep.",
     },
@@ -696,6 +700,55 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
     );
   });
 
+  it("proves direct section links and restores focus through browser history", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1024 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    const diagnostics = collectDiagnostics(page);
+    const snapshot = createSevenGroupOperationsTestSnapshot();
+    await installOperationsGateway(page, { snapshot });
+
+    try {
+      await page.goto(`${server.baseUrl}operations?section=system`);
+      await waitForOperationsRoom(page, snapshot.briefing.text);
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.id ?? null))
+        .toBe("operations-system");
+      expect(
+        await page
+          .locator('.operations-quick-link[href*="section=system"]')
+          .getAttribute("aria-current"),
+      ).toBe("location");
+
+      const workingLink = page.locator('.operations-quick-link[href*="section=working"]');
+      await workingLink.focus();
+      await page.keyboard.press("Enter");
+      await expect.poll(() => new URL(page.url()).searchParams.get("section")).toBe("working");
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.id ?? null))
+        .toBe("operations-working");
+
+      await page.goBack();
+      await expect.poll(() => new URL(page.url()).searchParams.get("section")).toBe("system");
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.id ?? null))
+        .toBe("operations-system");
+
+      await page.goForward();
+      await expect.poll(() => new URL(page.url()).searchParams.get("section")).toBe("working");
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.id ?? null))
+        .toBe("operations-working");
+    } finally {
+      await closeContext(context, diagnostics);
+    }
+    markChecks("browserHistoryAndFocus");
+  });
+
   it("proves 320px reflow, effective 200% zoom, computed targets, reduced motion, and live announcements", async () => {
     const context = await browser.newContext({
       colorScheme: "light",
@@ -962,18 +1015,30 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           finding: "Release approval needed",
           severity: "Critical",
           icon: "!",
+          owner: "You",
+          response: "Waiting for you",
+          impact: "The release remains paused until you approve it.",
+          nextAction: "Review the release decision.",
         },
         {
           title: "OpenClaw is handling",
           finding: "OpenClaw is retrying an agent",
           severity: "Warning",
           icon: "!",
+          owner: "OpenClaw",
+          response: "In progress",
+          impact: "One agent is temporarily delayed while OpenClaw retries it.",
+          nextAction: "No action is needed while the retry is active.",
         },
         {
           title: "Watching",
           finding: "Response delay is being watched",
           severity: "Information",
           icon: "○",
+          owner: "OpenClaw",
+          response: "Monitoring",
+          impact: "The last measurement was elevated and remains under observation.",
+          nextAction: "Wait for the next deterministic sweep.",
         },
       ] as const;
       for (const scenario of lanes) {
@@ -987,6 +1052,15 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           scenario.icon,
         );
         expect(await lane.locator(".operations-count").textContent()).toBe("1");
+
+        const details = finding.locator("details");
+        await details.locator("summary").focus();
+        await page.keyboard.press("Enter");
+        expect(await details.getAttribute("open")).not.toBeNull();
+        await details.getByText(scenario.owner, { exact: true }).waitFor();
+        await details.getByText(scenario.response, { exact: true }).waitFor();
+        await details.getByText(scenario.impact, { exact: true }).waitFor();
+        await details.getByText(scenario.nextAction, { exact: true }).waitFor();
       }
       const watchedStatus = await page
         .locator(".operations-issue", { hasText: "Response delay is being watched" })
@@ -1001,7 +1075,11 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
     } finally {
       await closeContext(context, diagnostics);
     }
-    markChecks("issueLanesAndNonColorCues");
+    markChecks(
+      "attentionOwnershipAndResponse",
+      "issueLanesAndNonColorCues",
+      "keyboardOnlyIssueJourney",
+    );
   });
 
   it("discloses every bounded large-inventory count and keeps source drill-through available", async () => {

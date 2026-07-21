@@ -67,6 +67,20 @@ function expectConfirmedGatewayChange(app: ReturnType<typeof mountApp>) {
 }
 
 describe("control UI routing", () => {
+  it("focuses an Operations section loaded from a direct link after the lazy view renders", async () => {
+    const app = mountApp("/operations?section=system");
+    app.operationsSnapshot = createOperationsTestSnapshot();
+    app.requestUpdate();
+
+    await app.updateComplete;
+    await nextFrame();
+    await app.updateComplete;
+    await nextFrame();
+
+    expect(app.operationsSection).toBe("system");
+    expect(document.activeElement?.id).toBe("operations-system");
+  });
+
   it("preserves last-known Operations truth after disconnecting", async () => {
     const app = mountApp("/operations");
     app.operationsSnapshot = createOperationsTestSnapshot();
