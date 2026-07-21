@@ -10,6 +10,7 @@ import {
   normalizeAgentId,
   parseAgentSessionKey,
 } from "../../routing/session-key.js";
+import { resolveAgentRoleCapabilityContract } from "../agent-role-capabilities.js";
 import { resolveModelAgentRuntimeMetadata } from "../agent-runtime-metadata.js";
 import { listAgentIds } from "../agent-scope-config.js";
 import { resolveAgentConfig, resolveAgentEffectiveModelPrimary } from "../agent-scope.js";
@@ -25,10 +26,16 @@ type AgentListEntry = {
   id: string;
   name?: string;
   configured: boolean;
+  spawnable: true;
   model?: string;
   agentRuntime?: {
     id: string;
     source: "env" | "agent" | "defaults" | "model" | "provider" | "implicit" | "session-key";
+  };
+  operationalRole?: {
+    role: string;
+    acceptedHandoffs: string[];
+    acceptsMutation: boolean;
   };
 };
 
@@ -93,12 +100,23 @@ export function createAgentsListTool(opts?: {
           provider: resolvedModel.provider,
           model: resolvedModel.model,
         });
+        const roleContract = resolveAgentRoleCapabilityContract({ config: cfg, agentId: id });
         return {
           id,
           name: configuredNameMap.get(id),
           configured: configuredIds.includes(id),
+          spawnable: true,
           model,
           agentRuntime,
+          ...(roleContract
+            ? {
+                operationalRole: {
+                  role: roleContract.role,
+                  acceptedHandoffs: roleContract.acceptsHandoffs,
+                  acceptsMutation: roleContract.acceptsMutation,
+                },
+              }
+            : {}),
         };
       });
 
