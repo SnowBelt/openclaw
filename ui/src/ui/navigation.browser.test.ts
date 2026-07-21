@@ -73,12 +73,10 @@ describe("control UI routing", () => {
     app.requestUpdate();
 
     await app.updateComplete;
-    await nextFrame();
-    await app.updateComplete;
-    await nextFrame();
-
     expect(app.operationsSection).toBe("system");
-    expect(document.activeElement?.id).toBe("operations-system");
+    await vi.waitFor(() => {
+      expect(document.activeElement?.id).toBe("operations-system");
+    });
   });
 
   it("preserves last-known Operations truth after disconnecting", async () => {
