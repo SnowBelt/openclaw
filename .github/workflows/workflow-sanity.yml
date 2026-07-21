@@ -883,7 +883,7 @@ jobs:
   chat-control-director-reliability-macos-proof:
     if: github.event_name == 'workflow_dispatch' && inputs.chat-control-director-reliability-proof == 'true'
     name: Control Director Chat Reliability V1 macOS proof
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - name: Checkout

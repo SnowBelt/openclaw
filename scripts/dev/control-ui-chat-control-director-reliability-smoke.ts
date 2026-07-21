@@ -332,7 +332,7 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
   checks.sharedProjectContract = Boolean(
     project &&
       project.textContent?.includes("Dashboard Reliability") &&
-      project.textContent?.includes("same project record used by PCC") &&
+      project.textContent?.includes("same project ID") &&
       project.textContent?.includes("does not create a second project plan"),
   );
 
