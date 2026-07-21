@@ -16,19 +16,20 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 
 ## Current state
 
-- Formal roadmap pass: 0/61 until the final evidence-bound commit is landed and the post-commit ledger exits zero.
-- Source implementation: M01-M61 present. M25 now defaults governed Codex work explicitly to `openai/gpt-5.6-sol`, upgrades the old automatic alias, keeps explicit user overrides, and uses preset effort by bounded work class. M61 inventory revision 5 adds the update-survival control plane, requires an explicit capability owner for every tracked `scripts/custom-runtime/` file, gates the managed stage/promotion regression fixture, and makes promotion install, load, report, and transactionally restore both the update broker and runtime recovery guard from the selected release.
+- Formal roadmap pass: 1/68. M62 has source and deterministic local proof; the overall program remains incomplete until every milestone has exact-SHA evidence and the post-commit ledger exits zero.
+- Source implementation: M01-M62 present. M25 defaults governed Codex work explicitly to `openai/gpt-5.6-sol`, preserves explicit user overrides, and uses preset effort by bounded work class. M61 inventory revision 5 adds the update-survival control plane. M62 adds sanitized deterministic reproduction for the six observed subagent orchestration incident classes. M63-M68 remain unimplemented.
 - Current phase: exact-source and remote proof, then managed activation and live acceptance.
 - Remaining proof: exact runtime lineage; desktop, tablet, and mobile Chat; local-model routing and latency; memory; delegation; Judge; queue/steer; Pursue Goal; restart recovery; rollback/restore; five-minute soak; landing; reactivation; final ledger.
 
 ## Next dependency-ready work
 
-1. Commit the M25 preferred-Codex-model policy, then verify that clean exact candidate with `pnpm custom-runtime:update-survival` and `pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"`.
-2. Require fresh exact-head Workflow Sanity and full non-Android CI.
-3. Prepare and activate one immutable candidate through the managed lifecycle; never bypass the Keychain, staging, capability, or rollback guards.
-4. Collect all exact-runtime, browser/device, model, memory, orchestration, restart, rollback, and soak receipts.
-5. Populate M01-M61 with concrete evidence and exact-SHA bindings only after those surfaces pass.
-6. Re-run exact source and remote gates for that final evidence commit, land without a merge commit, reactivate the landed SHA, and generate the post-commit final ledger.
+1. Repair and test task-root inheritance and worktree confinement (M63).
+2. Repair worker discovery and caller-actionable spawn guidance (M64).
+3. Align Program Manager, worker, Judge, SIG, PCC, prompts, tools, and handoffs (M65-M67).
+4. Require fresh exact-head Workflow Sanity and full non-Android CI.
+5. Prepare and activate one immutable candidate through the managed lifecycle; never bypass Keychain, staging, capability, or rollback guards.
+6. Collect all exact-runtime, browser/device, model, memory, orchestration, restart, rollback, and soak receipts for M68.
+7. Populate M01-M68 with concrete exact-SHA evidence, land without a merge commit, reactivate the landed SHA, and generate the post-commit final ledger.
 
 ## Prohibited completion shortcuts
 

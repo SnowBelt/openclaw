@@ -67,6 +67,12 @@ Every Control Director and Dashboard change must survive an official OpenClaw up
 
 Never describe a customization as update-safe merely because its source file still exists. It is update-safe only after its registered capability, exact-parent candidate proof, manifest gates, proof-bound approval, loaded prepare-only broker and recovery guard, managed activation, rollback, and live acceptance all pass.
 
+## Subagent orchestration repair (M62-M68)
+
+Start with `pnpm control-director:subagent-incident-proof`. Keep its observations synthetic and its output sanitized: receipts may contain scenario ids, typed issue codes, and repository-relative evidence references, but never secrets or raw user diagnostic paths. Do not treat this reproduction baseline as a repair.
+
+Repair in dependency order: task-root inheritance and worktree confinement (M63), worker discovery (M64), role-capability and handoff alignment (M65), deployed skill and workflow consistency (M66), and evidence-bound completion truth (M67). M68 requires the landed exact SHA to pass managed Control Director-to-Program Manager-to-worker-to-Judge execution plus the existing live, device, restart, rollback, and soak gates. A source-only or mock-only pass cannot complete M63-M68.
+
 ## Runtime acceptance
 
 Source proof is not production proof. Production acceptance requires all of the following against the same landed SHA:

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const EXPECTED_MILESTONES = Array.from(
-  { length: 61 },
+  { length: 68 },
   (_, index) => `M${String(index + 1).padStart(2, "0")}`,
 );
 const REQUIRED_TRUTH_SURFACES = [
@@ -186,7 +186,7 @@ export function validateControlDirectorRoadmap(params) {
     : [];
   const milestoneIds = milestones.map((milestone) => milestone.id);
   if (JSON.stringify(milestoneIds) !== JSON.stringify(EXPECTED_MILESTONES)) {
-    throw new Error("Roadmap must contain exactly M01 through M61 in order.");
+    throw new Error("Roadmap must contain exactly M01 through M68 in order.");
   }
   const byId = new Map(milestones.map((milestone) => [milestone.id, milestone]));
   for (const milestone of milestones) {
