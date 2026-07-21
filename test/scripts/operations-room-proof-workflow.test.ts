@@ -29,6 +29,9 @@ describe("Operations Room proof workflow", () => {
     const writeReceipt = job.steps.find(
       (step: { name?: string }) => step.name === "Write exact-SHA workflow receipt",
     );
+    const uploadReceipt = job.steps.find(
+      (step: { name?: string }) => step.name === "Upload Operations Room proof receipts",
+    );
 
     expect(workflow.on.push.branches).toEqual(["codex/operations-room-recovery-*"]);
     expect(workflow.on.workflow_dispatch.inputs.expected_sha.required).toBe(true);
@@ -51,5 +54,8 @@ describe("Operations Room proof workflow", () => {
       EXPECTED_SHA: EXPECTED_SHA_EXPRESSION,
       TARGET_REF: TARGET_REF_EXPRESSION,
     });
+    expect(uploadReceipt.with.name).toBe(
+      `operations-room-v2-proof-receipts-${EXPECTED_SHA_EXPRESSION}`,
+    );
   });
 });
