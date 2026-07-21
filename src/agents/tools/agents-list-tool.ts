@@ -86,7 +86,17 @@ export function createAgentsListTool(opts?: {
         allowAgents,
         configuredAgentIds: configuredIds,
       });
-      const all = allowed.allowedIds;
+      const requesterRoleContract = resolveAgentRoleCapabilityContract({
+        config: cfg,
+        agentId: requesterAgentId,
+      });
+      const all = allowed.allowedIds.filter((id) => {
+        if (!requesterRoleContract) {
+          return true;
+        }
+        const targetRole = resolveAgentRoleCapabilityContract({ config: cfg, agentId: id })?.role;
+        return Boolean(targetRole && requesterRoleContract.mayDelegateTo.includes(targetRole));
+      });
       const rest = all
         .filter((id) => id !== requesterAgentId)
         .toSorted((a, b) => a.localeCompare(b));
@@ -101,23 +111,22 @@ export function createAgentsListTool(opts?: {
           model: resolvedModel.model,
         });
         const roleContract = resolveAgentRoleCapabilityContract({ config: cfg, agentId: id });
-        return {
+        const entry: AgentListEntry = {
           id,
           name: configuredNameMap.get(id),
           configured: configuredIds.includes(id),
           spawnable: true,
           model,
           agentRuntime,
-          ...(roleContract
-            ? {
-                operationalRole: {
-                  role: roleContract.role,
-                  acceptedHandoffs: roleContract.acceptsHandoffs,
-                  acceptsMutation: roleContract.acceptsMutation,
-                },
-              }
-            : {}),
         };
+        if (roleContract) {
+          entry.operationalRole = {
+            role: roleContract.role,
+            acceptedHandoffs: roleContract.acceptsHandoffs,
+            acceptsMutation: roleContract.acceptsMutation,
+          };
+        }
+        return entry;
       });
 
       return jsonResult({

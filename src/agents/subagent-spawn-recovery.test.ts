@@ -8,6 +8,9 @@ describe("subagent spawn recovery guidance", () => {
     ["sessions_spawn has reached max active children", "wait_or_cancel_child"],
     ["sessions_spawn is not allowed at this depth", "delegate_from_parent"],
     ["sessions_spawn requires explicit agentId", "retry_allowed_agent"],
+    ["Role control_director cannot delegate to role judge", "retry_allowed_agent"],
+    ["Role worker requires a typed handoff envelope", "correct_and_retry"],
+    ["Role judge cannot accept a mutation-requiring handoff", "correct_and_retry"],
     ["backend disconnected", "report_blocker"],
   ])("maps %s to an action the caller can perform", (error, code) => {
     const action = resolveSubagentSpawnRecommendedAction(error);

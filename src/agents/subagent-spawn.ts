@@ -1073,6 +1073,10 @@ function hasRoutableDeliveryOrigin(
   return Boolean(origin?.channel && origin.to);
 }
 
+export function formatInvalidSubagentAgentIdError(agentId: string): string {
+  return `Invalid agentId "${agentId}". Retry with an id matching [a-z0-9][a-z0-9_-]{0,63}; do not resend an error message as an agent id.`;
+}
+
 export async function spawnSubagentDirect(
   params: SpawnSubagentParams,
   ctx: SpawnSubagentContext,
@@ -1096,7 +1100,7 @@ export async function spawnSubagentDirect(
   if (requestedAgentId && !isValidAgentId(requestedAgentId)) {
     return {
       status: "error",
-      error: `Invalid agentId "${requestedAgentId}". Retry with an id matching [a-z0-9][a-z0-9_-]{0,63}; do not resend an error message as an agent id.`,
+      error: formatInvalidSubagentAgentIdError(requestedAgentId),
     };
   }
   const modelOverride = params.model;

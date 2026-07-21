@@ -24,7 +24,9 @@ export function resolveSubagentSpawnRecommendedAction(
   if (
     normalized.includes("agentid") ||
     normalized.includes("agent id") ||
-    normalized.includes("configured agent registry")
+    normalized.includes("configured agent registry") ||
+    normalized.includes("cannot delegate") ||
+    normalized.includes("allowed configured role")
   ) {
     return {
       code: "retry_allowed_agent",
@@ -43,6 +45,17 @@ export function resolveSubagentSpawnRecommendedAction(
     return {
       code: "delegate_from_parent",
       instruction: "Return the assignment to the parent so it can spawn the next worker directly.",
+    };
+  }
+  if (
+    normalized.includes("handoff") ||
+    normalized.includes("cannot accept") ||
+    normalized.includes("mutation-requiring")
+  ) {
+    return {
+      code: "correct_and_retry",
+      instruction:
+        "Correct the handoff kind or mutation requirement named in the error, then retry sessions_spawn once with the same scope.",
     };
   }
   if (

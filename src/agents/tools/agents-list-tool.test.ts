@@ -120,9 +120,11 @@ describe("agents_list tool", () => {
             id: "director",
             default: true,
             role: "control_director",
-            subagents: { allowAgents: ["pm"] },
+            subagents: { allowAgents: ["pm", "judge", "untyped"] },
           },
           { id: "pm", role: "program_manager" },
+          { id: "judge", role: "judge" },
+          { id: "untyped" },
         ],
       },
     } satisfies OpenClawConfig);
