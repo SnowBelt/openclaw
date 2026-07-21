@@ -1,8 +1,11 @@
 name: Operations Room V2 Proof
 
-run-name: Operations Room V2 Proof at ${{ inputs.expected_sha }}
+run-name: Operations Room V2 Proof at ${{ inputs.expected_sha || github.sha }}
 
 on:
+  push:
+    branches:
+      - "codex/operations-room-recovery-*"
   workflow_dispatch:
     inputs:
       target_ref:
@@ -19,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: operations-room-v2-proof-${{ inputs.expected_sha }}
+  group: operations-room-v2-proof-${{ inputs.expected_sha || github.sha }}
   cancel-in-progress: true
 
 env:
@@ -35,7 +38,7 @@ jobs:
         timeout-minutes: 10
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: ${{ inputs.target_ref }}
+          ref: ${{ inputs.target_ref || github.sha }}
           fetch-depth: 0
           fetch-tags: false
           persist-credentials: false
@@ -43,8 +46,8 @@ jobs:
 
       - name: Verify exact candidate identity
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-          TARGET_REF: ${{ inputs.target_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+          TARGET_REF: ${{ inputs.target_ref || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -78,8 +81,8 @@ jobs:
         timeout-minutes: 60
         env:
           CI: "true"
-          GITHUB_REF_NAME: ${{ inputs.target_ref }}
-          GITHUB_SHA: ${{ inputs.expected_sha }}
+          GITHUB_REF_NAME: ${{ inputs.target_ref || github.ref_name }}
+          GITHUB_SHA: ${{ inputs.expected_sha || github.sha }}
           NODE_OPTIONS: --max-old-space-size=4096
           OPENCLAW_VITEST_MAX_WORKERS: "1"
           OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
@@ -87,8 +90,8 @@ jobs:
 
       - name: Validate browser proof receipt
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-          TARGET_REF: ${{ inputs.target_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+          TARGET_REF: ${{ inputs.target_ref || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -225,8 +228,8 @@ jobs:
 
       - name: Write exact-SHA workflow receipt
         env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-          TARGET_REF: ${{ inputs.target_ref }}
+          EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+          TARGET_REF: ${{ inputs.target_ref || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail

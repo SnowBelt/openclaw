@@ -242,6 +242,11 @@ mismatch before installing dependencies, runs `pnpm operations-room:verify` plus
 gate, validates every required browser artifact, and uploads checksummed desktop, mobile,
 machine-readable browser, and exact-SHA workflow receipts.
 
+When a recovery branch contains the proof workflow before it is registered on the repository's
+default branch, a push to `codex/operations-room-recovery-*` runs the same proof automatically. That
+bootstrap path binds `target_ref` to the pushed branch and `expected_sha` to the immutable push SHA;
+it does not weaken or bypass any receipt, identity, canonical-verification, or changed-gate check.
+
 `pnpm ui:smoke:operations-room:dom` is structural proof only.
 `pnpm ui:smoke:operations-room:e2e` is the deterministic browser proof. Neither proves the managed
 runtime until the same exact SHA is promoted and observed. A milestone is complete only when its named
