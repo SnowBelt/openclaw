@@ -791,7 +791,7 @@ describe("chat Control Director diagnostics", () => {
     expect(container.querySelector("[data-control-director-diagnostics]")).toBeNull();
   });
 
-  it("renders blocked truth and completion diagnostics for the active session", () => {
+  it("keeps blocked truth and completion detail in System Quality outside the transcript", () => {
     const container = renderChatView({
       sessionKey: "agent:main:main",
       sessions: {
@@ -845,26 +845,26 @@ describe("chat Control Director diagnostics", () => {
       },
     });
 
-    const card = container.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
-    const summary = card?.querySelector(".chat-control-director-diagnostics__summary");
-    const panel = card?.querySelector(".chat-control-director-diagnostics__panel");
-    expect(card?.closest(".chat-thread-inner")).not.toBeNull();
-    expect(card?.open).toBe(false);
-    expect(card?.textContent).toContain("Truth & Completion");
-    expect(card?.textContent).toContain("Blocked unsupported claim");
-    expect(card?.textContent).toContain("missing command evidence with exit code 0");
-    expect(summary?.textContent).not.toContain("Completion Grade");
-    expect(panel?.textContent).toContain("Why");
-    expect(panel?.textContent).toContain("Next");
-    expect(panel?.textContent).toContain("Required evidence");
-    expect(panel?.textContent).toContain("Completion Grade");
-    expect(panel?.textContent?.replace(/\s+/g, " ")).toContain(
+    const chat = container.querySelector(".card.chat");
+    const status = container.querySelector<HTMLDetailsElement>("[data-chat-system-status]");
+    const diagnostics = status?.querySelector("[data-system-quality-diagnostics]");
+    expect(chat?.querySelector("[data-control-director-diagnostics]")).toBeNull();
+    expect(status?.open).toBe(false);
+    expect(status?.querySelector("summary")?.textContent).toContain("System needs attention");
+    expect(diagnostics?.textContent).toContain("Truth & Completion");
+    expect(diagnostics?.textContent).toContain("Blocked unsupported claim");
+    expect(diagnostics?.textContent).toContain("missing command evidence with exit code 0");
+    expect(diagnostics?.textContent).toContain("Why");
+    expect(diagnostics?.textContent).toContain("Next");
+    expect(diagnostics?.textContent).toContain("Required evidence");
+    expect(diagnostics?.textContent).toContain("Completion Grade");
+    expect(diagnostics?.textContent?.replace(/\s+/g, " ")).toContain(
       "OpenClaw stopped because it could not safely prove the request was finished",
     );
-    expect(card?.textContent).not.toContain("Status: complete");
+    expect(diagnostics?.textContent).not.toContain("Status: complete");
   });
 
-  it("closes diagnostic details with Escape and restores summary focus", () => {
+  it("closes System Quality details with Escape and restores summary focus", () => {
     const container = renderChatView({
       sessionKey: "agent:main:main",
       sessions: {
@@ -894,29 +894,20 @@ describe("chat Control Director diagnostics", () => {
         ts: 0,
       },
     });
-    const card = container.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
-    const summary = card?.querySelector<HTMLElement>(".chat-control-director-diagnostics__summary");
-    const retry = card?.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]");
-    const close = card?.querySelector<HTMLButtonElement>(
-      '[aria-label="Close truth and completion details"]',
-    );
-    expect(card).not.toBeNull();
+    const status = container.querySelector<HTMLDetailsElement>("[data-chat-system-status]");
+    const summary = status?.querySelector<HTMLElement>("summary");
+    const retry = status?.querySelector<HTMLButtonElement>("[data-chat-blocked-retry]");
+    expect(status).not.toBeNull();
     expect(summary).not.toBeNull();
     expect(retry).not.toBeNull();
-    expect(close).not.toBeNull();
 
     document.body.append(container);
     try {
-      card!.open = true;
-      close!.click();
-      expect(card!.open).toBe(false);
-      expect(document.activeElement).toBe(summary);
-
-      card!.open = true;
+      status!.open = true;
       retry!.focus();
       retry!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
 
-      expect(card!.open).toBe(false);
+      expect(status!.open).toBe(false);
       expect(document.activeElement).toBe(summary);
     } finally {
       container.remove();
