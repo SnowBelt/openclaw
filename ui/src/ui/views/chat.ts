@@ -1914,7 +1914,7 @@ function closeDetailsOnEscape(event: KeyboardEvent, onClose?: () => void) {
   details.querySelector<HTMLElement>(":scope > summary")?.focus();
 }
 
-function closeDetailsFromControl(event: MouseEvent) {
+function closeDetailsFromControl(event: MouseEvent, onClose?: () => void) {
   const details = (event.currentTarget as HTMLElement | null)?.closest<HTMLDetailsElement>(
     "details",
   );
@@ -1922,6 +1922,7 @@ function closeDetailsFromControl(event: MouseEvent) {
     return;
   }
   details.open = false;
+  onClose?.();
   details.querySelector<HTMLElement>(":scope > summary")?.focus();
 }
 
@@ -2246,6 +2247,18 @@ function renderControlDirectorSystemStatus(props: ChatProps) {
         role="region"
         aria-label="Control Director system status"
       >
+        <div class="chat-system-status__header">
+          <strong>System status</strong>
+          <button
+            class="btn btn--sm btn--icon"
+            type="button"
+            aria-label="Close system status"
+            title="Close"
+            @click=${closeDetailsFromControl}
+          >
+            ${icons.x}
+          </button>
+        </div>
         <div>
           <strong>Runtime</strong>
           <span>${lineage?.status ?? "unavailable"}</span>
@@ -2300,7 +2313,9 @@ function renderControlDirectorDiagnosticsCard(
     props.onDraftChange(retryPrompt);
     props.onRequestUpdate?.();
     requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox textarea")?.focus();
+      document
+        .querySelector<HTMLTextAreaElement>(".agent-chat__composer-combobox textarea")
+        ?.focus();
     });
   };
   return html`
@@ -2704,15 +2719,27 @@ function renderChatProjectPicker(props: ChatProps) {
             <h3>Chat project context</h3>
             <p>Attach this chat to project memory. PCC owns project planning and management.</p>
           </div>
-          <button
-            class="btn btn--sm btn--subtle"
-            type="button"
-            aria-label="Refresh projects"
-            ?disabled=${props.projectBusy || props.projectsLoading}
-            @click=${() => props.onProjectRefresh?.()}
-          >
-            Refresh
-          </button>
+          <div class="chat-panel-header-actions">
+            <button
+              class="btn btn--sm btn--subtle"
+              type="button"
+              aria-label="Refresh projects"
+              ?disabled=${props.projectBusy || props.projectsLoading}
+              @click=${() => props.onProjectRefresh?.()}
+            >
+              Refresh
+            </button>
+            <button
+              class="btn btn--sm btn--icon"
+              type="button"
+              aria-label="Close project panel"
+              title="Close"
+              @click=${(event: MouseEvent) =>
+                closeDetailsFromControl(event, () => props.onProjectPickerToggle?.(false))}
+            >
+              ${icons.x}
+            </button>
+          </div>
         </div>
         ${hasError
           ? html`<div class="chat-project-picker__error" role="alert">
@@ -2852,9 +2879,7 @@ function renderPursueGoal(props: ChatProps) {
   const canPause =
     goal?.status === "queued" || goal?.status === "running" || goal?.status === "waiting";
   const canRetry =
-    Boolean(goal) &&
-    Boolean(flowId) &&
-    (goal?.status === "blocked" || goal?.status === "failed");
+    Boolean(goal) && Boolean(flowId) && (goal?.status === "blocked" || goal?.status === "failed");
   const goalChanged = Boolean(goal && editableGoalText && editableGoalText !== goal.goal.trim());
   const recentEvents = (goal?.events ?? []).slice(-8).toReversed();
   return html`
@@ -2887,14 +2912,26 @@ function renderPursueGoal(props: ChatProps) {
                     : "Create durable work from the current request, then continue it with evidence."}
                 </p>
               </div>
-              <button
-                class="btn btn--subtle btn--sm"
-                type="button"
-                aria-label="Refresh goal status"
-                @click=${() => props.onGoalRefresh?.()}
-              >
-                Refresh
-              </button>
+              <div class="chat-panel-header-actions">
+                <button
+                  class="btn btn--subtle btn--sm"
+                  type="button"
+                  aria-label="Refresh goal status"
+                  @click=${() => props.onGoalRefresh?.()}
+                >
+                  Refresh
+                </button>
+                <button
+                  class="btn btn--sm btn--icon"
+                  type="button"
+                  aria-label="Close pursue goal panel"
+                  title="Close"
+                  @click=${(event: MouseEvent) =>
+                    closeDetailsFromControl(event, () => props.onGoalPanelToggle?.(false))}
+                >
+                  ${icons.x}
+                </button>
+              </div>
             </div>
             ${props.goalError
               ? html`

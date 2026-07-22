@@ -50,6 +50,7 @@ export type OperationsProps = {
   agentSort: OperationsAgentSort;
   pinnedAgentIds: string[];
   lastVisitedAt: number | null;
+  workboardEnabled: boolean;
   onRefresh: () => void;
   onAction: (action: OperationsActionKind, targetId: string) => void;
   onSectionChange: (section: OperationsSection) => void;
@@ -233,17 +234,52 @@ function mutationSourceConfirmed(
   );
 }
 
-function openOperationsMore() {
-  const details = document.querySelector<HTMLDetailsElement>("#operations-more");
+function openOperationsMore(trigger: EventTarget | null, selector?: string) {
+  const room = trigger instanceof HTMLElement ? trigger.closest(".operations-room") : null;
+  const details =
+    room?.querySelector<HTMLDetailsElement>("#operations-more") ??
+    document.querySelector<HTMLDetailsElement>("#operations-more");
   if (!details) {
     return;
   }
   details.open = true;
+  const target = selector ? details.querySelector<HTMLElement>(selector) : null;
+  if (target instanceof HTMLDetailsElement) {
+    target.open = true;
+  }
+  const focusTarget =
+    target instanceof HTMLDetailsElement
+      ? target.querySelector<HTMLElement>("summary")
+      : (target ?? details.querySelector<HTMLElement>("summary"));
   const reduceMotion =
     typeof globalThis.matchMedia === "function" &&
     globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  details.scrollIntoView?.({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
-  details.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
+  (target ?? details).scrollIntoView?.({
+    block: "start",
+    behavior: reduceMotion ? "auto" : "smooth",
+  });
+  focusTarget?.focus({ preventScroll: true });
+}
+
+function openWorkDetail(
+  props: OperationsProps,
+  detail: "tasks" | "workflows",
+  trigger: EventTarget | null,
+) {
+  if (props.workboardEnabled) {
+    props.onNavigate("workboard");
+    return;
+  }
+  openOperationsMore(
+    trigger,
+    detail === "tasks" ? ".operations-activity-history" : ".operations-more-workflows",
+  );
+}
+
+function workDetailLabel(props: OperationsProps): string {
+  return t(
+    props.workboardEnabled ? "operationsRoom.working.openWorkboard" : "operationsRoom.more.title",
+  );
 }
 
 function categoryLabel(category: OperationsFinding["category"]): string {
@@ -362,9 +398,11 @@ function renderFindingDetails(finding: OperationsFinding, props: OperationsProps
     ${finding.remediationTaskId
       ? html`<button
           class="btn btn--sm operations-remediation-link"
-          @click=${() => props.onNavigate("workboard")}
+          @click=${(event: Event) => openWorkDetail(props, "tasks", event.currentTarget)}
         >
-          ${t("operationsRoom.attention.openRemediation")}
+          ${props.workboardEnabled
+            ? t("operationsRoom.attention.openRemediation")
+            : t("operationsRoom.more.title")}
         </button>`
       : nothing}
     ${finding.category === "workflow" &&
@@ -527,8 +565,11 @@ function renderAttention(
             })}
           </p>
           <div class="operations-card-actions">
-            <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
-              ${t("operationsRoom.working.openWorkboard")}
+            <button
+              class="btn btn--sm"
+              @click=${(event: Event) => openWorkDetail(props, "workflows", event.currentTarget)}
+            >
+              ${workDetailLabel(props)}
             </button>
             <button class="btn btn--sm" @click=${() => props.onNavigate("cron")}>
               ${t("operationsRoom.automationsPanel.openCron")}
@@ -539,7 +580,10 @@ function renderAttention(
             <button class="btn btn--sm" @click=${() => props.onNavigate("agents")}>
               ${t("tabs.agents")}
             </button>
-            <button class="btn btn--sm" @click=${openOperationsMore}>
+            <button
+              class="btn btn--sm"
+              @click=${(event: Event) => openOperationsMore(event.currentTarget)}
+            >
               ${t("operationsRoom.more.title")}
             </button>
           </div>
@@ -606,8 +650,16 @@ function renderWorkingItem(
     <div class="operations-work-row__details">
       ${item.summary ? html`<p>${item.summary}</p>` : nothing}
       <div class="operations-card-actions">
-        <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
-          ${t("operationsRoom.working.openWorkboard")}
+        <button
+          class="btn btn--sm"
+          @click=${(event: Event) =>
+            openWorkDetail(
+              props,
+              item.workflowId && !item.taskId ? "workflows" : "tasks",
+              event.currentTarget,
+            )}
+        >
+          ${workDetailLabel(props)}
         </button>
         ${item.taskId &&
         props.canWrite &&
@@ -681,7 +733,10 @@ function renderWorking(
         : statusPill("unknown", t("operationsRoom.working.unverified"))}
     </div>
     <div class="operations-work-facts" aria-label=${t("operationsRoom.working.workTotals")}>
-      <button type="button" @click=${() => props.onNavigate("workboard")}>
+      <button
+        type="button"
+        @click=${(event: Event) => openWorkDetail(props, "tasks", event.currentTarget)}
+      >
         <strong>${t("operationsRoom.working.tasks")}</strong>
         <small>
           ${workConfirmed
@@ -693,7 +748,10 @@ function renderWorking(
             : t("operationsRoom.working.countsUnconfirmed")}
         </small>
       </button>
-      <button type="button" @click=${() => props.onNavigate("workboard")}>
+      <button
+        type="button"
+        @click=${(event: Event) => openWorkDetail(props, "workflows", event.currentTarget)}
+      >
         <strong>${t("operationsRoom.working.workflows")}</strong>
         <small>
           ${workConfirmed
@@ -728,8 +786,11 @@ function renderWorking(
     ${previewBounded
       ? html`<div class="operations-bounded-note" role="status">
           <p>${t("operationsRoom.working.showingPreview", { shown: String(preview.length) })}</p>
-          <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
-            ${t("operationsRoom.working.openWorkboard")}
+          <button
+            class="btn btn--sm"
+            @click=${(event: Event) => openWorkDetail(props, "tasks", event.currentTarget)}
+          >
+            ${workDetailLabel(props)}
           </button>
         </div>`
       : nothing}
@@ -813,7 +874,10 @@ function renderChanges(
     ${bounded
       ? html`<div class="operations-bounded-note" role="status">
           <p>${t("operationsRoom.changes.showingNewest", { count: String(changes.length) })}</p>
-          <button class="btn btn--sm" @click=${openOperationsMore}>
+          <button
+            class="btn btn--sm"
+            @click=${(event: Event) => openOperationsMore(event.currentTarget)}
+          >
             ${t("operationsRoom.changes.openActivity")}
           </button>
         </div>`
@@ -1599,7 +1663,10 @@ function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
           })}
         </p>
       </section>
-      <section class="operations-more__section operations-more-workflows">
+      <section
+        class="operations-more__section operations-more-workflows"
+        tabindex=${props.workboardEnabled ? nothing : "-1"}
+      >
         <div class="operations-panel__header">
           <div>
             <h2>${t("operationsRoom.more.workflows")}</h2>
@@ -1612,9 +1679,11 @@ function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
                 : t("operationsRoom.working.countsUnconfirmed")}
             </p>
           </div>
-          <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
-            ${t("operationsRoom.working.openWorkboard")}
-          </button>
+          ${props.workboardEnabled
+            ? html`<button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
+                ${t("operationsRoom.working.openWorkboard")}
+              </button>`
+            : nothing}
         </div>
       </section>
       <section class="operations-more__section">

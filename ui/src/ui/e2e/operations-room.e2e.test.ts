@@ -57,6 +57,7 @@ const proofCheckDefaults = {
   browserHistoryAndFocus: false,
   computedTouchTargets44px: false,
   contrastLightAndDark: false,
+  disabledWorkboardFallsBackInPage: false,
   guardedActionCancel: false,
   guardedActionExpired: false,
   guardedActionPreviewApply: false,
@@ -800,6 +801,45 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       "responsive320px",
       "zoom200Percent",
     );
+  });
+
+  it("keeps task and workflow detail in-page when Workboard is disabled", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1024 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    const diagnostics = collectDiagnostics(page);
+    const snapshot = createSevenGroupOperationsTestSnapshot();
+    await installOperationsGateway(page, { snapshot });
+
+    try {
+      await page.goto(`${server.baseUrl}operations`);
+      await waitForOperationsRoom(page, snapshot.briefing.text);
+      const facts = page.locator("#operations-working .operations-work-facts button");
+
+      await facts.filter({ hasText: "Tasks" }).click();
+      expect(new URL(page.url()).pathname).toBe("/operations");
+      expect(await page.locator("#operations-more").getAttribute("open")).not.toBeNull();
+      expect(
+        await page.locator(".operations-activity-history").getAttribute("open"),
+      ).not.toBeNull();
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.textContent?.trim() ?? ""))
+        .toContain("Task activity");
+
+      await facts.filter({ hasText: "Workflows" }).click();
+      expect(new URL(page.url()).pathname).toBe("/operations");
+      await expect
+        .poll(() => page.evaluate(() => document.activeElement?.textContent?.trim() ?? ""))
+        .toContain("Workflows");
+      expect(await page.getByRole("button", { name: "Open Workboard" }).count()).toBe(0);
+    } finally {
+      await closeContext(context, diagnostics);
+    }
+    markChecks("disabledWorkboardFallsBackInPage");
   });
 
   it("proves readable light and dark themes plus RTL logical layout", async () => {
