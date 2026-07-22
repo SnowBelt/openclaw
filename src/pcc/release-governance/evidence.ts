@@ -9,6 +9,7 @@ import {
   type ReleaseEvidenceBundleInput,
   type ReleaseGovernanceStatus,
   type ReleaseGovernorPolicy,
+  type ReleaseOperation,
 } from "./contracts.js";
 import { decideReleasePolicy, requiredReleaseReviewRoles } from "./decision.js";
 import { evaluateReleaseHealth } from "./health.js";
@@ -232,6 +233,7 @@ export function verifyReleaseEvidenceAuthorization(params: {
   if (Object.keys(bundle.build.artifactHashes).length === 0) {
     errors.push("Immutable build artifact hashes are missing.");
   }
+  errors.push(...verifyReleaseLifecycleEvidence(bundle));
   for (const workflow of bundle.workflowSanity) {
     if (workflow.headSha !== bundle.facts.candidateSha || workflow.conclusion !== "success") {
       errors.push(
@@ -243,6 +245,125 @@ export function verifyReleaseEvidenceAuthorization(params: {
     errors.push(`Release policy decision is ${bundle.evaluation.decision.decision}.`);
   }
   return [...new Set(errors)];
+}
+
+const LIFECYCLE_RECEIPT_SCHEMA = "openclaw.custom-runtime-lifecycle-receipt.v1";
+const LIFECYCLE_PREREQUISITES: Partial<
+  Record<ReleaseOperation, Array<{ checkId: string; operation: string; result: string }>>
+> = {
+  promotion: [{ checkId: "staging", operation: "stage", result: "staged_verified" }],
+  restart: [
+    { checkId: "staging", operation: "stage", result: "staged_verified" },
+    { checkId: "promotion", operation: "promotion", result: "promoted_verified" },
+  ],
+  finalize: [
+    { checkId: "staging", operation: "stage", result: "staged_verified" },
+    { checkId: "promotion", operation: "promotion", result: "promoted_verified" },
+    { checkId: "restart", operation: "restart", result: "restarted_verified" },
+  ],
+};
+
+function readLifecycleReceipt(
+  artifact: string,
+  expectedSha256: string | undefined,
+): {
+  schema?: unknown;
+  operation?: unknown;
+  result?: unknown;
+  sourceSha?: unknown;
+  at?: unknown;
+} {
+  const artifactPath = path.resolve(artifact);
+  const stat = fs.lstatSync(artifactPath);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error("receipt is not a regular non-symlink file");
+  }
+  if ((stat.mode & 0o022) !== 0) {
+    throw new Error("receipt is group- or world-writable");
+  }
+  if (!expectedSha256 || !/^[a-f0-9]{64}$/u.test(expectedSha256)) {
+    throw new Error("receipt SHA-256 is missing or invalid");
+  }
+  const contents = fs.readFileSync(artifactPath);
+  const actualSha256 = createHash("sha256").update(contents).digest("hex");
+  if (actualSha256 !== expectedSha256) {
+    throw new Error("receipt SHA-256 does not match the evidence bundle");
+  }
+  return JSON.parse(contents.toString("utf8")) as {
+    schema?: unknown;
+    operation?: unknown;
+    result?: unknown;
+    sourceSha?: unknown;
+    at?: unknown;
+  };
+}
+
+function validLifecycleTimestamp(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const compact = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/u.exec(value);
+  const normalized = compact
+    ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z`
+    : value;
+  return Number.isFinite(Date.parse(normalized));
+}
+
+export function verifyReleaseLifecycleEvidence(bundle: ReleaseEvidenceBundle): string[] {
+  const errors: string[] = [];
+  const operation = bundle.evaluation.decision.operation;
+  const deploymentResults = {
+    stage: bundle.deployment.stageResult,
+    promotion: bundle.deployment.promotionResult,
+    restart: bundle.deployment.restartResult,
+  } as const;
+  const allowedResults = new Set(
+    (LIFECYCLE_PREREQUISITES[operation] ?? []).map((entry) => entry.operation),
+  );
+  for (const lifecycleOperation of ["stage", "promotion", "restart"] as const) {
+    if (!allowedResults.has(lifecycleOperation) && deploymentResults[lifecycleOperation] !== null) {
+      errors.push(
+        `Evidence must not pre-mark ${lifecycleOperation} before the prerequisite operation succeeds.`,
+      );
+    }
+  }
+  for (const prerequisite of LIFECYCLE_PREREQUISITES[operation] ?? []) {
+    const check = bundle.checks.find((candidate) => candidate.id === prerequisite.checkId);
+    if (!check?.artifact) {
+      errors.push(`Required ${prerequisite.checkId} check has no lifecycle receipt artifact.`);
+      continue;
+    }
+    try {
+      const receipt = readLifecycleReceipt(check.artifact, check.artifactSha256);
+      if (receipt.schema !== LIFECYCLE_RECEIPT_SCHEMA) {
+        errors.push(`Lifecycle receipt for ${prerequisite.checkId} has an unsupported schema.`);
+      }
+      if (receipt.operation !== prerequisite.operation || receipt.result !== prerequisite.result) {
+        errors.push(
+          `Lifecycle receipt for ${prerequisite.checkId} does not prove ${prerequisite.result}.`,
+        );
+      }
+      if (receipt.sourceSha !== bundle.facts.candidateSha) {
+        errors.push(`Lifecycle receipt for ${prerequisite.checkId} is not exact-SHA bound.`);
+      }
+      if (!validLifecycleTimestamp(receipt.at)) {
+        errors.push(`Lifecycle receipt for ${prerequisite.checkId} has an invalid timestamp.`);
+      }
+      if (
+        deploymentResults[prerequisite.operation as keyof typeof deploymentResults] !==
+        receipt.result
+      ) {
+        errors.push(
+          `Deployment ${prerequisite.operation} result does not match its recorded lifecycle receipt.`,
+        );
+      }
+    } catch (error) {
+      errors.push(
+        `Lifecycle receipt for ${prerequisite.checkId} is unreadable: ${error instanceof Error ? error.message : String(error)}.`,
+      );
+    }
+  }
+  return errors;
 }
 
 export function releaseGovernanceStatusFromBundle(

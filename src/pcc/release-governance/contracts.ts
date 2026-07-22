@@ -88,6 +88,7 @@ export type ReleaseCheck = {
   count?: number;
   url?: string;
   artifact?: string;
+  artifactSha256?: string;
   recordedAt: string;
 };
 

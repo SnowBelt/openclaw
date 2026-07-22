@@ -47,8 +47,37 @@ trap 'exit 143' TERM
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 receipt="$runtime_home/receipts/restart-$timestamp.json"
 write_receipt() {
-  printf '{"at":"%s","result":"%s","release":"%s"}\n' \
-    "$timestamp" "$1" "$runtime_release_id" > "$receipt"
+  receipt_at=$(date -u +%Y%m%dT%H%M%SZ)
+  python3 - "$receipt" "$receipt_at" "$1" "$runtime_release_id" "$runtime_source_sha" <<'PY'
+import json
+import os
+import sys
+
+target, at, result, release, source_sha = sys.argv[1:]
+passed = result == "restarted_verified"
+with open(target, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "schema": "openclaw.custom-runtime-lifecycle-receipt.v1",
+            "operation": "restart",
+            "at": at,
+            "release": release,
+            "sourceSha": source_sha,
+            "result": result,
+            "measurements": {
+                "gatewayHealth": "passed" if passed else "failed",
+                "runtimeIdentity": "passed" if passed else "failed",
+                "requiredRoutes": "passed" if passed else "failed",
+                "selfImprovementRpc": "passed" if passed else "failed",
+            },
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+os.chmod(target, 0o600)
+PY
 }
 
 [ -f "$pointer" ] && [ -x "$launcher" ] || {

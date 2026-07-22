@@ -1,6 +1,6 @@
 {
   "schema": "openclaw.release-governor-policy.v1",
-  "version": 1,
+  "version": 2,
   "confidenceThreshold": 0.95,
   "reviewConfidenceThreshold": 0.9,
   "classificationRules": [
@@ -127,6 +127,7 @@
       "capability_preservation",
       "rollback_ready",
       "staging",
+      "promotion",
       "gateway_readiness",
       "browser_desktop",
       "browser_mobile",
@@ -157,6 +158,8 @@
       "capability_preservation",
       "rollback_ready",
       "staging",
+      "promotion",
+      "restart",
       "gateway_readiness",
       "browser_desktop",
       "browser_mobile",

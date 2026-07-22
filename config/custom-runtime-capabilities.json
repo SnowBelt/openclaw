@@ -330,6 +330,7 @@
       "kind": "runtime",
       "requiredPaths": [
         "config/release-governor-policy.json",
+        "src/pcc/release-governance/contracts.ts",
         "src/pcc/release-governance/decision.ts",
         "src/pcc/release-governance/evidence.ts",
         "src/pcc/release-governance/cli.ts",
