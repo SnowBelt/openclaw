@@ -1,38 +1,170 @@
-// Operations Room view presents agent, workflow, capability, resource, and
-// reliability truth without implying that configured means currently active.
-import { html, nothing } from "lit";
+import { html, nothing, type TemplateResult } from "lit";
+import { repeat } from "lit/directives/repeat.js";
+import { t } from "../../i18n/index.ts";
+import { formatRelativeTimestamp } from "../../lib/format.ts";
+import {
+  operationsSectionTargetId,
+  updateOperationsSectionUrl,
+  type OperationsSection,
+} from "../controllers/operations-navigation.ts";
+import type { OperationsAgentSort } from "../controllers/operations-preferences.ts";
 import type {
   OperationsActionKind,
+  OperationsActivityState,
+  OperationsAgentSnapshot,
   OperationsCatalogEntry,
+  OperationsFinding,
+  OperationsHealthState,
+  OperationsIncidentHistoryEntry,
   OperationsSnapshot,
   OperationsStatus,
 } from "../types.ts";
+import {
+  currentOperationsFindings,
+  groupOperationsAgents,
+  isOperationsSnapshotStale,
+  operationsChangesSince,
+  operationsWorkingItems,
+  type OperationsAgentGroup,
+  type OperationsAgentGroupId,
+  type OperationsChangeItem,
+  type OperationsWorkingItem,
+} from "./operations-model.ts";
+
+export type OperationsNavigateTarget = "agents" | "workboard" | "cron" | "skills";
 
 export type OperationsProps = {
   loading: boolean;
   actionBusy: boolean;
+  canWrite: boolean;
+  canAdmin: boolean;
   error: string | null;
   actionNotice: string | null;
+  actionNoticeTone?: "info" | "success" | null;
   snapshot: OperationsSnapshot | null;
   updatedAt: number | null;
+  lastSuccessfulAt: number | null;
+  refreshFailedAt: number | null;
+  section: OperationsSection | null;
+  agentQuery: string;
+  agentSort: OperationsAgentSort;
+  pinnedAgentIds: string[];
+  lastVisitedAt: number | null;
   onRefresh: () => void;
   onAction: (action: OperationsActionKind, targetId: string) => void;
+  onSectionChange: (section: OperationsSection) => void;
+  onAgentQueryChange: (value: string) => void;
+  onAgentSortChange: (value: OperationsAgentSort) => void;
+  onToggleAgentPin: (agentId: string) => void;
+  onOpenAgent: (agentId: string) => void;
+  onNavigate: (target: OperationsNavigateTarget) => void;
 };
 
-const STATUS_LABELS: Record<OperationsStatus, string> = {
-  healthy: "Healthy",
-  working: "Working",
-  idle: "Ready",
-  degraded: "Needs attention",
-  blocked: "Blocked",
-  failed: "Failed",
-  disabled: "Off",
-  unknown: "Unknown",
+const ATTENTION_LANE_PREVIEW_LIMIT = 4;
+const WORKING_PREVIEW_LIMIT = 8;
+
+const STATUS_SYMBOL: Record<OperationsStatus, string> = {
+  healthy: "✓",
+  working: "▶",
+  idle: "○",
+  degraded: "!",
+  blocked: "!",
+  failed: "×",
+  disabled: "–",
+  unknown: "?",
+};
+
+const STATUS_KEY: Record<OperationsStatus, string> = {
+  healthy: "healthy",
+  working: "working",
+  idle: "ready",
+  degraded: "needsAttention",
+  blocked: "blocked",
+  failed: "failed",
+  disabled: "off",
+  unknown: "unknown",
+};
+
+const ACTIVITY_STATUS: Record<OperationsActivityState, OperationsStatus> = {
+  working: "working",
+  waiting: "idle",
+  scheduled: "idle",
+  ready: "idle",
+  off: "disabled",
+  unknown: "unknown",
+};
+
+const HEALTH_STATUS: Record<OperationsHealthState, OperationsStatus> = {
+  healthy: "healthy",
+  degraded: "degraded",
+  failed: "failed",
+  unknown: "unknown",
+};
+
+const BRIEFING_STATUS: Record<OperationsSnapshot["briefing"]["tone"], OperationsStatus> = {
+  normal: "healthy",
+  attention: "degraded",
+  urgent: "blocked",
+  unknown: "unknown",
+};
+
+const SEVERITY_STATUS: Record<OperationsFinding["severity"], OperationsStatus> = {
+  info: "idle",
+  warning: "degraded",
+  critical: "blocked",
+};
+
+const DUTY_KEY: Record<OperationsAgentSnapshot["duty"], string> = {
+  always_on: "alwaysOn",
+  scheduled: "scheduled",
+  on_demand: "onDemand",
+  disabled: "disabled",
+};
+
+const DUTY_SOURCE_KEY: Record<OperationsAgentSnapshot["dutySource"], string> = {
+  heartbeat: "heartbeat",
+  schedule: "schedule",
+  configuration: "configuration",
+};
+
+const RUNTIME_KEY: Record<OperationsSnapshot["activityRollups"][number]["runtime"], string> = {
+  subagent: "subagent",
+  acp: "acp",
+  cli: "cli",
+  cron: "cron",
+};
+
+const SOURCE_KEY: Record<OperationsSnapshot["completeness"]["unavailableSources"][number], string> =
+  {
+    agents: "agents",
+    tasks: "tasks",
+    workflows: "workflows",
+    schedules: "schedules",
+    capabilities: "capabilities",
+    models: "models",
+    processes: "processes",
+    event_loop: "eventLoop",
+    monitor: "monitor",
+    incident_ledger: "incidentLedger",
+  };
+
+const CATEGORY_KEY: Record<OperationsFinding["category"], string> = {
+  agent: "agent",
+  workflow: "workflow",
+  cron: "cron",
+  skill: "skill",
+  plugin: "plugin",
+  tool: "tool",
+  model: "model",
+  process: "process",
+  monitor: "monitor",
+  resource: "resource",
+  update: "update",
 };
 
 function bytes(value: number | null): string {
   if (value == null) {
-    return "Not attributable";
+    return t("operationsRoom.agents.unavailableRam");
   }
   const units = ["B", "KB", "MB", "GB", "TB"];
   let amount = value;
@@ -45,82 +177,1213 @@ function bytes(value: number | null): string {
 }
 
 function relativeTime(value: number | null | undefined): string {
-  if (!value) {
-    return "No activity recorded";
-  }
-  const delta = Math.max(0, Date.now() - value);
-  if (delta < 60_000) {
-    return "just now";
-  }
-  if (delta < 3_600_000) {
-    return `${Math.floor(delta / 60_000)}m ago`;
-  }
-  if (delta < 86_400_000) {
-    return `${Math.floor(delta / 3_600_000)}h ago`;
-  }
-  return `${Math.floor(delta / 86_400_000)}d ago`;
+  return formatRelativeTimestamp(value, { fallback: t("common.never") });
 }
 
-function relativeScheduleTime(value: number | null | undefined): string {
-  if (!value) {
-    return "No next run";
-  }
-  const delta = value - Date.now();
-  if (delta <= 0) {
-    return "due now";
-  }
-  if (delta < 60_000) {
-    return "in under a minute";
-  }
-  if (delta < 3_600_000) {
-    return `in ${Math.ceil(delta / 60_000)}m`;
-  }
-  if (delta < 86_400_000) {
-    return `in ${Math.ceil(delta / 3_600_000)}h`;
-  }
-  return `in ${Math.ceil(delta / 86_400_000)}d`;
+function statusLabel(status: OperationsStatus): string {
+  return t(`operationsRoom.status.${STATUS_KEY[status]}`);
 }
 
-function statusPill(status: OperationsStatus) {
+function statusPill(status: OperationsStatus, label = statusLabel(status)) {
   return html`<span class=${`operations-status operations-status--${status}`}>
-    <span class="operations-status__dot" aria-hidden="true"></span>${STATUS_LABELS[status]}
+    <span class="operations-status__icon" aria-hidden="true">${STATUS_SYMBOL[status]}</span>
+    ${label}
   </span>`;
 }
 
-function metric(label: string, value: string | number, detail?: string) {
-  return html`<article class="operations-metric">
-    <span class="operations-metric__label">${label}</span>
-    <strong>${value}</strong>
-    ${detail ? html`<span class="operations-metric__detail">${detail}</span>` : nothing}
+function severityPill(severity: OperationsFinding["severity"]) {
+  return statusPill(SEVERITY_STATUS[severity], t(`operationsRoom.enums.severity.${severity}`));
+}
+
+function briefingToneLabel(tone: OperationsSnapshot["briefing"]["tone"]): string {
+  return t(`operationsRoom.briefingTone.${tone}`);
+}
+
+function sourceLabel(
+  source: OperationsSnapshot["completeness"]["unavailableSources"][number],
+): string {
+  return t(`operationsRoom.enums.sources.${SOURCE_KEY[source]}`);
+}
+
+function sourceConfirmed(
+  snapshot: OperationsSnapshot,
+  source: keyof OperationsSnapshot["freshness"]["sources"],
+): boolean {
+  return snapshot.freshness.sources[source].status === "available";
+}
+
+function sectionSourcesConfirmed(
+  snapshot: OperationsSnapshot,
+  props: OperationsProps,
+  ...sources: Array<keyof OperationsSnapshot["freshness"]["sources"]>
+): boolean {
+  return (
+    !isOperationsSnapshotStale(snapshot, Date.now(), props.refreshFailedAt) &&
+    sources.every((source) => sourceConfirmed(snapshot, source))
+  );
+}
+
+function mutationSourceConfirmed(
+  snapshot: OperationsSnapshot,
+  props: OperationsProps,
+  source: keyof OperationsSnapshot["freshness"]["sources"],
+): boolean {
+  return (
+    snapshot.completeness.status === "complete" && sectionSourcesConfirmed(snapshot, props, source)
+  );
+}
+
+function openOperationsMore() {
+  const details = document.querySelector<HTMLDetailsElement>("#operations-more");
+  if (!details) {
+    return;
+  }
+  details.open = true;
+  const reduceMotion =
+    typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  details.scrollIntoView?.({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+  details.querySelector<HTMLElement>("summary")?.focus({ preventScroll: true });
+}
+
+function categoryLabel(category: OperationsFinding["category"]): string {
+  return t(`operationsRoom.enums.categories.${CATEGORY_KEY[category]}`);
+}
+
+function runtimeLabel(runtime: OperationsSnapshot["activityRollups"][number]["runtime"]): string {
+  return t(`operationsRoom.enums.runtimes.${RUNTIME_KEY[runtime]}`);
+}
+
+function routeLabel(route: NonNullable<OperationsCatalogEntry["route"]>): string {
+  return t(`operationsRoom.enums.routes.${route}`);
+}
+
+function processKindLabel(kind: OperationsSnapshot["processes"][number]["kind"]): string {
+  return t(`operationsRoom.enums.processKinds.${kind}`);
+}
+
+function sectionHref(section: OperationsSection): string {
+  if (typeof window === "undefined") {
+    return `/operations?section=${section}`;
+  }
+  const url = updateOperationsSectionUrl(new URL(window.location.href), section);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function handleSectionClick(
+  event: MouseEvent,
+  section: OperationsSection,
+  callback: OperationsProps["onSectionChange"],
+) {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  event.preventDefault();
+  callback(section);
+}
+
+function quickLink(params: {
+  section: OperationsSection;
+  label: string;
+  detail: string;
+  active: boolean;
+  onSectionChange: OperationsProps["onSectionChange"];
+}) {
+  return html`<a
+    class="operations-quick-link"
+    href=${sectionHref(params.section)}
+    aria-current=${params.active ? "location" : nothing}
+    @click=${(event: MouseEvent) =>
+      handleSectionClick(event, params.section, params.onSectionChange)}
+  >
+    <strong>${params.label}</strong><small>${params.detail}</small>
+  </a>`;
+}
+
+function renderFindingDetails(finding: OperationsFinding, props: OperationsProps) {
+  const workflowMutationSafe = props.snapshot
+    ? mutationSourceConfirmed(props.snapshot, props, "workflows")
+    : false;
+  return html`<details>
+    <summary
+      aria-label=${t("operationsRoom.actions.detailsFor", {
+        title: finding.title,
+      })}
+    >
+      ${t("operationsRoom.actions.details")}
+    </summary>
+    <dl>
+      <div>
+        <dt>${t("operationsRoom.attention.impact")}</dt>
+        <dd>${finding.impact}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.attention.owner")}</dt>
+        <dd>${finding.ownerId ?? t("operationsRoom.openClaw")}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.attention.response")}</dt>
+        <dd>${t(`operationsRoom.attention.responseStates.${finding.responseState}`)}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.attention.nextAction")}</dt>
+        <dd>
+          ${finding.nextAction ??
+          finding.recommendedAction ??
+          t("operationsRoom.attention.continueMonitoring")}
+        </dd>
+      </div>
+      ${finding.lastProgressAt != null
+        ? html`<div>
+            <dt>${t("operationsRoom.attention.lastProgress")}</dt>
+            <dd>${relativeTime(finding.lastProgressAt)}</dd>
+          </div>`
+        : nothing}
+      ${finding.nextCheckAt != null
+        ? html`<div>
+            <dt>${t("operationsRoom.attention.nextCheck")}</dt>
+            <dd>${formatRelativeTimestamp(finding.nextCheckAt)}</dd>
+          </div>`
+        : nothing}
+      ${finding.remediationTaskId
+        ? html`<div>
+            <dt>${t("operationsRoom.attention.remediationTask")}</dt>
+            <dd>${finding.remediationTaskId}</dd>
+          </div>`
+        : nothing}
+    </dl>
+    ${finding.remediationTaskId
+      ? html`<button
+          class="btn btn--sm operations-remediation-link"
+          @click=${() => props.onNavigate("workboard")}
+        >
+          ${t("operationsRoom.attention.openRemediation")}
+        </button>`
+      : nothing}
+    ${finding.category === "workflow" &&
+    finding.entityId &&
+    props.canWrite &&
+    props.snapshot?.controls.supportedActions.includes("flow.cancel")
+      ? html`<button
+          class="btn btn--sm"
+          aria-label=${t("operationsRoom.actions.cancelWork", { title: finding.title })}
+          title=${workflowMutationSafe ? nothing : t("operationsRoom.actions.unavailable")}
+          ?disabled=${props.actionBusy || !workflowMutationSafe}
+          @click=${() => props.onAction("flow.cancel", finding.entityId!)}
+        >
+          ${t("operationsRoom.actions.cancelWorkflow")}
+        </button>`
+      : nothing}
+  </details>`;
+}
+
+function renderFinding(finding: OperationsFinding, props: OperationsProps) {
+  return html`<article class=${`operations-issue operations-issue--${finding.severity}`}>
+    <div class="operations-issue__heading">
+      <strong>${finding.title}</strong>
+      <span class="operations-issue__status">
+        ${finding.evidenceState === "last_known"
+          ? statusPill("unknown", t("operationsRoom.attention.lastKnown"))
+          : nothing}
+        ${severityPill(finding.severity)}
+      </span>
+    </div>
+    <p class="operations-line-clamp">${finding.impact}</p>
+    <small class="operations-muted">
+      ${t("operationsRoom.attention.observed", {
+        time: relativeTime(finding.firstObservedAt ?? finding.lastObservedAt),
+      })}
+    </small>
+    ${renderFindingDetails(finding, props)}
   </article>`;
 }
 
-function catalogSection(title: string, rows: OperationsCatalogEntry[], empty: string) {
-  const healthy = rows.filter((row) => row.status === "healthy").length;
-  const attention = rows.filter(
-    (row) => row.status === "blocked" || row.status === "failed",
-  ).length;
+function renderAttentionLane(params: {
+  title: string;
+  findings: OperationsFinding[];
+  total: number;
+  empty: string;
+  props: OperationsProps;
+}) {
+  return html`<section class="operations-attention-lane">
+    <h3>
+      <span>${params.title}</span
+      ><span class="operations-count"
+        >${params.findings.length === params.total
+          ? String(params.total)
+          : t("operationsRoom.counts.compactShown", {
+              shown: String(params.findings.length),
+              total: String(params.total),
+            })}</span
+      >
+    </h3>
+    ${params.findings.length === 0
+      ? html`<p class="operations-muted">
+          ${params.total === 0
+            ? params.empty
+            : t("operationsRoom.attention.outsidePreview", {
+                count: String(params.total),
+              })}
+        </p>`
+      : html`<div class="operations-attention-list">
+          ${repeat(
+            params.findings,
+            (finding) => finding.id,
+            (finding) => renderFinding(finding, params.props),
+          )}
+        </div>`}
+  </section>`;
+}
+
+function renderAttentionUncertainty(params: {
+  snapshot: OperationsSnapshot;
+  stale: boolean;
+  partial: boolean;
+}) {
+  if (!params.stale && !params.partial) {
+    return nothing;
+  }
+  const unavailable = params.snapshot.completeness.unavailableSources.map(sourceLabel);
+  const fallback = params.snapshot.completeness.fallbackSources.map(sourceLabel);
+  return html`<div class="operations-attention-unknown" role="status">
+    ${statusPill("unknown", t(params.stale ? "operationsRoom.stale" : "operationsRoom.partial"))}
+    <div>
+      <strong>${t("operationsRoom.attention.unconfirmedTitle")}</strong>
+      <p>${t("operationsRoom.attention.unconfirmedDetail")}</p>
+      ${unavailable.length > 0
+        ? html`<small>
+            ${t("operationsRoom.unavailableSources", { sources: unavailable.join(", ") })}
+          </small>`
+        : nothing}
+      ${fallback.length > 0
+        ? html`<small>
+            ${t("operationsRoom.fallbackSources", { sources: fallback.join(", ") })}
+          </small>`
+        : nothing}
+    </div>
+  </div>`;
+}
+
+function renderAttention(
+  snapshot: OperationsSnapshot,
+  options: { stale: boolean; partial: boolean },
+  props: OperationsProps,
+) {
+  const current = currentOperationsFindings(snapshot);
+  const uncertain = options.stale || options.partial;
+  const needsUser = current
+    .filter((finding) => finding.disposition === "needs_user")
+    .slice(0, ATTENTION_LANE_PREVIEW_LIMIT);
+  const handling = current
+    .filter((finding) => finding.disposition === "handling")
+    .slice(0, ATTENTION_LANE_PREVIEW_LIMIT);
+  const watching = current
+    .filter((finding) => finding.disposition === "watching")
+    .slice(0, ATTENTION_LANE_PREVIEW_LIMIT);
+  const previewCount = needsUser.length + handling.length + watching.length;
+  const hasCurrent = snapshot.summary.actionableFindings > 0;
+  return html`<section
+    id=${operationsSectionTargetId("attention")}
+    class="operations-panel"
+    tabindex="-1"
+    aria-labelledby="operations-attention-title"
+  >
+    <div class="operations-panel__header">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.attention.eyebrow")}</p>
+        <h2 id="operations-attention-title">${t("operationsRoom.attention.title")}</h2>
+        <p>${t("operationsRoom.attention.subtitle")}</p>
+      </div>
+      ${uncertain
+        ? statusPill(
+            "unknown",
+            t(options.stale ? "operationsRoom.stale" : "operationsRoom.partial"),
+          )
+        : snapshot.summary.criticalFindings > 0
+          ? statusPill("blocked", t("operationsRoom.status.urgent"))
+          : hasCurrent
+            ? statusPill(
+                "degraded",
+                t("operationsRoom.attention.currentCount", {
+                  count: String(snapshot.summary.actionableFindings),
+                }),
+              )
+            : statusPill("healthy", t("operationsRoom.attention.noCritical"))}
+    </div>
+    ${renderAttentionUncertainty({ snapshot, ...options })}
+    ${previewCount < snapshot.summary.actionableFindings
+      ? html`<div class="operations-bounded-note" role="status">
+          <p>
+            ${t("operationsRoom.attention.showingCurrent", {
+              shown: String(previewCount),
+              total: String(snapshot.summary.actionableFindings),
+            })}
+          </p>
+          <div class="operations-card-actions">
+            <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
+              ${t("operationsRoom.working.openWorkboard")}
+            </button>
+            <button class="btn btn--sm" @click=${() => props.onNavigate("cron")}>
+              ${t("operationsRoom.automationsPanel.openCron")}
+            </button>
+            <button class="btn btn--sm" @click=${() => props.onNavigate("skills")}>
+              ${t("tabs.skills")}
+            </button>
+            <button class="btn btn--sm" @click=${() => props.onNavigate("agents")}>
+              ${t("tabs.agents")}
+            </button>
+            <button class="btn btn--sm" @click=${openOperationsMore}>
+              ${t("operationsRoom.more.title")}
+            </button>
+          </div>
+        </div>`
+      : nothing}
+    ${!hasCurrent && !uncertain
+      ? html`<div class="operations-good">
+          <strong>${t("operationsRoom.attention.none")}</strong>
+        </div>`
+      : hasCurrent
+        ? html`<div class="operations-attention-lanes">
+            ${renderAttentionLane({
+              title: t("operationsRoom.attention.needsYou"),
+              findings: needsUser,
+              total: snapshot.summary.needsUserFindings,
+              empty: t("operationsRoom.attention.noneNeedsYou"),
+              props,
+            })}
+            ${renderAttentionLane({
+              title: t("operationsRoom.attention.handling"),
+              findings: handling,
+              total: snapshot.summary.handlingFindings,
+              empty: t("operationsRoom.attention.noneHandling"),
+              props,
+            })}
+            ${renderAttentionLane({
+              title: t("operationsRoom.attention.watching"),
+              findings: watching,
+              total: snapshot.summary.watchingFindings,
+              empty: t("operationsRoom.attention.noneWatching"),
+              props,
+            })}
+          </div>`
+        : nothing}
+  </section>`;
+}
+
+function renderWorkingItem(
+  item: OperationsWorkingItem,
+  props: OperationsProps,
+  workConfirmed: boolean,
+) {
+  const taskMutationSafe = props.snapshot
+    ? mutationSourceConfirmed(props.snapshot, props, "tasks")
+    : false;
+  const workflowMutationSafe = props.snapshot
+    ? mutationSourceConfirmed(props.snapshot, props, "workflows")
+    : false;
+  return html`<details class="operations-work-row">
+    <summary class="operations-work-row__summary">
+      <div class="operations-work-row__main">
+        <strong class="operations-line-clamp">${item.title}</strong>
+        <small>
+          ${item.agentId ?? t("operationsRoom.openClaw")} · ${relativeTime(item.updatedAt)}
+          ${item.count > 1
+            ? ` · ${t("operationsRoom.working.relatedRuns", { count: String(item.count) })}`
+            : nothing}
+        </small>
+      </div>
+      ${workConfirmed
+        ? statusPill("working")
+        : statusPill("unknown", t("operationsRoom.working.unverified"))}
+    </summary>
+    <div class="operations-work-row__details">
+      ${item.summary ? html`<p>${item.summary}</p>` : nothing}
+      <div class="operations-card-actions">
+        <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
+          ${t("operationsRoom.working.openWorkboard")}
+        </button>
+        ${item.taskId &&
+        props.canWrite &&
+        props.snapshot?.controls.supportedActions.includes("task.cancel")
+          ? html`<button
+              class="btn btn--sm"
+              aria-label=${t("operationsRoom.actions.cancelWork", { title: item.title })}
+              title=${taskMutationSafe ? nothing : t("operationsRoom.actions.unavailable")}
+              ?disabled=${props.actionBusy || !taskMutationSafe}
+              @click=${() => props.onAction("task.cancel", item.taskId!)}
+            >
+              ${t("operationsRoom.actions.cancel")}
+            </button>`
+          : nothing}
+        ${item.workflowId &&
+        props.canWrite &&
+        props.snapshot?.controls.supportedActions.includes("flow.cancel")
+          ? html`<button
+              class="btn btn--sm"
+              aria-label=${t("operationsRoom.actions.cancelWork", { title: item.title })}
+              title=${workflowMutationSafe ? nothing : t("operationsRoom.actions.unavailable")}
+              ?disabled=${props.actionBusy || !workflowMutationSafe}
+              @click=${() => props.onAction("flow.cancel", item.workflowId!)}
+            >
+              ${t("operationsRoom.actions.cancel")}
+            </button>`
+          : nothing}
+      </div>
+    </div>
+  </details>`;
+}
+
+function renderWorking(
+  snapshot: OperationsSnapshot,
+  options: { stale: boolean; partial: boolean },
+  props: OperationsProps,
+) {
+  const items = operationsWorkingItems(snapshot);
+  const preview = items.slice(0, WORKING_PREVIEW_LIMIT);
+  const workConfirmed =
+    !options.stale &&
+    !options.partial &&
+    sourceConfirmed(snapshot, "tasks") &&
+    sourceConfirmed(snapshot, "workflows") &&
+    sourceConfirmed(snapshot, "agents");
+  const sourceBounded =
+    snapshot.collections.tasks.truncated ||
+    snapshot.collections.workflows.truncated ||
+    snapshot.collections.agents.truncated ||
+    snapshot.collections.activityRollups.truncated;
+  const previewBounded = items.length > preview.length || sourceBounded;
+  const hasSupportedMutation =
+    props.canWrite &&
+    snapshot.controls.supportedActions.some(
+      (action) => action === "task.cancel" || action === "flow.cancel",
+    );
+  return html`<section
+    id=${operationsSectionTargetId("working")}
+    class="operations-panel"
+    tabindex="-1"
+    aria-labelledby="operations-working-title"
+  >
+    <div class="operations-panel__header">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.working.eyebrow")}</p>
+        <h2 id="operations-working-title">${t("operationsRoom.working.title")}</h2>
+        <p>${t("operationsRoom.working.subtitle")}</p>
+      </div>
+      ${workConfirmed
+        ? statusPill(items.length > 0 ? "working" : "idle", `${items.length}`)
+        : statusPill("unknown", t("operationsRoom.working.unverified"))}
+    </div>
+    <div class="operations-work-facts" aria-label=${t("operationsRoom.working.workTotals")}>
+      <button type="button" @click=${() => props.onNavigate("workboard")}>
+        <strong>${t("operationsRoom.working.tasks")}</strong>
+        <small>
+          ${workConfirmed
+            ? t("operationsRoom.working.taskTotals", {
+                active: String(snapshot.summary.activeTasks),
+                failed: String(snapshot.summary.failedTasks),
+                total: String(snapshot.summary.tasks),
+              })
+            : t("operationsRoom.working.countsUnconfirmed")}
+        </small>
+      </button>
+      <button type="button" @click=${() => props.onNavigate("workboard")}>
+        <strong>${t("operationsRoom.working.workflows")}</strong>
+        <small>
+          ${workConfirmed
+            ? t("operationsRoom.working.workflowTotals", {
+                active: String(snapshot.summary.activeWorkflows),
+                total: String(snapshot.summary.workflows),
+              })
+            : t("operationsRoom.working.countsUnconfirmed")}
+        </small>
+      </button>
+    </div>
+    ${hasSupportedMutation && !workConfirmed
+      ? html`<p class="operations-muted operations-action-guard" role="status">
+          ${t("operationsRoom.actions.unavailable")}
+        </p>`
+      : nothing}
+    ${items.length === 0
+      ? html`<p class="operations-muted">
+          ${sourceConfirmed(snapshot, "tasks") &&
+          sourceConfirmed(snapshot, "workflows") &&
+          sourceConfirmed(snapshot, "agents")
+            ? t("operationsRoom.working.none")
+            : t("operationsRoom.working.unconfirmed")}
+        </p>`
+      : html`<div class="operations-work-list">
+          ${repeat(
+            preview,
+            (item) => item.id,
+            (item) => renderWorkingItem(item, props, workConfirmed),
+          )}
+        </div>`}
+    ${previewBounded
+      ? html`<div class="operations-bounded-note" role="status">
+          <p>${t("operationsRoom.working.showingPreview", { shown: String(preview.length) })}</p>
+          <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
+            ${t("operationsRoom.working.openWorkboard")}
+          </button>
+        </div>`
+      : nothing}
+  </section>`;
+}
+
+function renderChange(change: OperationsChangeItem): TemplateResult {
+  if (change.kind === "activity") {
+    const result = t(`operationsRoom.changes.outcomes.${change.rollup.status}`);
+    return html`<article class="operations-change">
+      <strong>${change.rollup.title}</strong>
+      <p>
+        ${t(
+          change.rollup.count === 1
+            ? "operationsRoom.changes.activitySummaryOne"
+            : "operationsRoom.changes.activitySummary",
+          {
+            count: String(change.rollup.count),
+            runtime: runtimeLabel(change.rollup.runtime),
+            result,
+          },
+        )}
+      </p>
+      <small>${relativeTime(change.at)}</small>
+    </article>`;
+  }
+  const resolved = change.incident.resolvedAt != null;
+  return html`<article class="operations-change">
+    <strong>${change.incident.title}</strong>
+    <p>
+      ${t(
+        resolved
+          ? "operationsRoom.changes.incidentResolved"
+          : "operationsRoom.changes.incidentChanged",
+      )}
+      · ${categoryLabel(change.incident.category)}
+    </p>
+    <small>${relativeTime(change.at)}</small>
+  </article>`;
+}
+
+function renderChanges(
+  snapshot: OperationsSnapshot,
+  lastVisitedAt: number | null,
+  props: OperationsProps,
+) {
+  const allChanges = operationsChangesSince(snapshot, lastVisitedAt);
+  const changes = allChanges.slice(0, 12);
+  const bounded =
+    allChanges.length > changes.length ||
+    snapshot.collections.activityRollups.truncated ||
+    snapshot.collections.incidentHistory.truncated;
+  const changesConfirmed = sectionSourcesConfirmed(snapshot, props, "tasks", "incident_ledger");
+  return html`<section
+    id="operations-changes"
+    class="operations-panel"
+    aria-labelledby="operations-changes-title"
+  >
+    <div class="operations-panel__header">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.changes.eyebrow")}</p>
+        <h2 id="operations-changes-title">
+          ${lastVisitedAt
+            ? t("operationsRoom.changes.title")
+            : t("operationsRoom.changes.firstVisit")}
+        </h2>
+      </div>
+    </div>
+    ${!changesConfirmed
+      ? html`<p class="operations-muted" role="status">
+          ${t("operationsRoom.changes.unconfirmed")}
+        </p>`
+      : nothing}
+    ${changes.length === 0
+      ? changesConfirmed
+        ? html`<p class="operations-muted">${t("operationsRoom.changes.none")}</p>`
+        : nothing
+      : html`<div class="operations-change-list">
+          ${repeat(changes, (change) => change.id, renderChange)}
+        </div>`}
+    ${bounded
+      ? html`<div class="operations-bounded-note" role="status">
+          <p>${t("operationsRoom.changes.showingNewest", { count: String(changes.length) })}</p>
+          <button class="btn btn--sm" @click=${openOperationsMore}>
+            ${t("operationsRoom.changes.openActivity")}
+          </button>
+        </div>`
+      : nothing}
+  </section>`;
+}
+
+function agentActivityPill(agent: OperationsAgentSnapshot) {
+  const status = ACTIVITY_STATUS[agent.activityState];
+  const label =
+    agent.activityState === "waiting"
+      ? t("operationsRoom.status.waiting")
+      : agent.activityState === "scheduled"
+        ? t("operationsRoom.status.scheduled")
+        : statusLabel(status);
+  return statusPill(status, label);
+}
+
+function agentHealthPill(agent: OperationsAgentSnapshot) {
+  return statusPill(HEALTH_STATUS[agent.healthState]);
+}
+
+function agentAttentionPill(agent: OperationsAgentSnapshot) {
+  if (agent.attentionState === "urgent") {
+    return statusPill("blocked", t("operationsRoom.status.urgent"));
+  }
+  if (agent.attentionState === "needs_user") {
+    return statusPill("degraded", t("operationsRoom.status.needsAttention"));
+  }
+  if (agent.attentionState === "handling") {
+    return statusPill("degraded", t("operationsRoom.attention.handling"));
+  }
+  if (agent.attentionState === "watching") {
+    return statusPill("degraded", t("operationsRoom.attention.watching"));
+  }
+  return nothing;
+}
+
+function activeAgentWork(agent: OperationsAgentSnapshot) {
+  return agent.currentWork?.outcome === "active" ? agent.currentWork : null;
+}
+
+function agentActivityLabel(agent: OperationsAgentSnapshot): string {
+  switch (agent.activityState) {
+    case "working":
+      return t("operationsRoom.status.working");
+    case "waiting":
+      return t("operationsRoom.status.waiting");
+    case "scheduled":
+      return t("operationsRoom.status.scheduled");
+    case "ready":
+      return t("operationsRoom.agents.readyForWork");
+    case "off":
+      return t("operationsRoom.status.off");
+    default:
+      return t("operationsRoom.status.unknown");
+  }
+}
+
+function renderAgentRow(
+  agent: OperationsAgentSnapshot,
+  props: OperationsProps,
+  agentsConfirmed: boolean,
+) {
+  const name = agent.name ?? agent.id;
+  const pinned = props.pinnedAgentIds.includes(agent.id);
+  const current = activeAgentWork(agent);
+  const last = agent.lastActivity;
+  return html`<details class="operations-agent-row">
+    <summary class="operations-agent-row__summary">
+      <span class="operations-agent-row__avatar" aria-hidden="true"
+        >${name.slice(0, 1).toUpperCase()}</span
+      >
+      <div class="operations-agent-row__identity">
+        <strong
+          >${name}${pinned
+            ? html` <span aria-label=${t("operationsRoom.agents.pinned")}>★</span>`
+            : nothing}</strong
+        >
+        <small class="operations-line-clamp">
+          ${current?.title ?? agentActivityLabel(agent)} · ${agent.id}
+        </small>
+      </div>
+      <div class="operations-agent-row__states">
+        ${agentsConfirmed
+          ? html`${agentActivityPill(agent)} ${agentHealthPill(agent)} ${agentAttentionPill(agent)}`
+          : statusPill("unknown", t("operationsRoom.agents.unconfirmedShort"))}
+      </div>
+    </summary>
+    <div class="operations-agent-row__details">
+      ${current?.summary ? html`<p>${current.summary}</p>` : nothing}
+      <dl>
+        <div>
+          <dt>${t("operationsRoom.agents.duty")}</dt>
+          <dd>
+            ${t(`operationsRoom.enums.duties.${DUTY_KEY[agent.duty]}`)} ·
+            ${t(`operationsRoom.enums.dutySources.${DUTY_SOURCE_KEY[agent.dutySource]}`)}
+          </dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.currentWork")}</dt>
+          <dd>${current?.title ?? t("operationsRoom.agents.noCurrentWork")}</dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.lastActivity")}</dt>
+          <dd>
+            ${last
+              ? `${last.title} · ${relativeTime(last.updatedAt)}`
+              : relativeTime(agent.latestActivityAt)}
+          </dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.taskCounts")}</dt>
+          <dd>
+            ${t("operationsRoom.agents.taskCountSummary", {
+              active: String(agent.activeTaskCount),
+              blocked: String(agent.blockedTaskCount),
+            })}
+          </dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.model")}</dt>
+          <dd>${agent.model ?? t("operationsRoom.agents.inheritedDefault")}</dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.fallback")}</dt>
+          <dd>${agent.fallbackModels.join(", ") || t("operationsRoom.agents.noFallback")}</dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.heartbeat")}</dt>
+          <dd>
+            ${agent.heartbeat.enabled ? agent.heartbeat.every : t("operationsRoom.status.off")}
+          </dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.agents.ram")}</dt>
+          <dd>${bytes(agent.memoryBytes)}</dd>
+        </div>
+      </dl>
+      <div class="operations-card-actions">
+        <button class="btn btn--sm" @click=${() => props.onOpenAgent(agent.id)}>
+          ${t("operationsRoom.agents.openAgent")}
+        </button>
+        <button
+          class="operations-pin"
+          type="button"
+          aria-pressed=${pinned ? "true" : "false"}
+          aria-label=${t(pinned ? "operationsRoom.agents.unpin" : "operationsRoom.agents.pin", {
+            name,
+          })}
+          @click=${() => props.onToggleAgentPin(agent.id)}
+        >
+          <span aria-hidden="true">${pinned ? "★" : "☆"}</span>
+        </button>
+      </div>
+    </div>
+  </details>`;
+}
+
+function agentGroupLabel(id: OperationsAgentGroupId): string {
+  return t(`operationsRoom.agents.${id}`);
+}
+
+function renderAgentGroup(
+  group: OperationsAgentGroup,
+  props: OperationsProps,
+  agentsConfirmed: boolean,
+) {
+  const content = html`
+    <summary>
+      <strong>${agentGroupLabel(group.id)}</strong>
+      <span class="operations-count">${group.agents.length}</span>
+    </summary>
+    <div class="operations-agent-group__rows">
+      ${repeat(
+        group.agents,
+        (agent) => agent.id,
+        (agent) => renderAgentRow(agent, props, agentsConfirmed),
+      )}
+    </div>
+  `;
+  const openByDefault = group.id === "urgent" || group.id === "attention" || group.id === "working";
+  return openByDefault
+    ? html`<details class=${`operations-agent-group operations-agent-group--${group.id}`} open>
+        ${content}
+      </details>`
+    : html`<details class=${`operations-agent-group operations-agent-group--${group.id}`}>
+        ${content}
+      </details>`;
+}
+
+function renderAgents(snapshot: OperationsSnapshot, props: OperationsProps) {
+  const agentsConfirmed = sectionSourcesConfirmed(snapshot, props, "agents");
+  const groups = groupOperationsAgents({
+    agents: snapshot.agents,
+    lastVisitedAt: props.lastVisitedAt,
+    pinnedAgentIds: props.pinnedAgentIds,
+    query: props.agentQuery,
+    sort: props.agentSort,
+  });
+  return html`<section
+    id=${operationsSectionTargetId("agents")}
+    class="operations-panel"
+    tabindex="-1"
+    aria-labelledby="operations-agents-title"
+  >
+    <div class="operations-panel__header">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.agents.eyebrow")}</p>
+        <h2 id="operations-agents-title">${t("operationsRoom.agents.title")}</h2>
+        <p>${t("operationsRoom.agents.subtitle")}</p>
+      </div>
+      <div class="operations-toolbar">
+        <input
+          class="operations-search"
+          type="search"
+          .value=${props.agentQuery}
+          aria-label=${t("operationsRoom.agents.searchLabel")}
+          placeholder=${t("operationsRoom.agents.searchPlaceholder")}
+          @input=${(event: Event) =>
+            props.onAgentQueryChange((event.currentTarget as HTMLInputElement).value)}
+        />
+        <select
+          class="operations-sort"
+          .value=${props.agentSort}
+          aria-label=${t("operationsRoom.agents.sortLabel")}
+          @change=${(event: Event) =>
+            props.onAgentSortChange(
+              (event.currentTarget as HTMLSelectElement).value as OperationsAgentSort,
+            )}
+        >
+          <option value="priority">${t("operationsRoom.agents.sortPriority")}</option>
+          <option value="name">${t("operationsRoom.agents.sortName")}</option>
+          <option value="recent">${t("operationsRoom.agents.sortRecent")}</option>
+        </select>
+      </div>
+    </div>
+    <p class="operations-muted">${t("operationsRoom.agents.browserLocalPins")}</p>
+    ${!agentsConfirmed
+      ? html`<p class="operations-muted" role="status">
+          ${t("operationsRoom.agents.unconfirmed")}
+        </p>`
+      : nothing}
+    ${snapshot.collections.agents.truncated
+      ? html`<div class="operations-bounded-note" role="status">
+          <p>
+            ${t("operationsRoom.agents.showing", {
+              shown: String(snapshot.collections.agents.shown),
+              total: String(snapshot.collections.agents.total),
+            })}
+          </p>
+          <button class="btn btn--sm" @click=${() => props.onNavigate("agents")}>
+            ${t("operationsRoom.agents.openAll")}
+          </button>
+        </div>`
+      : nothing}
+    ${groups.length === 0
+      ? html`<p class="operations-muted">
+          ${!agentsConfirmed
+            ? t("operationsRoom.agents.unconfirmed")
+            : snapshot.collections.agents.truncated
+              ? t("operationsRoom.agents.noShownMatches")
+              : t("operationsRoom.agents.noMatches")}
+        </p>`
+      : html`<div class="operations-agent-groups">
+          ${repeat(
+            groups,
+            (group) => group.id,
+            (group) => renderAgentGroup(group, props, agentsConfirmed),
+          )}
+        </div>`}
+  </section>`;
+}
+
+function renderAutomations(snapshot: OperationsSnapshot, props: OperationsProps) {
+  const jobs = snapshot.cronJobs.toSorted(
+    (left, right) =>
+      Number(right.status === "failed" || right.status === "degraded") -
+        Number(left.status === "failed" || left.status === "degraded") ||
+      Number(right.running) - Number(left.running) ||
+      (left.nextRunAt ?? Number.MAX_SAFE_INTEGER) - (right.nextRunAt ?? Number.MAX_SAFE_INTEGER),
+  );
+  const scheduleMutationSafe = mutationSourceConfirmed(snapshot, props, "schedules");
+  const schedulesConfirmed = sectionSourcesConfirmed(snapshot, props, "schedules");
+  const supportsScheduleMutation =
+    props.canAdmin &&
+    snapshot.controls.supportedActions.some((action) => action.startsWith("cron."));
+  return html`<section
+    id=${operationsSectionTargetId("automations")}
+    class="operations-panel"
+    tabindex="-1"
+    aria-labelledby="operations-automations-title"
+  >
+    <div class="operations-panel__header">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.automationsPanel.eyebrow")}</p>
+        <h2 id="operations-automations-title">${t("operationsRoom.automationsPanel.title")}</h2>
+      </div>
+      <button class="btn btn--sm" @click=${() => props.onNavigate("cron")}>
+        ${t("operationsRoom.automationsPanel.openCron")}
+      </button>
+    </div>
+    ${!schedulesConfirmed
+      ? html`<p class="operations-muted" role="status">
+          ${t("operationsRoom.automationsPanel.unconfirmed")}
+        </p>`
+      : nothing}
+    ${jobs.length === 0
+      ? html`<p class="operations-muted">
+          ${schedulesConfirmed
+            ? t("operationsRoom.automationsPanel.none")
+            : t("operationsRoom.automationsPanel.unconfirmed")}
+        </p>`
+      : html`<div class="operations-automation-list">
+          ${repeat(
+            jobs.slice(0, 8),
+            (job) => job.id,
+            (job) => {
+              const toggleAction = job.enabled ? "cron.disable" : "cron.enable";
+              const canRun =
+                props.canAdmin && snapshot.controls.supportedActions.includes("cron.run");
+              const canToggle =
+                props.canAdmin && snapshot.controls.supportedActions.includes(toggleAction);
+              return html`<article class="operations-automation-row">
+                <div>
+                  <strong class="operations-line-clamp">${job.name}</strong>
+                  <small
+                    >${job.agentId ?? t("operationsRoom.openClaw")} ·
+                    ${formatRelativeTimestamp(job.nextRunAt, {
+                      fallback: t("operationsRoom.automationsPanel.noNextRun"),
+                    })}</small
+                  >
+                </div>
+                ${schedulesConfirmed
+                  ? statusPill(job.status)
+                  : statusPill("unknown", t("operationsRoom.attention.unconfirmedShort"))}
+                ${canRun || canToggle
+                  ? html`<div class="operations-row-actions">
+                      ${canRun
+                        ? html`<button
+                            class="btn btn--sm"
+                            aria-label=${t("operationsRoom.actions.runSchedule", {
+                              title: job.name,
+                            })}
+                            title=${scheduleMutationSafe
+                              ? nothing
+                              : t("operationsRoom.actions.unavailable")}
+                            ?disabled=${props.actionBusy || !scheduleMutationSafe}
+                            @click=${() => props.onAction("cron.run", job.id)}
+                          >
+                            ${t("operationsRoom.automationsPanel.runNow")}
+                          </button>`
+                        : nothing}
+                      ${canToggle
+                        ? html`<button
+                            class="btn btn--sm"
+                            aria-label=${t(
+                              job.enabled
+                                ? "operationsRoom.actions.pauseSchedule"
+                                : "operationsRoom.actions.enableSchedule",
+                              { title: job.name },
+                            )}
+                            title=${scheduleMutationSafe
+                              ? nothing
+                              : t("operationsRoom.actions.unavailable")}
+                            ?disabled=${props.actionBusy || !scheduleMutationSafe}
+                            @click=${() => props.onAction(toggleAction, job.id)}
+                          >
+                            ${t(
+                              job.enabled
+                                ? "operationsRoom.automationsPanel.pause"
+                                : "operationsRoom.automationsPanel.enable",
+                            )}
+                          </button>`
+                        : nothing}
+                    </div>`
+                  : nothing}
+              </article>`;
+            },
+          )}
+        </div>`}
+    ${supportsScheduleMutation && !scheduleMutationSafe
+      ? html`<p class="operations-muted operations-action-guard" role="status">
+          ${t("operationsRoom.actions.unavailable")}
+        </p>`
+      : nothing}
+    ${jobs.length > 8 || snapshot.collections.cronJobs.truncated
+      ? html`<p class="operations-muted operations-bounded-status" role="status">
+          ${t("operationsRoom.automationsPanel.showing", {
+            shown: String(Math.min(8, jobs.length)),
+            total: String(snapshot.collections.cronJobs.total),
+          })}
+        </p>`
+      : nothing}
+  </section>`;
+}
+
+function renderSystem(snapshot: OperationsSnapshot, stale: boolean) {
+  const reliable = !stale;
+  const eventLoop =
+    snapshot.host.eventLoopLagMs == null
+      ? t("common.na")
+      : t("operationsRoom.systemHealth.milliseconds", {
+          count: String(snapshot.host.eventLoopLagMs),
+        });
+  return html`<section
+    id=${operationsSectionTargetId("system")}
+    class="operations-panel"
+    tabindex="-1"
+    aria-labelledby="operations-system-title"
+  >
+    <div class="operations-system__heading">
+      <div>
+        <p class="operations-eyebrow">${t("operationsRoom.systemHealth.eyebrow")}</p>
+        <h2 id="operations-system-title">${t("operationsRoom.systemHealth.title")}</h2>
+      </div>
+      ${reliable
+        ? statusPill(
+            snapshot.host.status,
+            snapshot.host.status === "healthy"
+              ? t("operationsRoom.systemHealth.normal")
+              : statusLabel(snapshot.host.status),
+          )
+        : statusPill("unknown", stale ? t("operationsRoom.stale") : t("operationsRoom.partial"))}
+    </div>
+    <div class="operations-system__summary">
+      <article class="operations-system__item">
+        <small>${t("operationsRoom.systemHealth.memory")}</small>
+        <strong
+          >${t("operationsRoom.systemHealth.memoryInUse", {
+            percent: String(snapshot.host.memoryUsedPercent),
+          })}</strong
+        >
+        <div
+          class=${`operations-memory-progress operations-memory-progress--${snapshot.host.status}`}
+          role="progressbar"
+          aria-label=${t("operationsRoom.systemHealth.memory")}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow=${snapshot.host.memoryUsedPercent}
+        >
+          <span style=${`width: ${Math.min(100, snapshot.host.memoryUsedPercent)}%`}></span>
+        </div>
+      </article>
+      <article class="operations-system__item">
+        <small>${t("operationsRoom.systemHealth.gateway")}</small>
+        <strong>${statusLabel(snapshot.host.status)}</strong>
+      </article>
+      <article class="operations-system__item">
+        <small>${t("operationsRoom.systemHealth.cpu")}</small>
+        <strong
+          >${t("operationsRoom.systemHealth.load", {
+            value: snapshot.host.loadAverage[0].toFixed(2),
+          })}</strong
+        >
+      </article>
+      <article class="operations-system__item">
+        <small>${t("operationsRoom.systemHealth.responseDelay")}</small>
+        <strong>${eventLoop}</strong>
+      </article>
+    </div>
+    <details class="operations-system__details">
+      <summary>${t("operationsRoom.systemHealth.technicalDetails")}</summary>
+      <dl>
+        <div>
+          <dt>${t("operationsRoom.systemHealth.gatewayRam")}</dt>
+          <dd>${bytes(snapshot.host.processRssBytes)}</dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.systemHealth.host")}</dt>
+          <dd>${snapshot.host.hostname} · ${snapshot.host.platform} · ${snapshot.host.arch}</dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.systemHealth.logicalCores")}</dt>
+          <dd>${snapshot.host.logicalCpuCount}</dd>
+        </div>
+        <div>
+          <dt>${t("operationsRoom.systemHealth.memory")}</dt>
+          <dd>
+            ${t("operationsRoom.systemHealth.memoryBreakdown", {
+              used: bytes(snapshot.host.usedMemoryBytes),
+              available: bytes(snapshot.host.availableMemoryBytes),
+              total: bytes(snapshot.host.totalMemoryBytes),
+            })}
+          </dd>
+        </div>
+      </dl>
+      <p class="operations-muted">${t("operationsRoom.systemHealth.agentRamNote")}</p>
+    </details>
+  </section>`;
+}
+
+function catalogSection(
+  title: string,
+  rows: OperationsCatalogEntry[],
+  collection: OperationsSnapshot["collections"]["skills"],
+  empty: string,
+  confirmed: boolean,
+) {
+  const available = rows.filter((row) => row.availability === "available").length;
+  const setup = rows.filter((row) => row.availability === "unavailable").length;
+  const unverified = rows.filter((row) => row.availability === "unverified").length;
   return html`<details class="operations-catalog">
     <summary>
-      <span
-        ><strong>${title}</strong
-        ><small>${healthy} ready · ${attention} need attention</small></span
+      <span>
+        <strong>${title}</strong>
+        <small>
+          ${!confirmed
+            ? t("operationsRoom.more.availabilityUnverified")
+            : collection.truncated
+              ? `${t("operationsRoom.more.catalogShowing", {
+                  shown: String(collection.shown),
+                  total: String(collection.total),
+                })} · `
+              : nothing}
+          ${t("operationsRoom.more.available", { count: String(available) })} ·
+          ${t("operationsRoom.more.needsSetup", { count: String(setup) })}
+          ${unverified > 0
+            ? ` · ${unverified} ${t("operationsRoom.more.availabilityUnverified")}`
+            : nothing}
+        </small>
+      </span>
+      <span class="operations-count"
+        >${!confirmed
+          ? t("common.na")
+          : collection.truncated
+            ? t("operationsRoom.counts.compactShown", {
+                shown: String(collection.shown),
+                total: String(collection.total),
+              })
+            : String(collection.total)}</span
       >
-      <span class="operations-count">${rows.length}</span>
     </summary>
+    ${!confirmed
+      ? html`<p class="operations-muted">${t("operationsRoom.more.catalogUnavailable")}</p>`
+      : nothing}
     ${rows.length === 0
-      ? html`<p class="muted">${empty}</p>`
+      ? confirmed
+        ? html`<p class="operations-muted">${empty}</p>`
+        : nothing
       : html`<div class="operations-catalog__grid">
-          ${rows.map(
+          ${repeat(
+            rows,
+            (row) => row.id,
             (row) => html`<article class="operations-catalog__item">
               <div>
-                <strong>${row.name}</strong>
-                <small>${row.source ?? row.owner ?? row.id}</small>
+                <strong>${row.name}</strong><small>${row.source ?? row.owner ?? row.id}</small>
               </div>
               ${statusPill(row.status)}
+              <div class="operations-catalog__truth">
+                <span
+                  >${t(
+                    row.configured
+                      ? "operationsRoom.more.configured"
+                      : "operationsRoom.more.notConfigured",
+                  )}</span
+                >
+                <span
+                  >${t(
+                    row.active === true
+                      ? "operationsRoom.more.active"
+                      : row.active === false
+                        ? "operationsRoom.more.inactive"
+                        : "operationsRoom.more.activityUnverified",
+                  )}</span
+                >
+              </div>
               ${row.route
                 ? html`<span class=${`operations-route operations-route--${row.route}`}
-                    >${row.route}</span
+                    >${routeLabel(row.route)}</span
                   >`
                 : nothing}
               ${row.reason ? html`<p>${row.reason}</p>` : nothing}
@@ -130,397 +1393,549 @@ function catalogSection(title: string, rows: OperationsCatalogEntry[], empty: st
   </details>`;
 }
 
+function incidentChangedAt(incident: OperationsIncidentHistoryEntry): number {
+  return Math.max(
+    incident.resolvedAt ?? 0,
+    incident.lastObservedAt,
+    ...incident.transitions.map((transition) => transition.at),
+  );
+}
+
+function renderActivityHistory(snapshot: OperationsSnapshot, props: OperationsProps) {
+  const rollups = snapshot.activityRollups.toSorted(
+    (left, right) => right.latestAt - left.latestAt || left.key.localeCompare(right.key),
+  );
+  const total = Math.max(snapshot.collections.activityRollups.total, rollups.length);
+  const shown = rollups.length;
+  const confirmed = sectionSourcesConfirmed(snapshot, props, "tasks");
+
+  if (total === 0 && shown === 0) {
+    return html`<p class="operations-muted">
+      ${confirmed
+        ? t("operationsRoom.more.noActivityHistory")
+        : t("operationsRoom.more.activityHistoryUnavailable")}
+    </p>`;
+  }
+
+  return html`<details class="operations-history operations-activity-history">
+    <summary>
+      <span>
+        <strong>${t("operationsRoom.more.activityHistory")}</strong>
+        <small>
+          ${shown < total
+            ? t("operationsRoom.counts.shown", { shown: String(shown), total: String(total) })
+            : t("operationsRoom.more.activityCount", { count: String(total) })}
+        </small>
+      </span>
+      <span class="operations-count">${shown}</span>
+    </summary>
+    ${!confirmed
+      ? html`<p class="operations-muted">${t("operationsRoom.more.activityHistoryUnavailable")}</p>`
+      : nothing}
+    <div class="operations-change-list" role="list">
+      ${repeat(
+        rollups,
+        (rollup) => rollup.key,
+        (rollup) => html`<div role="listitem">
+          ${renderChange({
+            kind: "activity",
+            id: `activity:${rollup.key}`,
+            at: rollup.latestAt,
+            rollup,
+          })}
+        </div>`,
+      )}
+    </div>
+    ${shown < total
+      ? html`<p class="operations-muted operations-bounded-status" role="status">
+          ${t("operationsRoom.more.activitySnapshotBounded", {
+            shown: String(shown),
+            total: String(total),
+          })}
+        </p>`
+      : nothing}
+  </details>`;
+}
+
+function renderIncidentHistory(snapshot: OperationsSnapshot, props: OperationsProps) {
+  const incidents = snapshot.incidentHistory.toSorted(
+    (left, right) =>
+      incidentChangedAt(right) - incidentChangedAt(left) || left.title.localeCompare(right.title),
+  );
+  const total = snapshot.collections.incidentHistory.total;
+  const shown = Math.min(incidents.length, snapshot.collections.incidentHistory.shown);
+  const overflow = snapshot.incidentLedger.overflowCount;
+  const confirmed = sectionSourcesConfirmed(snapshot, props, "incident_ledger");
+
+  if (total === 0 && overflow === 0) {
+    return html`<p class="operations-muted">
+      ${confirmed
+        ? t("operationsRoom.more.noHistory")
+        : t("operationsRoom.more.historyUnavailable")}
+    </p>`;
+  }
+
+  return html`<details class="operations-history operations-incident-history">
+    <summary>
+      <span>
+        <strong>${t("operationsRoom.more.incidentHistory")}</strong>
+        <small>
+          ${shown < total
+            ? t("operationsRoom.counts.shown", { shown: String(shown), total: String(total) })
+            : t("operationsRoom.more.incidentCount", { count: String(total) })}
+        </small>
+      </span>
+      <span class="operations-count">${shown}</span>
+    </summary>
+    ${!confirmed
+      ? html`<p class="operations-muted">${t("operationsRoom.more.historyUnavailable")}</p>`
+      : nothing}
+    ${incidents.length === 0
+      ? confirmed
+        ? html`<p class="operations-muted">${t("operationsRoom.more.historyUnavailable")}</p>`
+        : nothing
+      : html`<ol
+          class="operations-incident-history__list"
+          aria-label=${t("operationsRoom.more.incidentHistory")}
+        >
+          ${repeat(
+            incidents,
+            (incident) => incident.id,
+            (incident) => html`<li class="operations-incident-history__item">
+              <div class="operations-incident-history__heading">
+                <strong>${incident.title}</strong>
+                ${severityPill(incident.severity)}
+              </div>
+              <p>
+                ${categoryLabel(incident.category)} ·
+                ${t(`operationsRoom.attention.responseStates.${incident.responseState}`)} ·
+                ${t(`operationsRoom.enums.dispositions.${incident.disposition}`)}
+              </p>
+              <small>
+                ${t("operationsRoom.more.changed", {
+                  time: relativeTime(incidentChangedAt(incident)),
+                })}
+                ·
+                ${t("operationsRoom.more.transitionCount", {
+                  count: String(incident.transitions.length),
+                })}
+              </small>
+            </li>`,
+          )}
+        </ol>`}
+    ${overflow > 0
+      ? html`<p class="operations-muted">
+          ${t("operationsRoom.more.historyOverflow", { count: String(overflow) })}
+        </p>`
+      : nothing}
+    ${shown < total
+      ? html`<div class="operations-bounded-note" role="status">
+          <p>
+            ${t("operationsRoom.more.historySnapshotBounded", {
+              shown: String(shown),
+              total: String(total),
+            })}
+          </p>
+        </div>`
+      : nothing}
+  </details>`;
+}
+
+function renderMore(snapshot: OperationsSnapshot, props: OperationsProps) {
+  const historicalCount = snapshot.summary.historicalFindings;
+  const incidentCount = snapshot.collections.incidentHistory.total;
+  const rejectedProcessRows = snapshot.collections.processes.rejected ?? 0;
+  const incidentsConfirmed = sectionSourcesConfirmed(snapshot, props, "incident_ledger");
+  const workflowsConfirmed = sectionSourcesConfirmed(snapshot, props, "workflows");
+  const capabilitiesConfirmed = sectionSourcesConfirmed(snapshot, props, "capabilities");
+  const modelsConfirmed = sectionSourcesConfirmed(snapshot, props, "models");
+  const processSourceStatus = snapshot.freshness.sources.processes.status;
+  const processesReadable =
+    !isOperationsSnapshotStale(snapshot, Date.now(), props.refreshFailedAt) &&
+    (processSourceStatus === "available" || processSourceStatus === "fallback");
+  const processesOmitted = processSourceStatus === "omitted";
+  return html`<details id="operations-more" class="operations-more">
+    <summary>
+      <span class="operations-more__summary-copy">
+        <strong>${t("operationsRoom.more.title")}</strong>
+        <small>${t("operationsRoom.more.subtitle")}</small>
+      </span>
+    </summary>
+    <div class="operations-more__body">
+      <section class="operations-more__section">
+        <h2>${t("operationsRoom.more.recentHistory")}</h2>
+        <p class="operations-muted">
+          ${historicalCount > 0 || incidentCount > 0
+            ? t("operationsRoom.more.historySummary", {
+                findings: String(historicalCount),
+                incidents: String(incidentCount),
+              })
+            : incidentsConfirmed
+              ? t("operationsRoom.more.noHistory")
+              : t("operationsRoom.more.historyUnavailable")}
+        </p>
+        ${renderActivityHistory(snapshot, props)} ${renderIncidentHistory(snapshot, props)}
+        ${snapshot.collections.activityRollups.truncated
+          ? html`<p class="operations-muted">
+              ${t("operationsRoom.more.activitySnapshotBounded", {
+                shown: String(snapshot.collections.activityRollups.shown),
+                total: String(snapshot.collections.activityRollups.total),
+              })}
+            </p>`
+          : nothing}
+        ${snapshot.reconciler.lastError
+          ? html`<div class="operations-monitor-warning">
+              ${statusPill("unknown")}
+              <div>
+                <strong>${t("operationsRoom.more.monitorIssue")}</strong>
+                <p>${snapshot.reconciler.lastError}</p>
+              </div>
+            </div>`
+          : nothing}
+        <p class="operations-muted">
+          ${t("operationsRoom.more.monitorStatus", {
+            attempt: relativeTime(snapshot.reconciler.lastAttemptAt),
+            success: relativeTime(snapshot.reconciler.lastSweepAt),
+          })}
+        </p>
+      </section>
+      <section class="operations-more__section operations-more-workflows">
+        <div class="operations-panel__header">
+          <div>
+            <h2>${t("operationsRoom.more.workflows")}</h2>
+            <p>
+              ${workflowsConfirmed
+                ? t("operationsRoom.more.workflowSummary", {
+                    total: String(snapshot.collections.workflows.total),
+                    active: String(snapshot.summary.activeWorkflows),
+                  })
+                : t("operationsRoom.working.countsUnconfirmed")}
+            </p>
+          </div>
+          <button class="btn btn--sm" @click=${() => props.onNavigate("workboard")}>
+            ${t("operationsRoom.working.openWorkboard")}
+          </button>
+        </div>
+      </section>
+      <section class="operations-more__section">
+        <div class="operations-panel__header">
+          <div>
+            <h2>${t("operationsRoom.more.capabilities")}</h2>
+            <p>${t("operationsRoom.more.configuredActive")}</p>
+          </div>
+          <button class="btn btn--sm" @click=${() => props.onNavigate("skills")}>
+            ${t("tabs.skills")}
+          </button>
+        </div>
+        <div class="operations-catalogs">
+          ${catalogSection(
+            t("operationsRoom.more.skills"),
+            snapshot.skills,
+            snapshot.collections.skills,
+            t("operationsRoom.more.noSkills"),
+            capabilitiesConfirmed,
+          )}
+          ${catalogSection(
+            t("operationsRoom.more.plugins"),
+            snapshot.plugins,
+            snapshot.collections.plugins,
+            t("operationsRoom.more.noPlugins"),
+            capabilitiesConfirmed,
+          )}
+          ${catalogSection(
+            t("operationsRoom.more.tools"),
+            snapshot.tools,
+            snapshot.collections.tools,
+            t("operationsRoom.more.noTools"),
+            capabilitiesConfirmed,
+          )}
+          ${catalogSection(
+            t("operationsRoom.more.models"),
+            snapshot.models,
+            snapshot.collections.models,
+            t("operationsRoom.more.noModels"),
+            modelsConfirmed,
+          )}
+        </div>
+      </section>
+      <section class="operations-more__section">
+        <h2>${t("operationsRoom.more.processes")}</h2>
+        <p class="operations-muted">${t("operationsRoom.more.argumentsPrivate")}</p>
+        ${processesOmitted
+          ? html`<p class="operations-muted" role="status">
+              ${t("operationsRoom.more.processesOmitted")}
+            </p>`
+          : !processesReadable
+            ? html`<p class="operations-muted" role="status">
+                ${t("operationsRoom.more.processesUnavailable")}
+              </p>`
+            : nothing}
+        ${rejectedProcessRows > 0
+          ? html`<p class="operations-muted operations-process-rejection" role="status">
+              ${t(
+                rejectedProcessRows === 1
+                  ? "operationsRoom.more.processRowsRejectedOne"
+                  : "operationsRoom.more.processRowsRejected",
+                { count: String(rejectedProcessRows) },
+              )}
+            </p>`
+          : nothing}
+        ${processesReadable && snapshot.collections.processes.truncated
+          ? html`<p class="operations-muted operations-bounded-status" role="status">
+              ${t("operationsRoom.more.processesShowing", {
+                shown: String(snapshot.collections.processes.shown),
+                total: String(snapshot.collections.processes.total),
+              })}
+            </p>`
+          : nothing}
+        <div class="operations-processes">
+          ${snapshot.processes.length === 0
+            ? processesReadable
+              ? html`<p class="operations-muted">${t("operationsRoom.more.noProcesses")}</p>`
+              : nothing
+            : repeat(
+                snapshot.processes,
+                (process) => process.pid,
+                (process) => html`<div class="operations-process">
+                  <strong>${process.command}</strong>
+                  <span>${processKindLabel(process.kind)}</span>
+                  <span>${bytes(process.rssBytes)}</span>
+                  <span
+                    >${t("operationsRoom.more.cpuPercent", {
+                      percent: process.cpuPercent.toFixed(1),
+                    })}</span
+                  >
+                </div>`,
+              )}
+        </div>
+      </section>
+    </div>
+  </details>`;
+}
+
+function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
+  const now = Date.now();
+  const stale = isOperationsSnapshotStale(snapshot, now, props.refreshFailedAt);
+  const partial = snapshot.completeness.status === "partial";
+  const briefingTone = stale || partial ? "unknown" : snapshot.briefing.tone;
+  const unavailableSources = snapshot.completeness.unavailableSources.map(sourceLabel);
+  const fallbackSources = snapshot.completeness.fallbackSources.map(sourceLabel);
+  const working = operationsWorkingItems(snapshot);
+  const attentionConfirmed = !stale && !partial;
+  const workingConfirmed =
+    attentionConfirmed &&
+    sourceConfirmed(snapshot, "tasks") &&
+    sourceConfirmed(snapshot, "workflows") &&
+    sourceConfirmed(snapshot, "agents");
+  const agentsConfirmed = attentionConfirmed && sourceConfirmed(snapshot, "agents");
+  const schedulesConfirmed = attentionConfirmed && sourceConfirmed(snapshot, "schedules");
+  const systemDetail = t("operationsRoom.systemHealth.memorySummary", {
+    percent: String(snapshot.host.memoryUsedPercent),
+  });
+  const agentCount = snapshot.collections.agents.total;
+  const cronCount = snapshot.collections.cronJobs.total;
+  return html`
+    ${props.error && props.refreshFailedAt != null
+      ? html`<div class="callout warning" role="status">
+          <strong>${t("operationsRoom.staleTitle")}</strong>
+          <p>${t("operationsRoom.staleDetail", { time: relativeTime(props.updatedAt) })}</p>
+        </div>`
+      : nothing}
+    ${props.error && props.refreshFailedAt == null
+      ? html`<div class="callout danger" role="alert">
+          <strong>${t("operationsRoom.actionFailedTitle")}</strong>
+          <p>${props.error}</p>
+        </div>`
+      : nothing}
+    ${partial
+      ? html`<div class="callout warning" role="status">
+          <strong>${t("operationsRoom.partial")}</strong>
+          ${unavailableSources.length > 0
+            ? html`<p>
+                ${t("operationsRoom.unavailableSources", {
+                  sources: unavailableSources.join(", "),
+                })}
+              </p>`
+            : nothing}
+          ${fallbackSources.length > 0
+            ? html`<p>
+                ${t("operationsRoom.fallbackSources", {
+                  sources: fallbackSources.join(", "),
+                })}
+              </p>`
+            : nothing}
+        </div>`
+      : nothing}
+    ${props.actionNotice
+      ? html`<div
+          class=${`callout ${props.actionNoticeTone === "success" ? "success" : "info"}`}
+          role="status"
+          aria-live="polite"
+        >
+          ${props.actionNotice}
+        </div>`
+      : nothing}
+
+    <section
+      class=${`operations-briefing operations-briefing--${briefingTone}`}
+      aria-labelledby="operations-now-title"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span class="operations-briefing__icon" aria-hidden="true">⌁</span>
+      <div>
+        <div class="operations-briefing__heading">
+          <strong id="operations-now-title">${t("operationsRoom.now")}</strong>
+          ${statusPill(BRIEFING_STATUS[briefingTone], briefingToneLabel(briefingTone))}
+        </div>
+        <p>
+          ${stale || partial ? t("operationsRoom.briefingUnavailable") : snapshot.briefing.text}
+        </p>
+        ${stale || partial
+          ? html`<details class="operations-last-known-briefing">
+              <summary>${t("operationsRoom.lastKnownBriefing")}</summary>
+              <p>${snapshot.briefing.text}</p>
+            </details>`
+          : nothing}
+      </div>
+    </section>
+
+    <nav class="operations-quick-nav" aria-label=${t("operationsRoom.overviewNav")}>
+      ${quickLink({
+        section: "attention",
+        label: attentionConfirmed
+          ? t("operationsRoom.reviewCount", {
+              count: String(snapshot.summary.actionableFindings),
+            })
+          : t("operationsRoom.reviewUnconfirmed"),
+        detail: !attentionConfirmed
+          ? t("operationsRoom.attention.unconfirmedShort")
+          : t("operationsRoom.urgentCount", {
+              count: String(snapshot.summary.criticalFindings),
+            }),
+        active: props.section === "attention",
+        onSectionChange: props.onSectionChange,
+      })}
+      ${quickLink({
+        section: "working",
+        label: workingConfirmed
+          ? t("operationsRoom.workingCount", { count: String(working.length) })
+          : t("operationsRoom.workingUnconfirmed"),
+        detail: workingConfirmed
+          ? t("operationsRoom.activeAgentsCount", {
+              count: String(snapshot.summary.workingAgents),
+            })
+          : t("operationsRoom.working.unverified"),
+        active: props.section === "working",
+        onSectionChange: props.onSectionChange,
+      })}
+      ${quickLink({
+        section: "agents",
+        label: agentsConfirmed
+          ? t("operationsRoom.allAgentsCount", { count: String(agentCount) })
+          : t("operationsRoom.agentsUnconfirmed"),
+        detail: !agentsConfirmed
+          ? t("operationsRoom.agents.unconfirmedShort")
+          : snapshot.collections.agents.truncated
+            ? t("operationsRoom.showingAgents", {
+                count: String(snapshot.collections.agents.shown),
+              })
+            : t("operationsRoom.attentionAgentsCount", {
+                count: String(snapshot.summary.attentionAgents),
+              }),
+        active: props.section === "agents",
+        onSectionChange: props.onSectionChange,
+      })}
+      ${quickLink({
+        section: "automations",
+        label: t("operationsRoom.automations"),
+        detail: schedulesConfirmed
+          ? t("operationsRoom.automationCount", {
+              total: String(cronCount),
+              failing: String(snapshot.summary.failingCronJobs),
+            })
+          : t("operationsRoom.attention.unconfirmedShort"),
+        active: props.section === "automations",
+        onSectionChange: props.onSectionChange,
+      })}
+      ${quickLink({
+        section: "system",
+        label: t("operationsRoom.system"),
+        detail:
+          stale || partial
+            ? t(stale ? "operationsRoom.stale" : "operationsRoom.partial")
+            : systemDetail,
+        active: props.section === "system",
+        onSectionChange: props.onSectionChange,
+      })}
+    </nav>
+
+    ${renderAttention(snapshot, { stale, partial }, props)}
+    ${renderWorking(snapshot, { stale, partial }, props)}
+    ${renderChanges(snapshot, props.lastVisitedAt, props)} ${renderAgents(snapshot, props)}
+    ${renderAutomations(snapshot, props)} ${renderSystem(snapshot, stale)}
+    ${renderMore(snapshot, props)}
+
+    <footer class="operations-footer">
+      ${t("operationsRoom.footer")} · ${snapshot.reconciler.note}
+    </footer>
+  `;
+}
+
 export function renderOperations(props: OperationsProps) {
   const snapshot = props.snapshot;
+  const stale = snapshot
+    ? isOperationsSnapshotStale(snapshot, Date.now(), props.refreshFailedAt)
+    : false;
+  const partial = snapshot?.completeness.status === "partial";
+  const overall = stale || partial ? "unknown" : (snapshot?.overallStatus ?? "unknown");
+  const overallLabel = stale
+    ? t("operationsRoom.stale")
+    : partial
+      ? t("operationsRoom.partial")
+      : statusLabel(overall);
   return html`<section class="operations-room" aria-labelledby="operations-title">
     <header class="operations-hero">
       <div>
-        <p class="operations-eyebrow">OpenClaw control plane</p>
-        <h1 id="operations-title">Operations Room</h1>
-        <p>One truthful view of agents, workflows, schedules, capabilities, models, and memory.</p>
+        <p class="operations-eyebrow">${t("operationsRoom.eyebrow")}</p>
+        <h1 id="operations-title">${t("operationsRoom.title")}</h1>
+        <p>${t("operationsRoom.subtitle")}</p>
       </div>
       <div class="operations-hero__actions">
-        ${snapshot ? statusPill(snapshot.overallStatus) : nothing}
+        ${snapshot ? statusPill(overall, overallLabel) : nothing}
+        <div class="operations-freshness">
+          <strong
+            >${stale
+              ? t("operationsRoom.stale")
+              : partial
+                ? t("operationsRoom.partial")
+                : t("operationsRoom.live")}</strong
+          >
+          <span>${t("operationsRoom.updated", { time: relativeTime(props.updatedAt) })}</span>
+        </div>
         <button
           class="btn"
           ?disabled=${props.loading}
+          aria-label=${t("operationsRoom.refreshLabel")}
           @click=${props.onRefresh}
-          aria-label="Refresh Operations Room"
         >
-          ${props.loading ? "Refreshing…" : "Refresh"}
+          ${t(props.loading ? "operationsRoom.refreshing" : "operationsRoom.refresh")}
         </button>
       </div>
     </header>
 
-    ${props.error
+    ${!snapshot && props.error
       ? html`<div class="callout danger" role="alert">
-          <strong>Operations data unavailable</strong>
+          <strong>${t("operationsRoom.unavailableTitle")}</strong>
           <p>${props.error}</p>
         </div>`
       : nothing}
-    ${props.actionNotice
-      ? html`<div class="callout success" role="status">${props.actionNotice}</div>`
-      : nothing}
     ${!snapshot && props.loading
-      ? html`<div class="operations-empty" aria-live="polite">
-          Building the current operations picture…
-        </div>`
+      ? html`<div class="operations-empty" aria-live="polite">${t("operationsRoom.loading")}</div>`
       : nothing}
     ${!snapshot && !props.loading
-      ? html`<div class="operations-empty">No operations snapshot is available yet.</div>`
+      ? html`<div class="operations-empty">${t("operationsRoom.empty")}</div>`
       : nothing}
-    ${snapshot
-      ? html`
-          <div class="operations-scorecard">
-            <div
-              class="operations-score"
-              aria-label=${`Reliability score ${snapshot.qualityScore} out of 100`}
-            >
-              <strong>${snapshot.qualityScore}</strong><span>/100</span>
-              <small>Reliability score · target ${snapshot.qualityTarget}+</small>
-            </div>
-            <div class="operations-metrics">
-              ${metric(
-                "Agents",
-                snapshot.summary.agents,
-                `${snapshot.summary.workingAgents} working · ${snapshot.summary.attentionAgents} need attention`,
-              )}
-              ${metric(
-                "Tasks",
-                snapshot.summary.tasks,
-                `${snapshot.summary.activeTasks} active · ${snapshot.summary.failedTasks} need attention`,
-              )}
-              ${metric(
-                "Workflows",
-                snapshot.summary.workflows,
-                `${snapshot.summary.activeWorkflows} active`,
-              )}
-              ${metric(
-                "Schedules",
-                snapshot.summary.cronJobs,
-                `${snapshot.summary.failingCronJobs} failing`,
-              )}
-              ${metric(
-                "Attention",
-                snapshot.summary.findings,
-                `${snapshot.summary.criticalFindings} critical`,
-              )}
-            </div>
-          </div>
-
-          <section
-            class="operations-panel operations-resources"
-            aria-labelledby="operations-resources-title"
-          >
-            <div class="operations-panel__header">
-              <div>
-                <p class="operations-eyebrow">Capacity</p>
-                <h2 id="operations-resources-title">Mac resources</h2>
-              </div>
-              ${statusPill(snapshot.host.status)}
-            </div>
-            <div class="operations-memory">
-              <div class="operations-memory__header">
-                <span>Memory in use</span><strong>${snapshot.host.memoryUsedPercent}%</strong>
-              </div>
-              <div
-                class="operations-progress"
-                role="progressbar"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow=${snapshot.host.memoryUsedPercent}
-              >
-                <span style=${`width: ${Math.min(100, snapshot.host.memoryUsedPercent)}%`}></span>
-              </div>
-              <p>
-                ${bytes(snapshot.host.usedMemoryBytes)} used ·
-                ${bytes(snapshot.host.availableMemoryBytes)} available ·
-                ${bytes(snapshot.host.freeMemoryBytes)} free ·
-                ${bytes(snapshot.host.totalMemoryBytes)} total
-              </p>
-            </div>
-            <div class="operations-resource-grid">
-              ${metric("Gateway RAM", bytes(snapshot.host.processRssBytes))}
-              ${metric(
-                "CPU",
-                `${snapshot.host.logicalCpuCount} logical cores`,
-                `Load ${snapshot.host.loadAverage[0].toFixed(2)}`,
-              )}
-              ${metric(
-                "Event loop",
-                snapshot.host.eventLoopLagMs == null
-                  ? "Unknown"
-                  : `${snapshot.host.eventLoopLagMs} ms`,
-                "P99 delay",
-              )}
-              ${metric(
-                "Host",
-                snapshot.host.hostname,
-                `${snapshot.host.platform} · ${snapshot.host.arch}`,
-              )}
-            </div>
-          </section>
-
-          <section class="operations-panel" aria-labelledby="operations-agents-title">
-            <div class="operations-panel__header">
-              <div>
-                <p class="operations-eyebrow">Live room</p>
-                <h2 id="operations-agents-title">Agents</h2>
-              </div>
-              <p class="muted">
-                Agent RAM is marked unavailable when agents share the Gateway process.
-              </p>
-            </div>
-            <div class="operations-agent-grid">
-              ${snapshot.agents.map(
-                (agent) => html`<article
-                  class=${`operations-agent operations-agent--${agent.status}`}
-                >
-                  <div class="operations-agent__top">
-                    <span class="operations-agent__avatar" aria-hidden="true"
-                      >${(agent.name ?? agent.id).slice(0, 1).toUpperCase()}</span
-                    >
-                    <div><strong>${agent.name ?? agent.id}</strong><small>${agent.id}</small></div>
-                    ${statusPill(agent.status)}
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Duty</dt>
-                      <dd>${agent.duty.replaceAll("_", " ")}</dd>
-                    </div>
-                    <div>
-                      <dt>Current work</dt>
-                      <dd>${agent.latestTask ?? "Ready for work"}</dd>
-                    </div>
-                    <div>
-                      <dt>Model</dt>
-                      <dd>${agent.model ?? "Inherited default"}</dd>
-                    </div>
-                    <div>
-                      <dt>Fallback</dt>
-                      <dd>${agent.fallbackModels.join(", ") || "No explicit fallback"}</dd>
-                    </div>
-                    <div>
-                      <dt>Heartbeat</dt>
-                      <dd>${agent.heartbeat.enabled ? agent.heartbeat.every : "Off"}</dd>
-                    </div>
-                    <div>
-                      <dt>RAM</dt>
-                      <dd>${bytes(agent.memoryBytes)}</dd>
-                    </div>
-                  </dl>
-                  <footer>
-                    ${agent.activeTaskCount} active · ${agent.blockedTaskCount} failures in 24h ·
-                    ${relativeTime(agent.latestActivityAt)}
-                  </footer>
-                </article>`,
-              )}
-            </div>
-          </section>
-
-          <section class="operations-panel" aria-labelledby="operations-tasks-title">
-            <div class="operations-panel__header">
-              <div>
-                <p class="operations-eyebrow">Runtime work</p>
-                <h2 id="operations-tasks-title">Active & recent tasks</h2>
-              </div>
-              <p class="muted">Active work first, then the latest recorded outcomes.</p>
-            </div>
-            <div class="operations-list">
-              ${snapshot.tasks.length === 0
-                ? html`<p class="muted">No managed tasks recorded.</p>`
-                : snapshot.tasks.slice(0, 20).map(
-                    (task) => html`<article class="operations-list__row">
-                      <div class="operations-list__main">
-                        <strong>${task.title}</strong>
-                        <small
-                          >${task.agentId ?? "unassigned"} · ${task.runtime} ·
-                          ${relativeTime(task.updatedAt)}</small
-                        >
-                        ${task.progress ? html`<p>${task.progress}</p>` : nothing}
-                        ${task.error ? html`<p>${task.error}</p>` : nothing}
-                      </div>
-                      <div class="operations-list__aside">
-                        ${statusPill(task.status)}
-                        ${task.status === "working"
-                          ? html`<button
-                              class="btn btn--sm"
-                              ?disabled=${props.actionBusy}
-                              @click=${() => props.onAction("task.cancel", task.id)}
-                            >
-                              Cancel
-                            </button>`
-                          : nothing}
-                      </div>
-                    </article>`,
-                  )}
-            </div>
-          </section>
-
-          <div class="operations-two-column">
-            <section class="operations-panel" aria-labelledby="operations-workflows-title">
-              <div class="operations-panel__header">
-                <div>
-                  <p class="operations-eyebrow">Execution</p>
-                  <h2 id="operations-workflows-title">Workflows</h2>
-                </div>
-              </div>
-              <div class="operations-list">
-                ${snapshot.workflows.length === 0
-                  ? html`<p class="muted">No managed workflows recorded.</p>`
-                  : snapshot.workflows.map(
-                      (flow) => html`<article class="operations-list__row">
-                        <div class="operations-list__main">
-                          <strong>${flow.title}</strong
-                          ><small
-                            >${flow.currentStep ?? flow.ownerKey} ·
-                            ${relativeTime(flow.updatedAt)}</small
-                          >${flow.blocker ? html`<p>${flow.blocker}</p>` : nothing}
-                        </div>
-                        <div class="operations-list__aside">
-                          ${statusPill(flow.status)}<small
-                            >${flow.activeTaskCount} active · ${flow.failedTaskCount} failed</small
-                          >
-                          ${["working", "idle", "blocked"].includes(flow.status)
-                            ? html`<button
-                                class="btn btn--sm"
-                                ?disabled=${props.actionBusy}
-                                @click=${() => props.onAction("flow.cancel", flow.id)}
-                              >
-                                Cancel
-                              </button>`
-                            : nothing}
-                        </div>
-                      </article>`,
-                    )}
-              </div>
-            </section>
-
-            <section class="operations-panel" aria-labelledby="operations-cron-title">
-              <div class="operations-panel__header">
-                <div>
-                  <p class="operations-eyebrow">Scheduler</p>
-                  <h2 id="operations-cron-title">Scheduled work</h2>
-                </div>
-              </div>
-              <div class="operations-list">
-                ${snapshot.cronJobs.length === 0
-                  ? html`<p class="muted">No scheduled workflows configured.</p>`
-                  : snapshot.cronJobs.map(
-                      (job) => html`<article class="operations-list__row">
-                        <div class="operations-list__main">
-                          <strong>${job.name}</strong
-                          ><small
-                            >${job.agentId ?? "default agent"} ·
-                            ${relativeScheduleTime(job.nextRunAt)}</small
-                          >${job.lastError ? html`<p>${job.lastError}</p>` : nothing}
-                        </div>
-                        <div class="operations-list__aside">
-                          ${statusPill(job.status)}
-                          <div class="operations-row-actions">
-                            <button
-                              class="btn btn--sm"
-                              ?disabled=${props.actionBusy}
-                              @click=${() => props.onAction("cron.run", job.id)}
-                            >
-                              Run now
-                            </button>
-                            <button
-                              class="btn btn--sm"
-                              ?disabled=${props.actionBusy}
-                              @click=${() =>
-                                props.onAction(
-                                  job.enabled ? "cron.disable" : "cron.enable",
-                                  job.id,
-                                )}
-                            >
-                              ${job.enabled ? "Pause" : "Enable"}
-                            </button>
-                          </div>
-                        </div>
-                      </article>`,
-                    )}
-              </div>
-            </section>
-          </div>
-
-          <section class="operations-panel" aria-labelledby="operations-findings-title">
-            <div class="operations-panel__header">
-              <div>
-                <p class="operations-eyebrow">Reconciliation</p>
-                <h2 id="operations-findings-title">Attention & recommendations</h2>
-              </div>
-              <span class="operations-mode">Shadow mode · no automatic changes</span>
-            </div>
-            ${snapshot.findings.length === 0
-              ? html`<div class="operations-good">
-                  <strong>No actionable drift found.</strong>
-                  <p>The deterministic rules did not find a current blocker.</p>
-                </div>`
-              : html`<div class="operations-findings">
-                  ${snapshot.findings.map(
-                    (item) => html`<article
-                      class=${`operations-finding operations-finding--${item.severity}`}
-                    >
-                      <span class="operations-finding__badge">${item.severity}</span>
-                      <div>
-                        <strong>${item.title}</strong>
-                        <p>${item.detail}</p>
-                        ${item.recommendedAction
-                          ? html`<small>Recommended: ${item.recommendedAction}</small>`
-                          : nothing}
-                      </div>
-                    </article>`,
-                  )}
-                </div>`}
-          </section>
-
-          <section class="operations-panel" aria-labelledby="operations-catalog-title">
-            <div class="operations-panel__header">
-              <div>
-                <p class="operations-eyebrow">Capability map</p>
-                <h2 id="operations-catalog-title">Skills, plugins, tools & models</h2>
-              </div>
-              <p class="muted">Configured and active are shown separately.</p>
-            </div>
-            <div class="operations-catalogs">
-              ${catalogSection("Skills", snapshot.skills, "No skills discovered.")}
-              ${catalogSection("Plugins", snapshot.plugins, "No plugins discovered.")}
-              ${catalogSection("Tools", snapshot.tools, "No tools discovered.")}
-              ${catalogSection("Models", snapshot.models, "No models discovered.")}
-            </div>
-          </section>
-
-          <section class="operations-panel" aria-labelledby="operations-processes-title">
-            <div class="operations-panel__header">
-              <div>
-                <p class="operations-eyebrow">Host processes</p>
-                <h2 id="operations-processes-title">Largest RAM consumers</h2>
-              </div>
-              <p class="muted">Arguments are never collected.</p>
-            </div>
-            <div class="operations-processes">
-              ${snapshot.processes.length === 0
-                ? html`<p class="muted">Process resource details are unavailable.</p>`
-                : snapshot.processes
-                    .slice(0, 12)
-                    .map(
-                      (processRow) =>
-                        html`<div class="operations-process">
-                          <strong>${processRow.command}</strong
-                          ><span>${processRow.kind.replaceAll("_", " ")}</span
-                          ><span>${bytes(processRow.rssBytes)}</span
-                          ><span>${processRow.cpuPercent.toFixed(1)}% CPU</span>
-                        </div>`,
-                    )}
-            </div>
-          </section>
-
-          <footer class="operations-footer">
-            Updated ${relativeTime(props.updatedAt ?? snapshot.generatedAt)} ·
-            ${snapshot.reconciler.note}
-          </footer>
-        `
-      : nothing}
+    ${snapshot ? renderSnapshot(snapshot, props) : nothing}
   </section>`;
 }

@@ -113,7 +113,7 @@ describe("subtitleForTab", () => {
       chat: "Gateway chat for quick interventions.",
       pcc: "Project Command Center for projects, blockers, Autopilot, proof, and next actions.",
       overview: "Status, entry points, health.",
-      operations: "Agents, workflows, capabilities, models, and resources at a glance.",
+      operations: "What needs attention, what is working, and how the system is doing.",
       activity: "Browser-local tool activity summaries.",
       workboard: "Agent work queue and session handoff.",
       appStudio: "Prompt, build, validate, and prepare native iPhone apps.",

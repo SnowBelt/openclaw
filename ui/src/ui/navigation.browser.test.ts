@@ -1,6 +1,7 @@
 // Control UI tests cover navigation behavior.
 import { describe, expect, it, vi } from "vitest";
 import { mountApp as mountTestApp, registerAppMountHooks } from "./test-helpers/app-mount.ts";
+import { createOperationsTestSnapshot } from "./views/operations.test-fixture.ts";
 
 registerAppMountHooks();
 
@@ -66,6 +67,34 @@ function expectConfirmedGatewayChange(app: ReturnType<typeof mountApp>) {
 }
 
 describe("control UI routing", () => {
+  it("focuses an Operations section loaded from a direct link after the lazy view renders", async () => {
+    const app = mountApp("/operations?section=system");
+    app.operationsSnapshot = createOperationsTestSnapshot();
+    app.requestUpdate();
+
+    await app.updateComplete;
+    expect(app.operationsSection).toBe("system");
+    await vi.waitFor(() => {
+      expect(document.activeElement?.id).toBe("operations-system");
+    });
+  });
+
+  it("preserves last-known Operations truth after disconnecting", async () => {
+    const app = mountApp("/operations");
+    app.operationsSnapshot = createOperationsTestSnapshot();
+    app.operationsUpdatedAt = Date.now();
+    app.operationsLastSuccessfulAt = app.operationsUpdatedAt;
+    app.connected = false;
+    app.requestUpdate();
+
+    await app.updateComplete;
+    await nextFrame();
+    await app.updateComplete;
+
+    expectElement(app, ".operations-room", HTMLElement);
+    expectElement(app, ".operations-briefing--unknown", HTMLElement);
+  });
+
   it("renders responsive navigation shell, drawer, and collapsed states", async () => {
     const app = mountApp("/chat");
     await app.updateComplete;

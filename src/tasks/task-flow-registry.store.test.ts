@@ -11,6 +11,8 @@ import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import {
   createManagedTaskFlow as createManagedTaskFlowOrNull,
   getTaskFlowById,
+  getTaskFlowRegistryRestoreFailure,
+  reloadTaskFlowRegistryFromStore,
   requestFlowCancel,
   resetTaskFlowRegistryForTests,
   setFlowWaiting,
@@ -134,6 +136,81 @@ describe("task-flow-registry store runtime", () => {
       throw new Error("Expected restored task flow");
     }
     expect(restoredFlow.goal).toBe("Restored flow");
+  });
+
+  it("keeps the prior authoritative snapshot when a retry fails during normalization", () => {
+    const storedFlow = createStoredFlow();
+    const replacementFlow: TaskFlowRecord = {
+      ...storedFlow,
+      flowId: "flow-replacement",
+      controllerId: "tests/replacement-controller",
+      goal: "Replacement flow",
+    };
+    const invalidFlow: TaskFlowRecord = {
+      ...storedFlow,
+      flowId: "flow-invalid",
+      ownerKey: " ",
+    };
+    let snapshot = {
+      flows: new Map([[storedFlow.flowId, storedFlow]]),
+    };
+    configureTaskFlowRegistryRuntime({
+      store: {
+        loadSnapshot: () => snapshot,
+        saveSnapshot: () => {},
+      },
+    });
+
+    expect(getTaskFlowById(storedFlow.flowId)?.flowId).toBe(storedFlow.flowId);
+
+    snapshot = {
+      flows: new Map([
+        [replacementFlow.flowId, replacementFlow],
+        [invalidFlow.flowId, invalidFlow],
+      ]),
+    };
+    expect(reloadTaskFlowRegistryFromStore()).toBe(false);
+    expect(getTaskFlowRegistryRestoreFailure()).toContain("Flow ownerKey is required");
+    expect(getTaskFlowById(storedFlow.flowId)?.flowId).toBe(storedFlow.flowId);
+    expect(getTaskFlowById(replacementFlow.flowId)).toBeUndefined();
+
+    snapshot = {
+      flows: new Map([[replacementFlow.flowId, replacementFlow]]),
+    };
+    expect(reloadTaskFlowRegistryFromStore()).toBe(true);
+    expect(getTaskFlowRegistryRestoreFailure()).toBeNull();
+    expect(getTaskFlowById(storedFlow.flowId)).toBeUndefined();
+    expect(getTaskFlowById(replacementFlow.flowId)?.flowId).toBe(replacementFlow.flowId);
+  });
+
+  it("blocks writes after an initial restore failure until an explicit retry succeeds", () => {
+    let restoreShouldFail = true;
+    const upsertFlow = vi.fn();
+    configureTaskFlowRegistryRuntime({
+      store: {
+        loadSnapshot: () => {
+          if (restoreShouldFail) {
+            throw new Error("flow store unavailable");
+          }
+          return { flows: new Map() };
+        },
+        saveSnapshot: () => {},
+        upsertFlow,
+      },
+    });
+
+    const createParams: Parameters<typeof createManagedTaskFlowOrNull>[0] = {
+      ownerKey: "agent:main:main",
+      controllerId: "tests/retry-controller",
+      goal: "Create only after restore",
+    };
+    expect(createManagedTaskFlowOrNull(createParams)).toBeNull();
+    expect(upsertFlow).not.toHaveBeenCalled();
+
+    restoreShouldFail = false;
+    expect(reloadTaskFlowRegistryFromStore()).toBe(true);
+    expect(createManagedTaskFlowOrNull(createParams)?.goal).toBe("Create only after restore");
+    expect(upsertFlow).toHaveBeenCalledTimes(1);
   });
 
   it("rejects invalid persisted flow enum values", () => {

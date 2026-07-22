@@ -407,6 +407,39 @@ describe("operator scope authorization", () => {
     });
   });
 
+  it.each(["operations.action.preview", "operations.action.apply"])(
+    "keeps cron mutations admin-only through %s while task and flow cancellation stay write-scoped",
+    (method) => {
+      for (const action of ["cron.run", "cron.enable", "cron.disable"]) {
+        const params = { action, targetId: "target-1", token: "preview-token" };
+        expect(resolveLeastPrivilegeOperatorScopesForMethod(method, params)).toEqual([
+          "operator.admin",
+        ]);
+        expect(authorizeOperatorScopesForMethod(method, ["operator.write"], params)).toEqual({
+          allowed: false,
+          missingScope: "operator.admin",
+        });
+        expect(authorizeOperatorScopesForMethod(method, ["operator.admin"], params)).toEqual({
+          allowed: true,
+        });
+      }
+
+      for (const action of ["task.cancel", "flow.cancel"]) {
+        const params = { action, targetId: "target-1", token: "preview-token" };
+        expect(resolveLeastPrivilegeOperatorScopesForMethod(method, params)).toEqual([
+          "operator.write",
+        ]);
+        expect(authorizeOperatorScopesForMethod(method, ["operator.write"], params)).toEqual({
+          allowed: true,
+        });
+        expect(authorizeOperatorScopesForMethod(method, ["operator.read"], params)).toEqual({
+          allowed: false,
+          missingScope: "operator.write",
+        });
+      }
+    },
+  );
+
   it("allows operator.write clients to use unified Talk sessions", () => {
     for (const method of [
       "talk.client.create",

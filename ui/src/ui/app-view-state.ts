@@ -234,8 +234,16 @@ export type AppViewState = {
   operationsActionBusy: boolean;
   operationsError: string | null;
   operationsActionNotice: string | null;
+  operationsActionNoticeTone: "info" | "success" | null;
   operationsSnapshot: OperationsSnapshot | null;
   operationsUpdatedAt: number | null;
+  operationsLastSuccessfulAt: number | null;
+  operationsRefreshFailedAt: number | null;
+  operationsSection: import("./controllers/operations-navigation.ts").OperationsSection | null;
+  operationsAgentQuery: string;
+  operationsAgentSort: import("./controllers/operations-preferences.ts").OperationsAgentSort;
+  operationsPinnedAgentIds: string[];
+  operationsLastVisitedAt: number | null;
   pccProjects: PccProjectSummary[];
   pccPortfolioSummary: PccPortfolioSummary | null;
   pccRuntimeIdentity: PccRuntimeIdentity | null;
@@ -701,6 +709,14 @@ export type AppViewState = {
     refreshSessionsAfterChat: Map<string, import("./ui-types.js").ChatSessionRefreshTarget>;
     connect: () => void;
     setTab: (tab: Tab) => void;
+    setOperationsSection: (
+      section: import("./controllers/operations-navigation.ts").OperationsSection,
+      syncUrl?: boolean,
+    ) => Promise<void>;
+    setOperationsAgentSort: (
+      sort: import("./controllers/operations-preferences.ts").OperationsAgentSort,
+    ) => void;
+    toggleOperationsAgentPin: (agentId: string) => void;
     setChatMobileControlsOpen: (
       open: boolean,
       options?: { trigger?: HTMLElement | null; restoreFocus?: boolean },

@@ -45,6 +45,7 @@ import {
   getTaskRegistryStore,
   resetTaskRegistryRuntimeForTests,
   type TaskRegistryObserverEvent,
+  type TaskRegistryStoreSnapshot,
 } from "./task-registry.store.js";
 import type {
   TaskDeliveryState,
@@ -74,6 +75,8 @@ const tasksWithPendingDelivery = taskRegistryProcessState.tasksWithPendingDelive
 let listenerStarted = false;
 let listenerStop: (() => void) | null = null;
 let restoreAttempted = false;
+let restoreFailureMessage: string | null = null;
+let hasAuthoritativeRegistryState = false;
 const taskFlowSyncRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 type TaskRegistryDeliveryRuntime = Pick<
   typeof import("./task-registry-delivery-runtime.js"),
@@ -748,25 +751,78 @@ function rebuildRunIdIndex() {
   }
 }
 
-function rebuildOwnerKeyIndex() {
-  taskIdsByOwnerKey.clear();
-  for (const [taskId, task] of tasks.entries()) {
-    addOwnerKeyIndex(taskId, task);
+type StagedTaskRegistryState = {
+  tasks: Map<string, TaskRecord>;
+  deliveryStates: Map<string, TaskDeliveryState>;
+  taskIdsByRunId: Map<string, Set<string>>;
+  taskIdsByOwnerKey: Map<string, Set<string>>;
+  taskIdsByParentFlowId: Map<string, Set<string>>;
+  taskIdsByRelatedSessionKey: Map<string, Set<string>>;
+};
+
+function stageTaskRegistryState(snapshot: TaskRegistryStoreSnapshot): StagedTaskRegistryState {
+  const staged: StagedTaskRegistryState = {
+    tasks: new Map(),
+    deliveryStates: new Map(),
+    taskIdsByRunId: new Map(),
+    taskIdsByOwnerKey: new Map(),
+    taskIdsByParentFlowId: new Map(),
+    taskIdsByRelatedSessionKey: new Map(),
+  };
+
+  for (const [taskId, storedTask] of snapshot.tasks) {
+    const task = normalizeTaskTimestamps(cloneTaskRecord(storedTask));
+    staged.tasks.set(taskId, task);
+
+    const runId = task.runId?.trim();
+    if (runId) {
+      addIndexedKey(staged.taskIdsByRunId, runId, taskId);
+    }
+    const ownerKey = normalizeOptionalString(task.ownerKey);
+    if (ownerKey) {
+      addIndexedKey(staged.taskIdsByOwnerKey, ownerKey, taskId);
+    }
+    const parentFlowId = task.parentFlowId?.trim();
+    if (parentFlowId) {
+      addIndexedKey(staged.taskIdsByParentFlowId, parentFlowId, taskId);
+    }
+    for (const sessionKey of getTaskRelatedSessionIndexKeys(task)) {
+      addIndexedKey(staged.taskIdsByRelatedSessionKey, sessionKey, taskId);
+    }
+  }
+
+  for (const [taskId, state] of snapshot.deliveryStates) {
+    staged.deliveryStates.set(taskId, cloneTaskDeliveryState(state));
+  }
+  return staged;
+}
+
+function replaceMap<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>): void {
+  target.clear();
+  for (const [key, value] of source) {
+    target.set(key, value);
   }
 }
 
-function rebuildParentFlowIdIndex() {
-  taskIdsByParentFlowId.clear();
-  for (const [taskId, task] of tasks.entries()) {
-    addParentFlowIdIndex(taskId, task);
+function replaceIndex(
+  target: Map<string, Set<string>>,
+  source: ReadonlyMap<string, ReadonlySet<string>>,
+): void {
+  target.clear();
+  for (const [key, ids] of source) {
+    target.set(key, new Set(ids));
   }
 }
 
-function rebuildRelatedSessionKeyIndex() {
-  taskIdsByRelatedSessionKey.clear();
-  for (const [taskId, task] of tasks.entries()) {
-    addRelatedSessionKeyIndex(taskId, task);
-  }
+function commitStagedTaskRegistryState(staged: StagedTaskRegistryState): void {
+  clearTaskFlowSyncRetries();
+  replaceMap(tasks, staged.tasks);
+  replaceMap(taskDeliveryStates, staged.deliveryStates);
+  replaceIndex(taskIdsByRunId, staged.taskIdsByRunId);
+  replaceIndex(taskIdsByOwnerKey, staged.taskIdsByOwnerKey);
+  replaceIndex(taskIdsByParentFlowId, staged.taskIdsByParentFlowId);
+  replaceIndex(taskIdsByRelatedSessionKey, staged.taskIdsByRelatedSessionKey);
+  tasksWithPendingDelivery.clear();
 }
 
 function getTasksByRunId(runId: string): TaskRecord[] {
@@ -1191,47 +1247,52 @@ function clearTaskFlowSyncRetries(): void {
   taskFlowSyncRetryTimers.clear();
 }
 
-function restoreTaskRegistryOnce() {
-  if (restoreAttempted) {
-    return;
-  }
+function restoreTaskRegistryFromStore(): boolean {
   restoreAttempted = true;
   try {
-    const restored = getTaskRegistryStore().loadSnapshot();
-    if (restored.tasks.size === 0 && restored.deliveryStates.size === 0) {
-      return;
-    }
-    for (const [taskId, task] of restored.tasks.entries()) {
-      tasks.set(taskId, normalizeTaskTimestamps(task));
-    }
-    for (const [taskId, state] of restored.deliveryStates.entries()) {
-      taskDeliveryStates.set(taskId, state);
-    }
-    rebuildRunIdIndex();
-    rebuildOwnerKeyIndex();
-    rebuildParentFlowIdIndex();
-    rebuildRelatedSessionKeyIndex();
-    emitTaskRegistryObserverEvent(() => ({
-      kind: "restored",
-      tasks: snapshotTaskRecords(tasks),
-    }));
+    const staged = stageTaskRegistryState(getTaskRegistryStore().loadSnapshot());
+    commitStagedTaskRegistryState(staged);
+    hasAuthoritativeRegistryState = true;
+    restoreFailureMessage = null;
   } catch (error) {
-    log.warn("Failed to restore task registry", { error: formatErrorMessage(error) });
+    restoreFailureMessage = formatErrorMessage(error);
+    log.warn("Failed to restore task registry", { error: restoreFailureMessage });
+    return false;
   }
+  emitTaskRegistryObserverEvent(() => ({
+    kind: "restored",
+    tasks: snapshotTaskRecords(tasks),
+  }));
+  return true;
 }
 
-export function ensureTaskRegistryReady() {
-  restoreTaskRegistryOnce();
-  ensureListener();
+export function ensureTaskRegistryReady(): boolean {
+  if (!restoreAttempted) {
+    restoreTaskRegistryFromStore();
+  }
+  if (hasAuthoritativeRegistryState) {
+    ensureListener();
+  }
+  return hasAuthoritativeRegistryState;
 }
 
-export function reloadTaskRegistryFromStore(): void {
-  clearTaskRegistryMemory();
-  restoreAttempted = false;
-  restoreTaskRegistryOnce();
+export function getTaskRegistryRestoreFailure(): string | null {
+  ensureTaskRegistryReady();
+  return restoreFailureMessage;
+}
+
+export function reloadTaskRegistryFromStore(): boolean {
+  const restored = restoreTaskRegistryFromStore();
+  if (hasAuthoritativeRegistryState) {
+    ensureListener();
+  }
+  return restored;
 }
 
 function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskRecord | null {
+  if (!hasAuthoritativeRegistryState) {
+    return null;
+  }
   const current = tasks.get(taskId);
   if (!current) {
     return null;
@@ -1290,6 +1351,11 @@ function updateTask(taskId: string, patch: Partial<TaskRecord>): TaskRecord | nu
 
 function upsertTaskDeliveryState(state: TaskDeliveryState): TaskDeliveryState {
   const current = taskDeliveryStates.get(state.taskId);
+  if (!hasAuthoritativeRegistryState) {
+    return current
+      ? cloneTaskDeliveryState(current)
+      : cloneTaskDeliveryState({ taskId: state.taskId });
+  }
   const next: TaskDeliveryState = {
     taskId: state.taskId,
     ...(state.requesterOrigin
@@ -1701,12 +1767,14 @@ function updateTasksByRunId(params: {
 }
 
 function ensureListener() {
-  if (listenerStarted) {
+  if (!hasAuthoritativeRegistryState || listenerStarted) {
     return;
   }
   listenerStarted = true;
   listenerStop = onAgentEvent((evt) => {
-    restoreTaskRegistryOnce();
+    if (!hasAuthoritativeRegistryState) {
+      return;
+    }
     const scopedTasks = getTasksByRunScope({
       runId: evt.runId,
       sessionKey: evt.sessionKey,
@@ -1817,7 +1885,9 @@ export function createTaskRecord(params: {
   terminalSummary?: string | null;
   terminalOutcome?: TaskTerminalOutcome | null;
 }): TaskRecord | null {
-  ensureTaskRegistryReady();
+  if (!ensureTaskRegistryReady()) {
+    return null;
+  }
   const requesterSessionKey = resolveTaskRequesterSessionKey(params);
   const scopeKind = resolveTaskScopeKind({
     scopeKind: params.scopeKind,
@@ -2573,7 +2643,9 @@ export function resolveTaskForLookupToken(token: string): TaskRecord | undefined
 }
 
 export function deleteTaskRecordById(taskId: string): boolean {
-  ensureTaskRegistryReady();
+  if (!ensureTaskRegistryReady()) {
+    return false;
+  }
   const current = tasks.get(taskId);
   if (!current) {
     return false;
@@ -2601,6 +2673,8 @@ export function deleteTaskRecordById(taskId: string): boolean {
 export function resetTaskRegistryForTests(opts?: { persist?: boolean }) {
   clearTaskRegistryMemory();
   restoreAttempted = false;
+  restoreFailureMessage = null;
+  hasAuthoritativeRegistryState = false;
   resetTaskRegistryRuntimeForTests();
   if (listenerStop) {
     listenerStop();

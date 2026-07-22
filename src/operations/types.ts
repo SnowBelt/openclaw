@@ -3,6 +3,37 @@
 // configured capability is currently running.
 
 export type OperationsSeverity = "info" | "warning" | "critical";
+export type OperationsActivityState =
+  | "working"
+  | "waiting"
+  | "scheduled"
+  | "ready"
+  | "off"
+  | "unknown";
+export type OperationsHealthState = "healthy" | "degraded" | "failed" | "unknown";
+export type OperationsAttentionState = "none" | "needs_user" | "handling" | "watching" | "urgent";
+export type OperationsFindingDisposition = "needs_user" | "handling" | "watching" | "historical";
+export type OperationsFindingResponseState =
+  | "unassigned"
+  | "in_progress"
+  | "monitoring"
+  | "waiting_for_user"
+  | "resolved";
+export type OperationsSourceName =
+  | "agents"
+  | "tasks"
+  | "workflows"
+  | "schedules"
+  | "capabilities"
+  | "models"
+  | "processes"
+  | "event_loop"
+  | "monitor"
+  | "incident_ledger";
+export type OperationsSourceObservation = {
+  status: "available" | "fallback" | "omitted" | "unavailable" | "stale";
+  observedAt?: number;
+};
 export type OperationsStatus =
   | "healthy"
   | "working"
@@ -26,6 +57,7 @@ export type OperationsFinding = {
     | "tool"
     | "model"
     | "process"
+    | "monitor"
     | "resource"
     | "update";
   title: string;
@@ -34,6 +66,16 @@ export type OperationsFinding = {
   recommendedAction?: string;
   firstObservedAt?: number;
   lastObservedAt: number;
+  resolvedAt?: number;
+  evidenceState?: "last_known";
+  disposition: OperationsFindingDisposition;
+  responseState: OperationsFindingResponseState;
+  impact: string;
+  ownerId?: string;
+  nextAction?: string;
+  remediationTaskId?: string;
+  lastProgressAt?: number;
+  nextCheckAt?: number;
 };
 
 export type OperationsHostSnapshot = {
@@ -69,16 +111,30 @@ export type OperationsAgentSnapshot = {
   name?: string;
   workspace: string;
   duty: OperationsDuty;
+  dutySource: "heartbeat" | "schedule" | "configuration";
   status: OperationsStatus;
+  activityState: OperationsActivityState;
+  healthState: OperationsHealthState;
+  attentionState: OperationsAttentionState;
   model?: string;
   fallbackModels: string[];
   activeTaskCount: number;
   blockedTaskCount: number;
   latestTask?: string;
   latestActivityAt?: number;
+  currentWork?: OperationsWorkSummary;
+  lastActivity?: OperationsWorkSummary;
   heartbeat: OperationsHeartbeat;
   memoryBytes: number | null;
   memoryAttribution: "unavailable" | "process";
+};
+
+export type OperationsWorkSummary = {
+  taskId: string;
+  title: string;
+  summary?: string;
+  updatedAt: number;
+  outcome: "active" | "succeeded" | "blocked" | "failed" | "cancelled" | "unknown";
 };
 
 export type OperationsWorkflowSnapshot = {
@@ -90,6 +146,7 @@ export type OperationsWorkflowSnapshot = {
   sourceStatus: string;
   currentStep?: string;
   blocker?: string;
+  hasWaitState: boolean;
   activeTaskCount: number;
   failedTaskCount: number;
   updatedAt: number;
@@ -134,6 +191,50 @@ export type OperationsCatalogEntry = {
   owner?: string;
   reason?: string;
   route?: "local" | "subscription" | "metered" | "unknown";
+  availability: "available" | "unavailable" | "disabled" | "unverified";
+};
+
+export type OperationsCollectionCount = {
+  total: number;
+  shown: number;
+  truncated: boolean;
+  rejected?: number;
+};
+
+export type OperationsBriefing = {
+  tone: "normal" | "attention" | "urgent" | "unknown";
+  text: string;
+};
+
+export type OperationsActivityRollup = {
+  key: string;
+  runtime: OperationsTaskSnapshot["runtime"];
+  sourceId: string;
+  taskId?: string;
+  title: string;
+  count: number;
+  latestAt: number;
+  status: "working" | "succeeded" | "blocked" | "failed" | "cancelled" | "unknown";
+  agentId?: string;
+};
+
+export type OperationsIncidentTransition = {
+  at: number;
+  from?: OperationsSeverity;
+  to: OperationsSeverity;
+};
+
+export type OperationsIncidentHistoryEntry = {
+  id: string;
+  title: string;
+  category: OperationsFinding["category"];
+  severity: OperationsSeverity;
+  disposition: OperationsFindingDisposition;
+  responseState: OperationsFindingResponseState;
+  firstObservedAt: number;
+  lastObservedAt: number;
+  resolvedAt?: number;
+  transitions: OperationsIncidentTransition[];
 };
 
 export type OperationsProcessSnapshot = {
@@ -149,11 +250,15 @@ export type OperationsReconcilerSnapshot = {
   mode: "shadow" | "supervised";
   autoRemediationEnabled: false;
   intervalMs: number;
-  lastSweepAt: number;
-  nextSweepAt: number;
+  lastAttemptAt: number | null;
+  lastSweepAt: number | null;
+  nextSweepAt: number | null;
+  attemptCount: number;
+  sweepCount: number;
   recommendedActionCount: number;
   ruleCount: number;
   note: string;
+  lastError?: string;
 };
 
 export type OperationsActionKind =
@@ -182,8 +287,21 @@ export type OperationsActionReceipt = {
 };
 
 export type OperationsSnapshot = {
-  schema: "openclaw.operations-room.v1";
+  schema: "openclaw.operations-room.v2";
   generatedAt: number;
+  snapshotId: string;
+  freshness: {
+    status: "fresh" | "stale" | "unknown";
+    observedAt: number;
+    staleAfterMs: number;
+    sources: Record<OperationsSourceName, OperationsSourceObservation>;
+  };
+  completeness: {
+    status: "complete" | "partial";
+    unavailableSources: OperationsSourceName[];
+    fallbackSources: OperationsSourceName[];
+  };
+  briefing: OperationsBriefing;
   qualityTarget: 93;
   qualityScore: number;
   overallStatus: OperationsStatus;
@@ -203,7 +321,26 @@ export type OperationsSnapshot = {
     tools: number;
     models: number;
     findings: number;
+    actionableFindings: number;
+    historicalFindings: number;
+    needsUserFindings: number;
+    handlingFindings: number;
+    watchingFindings: number;
     criticalFindings: number;
+  };
+  collections: {
+    agents: OperationsCollectionCount;
+    tasks: OperationsCollectionCount;
+    workflows: OperationsCollectionCount;
+    cronJobs: OperationsCollectionCount;
+    skills: OperationsCollectionCount;
+    plugins: OperationsCollectionCount;
+    tools: OperationsCollectionCount;
+    models: OperationsCollectionCount;
+    processes: OperationsCollectionCount;
+    findings: OperationsCollectionCount;
+    activityRollups: OperationsCollectionCount;
+    incidentHistory: OperationsCollectionCount;
   };
   host: OperationsHostSnapshot;
   agents: OperationsAgentSnapshot[];
@@ -216,6 +353,11 @@ export type OperationsSnapshot = {
   models: OperationsCatalogEntry[];
   processes: OperationsProcessSnapshot[];
   findings: OperationsFinding[];
+  activityRollups: OperationsActivityRollup[];
+  incidentHistory: OperationsIncidentHistoryEntry[];
+  incidentLedger: {
+    overflowCount: number;
+  };
   reconciler: OperationsReconcilerSnapshot;
   controls: {
     mode: "guarded";

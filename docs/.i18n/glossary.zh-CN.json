@@ -1302,5 +1302,21 @@
   {
     "source": "SNES Studio Workflow",
     "target": "SNES Studio 工作流"
+  },
+  {
+    "source": "Custom Runtime Update Safety",
+    "target": "自定义运行时更新安全"
+  },
+  {
+    "source": "Operations Room",
+    "target": "运营室"
+  },
+  {
+    "source": "Control Director",
+    "target": "控制总监"
+  },
+  {
+    "source": "Bun",
+    "target": "Bun"
   }
 ]

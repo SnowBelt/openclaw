@@ -148,6 +148,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Quick decision guide
   - H3: Scheduled Tasks (Cron) vs Heartbeat
   - H2: Core concepts
+  - H3: Release Governor
   - H3: Scheduled tasks (cron)
   - H3: Tasks
   - H3: Inferred commitments
@@ -164,10 +165,21 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /automation/operations-room
 - Headings:
   - H1: Operations Room
+  - H2: Snapshot authority and compatibility
+  - H2: Information hierarchy
+  - H2: State semantics
+  - H2: Counts, freshness, and partial data
+  - H2: Work summaries and rollups
+  - H2: Agent order
+  - H2: Color and accessibility
   - H2: Runtime policy
+  - H2: Registry restore safety
   - H2: Guarded controls
-  - H2: Standard for future additions
+  - H2: Addition and update standard
   - H2: Milestone and proof map
+  - H2: Required proof receipts
+  - H2: Zero-instruction 60-second usability protocol
+  - H2: Focused verification
 
 ## automation/pcc-execution-teams.md
 
@@ -209,6 +221,17 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /automation/poll
 - Headings:
   - H2: Related
+
+## automation/release-governor.md
+
+- Route: /automation/release-governor
+- Headings:
+  - H2: Risk and trust boundaries
+  - H2: Evidence flow
+  - H2: Reviews and approval
+  - H2: Health and rollback
+  - H2: Verification
+  - H2: Safe runtime inspection
 
 ## automation/self-improvement-governor.md
 
@@ -267,6 +290,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Flow statuses
   - H2: Durable state and revision tracking
   - H2: Cancel behavior
+  - H2: Chat controls for managed flows
   - H2: CLI commands
   - H2: Reliable scheduled workflow pattern
   - H2: How flows relate to tasks
@@ -2440,6 +2464,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Local-first model policy and Codex
   - H2: Memory and context continuity
   - H2: Quality and self-improvement
+  - H2: Managed role activation and rollback
   - H2: Verification and readiness
   - H2: Questions to ask during a reliability review
 

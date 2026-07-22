@@ -188,7 +188,7 @@ function configureTaskRegistryMaintenanceRuntimeForTest(params: {
       );
     },
     deleteTaskRecordById: (taskId: string) => params.currentTasks.delete(taskId),
-    ensureTaskRegistryReady: () => {},
+    ensureTaskRegistryReady: () => true,
     getTaskById: (taskId: string) => params.currentTasks.get(taskId),
     listTaskRecords: params.listTaskRecords ?? (() => params.snapshotTasks),
     markTaskLostById: (patch: {
@@ -3257,7 +3257,7 @@ describe("task-registry", () => {
         hasActiveAcpTurn: () => false,
         hasActiveTaskForChildSessionKey: () => false,
         deleteTaskRecordById: () => false,
-        ensureTaskRegistryReady: () => {},
+        ensureTaskRegistryReady: () => true,
         getTaskById: () => undefined,
         listTaskRecords: () => {
           throw new Error("maintenance boom");

@@ -142,7 +142,7 @@ export const customLocaleOverlays: Partial<Record<Locale, TranslationMap>> = {
       kalshi: "Prediction market paper trading status.",
       patternLab: "YouTube review, approval, and learning dashboard.",
       pcc: "Project Command Center for projects, blockers, Autopilot, proof, and next actions.",
-      operations: "Agents, workflows, capabilities, models, and resources at a glance.",
+      operations: "What needs attention, what is working, and how the system is doing.",
     },
     overview: {
       cards: {
@@ -151,7 +151,7 @@ export const customLocaleOverlays: Partial<Record<Locale, TranslationMap>> = {
         pccHint: "Projects, blockers, Autopilot, proof",
         operations: "Operations",
         operationsValue: "Operations Room",
-        operationsHint: "Agents, work, reliability, models, and memory",
+        operationsHint: "Attention, active work, agents, and system health",
         truthAudit: "Control Director truth audit",
         truthAuditSubtitle: "Recent blocked or rewritten unsupported claims.",
         truthAuditOpenSessions: "Open sessions",

@@ -1,6 +1,16 @@
 // Operations Room status and score derivation is pure and deterministic so UI,
 // tests, and gateway handlers cannot disagree about operational truth.
-import type { OperationsFinding, OperationsSeverity, OperationsStatus } from "./types.js";
+import type {
+  OperationsActivityState,
+  OperationsAttentionState,
+  OperationsBriefing,
+  OperationsCollectionCount,
+  OperationsDuty,
+  OperationsFinding,
+  OperationsHealthState,
+  OperationsSeverity,
+  OperationsStatus,
+} from "./types.js";
 
 const SEVERITY_DEDUCTION: Record<OperationsSeverity, number> = {
   info: 0,
@@ -9,13 +19,116 @@ const SEVERITY_DEDUCTION: Record<OperationsSeverity, number> = {
 };
 
 export const OPERATIONS_RECENT_WORKFLOW_FAILURE_MS = 24 * 60 * 60 * 1_000;
+export const OPERATIONS_WORKFLOW_HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 export const OPERATIONS_STALE_QUEUED_WORKFLOW_MS = 24 * 60 * 60 * 1_000;
+export const OPERATIONS_SNAPSHOT_STALE_AFTER_MS = 2 * 60 * 1_000;
 
 const findingFirstObservedAt = new Map<string, number>();
 
+export function operationsCollectionCount(total: number, shown: number): OperationsCollectionCount {
+  const safeTotal = Math.max(0, Math.floor(total));
+  const safeShown = Math.min(safeTotal, Math.max(0, Math.floor(shown)));
+  return {
+    total: safeTotal,
+    shown: safeShown,
+    truncated: safeShown < safeTotal,
+  };
+}
+
+export function deriveOperationsAgentStates(params: {
+  duty: OperationsDuty;
+  runningTaskCount: number;
+  queuedTaskCount: number;
+  blockedTaskCount: number;
+  recentFailureCount: number;
+  sourceAvailable?: boolean;
+}): {
+  activityState: OperationsActivityState;
+  healthState: OperationsHealthState;
+  attentionState: OperationsAttentionState;
+} {
+  const sourceAvailable = params.sourceAvailable !== false;
+  let activityState: OperationsActivityState;
+  if (!sourceAvailable) {
+    activityState = "unknown";
+  } else if (params.duty === "disabled") {
+    activityState = "off";
+  } else if (params.runningTaskCount > 0) {
+    activityState = "working";
+  } else if (params.queuedTaskCount > 0) {
+    activityState = "waiting";
+  } else if (params.duty === "scheduled") {
+    activityState = "scheduled";
+  } else {
+    activityState = "ready";
+  }
+
+  let healthState: OperationsHealthState;
+  let attentionState: OperationsAttentionState;
+  if (!sourceAvailable) {
+    healthState = "unknown";
+    attentionState = "watching";
+  } else if (params.blockedTaskCount > 0) {
+    healthState = "degraded";
+    attentionState = "needs_user";
+  } else if (params.recentFailureCount > 0) {
+    healthState = "degraded";
+    attentionState = "watching";
+  } else {
+    healthState = "healthy";
+    attentionState = "none";
+  }
+
+  return { activityState, healthState, attentionState };
+}
+
+export function buildDeterministicOperationsBriefing(params: {
+  partial: boolean;
+  criticalFindings: number;
+  needsUserFindings: number;
+  handlingFindings: number;
+  watchingFindings: number;
+  workingAgents: number;
+  activeTasks: number;
+  activeWorkflows: number;
+}): OperationsBriefing {
+  if (params.partial) {
+    return {
+      tone: "unknown",
+      text: `Operations data is partial; ${params.workingAgents} agent${params.workingAgents === 1 ? " is" : "s are"} working, so verify incomplete sources before judging system health.`,
+    };
+  }
+  if (params.criticalFindings > 0) {
+    return {
+      tone: "urgent",
+      text: `${params.criticalFindings} critical issue${params.criticalFindings === 1 ? " needs" : "s need"} attention now; ${params.workingAgents} agent${params.workingAgents === 1 ? " is" : "s are"} working.`,
+    };
+  }
+  if (params.needsUserFindings > 0) {
+    return {
+      tone: "attention",
+      text: `${params.needsUserFindings} issue${params.needsUserFindings === 1 ? " needs" : "s need"} your decision; ${params.handlingFindings} ${params.handlingFindings === 1 ? "is" : "are"} being handled.`,
+    };
+  }
+  if (params.handlingFindings > 0 || params.watchingFindings > 0) {
+    return {
+      tone: "attention",
+      text: `${params.handlingFindings} issue${params.handlingFindings === 1 ? " is" : "s are"} being handled and ${params.watchingFindings} ${params.watchingFindings === 1 ? "is" : "are"} being watched; no decision is needed now.`,
+    };
+  }
+  return {
+    tone: "normal",
+    text: `${params.workingAgents} agent${params.workingAgents === 1 ? " is" : "s are"} working on ${params.activeTasks} active task${params.activeTasks === 1 ? "" : "s"} across ${params.activeWorkflows} active workflow${params.activeWorkflows === 1 ? "" : "s"}; nothing needs your attention.`,
+  };
+}
+
 export function operationsStatusForFindings(
   findings: readonly OperationsFinding[],
+  options: { partial?: boolean } = {},
 ): OperationsStatus {
+  if (options.partial) {
+    return "unknown";
+  }
   if (findings.some((finding) => finding.severity === "critical")) {
     return "blocked";
   }
@@ -34,6 +147,7 @@ export function operationsStatusForTask(
   }
   switch (status) {
     case "queued":
+      return "idle";
     case "running":
       return "working";
     case "succeeded":
@@ -58,8 +172,9 @@ export function operationsStatusForWorkflow(
     case "running":
       return "working";
     case "queued":
-      return now - updatedAt >= OPERATIONS_STALE_QUEUED_WORKFLOW_MS ? "degraded" : "working";
+      return now - updatedAt >= OPERATIONS_STALE_QUEUED_WORKFLOW_MS ? "degraded" : "idle";
     case "waiting":
+    case "paused":
       return "idle";
     case "blocked":
       return "blocked";
@@ -87,7 +202,11 @@ export function operationsFindingSeverityForWorkflow(
     return "warning";
   }
   if (status === "failed" || status === "lost") {
-    return now - updatedAt <= OPERATIONS_RECENT_WORKFLOW_FAILURE_MS ? "critical" : "info";
+    const age = now - updatedAt;
+    if (age <= OPERATIONS_RECENT_WORKFLOW_FAILURE_MS) {
+      return "critical";
+    }
+    return age <= OPERATIONS_WORKFLOW_HISTORY_RETENTION_MS ? "info" : null;
   }
   return null;
 }

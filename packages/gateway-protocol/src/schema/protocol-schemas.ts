@@ -267,6 +267,10 @@ import {
   OperationsActionPreviewResultSchema,
   OperationsSnapshotParamsSchema,
   OperationsSnapshotResultSchema,
+  OperationsSnapshotV1ParamsSchema,
+  OperationsSnapshotV1ResultSchema,
+  OperationsSnapshotV2ParamsSchema,
+  OperationsSnapshotV2ResultSchema,
   OperationsStatusSchema,
 } from "./operations.js";
 import {
@@ -845,6 +849,10 @@ export const ProtocolSchemas = {
   OperationsActionKind: OperationsActionKindSchema,
   OperationsSnapshotParams: OperationsSnapshotParamsSchema,
   OperationsSnapshotResult: OperationsSnapshotResultSchema,
+  OperationsSnapshotV1Params: OperationsSnapshotV1ParamsSchema,
+  OperationsSnapshotV1Result: OperationsSnapshotV1ResultSchema,
+  OperationsSnapshotV2Params: OperationsSnapshotV2ParamsSchema,
+  OperationsSnapshotV2Result: OperationsSnapshotV2ResultSchema,
   OperationsActionPreviewParams: OperationsActionPreviewParamsSchema,
   OperationsActionPreviewResult: OperationsActionPreviewResultSchema,
   OperationsActionApplyParams: OperationsActionApplyParamsSchema,

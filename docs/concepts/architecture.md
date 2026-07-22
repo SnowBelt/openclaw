@@ -137,6 +137,12 @@ Details: [Gateway protocol](/gateway/protocol), [Pairing](/channels/pairing),
 - Start: `openclaw gateway` (foreground, logs to stdout).
 - Health: `health` over WS (also included in `hello-ok`).
 - Supervision: launchd/systemd for auto-restart.
+- Operational briefing: `operations.snapshot.v2` is the authoritative, freshness-aware contract.
+- Compatibility: `operations.snapshot` remains the exact V1 wire shape. New Control UI clients use it
+  only when V2 is explicitly unsupported and label the adapted view Partial and unverified.
+
+See [Operations Room](/automation/operations-room) for source authority, incident reconciliation,
+guarded controls, and proof requirements.
 
 ## Invariants
 

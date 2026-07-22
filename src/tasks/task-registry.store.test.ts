@@ -26,9 +26,11 @@ import {
   deleteTaskRecordById,
   findTaskByRunId,
   getTaskById,
+  getTaskRegistryRestoreFailure,
   listFreshTasksForOwnerKey,
   markTaskTerminalById,
   maybeDeliverTaskStateChangeUpdate,
+  reloadTaskRegistryFromStore,
   resetTaskRegistryForTests,
   updateTaskNotifyPolicyById,
 } from "./task-registry.js";
@@ -175,6 +177,96 @@ describe("task-registry store runtime", () => {
     } finally {
       warnLogs.cleanup();
     }
+  });
+
+  it("keeps the prior authoritative snapshot when a retry fails during index staging", () => {
+    const storedTask = createStoredTask();
+    const replacementTask: TaskRecord = {
+      ...storedTask,
+      taskId: "task-replacement",
+      sourceId: "run-replacement",
+      runId: "run-replacement",
+      task: "Replacement task",
+    };
+    const invalidTask: TaskRecord = {
+      ...storedTask,
+      taskId: "task-invalid",
+      runId: {
+        trim: () => {
+          throw new Error("task index staging failed");
+        },
+      } as unknown as string,
+    };
+    let snapshot = {
+      tasks: new Map([[storedTask.taskId, storedTask]]),
+      deliveryStates: new Map<string, TaskDeliveryState>(),
+    };
+    configureTaskRegistryRuntime({
+      store: {
+        loadSnapshot: () => snapshot,
+        saveSnapshot: () => {},
+      },
+    });
+
+    expect(findTaskByRunId("run-restored")?.taskId).toBe(storedTask.taskId);
+
+    snapshot = {
+      tasks: new Map([
+        [replacementTask.taskId, replacementTask],
+        [invalidTask.taskId, invalidTask],
+      ]),
+      deliveryStates: new Map<string, TaskDeliveryState>(),
+    };
+    expect(reloadTaskRegistryFromStore()).toBe(false);
+    expect(getTaskRegistryRestoreFailure()).toContain("task index staging failed");
+    expect(findTaskByRunId("run-restored")?.taskId).toBe(storedTask.taskId);
+    expect(findTaskByRunId("run-replacement")).toBeUndefined();
+
+    snapshot = {
+      tasks: new Map([[replacementTask.taskId, replacementTask]]),
+      deliveryStates: new Map<string, TaskDeliveryState>(),
+    };
+    expect(reloadTaskRegistryFromStore()).toBe(true);
+    expect(getTaskRegistryRestoreFailure()).toBeNull();
+    expect(findTaskByRunId("run-restored")).toBeUndefined();
+    expect(findTaskByRunId("run-replacement")?.taskId).toBe(replacementTask.taskId);
+  });
+
+  it("blocks writes after an initial restore failure until an explicit retry succeeds", () => {
+    let restoreShouldFail = true;
+    const upsertTask = vi.fn();
+    configureTaskRegistryRuntime({
+      store: {
+        loadSnapshot: () => {
+          if (restoreShouldFail) {
+            throw new Error("task store unavailable");
+          }
+          return {
+            tasks: new Map(),
+            deliveryStates: new Map(),
+          };
+        },
+        saveSnapshot: () => {},
+        upsertTask,
+      },
+    });
+
+    const createParams: Parameters<typeof createTaskRecordOrNull>[0] = {
+      runtime: "acp",
+      ownerKey: "agent:main:main",
+      scopeKind: "session",
+      runId: "run-after-retry",
+      task: "Create only after restore",
+      status: "running",
+      deliveryStatus: "pending",
+    };
+    expect(createTaskRecordOrNull(createParams)).toBeNull();
+    expect(upsertTask).not.toHaveBeenCalled();
+
+    restoreShouldFail = false;
+    expect(reloadTaskRegistryFromStore()).toBe(true);
+    expect(createTaskRecordOrNull(createParams)?.runId).toBe("run-after-retry");
+    expect(upsertTask).toHaveBeenCalledTimes(1);
   });
 
   it("uses scoped owner lookups for fresh owner task reads", () => {

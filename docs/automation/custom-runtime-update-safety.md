@@ -106,5 +106,36 @@ Promotion preregisters a hash-bound rollback bundle containing the previous runt
 Never delete the previous immutable release or rollback bundle until the new runtime passes restart, desktop browser, mobile browser, and bounded soak proof.
 
 The Operations Room is a required custom runtime capability. Candidate updates must preserve its
-collector, shadow monitor, guarded gateway methods, Control UI route, tests, and browser smoke. A
-candidate that removes any of those paths fails capability verification before promotion.
+additive protocol, truth and freshness policy, collector, persisted incident history, local probes,
+fail-closed monitor-health derivation, atomic task and TaskFlow restore, guarded Gateway methods,
+Control UI controller, route, styles, localization, skills, documentation, unit tests, DOM smoke,
+real browser E2E, and dedicated exact-SHA workflow proof. The authoritative inventory is the
+`runtime:operations-room` entry in `config/custom-runtime-capabilities.json`; a
+candidate that removes any declared path fails capability verification before promotion.
+
+Run the canonical focused source proof before candidate preparation:
+
+```bash
+pnpm operations-room:verify
+```
+
+That command includes the complete Operations and task-registry regression list, all production and
+test type lanes including `pnpm tsgo:test:src`, both smoke layers, localization, capability and
+workflow checks, and the build.
+
+The complete focused unit-test invocation is maintained in
+[Operations Room](/automation/operations-room#focused-verification). The DOM smoke is not browser
+proof. The mocked E2E is not managed-runtime proof. The proof workflow must produce the validated
+browser receipt, five named screenshots including `tablet-768-increased-contrast.png`, their
+checksums, and a passing exact-SHA workflow receipt;
+a green job without that uploaded receipt set is incomplete. Production
+acceptance requires the same exact source SHA in the canonical source branch, immutable candidate,
+active runtime pointer, capability manifest, and Gateway process. After approval, rebuild or restart
+the managed Gateway, capture desktop and mobile Operations Room receipts, prove that incident and
+since-last-visit state survive restart, observe at least five minutes without liveness, memory, CPU,
+focus, refresh, duplicate-transition, or duplicate-change regressions, and keep the preregistered
+rollback bundle verified. Run the zero-instruction usability protocol in
+[Operations Room](/automation/operations-room#zero-instruction-60-second-usability-protocol) and
+retain its exact-SHA receipt; every participant must complete all four outcomes in 60 seconds or
+less without a hint or unsafe action. If any identity or proof surface differs, a receipt is missing,
+or any usability attempt fails, stop and restore the previous immutable runtime.
