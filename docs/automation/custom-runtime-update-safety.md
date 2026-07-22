@@ -36,6 +36,16 @@ pnpm check:pcc-capabilities
 
 Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries fails the build. A candidate may add requirements. It cannot silently remove an active requirement.
 
+Control Director deployment consistency is a separate exact-runtime gate. Its registered capability binds the required reliability skill, bundled plugin manifests, role and prompt contracts, Workflow Sanity definition, managed lifecycle helpers, and both customization inventories. Source verification runs as part of `control-director:verify`. Production verification must run after managed restart and consume that restart's receipt:
+
+```bash
+pnpm control-director:deployment-consistency -- \
+  --expected-sha <exact-sha> \
+  --restart-receipt <restart-receipt.json>
+```
+
+The live gate fails closed unless every registered file in the immutable release is byte-identical to the exact source, bundled app plugin manifests exist, the active pointer and capability manifest hashes agree, the managed launcher verifies, and Gateway, the prepare-only weekly broker, and the recovery guard are loaded. Its receipt contains hashes and boolean service results, not configuration or secret values.
+
 ## Durable source requirement
 
 The active runtime pointer records an exact 40-character Git commit, canonical source checkout, and source branch. The update broker stops before network or build work when:

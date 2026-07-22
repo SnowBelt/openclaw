@@ -42,11 +42,22 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 pnpm control-director:torture
 pnpm control-director:chaos
 pnpm control-director:format-check
+pnpm control-director:deployment-consistency -- --source-only --expected-sha "$(git rev-parse HEAD)"
 pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"
 pnpm ui:smoke:control-director-no-response
 ```
 
 `control-director:verify` intentionally requires a clean exact-SHA checkout. Commit intended files before the final source gate. It runs the curated tests, core/UI/plugin typechecks, build, and source-only readiness sequentially and writes an ignored receipt under `.artifacts/control-director/`.
+
+The immutable candidate must include the registered Control Director skill, plugin manifests, role/prompt contracts, Workflow Sanity definition, managed runtime helpers, and both customization inventories. After activation, use the repository-managed restart command and bind its `restarted_verified` receipt to:
+
+```bash
+pnpm control-director:deployment-consistency -- \
+  --expected-sha <exact-sha> \
+  --restart-receipt <restart-receipt.json>
+```
+
+This gate compares every registered file byte-for-byte with the exact source, verifies bundled plugin manifests, validates the immutable pointer and manifest digest, invokes the managed launcher verifier, and checks only boolean loaded state for Gateway, weekly update broker, and recovery guard services. Never substitute source-only proof for this post-restart receipt.
 
 7. Run `pnpm check:changed` on remote CI or Testbox when it selects broad/shared lanes. Never replace a failed gate with a prose assertion.
 

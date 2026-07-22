@@ -2014,6 +2014,7 @@
     "control-director:format-check": "node scripts/control-director-format-check.mjs",
     "control-director:torture": "node --import tsx scripts/control-director-torture.ts",
     "control-director:chaos": "pnpm test src/agents/control-director-chaos-acceptance.test.ts src/tasks/pursue-goal-controller-state.test.ts src/tasks/pursue-goal-controller.test.ts src/gateway/chat-turn-inbox-state.test.ts src/gateway/chat-turn-inbox-controller.test.ts src/agents/control-director-context-budget.test.ts src/agents/control-director-resource-governor.test.ts",
+    "control-director:deployment-consistency": "node --import tsx scripts/control-director-deployment-consistency.ts",
     "control-director:readiness": "node --import tsx scripts/control-director-readiness.mjs",
     "control-director:runtime-proof": "node --import tsx scripts/control-director-runtime-proof.ts",
     "control-director:verify": "node --import tsx scripts/control-director-verify.mjs",

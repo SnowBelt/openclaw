@@ -81,6 +81,27 @@
       ]
     },
     {
+      "id": "runtime:control-director-deployment-consistency",
+      "kind": "runtime",
+      "requiredPaths": [
+        ".agents/skills/control-director-reliability/SKILL.md",
+        "extensions/apps/openclaw.plugin.json",
+        "extensions/book-writer/openclaw.plugin.json",
+        "src/agents/agent-role-capabilities.ts",
+        "src/agents/control-director-turn-policy.ts",
+        "scripts/custom-runtime/control-director-role-config.py",
+        ".github/workflows/workflow-sanity.yml",
+        "scripts/control-director-deployment-consistency.ts",
+        "scripts/custom-runtime/custom-runtime-activate.sh",
+        "scripts/custom-runtime/custom-runtime-guard.sh",
+        "scripts/custom-runtime/custom-runtime-restart.sh",
+        "scripts/custom-runtime/custom-runtime-rollback.sh",
+        "scripts/custom-runtime/custom-runtime-updater.sh",
+        "config/custom-runtime-capabilities.json",
+        "src/pcc/capability-addition-registry.ts"
+      ]
+    },
+    {
       "id": "runtime:control-director-truth-gates",
       "kind": "runtime",
       "requiredPaths": [
