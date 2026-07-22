@@ -365,6 +365,16 @@ describe("sessions_spawn tool", () => {
         source: "inherited",
         scope: "task_root",
       });
+      expect(acceptedDetails.diagnosticClaims).toEqual([
+        expect.objectContaining({
+          kind: "worker",
+          verdict: expect.objectContaining({ status: "supported" }),
+        }),
+        expect.objectContaining({
+          kind: "task_root",
+          verdict: expect.objectContaining({ status: "supported" }),
+        }),
+      ]);
       expect(JSON.stringify(taskRoot)).not.toContain(root);
       const spawnArgs = mockCallArg(hoisted.spawnSubagentDirectMock, 0, 0, "spawnSubagentDirect");
       expect(spawnArgs.cwd).toBe(await fs.realpath(root));
@@ -408,6 +418,10 @@ describe("sessions_spawn tool", () => {
       expect(result.details).toMatchObject({
         status: "accepted",
         taskRoot: { source: "requested", scope: "descendant" },
+        diagnosticClaims: [
+          { kind: "worker", verdict: { status: "supported" } },
+          { kind: "task_root", verdict: { status: "supported" } },
+        ],
       });
       const spawnArgs = mockCallArg(hoisted.spawnAcpDirectMock, 0, 0, "spawnAcpDirect");
       expect(spawnArgs.cwd).toBe(await fs.realpath(child));
