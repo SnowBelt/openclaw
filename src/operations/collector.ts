@@ -354,7 +354,6 @@ function buildAgentRows(params: {
     const recentFailures = agentTasks.filter(
       (task) => isRecentTaskFailure(task, params.now) && !isBlockedTask(task, params.now),
     );
-    const terminalTasks = agentTasks.filter((task) => !isRunningTask(task) && !isQueuedTask(task));
     const heartbeat = resolveHeartbeatSummaryForAgent(params.cfg, agent.id);
     const agentCronJobs = cronByAgent.get(agent.id) ?? [];
     const hasEnabledSchedule = agentCronJobs.some((job) => job.enabled);
@@ -422,7 +421,7 @@ function buildAgentRows(params: {
     if (currentTask) {
       row.currentWork = taskSummary(currentTask);
     }
-    const lastTask = terminalTasks[0];
+    const lastTask = agentTasks.find((task) => !isRunningTask(task) && !isQueuedTask(task));
     if (lastTask) {
       row.lastActivity = taskSummary(lastTask);
     }
@@ -1237,22 +1236,26 @@ export async function collectOperationsSnapshot(params: {
     });
     const stampedById = new Map(ledger.findings.map((entry) => [entry.id, entry]));
     const suppressedFindingIds = new Set(ledger.suppressedFindingIds);
-    trackedFindings = rawFindings
-      .filter((entry) => !suppressedFindingIds.has(entry.id))
-      .map(
-        (entry) =>
-          stampedById.get(entry.id) ?? {
-            ...entry,
-            firstObservedAt: entry.firstObservedAt ?? now,
-            lastObservedAt: now,
-          },
+    trackedFindings = [];
+    for (const entry of rawFindings) {
+      if (suppressedFindingIds.has(entry.id)) {
+        continue;
+      }
+      const stamped = stampedById.get(entry.id);
+      trackedFindings.push(
+        stamped ?? {
+          ...entry,
+          firstObservedAt: entry.firstObservedAt ?? now,
+          lastObservedAt: now,
+        },
       );
+    }
     const currentIds = new Set(trackedFindings.map((entry) => entry.id));
-    trackedFindings.push(
-      ...ledger.carriedFindings
-        .filter((entry) => !currentIds.has(entry.id))
-        .map((entry) => ({ ...entry, evidenceState: "last_known" as const })),
-    );
+    for (const entry of ledger.carriedFindings) {
+      if (!currentIds.has(entry.id)) {
+        trackedFindings.push({ ...entry, evidenceState: "last_known" });
+      }
+    }
     incidentHistory = ledger.history;
     incidentHistoryTotal = ledger.historyTotal;
     incidentOverflowCount = ledger.overflowCount;

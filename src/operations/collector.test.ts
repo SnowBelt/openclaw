@@ -69,11 +69,15 @@ function cfg(params?: {
         model: { primary: "ollama/gemma", fallbacks: ["ollama/qwen"] },
         ...(params?.heartbeat ? { heartbeat: { every: "30m", target: "last" } } : {}),
       },
-      list: (params?.agents ?? ["main"]).map((id) => ({
-        id,
-        name: id === "main" ? "Control Director" : `Agent ${id}`,
-        ...(params?.heartbeatAgentId === id ? { heartbeat: { every: "30m", target: "none" } } : {}),
-      })),
+      list: (params?.agents ?? ["main"]).map((id) =>
+        params?.heartbeatAgentId === id
+          ? {
+              id,
+              name: id === "main" ? "Control Director" : `Agent ${id}`,
+              heartbeat: { every: "30m", target: "none" },
+            }
+          : { id, name: id === "main" ? "Control Director" : `Agent ${id}` },
+      ),
     },
   } as OpenClawConfig;
 }
@@ -467,12 +471,12 @@ describe("Operations Room collector", () => {
       incidentLedgerOptions: { ledgerPath: ledgerPath() },
     });
 
-    const warningFindings = snapshot.findings.filter((finding) => finding.severity === "warning");
+    const firstWarningFinding = snapshot.findings.find((finding) => finding.severity === "warning");
     expect(snapshot.collections.findings).toMatchObject({ shown: 200, truncated: true });
     expect(snapshot.summary.needsUserFindings).toBeGreaterThanOrEqual(1);
     expect(snapshot.summary.handlingFindings).toBe(100);
     expect(snapshot.summary.watchingFindings).toBeGreaterThanOrEqual(100);
-    expect(warningFindings[0]).toMatchObject({
+    expect(firstWarningFinding).toMatchObject({
       id: "task:stalled-needs-user:stale",
       disposition: "needs_user",
     });

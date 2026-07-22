@@ -4,6 +4,7 @@
 import type { OperationsSnapshotV1Result } from "../../../../packages/gateway-protocol/src/schema/types.js";
 import type {
   OperationsAgentSnapshot,
+  OperationsActivityRollup,
   OperationsCatalogEntry,
   OperationsFinding,
   OperationsSnapshot,
@@ -23,7 +24,12 @@ function compactText(value: unknown, maxChars: number, fallback: string): string
     ].filter((index) => index >= 0),
   );
   const visible = (Number.isFinite(internalBoundary) ? value.slice(0, internalBoundary) : value)
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .split("")
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127 ? " " : character;
+    })
+    .join("")
     .replace(/\s+/g, " ")
     .trim();
   if (!visible) {
@@ -249,10 +255,9 @@ export function adaptOperationsSnapshotV1(legacy: OperationsSnapshotV1Result): O
       consecutiveErrors: job.consecutiveErrors,
     };
   });
-  const activityRollups = tasks
-    .filter((task) => task.status === "working")
-    .slice(0, 200)
-    .map((task) => ({
+  const activityRollups: OperationsActivityRollup[] = [];
+  for (const task of tasks.filter((entry) => entry.status === "working").slice(0, 200)) {
+    const rollup: OperationsActivityRollup = {
       key: `legacy:${task.runtime}:${task.id}`,
       runtime: task.runtime,
       sourceId: task.id,
@@ -261,8 +266,12 @@ export function adaptOperationsSnapshotV1(legacy: OperationsSnapshotV1Result): O
       count: 1,
       latestAt: task.updatedAt,
       status: "working" as const,
-      ...(task.agentId ? { agentId: task.agentId } : {}),
-    }));
+    };
+    if (task.agentId) {
+      rollup.agentId = task.agentId;
+    }
+    activityRollups.push(rollup);
+  }
   const incidentHistory = findings.map((finding) => ({
     id: finding.id,
     title: finding.title,

@@ -173,7 +173,7 @@ export function groupOperationsAgents(params: {
     id,
     agents: filtered
       .filter((agent) => operationsAgentGroup(agent, params.lastVisitedAt) === id)
-      .sort((left, right) => compareAgents(left, right, params.sort, pinned)),
+      .toSorted((left, right) => compareAgents(left, right, params.sort, pinned)),
   })).filter((group) => group.agents.length > 0);
 }
 
@@ -246,7 +246,7 @@ export function operationsWorkingItems(snapshot: OperationsSnapshot): Operations
       count: 1,
     });
   }
-  return [...items.values()].sort(
+  return [...items.values()].toSorted(
     (left, right) => right.updatedAt - left.updatedAt || left.title.localeCompare(right.title),
   );
 }
@@ -285,7 +285,7 @@ export function operationsChangesSince(
       finding: findingsById.get(incident.id),
     });
   }
-  return changes.sort((left, right) => right.at - left.at);
+  return changes.toSorted((left, right) => right.at - left.at);
 }
 
 export function isOperationsSnapshotStale(

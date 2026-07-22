@@ -26,6 +26,26 @@ const describeControlUiE2e = chromiumAvailable || !allowMissingChromium ? descri
 const artifactDir = path.resolve(process.cwd(), ".artifacts/control-ui-e2e/operations-room");
 const preferencesKey = "openclaw.operations.preferences.v1";
 
+function legacyFinding(finding: OperationsSnapshot["findings"][number]) {
+  const {
+    resolvedAt: _resolvedAt,
+    evidenceState: _evidenceState,
+    disposition: _disposition,
+    responseState: _responseState,
+    impact: _impact,
+    ownerId: _ownerId,
+    nextAction: _nextAction,
+    remediationTaskId: _remediationTaskId,
+    lastProgressAt: _lastProgressAt,
+    nextCheckAt: _nextCheckAt,
+    ...legacy
+  } = finding;
+  return {
+    ...legacy,
+    category: legacy.category === "monitor" ? "process" : legacy.category,
+  };
+}
+
 let browser: Browser;
 let server: ControlUiE2eServer;
 let proofStartedAt = "";
@@ -309,22 +329,7 @@ function legacySnapshot(snapshot: OperationsSnapshot): OperationsSnapshotV1Resul
     processes: snapshot.processes,
     findings: snapshot.findings
       .filter((finding) => finding.category !== "monitor")
-      .map(
-        ({
-          category,
-          resolvedAt: _resolvedAt,
-          evidenceState: _evidenceState,
-          disposition: _disposition,
-          responseState: _responseState,
-          impact: _impact,
-          ownerId: _ownerId,
-          nextAction: _nextAction,
-          remediationTaskId: _remediationTaskId,
-          lastProgressAt: _lastProgressAt,
-          nextCheckAt: _nextCheckAt,
-          ...finding
-        }) => ({ ...finding, category: category === "monitor" ? "process" : category }),
-      ),
+      .map((finding) => legacyFinding(finding)),
     reconciler: {
       mode: snapshot.reconciler.mode,
       autoRemediationEnabled: false,

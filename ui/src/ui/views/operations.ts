@@ -1089,7 +1089,7 @@ function renderAgents(snapshot: OperationsSnapshot, props: OperationsProps) {
 }
 
 function renderAutomations(snapshot: OperationsSnapshot, props: OperationsProps) {
-  const jobs = [...snapshot.cronJobs].sort(
+  const jobs = snapshot.cronJobs.toSorted(
     (left, right) =>
       Number(right.status === "failed" || right.status === "degraded") -
         Number(left.status === "failed" || left.status === "degraded") ||
@@ -1402,7 +1402,7 @@ function incidentChangedAt(incident: OperationsIncidentHistoryEntry): number {
 }
 
 function renderActivityHistory(snapshot: OperationsSnapshot, props: OperationsProps) {
-  const rollups = [...snapshot.activityRollups].sort(
+  const rollups = snapshot.activityRollups.toSorted(
     (left, right) => right.latestAt - left.latestAt || left.key.localeCompare(right.key),
   );
   const total = Math.max(snapshot.collections.activityRollups.total, rollups.length);
@@ -1458,7 +1458,7 @@ function renderActivityHistory(snapshot: OperationsSnapshot, props: OperationsPr
 }
 
 function renderIncidentHistory(snapshot: OperationsSnapshot, props: OperationsProps) {
-  const incidents = [...snapshot.incidentHistory].sort(
+  const incidents = snapshot.incidentHistory.toSorted(
     (left, right) =>
       incidentChangedAt(right) - incidentChangedAt(left) || left.title.localeCompare(right.title),
   );

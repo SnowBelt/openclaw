@@ -39,20 +39,22 @@ export async function collectOperationsShadowObservation(
   now = Date.now(),
 ): Promise<OperationsShadowObservation> {
   const hostMemory = await collectOperationsHostMemory();
-  let tasks: TaskRecord[] = [];
-  let taskSourceAvailable = true;
+  let tasks: TaskRecord[];
+  let taskSourceAvailable: boolean;
   try {
     tasks = listTaskRecords();
     taskSourceAvailable = getTaskRegistryRestoreFailure() == null;
   } catch {
+    tasks = [];
     taskSourceAvailable = false;
   }
-  let flows: TaskFlowRecord[] = [];
-  let flowSourceAvailable = true;
+  let flows: TaskFlowRecord[];
+  let flowSourceAvailable: boolean;
   try {
     flows = listTaskFlowRecords();
     flowSourceAvailable = getTaskFlowRegistryRestoreFailure() == null;
   } catch {
+    flows = [];
     flowSourceAvailable = false;
   }
   const workflows = buildOperationsWorkflowRows(tasks, flows, now);
