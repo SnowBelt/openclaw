@@ -28,6 +28,7 @@ import {
   validateAgentRoleHandoff,
 } from "../agent-role-capabilities.js";
 import { resolveAgentConfig } from "../agent-scope.js";
+import { verifyControlDirectorDiagnosticEvidence } from "../control-director-diagnostic-evidence.js";
 import {
   findAcpUnsupportedInheritedToolAllow,
   findAcpUnsupportedInheritedToolDeny,
@@ -113,10 +114,77 @@ function addRoleToFailureResult<T extends { status: string }>(
 function finalizeSpawnResult<T extends { status: string; error?: string }>(
   result: T,
   taskRoot?: SubagentTaskRootReceipt,
+  expectedAgentId?: string,
 ) {
+  const now = Date.now();
+  const resultIdentity = result as T & { childSessionKey?: string; runId?: string };
+  const childSessionKey = resultIdentity.childSessionKey?.trim();
+  const runId = resultIdentity.runId?.trim();
+  const workerSubject = runId || childSessionKey;
+  const observedWorkerAgentId = childSessionKey
+    ? parseAgentSessionKey(childSessionKey)?.agentId
+    : undefined;
+  const diagnosticClaims = [
+    ...(workerSubject
+      ? [
+          {
+            kind: "worker" as const,
+            verdict: verifyControlDirectorDiagnosticEvidence({
+              claim: {
+                schemaVersion: 1,
+                kind: "worker",
+                subjectId: workerSubject,
+                ...(expectedAgentId ? { expectedBinding: expectedAgentId } : {}),
+              },
+              evidence: {
+                schemaVersion: 1,
+                kind: "worker",
+                subjectId: workerSubject,
+                source: "spawn_receipt",
+                sourceId: runId || childSessionKey || "",
+                observedAt: now,
+                binding: observedWorkerAgentId,
+                status:
+                  result.status === "accepted" && observedWorkerAgentId
+                    ? "supported"
+                    : "unavailable",
+              },
+              now,
+            }),
+          },
+        ]
+      : []),
+    ...(taskRoot
+      ? [
+          {
+            kind: "task_root" as const,
+            verdict: verifyControlDirectorDiagnosticEvidence({
+              claim: {
+                schemaVersion: 1,
+                kind: "task_root",
+                subjectId: workerSubject || taskRoot.fingerprint,
+                expectedBinding: taskRoot.fingerprint,
+              },
+              evidence: {
+                schemaVersion: 1,
+                kind: "task_root",
+                subjectId: workerSubject || taskRoot.fingerprint,
+                source: "spawn_receipt",
+                sourceId: taskRoot.fingerprint,
+                observedAt: now,
+                binding: taskRoot.fingerprint,
+                status: "supported",
+              },
+              now,
+            }),
+          },
+        ]
+      : []),
+  ];
   return addSubagentSpawnRecommendedAction({
     ...result,
     ...(taskRoot ? { taskRoot } : {}),
+    ...(diagnosticClaims.length ? { diagnosticClaims } : {}),
   });
 }
 
@@ -480,6 +548,7 @@ export function createSessionsSpawnTool(
               ...roleContext,
             },
             taskRootResolution.receipt,
+            requestedAgentId,
           ),
         );
       }
@@ -500,6 +569,7 @@ export function createSessionsSpawnTool(
                 ...roleContext,
               },
               taskRootResolution.receipt,
+              requestedAgentId,
             ),
           );
         }
@@ -589,6 +659,7 @@ export function createSessionsSpawnTool(
                   ...roleContext,
                 },
                 taskRootResolution.receipt,
+                requestedAgentId,
               ),
             );
           }
@@ -597,6 +668,7 @@ export function createSessionsSpawnTool(
           finalizeSpawnResult(
             addRoleToFailureResult(result, requestedAgentId),
             taskRootResolution.receipt,
+            requestedAgentId,
           ),
         );
       }
@@ -645,6 +717,7 @@ export function createSessionsSpawnTool(
         finalizeSpawnResult(
           addRoleToFailureResult(result, requestedAgentId),
           taskRootResolution.receipt,
+          requestedAgentId,
         ),
       );
     },

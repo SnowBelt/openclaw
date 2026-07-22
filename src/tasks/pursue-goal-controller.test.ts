@@ -242,6 +242,31 @@ describe("Pursue Goal controller", () => {
     expect(state.events.some((event) => event.name === "goal.blocked")).toBe(false);
   });
 
+  it("accepts a terminal blocker only after the typed evidence reaches confirmation", async () => {
+    const flow = createGoalFlow("Stop only for a persistent external blocker");
+    const blocker = "Required operator approval is unavailable.";
+    const runtime = baseRuntime(async ({ state }) =>
+      state.consecutiveBlockers < 2
+        ? {
+            status: "active" as const,
+            text: blocker,
+            provisionalBlocker: blocker,
+          }
+        : { status: "blocked" as const, text: blocker, blocker },
+    );
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    const state = stateForPursueGoalFlow(blocked)!;
+
+    expect(runtime.runTurn).toHaveBeenCalledTimes(3);
+    expect(state.phase).toBe("blocked");
+    expect(state.consecutiveBlockers).toBe(3);
+    expect(blocked.blockedSummary).toBe(blocker);
+    expect(state.events.some((event) => event.name === "goal.blocked")).toBe(true);
+  });
+
   it("blocks an unbound or cryptographically invalid completion receipt", async () => {
     const flow = createGoalFlow();
     const state = stateForPursueGoalFlow(flow)!;
@@ -265,13 +290,62 @@ describe("Pursue Goal controller", () => {
     const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
     const blockedState = stateForPursueGoalFlow(blocked)!;
     expect(blockedState.phase).toBe("blocked");
-    expect(blockedState.lastError).toContain("missing, invalid, unsigned, or not bound");
+    expect(blockedState.lastError).toContain("Completion was rejected");
+    expect(blockedState.lastError).toContain("unsupported");
     expect(blockedState.events.at(-1)).toMatchObject({
       category: "notification",
       name: "notification.queued",
     });
     expect(taskMocks.complete).toHaveBeenCalledWith(
       expect.objectContaining({ terminalOutcome: "succeeded", suppressDelivery: true }),
+    );
+  });
+
+  it("rejects a stale Judge receipt even when its signature verifier passes", async () => {
+    const flow = createGoalFlow();
+    const state = stateForPursueGoalFlow(flow)!;
+    const receipt = approvedReceipt({
+      missionId: state.missionId,
+      goal: flow.goal,
+      text: "Claimed complete with old evidence.",
+    });
+    receipt.issuedAt = Date.now() - 300_001;
+    setPursueGoalControllerRuntimeForTests(
+      baseRuntime(async () => ({
+        status: "complete",
+        text: "Claimed complete with old evidence.",
+        judgeReceipt: receipt,
+      })),
+    );
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    expect(stateForPursueGoalFlow(blocked)?.lastError).toContain("stale");
+  });
+
+  it("blocks a mismatched typed worker assignment before invoking the worker", async () => {
+    const flow = createGoalFlow();
+    const state = stateForPursueGoalFlow(flow)!;
+    const mismatched = updateFlowRecordByIdExpectedRevision({
+      flowId: flow.flowId,
+      expectedRevision: flow.revision,
+      patch: {
+        stateJson: structuredClone({
+          ...state,
+          workerSessionKey: `agent:other-worker:goal:${flow.flowId}`,
+        }),
+      },
+    });
+    expect(mismatched.applied).toBe(true);
+    const runtime = baseRuntime(async () => ({ status: "active", text: "should not run" }));
+    setPursueGoalControllerRuntimeForTests(runtime);
+
+    expect(kickPursueGoalController(flow.flowId)).toBe(true);
+    const blocked = await waitForFlow(flow.flowId, (candidate) => candidate.status === "blocked");
+    expect(stateForPursueGoalFlow(blocked)?.lastError).toContain("mismatched");
+    expect(runtime.runTurn).not.toHaveBeenCalled();
+    expect(taskMocks.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "cancelled", suppressDelivery: true }),
     );
   });
 

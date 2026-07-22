@@ -107,6 +107,7 @@
       "requiredPaths": [
         "src/agents/control-director-delivery-guards.ts",
         "src/agents/control-director-activity-watchdog.ts",
+        "src/agents/control-director-diagnostic-evidence.ts",
         "src/agents/agent-role-capabilities.ts",
         "src/agents/agent-tools.ts",
         "src/agents/control-director-turn-policy.ts",
@@ -128,6 +129,7 @@
         "src/tasks/pursue-goal-controller.ts",
         "src/gateway/chat-turn-inbox-state.ts",
         "src/self-improvement/control-director-layout-observation.ts",
+        "docs/concepts/control-director.md",
         "scripts/control-director-format-check.mjs",
         "scripts/control-director-eval.ts",
         "scripts/control-director-readiness.mjs",

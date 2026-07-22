@@ -1,6 +1,7 @@
 // Lease-driven durable controller for Control UI Pursue Goal flows.
 import crypto from "node:crypto";
 import { buildControlDirectorJudgeClaimHash } from "../agents/control-director-contract.js";
+import { verifyControlDirectorDiagnosticEvidence } from "../agents/control-director-diagnostic-evidence.js";
 import { verifyJudgeReceipt } from "../agents/judge-receipt-signer.js";
 import { requestHeartbeat } from "../infra/heartbeat-wake.js";
 import {
@@ -456,7 +457,7 @@ function markTurnStarted(params: {
   taskId: string;
 }): PursueGoalControllerState | undefined {
   const now = Date.now();
-  const result = mutatePursueGoalFlow(params.flowId, (_flow, state) => {
+  const result = mutatePursueGoalFlow(params.flowId, (flow, state) => {
     if (
       !isPursueGoalLeaseCurrent(state, {
         ownerId: controllerOwnerId,
@@ -465,6 +466,58 @@ function markTurnStarted(params: {
       })
     ) {
       return undefined;
+    }
+    const workerEvidence = verifyControlDirectorDiagnosticEvidence({
+      claim: {
+        schemaVersion: 1,
+        kind: "worker",
+        subjectId: state.workerSessionId,
+        expectedBinding: state.workerAgentId,
+      },
+      evidence: {
+        schemaVersion: 1,
+        kind: "worker",
+        subjectId: state.workerSessionId,
+        source: "pursue_goal_state",
+        sourceId: state.missionId,
+        observedAt: flow.updatedAt,
+        binding: state.workerSessionKey.startsWith(`agent:${state.workerAgentId}:`)
+          ? state.workerAgentId
+          : state.workerSessionKey,
+        status: "supported",
+      },
+      now,
+    });
+    if (workerEvidence.status !== "supported") {
+      const blocker = `Worker diagnostic evidence was rejected (${workerEvidence.reason}: ${workerEvidence.detail})`;
+      let next: PursueGoalControllerState = {
+        ...state,
+        phase: "blocked",
+        lease: undefined,
+        lastError: blocker,
+        nextAction: "Repair the typed worker assignment and retry the goal.",
+        terminalDeliveryState: "pending",
+      };
+      next = withPursueGoalEvent(next, {
+        flowId: params.flowId,
+        category: "task",
+        name: "task.failed",
+        actorId: controllerOwnerId,
+        summary: blocker,
+        correlation: { runId: params.runId, taskId: params.taskId },
+        at: now,
+      });
+      return {
+        state: next,
+        patch: {
+          status: "blocked",
+          currentStep: "Blocked by mismatched worker evidence.",
+          blockedTaskId: params.taskId,
+          blockedSummary: blocker,
+          endedAt: now,
+          updatedAt: now,
+        },
+      };
     }
     let next: PursueGoalControllerState = {
       ...state,
@@ -599,16 +652,38 @@ function applyTurnResult(params: {
         artifactIds: params.result.artifactIds,
       });
       const receipt = params.result.judgeReceipt;
-      const validApproval = Boolean(
-        receipt &&
-        receipt.verdict === "APPROVE" &&
-        receipt.missionId === state.missionId &&
-        receipt.claimHash === expectedClaimHash &&
-        judgeReceiptVerifier(receipt),
-      );
+      const receiptCryptographicallyValid = Boolean(receipt && judgeReceiptVerifier(receipt));
+      const completionEvidence = verifyControlDirectorDiagnosticEvidence({
+        claim: {
+          schemaVersion: 1,
+          kind: "completion",
+          subjectId: state.missionId,
+          expectedBinding: expectedClaimHash,
+        },
+        evidence: receipt
+          ? {
+              schemaVersion: 1,
+              kind: "completion",
+              subjectId: receipt.missionId,
+              source: "judge_receipt",
+              sourceId: receipt.receiptId,
+              observedAt: receipt.issuedAt,
+              binding: receipt.claimHash,
+              status:
+                receipt.verdict === "APPROVE" && receiptCryptographicallyValid
+                  ? "supported"
+                  : "unsupported",
+            }
+          : undefined,
+        now,
+      });
+      const validApproval = completionEvidence.status === "supported";
       if (!validApproval) {
-        const blocker =
-          "Completion was rejected because its independent Judge receipt was missing, invalid, unsigned, or not bound to the exact mission claim.";
+        const diagnosticDetail =
+          completionEvidence.status === "rejected"
+            ? `${completionEvidence.reason}: ${completionEvidence.detail}`
+            : "unknown evidence verdict";
+        const blocker = `Completion was rejected because its independent Judge receipt was missing, invalid, unsigned, stale, or not bound to the exact mission claim (${diagnosticDetail}).`;
         emitControlDirectorJourneySignal({
           code: "completion_without_proof",
           idempotencyKey: `${state.missionId}:${params.runId}`,
@@ -694,6 +769,44 @@ function applyTurnResult(params: {
       const blocker =
         boundedSummary(params.result.blocker ?? params.result.text) ??
         "Execution is blocked pending evidence or external action.";
+      const blockerBinding = crypto.createHash("sha256").update(blocker).digest("hex");
+      const blockerEvidence = verifyControlDirectorDiagnosticEvidence({
+        claim: {
+          schemaVersion: 1,
+          kind: "blocker",
+          subjectId: state.missionId,
+          expectedBinding: blockerBinding,
+        },
+        evidence: {
+          schemaVersion: 1,
+          kind: "blocker",
+          subjectId: state.missionId,
+          source: "pursue_goal_state",
+          sourceId: `${params.runId}:${params.taskId}`,
+          observedAt: now,
+          binding: blockerBinding,
+          status:
+            consecutiveBlockers >= PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS
+              ? "supported"
+              : "unsupported",
+        },
+        now,
+      });
+      if (blockerEvidence.status !== "supported") {
+        next = {
+          ...next,
+          phase: "running",
+          nextAction: `Re-evaluate the same provisional blocker; confirmation ${consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS} is not terminal.`,
+        };
+        return {
+          state: next,
+          patch: {
+            status: "running",
+            currentStep: `Worker blocker remains provisional (${consecutiveBlockers}/${PURSUE_GOAL_BLOCKER_CONFIRMATION_TURNS}).`,
+            updatedAt: now,
+          },
+        };
+      }
       next = {
         ...next,
         phase: "blocked",
@@ -940,6 +1053,25 @@ async function runControllerActivation(params: {
           terminalSummary: "Controller lease was lost before the worker turn started.",
           suppressDelivery: true,
         });
+        return;
+      }
+      if (startedState.phase === "blocked") {
+        failTaskRunByRunId({
+          runId,
+          status: "cancelled",
+          endedAt: Date.now(),
+          terminalSummary: startedState.lastError,
+          suppressDelivery: true,
+        });
+        const blockedFlow = getTaskFlowById(params.flowId);
+        if (blockedFlow) {
+          queueTerminalNotification({
+            flowId: params.flowId,
+            flow: blockedFlow,
+            status: "blocked",
+            detail: startedState.lastError ?? "Typed worker evidence was rejected.",
+          });
+        }
         return;
       }
       try {
