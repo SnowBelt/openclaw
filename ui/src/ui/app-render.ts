@@ -2920,6 +2920,11 @@ export function renderApp(state: AppViewState) {
                 agentSort: state.operationsAgentSort,
                 pinnedAgentIds: state.operationsPinnedAgentIds,
                 lastVisitedAt: state.operationsLastVisitedAt,
+                workboardEnabled: isPluginEnabledInConfigSnapshot(
+                  state.configSnapshot,
+                  "workboard",
+                  { enabledByDefault: false },
+                ),
                 onRefresh: () => void loadOperationsRoom(state),
                 onSectionChange: (section) => void state.setOperationsSection(section),
                 onAgentQueryChange: (value) => {
