@@ -71,7 +71,18 @@
     {
       "id": "workflow:pcc-project-management",
       "kind": "workflow",
-      "requiredPaths": ["src/pcc/project-workflows.ts", "src/gateway/server-methods/pcc.ts"]
+      "requiredPaths": [
+        "src/pcc/project-workflows.ts",
+        "src/pcc/planning.ts",
+        "src/pcc/planning-runtime.ts",
+        "src/pcc/model-routing.ts",
+        "src/pcc/execution-capacity.ts",
+        "src/pcc/execution-plan.ts",
+        "src/gateway/server-methods/pcc.ts",
+        "ui/src/ui/views/pcc.ts",
+        "docs/automation/pcc-codex-planning.md",
+        "docs/automation/pcc-execution-teams.md"
+      ]
     },
     {
       "id": "workflow:pcc-operational-excellence",

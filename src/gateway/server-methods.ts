@@ -619,6 +619,9 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
     methods: [
       "pcc.projects.list",
       "pcc.projects.get",
+      "pcc.plans.generate",
+      "pcc.planningPolicy.get",
+      "pcc.planningPolicy.upsert",
       "pcc.ledger.repairCanonicalMetadata",
       "pcc.projects.upsert",
       "pcc.milestones.upsert",

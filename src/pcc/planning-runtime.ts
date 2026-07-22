@@ -1,0 +1,116 @@
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  resolveDefaultAgentId,
+  resolveAgentDir,
+  resolveAgentWorkspaceDir,
+} from "../agents/agent-scope.js";
+import { runEmbeddedAgent } from "../agents/embedded-agent.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  assertPccPlanningAuthorized,
+  buildPccPlanningPrompt,
+  DEFAULT_PCC_PLANNING_POLICY,
+  parsePccPlanGenerationResult,
+  resolvePccPlanningEffort,
+  type PccPlanGenerationRequest,
+  type PccPlanGenerationResult,
+  type PccPlanningPolicy,
+} from "./planning.js";
+
+type EmbeddedPlannerResult = Awaited<ReturnType<typeof runEmbeddedAgent>>;
+
+export type PccPlannerRunner = (
+  params: Parameters<typeof runEmbeddedAgent>[0],
+) => Promise<EmbeddedPlannerResult>;
+
+function payloadText(result: EmbeddedPlannerResult): string {
+  return (
+    result.payloads
+      ?.map((payload) => payload.text)
+      .filter((text): text is string => Boolean(text?.trim()))
+      .join("\n")
+      .trim() ?? ""
+  );
+}
+
+function safePlannerError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/auth|oauth|401|unauthorized|login|sign.?in/iu.test(message)) {
+    return new Error(
+      "Codex planning needs OpenAI OAuth. Sign in with `openclaw models auth login --provider openai`, then retry.",
+    );
+  }
+  if (/unknown model|model.*unavailable|not found/iu.test(message)) {
+    return new Error(
+      "GPT-5.6 Sol is not available to this OpenAI OAuth account. Refresh the model catalog or choose an available Codex planner.",
+    );
+  }
+  return new Error(`Codex could not generate the project plan: ${message.slice(0, 400)}`);
+}
+
+export async function generatePccPlanWithCodex(params: {
+  cfg: OpenClawConfig;
+  request: PccPlanGenerationRequest;
+  policy?: PccPlanningPolicy;
+  runAgent?: PccPlannerRunner;
+  now?: () => Date;
+}): Promise<PccPlanGenerationResult> {
+  const policy = params.policy ?? DEFAULT_PCC_PLANNING_POLICY;
+  assertPccPlanningAuthorized(params.request, policy);
+  const effort = resolvePccPlanningEffort(params.request, policy);
+  const agentId = resolveDefaultAgentId(params.cfg);
+  const workspaceDir = resolveAgentWorkspaceDir(params.cfg, agentId);
+  const agentDir = resolveAgentDir(params.cfg, agentId);
+  const runId = `pcc-plan-${randomUUID()}`;
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-pcc-plan-"));
+  const sessionFile = path.join(tempDir, `${runId}.jsonl`);
+  try {
+    const runner = params.runAgent ?? runEmbeddedAgent;
+    const result = await runner({
+      sessionId: runId,
+      sessionKey: `agent:${agentId}:pcc-planner:${runId}`,
+      agentId,
+      trigger: "manual",
+      sessionFile,
+      workspaceDir,
+      agentDir,
+      config: params.cfg,
+      provider: policy.provider,
+      model: policy.model.replace(/^openai\//u, ""),
+      agentHarnessRuntimeOverride: policy.runtime,
+      prompt: buildPccPlanningPrompt(params.request),
+      disableTools: true,
+      thinkLevel: effort,
+      verboseLevel: "off",
+      fastMode: false,
+      timeoutMs: 180_000,
+      runId,
+      bootstrapContextMode: "lightweight",
+      skillsSnapshot: { prompt: "", skills: [] },
+      suppressToolErrorWarnings: true,
+      cleanupBundleMcpOnRunEnd: true,
+      authProfileFailurePolicy: "local",
+    });
+    const text = payloadText(result);
+    if (!text) {
+      throw new Error("Codex returned no project-plan content.");
+    }
+    const firstError = result.payloads?.find((payload) => payload.isError);
+    if (firstError) {
+      throw new Error(firstError.text || "Codex planning failed.");
+    }
+    return parsePccPlanGenerationResult({
+      text,
+      effort,
+      model: policy.model,
+      generatedAt: (params.now ?? (() => new Date()))().toISOString(),
+    });
+  } catch (error) {
+    throw safePlannerError(error);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}

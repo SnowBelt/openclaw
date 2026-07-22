@@ -1272,7 +1272,7 @@ export function listAgentsForGateway(
   const scope = cfg.session?.scope ?? "per-sender";
   const configuredById = new Map<
     string,
-    { name?: string; identity?: GatewayAgentRow["identity"] }
+    { name?: string; identity?: GatewayAgentRow["identity"]; role?: GatewayAgentRow["role"] }
   >();
   for (const entry of cfg.agents?.list ?? []) {
     if (!entry?.id) {
@@ -1295,6 +1295,7 @@ export function listAgentsForGateway(
     configuredById.set(normalizeAgentId(entry.id), {
       name: configuredName ?? identity?.name,
       identity,
+      role: entry.role,
     });
   }
   const explicitIds = new Set(
@@ -1340,6 +1341,7 @@ export function listAgentsForGateway(
     return Object.assign(
       {
         id,
+        role: meta?.role,
         name: meta?.name,
         identity: meta?.identity,
         workspace,

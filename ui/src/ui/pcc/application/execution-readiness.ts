@@ -60,6 +60,17 @@ function isCodexCatalogModel(entry: ModelCatalogEntry): boolean {
   );
 }
 
+const PCC_LOCAL_MODEL_PROVIDERS = new Set(["llama-cpp", "lmstudio", "local", "mlx", "ollama"]);
+
+/** Unknown routes never become local merely because they are not Codex. */
+export function isPccLocalCatalogModel(entry: ModelCatalogEntry): boolean {
+  const provider = entry.provider.trim().toLowerCase();
+  return (
+    !isCodexCatalogModel(entry) &&
+    (entry.route === "local" || PCC_LOCAL_MODEL_PROVIDERS.has(provider))
+  );
+}
+
 function modelRefFromCatalog(entry: ModelCatalogEntry): string {
   return buildQualifiedChatModelValue(entry.id, entry.provider);
 }
@@ -72,7 +83,7 @@ export function resolveConfiguredExecutionModel(
   const entries = (catalog ?? []).filter(
     (entry) =>
       entry.available !== false &&
-      (kind === "codex" ? isCodexCatalogModel(entry) : !isCodexCatalogModel(entry)),
+      (kind === "codex" ? isCodexCatalogModel(entry) : isPccLocalCatalogModel(entry)),
   );
   if (selection === PCC_BEST_AVAILABLE_MODEL_ID) {
     return entries[0] ? modelRefFromCatalog(entries[0]) : null;
@@ -215,7 +226,7 @@ function resolvePccCoordinatorSelection(
 ): { agentId: string; workerModelId: string } | null {
   const availableModelRefs = new Set(
     (catalog ?? [])
-      .filter((entry) => entry.available !== false && !isCodexCatalogModel(entry))
+      .filter((entry) => entry.available !== false && isPccLocalCatalogModel(entry))
       .map(modelRefFromCatalog),
   );
   const candidates = (agentsList?.agents ?? []).filter(
@@ -227,8 +238,12 @@ function resolvePccCoordinatorSelection(
   );
   const exact =
     selectedModelId === PCC_BEST_AVAILABLE_MODEL_ID
-      ? (candidates.find((agent) => agent.id === agentsList?.defaultId) ?? candidates[0])
-      : candidates.find((agent) => agent.model?.primary === selectedModelId);
+      ? (candidates.find((agent) => agent.role === "program_manager") ??
+        candidates.find((agent) => agent.id === agentsList?.defaultId) ??
+        candidates[0])
+      : (candidates.find(
+          (agent) => agent.role === "program_manager" && agent.model?.primary === selectedModelId,
+        ) ?? candidates.find((agent) => agent.model?.primary === selectedModelId));
   const workerModelId = exact?.model?.primary;
   return exact && workerModelId ? { agentId: exact.id, workerModelId } : null;
 }
@@ -351,7 +366,7 @@ export function buildPccExecutionTeamReadiness(
     return {
       ...base,
       status: "blocked",
-      reason: "Refresh models and choose an available OpenClaw worker model.",
+      reason: "Refresh models and choose an available local OpenClaw worker model.",
     };
   }
   if (!coordinatorAgentId) {

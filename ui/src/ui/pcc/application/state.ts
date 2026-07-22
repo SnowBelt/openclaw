@@ -5,6 +5,11 @@ import {
   type PccExecutionProfile,
 } from "../../../../../src/pcc/execution-profile.js";
 import type { PccExecutionRuntimeProjection } from "../../../../../src/pcc/execution-state-projection.js";
+import type {
+  PccPlanGenerationResult,
+  PccPlanningDepth,
+  PccPlanningPolicy,
+} from "../../../../../src/pcc/planning.js";
 import type { PccAiUsePolicy, PccPlanningMode } from "../../../../../src/pcc/project-workflows.js";
 import type { ReleaseGovernanceStatus } from "../../../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../../../src/pcc/runtime-identity.js";
@@ -153,6 +158,7 @@ export type PccAutofillPreview = {
     title: string;
     fields: string[];
   }>;
+  generatedPlan?: PccPlanGenerationResult;
   section?: PccAiRegenerateSection;
   sectionTitle?: string;
 };
@@ -175,6 +181,8 @@ export type PccProjectFormState = {
   /** Legacy read-only field. New PCC flows use qualitative usage guidance, never token caps. */
   plannerPermissionBudget: string;
   planPreviewAccepted: boolean;
+  planningDepth: PccPlanningDepth;
+  generatedPlan: PccPlanGenerationResult | null;
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
   runtimeActionsAllowed: boolean;
@@ -244,6 +252,7 @@ export type PccDashboardState = {
   pccUpdateSafety?: PccUpdateSafety | null;
   pccReleaseGovernance?: ReleaseGovernanceStatus | null;
   pccExecutionCapacity?: PccExecutionCapacitySnapshot | null;
+  pccPlanningPolicy?: PccPlanningPolicy;
   pccExecutionProjection?: PccExecutionRuntimeProjection | null;
   pccExecutionProjectionLoading?: boolean;
   pccExecutionProjectionError?: string | null;
@@ -263,13 +272,15 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   dueDate: "",
   outcomeMetrics: "",
   workflowTemplateId: "software-product",
-  planningMode: "local_project_manager",
-  plannerMode: "best_available",
+  planningMode: "codex_full_plan",
+  plannerMode: "codex",
   aiUsePolicy: "local_only",
-  plannerModelId: "",
+  plannerModelId: "openai/gpt-5.6-sol",
   plannerPermissionScope: "project",
   plannerPermissionBudget: "",
   planPreviewAccepted: false,
+  planningDepth: "automatic",
+  generatedPlan: null,
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
   runtimeActionsAllowed: false,

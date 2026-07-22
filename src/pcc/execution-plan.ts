@@ -46,6 +46,8 @@ export type PccExecutionTaskPartition = {
   workerId: string;
   workspaceId?: string;
   milestoneId?: string;
+  modelId?: string;
+  modelRationale?: string;
   status: PccExecutionPartitionStatus;
 };
 

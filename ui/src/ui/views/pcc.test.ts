@@ -223,6 +223,7 @@ function createProps(overrides: Partial<PccDashboardProps> = {}): PccDashboardPr
     onOpenProjectEditor: () => undefined,
     onOpenMilestoneEditor: () => undefined,
     onProjectFormChange: () => undefined,
+    onGenerateProjectPlan: () => undefined,
     onMilestoneFormChange: () => undefined,
     onSaveProject: () => undefined,
     onSaveMilestone: () => undefined,
@@ -2037,13 +2038,13 @@ describe("renderPccDashboard", () => {
     const primaryButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-primary-action] button",
     );
-    expect(primaryButton?.textContent).toContain("Fix Setup with AI");
+    expect(primaryButton?.textContent).toContain("Plan Setup with Codex");
     const setupRepairButton = container.querySelector<HTMLButtonElement>(
       "[data-pcc-setup-repair-ai-fill]",
     );
-    expect(setupRepairButton?.textContent).toContain("Fill missing setup with AI");
+    expect(setupRepairButton?.textContent).toContain("Plan missing setup with Codex");
     expect(container.querySelector("[data-pcc-setup-repair-codex-note]")?.textContent).toContain(
-      "Codex planning requires approval before token spend",
+      "planning-only draft through the PCC OAuth grant",
     );
     expect(container.querySelector("[data-pcc-setup-repair-issues]")?.textContent).toContain(
       "Required intake answer missing",
@@ -3105,7 +3106,7 @@ describe("renderPccDashboard", () => {
       container.querySelector("[data-pcc-create-flow]")?.getAttribute("data-pcc-create-step"),
     ).toBe("describe");
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
-      "AI fills only the blanks",
+      "Codex fills only the blanks",
     );
     expect(container.querySelector("[data-pcc-create-ai-explainer]")?.textContent).toContain(
       "Anything you type stays unchanged",
@@ -3115,7 +3116,7 @@ describe("renderPccDashboard", () => {
       "No automatic Codex use",
     );
     expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "without an LLM call",
+      "Codex GPT-5.6 Sol will generate the project plan",
     );
     expect(container.querySelector("[data-pcc-create-customize]")?.hasAttribute("open")).toBe(
       false,
@@ -3124,7 +3125,7 @@ describe("renderPccDashboard", () => {
       container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
     ).toBe(true);
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generate project plan",
+      "Generate project plan with Codex",
     );
   });
 
@@ -3171,7 +3172,7 @@ describe("renderPccDashboard", () => {
       "Ultra + Codex",
     );
     expect(codexContainer.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "one Codex approval is required before creation",
+      "Codex execution remains blocked until you approve that separate role",
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).toBeNull();
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
@@ -3328,6 +3329,12 @@ describe("renderPccDashboard", () => {
       '[data-pcc-execution-team-action="start"]',
     );
     expect(runButton?.textContent).toContain("Run with 1 worker");
+    expect(container.querySelector("[data-pcc-execution-team]")?.textContent).toContain(
+      "main coordinator",
+    );
+    expect(container.querySelector("[data-pcc-execution-model-provenance]")?.textContent).toContain(
+      "ollama/qwen3.6",
+    );
     runButton?.click();
     expect(onRunExecutionTeam).toHaveBeenCalledWith("start");
     expect(container.querySelector("[data-pcc-learning-loop]")?.textContent).toContain(
@@ -3343,6 +3350,7 @@ describe("renderPccDashboard", () => {
 
   it("fills only missing project details and preserves everything the user entered", () => {
     const onProjectFormChange = vi.fn();
+    const onGenerateProjectPlan = vi.fn();
     const container = renderView(
       createProps({
         editorMode: "create-project",
@@ -3355,27 +3363,14 @@ describe("renderPccDashboard", () => {
           intakeAnswers: { owner: "Todd" },
         },
         onProjectFormChange,
+        onGenerateProjectPlan,
       }),
     );
 
     container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "My Kitchen Plan",
-        goal: "Finish the kitchen safely and on budget.",
-        outcomeMetrics: expect.stringContaining(
-          "My Kitchen Plan produces a first approved deliverable",
-        ),
-        intakeApproved: true,
-        planPreviewAccepted: true,
-        intakeAnswers: expect.objectContaining({
-          owner: "Todd",
-          goal: "Finish the kitchen safely and on budget.",
-          doneProof: expect.stringContaining("completion receipt"),
-        }),
-      }),
-    );
+    expect(onGenerateProjectPlan).toHaveBeenCalledOnce();
+    expect(onProjectFormChange).not.toHaveBeenCalled();
   });
 
   it("uses one Codex approval on review and does not expose a token-budget control", () => {
@@ -3526,6 +3521,7 @@ describe("renderPccDashboard", () => {
 
   it("generates missing project intake answers from the editor", () => {
     const onProjectFormChange = vi.fn();
+    const onGenerateProjectPlan = vi.fn();
     const container = renderView(
       createProps({
         editorMode: "create-project",
@@ -3538,11 +3534,12 @@ describe("renderPccDashboard", () => {
           intakeAnswers: { goal: "" },
         },
         onProjectFormChange,
+        onGenerateProjectPlan,
       }),
     );
 
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with AI.",
+      "Generate missing answers with Codex.",
     );
     const generate = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
       button.matches("[data-pcc-project-intake-autofill]"),
@@ -3551,24 +3548,13 @@ describe("renderPccDashboard", () => {
 
     generate?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        goal: "Plan a kitchen remodel from estimate through final inspection.",
-        intakeAnswers: expect.objectContaining({
-          goal: "Plan a kitchen remodel from estimate through final inspection.",
-          firstDeliverable: expect.stringContaining("Kitchen Remodel Planner"),
-          doneProof: expect.stringContaining("completion receipt"),
-          constraints: expect.stringContaining("separate approval"),
-          owner: "Local Project Manager",
-          blockers: expect.stringContaining("Unknown blockers"),
-        }),
-        planPreviewAccepted: false,
-      }),
-    );
+    expect(onGenerateProjectPlan).toHaveBeenCalledOnce();
+    expect(onProjectFormChange).not.toHaveBeenCalled();
   });
 
   it("shows per-question AI fill controls on project intake answers", () => {
     const onProjectFormChange = vi.fn();
+    const onGenerateProjectPlan = vi.fn();
     const container = renderView(
       createProps({
         editorMode: "create-project",
@@ -3581,30 +3567,24 @@ describe("renderPccDashboard", () => {
           intakeAnswers: { goal: "", owner: "User" },
         },
         onProjectFormChange,
+        onGenerateProjectPlan,
       }),
     );
 
     const goalFill = container.querySelector<HTMLButtonElement>(
       '[data-pcc-intake-question-ai-fill="goal"]',
     );
-    expect(goalFill?.textContent).toContain("AI fill");
+    expect(goalFill?.textContent).toContain("Fill with Codex");
 
     goalFill?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        intakeAnswers: expect.objectContaining({
-          goal: "Plan a kitchen remodel from estimate through final inspection.",
-          owner: "User",
-        }),
-        planPreviewAccepted: false,
-      }),
-    );
+    expect(onGenerateProjectPlan).toHaveBeenCalledOnce();
+    expect(onProjectFormChange).not.toHaveBeenCalled();
 
     const ownerRegenerate = container.querySelector<HTMLButtonElement>(
       '[data-pcc-intake-question-ai-fill="owner"]',
     );
-    expect(ownerRegenerate?.textContent).toContain("Regenerate with AI");
+    expect(ownerRegenerate?.textContent).toContain("Regenerate plan");
   });
 
   it("keeps AI intake autofill visible while editing a project with missing setup", () => {
@@ -3645,7 +3625,7 @@ describe("renderPccDashboard", () => {
     const autofill = container.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-autofill]",
     );
-    expect(autofill?.textContent).toContain("Fill missing details with AI");
+    expect(autofill?.textContent).toContain("Plan missing details with Codex");
 
     autofill?.click();
 
@@ -3721,26 +3701,18 @@ describe("renderPccDashboard", () => {
     ).toContain("Project intake answers");
     const intakeTools = container.querySelector("[data-pcc-intake-answer-ai-tools]");
     expect(container.querySelector("[data-pcc-intake-generate-card]")?.textContent).toContain(
-      "Generate missing answers with AI.",
+      "Generate missing answers with Codex.",
     );
-    expect(intakeTools?.textContent).toContain("AI can fill any blanks here.");
+    expect(intakeTools?.textContent).toContain("Codex can fill any blanks here.");
     const pageAutofill = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-form-only-autofill]",
     );
-    expect(pageAutofill?.textContent).toContain("Autofill answers with AI");
+    expect(pageAutofill?.textContent).toContain("Fill blanks with Codex");
 
     pageAutofill?.click();
 
-    expect(onProjectFormChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        goal: "Create a readable SNES-style game workflow.",
-        intakeAnswers: expect.objectContaining({
-          goal: "Create a readable SNES-style game workflow.",
-          firstDeliverable: expect.stringContaining("Verify SNES toolchain"),
-        }),
-        planPreviewAccepted: false,
-      }),
-    );
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onProjectFormChange).not.toHaveBeenCalled();
 
     const fullSetupPreview = intakeTools?.querySelector<HTMLButtonElement>(
       "[data-pcc-project-intake-primary-ai]",
@@ -3749,9 +3721,9 @@ describe("renderPccDashboard", () => {
 
     fullSetupPreview?.click();
 
-    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(1);
+    expect(onPreviewSetupAutofill).toHaveBeenCalledTimes(2);
     expect(container.querySelector("[data-pcc-autofill-preview]")).not.toBeNull();
-    expect(container.textContent).toContain("AI Autofill Preview");
+    expect(container.textContent).toContain("Codex Plan Preview");
     expect(container.querySelector("[data-pcc-autofill-preview]")?.textContent).toContain(
       "Apply draft",
     );
@@ -3784,6 +3756,7 @@ describe("renderPccDashboard", () => {
 
   it("renders project-manager and Codex planning gates in project intake", () => {
     const onProjectFormChange = vi.fn();
+    const onSetCodexPlanningEnabled = vi.fn();
     const codexContainer = renderView(
       createProps({
         editorMode: "create-project",
@@ -3800,16 +3773,41 @@ describe("renderPccDashboard", () => {
           planPreviewAccepted: true,
         },
         onProjectFormChange,
+        planningPolicy: {
+          schemaVersion: 1,
+          provider: "openai",
+          model: "openai/gpt-5.6-sol",
+          runtime: "codex",
+          depth: "automatic",
+          grant: {
+            kind: "persistent_planning_only",
+            enabled: true,
+            allowedSurfaces: [
+              "project_creation",
+              "project_replan",
+              "setup_repair",
+              "autopilot_prompts",
+            ],
+            forbiddenActions: ["implementation"],
+          },
+        },
+        onSetCodexPlanningEnabled,
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).not.toBeNull();
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Codex",
     );
-    expect(codexContainer.textContent).toContain("One Codex permission");
+    expect(codexContainer.textContent).toContain("Optional Codex execution");
+    expect(codexContainer.textContent).toContain("planning-only Codex grant");
     expect(codexContainer.textContent).toContain("no hard token cap");
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
     expect(codexContainer.querySelectorAll("[data-pcc-planner-permission-card]")).toHaveLength(1);
+    expect(codexContainer.querySelector("[data-pcc-planning-policy]")?.textContent).toContain(
+      "Codex planning on",
+    );
+    codexContainer.querySelector<HTMLButtonElement>("[data-pcc-planning-policy-toggle]")?.click();
+    expect(onSetCodexPlanningEnabled).toHaveBeenCalledWith(false);
 
     const pmContainer = renderView(
       createProps({
@@ -3828,7 +3826,7 @@ describe("renderPccDashboard", () => {
     expect(pmContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Focused",
     );
-    expect(pmContainer.textContent).toContain("without an LLM call");
+    expect(pmContainer.textContent).toContain("Codex GPT-5.6 Sol will generate the project plan");
   });
 
   it("renders responsibility routing labels and editor controls", () => {

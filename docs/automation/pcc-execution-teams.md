@@ -7,7 +7,7 @@ title: "PCC Execution Teams"
 sidebarTitle: "PCC Execution Teams"
 ---
 
-PCC execution teams run explicitly independent project tasks in parallel while keeping one project-level execution profile as the source of truth. `Ultra` is a team-speed preset, not a reasoning level and not permission to use Codex.
+PCC execution teams run explicitly independent project tasks in parallel while keeping one project-level execution profile as the source of truth. `Ultra` is a team-speed preset, not a reasoning level and not permission to use Codex. Semantic project planning is a separate tool-free OAuth capability described in [PCC Codex Planning](/automation/pcc-codex-planning).
 
 ## Choose One Team Plan
 
@@ -40,7 +40,7 @@ The Gateway reports a browser-safe snapshot derived from:
 - configured subagent concurrency;
 - active queued or running OpenClaw tasks.
 
-PCC keeps headroom for the Gateway, caps teams at 12 local workers, reduces capacity under load or memory pressure, and stops admission when no safe slot remains. External local-model process occupancy is not yet portable across providers, so the displayed capacity is a CPU/RAM safety ceiling rather than a throughput guarantee.
+PCC keeps headroom for the Gateway, reduces capacity under load, memory, or thermal pressure, and stops admission when no safe slot remains. PCC does not add a fixed worker cap: the current OpenClaw concurrency configuration and measured host headroom are the safety bounds. Provider-owned residency probes account for loaded local-model processes when available; missing residency telemetry is shown as a warning instead of guessed.
 
 ## Task Admission And Coordination
 
@@ -54,7 +54,7 @@ A task is eligible only when it:
 
 PCC saves the versioned execution plan before dispatch. The plan records the project revision, profile snapshot, coordinator, deterministic partitions, worker assignments, two-hour workspace leases, proof requirements, transitions, and bounded audit events. One active team is allowed per project.
 
-The coordinator receives only admitted assignments and is instructed to use isolated subagents, serialize work that shares a lease, stop on ambiguity, and return structured fan-in evidence. It may not infer extra work, broaden Codex use, perform high-risk actions, or mark milestones complete.
+The coordinator receives only admitted assignments and is instructed to use isolated subagents, use each assignment's recorded local model, serialize work that shares a lease, stop on a model mismatch or ambiguity, and return structured fan-in evidence. PCC prefers a configured `program_manager` agent for coordination and falls back to the default local OpenClaw agent when that role is unavailable. It may not infer extra work, silently substitute models, broaden Codex use, perform high-risk actions, or mark milestones complete.
 
 ## Stop, Fan-In, And Proof
 

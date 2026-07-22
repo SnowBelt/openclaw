@@ -18,9 +18,9 @@ describe("PCC canonical execution profile", () => {
     expect(derivePccAiUsePolicy(profile)).toBe("local_only");
     expect(resolvePccEstimatedAgentCounts(profile, 20)).toEqual({
       availableCapacity: 20,
-      localAgents: 12,
+      localAgents: 20,
       codexAgents: 0,
-      totalAgents: 12,
+      totalAgents: 20,
     });
   });
 
@@ -131,7 +131,7 @@ describe("PCC canonical execution profile", () => {
     });
   });
 
-  it("caps estimates by speed and actual available capacity", () => {
+  it("caps estimates by actual available capacity without a hidden parallel-worker ceiling", () => {
     const parallel = resolvePccExecutionProfilePreset("local_parallel");
     const hybrid = resolvePccExecutionProfilePreset("ultra_hybrid");
 
@@ -139,6 +139,11 @@ describe("PCC canonical execution profile", () => {
       localAgents: 2,
       codexAgents: 0,
       totalAgents: 2,
+    });
+    expect(resolvePccEstimatedAgentCounts(parallel, 20)).toMatchObject({
+      localAgents: 20,
+      codexAgents: 0,
+      totalAgents: 20,
     });
     expect(resolvePccEstimatedAgentCounts(hybrid, 1)).toMatchObject({
       localAgents: 1,

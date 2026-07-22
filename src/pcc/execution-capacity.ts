@@ -57,7 +57,6 @@ export type PccExecutionCapacityRecommendation = {
 };
 
 const GIB = 1024 ** 3;
-const MAX_SLOTS = 12;
 const THERMAL_CACHE_MS = 30_000;
 let cachedThermal: { value: PccThermalPressure; expiresAt: number } | undefined;
 
@@ -70,7 +69,7 @@ function wholeNonNegative(value: number | undefined | null): number {
 }
 
 function boundedSlots(value: number): number {
-  return Math.max(0, Math.min(MAX_SLOTS, Math.floor(value)));
+  return Math.max(0, Math.floor(value));
 }
 
 function roundedGb(bytes: number): number {
@@ -202,7 +201,9 @@ export function buildPccExecutionCapacitySnapshot(
   const memoryCapacity =
     totalMemoryBytes > 0 ? Math.max(1, Math.floor(freeMemoryBytes / (16 * GIB))) : 0;
   const configuredCapacity = boundedSlots(configuredSubagentLimit);
-  let hostCapacity = Math.min(cpuCapacity, memoryCapacity, configuredCapacity, MAX_SLOTS);
+  // Do not impose a PCC-specific worker ceiling. The configured OpenClaw concurrency limit and
+  // measured CPU/RAM/thermal headroom are the authoritative safety bounds.
+  let hostCapacity = Math.min(cpuCapacity, memoryCapacity, configuredCapacity);
   const loadRatio = load1 / logicalCpuCount;
 
   // Keep the gateway responsive before assigning spare CPU to local agent work.
@@ -277,7 +278,6 @@ export function recommendPccExecutionCapacity(
   const maximumSafe = Math.min(
     snapshot.safeLocalAgentSlots,
     boundedSlots(snapshot.configuredSubagentLimit),
-    MAX_SLOTS,
   );
   const slots = policy === "conservative" ? Math.min(maximumSafe, 2) : maximumSafe;
   const rationale = [

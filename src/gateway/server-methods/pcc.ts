@@ -23,6 +23,9 @@ import {
   validatePccProjectsGetParams,
   validatePccProjectsListParams,
   validatePccProjectsUpsertParams,
+  validatePccPlansGenerateParams,
+  validatePccPlanningPolicyGetParams,
+  validatePccPlanningPolicyUpsertParams,
   validatePccReceiptsAddParams,
   validatePccSummaryGetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
@@ -51,6 +54,12 @@ import {
   pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
+import { generatePccPlanWithCodex } from "../../pcc/planning-runtime.js";
+import {
+  DEFAULT_PCC_PLANNING_POLICY,
+  normalizePccPlanningPolicy,
+  type PccPlanGenerationRequest,
+} from "../../pcc/planning.js";
 import { buildPccLedgerReadIndex, pccIndexedItems } from "../../pcc/read-model/ledger-index.js";
 import {
   summarizePccPortfolio as summarizePortfolio,
@@ -107,17 +116,28 @@ const DEFAULT_PCC_PHASES: PccProject["phases"] = [
   { id: "maintenance", title: "Maintenance", status: "not_started", weight: 5, order: 5 },
 ];
 
+let pccPlanGenerator = generatePccPlanWithCodex;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
 
 async function readPccExecutionCapacity(config: OpenClawConfig) {
-  return (
-    await assessControlDirectorResourceAdmission({
-      config,
-      tasks: listTaskRecords(),
-    })
-  ).capacity;
+  const assessment = await assessControlDirectorResourceAdmission({
+    config,
+    tasks: listTaskRecords(),
+  });
+  return {
+    ...assessment.hostCapacity,
+    controlDirectorAdmission: assessment.admission,
+    warnings: [
+      ...assessment.hostCapacity.warnings,
+      ...assessment.residency.warnings,
+      ...(assessment.admission
+        ? [`Control Director resource governor: ${assessment.admission.reason}`]
+        : []),
+    ],
+  };
 }
 
 function slugify(value: string): string {
@@ -1314,6 +1334,66 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
+  "pcc.plans.generate": async ({ params, respond, context }) => {
+    if (!validatePccPlansGenerateParams(params)) {
+      respondInvalid(respond, "pcc.plans.generate", validatePccPlansGenerateParams.errors);
+      return;
+    }
+    try {
+      const plan = await pccPlanGenerator({
+        cfg: context.getRuntimeConfig(),
+        request: params as PccPlanGenerationRequest,
+        policy: normalizePccPlanningPolicy(readLedger().settings?.planningPolicy),
+      });
+      respond(true, { plan });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.planningPolicy.get": ({ params, respond }) => {
+    if (!validatePccPlanningPolicyGetParams(params)) {
+      respondInvalid(respond, "pcc.planningPolicy.get", validatePccPlanningPolicyGetParams.errors);
+      return;
+    }
+    try {
+      respond(true, {
+        policy: normalizePccPlanningPolicy(readLedger().settings?.planningPolicy),
+      });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.planningPolicy.upsert": ({ params, respond }) => {
+    if (!validatePccPlanningPolicyUpsertParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.planningPolicy.upsert",
+        validatePccPlanningPolicyUpsertParams.errors,
+      );
+      return;
+    }
+    try {
+      const policy = withLedger(
+        (ledger) => {
+          const current = normalizePccPlanningPolicy(
+            ledger.settings?.planningPolicy ?? DEFAULT_PCC_PLANNING_POLICY,
+          );
+          const next = normalizePccPlanningPolicy({
+            ...current,
+            ...(params.depth ? { depth: params.depth } : {}),
+            ...(params.model ? { model: params.model } : {}),
+            grant: { ...current.grant, enabled: params.enabled },
+          });
+          ledger.settings = { ...ledger.settings, planningPolicy: next };
+          return next;
+        },
+        { write: true, auditKind: "pcc.planningPolicy.upsert" },
+      );
+      respond(true, { policy });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
   "pcc.ledger.repairCanonicalMetadata": ({ params, respond }) => {
     try {
       const result = withLedger((ledger) => repairCanonicalMetadataForLedger(ledger, params), {
@@ -1912,6 +1992,7 @@ export const pccHandlers: GatewayRequestHandlers = {
         respond(true, {
           project: summarizeProject(ledger, project, index),
           portfolio: summarizePortfolio(ledger, index),
+          planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
           executionCapacity,
           runtimeIdentity: readPccRuntimeIdentity(),
           updateSafety: readPccUpdateSafety(),
@@ -1921,6 +2002,7 @@ export const pccHandlers: GatewayRequestHandlers = {
       }
       respond(true, {
         portfolio: summarizePortfolio(ledger, index),
+        planningPolicy: normalizePccPlanningPolicy(ledger.settings?.planningPolicy),
         executionCapacity,
         runtimeIdentity: readPccRuntimeIdentity(),
         updateSafety: readPccUpdateSafety(),
@@ -1942,4 +2024,10 @@ export const pccTesting = {
   summarizeProject,
   summarizePortfolio,
   readExecutionCapacity: readPccExecutionCapacity,
+  setPlanGenerator: (generator: typeof generatePccPlanWithCodex) => {
+    pccPlanGenerator = generator;
+  },
+  resetPlanGenerator: () => {
+    pccPlanGenerator = generatePccPlanWithCodex;
+  },
 };

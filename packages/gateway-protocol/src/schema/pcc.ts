@@ -496,6 +496,140 @@ export const PccProjectsUpsertResultSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const PccPlanningSurfaceSchema = Type.Union([
+  Type.Literal("project_creation"),
+  Type.Literal("project_replan"),
+  Type.Literal("setup_repair"),
+  Type.Literal("autopilot_prompts"),
+]);
+
+const PccPlanningDepthSchema = Type.Union([
+  Type.Literal("automatic"),
+  Type.Literal("medium"),
+  Type.Literal("high"),
+]);
+
+const PccPlanningPolicySchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    provider: Type.Literal("openai"),
+    model: NonEmptyString,
+    runtime: Type.Literal("codex"),
+    depth: PccPlanningDepthSchema,
+    grant: Type.Object(
+      {
+        kind: Type.Literal("persistent_planning_only"),
+        enabled: Type.Boolean(),
+        allowedSurfaces: Type.Array(PccPlanningSurfaceSchema, { minItems: 1, maxItems: 10 }),
+        forbiddenActions: Type.Array(NonEmptyString, { minItems: 1, maxItems: 50 }),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+export const PccPlanningPolicyGetParamsSchema = Type.Object({}, { additionalProperties: false });
+export const PccPlanningPolicyGetResultSchema = Type.Object(
+  { policy: PccPlanningPolicySchema },
+  { additionalProperties: false },
+);
+export const PccPlanningPolicyUpsertParamsSchema = Type.Object(
+  {
+    enabled: Type.Boolean(),
+    depth: Type.Optional(PccPlanningDepthSchema),
+    model: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+export const PccPlanningPolicyUpsertResultSchema = Type.Object(
+  { policy: PccPlanningPolicySchema },
+  { additionalProperties: false },
+);
+
+const PccGeneratedSubMilestoneSchema = Type.Object(
+  {
+    title: NonEmptyString,
+    implementationPlan: NonEmptyString,
+    acceptanceCriteria: Type.Array(NonEmptyString, { minItems: 1, maxItems: 50 }),
+    responsibility: NonEmptyString,
+    proofLevel: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const PccPlansGenerateParamsSchema = Type.Object(
+  {
+    surface: PccPlanningSurfaceSchema,
+    description: Type.String({ minLength: 1, maxLength: 20_000 }),
+    existingTitle: Type.Optional(Type.String({ maxLength: 1_000 })),
+    existingGoal: Type.Optional(Type.String({ maxLength: 20_000 })),
+    desiredOutcome: Type.Optional(Type.String({ maxLength: 20_000 })),
+    constraints: Type.Optional(Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 })),
+    preferredTemplateId: Type.Optional(
+      Type.Union([
+        Type.Literal("software-product"),
+        Type.Literal("dashboard-data"),
+        Type.Literal("creative-media"),
+        Type.Literal("research"),
+        Type.Literal("trading-finance"),
+        Type.Literal("snes-studio"),
+        Type.Literal("custom"),
+      ]),
+    ),
+    depth: Type.Optional(PccPlanningDepthSchema),
+  },
+  { additionalProperties: false },
+);
+
+export const PccPlansGenerateResultSchema = Type.Object(
+  {
+    plan: Type.Object(
+      {
+        schemaVersion: Type.Literal(1),
+        title: NonEmptyString,
+        goal: NonEmptyString,
+        outcomeMetrics: Type.Array(NonEmptyString, { minItems: 1, maxItems: 100 }),
+        workflowTemplateId: NonEmptyString,
+        milestones: Type.Array(
+          Type.Intersect([
+            PccGeneratedSubMilestoneSchema,
+            Type.Object(
+              {
+                phaseId: NonEmptyString,
+                dependencies: Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 100 }),
+                subMilestones: Type.Array(PccGeneratedSubMilestoneSchema, {
+                  minItems: 1,
+                  maxItems: 100,
+                }),
+              },
+              { additionalProperties: false },
+            ),
+          ]),
+          { minItems: 1, maxItems: 100 },
+        ),
+        risks: Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 }),
+        assumptions: Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 }),
+        provenance: Type.Object(
+          {
+            generatedAt: TimestampSchema,
+            provider: Type.Literal("openai"),
+            model: NonEmptyString,
+            runtime: Type.Literal("codex"),
+            effort: Type.Union([Type.Literal("medium"), Type.Literal("high")]),
+            auth: Type.Literal("oauth"),
+            source: Type.Literal("live_codex"),
+            planningOnly: Type.Literal(true),
+          },
+          { additionalProperties: false },
+        ),
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const PccMilestonesUpsertParamsSchema = Type.Object(
   {
     milestone: Type.Object(
@@ -745,6 +879,7 @@ export const PccSummaryGetResultSchema = Type.Object(
   {
     project: Type.Optional(PccProjectSummarySchema),
     portfolio: PccPortfolioSummarySchema,
+    planningPolicy: Type.Optional(PccPlanningPolicySchema),
     executionCapacity: Type.Optional(
       Type.Object(
         {
@@ -770,7 +905,7 @@ export const PccSummaryGetResultSchema = Type.Object(
           activeOpenClawTaskCount: Type.Integer({ minimum: 0 }),
           configuredSubagentLimit: Type.Integer({ minimum: 0 }),
           observedLocalModelProcessCount: Type.Integer({ minimum: 0 }),
-          safeLocalAgentSlots: Type.Integer({ minimum: 0, maximum: 12 }),
+          safeLocalAgentSlots: Type.Integer({ minimum: 0 }),
           timestamp: TimestampSchema,
           warnings: StringListSchema,
           controlDirectorAdmission: Type.Optional(

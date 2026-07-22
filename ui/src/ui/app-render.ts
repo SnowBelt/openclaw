@@ -148,6 +148,7 @@ import {
   dismissPccActionNotice,
   approvePccSetupAutofill,
   generatePccAutopilotLoopPrompts,
+  generatePccProjectPlan,
   loadPccDashboard,
   preparePccNextWorkItem,
   previewPccSectionAutofill,
@@ -185,6 +186,7 @@ import {
   updatePccProjectForm,
   updatePccProjectEditMode,
   updatePccProductFocusMode,
+  updatePccPlanningPolicy,
   updatePccReorderMode,
   updatePccViewMode,
 } from "./controllers/pcc.ts";
@@ -2990,6 +2992,7 @@ export function renderApp(state: AppViewState) {
                 updateSafety: state.pccUpdateSafety,
                 releaseGovernance: state.pccReleaseGovernance,
                 executionCapacity: state.pccExecutionCapacity,
+                planningPolicy: state.pccPlanningPolicy,
                 executionProjection: state.pccExecutionProjection,
                 executionProjectionLoading: state.pccExecutionProjectionLoading,
                 executionProjectionError: state.pccExecutionProjectionError,
@@ -3014,6 +3017,8 @@ export function renderApp(state: AppViewState) {
                       (state as { requestUpdate?: () => void }).requestUpdate?.();
                     });
                 },
+                onSetCodexPlanningEnabled: (enabled) =>
+                  void updatePccPlanningPolicy(state, enabled),
                 onSetViewMode: (mode) => updatePccViewMode(state, mode),
                 onSetProductFocusMode: (mode) => updatePccProductFocusMode(state, mode),
                 onSetReorderMode: (enabled) => updatePccReorderMode(state, enabled),
@@ -3027,6 +3032,7 @@ export function renderApp(state: AppViewState) {
                 onOpenProjectEditor: (project) => openPccProjectEditor(state, project),
                 onOpenMilestoneEditor: (milestone) => openPccMilestoneEditor(state, milestone),
                 onProjectFormChange: (patch) => updatePccProjectForm(state, patch),
+                onGenerateProjectPlan: () => void generatePccProjectPlan(state),
                 onMilestoneFormChange: (patch) => updatePccMilestoneForm(state, patch),
                 onSaveProject: () => void savePccProject(state),
                 onSaveMilestone: () => void savePccMilestone(state),
@@ -3057,8 +3063,9 @@ export function renderApp(state: AppViewState) {
                 onUpdateWorkLoop: (patch) => void updatePccWorkLoopSettings(state, patch),
                 onPrepareNextWorkItem: () => void preparePccNextWorkItem(state),
                 onResumeProject: () => void resumePccProjectForWork(state),
-                onPreviewSetupAutofill: () => previewPccSetupAutofill(state),
-                onPreviewSectionAutofill: (section) => previewPccSectionAutofill(state, section),
+                onPreviewSetupAutofill: () => void previewPccSetupAutofill(state),
+                onPreviewSectionAutofill: (section) =>
+                  void previewPccSectionAutofill(state, section),
                 onApplySetupAutofill: () => void applyPccSetupAutofill(state),
                 onApproveSetupAutofill: () => void approvePccSetupAutofill(state),
                 onDismissSetupAutofill: () => dismissPccSetupAutofill(state),

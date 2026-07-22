@@ -65,6 +65,14 @@ import {
   pccWorkScopeForProject,
   pccResponsibilityForItem,
 } from "../../../../src/pcc/metadata.js";
+import { selectPccLocalModel } from "../../../../src/pcc/model-routing.js";
+import {
+  DEFAULT_PCC_PLANNING_POLICY,
+  PCC_CODEX_PLANNER_MODEL,
+  type PccGeneratedMilestone,
+  type PccPlanGenerationResult,
+  type PccPlanningPolicy,
+} from "../../../../src/pcc/planning.js";
 import { resolvePccProjectAction } from "../../../../src/pcc/project-action.js";
 import {
   buildPccWorkflowDraft,
@@ -90,6 +98,7 @@ import {
   buildPccExecutionTeamReadiness,
   executionPlansFromProject,
   executionTasksForDetail,
+  isPccLocalCatalogModel,
   pccCodexPermissionIsUsable,
   resolveConfiguredExecutionModel,
 } from "../pcc/application/execution-readiness.ts";
@@ -162,6 +171,7 @@ type PccProjectsListResult = {
 
 type PccSummaryGetResult = {
   portfolio?: PccPortfolioSummary;
+  planningPolicy?: PccPlanningPolicy;
   executionCapacity?: PccExecutionCapacitySnapshot;
   runtimeIdentity?: PccRuntimeIdentity;
   updateSafety?: PccUpdateSafety;
@@ -323,6 +333,12 @@ function configuredModelRefs(models: readonly ModelCatalogEntry[] | undefined): 
     .map((entry) => buildQualifiedChatModelValue(entry.id, entry.provider));
 }
 
+function configuredLocalModelRefs(models: readonly ModelCatalogEntry[] | undefined): string[] {
+  return (models ?? [])
+    .filter((entry) => entry.available !== false && isPccLocalCatalogModel(entry))
+    .map((entry) => buildQualifiedChatModelValue(entry.id, entry.provider));
+}
+
 function pccExecutionPlanId(projectId: string, nowMs: number): string {
   return `pcc-team-${projectId}-${nowMs}`.replace(/[^a-zA-Z0-9._-]/gu, "-");
 }
@@ -337,8 +353,9 @@ function buildPccExecutionCoordinatorPrompt(
   workerModelId: string,
   codexModelId: string | null,
 ): string {
+  const taskById = new Map(executionTasksForDetail(detail).map((task) => [task.id, task]));
   const assignments = plan.partitions.map((partition) => {
-    const task = executionTasksForDetail(detail).find((item) => item.id === partition.taskId);
+    const task = taskById.get(partition.taskId);
     const lease = plan.leases.find((item) => item.partitionId === partition.id);
     return {
       partitionId: partition.id,
@@ -346,6 +363,8 @@ function buildPccExecutionCoordinatorPrompt(
       taskId: partition.taskId,
       title: task?.title ?? partition.taskId,
       milestoneId: partition.milestoneId,
+      modelId: partition.modelId ?? workerModelId,
+      modelRationale: partition.modelRationale,
       workspaceLease: lease ? { workspaceId: lease.workspaceId, expiresAt: lease.expiresAt } : null,
     };
   });
@@ -362,7 +381,7 @@ function buildPccExecutionCoordinatorPrompt(
     `OpenClaw worker model: ${workerModelId}`,
     `Maximum concurrent OpenClaw workers: ${plan.admittedWorkerCount}`,
     codexRule,
-    `Use sessions_spawn with isolated context and pass model: ${workerModelId} for every assigned worker. If that exact model cannot be used, stop and report the mismatch instead of silently substituting another model. A worker may process multiple assigned partitions serially, but never run two partitions that share a workspace lease concurrently.`,
+    "Use sessions_spawn with isolated context and pass each assignment's exact modelId. If that model cannot be used, stop and report the mismatch instead of silently substituting another model. A worker may process multiple assigned partitions serially, but never run two partitions that share a workspace lease concurrently.",
     "Execute only the listed assignments. Do not infer new parallel work. Stop and report a blocker if a workspace lease, dependency, requirement, or scope is ambiguous.",
     "Never perform an external write, deployment, credential or session change, destructive action, purchase, publication, reboot, or other high-risk action without a separate explicit permission grant.",
     "Do not mark PCC milestones or sub-milestones complete. Return proof candidates for user/judge review instead.",
@@ -566,11 +585,11 @@ function aiUsePolicyNeedsCodex(policy: PccAiUsePolicy): boolean {
 function aiUsePolicyAllowedAction(policy: PccAiUsePolicy): string {
   switch (policy) {
     case "codex_focused":
-      return "Use Codex for initial planning, critical decisions, verification, and final review; Local AI handles routine work";
+      return "Use Codex only at selected architecture, difficult diagnosis, verification, and final-review checkpoints; local agents handle routine execution";
     case "codex_everything":
-      return "Use Codex for all eligible project planning and milestone work";
+      return "Use Codex for all eligible project execution and review work after the separate planning-only phase";
     default:
-      return "Use Codex for planning, architecture, difficult problem-solving, debugging, and final review; Local AI handles routine work";
+      return "Use Codex for architecture, difficult problem-solving, debugging, and final review; local agents handle routine execution";
   }
 }
 
@@ -579,31 +598,15 @@ function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectForm
     pccExecutionProfile: form.executionProfile,
   });
   const aiUsePolicy = derivePccAiUsePolicy(executionProfile);
-  if (executionProfile.codexRole === "off") {
-    return {
-      ...form,
-      executionProfile,
-      aiUsePolicy,
-      plannerMode:
-        form.plannerMode === "local_model" || form.plannerMode === "local_project_manager"
-          ? form.plannerMode
-          : "best_available",
-      planningMode: "local_project_manager",
-      plannerModelId: executionProfile.localModelId,
-      plannerPermissionScope: executionProfile.approvalScope,
-      codexPlanningAllowed: false,
-      plannerPermissionBudget: "",
-    };
-  }
-  const plannerMode = executionProfile.codexEffort === "medium" ? "codex" : "high_reasoning_codex";
   return {
     ...form,
     executionProfile,
     aiUsePolicy,
-    plannerMode,
+    plannerMode: "codex",
     planningMode: "codex_full_plan",
-    plannerModelId: executionProfile.localModelId,
+    plannerModelId: PCC_CODEX_PLANNER_MODEL,
     plannerPermissionScope: executionProfile.approvalScope,
+    codexPlanningAllowed: executionProfile.codexRole === "off" ? false : form.codexPlanningAllowed,
     plannerPermissionBudget: "",
   };
 }
@@ -687,6 +690,111 @@ function enrichProjectFormFromDescription(form: PccProjectFormState): PccProject
     planPreviewAccepted: routedForm.planPreviewAccepted ?? false,
     planningMode: plannerModeToPlanningMode(plannerMode),
     intakeAnswers: { ...answers, ...routedForm.intakeAnswers },
+  };
+}
+
+function generatedPlanIntake(plan: PccPlanGenerationResult): Record<string, string> {
+  return {
+    goal: plan.goal,
+    firstDeliverable: plan.milestones[0]
+      ? `Complete the first verified milestone: ${plan.milestones[0].title}.`
+      : "Review and approve the first verified deliverable.",
+    doneProof: [
+      ...plan.outcomeMetrics,
+      "Every milestone must satisfy its acceptance criteria and record required proof.",
+    ].join("\n"),
+    constraints:
+      plan.risks.length > 0
+        ? plan.risks.join("\n")
+        : "Stop before missing permissions, unavailable tools, destructive actions, deployment, credentials, purchases, publication, or unrelated external writes.",
+    owner:
+      "Codex plans. OpenClaw local agents execute routine work. The user owns gated decisions.",
+    blockers:
+      plan.assumptions.length > 0
+        ? `Validate these assumptions before dependent work:\n${plan.assumptions.join("\n")}`
+        : "No known blocker. PCC must stop and record any blocker discovered during execution.",
+  };
+}
+
+function generatedMilestoneDraft(
+  milestone: PccGeneratedMilestone,
+  order: number,
+): ReturnType<typeof buildPccWorkflowDraft>["milestones"][number] {
+  return {
+    title: milestone.title,
+    status: "not_started",
+    phaseId: milestone.phaseId,
+    order,
+    percentComplete: 0,
+    implementationPlan: milestone.implementationPlan,
+    acceptanceCriteria: milestone.acceptanceCriteria,
+    metadata: {
+      pccResponsibility: normalizePccResponsibility(milestone.responsibility),
+      pccProofLevel: milestone.proofLevel,
+      pccGeneratedBy: "live_codex",
+      pccParallelSafe: milestone.dependencies.length === 0,
+    },
+  };
+}
+
+function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: number | undefined) {
+  const plan = form.generatedPlan;
+  if (!plan) {
+    return buildPccWorkflowDraft({
+      title: form.title.trim(),
+      goal: form.goal.trim(),
+      templateId: form.workflowTemplateId,
+      ...(priority !== undefined ? { priority } : {}),
+      codexPlanningAllowed: form.codexPlanningAllowed,
+      remoteProofAllowed: form.remoteProofAllowed,
+      runtimeActionsAllowed: form.runtimeActionsAllowed,
+      planningMode: form.planningMode,
+      aiUsePolicy: form.aiUsePolicy,
+    });
+  }
+  const base = buildPccWorkflowDraft({
+    title: form.title.trim(),
+    goal: form.goal.trim(),
+    templateId: plan.workflowTemplateId,
+    ...(priority !== undefined ? { priority } : {}),
+    codexPlanningAllowed: false,
+    remoteProofAllowed: form.remoteProofAllowed,
+    runtimeActionsAllowed: form.runtimeActionsAllowed,
+    planningMode: "codex_full_plan",
+    aiUsePolicy: form.aiUsePolicy,
+  });
+  const milestones = plan.milestones.map(generatedMilestoneDraft);
+  return {
+    ...base,
+    project: {
+      ...base.project,
+      title: form.title.trim(),
+      goal: form.goal.trim(),
+      metadata: {
+        ...pccMetadataObject(base.project.metadata),
+        pccPlanningProvenance: plan.provenance,
+      },
+    },
+    milestones,
+    subMilestonesByMilestoneTitle: Object.fromEntries(
+      plan.milestones.map((milestone) => [
+        milestone.title,
+        milestone.subMilestones.map((subMilestone, order) => ({
+          title: subMilestone.title,
+          status: "not_started" as PccStatus,
+          order,
+          percentComplete: 0,
+          implementationPlan: subMilestone.implementationPlan,
+          acceptanceCriteria: subMilestone.acceptanceCriteria,
+          metadata: {
+            pccResponsibility: normalizePccResponsibility(subMilestone.responsibility),
+            pccProofLevel: subMilestone.proofLevel,
+            pccGeneratedBy: "live_codex",
+            pccParallelSafe: true,
+          },
+        })),
+      ]),
+    ),
   };
 }
 
@@ -898,7 +1006,11 @@ function activeMilestonesForSetup(detail: PccProjectDetail): PccMilestone[] {
   return detail.milestones.filter((milestone) => !PCC_TERMINAL_STATUSES.has(milestone.status));
 }
 
-function workflowDraftForSetup(detail: PccProjectDetail, previewGoal?: string) {
+function workflowDraftForSetup(
+  detail: PccProjectDetail,
+  previewGoal?: string,
+  generatedPlan?: PccPlanGenerationResult,
+) {
   const existingWorkflow = metadataString(
     pccMetadataObject(detail.project.metadata).pccWorkflowTemplateId,
     "",
@@ -908,16 +1020,49 @@ function workflowDraftForSetup(detail: PccProjectDetail, previewGoal?: string) {
     goal: previewGoal ?? autofillGoal(detail),
     intakeAnswers: pccIntakeAnswersFromMetadata(detail.project.metadata),
   });
-  return buildPccWorkflowDraft({
+  const base = buildPccWorkflowDraft({
     title: detail.project.title,
     goal: previewGoal ?? autofillGoal(detail),
     templateId: existingWorkflow || workflow.templateId,
     priority: detail.project.priority,
-    planningMode: "local_project_manager",
+    planningMode: generatedPlan ? "codex_full_plan" : "local_project_manager",
     codexPlanningAllowed: false,
     remoteProofAllowed: false,
     runtimeActionsAllowed: false,
   });
+  if (!generatedPlan) {
+    return base;
+  }
+  return {
+    ...base,
+    project: {
+      ...base.project,
+      metadata: {
+        ...pccMetadataObject(base.project.metadata),
+        pccPlanningProvenance: generatedPlan.provenance,
+      },
+    },
+    milestones: generatedPlan.milestones.map(generatedMilestoneDraft),
+    subMilestonesByMilestoneTitle: Object.fromEntries(
+      generatedPlan.milestones.map((milestone) => [
+        milestone.title,
+        milestone.subMilestones.map((subMilestone, order) => ({
+          title: subMilestone.title,
+          status: "not_started" as PccStatus,
+          order,
+          percentComplete: 0,
+          implementationPlan: subMilestone.implementationPlan,
+          acceptanceCriteria: subMilestone.acceptanceCriteria,
+          metadata: {
+            pccResponsibility: normalizePccResponsibility(subMilestone.responsibility),
+            pccProofLevel: subMilestone.proofLevel,
+            pccGeneratedBy: "live_codex",
+            parallelSafe: true,
+          },
+        })),
+      ]),
+    ),
+  };
 }
 
 function fallbackSubMilestonesFor(milestone: PccMilestone) {
@@ -1221,6 +1366,8 @@ function projectFormFromProject(
     plannerPermissionScope: executionProfile.approvalScope,
     plannerPermissionBudget: "",
     planPreviewAccepted: true,
+    planningDepth: "automatic",
+    generatedPlan: null,
     codexPlanningAllowed: permissions.some((permission) =>
       pccCodexPermissionIsUsable(permission, executionProfile),
     ),
@@ -1322,7 +1469,7 @@ function setupRepairMessage(
     evaluation.violations[0] ??
     evaluation.needsReview[0] ??
     "project setup needs review";
-  return `PCC cannot start this project yet: ${firstIssue}. Review the blocker checklist, use AI setup repair, or resume the project if it is on hold.`;
+  return `PCC cannot start this project yet: ${firstIssue}. Review the blocker checklist, plan the setup repair with Codex, or resume the project if it is on hold.`;
 }
 
 async function withPccAction(
@@ -1379,6 +1526,7 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccProjects = projects;
     state.pccPortfolioSummary = summaryResult.portfolio ?? summarizePortfolio(projects);
     state.pccExecutionCapacity = summaryResult.executionCapacity ?? null;
+    state.pccPlanningPolicy = summaryResult.planningPolicy ?? DEFAULT_PCC_PLANNING_POLICY;
     state.pccRuntimeIdentity = summaryResult.runtimeIdentity ?? null;
     state.pccUpdateSafety = summaryResult.updateSafety ?? null;
     state.pccReleaseGovernance = summaryResult.releaseGovernance ?? null;
@@ -1441,6 +1589,32 @@ export async function loadPccDashboard(state: PccDashboardState): Promise<void> 
     state.pccLoading = false;
     state.requestUpdate?.();
   }
+}
+
+export async function updatePccPlanningPolicy(
+  state: PccDashboardState,
+  enabled: boolean,
+): Promise<void> {
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const result = await state.client.request<{ policy: PccPlanningPolicy }>(
+      "pcc.planningPolicy.upsert",
+      {
+        enabled,
+        depth: state.pccPlanningPolicy?.depth ?? DEFAULT_PCC_PLANNING_POLICY.depth,
+        model: state.pccPlanningPolicy?.model ?? DEFAULT_PCC_PLANNING_POLICY.model,
+      },
+    );
+    state.pccPlanningPolicy = result.policy;
+    setActionNotice(
+      state,
+      enabled
+        ? "Codex planning enabled. The grant remains planning-only and tool-free."
+        : "Codex planning disabled. Local project execution settings were not changed.",
+    );
+  });
 }
 
 export async function selectPccProject(state: PccDashboardState, projectId: string): Promise<void> {
@@ -1641,13 +1815,56 @@ export function updatePccProjectForm(
     nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
   }
   if (patch.projectDescription !== undefined) {
-    nextForm = { ...nextForm, planPreviewAccepted: false };
-  }
-  if (patch.projectDescription !== undefined || patch.plannerMode !== undefined) {
-    nextForm = enrichProjectFormFromDescription(nextForm);
+    nextForm = { ...nextForm, planPreviewAccepted: false, generatedPlan: null };
   }
   state.pccProjectForm = nextForm;
   state.requestUpdate?.();
+}
+
+export async function generatePccProjectPlan(state: PccDashboardState): Promise<void> {
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const form = state.pccProjectForm;
+    const description = form.projectDescription.trim() || form.goal.trim() || form.title.trim();
+    if (!description) {
+      state.pccActionError = "Describe what you want this project to accomplish first.";
+      return;
+    }
+    const result = await state.client.request<{ plan: PccPlanGenerationResult }>(
+      "pcc.plans.generate",
+      {
+        surface: form.id ? "project_replan" : "project_creation",
+        description,
+        ...(form.title.trim() ? { existingTitle: form.title.trim() } : {}),
+        ...(form.goal.trim() ? { existingGoal: form.goal.trim() } : {}),
+        preferredTemplateId: form.workflowTemplateId,
+        depth: form.planningDepth,
+      },
+    );
+    const plan = result.plan;
+    state.pccProjectForm = {
+      ...form,
+      title: form.title.trim() || plan.title,
+      goal: form.goal.trim() || plan.goal,
+      outcomeMetrics: form.outcomeMetrics.trim()
+        ? form.outcomeMetrics
+        : plan.outcomeMetrics.join("\n"),
+      workflowTemplateId: plan.workflowTemplateId,
+      planningMode: "codex_full_plan",
+      plannerMode: "codex",
+      plannerModelId: plan.provenance.model,
+      planPreviewAccepted: true,
+      generatedPlan: plan,
+      intakeAnswers: { ...generatedPlanIntake(plan), ...form.intakeAnswers },
+      intakeApproved: true,
+    };
+    setActionNotice(
+      state,
+      `Plan generated by ${plan.provenance.model} at ${plan.provenance.effort} effort. Review it before creating the project.`,
+    );
+  });
 }
 
 export function openPccDecisionForm(state: PccDashboardState): void {
@@ -1754,15 +1971,57 @@ export function dismissPccChatSync(state: PccDashboardState): void {
   state.requestUpdate?.();
 }
 
-export function previewPccSetupAutofill(state: PccDashboardState): void {
+export async function previewPccSetupAutofill(state: PccDashboardState): Promise<void> {
   if (!state.pccProjectDetail) {
     state.pccActionError = "Select a project before using setup autofill.";
     state.requestUpdate?.();
     return;
   }
-  state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, false);
-  state.pccActionError = null;
-  state.requestUpdate?.();
+  const detail = state.pccProjectDetail;
+  await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
+    const result = await state.client.request<{ plan: PccPlanGenerationResult }>(
+      "pcc.plans.generate",
+      {
+        surface: "setup_repair",
+        description: detailText(detail),
+        existingTitle: detail.project.title,
+        ...(detail.project.goal?.trim() ? { existingGoal: detail.project.goal.trim() } : {}),
+        desiredOutcome:
+          "Repair only missing PCC setup fields and produce an execution-ready plan without starting work.",
+        constraints: [
+          "Preserve user-entered project data.",
+          "Do not mark milestones complete or perform implementation.",
+        ],
+      },
+    );
+    const base = buildPccSetupAutofillPreview(detail, false);
+    const plan = result.plan;
+    state.pccAutofillPreview = {
+      ...base,
+      goal: detail.project.goal?.trim() || plan.goal,
+      workflowTemplateId: plan.workflowTemplateId,
+      summary: `Codex generated a planning-only setup repair with ${plan.provenance.model} at ${plan.provenance.effort} effort. Review it before applying.`,
+      generatedPlan: plan,
+      generatedMilestones:
+        activeMilestonesForSetup(detail).length > 0
+          ? []
+          : plan.milestones.map((milestone) => ({
+              title: milestone.title,
+              fields: [
+                "milestone",
+                "implementation plan",
+                "acceptance criteria",
+                "owner",
+                "proof requirement",
+              ],
+              subMilestoneTitles: milestone.subMilestones.map((item) => item.title),
+            })),
+      generatedSubMilestones: [],
+    };
+  });
   if (typeof document !== "undefined") {
     setTimeout(() => {
       const preview = document.querySelector<HTMLElement>("[data-pcc-autofill-preview]");
@@ -1772,25 +2031,49 @@ export function previewPccSetupAutofill(state: PccDashboardState): void {
   }
 }
 
-export function previewPccSectionAutofill(
+export async function previewPccSectionAutofill(
   state: PccDashboardState,
   section: PccAiRegenerateSection,
-): void {
+): Promise<void> {
   if (!state.pccProjectDetail) {
     state.pccActionError = "Select a project before using section AI regeneration.";
     state.requestUpdate?.();
     return;
   }
-  state.pccAutofillPreview = buildPccSectionAutofillPreview(state.pccProjectDetail, section, false);
-  state.pccActionError = null;
+  await previewPccSetupAutofill(state);
+  const preview = state.pccAutofillPreview;
+  if (!preview) {
+    return;
+  }
+  const sectionTitle = pccAiRegenerateSectionTitle(section);
+  const scoped = {
+    ...preview,
+    section,
+    sectionTitle,
+    summary: `${preview.summary} Only ${sectionTitle} changes will be applied.`,
+  };
+  state.pccAutofillPreview =
+    section === "goal" || section === "intake" || section === "workflow"
+      ? {
+          ...scoped,
+          milestoneUpdates: [],
+          subMilestoneUpdates: [],
+          generatedMilestones: [],
+          generatedSubMilestones: [],
+        }
+      : section === "milestones"
+        ? { ...scoped, subMilestoneUpdates: [], generatedSubMilestones: [] }
+        : section === "submilestones"
+          ? { ...scoped, milestoneUpdates: [], generatedMilestones: [] }
+          : { ...scoped, generatedMilestones: [], generatedSubMilestones: [] };
   state.requestUpdate?.();
 }
 
 export function updatePccAutofillApproval(state: PccDashboardState, approved: boolean): void {
-  if (!state.pccProjectDetail) {
+  if (!state.pccProjectDetail || !state.pccAutofillPreview) {
     return;
   }
-  state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, approved);
+  state.pccAutofillPreview = { ...state.pccAutofillPreview, intakeApproved: approved };
   state.requestUpdate?.();
 }
 
@@ -1816,6 +2099,7 @@ function projectWithAutofill(
     goal: updateGoal ? preview.goal : detail.project.goal,
     metadata: {
       ...pccMetadataObject(detail.project.metadata),
+      ...(preview.generatedPlan ? { pccPlanningProvenance: preview.generatedPlan.provenance } : {}),
       ...(updateWorkflow
         ? {
             pccWorkflowTemplateId: preview.workflowTemplateId,
@@ -1826,7 +2110,7 @@ function projectWithAutofill(
       pccSetupAutofill: {
         summary: preview.summary,
         appliedAt: now,
-        source: "local_project_manager",
+        source: preview.generatedPlan ? "live_codex" : "deterministic_canonical_repair",
       },
       ...(updateIntake
         ? {
@@ -1898,7 +2182,7 @@ function evaluationMilestonesWithGenerated(
   if (activeMilestonesForSetup(detail).length > 0) {
     return patchedMilestones;
   }
-  const draft = workflowDraftForSetup(detail, preview.goal);
+  const draft = workflowDraftForSetup(detail, preview.goal, preview.generatedPlan);
   return draft.milestones.map((milestone, index) =>
     Object.assign({}, milestone, {
       id: `preview-generated-milestone-${index}`,
@@ -1926,7 +2210,7 @@ function evaluationSubMilestonesWithGenerated(
   if (activeMilestonesForSetup(detail).length > 0) {
     return [...patchedSubMilestones, ...generatedExisting];
   }
-  const draft = workflowDraftForSetup(detail, preview.goal);
+  const draft = workflowDraftForSetup(detail, preview.goal, preview.generatedPlan);
   return [
     ...patchedSubMilestones,
     ...draft.milestones.flatMap((milestone, milestoneIndex) =>
@@ -1996,7 +2280,7 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
       activeMilestonesForSetup(detail).length === 0 &&
       (!preview.section || preview.section === "milestones")
     ) {
-      const draft = workflowDraftForSetup(detail, preview.goal);
+      const draft = workflowDraftForSetup(detail, preview.goal, preview.generatedPlan);
       for (const milestone of draft.milestones) {
         const created = await state.client.request<{ milestone: PccMilestone }>(
           "pcc.milestones.upsert",
@@ -2045,10 +2329,10 @@ export async function applyPccSetupAutofill(state: PccDashboardState): Promise<v
 }
 
 export async function approvePccSetupAutofill(state: PccDashboardState): Promise<void> {
-  if (!state.pccProjectDetail) {
+  if (!state.pccProjectDetail || !state.pccAutofillPreview) {
     return;
   }
-  state.pccAutofillPreview = buildPccSetupAutofillPreview(state.pccProjectDetail, true);
+  state.pccAutofillPreview = { ...state.pccAutofillPreview, intakeApproved: true };
   await applyPccSetupAutofill(state);
 }
 
@@ -2128,19 +2412,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       missingQuestionIds: intakeMissing,
       status: form.intakeApproved ? "approved" : "needs_review",
     };
-    const draft = form.id
-      ? null
-      : buildPccWorkflowDraft({
-          title: form.title.trim(),
-          goal: form.goal.trim(),
-          templateId: form.workflowTemplateId,
-          ...(priority !== undefined ? { priority } : {}),
-          codexPlanningAllowed: form.codexPlanningAllowed,
-          remoteProofAllowed: form.remoteProofAllowed,
-          runtimeActionsAllowed: form.runtimeActionsAllowed,
-          planningMode: form.planningMode,
-          aiUsePolicy: form.aiUsePolicy,
-        });
+    const draft = form.id ? null : workflowDraftFromGeneratedPlan(form, priority);
     const draftSubMilestones =
       draft?.milestones.flatMap((milestone) =>
         (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []).map((subMilestone) =>
@@ -2175,6 +2447,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
             pccExecutionProfile: form.executionProfile,
             pccProjectDescription: form.projectDescription,
+            ...(form.generatedPlan ? { pccPlanningProvenance: form.generatedPlan.provenance } : {}),
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
               ? { dueDate, pccDueDate: dueDate }
@@ -2193,6 +2466,7 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccWorkflowTemplateTitle: recommendedWorkflow.title,
             pccExecutionProfile: form.executionProfile,
             pccProjectDescription: form.projectDescription,
+            ...(form.generatedPlan ? { pccPlanningProvenance: form.generatedPlan.provenance } : {}),
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
               ? { dueDate, pccDueDate: dueDate }
@@ -2211,11 +2485,13 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       project: projectUpsertPayload(projectForUpsert),
     });
     if (draft && !form.id) {
+      const createdMilestones: PccMilestone[] = [];
       for (const milestone of draft.milestones) {
         const created = await state.client.request<{ milestone: PccMilestone }>(
           "pcc.milestones.upsert",
           { milestone: milestoneUpsertPayload({ ...milestone, projectId: result.project.id }) },
         );
+        createdMilestones.push(created.milestone);
         for (const subMilestone of draft.subMilestonesByMilestoneTitle[milestone.title] ?? []) {
           await state.client.request("pcc.subMilestones.upsert", {
             subMilestone: subMilestoneUpsertPayload({
@@ -2226,6 +2502,19 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           });
         }
       }
+      if (form.generatedPlan) {
+        for (const [index, generated] of form.generatedPlan.milestones.entries()) {
+          const created = createdMilestones[index];
+          const dependsOn = generated.dependencies
+            .map((dependency) => createdMilestones[dependency]?.id)
+            .filter((id): id is string => Boolean(id));
+          if (created && dependsOn.length > 0) {
+            await state.client.request("pcc.milestones.upsert", {
+              milestone: milestoneUpsertPayload({ ...created, dependsOn }),
+            });
+          }
+        }
+      }
     }
     const existingCodexPermissions = (state.pccProjectDetail?.permissions ?? []).filter(
       (permission) =>
@@ -2233,7 +2522,9 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     );
     if (aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
       const permissionType =
-        form.plannerMode === "high_reasoning_codex" ? "high_reasoning_model" : "codex_usage";
+        form.executionProfile.codexEffort === "high" || form.executionProfile.codexEffort === "max"
+          ? "high_reasoning_model"
+          : "codex_usage";
       const existingPermission = existingCodexPermissions.find(
         (permission) => permission.type === permissionType,
       );
@@ -2250,8 +2541,8 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           ],
           target:
             form.aiUsePolicy === "codex_everything"
-              ? "All eligible project work"
-              : "Expert project planning and review work",
+              ? "All eligible project execution and review work"
+              : "Selected expert execution and review checkpoints",
           ...(form.plannerPermissionScope === "plan" || form.plannerPermissionScope === "ask"
             ? { maxUses: 1 }
             : {}),
@@ -3132,21 +3423,59 @@ export async function generatePccAutopilotLoopPrompts(state: PccDashboardState):
     return;
   }
   await withPccAction(state, async () => {
+    if (!state.client) {
+      return;
+    }
     const now = new Date().toISOString();
     const input = autopilotInputForDetail(detail);
     const current = getPccAutopilotState(input, now);
+    const generated = await state.client.request<{ plan: PccPlanGenerationResult }>(
+      "pcc.plans.generate",
+      {
+        surface: "autopilot_prompts",
+        description: detailText(detail),
+        existingTitle: detail.project.title,
+        ...(detail.project.goal?.trim() ? { existingGoal: detail.project.goal.trim() } : {}),
+        desiredOutcome: `Create a planning-only ${current.modeTitle} loop. Local OpenClaw agents should execute routine work; Codex must not execute implementation.`,
+        constraints: [
+          "Generate no more than five ordered prompts.",
+          "Every prompt must have an observable acceptance check and stop before missing permissions.",
+        ],
+      },
+    );
+    const defaults = generatePccAutopilotPromptSlots(input, current.mode);
+    const promptSlots = generated.plan.milestones.slice(0, 5).map((milestone, index) => ({
+      id: `slot-${index + 1}-codex-plan`,
+      enabled: index < 3,
+      title: milestone.title,
+      promptBody: [
+        `Project: ${detail.project.title}`,
+        `Goal: ${detail.project.goal || generated.plan.goal}`,
+        `Mode: ${current.modeTitle}`,
+        milestone.implementationPlan,
+        `Acceptance criteria:\n- ${milestone.acceptanceCriteria.join("\n- ")}`,
+        "Stop before missing permission, external write, deployment, credentials, destructive action, purchase, publication, reboot, or unapproved Codex execution.",
+      ].join("\n"),
+      purpose: `Execute the Codex-planned ${milestone.title} step with local OpenClaw agents.`,
+      executor: "local_model" as const,
+      reasoningLevel: defaults[index]?.reasoningLevel ?? ("standard" as const),
+      approvalTier: defaults[index]?.approvalTier ?? ("medium" as const),
+      judge: defaults[index]?.judge ?? ("mandatory" as const),
+      version: 1,
+    }));
     const next = queuePccAutopilotPermissionRequest(
       input,
       {
         ...current,
         status: "ready" as const,
-        promptSlots: generatePccAutopilotPromptSlots(input, current.mode),
+        promptSlots,
+        lastOutputSummary: `Planning provenance: ${generated.plan.provenance.model} · ${generated.plan.provenance.effort} · OAuth · planning only.`,
         auditLog: [
           ...current.auditLog,
           {
             at: now,
             event: "prompts_generated",
-            summary: "Generated editable Autopilot prompt slots from current PCC project state.",
+            summary: `Generated editable planning-only Autopilot prompts with ${generated.plan.provenance.model} at ${generated.plan.provenance.effort} effort. Local OpenClaw agents remain the executors.`,
           },
         ].slice(-200),
         updatedAt: now,
@@ -3154,7 +3483,10 @@ export async function generatePccAutopilotLoopPrompts(state: PccDashboardState):
       now,
     );
     await savePccAutopilotStateForDetail(state, detail, next);
-    setActionNotice(state, "Autopilot prompts generated. Edit them, then start the safe loop.");
+    setActionNotice(
+      state,
+      `Autopilot prompts planned by ${generated.plan.provenance.model}. Local OpenClaw agents execute them after approval.`,
+    );
   });
 }
 
@@ -3351,6 +3683,23 @@ export async function runPccExecutionTeamAction(
       state.pccActionError = "Agent team cannot start because no independent task was admitted.";
       return;
     }
+    const taskById = new Map(readiness.tasks.map((task) => [task.id, task]));
+    const localModels = configuredLocalModelRefs(state.chatModelCatalog);
+    const preferredModel =
+      readiness.profile.localModelId === "best_available" ? null : readiness.profile.localModelId;
+    const routedPartitions = partitioned.partitions.map((partition) => {
+      const task = taskById.get(partition.taskId);
+      const route = selectPccLocalModel({
+        taskTitle: task?.title ?? partition.taskId,
+        availableModelRefs: localModels,
+        preferredModelRef: preferredModel,
+      });
+      return {
+        ...partition,
+        modelId: route.modelRef ?? readiness.workerModelId!,
+        modelRationale: route.rationale,
+      };
+    });
     const sessionKey = `agent:${readiness.coordinatorAgentId}:pcc-execution-${detail.project.id}`;
     let plan = createPccExecutionPlan({
       id: planId,
@@ -3359,8 +3708,8 @@ export async function runPccExecutionTeamAction(
       profile: readiness.profile,
       coordinator: { sessionId: sessionKey, runId: planId },
       admittedWorkerCount: readiness.admittedLocalAgents,
-      partitions: partitioned.partitions,
-      leases: pccExecutionWorkspaceLeases(planId, partitioned.partitions, now),
+      partitions: routedPartitions,
+      leases: pccExecutionWorkspaceLeases(planId, routedPartitions, now),
       proofRequirements: pccExecutionProofRequirements(planId, readiness.tasks),
       approvals:
         readiness.profile.codexRole === "off"
