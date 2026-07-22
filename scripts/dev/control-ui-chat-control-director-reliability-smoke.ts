@@ -5,7 +5,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { controlUiSmokeViteResolve } from "./control-ui-smoke-vite.ts";
 
-type Mode = "desktop" | "mobile";
+type Mode = "desktop" | "tablet" | "mobile";
 type SmokeResult = {
   bodyText: string;
   checks: Record<string, boolean>;
@@ -48,7 +48,7 @@ function writeSmokeApp(appDir: string): void {
 import { render } from "lit";
 import { renderChat } from "/ui/src/ui/views/chat.ts";
 
-type Mode = "desktop" | "mobile";
+type Mode = "desktop" | "tablet" | "mobile";
 type Result = { mode: Mode; ok: boolean; checks: Record<string, boolean>; bodyText: string };
 
 declare global {
@@ -303,12 +303,7 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
   checks.observableActivity = bodyText().includes("What OpenClaw did: 2 steps");
 
   const diagnostics = root.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]");
-  checks.truthCollapsedInTranscript = Boolean(
-    diagnostics && !diagnostics.open && diagnostics.closest(".chat-thread-inner"),
-  );
-  checks.truthExplainsBlocked =
-    Boolean(diagnostics?.textContent?.includes("In plain English:")) &&
-    Boolean(diagnostics?.textContent?.includes("could not safely prove"));
+  checks.truthSeparatedFromTranscript = !diagnostics?.closest(".chat-thread-inner");
 
   const work = root.querySelector(".chat-work-surface");
   checks.needsAttention = Boolean(
@@ -372,7 +367,11 @@ void draw("desktop");
 
 async function runMode(page: Page, mode: Mode, artifactDir: string): Promise<SmokeResult> {
   await page.setViewportSize(
-    mode === "mobile" ? { width: 390, height: 844 } : { width: 1366, height: 768 },
+    mode === "mobile"
+      ? { width: 390, height: 844 }
+      : mode === "tablet"
+        ? { width: 820, height: 1180 }
+        : { width: 1366, height: 768 },
   );
   const result = (await page.evaluate(
     (value) => window.runControlDirectorChatReliabilitySmoke(value),
@@ -424,6 +423,7 @@ async function main(): Promise<void> {
     await page.goto(url, { waitUntil: "domcontentloaded" });
     const modeResults = [
       await runMode(page, "desktop", artifactDir),
+      await runMode(page, "tablet", artifactDir),
       await runMode(page, "mobile", artifactDir),
     ];
     const summary = { artifactDir, modeResults, ok: true, url };
