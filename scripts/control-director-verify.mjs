@@ -17,6 +17,7 @@ const IMMUTABLE_SHA_PATTERN = /^[a-f0-9]{40}$/u;
 
 const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-format-check.test.ts",
+  "test/scripts/control-director-deployment-consistency.test.ts",
   "test/scripts/control-director-readiness.test.ts",
   "test/scripts/control-director-role-config.test.ts",
   "test/scripts/control-director-runtime-proof.test.ts",
@@ -217,6 +218,10 @@ export function buildControlDirectorSourceGatePlan() {
     { id: "ui-tests", args: ["test", ...CONTROL_DIRECTOR_UI_TESTS] },
     { id: "extension-tests", args: ["test", ...CONTROL_DIRECTOR_EXTENSION_TESTS] },
     { id: "ui-i18n", args: ["ui:i18n:check"] },
+    {
+      id: "deployment-consistency",
+      args: ["control-director:deployment-consistency", "--", "--source-only"],
+    },
     { id: "custom-runtime-contracts", args: ["check:custom-runtime-capabilities"] },
     { id: "pcc-contracts", args: ["check:pcc-capabilities"] },
     { id: "plugin-sdk-api", args: ["plugin-sdk:api:check"] },

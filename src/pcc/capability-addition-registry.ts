@@ -110,6 +110,20 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     owner: "Project Command Center",
   },
   {
+    id: "runtime:control-director-deployment-consistency",
+    kind: "runtime",
+    owner: "Control Director and custom runtime update broker",
+    tests: [
+      "test/scripts/control-director-deployment-consistency.test.ts",
+      "test/scripts/control-director-verify.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm control-director:deployment-consistency -- --source-only",
+      "exact-SHA post-restart deployment consistency receipt",
+    ],
+  },
+  {
     id: "runtime:control-director-truth-gates",
     kind: "runtime",
     owner: "Control Director",

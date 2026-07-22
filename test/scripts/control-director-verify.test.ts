@@ -60,6 +60,7 @@ describe("control-director-verify", () => {
       "ui-tests",
       "extension-tests",
       "ui-i18n",
+      "deployment-consistency",
       "custom-runtime-contracts",
       "pcc-contracts",
       "plugin-sdk-api",
@@ -93,6 +94,11 @@ describe("control-director-verify", () => {
       "test/scripts/control-ui-i18n.test.ts",
     );
     expect(plan.find((entry) => entry.id === "ui-i18n")?.args).toEqual(["ui:i18n:check"]);
+    expect(plan.find((entry) => entry.id === "deployment-consistency")?.args).toEqual([
+      "control-director:deployment-consistency",
+      "--",
+      "--source-only",
+    ]);
     expect(plan.find((entry) => entry.id === "protocol-coverage")?.args).toEqual([
       "check:protocol-coverage",
     ]);
