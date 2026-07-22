@@ -63,6 +63,12 @@ Every operational-role call to `sessions_spawn` includes a typed `handoff` objec
 
 The active run's real cwd is the trusted task root. Both native and ACP workers inherit that same canonical root. An explicit `cwd` can narrow the worker to an existing real descendant but cannot replace the root or escape it through `..` or a symlink. The result reports only a versioned root fingerprint and source/scope classification; raw task paths are not diagnostic output.
 
+### Evidence-bound diagnostics
+
+Completion, blocker, worker, and task-root statements are runtime claims, not transcript summaries. OpenClaw builds them from typed task state, Pursue Goal state, signed Judge receipts, or sanitized spawn receipts and verifies each claim independently. Evidence must match the exact mission or worker subject and its claim hash, agent id, or task-root fingerprint. It must also have a durable source id and a current observation window; unavailable, unsupported, older than five minutes, future-dated, expired, or mismatched evidence is rejected rather than displayed as fact.
+
+A completion claim still requires the independent Judge's valid signed receipt for the exact mission and claim hash. A terminal blocker still requires the same blocker to survive the configured repeated-confirmation threshold. Worker and task-root diagnostics expose only bounded ids and fingerprints, never raw filesystem paths or model prose.
+
 ## Responsive Chat contract
 
 An accepted turn receives a durable run identity and visible acknowledgement before long work begins. The server owns the mutable turn inbox and outbox, so a browser refresh or second client cannot lose or duplicate the turn.

@@ -66,6 +66,7 @@ This gate compares every registered file byte-for-byte with the exact source, ve
 - Control Director delegates to Program Manager with `{ handoff: { kind: "coordination", requiresMutation: false } }`. Program Manager delegates to workers with `kind: "implementation"` and an honest mutation flag. Judge accepts only read-only `verification`; operational-role spawns without a compatible typed envelope fail before launch.
 - PCC receives typed plan/evidence commands, never prose-derived runtime state. SIG receives typed systemic-defect signals and proof-bound closure evidence, never silent mutation, deployment, closure, or self-approval.
 - Every rejected spawn returns one caller-performable recommended action. Never recommend an unavailable discovery or mutation tool as the only recovery path.
+- Build completion, blocker, worker, and task-root diagnostics only from typed runtime evidence. Bind each claim to its exact mission, worker, task-root fingerprint, or Judge claim hash; reject unavailable, unsupported, stale, future-dated, expired, or mismatched evidence. Transcript prose is never diagnostic proof.
 
 ## Runtime acceptance
 

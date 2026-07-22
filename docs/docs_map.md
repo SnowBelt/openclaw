@@ -2447,6 +2447,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Responsibility boundaries
   - H3: Executable delegation handoffs
+  - H3: Evidence-bound diagnostics
   - H2: Responsive Chat contract
   - H3: Queue and steer
   - H2: Pursue Goal
