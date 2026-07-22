@@ -52,6 +52,19 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       status: "active" as const,
       priority: 4,
       metadata: {
+        pccWorkflowTemplateId: "software-product",
+        pccIntake: {
+          approved: true,
+          approvedAt: now,
+          answers: {
+            goal: "Create patch-safe SNES games through SNES Studio with exact proof receipts.",
+            firstDeliverable: "A verified playable SNES game patch.",
+            doneProof: "Local, emulator, remote, runtime, and completion receipts.",
+            constraints: "No destructive or production action without permission.",
+            owner: "local_openclaw_agent",
+            blockers: "Missing proof or permission blocks progress.",
+          },
+        },
         pccWorkLoop: {
           enabled: true,
           state: "working",
@@ -82,14 +95,23 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       "Package patch-only deliverable and receipts",
       "Maintain bug, improvement, and expansion backlog",
     ];
+    const needsVisibleWorkControls =
+      mode === "work-lanes" || mode === "stop-here" || mode === "stop-rules";
     const milestones = milestoneTitles.map((title, index) => ({
       id: `milestone-${index + 1}`,
       projectId: project.id,
       title,
-      status: index === 1 ? ("needs_approval" as const) : ("not_started" as const),
+      status:
+        index === 1 && !needsVisibleWorkControls
+          ? ("needs_approval" as const)
+          : ("not_started" as const),
       order: index + 1,
       implementationPlan: `Complete the ${title} checklist in order.`,
-      metadata: index === 5 ? { pccStopHere: true } : {},
+      metadata: {
+        pccProofLevel: "local",
+        pccResponsibility: "local_openclaw_agent",
+        ...(index === 5 ? { pccStopHere: true } : {}),
+      },
       acceptanceCriteria: [
         "All non-skipped sub-milestones are complete",
         "Required proof receipt exists",
