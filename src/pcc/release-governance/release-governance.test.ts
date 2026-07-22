@@ -18,6 +18,7 @@ import {
   createReleaseEvidenceBundle,
   verifyReleaseEvidenceAuthorization,
   verifyReleaseEvidenceBundle,
+  verifyReleaseLifecycleEvidence,
   verifyReleaseRuntimeArtifacts,
 } from "./evidence.js";
 import { evaluateReleaseGovernor } from "./governor.js";
@@ -154,12 +155,12 @@ function finalizedBundleInput(evaluation: ReleaseGovernorEvaluation): ReleaseEvi
       candidateRuntimeSha: SHA,
     },
     deployment: {
-      deployedAt: NOW,
+      deployedAt: null,
       rollbackTarget: PARENT_SHA,
-      stageResult: "passed",
-      promotionResult: "passed",
-      restartResult: "passed",
-      postDeploymentHealth: { passed: true, deterministicRollbackTrigger: false, blockers: [] },
+      stageResult: null,
+      promotionResult: null,
+      restartResult: null,
+      postDeploymentHealth: null,
     },
     browserProof: { desktop: "desktop.png", mobile: "mobile.png", consoleErrors: 0 },
     ledger: { projectId: "project-command-center", milestoneId: "release-governor", ready: true },
@@ -445,16 +446,108 @@ describe("PCC Release Governor", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-release-governor-"));
     roots.push(root);
     const env = { OPENCLAW_STATE_DIR: root };
-    expect(recordReleaseEvidenceInPccLedger(bundle, env)).toMatchObject({
+    const productionBundle = createReleaseEvidenceBundle({
+      ...finalizedBundleInput(evaluation),
+      deployment: {
+        ...bundle.deployment,
+        deployedAt: NOW,
+        postDeploymentHealth: {
+          passed: true,
+          deterministicRollbackTrigger: false,
+          blockers: [],
+        },
+      },
+    });
+    expect(recordReleaseEvidenceInPccLedger(productionBundle, env)).toMatchObject({
       evidenceAdded: true,
       receiptAdded: true,
     });
-    expect(recordReleaseEvidenceInPccLedger(bundle, env)).toMatchObject({
+    expect(recordReleaseEvidenceInPccLedger(productionBundle, env)).toMatchObject({
       evidenceAdded: false,
       receiptAdded: false,
     });
     expect(readPccLedger(env).evidence).toHaveLength(1);
     expect(readPccLedger(env).receipts).toHaveLength(1);
+  });
+
+  it("requires recorded exact-SHA lifecycle receipts and rejects pre-marked results", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-release-receipts-"));
+    roots.push(root);
+    const evaluation = evaluateReleaseGovernor(
+      input({ changedFiles: ["docs/release.md"] }),
+      policy,
+    );
+    const stageBundle = createReleaseEvidenceBundle(finalizedBundleInput(evaluation));
+    expect(
+      verifyReleaseLifecycleEvidence({
+        ...stageBundle,
+        deployment: { ...stageBundle.deployment, stageResult: "staged_verified" },
+      }),
+    ).toContain("Evidence must not pre-mark stage before the prerequisite operation succeeds.");
+
+    const stageReceipt = path.join(root, "stage.json");
+    fs.writeFileSync(
+      stageReceipt,
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+        operation: "stage",
+        at: "20260715T120000Z",
+        sourceSha: SHA,
+        result: "staged_verified",
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const promotionBundle = {
+      ...stageBundle,
+      evaluation: {
+        ...stageBundle.evaluation,
+        decision: { ...stageBundle.evaluation.decision, operation: "promotion" as const },
+      },
+      checks: [
+        ...stageBundle.checks,
+        {
+          id: "staging",
+          status: "passed" as const,
+          summary: "Recorded stage passed.",
+          artifact: stageReceipt,
+          artifactSha256: createHash("sha256").update(fs.readFileSync(stageReceipt)).digest("hex"),
+          recordedAt: NOW,
+        },
+      ],
+      deployment: { ...stageBundle.deployment, stageResult: "staged_verified" },
+    };
+    expect(verifyReleaseLifecycleEvidence(promotionBundle)).toEqual([]);
+
+    fs.writeFileSync(
+      stageReceipt,
+      `${JSON.stringify({
+        schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+        operation: "stage",
+        at: "20260715T120000Z",
+        sourceSha: PARENT_SHA,
+        result: "staged_verified",
+      })}\n`,
+      { mode: 0o600 },
+    );
+    expect(verifyReleaseLifecycleEvidence(promotionBundle).join("\n")).toContain(
+      "receipt SHA-256 does not match",
+    );
+    const wrongShaBundle = {
+      ...promotionBundle,
+      checks: promotionBundle.checks.map((check) => {
+        if (check.id !== "staging") {
+          return check;
+        }
+        const mismatchedCheck = structuredClone(check);
+        mismatchedCheck.artifactSha256 = createHash("sha256")
+          .update(fs.readFileSync(stageReceipt))
+          .digest("hex");
+        return mismatchedCheck;
+      }),
+    };
+    expect(verifyReleaseLifecycleEvidence(wrongShaBundle)).toContain(
+      "Lifecycle receipt for staging is not exact-SHA bound.",
+    );
   });
 
   it("binds runtime artifacts and build information to the exact candidate SHA", () => {

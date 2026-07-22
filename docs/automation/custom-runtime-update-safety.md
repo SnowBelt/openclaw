@@ -76,6 +76,13 @@ custom-runtime-update-approve.sh --receipt /path/to/update-receipt.json
 
 Approval fails if the active runtime changed after preparation, the release moved outside the immutable release root, or the source stamp changed. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
 
+Every successful stage, promotion, and restart writes a private exact-SHA
+lifecycle receipt only after its measurements pass. Release Governor verifies
+the stage receipt before promotion, the stage and promotion receipts before a
+restart, and all three receipts before finalization. It rejects pre-marked
+results, receipt symlinks, writable receipt files, receipt hash changes, failed
+outcomes, and receipts for another SHA.
+
 ## Project Command Center status
 
 The PCC Update Safety card reports:

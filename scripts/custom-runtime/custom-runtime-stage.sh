@@ -42,7 +42,9 @@ stamp_file="$release/.openclaw-production-sha"
   exit 64
 }
 custom_runtime_require_release_governance stage "$source_sha" "$release"
-mkdir -p "$runtime_home"
+mkdir -p "$runtime_home" "$runtime_home/receipts"
+timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+stage_receipt="$runtime_home/receipts/stage-$timestamp.json"
 
 # A missing Keychain value is a hard stop. It is never replaced by a file value.
 printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("values",{}).get("discord/bot-token") else 1)' 2>/dev/null || {
@@ -259,6 +261,7 @@ if not isinstance(summary.get("groups"), list):
     raise SystemExit("candidate stage Self-Improvement groups contract failed")
 PY
     rollback_pointer_usable=false
+    rollback_canary_result=not_applicable
     if [ -f "$runtime_home/active-runtime.json" ] && \
        python3 - "$runtime_home/active-runtime.json" <<'PY'
 import json, sys
@@ -292,8 +295,40 @@ PY
         printf '%s\n' 'candidate stage rollback compatibility canary failed' >&2
         exit 1
       fi
+      rollback_canary_result=passed
       printf '%s\n' "CUSTOM_RUNTIME_ROLLBACK_CANARY_OK release=$(basename "$release")"
     fi
+    completed_at=$(date -u +%Y%m%dT%H%M%SZ)
+    python3 - "$stage_receipt" "$completed_at" "$release" "$source_sha" "$rollback_canary_result" <<'PY'
+import json
+import os
+import sys
+
+target, at, release, source_sha, rollback_canary = sys.argv[1:]
+with open(target, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "schema": "openclaw.custom-runtime-lifecycle-receipt.v1",
+            "operation": "stage",
+            "at": at,
+            "release": os.path.basename(release),
+            "sourceSha": source_sha,
+            "result": "staged_verified",
+            "measurements": {
+                "gatewayHealth": "passed",
+                "requiredRoutes": "passed",
+                "websocketUpgrade": "passed",
+                "selfImprovementRpc": "passed",
+                "rollbackCanary": rollback_canary,
+            },
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+os.chmod(target, 0o600)
+PY
     printf '%s\n' "CUSTOM_RUNTIME_STAGE_OK release=$(basename "$release")"
     exit 0
   fi

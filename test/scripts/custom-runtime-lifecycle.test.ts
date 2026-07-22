@@ -382,6 +382,19 @@ describe("custom runtime lifecycle", () => {
     ).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_ROLLBACK_CANARY_OK release=candidate");
     expect(result.stdout).toContain("CUSTOM_RUNTIME_STAGE_OK release=candidate");
+    const stageReceipt = fs
+      .readdirSync(path.join(runtimeHome, "receipts"))
+      .find((entry) => entry.startsWith("stage-"));
+    expect(stageReceipt).toBeTruthy();
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", stageReceipt!), "utf8")),
+    ).toMatchObject({
+      schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+      operation: "stage",
+      result: "staged_verified",
+      sourceSha,
+      measurements: { rollbackCanary: "passed" },
+    });
     expect(JSON.parse(fs.readFileSync(gatewayMarker, "utf8"))).toEqual({
       background: "0",
       port: 18790,
@@ -579,6 +592,18 @@ describe("custom runtime lifecycle", () => {
       }),
     ).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_PROMOTED release=candidate");
+    const promotionReceipt = fs
+      .readdirSync(path.join(runtimeHome, "receipts"))
+      .find((entry) => entry.startsWith("promotion-") && !entry.startsWith("promotion-failure-"));
+    expect(promotionReceipt).toBeTruthy();
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", promotionReceipt!), "utf8")),
+    ).toMatchObject({
+      schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+      operation: "promotion",
+      result: "promoted_verified",
+      sourceSha,
+    });
     expect(fs.existsSync(delayedPccRouteMarker)).toBe(true);
     expect(fs.existsSync(sigRpcMarker)).toBe(true);
     expect(fs.readFileSync(sigRpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
@@ -972,7 +997,13 @@ describe("custom runtime lifecycle", () => {
     expect(receipt).toBeTruthy();
     expect(
       JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", receipt!), "utf8")),
-    ).toMatchObject({ result: "restarted_verified", release: "native-candidate" });
+    ).toMatchObject({
+      schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+      operation: "restart",
+      result: "restarted_verified",
+      release: "native-candidate",
+      sourceSha,
+    });
   });
 
   it.each([

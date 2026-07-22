@@ -52,6 +52,18 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       status: "active" as const,
       priority: 4,
       metadata: {
+        pccWorkflowTemplateId: "snes-studio",
+        pccIntake: {
+          approved: true,
+          answers: {
+            goal: "Create a patch-safe SNES game.",
+            firstDeliverable: "A playable emulator-tested MVP.",
+            doneProof: "Patch-only package, checksums, and emulator proof receipts pass.",
+            constraints: "Never distribute ROM files and stop for required approvals.",
+            owner: "local_openclaw_agent",
+            blockers: "None.",
+          },
+        },
         pccWorkLoop: {
           enabled: true,
           state: "working",
@@ -89,7 +101,11 @@ export async function runPccSubMilestoneSmoke(mode: PccSubMilestoneSmokeMode): P
       status: index === 1 ? ("needs_approval" as const) : ("not_started" as const),
       order: index + 1,
       implementationPlan: `Complete the ${title} checklist in order.`,
-      metadata: index === 5 ? { pccStopHere: true } : {},
+      metadata: {
+        pccResponsibility: "local_openclaw_agent",
+        pccProofLevel: index === 5 ? "remote" : "local",
+        ...(index === 5 ? { pccStopHere: true } : {}),
+      },
       acceptanceCriteria: [
         "All non-skipped sub-milestones are complete",
         "Required proof receipt exists",

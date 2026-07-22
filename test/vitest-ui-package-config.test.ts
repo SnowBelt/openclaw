@@ -11,6 +11,30 @@ function requireTestConfig<T extends { test?: unknown }>(config: T): NonNullable
 }
 
 describe("ui package vitest config", () => {
+  it("keeps native file watching out of browser dependency optimization", () => {
+    const testConfig = requireTestConfig(uiConfig);
+    const browserProject = testConfig.projects.at(-1);
+
+    expect(browserProject?.optimizeDeps?.exclude).toContain("fsevents");
+    expect(browserProject?.plugins).toContainEqual(
+      expect.objectContaining({ name: "openclaw-browser-external-node-modules" }),
+    );
+  });
+
+  it("runs file-backed layout tests in the node-driven project", () => {
+    const testConfig = requireTestConfig(uiConfig);
+    const nodeProjectTestConfig = requireTestConfig(testConfig.projects[1]);
+    const browserProjectTestConfig = requireTestConfig(testConfig.projects[2]);
+    const fileBackedLayoutTests = [
+      "src/ui/chat/chat-responsive.browser.test.ts",
+      "src/ui/form-controls.browser.test.ts",
+      "src/ui/views/sessions.browser.test.ts",
+    ];
+
+    expect(nodeProjectTestConfig.include).toEqual(expect.arrayContaining(fileBackedLayoutTests));
+    expect(browserProjectTestConfig.exclude).toEqual(expect.arrayContaining(fileBackedLayoutTests));
+  });
+
   it("keeps the standalone ui package on thread workers without isolation", () => {
     const testConfig = requireTestConfig(uiConfig);
 

@@ -516,6 +516,38 @@ with open(target, "w", encoding="utf-8") as f:
 PY
   mv "$rollback_pointer_tmp" "$runtime_home/active-rollback.json"
 fi
-printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
+completed_at=$(date -u +%Y%m%dT%H%M%SZ)
+python3 - "$runtime_home/receipts/promotion-$timestamp.json" "$completed_at" "$release" "$source_sha" "$enable_sig_background" <<'PY'
+import json
+import os
+import sys
+
+target, at, release, source_sha, sig_background = sys.argv[1:]
+with open(target, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "schema": "openclaw.custom-runtime-lifecycle-receipt.v1",
+            "operation": "promotion",
+            "at": at,
+            "release": os.path.basename(release),
+            "sourceSha": source_sha,
+            "result": "promoted_verified",
+            "measurements": {
+                "gatewayHealth": "passed",
+                "runtimeIdentity": "passed",
+                "requiredRoutes": "passed",
+                "websocketUpgrade": "passed",
+                "selfImprovementRpc": "passed",
+                "rollbackRegistration": "passed" if os.path.exists(os.path.join(os.path.dirname(os.path.dirname(target)), "active-rollback.json")) else "not_applicable",
+            },
+            "sigBackgroundEnabled": sig_background == "true",
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+os.chmod(target, 0o600)
+PY
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"
 promotion_committed=true

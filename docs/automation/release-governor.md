@@ -57,6 +57,18 @@ Gateway, and ledger-readiness evidence appropriate to the operation.
      --output release-evidence.json
    ```
 
+   Lifecycle results are never operator-authored pass flags. The stage command
+   writes a private `openclaw.custom-runtime-lifecycle-receipt.v1` only after
+   health, routes, WebSocket, Self-Improvement RPC, and rollback-canary checks
+   succeed. Promotion evidence must reference that exact-SHA stage receipt.
+   Restart evidence must additionally reference the successful promotion
+   receipt, and finalization must reference the successful restart receipt.
+   Each lifecycle check records the receipt path and SHA-256 in the hash-bound
+   bundle. Missing, changed, writable, symlinked, wrong-SHA, or failed receipts
+   block the later operation. A bundle for the current operation leaves that
+   operation's result unset until the repository-managed command actually
+   succeeds.
+
 4. Store each operation bundle at:
 
    ```text

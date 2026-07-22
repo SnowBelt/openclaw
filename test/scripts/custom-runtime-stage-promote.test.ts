@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -238,6 +239,18 @@ describe("custom runtime canary and rollback", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_STAGE_OK");
     expect(readFileSync(activePointer, "utf8")).toBe(originalPointer);
+    const receipt = readdirSync(path.join(input.runtimeHome, "receipts")).find((entry) =>
+      entry.startsWith("stage-"),
+    );
+    expect(receipt).toBeTruthy();
+    expect(
+      JSON.parse(readFileSync(path.join(input.runtimeHome, "receipts", receipt!), "utf8")),
+    ).toMatchObject({
+      schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+      operation: "stage",
+      result: "staged_verified",
+      sourceSha: input.sourceSha,
+    });
   });
 
   it("restores the previous pointer and service files when promotion bootstrap fails", () => {
