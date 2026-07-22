@@ -534,16 +534,16 @@ describe("PCC Release Governor", () => {
     );
     const wrongShaBundle = {
       ...promotionBundle,
-      checks: promotionBundle.checks.map((check) =>
-        check.id === "staging"
-          ? {
-              ...check,
-              artifactSha256: createHash("sha256")
-                .update(fs.readFileSync(stageReceipt))
-                .digest("hex"),
-            }
-          : check,
-      ),
+      checks: promotionBundle.checks.map((check) => {
+        if (check.id !== "staging") {
+          return check;
+        }
+        const mismatchedCheck = structuredClone(check);
+        mismatchedCheck.artifactSha256 = createHash("sha256")
+          .update(fs.readFileSync(stageReceipt))
+          .digest("hex");
+        return mismatchedCheck;
+      }),
     };
     expect(verifyReleaseLifecycleEvidence(wrongShaBundle)).toContain(
       "Lifecycle receipt for staging is not exact-SHA bound.",
