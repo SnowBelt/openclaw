@@ -645,6 +645,8 @@ describe("chat multi-agent work tree", () => {
     status?.setAttribute("open", "");
     expect(status?.textContent).toContain("2 sources today");
     expect(status?.textContent).toContain("Source aaaaaaaaaaaa");
+    status?.querySelector<HTMLButtonElement>('[aria-label="Close system status"]')?.click();
+    expect(status?.open).toBe(false);
   });
 
   it("renders active child agents in the Working Now panel", () => {
@@ -5260,6 +5262,30 @@ describe("chat polish accessibility", () => {
     expect(onGoalPanelToggle).toHaveBeenCalledWith(false);
     container.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("provides pointer-accessible close controls for mobile project and goal sheets", () => {
+    const onProjectPickerToggle = vi.fn();
+    const onGoalPanelToggle = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      projectPickerOpen: true,
+      onGoalPanelToggle,
+      onProjectPickerToggle,
+    });
+
+    const project = container.querySelector<HTMLDetailsElement>("[data-chat-project-picker]")!;
+    const goal = container.querySelector<HTMLDetailsElement>("[data-chat-goal]")!;
+    expect(project.open).toBe(true);
+    expect(goal.open).toBe(true);
+
+    project.querySelector<HTMLButtonElement>('[aria-label="Close project panel"]')?.click();
+    goal.querySelector<HTMLButtonElement>('[aria-label="Close pursue goal panel"]')?.click();
+
+    expect(project.open).toBe(false);
+    expect(goal.open).toBe(false);
+    expect(onProjectPickerToggle).toHaveBeenCalledWith(false);
+    expect(onGoalPanelToggle).toHaveBeenCalledWith(false);
   });
 });
 

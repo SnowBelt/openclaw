@@ -28,6 +28,7 @@ function props(overrides: Partial<OperationsProps> = {}): OperationsProps {
     agentSort: "priority",
     pinnedAgentIds: [],
     lastVisitedAt: snapshot.generatedAt - 45_000,
+    workboardEnabled: false,
     onRefresh: vi.fn(),
     onAction: vi.fn(),
     onSectionChange: vi.fn(),
@@ -80,7 +81,7 @@ describe("Operations Room view", () => {
     expect(container.textContent).toContain("One optional capability is unavailable.");
   });
 
-  it("keeps task, workflow, CPU, and capability truth available on demand", async () => {
+  it("keeps task, workflow, CPU, and capability truth available without a Workboard", async () => {
     const onNavigate = vi.fn();
     const container = await renderView({ onNavigate });
     const working = container.querySelector("#operations-working");
@@ -99,6 +100,24 @@ describe("Operations Room view", () => {
     ) ?? []) {
       button.click();
     }
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect((more as HTMLDetailsElement).open).toBe(true);
+    expect(more?.querySelector<HTMLDetailsElement>(".operations-activity-history")?.open).toBe(
+      true,
+    );
+    expect(more?.querySelector(".operations-more-workflows")?.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("preserves task and workflow navigation when Workboard is enabled", async () => {
+    const onNavigate = vi.fn();
+    const container = await renderView({ onNavigate, workboardEnabled: true });
+
+    for (const button of container.querySelectorAll<HTMLButtonElement>(
+      "#operations-working .operations-work-facts button",
+    )) {
+      button.click();
+    }
+
     expect(onNavigate.mock.calls).toEqual([["workboard"], ["workboard"]]);
   });
 
@@ -115,7 +134,12 @@ describe("Operations Room view", () => {
     };
     const onNavigate = vi.fn();
     const onAction = vi.fn();
-    const container = await renderView({ snapshot, onNavigate, onAction });
+    const container = await renderView({
+      snapshot,
+      onNavigate,
+      onAction,
+      workboardEnabled: true,
+    });
     const issue = container.querySelector(".operations-issue");
 
     expect(issue?.textContent).toContain("Last progress");
@@ -230,7 +254,7 @@ describe("Operations Room view", () => {
     snapshot.collections.cronJobs = { total: 9, shown: 9, truncated: false };
     const onNavigate = vi.fn();
 
-    const container = await renderView({ snapshot, onNavigate });
+    const container = await renderView({ snapshot, onNavigate, workboardEnabled: true });
     const attention = container.querySelector("#operations-attention");
     expect(attention?.textContent).toContain("Showing 4 of 427 current issues");
     expect(attention?.textContent).toContain("4 of 300");
@@ -406,7 +430,7 @@ describe("Operations Room view", () => {
     }));
     snapshot.collections.activityRollups = { total: 12, shown: 12, truncated: false };
     const onNavigate = vi.fn();
-    const container = await renderView({ snapshot, onNavigate });
+    const container = await renderView({ snapshot, onNavigate, workboardEnabled: true });
     const working = container.querySelector("#operations-working");
 
     expect(working?.querySelectorAll(".operations-work-row")).toHaveLength(8);

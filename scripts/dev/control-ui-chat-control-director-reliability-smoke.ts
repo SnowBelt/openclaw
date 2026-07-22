@@ -49,7 +49,12 @@ import { render } from "lit";
 import { renderChat } from "/ui/src/ui/views/chat.ts";
 
 type Mode = "desktop" | "mobile";
-type Result = { mode: Mode; ok: boolean; checks: Record<string, boolean>; bodyText: string };
+type Result = {
+  mode: Mode;
+  ok: boolean;
+  checks: Record<string, boolean>;
+  bodyText: string;
+};
 
 declare global {
   interface Window {
@@ -288,6 +293,29 @@ async function draw(mode: Mode, overrides: Record<string, unknown> = {}) {
   await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
 }
 
+function pointerReachability(button: HTMLButtonElement | null): {
+  inViewport: boolean;
+  isTopTarget: boolean;
+} {
+  if (!button) {
+    return { inViewport: false, isTopTarget: false };
+  }
+  const rect = button.getBoundingClientRect();
+  const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const inViewport = !(
+    rect.left < 0 ||
+    rect.top < 0 ||
+    rect.right > viewportWidth ||
+    rect.bottom > viewportHeight
+  );
+  const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return {
+    inViewport,
+    isTopTarget: Boolean(top && (top === button || button.contains(top))),
+  };
+}
+
 window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Result> => {
   loadEarlierCalls = 0;
   projectPanelOpen = false;
@@ -325,6 +353,15 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
   checks.goalControls =
     controlCalls.some((call) => call.action === "retry") &&
     controlCalls.some((call) => call.action === "stop");
+  const closeGoal = root.querySelector<HTMLButtonElement>(
+    '[aria-label="Close pursue goal panel"]',
+  );
+  const goalReachability = pointerReachability(closeGoal);
+  checks.goalCloseInViewport = goalReachability.inViewport;
+  checks.goalPointerTarget = goalReachability.isTopTarget;
+  closeGoal?.click();
+  checks.goalPointerClose =
+    goalPanelOpen === false && !root.querySelector<HTMLDetailsElement>("[data-chat-goal]")?.open;
 
   projectPanelOpen = true;
   await draw(mode, { projectPickerOpen: true, goalPanelOpen: false });
@@ -335,6 +372,14 @@ window.runControlDirectorChatReliabilitySmoke = async (mode: Mode): Promise<Resu
       project.textContent?.includes("same project ID") &&
       project.textContent?.includes("does not create a second project plan"),
   );
+  const closeProject = root.querySelector<HTMLButtonElement>('[aria-label="Close project panel"]');
+  const projectReachability = pointerReachability(closeProject);
+  checks.projectCloseInViewport = projectReachability.inViewport;
+  checks.projectPointerTarget = projectReachability.isTopTarget;
+  closeProject?.click();
+  checks.projectPointerClose =
+    projectPanelOpen === false &&
+    !root.querySelector<HTMLDetailsElement>("[data-chat-project-picker]")?.open;
 
   const composer = root.querySelector<HTMLElement>(".agent-chat__input");
   const thread = root.querySelector<HTMLElement>(".chat-thread");
@@ -413,12 +458,19 @@ async function main(): Promise<void> {
       headless: true,
       ...(executablePath ? { executablePath } : {}),
     });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    const modeResults = [
-      await runMode(page, "desktop", artifactDir),
-      await runMode(page, "mobile", artifactDir),
-    ];
+    const modeResults: SmokeResult[] = [];
+    for (const mode of ["desktop", "mobile"] as const) {
+      const page = await browser.newPage();
+      try {
+        await page.setViewportSize(
+          mode === "mobile" ? { width: 390, height: 844 } : { width: 1366, height: 768 },
+        );
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        modeResults.push(await runMode(page, mode, artifactDir));
+      } finally {
+        await page.close();
+      }
+    }
     const summary = { artifactDir, modeResults, ok: true, url };
     writeFileSync(join(artifactDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
     console.log(JSON.stringify(summary, null, 2));
