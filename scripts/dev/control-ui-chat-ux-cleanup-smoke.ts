@@ -260,42 +260,38 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
   render(renderChat(baseProps(mode)), root);
   await new Promise((resolve) => requestAnimationFrame(resolve));
 
-  const diagnostics = root.querySelector("[data-control-director-diagnostics]");
-  const diagnosticSummary = diagnostics?.querySelector(
-    ".chat-control-director-diagnostics__summary",
-  );
+  const systemStatus = root.querySelector("[data-chat-system-status]");
+  const systemStatusSummary = systemStatus?.querySelector(".chat-system-status__summary");
   const thread = root.querySelector(".chat-thread");
   const message = root.querySelector(".chat-group");
   const composer = root.querySelector(".agent-chat__input");
   const rect = (element) => element?.getBoundingClientRect();
-  const diagnosticsRect = rect(diagnostics);
-  const diagnosticsInConversation = Boolean(diagnostics?.closest(".chat-thread-inner"));
+  const systemStatusRect = rect(systemStatus);
+  const systemStatusOutsideConversation = !systemStatus?.closest(".chat-thread-inner");
   const threadRect = rect(thread);
   const messageRect = rect(message);
   const composerRect = rect(composer);
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   const minThreadHeight = viewportHeight < 500 ? 72 : Math.max(160, viewportHeight * 0.24);
 
-  diagnosticSummary?.click();
+  systemStatusSummary?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  const diagnosticPanel = root.querySelector(".chat-control-director-diagnostics__panel");
-  const diagnosticClose = root.querySelector(
-    '[aria-label="Close truth and completion details"]',
-  );
-  diagnosticClose?.click();
-  const diagnosticsClosedWithButton =
-    diagnostics instanceof HTMLDetailsElement && !diagnostics.open;
-  const diagnosticsButtonFocusRestored = document.activeElement === diagnosticSummary;
+  const diagnosticPanel = root.querySelector("[data-system-quality-diagnostics]");
+  const systemStatusClose = root.querySelector('[aria-label="Close system status"]');
+  systemStatusClose?.click();
+  const systemStatusClosedWithButton =
+    systemStatus instanceof HTMLDetailsElement && !systemStatus.open;
+  const systemStatusButtonFocusRestored = document.activeElement === systemStatusSummary;
 
-  diagnosticSummary?.click();
+  systemStatusSummary?.click();
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const retry = root.querySelector("[data-chat-blocked-retry]");
   retry?.click();
   retry?.focus();
   retry?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
-  const diagnosticsClosedWithEscape =
-    diagnostics instanceof HTMLDetailsElement && !diagnostics.open;
-  const diagnosticsFocusRestored = document.activeElement === diagnosticSummary;
+  const systemStatusClosedWithEscape =
+    systemStatus instanceof HTMLDetailsElement && !systemStatus.open;
+  const systemStatusFocusRestored = document.activeElement === systemStatusSummary;
 
   const emptySessions = {
     ...sessions,
@@ -310,7 +306,7 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
   };
   render(renderChat(baseProps(mode, { sessions: emptySessions })), root);
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  const emptyDiagnosticsHidden = !root.querySelector("[data-control-director-diagnostics]");
+  const emptySystemStatusHidden = !root.querySelector("[data-chat-system-status]");
 
   render(renderChat(baseProps(mode, { goalPanelOpen: true })), root);
   await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -324,14 +320,14 @@ window.runOpenClawChatUxCleanupSmoke = async (mode) => {
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const text = document.body.textContent || "";
   const checks = {
-    diagnosticsInConversation,
-    diagnosticsCollapsedHeight: Boolean(diagnosticsRect && diagnosticsRect.height <= 56.5),
-    diagnosticsPanelAvailable: Boolean(diagnosticPanel),
-    diagnosticsClosedWithButton,
-    diagnosticsButtonFocusRestored,
-    diagnosticsClosedWithEscape,
-    diagnosticsFocusRestored,
-    emptyDiagnosticsHidden,
+    systemStatusOutsideConversation,
+    systemStatusCollapsedHeight: Boolean(systemStatusRect && systemStatusRect.height <= 56.5),
+    systemQualityPanelAvailable: Boolean(diagnosticPanel),
+    systemStatusClosedWithButton,
+    systemStatusButtonFocusRestored,
+    systemStatusClosedWithEscape,
+    systemStatusFocusRestored,
+    emptySystemStatusHidden,
     retryDraftInserted: retryDraft.includes("Retry the preserved original request safely"),
     stoppingGoalVisible,
     stopDedupedByDisabledButton,
