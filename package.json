@@ -2087,7 +2087,7 @@
     "ws": "8.21.0",
     "yaml": "2.9.0",
     "zod": "4.4.3",
-    "sharp": "0.34.5"
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@a2ui/lit": "0.10.1",
@@ -2106,7 +2106,7 @@
     "@types/proper-lockfile": "4.1.4",
     "@types/ws": "8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260704.1",
-    "@vitest/coverage-v8": "4.1.9",
+    "@vitest/coverage-v8": "4.1.10",
     "esbuild": "0.28.1",
     "jscpd": "4.2.4",
     "jsdom": "29.1.1",
@@ -2120,7 +2120,7 @@
     "tsdown": "0.22.1",
     "tsx": "4.22.4",
     "unrun": "0.3.1",
-    "vitest": "4.1.9",
+    "vitest": "4.1.10",
     "@mariozechner/pi-ai": "0.73.1"
   },
   "optionalDependencies": {
