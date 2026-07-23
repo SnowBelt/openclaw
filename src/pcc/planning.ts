@@ -56,8 +56,8 @@ export type PccPlanProvenance = {
   model: string;
   runtime: "codex";
   effort: PccPlanningEffort;
-  auth: "oauth";
-  source: "live_codex";
+  auth: "oauth" | "none";
+  source: "live_codex" | "isolated_test_fixture";
   planningOnly: true;
 };
 
@@ -338,6 +338,8 @@ export function parsePccPlanGenerationResult(params: {
   effort: PccPlanningEffort;
   model?: string;
   generatedAt?: string;
+  auth?: PccPlanProvenance["auth"];
+  source?: PccPlanProvenance["source"];
 }): PccPlanGenerationResult {
   const match = params.text.match(/\{[\s\S]*\}/u);
   if (!match) {
@@ -386,8 +388,8 @@ export function parsePccPlanGenerationResult(params: {
       model: params.model ?? PCC_CODEX_PLANNER_MODEL,
       runtime: "codex",
       effort: params.effort,
-      auth: "oauth",
-      source: "live_codex",
+      auth: params.auth ?? "oauth",
+      source: params.source ?? "live_codex",
       planningOnly: true,
     },
   };

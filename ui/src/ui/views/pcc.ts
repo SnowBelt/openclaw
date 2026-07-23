@@ -2108,7 +2108,7 @@ function projectCreationAiTruth(form: PccProjectFormState): string {
       ? "OpenClaw local agents execute the work."
       : form.codexPlanningAllowed
         ? "The selected Codex execution role is approved."
-        : "Codex execution remains blocked until you approve that separate role.";
+        : "Codex execution remains blocked until you approve that separate role. You will give one Codex approval.";
   return `${planning} ${execution}`;
 }
 
@@ -7506,10 +7506,18 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
       <span>${subMilestoneCount} sub-milestones</span>
       <span
         >${generatedPlan
-          ? `${generatedPlan.provenance.model} · ${generatedPlan.provenance.effort} · OAuth`
+          ? `${generatedPlan.provenance.model} · ${generatedPlan.provenance.effort} · ${
+              generatedPlan.provenance.auth === "oauth" ? "OAuth" : "isolated proof"
+            }`
           : "Estimate only · no AI plan generated"}</span
       >
-      <span>${generatedPlan ? "Live Codex planning" : form.plannerMode.replace(/_/gu, " ")}</span>
+      <span
+        >${generatedPlan
+          ? generatedPlan.provenance.source === "live_codex"
+            ? "Live Codex planning"
+            : "Deterministic isolated proof"
+          : form.plannerMode.replace(/_/gu, " ")}</span
+      >
       <span>${form.workflowTemplateId.replace(/-/gu, " ")}</span>
       <span data-pcc-ai-routing-summary
         >${routing.local} local · ${routing.codex} Codex · ${routing.gated} gated</span

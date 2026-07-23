@@ -63,6 +63,7 @@ describe("Project Command Center gateway methods", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     pccTesting.resetPlanGenerator();
     pccTesting.closeLedgerStorage();
     if (previousStateDir === undefined) {
@@ -71,6 +72,35 @@ describe("Project Command Center gateway methods", () => {
       process.env.OPENCLAW_STATE_DIR = previousStateDir;
     }
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("uses an honest deterministic planner only inside the isolated browser proof Gateway", async () => {
+    vi.stubEnv("VITEST", "1");
+    vi.stubEnv("OPENCLAW_TEST_MINIMAL_GATEWAY", "1");
+    vi.stubEnv("OPENCLAW_PCC_LIVE_E2E_PLAN_FIXTURE", "1");
+    const liveGenerator = vi.fn(async () => {
+      throw new Error("live Codex must not run inside isolated browser proof");
+    });
+    pccTesting.setPlanGenerator(liveGenerator as never);
+
+    const payload = okPayload<{ plan: { title: string; provenance: Record<string, unknown> } }>(
+      await invoke("pcc.plans.generate", {
+        surface: "project_creation",
+        description: "Prove guided project creation without external model usage.",
+        existingTitle: "User Preserved Title",
+        depth: "automatic",
+      }),
+    );
+
+    expect(liveGenerator).not.toHaveBeenCalled();
+    expect(payload.plan).toMatchObject({
+      title: "User Preserved Title",
+      provenance: {
+        auth: "none",
+        source: "isolated_test_fixture",
+        planningOnly: true,
+      },
+    });
   });
 
   it("generates a genuine Codex plan through the planning-only gateway surface", async () => {

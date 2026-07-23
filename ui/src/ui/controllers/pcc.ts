@@ -719,6 +719,7 @@ function generatedPlanIntake(plan: PccPlanGenerationResult): Record<string, stri
 function generatedMilestoneDraft(
   milestone: PccGeneratedMilestone,
   order: number,
+  generatedBy: PccPlanGenerationResult["provenance"]["source"],
 ): ReturnType<typeof buildPccWorkflowDraft>["milestones"][number] {
   return {
     title: milestone.title,
@@ -731,7 +732,7 @@ function generatedMilestoneDraft(
     metadata: {
       pccResponsibility: normalizePccResponsibility(milestone.responsibility),
       pccProofLevel: milestone.proofLevel,
-      pccGeneratedBy: "live_codex",
+      pccGeneratedBy: generatedBy,
       pccParallelSafe: milestone.dependencies.length === 0,
     },
   };
@@ -763,7 +764,9 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
     planningMode: "codex_full_plan",
     aiUsePolicy: form.aiUsePolicy,
   });
-  const milestones = plan.milestones.map(generatedMilestoneDraft);
+  const milestones = plan.milestones.map((milestone, order) =>
+    generatedMilestoneDraft(milestone, order, plan.provenance.source),
+  );
   return {
     ...base,
     project: {
@@ -789,7 +792,7 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
           metadata: {
             pccResponsibility: normalizePccResponsibility(subMilestone.responsibility),
             pccProofLevel: subMilestone.proofLevel,
-            pccGeneratedBy: "live_codex",
+            pccGeneratedBy: plan.provenance.source,
             pccParallelSafe: true,
           },
         })),
@@ -1042,7 +1045,9 @@ function workflowDraftForSetup(
         pccPlanningProvenance: generatedPlan.provenance,
       },
     },
-    milestones: generatedPlan.milestones.map(generatedMilestoneDraft),
+    milestones: generatedPlan.milestones.map((milestone, order) =>
+      generatedMilestoneDraft(milestone, order, generatedPlan.provenance.source),
+    ),
     subMilestonesByMilestoneTitle: Object.fromEntries(
       generatedPlan.milestones.map((milestone) => [
         milestone.title,
@@ -1056,7 +1061,7 @@ function workflowDraftForSetup(
           metadata: {
             pccResponsibility: normalizePccResponsibility(subMilestone.responsibility),
             pccProofLevel: subMilestone.proofLevel,
-            pccGeneratedBy: "live_codex",
+            pccGeneratedBy: generatedPlan.provenance.source,
             parallelSafe: true,
           },
         })),
@@ -3469,7 +3474,9 @@ export async function generatePccAutopilotLoopPrompts(state: PccDashboardState):
         ...current,
         status: "ready" as const,
         promptSlots,
-        lastOutputSummary: `Planning provenance: ${generated.plan.provenance.model} · ${generated.plan.provenance.effort} · OAuth · planning only.`,
+        lastOutputSummary: `Planning provenance: ${generated.plan.provenance.model} · ${generated.plan.provenance.effort} · ${
+          generated.plan.provenance.auth === "oauth" ? "OAuth" : "isolated proof"
+        } · planning only.`,
         auditLog: [
           ...current.auditLog,
           {
