@@ -77,7 +77,7 @@ export type ControlDirectorChatLayoutProof = {
   pursueGoalCompact: boolean;
   transcriptComposerNonOverlapping: boolean;
   composerInsideViewport: boolean;
-  truthCompletionAbsentFromChat: boolean;
+  truthCompletionNonObstructing: boolean;
   pccProjectionAbsentFromChat: boolean;
   commandRailHeight: number;
 };
@@ -294,7 +294,7 @@ export function validateControlDirectorChatLayout(
     pursueGoalCompact: proof.pursueGoalCompact,
     transcriptComposerNonOverlapping: proof.transcriptComposerNonOverlapping,
     composerInsideViewport: proof.composerInsideViewport,
-    truthCompletionAbsentFromChat: proof.truthCompletionAbsentFromChat,
+    truthCompletionNonObstructing: proof.truthCompletionNonObstructing,
     pccProjectionAbsentFromChat: proof.pccProjectionAbsentFromChat,
     commandRailCompact: proof.commandRailHeight > 0 && proof.commandRailHeight <= 120,
   };
@@ -912,6 +912,8 @@ async function inspectControlDirectorChatLayout(
     const transcriptRect = transcript?.getBoundingClientRect();
     const composerRect = composer?.getBoundingClientRect();
     const commandRailRect = commandRail?.getBoundingClientRect();
+    const truthCompletion =
+      chat?.querySelector<HTMLDetailsElement>("[data-control-director-diagnostics]") ?? null;
     return {
       transcriptVisible: visible(transcript),
       composerVisible: visible(composer) && visible(textarea),
@@ -923,7 +925,10 @@ async function inspectControlDirectorChatLayout(
       composerInsideViewport: Boolean(
         composerRect && composerRect.top >= 0 && composerRect.bottom <= window.innerHeight + 1,
       ),
-      truthCompletionAbsentFromChat: !chat?.querySelector("[data-control-director-diagnostics]"),
+      truthCompletionNonObstructing: Boolean(
+        !truthCompletion ||
+        (truthCompletion.closest(".chat-thread-inner") && !truthCompletion.open),
+      ),
       pccProjectionAbsentFromChat: !chat?.querySelector("[data-pcc-chat-sync]"),
       commandRailHeight: Math.round(commandRailRect?.height ?? 0),
     };
