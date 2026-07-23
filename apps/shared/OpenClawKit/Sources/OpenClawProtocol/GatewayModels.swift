@@ -83,6 +83,14 @@ public enum TaskFlowStatus: String, Codable, Sendable {
     case lost = "lost"
 }
 
+public enum TaskFlowControlAction: String, Codable, Sendable {
+    case pause = "pause"
+    case resume = "resume"
+    case retry = "retry"
+    case stop = "stop"
+    case edit = "edit"
+}
+
 public enum PccStatus: String, Codable, Sendable {
     case notStarted = "not_started"
     case active = "active"
@@ -6495,6 +6503,70 @@ public struct TaskFlowsCancelResult: Codable, Sendable {
     }
 }
 
+public struct TaskFlowsControlParams: Codable, Sendable {
+    public let flowid: String
+    public let sessionkey: String?
+    public let expectedrevision: Int?
+    public let idempotencykey: String?
+    public let action: TaskFlowControlAction
+    public let goal: String?
+
+    public init(
+        flowid: String,
+        sessionkey: String?,
+        expectedrevision: Int?,
+        idempotencykey: String?,
+        action: TaskFlowControlAction,
+        goal: String?)
+    {
+        self.flowid = flowid
+        self.sessionkey = sessionkey
+        self.expectedrevision = expectedrevision
+        self.idempotencykey = idempotencykey
+        self.action = action
+        self.goal = goal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case flowid = "flowId"
+        case sessionkey = "sessionKey"
+        case expectedrevision = "expectedRevision"
+        case idempotencykey = "idempotencyKey"
+        case action
+        case goal
+    }
+}
+
+public struct TaskFlowsControlResult: Codable, Sendable {
+    public let found: Bool
+    public let applied: Bool
+    public let action: TaskFlowControlAction
+    public let reason: String?
+    public let flow: TaskFlowDetail?
+
+    public init(
+        found: Bool,
+        applied: Bool,
+        action: TaskFlowControlAction,
+        reason: String?,
+        flow: TaskFlowDetail?)
+    {
+        self.found = found
+        self.applied = applied
+        self.action = action
+        self.reason = reason
+        self.flow = flow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case found
+        case applied
+        case action
+        case reason
+        case flow
+    }
+}
+
 public struct TaskFlowsPauseParams: Codable, Sendable {
     public let flowid: String
     public let sessionkey: String?
@@ -7975,19 +8047,22 @@ public struct PccSummaryGetResult: Codable, Sendable {
     public let executioncapacity: [String: AnyCodable]?
     public let runtimeidentity: [String: AnyCodable]?
     public let updatesafety: [String: AnyCodable]?
+    public let releasegovernance: AnyCodable?
 
     public init(
         project: PccProjectSummary?,
         portfolio: PccPortfolioSummary,
         executioncapacity: [String: AnyCodable]?,
         runtimeidentity: [String: AnyCodable]?,
-        updatesafety: [String: AnyCodable]?)
+        updatesafety: [String: AnyCodable]?,
+        releasegovernance: AnyCodable?)
     {
         self.project = project
         self.portfolio = portfolio
         self.executioncapacity = executioncapacity
         self.runtimeidentity = runtimeidentity
         self.updatesafety = updatesafety
+        self.releasegovernance = releasegovernance
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -7996,6 +8071,7 @@ public struct PccSummaryGetResult: Codable, Sendable {
         case executioncapacity = "executionCapacity"
         case runtimeidentity = "runtimeIdentity"
         case updatesafety = "updateSafety"
+        case releasegovernance = "releaseGovernance"
     }
 }
 
@@ -8094,6 +8170,238 @@ public struct OperationsSnapshotResult: Codable, Sendable {
         case models
         case processes
         case findings
+        case reconciler
+        case controls
+    }
+}
+
+public struct OperationsSnapshotV1Params: Codable, Sendable {
+    public let includeprocesses: Bool?
+
+    public init(
+        includeprocesses: Bool?)
+    {
+        self.includeprocesses = includeprocesses
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case includeprocesses = "includeProcesses"
+    }
+}
+
+public struct OperationsSnapshotV1Result: Codable, Sendable {
+    public let schema: String
+    public let generatedat: Double
+    public let qualitytarget: Double
+    public let qualityscore: Double
+    public let overallstatus: OperationsStatus
+    public let summary: [String: AnyCodable]
+    public let host: [String: AnyCodable]
+    public let agents: [[String: AnyCodable]]
+    public let tasks: [[String: AnyCodable]]
+    public let workflows: [[String: AnyCodable]]
+    public let cronjobs: [[String: AnyCodable]]
+    public let skills: [[String: AnyCodable]]
+    public let plugins: [[String: AnyCodable]]
+    public let tools: [[String: AnyCodable]]
+    public let models: [[String: AnyCodable]]
+    public let processes: [[String: AnyCodable]]
+    public let findings: [[String: AnyCodable]]
+    public let reconciler: [String: AnyCodable]
+    public let controls: [String: AnyCodable]
+
+    public init(
+        schema: String,
+        generatedat: Double,
+        qualitytarget: Double,
+        qualityscore: Double,
+        overallstatus: OperationsStatus,
+        summary: [String: AnyCodable],
+        host: [String: AnyCodable],
+        agents: [[String: AnyCodable]],
+        tasks: [[String: AnyCodable]],
+        workflows: [[String: AnyCodable]],
+        cronjobs: [[String: AnyCodable]],
+        skills: [[String: AnyCodable]],
+        plugins: [[String: AnyCodable]],
+        tools: [[String: AnyCodable]],
+        models: [[String: AnyCodable]],
+        processes: [[String: AnyCodable]],
+        findings: [[String: AnyCodable]],
+        reconciler: [String: AnyCodable],
+        controls: [String: AnyCodable])
+    {
+        self.schema = schema
+        self.generatedat = generatedat
+        self.qualitytarget = qualitytarget
+        self.qualityscore = qualityscore
+        self.overallstatus = overallstatus
+        self.summary = summary
+        self.host = host
+        self.agents = agents
+        self.tasks = tasks
+        self.workflows = workflows
+        self.cronjobs = cronjobs
+        self.skills = skills
+        self.plugins = plugins
+        self.tools = tools
+        self.models = models
+        self.processes = processes
+        self.findings = findings
+        self.reconciler = reconciler
+        self.controls = controls
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case generatedat = "generatedAt"
+        case qualitytarget = "qualityTarget"
+        case qualityscore = "qualityScore"
+        case overallstatus = "overallStatus"
+        case summary
+        case host
+        case agents
+        case tasks
+        case workflows
+        case cronjobs = "cronJobs"
+        case skills
+        case plugins
+        case tools
+        case models
+        case processes
+        case findings
+        case reconciler
+        case controls
+    }
+}
+
+public struct OperationsSnapshotV2Params: Codable, Sendable {
+    public let includeprocesses: Bool?
+
+    public init(
+        includeprocesses: Bool?)
+    {
+        self.includeprocesses = includeprocesses
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case includeprocesses = "includeProcesses"
+    }
+}
+
+public struct OperationsSnapshotV2Result: Codable, Sendable {
+    public let schema: String
+    public let generatedat: Double
+    public let snapshotid: String
+    public let freshness: [String: AnyCodable]
+    public let completeness: [String: AnyCodable]
+    public let briefing: [String: AnyCodable]
+    public let qualitytarget: Double
+    public let qualityscore: Double
+    public let overallstatus: OperationsStatus
+    public let summary: [String: AnyCodable]
+    public let collections: [String: AnyCodable]
+    public let host: [String: AnyCodable]
+    public let agents: [[String: AnyCodable]]
+    public let tasks: [[String: AnyCodable]]
+    public let workflows: [[String: AnyCodable]]
+    public let cronjobs: [[String: AnyCodable]]
+    public let skills: [[String: AnyCodable]]
+    public let plugins: [[String: AnyCodable]]
+    public let tools: [[String: AnyCodable]]
+    public let models: [[String: AnyCodable]]
+    public let processes: [[String: AnyCodable]]
+    public let findings: [[String: AnyCodable]]
+    public let activityrollups: [[String: AnyCodable]]
+    public let incidenthistory: [[String: AnyCodable]]
+    public let incidentledger: [String: AnyCodable]
+    public let reconciler: [String: AnyCodable]
+    public let controls: [String: AnyCodable]
+
+    public init(
+        schema: String,
+        generatedat: Double,
+        snapshotid: String,
+        freshness: [String: AnyCodable],
+        completeness: [String: AnyCodable],
+        briefing: [String: AnyCodable],
+        qualitytarget: Double,
+        qualityscore: Double,
+        overallstatus: OperationsStatus,
+        summary: [String: AnyCodable],
+        collections: [String: AnyCodable],
+        host: [String: AnyCodable],
+        agents: [[String: AnyCodable]],
+        tasks: [[String: AnyCodable]],
+        workflows: [[String: AnyCodable]],
+        cronjobs: [[String: AnyCodable]],
+        skills: [[String: AnyCodable]],
+        plugins: [[String: AnyCodable]],
+        tools: [[String: AnyCodable]],
+        models: [[String: AnyCodable]],
+        processes: [[String: AnyCodable]],
+        findings: [[String: AnyCodable]],
+        activityrollups: [[String: AnyCodable]],
+        incidenthistory: [[String: AnyCodable]],
+        incidentledger: [String: AnyCodable],
+        reconciler: [String: AnyCodable],
+        controls: [String: AnyCodable])
+    {
+        self.schema = schema
+        self.generatedat = generatedat
+        self.snapshotid = snapshotid
+        self.freshness = freshness
+        self.completeness = completeness
+        self.briefing = briefing
+        self.qualitytarget = qualitytarget
+        self.qualityscore = qualityscore
+        self.overallstatus = overallstatus
+        self.summary = summary
+        self.collections = collections
+        self.host = host
+        self.agents = agents
+        self.tasks = tasks
+        self.workflows = workflows
+        self.cronjobs = cronjobs
+        self.skills = skills
+        self.plugins = plugins
+        self.tools = tools
+        self.models = models
+        self.processes = processes
+        self.findings = findings
+        self.activityrollups = activityrollups
+        self.incidenthistory = incidenthistory
+        self.incidentledger = incidentledger
+        self.reconciler = reconciler
+        self.controls = controls
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case generatedat = "generatedAt"
+        case snapshotid = "snapshotId"
+        case freshness
+        case completeness
+        case briefing
+        case qualitytarget = "qualityTarget"
+        case qualityscore = "qualityScore"
+        case overallstatus = "overallStatus"
+        case summary
+        case collections
+        case host
+        case agents
+        case tasks
+        case workflows
+        case cronjobs = "cronJobs"
+        case skills
+        case plugins
+        case tools
+        case models
+        case processes
+        case findings
+        case activityrollups = "activityRollups"
+        case incidenthistory = "incidentHistory"
+        case incidentledger = "incidentLedger"
         case reconciler
         case controls
     }
