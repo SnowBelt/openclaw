@@ -67,10 +67,28 @@ describe("Operations Room view", () => {
     ).not.toBeNull();
     expect(container.querySelector("#operations-attention .operations-status--healthy")).toBeNull();
     expect(container.querySelector(".operations-briefing--attention")).not.toBeNull();
+    expect(container.querySelector(".operations-briefing")?.textContent).toContain(
+      "Overall: Needs attention",
+    );
+    expect(
+      container.querySelector('.operations-quick-link[href*="section=working"]')?.textContent,
+    ).toContain("Agents working now 1");
+    expect(
+      container.querySelector('.operations-quick-link[href*="section=agents"]')?.textContent,
+    ).toContain("1 working · 1 need attention");
     expect(container.querySelector(".operations-briefing")?.getAttribute("aria-live")).toBe(
       "polite",
     );
     expect(container.querySelector(".operations-issue")?.textContent).toContain("Warning");
+    expect(
+      container
+        .querySelector(".operations-issue__assignment")
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("In progress · Owner: release-ops");
+    expect(container.querySelector(".operations-issue__next-action")?.textContent).toContain(
+      "Next: Install the required local tool.",
+    );
   });
 
   it("never places raw task, workflow, or finding prompt text in the rendered DOM", async () => {
@@ -154,6 +172,34 @@ describe("Operations Room view", () => {
     expect(onNavigate).toHaveBeenCalledWith("workboard");
     expect(onAction).toHaveBeenCalledWith("flow.cancel", "flow-1");
     expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain("Details for");
+  });
+
+  it("explains agent attention and routes review without implying an automatic fix", async () => {
+    const snapshot = createOperationsTestSnapshot();
+    snapshot.agents[0] = {
+      ...snapshot.agents[0]!,
+      attentionState: "needs_user",
+      healthState: "degraded",
+      blockedTaskCount: 1,
+    };
+    const onSectionChange = vi.fn();
+    const container = await renderView({ snapshot, onSectionChange });
+    const agent = [...container.querySelectorAll(".operations-agent-row")].find((row) =>
+      row.textContent?.includes("Control Director"),
+    );
+
+    expect(agent?.querySelector("summary")?.textContent).toContain(
+      "1 blocked task needs your decision",
+    );
+    expect(agent?.querySelector(".operations-agent-guidance")?.textContent).toContain(
+      "What needs attention",
+    );
+    [...(agent?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+      .find((button) => button.textContent?.trim() === "Review issue")
+      ?.click();
+
+    expect(onSectionChange).toHaveBeenCalledWith("attention");
+    expect(agent?.textContent).not.toContain("Fix");
   });
 
   it("shows and guards cancellation for an active workflow without a running task", async () => {

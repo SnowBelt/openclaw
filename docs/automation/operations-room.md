@@ -77,6 +77,12 @@ current findings; informational history does not inflate it. Every actionable fi
 impact, owner, response state, last progress, next action, next check, and whether the operator must
 act when those facts are known.
 
+The default finding card exposes its response, owner, and next action before Details. An affected
+agent row names the attention condition instead of saying Ready, and its Review issue control returns
+the operator to the authoritative finding. A one-click repair appears only when the action is one of
+the guarded controls below and has an exact previewable target; the UI never offers a generic Fix
+button for an ambiguous or unsafe mutation.
+
 An unresolved incident is resolved only after its source category is observed authoritatively and
 the finding is absent. If that source becomes unavailable or fallback-only, the ledger carries the
 incident as Last known with its original observation time and marks its current state unverified. It

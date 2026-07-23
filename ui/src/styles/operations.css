@@ -195,6 +195,30 @@
   gap: 6px;
 }
 
+.operations-issue__assignment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.operations-issue__next-action,
+.operations-agent-guidance {
+  margin: 8px 0;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+  color: var(--text);
+  font-size: 13px;
+}
+
+.operations-agent-guidance > p {
+  margin: 4px 0 0;
+}
+
 .operations-briefing--urgent {
   border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
   background: color-mix(in srgb, var(--danger) 7%, var(--panel));
