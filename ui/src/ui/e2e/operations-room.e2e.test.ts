@@ -615,6 +615,13 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         "off",
       ]);
       expect(await page.locator(".operations-agent-group--ready").getAttribute("open")).toBeNull();
+      const urgentAgent = page.locator(".operations-agent-group--urgent .operations-agent-row");
+      expect(await urgentAgent.locator("summary").textContent()).toContain(
+        "An urgent issue needs your decision.",
+      );
+      await urgentAgent.locator("summary").click();
+      await urgentAgent.getByText("What needs attention", { exact: true }).waitFor();
+      await urgentAgent.getByRole("button", { exact: true, name: "Review issue" }).waitFor();
 
       const attentionLink = page.locator('.operations-quick-link[href*="section=attention"]');
       await attentionLink.focus();
@@ -1022,10 +1029,10 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       expect(await page.locator("#operations-attention .operations-good").count()).toBe(1);
       expect(
         await page.locator('.operations-quick-link[href*="section=attention"]').textContent(),
-      ).toContain("Review 0");
+      ).toContain("Decisions needed 0");
       expect(
         await page.locator('.operations-quick-link[href*="section=working"]').textContent(),
-      ).toContain("Working now 0");
+      ).toContain("Agents working now 0");
 
       await gateway.setAcceptingConnections(false);
       await gateway.closeLatest(1012, "simulated offline state");
@@ -1097,6 +1104,14 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           scenario.icon,
         );
         expect(await lane.locator(".operations-count").textContent()).toBe("1");
+        expect(
+          await finding
+            .locator(".operations-issue__assignment")
+            .evaluate((element) => element.textContent?.replace(/\s+/g, " ").trim()),
+        ).toBe(`${scenario.response} · Owner: ${scenario.owner}`);
+        expect(await finding.locator(".operations-issue__next-action").textContent()).toContain(
+          `Next: ${scenario.nextAction}`,
+        );
 
         const details = finding.locator("details");
         await details.locator("summary").focus();
@@ -1155,7 +1170,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       expect(await attention.locator(".operations-bounded-note button").count()).toBe(5);
       expect(
         await page.locator('.operations-quick-link[href*="section=agents"]').textContent(),
-      ).toContain("All agents 1000");
+      ).toContain("1000 agents");
       expect(
         await page.locator('.operations-quick-link[href*="section=agents"]').textContent(),
       ).toContain("Showing 7");

@@ -196,10 +196,6 @@ function severityPill(severity: OperationsFinding["severity"]) {
   return statusPill(SEVERITY_STATUS[severity], t(`operationsRoom.enums.severity.${severity}`));
 }
 
-function briefingToneLabel(tone: OperationsSnapshot["briefing"]["tone"]): string {
-  return t(`operationsRoom.briefingTone.${tone}`);
-}
-
 function sourceLabel(
   source: OperationsSnapshot["completeness"]["unavailableSources"][number],
 ): string {
@@ -343,6 +339,12 @@ function quickLink(params: {
   </a>`;
 }
 
+function findingOwnerLabel(finding: OperationsFinding): string {
+  return finding.ownerId === "operator" || finding.ownerId === "You"
+    ? t("operationsRoom.attention.you")
+    : (finding.ownerId ?? t("operationsRoom.openClaw"));
+}
+
 function renderFindingDetails(finding: OperationsFinding, props: OperationsProps) {
   const workflowMutationSafe = props.snapshot
     ? mutationSourceConfirmed(props.snapshot, props, "workflows")
@@ -362,7 +364,7 @@ function renderFindingDetails(finding: OperationsFinding, props: OperationsProps
       </div>
       <div>
         <dt>${t("operationsRoom.attention.owner")}</dt>
-        <dd>${finding.ownerId ?? t("operationsRoom.openClaw")}</dd>
+        <dd>${findingOwnerLabel(finding)}</dd>
       </div>
       <div>
         <dt>${t("operationsRoom.attention.response")}</dt>
@@ -423,6 +425,10 @@ function renderFindingDetails(finding: OperationsFinding, props: OperationsProps
 }
 
 function renderFinding(finding: OperationsFinding, props: OperationsProps) {
+  const nextAction =
+    finding.nextAction ??
+    finding.recommendedAction ??
+    t("operationsRoom.attention.continueMonitoring");
   return html`<article class=${`operations-issue operations-issue--${finding.severity}`}>
     <div class="operations-issue__heading">
       <strong>${finding.title}</strong>
@@ -434,6 +440,17 @@ function renderFinding(finding: OperationsFinding, props: OperationsProps) {
       </span>
     </div>
     <p class="operations-line-clamp">${finding.impact}</p>
+    <p class="operations-issue__assignment">
+      <strong>${t(`operationsRoom.attention.responseStates.${finding.responseState}`)}</strong>
+      <span aria-hidden="true">·</span>
+      <span
+        >${t("operationsRoom.attention.owner")}:
+        <strong>${findingOwnerLabel(finding)}</strong></span
+      >
+    </p>
+    <p class="operations-issue__next-action">
+      <strong>${t("operationsRoom.attention.nextActionShort")}:</strong> ${nextAction}
+    </p>
     <small class="operations-muted">
       ${t("operationsRoom.attention.observed", {
         time: relativeTime(finding.firstObservedAt ?? finding.lastObservedAt),
@@ -937,6 +954,27 @@ function agentActivityLabel(agent: OperationsAgentSnapshot): string {
   }
 }
 
+function agentAttentionSummary(agent: OperationsAgentSnapshot): string | null {
+  if (agent.attentionState === "urgent") {
+    return t("operationsRoom.agents.urgentIssueNeedsDecision");
+  }
+  if (agent.attentionState === "needs_user") {
+    return t(
+      agent.blockedTaskCount === 1
+        ? "operationsRoom.agents.blockedTaskNeedsDecision"
+        : "operationsRoom.agents.blockedTasksNeedDecision",
+      { count: String(agent.blockedTaskCount) },
+    );
+  }
+  if (agent.attentionState === "handling") {
+    return t("operationsRoom.agents.issueBeingHandled");
+  }
+  if (agent.attentionState === "watching") {
+    return t("operationsRoom.agents.issueBeingWatched");
+  }
+  return null;
+}
+
 function renderAgentRow(
   agent: OperationsAgentSnapshot,
   props: OperationsProps,
@@ -946,6 +984,7 @@ function renderAgentRow(
   const pinned = props.pinnedAgentIds.includes(agent.id);
   const current = activeAgentWork(agent);
   const last = agent.lastActivity;
+  const attentionSummary = agentAttentionSummary(agent);
   return html`<details class="operations-agent-row">
     <summary class="operations-agent-row__summary">
       <span class="operations-agent-row__avatar" aria-hidden="true"
@@ -958,7 +997,7 @@ function renderAgentRow(
             : nothing}</strong
         >
         <small class="operations-line-clamp">
-          ${current?.title ?? agentActivityLabel(agent)} · ${agent.id}
+          ${attentionSummary ?? current?.title ?? agentActivityLabel(agent)} · ${agent.id}
         </small>
       </div>
       <div class="operations-agent-row__states">
@@ -968,6 +1007,12 @@ function renderAgentRow(
       </div>
     </summary>
     <div class="operations-agent-row__details">
+      ${attentionSummary
+        ? html`<div class="operations-agent-guidance" role="status">
+            <strong>${t("operationsRoom.agents.whatNeedsAttention")}</strong>
+            <p>${attentionSummary}</p>
+          </div>`
+        : nothing}
       ${current?.summary ? html`<p>${current.summary}</p>` : nothing}
       <dl>
         <div>
@@ -1018,6 +1063,11 @@ function renderAgentRow(
         </div>
       </dl>
       <div class="operations-card-actions">
+        ${agent.attentionState === "urgent" || agent.attentionState === "needs_user"
+          ? html`<button class="btn btn--sm" @click=${() => props.onSectionChange("attention")}>
+              ${t("operationsRoom.agents.reviewIssue")}
+            </button>`
+          : nothing}
         <button class="btn btn--sm" @click=${() => props.onOpenAgent(agent.id)}>
           ${t("operationsRoom.agents.openAgent")}
         </button>
@@ -1855,7 +1905,10 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
       <div>
         <div class="operations-briefing__heading">
           <strong id="operations-now-title">${t("operationsRoom.now")}</strong>
-          ${statusPill(BRIEFING_STATUS[briefingTone], briefingToneLabel(briefingTone))}
+          ${statusPill(
+            BRIEFING_STATUS[briefingTone],
+            t(`operationsRoom.overallBriefingTone.${briefingTone}`),
+          )}
         </div>
         <p>
           ${stale || partial ? t("operationsRoom.briefingUnavailable") : snapshot.briefing.text}
@@ -1873,10 +1926,10 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
       ${quickLink({
         section: "attention",
         label: attentionConfirmed
-          ? t("operationsRoom.reviewCount", {
+          ? t("operationsRoom.decisionCount", {
               count: String(snapshot.summary.actionableFindings),
             })
-          : t("operationsRoom.reviewUnconfirmed"),
+          : t("operationsRoom.decisionsUnconfirmed"),
         detail: !attentionConfirmed
           ? t("operationsRoom.attention.unconfirmedShort")
           : t("operationsRoom.urgentCount", {
@@ -1888,11 +1941,13 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
       ${quickLink({
         section: "working",
         label: workingConfirmed
-          ? t("operationsRoom.workingCount", { count: String(working.length) })
-          : t("operationsRoom.workingUnconfirmed"),
-        detail: workingConfirmed
-          ? t("operationsRoom.activeAgentsCount", {
+          ? t("operationsRoom.agentsWorkingNowCount", {
               count: String(snapshot.summary.workingAgents),
+            })
+          : t("operationsRoom.agentsWorkingUnconfirmed"),
+        detail: workingConfirmed
+          ? t("operationsRoom.workingItemsCount", {
+              count: String(working.length),
             })
           : t("operationsRoom.working.unverified"),
         active: props.section === "working",
@@ -1901,7 +1956,7 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
       ${quickLink({
         section: "agents",
         label: agentsConfirmed
-          ? t("operationsRoom.allAgentsCount", { count: String(agentCount) })
+          ? t("operationsRoom.agentsCount", { count: String(agentCount) })
           : t("operationsRoom.agentsUnconfirmed"),
         detail: !agentsConfirmed
           ? t("operationsRoom.agents.unconfirmedShort")
@@ -1909,8 +1964,9 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
             ? t("operationsRoom.showingAgents", {
                 count: String(snapshot.collections.agents.shown),
               })
-            : t("operationsRoom.attentionAgentsCount", {
-                count: String(snapshot.summary.attentionAgents),
+            : t("operationsRoom.agentStatusSummary", {
+                working: String(snapshot.summary.workingAgents),
+                attention: String(snapshot.summary.attentionAgents),
               }),
         active: props.section === "agents",
         onSectionChange: props.onSectionChange,
