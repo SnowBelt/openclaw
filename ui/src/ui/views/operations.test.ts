@@ -264,6 +264,18 @@ describe("Operations Room view", () => {
     );
   });
 
+  it("separates available Mac capacity from local-model process RSS", async () => {
+    const container = await renderView();
+    const system = container.querySelector("#operations-system");
+
+    expect(system?.textContent).toContain("56.2% available");
+    expect(system?.textContent).toContain("2 model processes · 24.0 GB process RSS");
+    expect(system?.textContent).toContain(
+      "Memory pressure measures capacity macOS can make available.",
+    );
+    expect(system?.textContent).not.toContain("43.8% in use");
+  });
+
   it("discloses every bounded list and provides source drill-through controls", async () => {
     const snapshot = createOperationsTestSnapshot();
     const current = snapshot.findings.find((finding) => finding.disposition !== "historical")!;

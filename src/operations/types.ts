@@ -91,6 +91,8 @@ export type OperationsHostSnapshot = {
   usedMemoryBytes: number;
   memoryUsedPercent: number;
   memoryAvailabilitySource: "macos_memory_pressure" | "linux_mem_available" | "free_memory";
+  localModelProcessCount?: number;
+  localModelRssBytes?: number;
   processRssBytes: number;
   processHeapUsedBytes: number;
   processHeapTotalBytes: number;

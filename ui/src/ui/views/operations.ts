@@ -1327,6 +1327,9 @@ function renderAutomations(snapshot: OperationsSnapshot, props: OperationsProps)
 
 function renderSystem(snapshot: OperationsSnapshot, stale: boolean) {
   const reliable = !stale;
+  const availableMemoryPercent = Math.max(0, 100 - snapshot.host.memoryUsedPercent);
+  const localModelProcessCount = snapshot.host.localModelProcessCount;
+  const localModelRssBytes = snapshot.host.localModelRssBytes;
   const eventLoop =
     snapshot.host.eventLoopLagMs == null
       ? t("common.na")
@@ -1357,8 +1360,8 @@ function renderSystem(snapshot: OperationsSnapshot, stale: boolean) {
       <article class="operations-system__item">
         <small>${t("operationsRoom.systemHealth.memory")}</small>
         <strong
-          >${t("operationsRoom.systemHealth.memoryInUse", {
-            percent: String(snapshot.host.memoryUsedPercent),
+          >${t("operationsRoom.systemHealth.memoryAvailable", {
+            percent: String(availableMemoryPercent),
           })}</strong
         >
         <div
@@ -1367,11 +1370,27 @@ function renderSystem(snapshot: OperationsSnapshot, stale: boolean) {
           aria-label=${t("operationsRoom.systemHealth.memory")}
           aria-valuemin="0"
           aria-valuemax="100"
-          aria-valuenow=${snapshot.host.memoryUsedPercent}
+          aria-valuenow=${availableMemoryPercent}
         >
-          <span style=${`width: ${Math.min(100, snapshot.host.memoryUsedPercent)}%`}></span>
+          <span style=${`width: ${Math.min(100, availableMemoryPercent)}%`}></span>
         </div>
       </article>
+      ${localModelProcessCount != null && localModelRssBytes != null
+        ? html`<article class="operations-system__item">
+            <small>${t("operationsRoom.systemHealth.localModels")}</small>
+            <strong>
+              ${t(
+                localModelProcessCount === 1
+                  ? "operationsRoom.systemHealth.localModelProcessOne"
+                  : "operationsRoom.systemHealth.localModelProcesses",
+                {
+                  count: String(localModelProcessCount),
+                  rss: bytes(localModelRssBytes),
+                },
+              )}
+            </strong>
+          </article>`
+        : nothing}
       <article class="operations-system__item">
         <small>${t("operationsRoom.systemHealth.gateway")}</small>
         <strong>${statusLabel(snapshot.host.status)}</strong>
@@ -1408,13 +1427,14 @@ function renderSystem(snapshot: OperationsSnapshot, stale: boolean) {
           <dt>${t("operationsRoom.systemHealth.memory")}</dt>
           <dd>
             ${t("operationsRoom.systemHealth.memoryBreakdown", {
-              used: bytes(snapshot.host.usedMemoryBytes),
               available: bytes(snapshot.host.availableMemoryBytes),
+              free: bytes(snapshot.host.freeMemoryBytes),
               total: bytes(snapshot.host.totalMemoryBytes),
             })}
           </dd>
         </div>
       </dl>
+      <p class="operations-muted">${t("operationsRoom.systemHealth.memoryPressureNote")}</p>
       <p class="operations-muted">${t("operationsRoom.systemHealth.agentRamNote")}</p>
     </details>
   </section>`;

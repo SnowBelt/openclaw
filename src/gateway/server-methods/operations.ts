@@ -18,6 +18,7 @@ import { collectOperationsSnapshot } from "../../operations/collector.js";
 import { projectOperationsSnapshotV1 } from "../../operations/compat.js";
 import type { OperationsActionReceipt } from "../../operations/types.js";
 import { cancelDetachedTaskRunById, cancelFlowById } from "../../tasks/task-executor.js";
+import { listVisibleActiveSessionRuns } from "./session-active-runs.js";
 import type { GatewayRequestHandlers } from "./types.js";
 
 function invalidParams(
@@ -57,6 +58,7 @@ export const operationsHandlers: GatewayRequestHandlers = {
         modelCatalogAvailable,
         eventLoop: context.getEventLoopHealth?.(),
         includeProcesses: params.includeProcesses !== false,
+        activeRuns: listVisibleActiveSessionRuns(context),
       });
       respond(true, projectOperationsSnapshotV1(snapshot), undefined);
     } catch (err) {
@@ -84,6 +86,7 @@ export const operationsHandlers: GatewayRequestHandlers = {
         modelCatalogAvailable,
         eventLoop: context.getEventLoopHealth?.(),
         includeProcesses: params.includeProcesses !== false,
+        activeRuns: listVisibleActiveSessionRuns(context),
       });
       respond(true, snapshot, undefined);
     } catch (err) {

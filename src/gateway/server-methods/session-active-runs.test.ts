@@ -2,6 +2,7 @@
 import { expect, it } from "vitest";
 import {
   hasVisibleActiveSessionRun,
+  listVisibleActiveSessionRuns,
   resolveVisibleActiveSessionRunState,
 } from "./session-active-runs.js";
 
@@ -46,4 +47,44 @@ it("returns deterministic visible run ids for the selected session", () => {
       canonicalKey: "main",
     }),
   ).toEqual({ active: true, runIds: ["run-a", "run-z"] });
+});
+
+it("lists only visible active runs in newest-first order for operational projections", () => {
+  const context = {
+    chatAbortControllers: new Map([
+      [
+        "run-old",
+        {
+          sessionId: "session-old",
+          sessionKey: "agent:alpha:main",
+          agentId: "alpha",
+          startedAtMs: 10,
+        },
+      ],
+      [
+        "run-hidden",
+        {
+          sessionId: "session-hidden",
+          sessionKey: "agent:hidden:main",
+          agentId: "hidden",
+          startedAtMs: 30,
+          controlUiVisible: false,
+        },
+      ],
+      [
+        "run-new",
+        {
+          sessionId: "session-new",
+          sessionKey: "agent:beta:main",
+          agentId: "beta",
+          startedAtMs: 20,
+        },
+      ],
+    ]),
+  } as never;
+
+  expect(listVisibleActiveSessionRuns(context)).toEqual([
+    expect.objectContaining({ runId: "run-new", agentId: "beta", startedAtMs: 20 }),
+    expect.objectContaining({ runId: "run-old", agentId: "alpha", startedAtMs: 10 }),
+  ]);
 });
