@@ -142,6 +142,8 @@ Automatic repair is limited to allowlisted, reversible actions with an attempt b
 
 The independent Judge is deliberately separate from the Control Director and workers. It validates the immutable mission against observed evidence and signs the exact claim it approved. A plan, progress update, plausible prose answer, or worker self-report is not completion evidence by itself.
 
+The M62-M68 orchestration repair lane begins with a deterministic, sanitized reproduction baseline for missing task roots, workspace mismatches, unavailable worker discovery, self-spawn, role-capability conflicts, and unsupported completion claims. Later milestones repair those contracts in dependency order and finish only after the landed exact SHA completes managed Control Director-to-Program Manager-to-worker-to-Judge execution together with live device, restart, rollback, and soak proof.
+
 ## Managed role activation and rollback
 
 The runtime role graph must be applied through the transactional helper rather than by manually editing agent entries. The helper controls only role, delegation, and role-tool fields; preserves unrelated configuration; writes an atomic state record; creates a timestamped backup before every operation; and refuses to overwrite controlled fields that changed outside the helper.
@@ -177,6 +179,7 @@ Source acceptance from a clean immutable checkout:
 ```bash
 pnpm control-director:torture
 pnpm control-director:chaos
+pnpm control-director:subagent-incident-proof
 pnpm control-director:verify -- --expected-sha "$(git rev-parse HEAD)"
 pnpm ui:smoke:control-director-no-response
 ```

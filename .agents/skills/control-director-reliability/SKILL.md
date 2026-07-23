@@ -57,6 +57,12 @@ Use this skill for any Control Director, Todd Stanski, Codex-like Dashboard Chat
 - Escalate to Codex only through the governed adapter with an explicit mission packet, approval, budget, scope, attribution, and fail-closed behavior.
 - Recommended Codex route for approved complex implementation: `gpt-5.5` with high reasoning. Use xhigh only for architecture, difficult debugging, security, or final independent review where the incremental cost is justified. Use low only for a fully deterministic, mechanically verified runbook.
 
+## Subagent orchestration repair (M62-M68)
+
+Start with `pnpm control-director:subagent-incident-proof`. Keep its observations synthetic and its output sanitized: receipts may contain scenario ids, typed issue codes, and repository-relative evidence references, but never secrets or raw user diagnostic paths. Do not treat this reproduction baseline as a repair.
+
+Repair in dependency order: task-root inheritance and worktree confinement (M63), worker discovery (M64), role-capability and handoff alignment (M65), deployed skill and workflow consistency (M66), and evidence-bound completion truth (M67). M68 requires the landed exact SHA to pass managed Control Director-to-Program Manager-to-worker-to-Judge execution plus the existing live, device, restart, rollback, and soak gates. A source-only or mock-only pass cannot complete M63-M68.
+
 ## Source workflow
 
 1. Work only in a clean branch/worktree based on the intended immutable SHA. Never mix this work with unrelated dirty files.
