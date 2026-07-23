@@ -45,7 +45,10 @@ try {
     capabilityManifest.capabilities.flatMap((capability) => capability.requiredPaths),
   )) {
     const target = path.join(fixtureSource, requiredPath);
-    if (requiredPath === "dist/control-ui/dashboard-surfaces.json") {
+    if (
+      requiredPath === "dist/control-ui/dashboard-surfaces.json" ||
+      requiredPath === "config/custom-runtime-capabilities.json"
+    ) {
       continue;
     }
     await mkdir(path.dirname(target), { recursive: true });
