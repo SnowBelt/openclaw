@@ -4,9 +4,12 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendBoundedProcessOutput,
+  buildOllamaTranslationRequest,
+  hasTranslationProvider,
+  resolveTranslationModel,
   runProcess,
   shouldReuseExistingTranslation,
 } from "../../scripts/control-ui-i18n.ts";
@@ -50,6 +53,44 @@ async function waitForChildClose(
 }
 
 describe("control-ui-i18n process runner", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("uses explicit loopback Ollama without an external API credential", () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENCLAW_CONTROL_UI_I18N_PROVIDER", "ollama");
+    vi.stubEnv("OPENCLAW_CONTROL_UI_I18N_MODEL", "qwen3.6:27b-q8_0");
+
+    expect(hasTranslationProvider()).toBe(true);
+    expect(resolveTranslationModel()).toMatchObject({
+      api: "openai-completions",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      id: "qwen3.6:27b-q8_0",
+      provider: "ollama",
+      reasoning: false,
+    });
+    expect(buildOllamaTranslationRequest("qwen3.6:27b-q8_0", "system", "user")).toMatchObject({
+      model: "qwen3.6:27b-q8_0",
+      stream: false,
+      think: false,
+      format: "json",
+      options: {
+        num_ctx: 8192,
+        num_predict: 4096,
+        temperature: 0,
+      },
+    });
+  });
+
+  it("fails closed on an unsupported explicit translation provider", () => {
+    vi.stubEnv("OPENCLAW_CONTROL_UI_I18N_PROVIDER", "unknown-provider");
+    expect(() => hasTranslationProvider()).toThrow(
+      "Unsupported translation provider: unknown-provider",
+    );
+  });
+
   it("ships no recorded English fallbacks", () => {
     const metaDir = path.resolve("ui/src/i18n/.i18n");
     const fallbacks = readdirSync(metaDir)

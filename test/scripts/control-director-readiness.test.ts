@@ -59,6 +59,7 @@ function runtimeProof() {
     passed: true,
     exactRuntime: true,
     sourceSha: sha,
+    evaluatedAt: "2026-07-18T00:05:00.000Z",
     passRate: 100,
     criticalOmissions: 0,
     coveragePassed: true,
@@ -75,6 +76,8 @@ function runtimeProof() {
     ]),
   };
   return {
+    schemaVersion: 2,
+    sigBackgroundEnabled: true,
     lineage: {
       status: "ready",
       sourceSha: sha,
@@ -85,6 +88,17 @@ function runtimeProof() {
     desktop: runtimeSurface(),
     tablet: runtimeSurface(),
     mobile: runtimeSurface(),
+    localModelRouting: runtimeSurface(),
+    localModelLatency: runtimeSurface(),
+    memory: runtimeSurface(),
+    delegation: runtimeSurface(),
+    judge: runtimeSurface(),
+    sig: runtimeSurface(),
+    pcc: runtimeSurface(),
+    queue: runtimeSurface(),
+    steer: runtimeSurface(),
+    cancel: runtimeSurface(),
+    pursueGoal: runtimeSurface(),
     restartRecovery: runtimeSurface(),
     soak: runtimeSurface({
       durationMs: 300_000,
@@ -131,6 +145,11 @@ function scorecard(overrides: Record<string, unknown> = {}) {
       OLLAMA_NUM_PARALLEL: "1",
     },
     ollamaChatSmoke: { ok: true, detail: "status=200" },
+    updateSafety: {
+      status: "protected",
+      brokerConfigured: true,
+      runtimeGuardConfigured: true,
+    },
     ...overrides,
   });
 }
@@ -170,6 +189,7 @@ describe("Control Director readiness", () => {
         source: { sha, expectedSha: sha, clean: false, root: CONTROL_DIRECTOR_READINESS_REPO_ROOT },
       },
       { wiring: { ...allTrue(), governedCodexAdapter: false } },
+      { wiring: { ...allTrue(), updateSafeCustomizationLifecycle: false } },
       {
         runtimeProof: {
           ...runtimeProof(),
@@ -190,6 +210,26 @@ describe("Control Director readiness", () => {
         runtimeProof: {
           ...runtimeProof(),
           modelEval: { ...runtimeProof().modelEval, exactRuntime: false },
+        },
+      },
+      {
+        runtimeProof: {
+          ...runtimeProof(),
+          sigBackgroundEnabled: false,
+        },
+      },
+      {
+        updateSafety: {
+          status: "attention",
+          brokerConfigured: false,
+          runtimeGuardConfigured: true,
+        },
+      },
+      {
+        updateSafety: {
+          status: "attention",
+          brokerConfigured: true,
+          runtimeGuardConfigured: false,
         },
       },
       {
@@ -229,6 +269,7 @@ describe("Control Director readiness", () => {
       memoryHealthProjection: true,
       runtimeLineage: true,
       sigClosureGovernance: true,
+      sigBackgroundRuntime: true,
       typedJourneySignals: true,
       independentJudge: true,
       durableMailboxAndEvents: true,
@@ -237,6 +278,7 @@ describe("Control Director readiness", () => {
       serverOwnedTurnInbox: true,
       singleProductionChat: true,
       typedPccBoundary: true,
+      updateSafeCustomizationLifecycle: true,
       acceptanceScripts: true,
     });
   });

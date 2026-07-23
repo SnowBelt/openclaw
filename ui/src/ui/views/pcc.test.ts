@@ -2743,6 +2743,7 @@ describe("renderPccDashboard", () => {
           standardUpdateBlocked: true,
           sourceDurable: true,
           brokerConfigured: true,
+          runtimeGuardConfigured: true,
           approvalPending: true,
           sourceSha: "a".repeat(40),
           sourceBranch: "codex/custom-runtime",
@@ -2761,6 +2762,8 @@ describe("renderPccDashboard", () => {
     expect(safety?.textContent).toContain("Update ready for approval");
     expect(safety?.textContent).toContain("Blocked safely");
     expect(safety?.textContent).toContain("Durable source");
+    expect(safety?.textContent).toContain("Scheduled");
+    expect(safety?.textContent).toContain("Runtime guard");
     expect(safety?.textContent).toContain("All update-preservation controls are healthy");
   });
 

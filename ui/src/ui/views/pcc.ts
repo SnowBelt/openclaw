@@ -1642,7 +1642,11 @@ function renderUpdateSafetyDrawer(props: PccDashboardProps) {
         </div>
         <div>
           <dt>Update broker</dt>
-          <dd>${safety.brokerConfigured ? "Installed" : "Missing"}</dd>
+          <dd>${safety.brokerConfigured ? "Scheduled" : "Missing or inactive"}</dd>
+        </div>
+        <div>
+          <dt>Runtime guard</dt>
+          <dd>${safety.runtimeGuardConfigured ? "Scheduled" : "Missing or inactive"}</dd>
         </div>
         <div>
           <dt>Approval</dt>
@@ -2239,7 +2243,6 @@ function runProjectIntakeFormAutofill(props: PccDashboardProps): void {
   }
   if (props.projectForm.id && props.onPreviewSetupAutofill) {
     props.onPreviewSetupAutofill();
-    return;
   }
 }
 

@@ -906,6 +906,7 @@ public struct ControlDirectorLayoutObservationReportParams: Codable, Sendable {
     public let transcript: [String: AnyCodable]
     public let composer: [String: AnyCodable]
     public let truthcompletionpresent: Bool
+    public let truthcompletionobstructing: Bool?
     public let pccprojectionpresent: Bool
     public let reason: AnyCodable
 
@@ -918,6 +919,7 @@ public struct ControlDirectorLayoutObservationReportParams: Codable, Sendable {
         transcript: [String: AnyCodable],
         composer: [String: AnyCodable],
         truthcompletionpresent: Bool,
+        truthcompletionobstructing: Bool?,
         pccprojectionpresent: Bool,
         reason: AnyCodable)
     {
@@ -929,6 +931,7 @@ public struct ControlDirectorLayoutObservationReportParams: Codable, Sendable {
         self.transcript = transcript
         self.composer = composer
         self.truthcompletionpresent = truthcompletionpresent
+        self.truthcompletionobstructing = truthcompletionobstructing
         self.pccprojectionpresent = pccprojectionpresent
         self.reason = reason
     }
@@ -942,6 +945,7 @@ public struct ControlDirectorLayoutObservationReportParams: Codable, Sendable {
         case transcript
         case composer
         case truthcompletionpresent = "truthCompletionPresent"
+        case truthcompletionobstructing = "truthCompletionObstructing"
         case pccprojectionpresent = "pccProjectionPresent"
         case reason
     }

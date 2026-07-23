@@ -6,7 +6,7 @@ import type {
   OperationsActionReceipt,
   OperationsSnapshot,
 } from "../types.ts";
-import { createOperationsTestSnapshot } from "../views/operations.test-fixture.ts";
+import { createOperationsTestSnapshot } from "../views/operations.fixture.ts";
 import {
   loadOperationsRoom,
   runGuardedOperationsAction,

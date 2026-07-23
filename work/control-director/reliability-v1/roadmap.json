@@ -17,15 +17,37 @@
       "targeted-tests",
       "build",
       "full-tests",
+      "remote-ci",
+      "landing",
       "update-survival",
       "managed-runtime",
       "dashboard-desktop",
       "dashboard-tablet",
       "dashboard-mobile",
+      "local-model-routing",
+      "local-model-latency",
+      "memory",
+      "delegation",
+      "judge",
+      "sig",
+      "pcc",
+      "queue",
+      "steer",
+      "cancel",
+      "pursue-goal",
       "restart-recovery",
       "soak",
-      "rollback"
+      "rollback",
+      "live-diagnostic"
     ]
+  },
+  "evidenceBinding": {
+    "sourceProof": ".artifacts/control-director/source-gates-<source-sha>.json",
+    "updateSurvival": ".artifacts/control-director/update-survival-<source-sha>.json",
+    "runtimeProof": ".artifacts/control-director/runtime-<source-sha>/runtime-proof.json",
+    "remoteProof": ".artifacts/control-director/remote-gates-<source-sha>.json",
+    "readiness": ".artifacts/control-director/runtime-<source-sha>/readiness.json",
+    "finalReceipt": ".artifacts/control-director/final-ledger-<source-sha>.json"
   },
   "milestones": [
     { "id": "M01", "phase": "foundation", "title": "Exact-runtime baseline and dirty-checkout protection", "status": "pending", "dependsOn": [], "acceptance": "Every proof names the immutable source SHA and refuses a dirty or mismatched source root.", "evidence": [] },

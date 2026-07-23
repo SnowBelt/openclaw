@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildControlDirectorSourceConfig,
+  buildControlDirectorSourceGateReceipt,
   buildControlDirectorSourceGatePlan,
   CONTROL_DIRECTOR_VERIFY_REPO_ROOT,
   validateControlDirectorSourceIdentity,
@@ -49,6 +50,19 @@ describe("control-director-verify", () => {
     expect(config.models.providers.ollama.models).toHaveLength(2);
   });
 
+  it("binds the source-gate receipt to the clean exact source identity", () => {
+    expect(buildControlDirectorSourceGateReceipt(sha, [], "/tmp/clean-source")).toMatchObject({
+      schemaVersion: 2,
+      sourceSha: sha,
+      expectedSha: sha,
+      sourceRoot: "/tmp/clean-source",
+      sourceClean: true,
+      identityVerified: true,
+      passed: false,
+      chaos: { passed: false },
+    });
+  });
+
   it("keeps every required source gate sequential and explicit", () => {
     const plan = buildControlDirectorSourceGatePlan();
     expect(plan.map((entry) => entry.id)).toEqual([
@@ -62,10 +76,12 @@ describe("control-director-verify", () => {
       "ui-i18n",
       "deployment-consistency",
       "custom-runtime-contracts",
+      "update-survival",
       "pcc-contracts",
       "plugin-sdk-api",
       "docs-mdx",
       "docs-links",
+      "lint-scripts",
       "format-check",
       "typecheck-core",
       "typecheck-ui",
@@ -79,13 +95,34 @@ describe("control-director-verify", () => {
       "test/scripts/control-director-role-config.test.ts",
     );
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "test/scripts/control-director-roadmap-proof.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "test/scripts/custom-runtime-lifecycle.test.ts",
     );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "test/scripts/custom-runtime-stage-promote.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "test/scripts/custom-runtime-update-survival.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "update-survival")?.args).toEqual([
+      "custom-runtime:update-survival",
+    ]);
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "src/tasks/pursue-goal-blocker.test.ts",
     );
     expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
       "packages/gateway-protocol/src/schema/tasks.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toContain(
+      "src/gateway/server-methods/tasks.test.ts",
+    );
+    expect(plan.find((entry) => entry.id === "tests")?.args).toEqual(
+      expect.arrayContaining([
+        "src/gateway/server-maintenance.test.ts",
+        "src/self-improvement/background.test.ts",
+      ]),
     );
     expect(plan.find((entry) => entry.id === "ui-tests")?.args).toContain(
       "ui/src/ui/views/chat.test.ts",
@@ -105,5 +142,6 @@ describe("control-director-verify", () => {
     expect(plan.find((entry) => entry.id === "protocol-generated")?.args).toEqual([
       "protocol:check",
     ]);
+    expect(plan.find((entry) => entry.id === "lint-scripts")?.args).toEqual(["lint:scripts"]);
   });
 });

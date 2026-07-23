@@ -1,7 +1,9 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import {
   CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+  findUnregisteredCustomRuntimePaths,
   parseCustomRuntimeCapabilityManifest,
   validateCustomRuntimeCapabilityManifest,
 } from "../src/pcc/custom-runtime-capabilities.js";
@@ -20,8 +22,8 @@ if (!parsed) {
     manifest: parsed,
     dashboardSurfaceIds: DASHBOARD_SURFACES.map((surface) => surface.id),
   });
-  if (parsed.schema !== CUSTOM_RUNTIME_CAPABILITY_SCHEMA || parsed.version !== 2) {
-    errors.push("Canonical custom runtime capability manifest must use schema v2.");
+  if (parsed.schema !== CUSTOM_RUNTIME_CAPABILITY_SCHEMA || parsed.version !== 5) {
+    errors.push("Canonical custom runtime capability manifest must use schema v2 revision 5.");
   }
   const standardsRegistry = parsed.preservation?.standardsRegistry;
   if (
@@ -37,6 +39,26 @@ if (!parsed) {
       if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
         errors.push(`Custom capability ${capability.id} is missing ${requiredPath}.`);
       }
+    }
+  }
+  const trackedCustomRuntimeFiles = spawnSync("git", ["ls-files", "--", "scripts/custom-runtime"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (trackedCustomRuntimeFiles.status !== 0) {
+    errors.push(
+      `Could not enumerate tracked custom-runtime files: ${(
+        trackedCustomRuntimeFiles.stderr || trackedCustomRuntimeFiles.stdout
+      ).trim()}`,
+    );
+  } else {
+    for (const unregisteredPath of findUnregisteredCustomRuntimePaths(
+      parsed,
+      trackedCustomRuntimeFiles.stdout.split(/\r?\n/u).filter(Boolean),
+    )) {
+      errors.push(
+        `Tracked custom-runtime control-plane file has no capability owner: ${unregisteredPath}.`,
+      );
     }
   }
   if (errors.length > 0) {

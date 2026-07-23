@@ -1,7 +1,7 @@
 // Control UI tests cover navigation behavior.
 import { describe, expect, it, vi } from "vitest";
 import { mountApp as mountTestApp, registerAppMountHooks } from "./test-helpers/app-mount.ts";
-import { createOperationsTestSnapshot } from "./views/operations.test-fixture.ts";
+import { createOperationsTestSnapshot } from "./views/operations.fixture.ts";
 
 registerAppMountHooks();
 
