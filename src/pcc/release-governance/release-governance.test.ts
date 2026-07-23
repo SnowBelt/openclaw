@@ -38,6 +38,56 @@ function capabilityManifest(requiredPaths = ["src/example.ts", "src/example-proo
   };
 }
 
+function versionedCapabilityManifest(contractVersion: 1 | 2): unknown {
+  return {
+    schema: "openclaw.custom-runtime-capabilities.v2",
+    version: contractVersion === 1 ? 2 : 5,
+    preservation:
+      contractVersion === 1
+        ? {
+            contractVersion: 1,
+            criticality: "required",
+            migrationPolicy: "preserve_or_block",
+            rollbackPolicy: "immutable_release_pointer",
+            standardsRegistry: "src/pcc/capability-addition-registry.ts",
+            verificationCommands: ["pnpm check:custom-runtime-capabilities"],
+          }
+        : {
+            contractVersion: 2,
+            criticality: "required",
+            migrationPolicy: "preserve_or_block",
+            rollbackPolicy: "immutable_release_pointer",
+            sourceStrategy: "merge_from_active_sha",
+            dashboardChangePolicy: "register_verify_and_block",
+            approvalPolicy: "explicit_exact_candidate",
+            proofCommand: "pnpm custom-runtime:update-survival",
+            standardsRegistry: "src/pcc/capability-addition-registry.ts",
+            verificationCommands: ["pnpm check:custom-runtime-capabilities"],
+          },
+    ...(contractVersion === 2
+      ? {
+          pathMigrations: [
+            {
+              capabilityId: "runtime:required",
+              from: "src/example-proof.ts",
+              to: "src/example-proof-renamed.ts",
+            },
+          ],
+        }
+      : {}),
+    capabilities: [
+      {
+        id: "runtime:required",
+        kind: "runtime",
+        requiredPaths:
+          contractVersion === 1
+            ? ["src/example.ts", "src/example-proof.ts"]
+            : ["src/example.ts", "src/example-proof-renamed.ts"],
+      },
+    ],
+  };
+}
+
 function facts(
   changedFiles: string[],
   overrides: Partial<ReleaseCandidateFacts> = {},
@@ -340,6 +390,42 @@ describe("PCC Release Governor", () => {
     expect(evaluation.decision.blockers.join(" ")).toContain(
       "Required capability runtime:required is weakened",
     );
+  });
+
+  it("authorizes a preserved capability diff across preservation contract versions", () => {
+    const releaseInput = input({
+      changedFiles: ["scripts/observer.ts"],
+      candidateManifest: versionedCapabilityManifest(2),
+      approvals: [exactApproval("stage")],
+    });
+    releaseInput.activeCapabilityManifest = versionedCapabilityManifest(1);
+
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+
+    expect(evaluation.capabilityDiff).toEqual([
+      expect.objectContaining({ id: "runtime:required", change: "modified", required: true }),
+    ]);
+    expect(evaluation.decision).toMatchObject({ decision: "authorize", blockers: [] });
+  });
+
+  it("rejects a path migration that does not originate in the active capability", () => {
+    const candidate = versionedCapabilityManifest(2) as {
+      pathMigrations: Array<{ from: string }>;
+    };
+    candidate.pathMigrations[0].from = "src/not-required.ts";
+    const releaseInput = input({
+      changedFiles: ["scripts/observer.ts"],
+      candidateManifest: candidate,
+      approvals: [exactApproval("stage")],
+    });
+    releaseInput.activeCapabilityManifest = versionedCapabilityManifest(1);
+
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+
+    expect(evaluation.capabilityDiff).toEqual([
+      expect.objectContaining({ id: "runtime:required", change: "weakened", required: true }),
+    ]);
+    expect(evaluation.decision.decision).toBe("deny");
   });
 
   it("blocks missing, failed, or low-confidence required review evidence", () => {

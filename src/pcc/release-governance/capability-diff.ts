@@ -1,5 +1,5 @@
 import {
-  parseCustomRuntimeCapabilityManifest,
+  parseCustomRuntimeCapabilityManifestForComparison,
   type CustomRuntimeCapability,
   type CustomRuntimeCapabilityManifest,
 } from "../custom-runtime-capabilities.js";
@@ -28,8 +28,8 @@ export function diffReleaseCapabilities(params: {
   requiredCapabilityIds: readonly string[];
 }): ReleaseCapabilityDiffEntry[] {
   const required = new Set(params.requiredCapabilityIds);
-  const active = parseCustomRuntimeCapabilityManifest(params.activeManifest);
-  const candidate = parseCustomRuntimeCapabilityManifest(params.candidateManifest);
+  const active = parseCustomRuntimeCapabilityManifestForComparison(params.activeManifest);
+  const candidate = parseCustomRuntimeCapabilityManifestForComparison(params.candidateManifest);
   if (!active || !candidate) {
     return [
       {
@@ -75,24 +75,76 @@ export function diffReleaseCapabilities(params: {
     }
     const beforePaths = new Set(before!.requiredPaths);
     const afterPaths = new Set(after!.requiredPaths);
+    const declaredMigrations = (candidate.pathMigrations ?? []).filter(
+      (migration) => migration.capabilityId === id,
+    );
+    const migrationSources = new Set<string>();
+    const migrationTargets = new Set<string>();
+    const invalidMigrations = declaredMigrations.filter((migration) => {
+      const invalid =
+        !beforePaths.has(migration.from) ||
+        beforePaths.has(migration.to) ||
+        !afterPaths.has(migration.to) ||
+        migrationSources.has(migration.from) ||
+        migrationTargets.has(migration.to);
+      migrationSources.add(migration.from);
+      migrationTargets.add(migration.to);
+      return invalid;
+    });
+    if (invalidMigrations.length > 0) {
+      return {
+        id,
+        change: "weakened",
+        required: isRequired,
+        reason: `Candidate declared invalid required-path migrations: ${invalidMigrations
+          .map((migration) => `${migration.from} -> ${migration.to}`)
+          .join(", ")}.`,
+      };
+    }
     const removedPaths = [...beforePaths].filter((entry) => !afterPaths.has(entry));
-    if (identityChanged(before!, after!) || removedPaths.length > 0) {
+    const migratedPaths = removedPaths.filter((entry) =>
+      declaredMigrations.some(
+        (migration) =>
+          migration.capabilityId === id && migration.from === entry && afterPaths.has(migration.to),
+      ),
+    );
+    const unaccountedRemovedPaths = removedPaths.filter((entry) => !migratedPaths.includes(entry));
+    if (identityChanged(before!, after!) || unaccountedRemovedPaths.length > 0) {
       return {
         id,
         change: "weakened",
         required: isRequired,
         reason: identityChanged(before!, after!)
           ? "Candidate changed the capability identity or owner contract."
-          : `Candidate removed required paths: ${removedPaths.join(", ")}.`,
+          : `Candidate removed required paths: ${unaccountedRemovedPaths.join(", ")}.`,
       };
     }
     const addedPaths = [...afterPaths].filter((entry) => !beforePaths.has(entry));
-    if (addedPaths.length > 0) {
+    if (addedPaths.length > 0 || migratedPaths.length > 0) {
+      const migratedTargets = new Set(
+        declaredMigrations
+          .filter((migration) => migratedPaths.includes(migration.from))
+          .map((migration) => migration.to),
+      );
+      const ordinaryAddedPaths = addedPaths.filter((entry) => !migratedTargets.has(entry));
+      const changes = [
+        ...(migratedPaths.length > 0
+          ? [
+              `migrated required paths: ${declaredMigrations
+                .filter((migration) => migratedPaths.includes(migration.from))
+                .map((migration) => `${migration.from} -> ${migration.to}`)
+                .join(", ")}`,
+            ]
+          : []),
+        ...(ordinaryAddedPaths.length > 0
+          ? [`added required paths: ${ordinaryAddedPaths.join(", ")}`]
+          : []),
+      ];
       return {
         id,
         change: "modified",
         required: isRequired,
-        reason: `Candidate added required paths: ${addedPaths.join(", ")}.`,
+        reason: `Candidate ${changes.join("; ")}.`,
       };
     }
     return {

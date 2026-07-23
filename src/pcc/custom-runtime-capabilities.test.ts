@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
   parseCustomRuntimeCapabilityManifest,
+  parseCustomRuntimeCapabilityManifestForComparison,
   validateCustomRuntimeCapabilityManifest,
 } from "./custom-runtime-capabilities.js";
 
@@ -89,5 +90,63 @@ describe("custom runtime capability manifest", () => {
         capabilities: [],
       }),
     ).toBeNull();
+  });
+
+  it("parses the next preservation contract only for release comparison", () => {
+    const nextManifest = {
+      schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+      version: 5,
+      preservation: {
+        contractVersion: 2,
+        criticality: "required",
+        migrationPolicy: "preserve_or_block",
+        rollbackPolicy: "immutable_release_pointer",
+        sourceStrategy: "merge_from_active_sha",
+        dashboardChangePolicy: "register_verify_and_block",
+        approvalPolicy: "explicit_exact_candidate",
+        proofCommand: "pnpm custom-runtime:update-survival",
+        standardsRegistry: "src/pcc/capability-addition-registry.ts",
+        verificationCommands: ["pnpm check:custom-runtime-capabilities"],
+      },
+      capabilities: [
+        {
+          id: "runtime:required",
+          kind: "runtime",
+          requiredPaths: ["src/example.ts"],
+        },
+      ],
+    };
+
+    expect(parseCustomRuntimeCapabilityManifest(nextManifest)).toBeNull();
+    expect(parseCustomRuntimeCapabilityManifestForComparison(nextManifest)).toMatchObject({
+      capabilities: [{ id: "runtime:required" }],
+    });
+  });
+
+  it("validates explicit required-path migrations", () => {
+    const manifest = parseCustomRuntimeCapabilityManifest({
+      schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+      version: 2,
+      preservation,
+      pathMigrations: [
+        {
+          capabilityId: "runtime:required",
+          from: "src/old.ts",
+          to: "src/new.ts",
+        },
+      ],
+      capabilities: [
+        {
+          id: "runtime:required",
+          kind: "runtime",
+          requiredPaths: ["src/new.ts"],
+        },
+      ],
+    });
+
+    expect(manifest).not.toBeNull();
+    expect(
+      validateCustomRuntimeCapabilityManifest({ manifest: manifest!, dashboardSurfaceIds: [] }),
+    ).toEqual([]);
   });
 });
