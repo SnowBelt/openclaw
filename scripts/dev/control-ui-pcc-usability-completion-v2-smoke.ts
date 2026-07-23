@@ -331,9 +331,9 @@ async function main(): Promise<void> {
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
     requireText(text, "No configured models from last refresh");
-    requireText(text, "One Codex permission");
+    requireText(text, "Optional Codex execution");
     requireText(text, "Setup needs a few answers");
-    requireText(text, "Autofill answers with AI");
+    requireText(text, "Plan missing setup with Codex");
     requireText(text, "Milestone Journey");
     requireText(text, "Reliable action mutations");
 
@@ -344,8 +344,8 @@ async function main(): Promise<void> {
       throw new Error("PCC usability completion smoke missing form-only intake autofill button");
     }
     generateIntakeButton.click();
-    if (!calls.includes("draft-intake-answers")) {
-      throw new Error("PCC usability completion smoke did not draft intake answers into the form");
+    if (!calls.includes("preview-autofill")) {
+      throw new Error("PCC usability completion smoke did not preview the existing project repair");
     }
 
     const previewRepairButton = [...root.querySelectorAll<HTMLButtonElement>("button")].find(

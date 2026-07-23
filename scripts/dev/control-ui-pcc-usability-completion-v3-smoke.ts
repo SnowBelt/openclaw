@@ -252,10 +252,10 @@ async function main(): Promise<void> {
         workflowTemplateId: "software-product",
         planningMode: "codex_full_plan",
         plannerMode: "high_reasoning_codex",
-        plannerModelId: "openai:gpt-5.5-high-reasoning",
+        plannerModelId: "openai/gpt-5.6-sol",
         executionProfile: {
           ...resolvePccExecutionProfilePreset("balanced"),
-          codexModelId: "openai:gpt-5.5-high-reasoning",
+          codexModelId: "openai/gpt-5.6-sol",
         },
         plannerPermissionScope: "plan",
         plannerPermissionBudget: "",
@@ -289,12 +289,12 @@ async function main(): Promise<void> {
       projectEditMode: "ai",
       modelCatalog: [
         {
-          id: "gpt-5.5-high-reasoning",
-          name: "GPT-5.5 High Reasoning",
+          id: "gpt-5.6-sol",
+          name: "GPT-5.6 Sol",
           provider: "openai",
           reasoning: true,
         },
-        { id: "gpt-5.5", name: "GPT-5.5 Standard", provider: "openai" },
+        { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai" },
       ],
       modelsLoading: false,
       modelsLastRefreshedAt: Date.parse("2026-07-04T12:00:00Z"),
@@ -399,9 +399,9 @@ async function main(): Promise<void> {
     requireText(text, "Stale Project");
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
-    requireText(text, "GPT-5.5 High Reasoning");
-    requireText(text, "One Codex permission");
-    requireText(text, "Approve the selected Codex role");
+    requireText(text, "GPT-5.6 Sol");
+    requireText(text, "Optional Codex execution");
+    requireText(text, "Approve the selected Codex execution role");
     requireText(text, "Regenerate any section");
     requireText(text, "Basics");
     requireText(text, "Full plan");
@@ -414,7 +414,7 @@ async function main(): Promise<void> {
       );
     }
     requireText(text, "Setup needs a few answers");
-    requireText(text, "Autofill answers with AI");
+    requireText(text, "Plan missing setup with Codex");
     requireText(text, "Milestone Journey");
     requireText(text, "Reliable action mutations");
 
@@ -425,9 +425,9 @@ async function main(): Promise<void> {
       throw new Error("PCC usability completion V3 smoke missing form-only intake autofill button");
     }
     generateIntakeButton.click();
-    if (!calls.includes("draft-intake-answers")) {
+    if (!calls.includes("preview-autofill")) {
       throw new Error(
-        "PCC usability completion V3 smoke did not draft intake answers into the form",
+        "PCC usability completion V3 smoke did not preview the existing project repair",
       );
     }
 

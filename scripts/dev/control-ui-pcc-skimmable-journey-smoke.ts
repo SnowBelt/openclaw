@@ -365,9 +365,9 @@ async function main(): Promise<void> {
       "Your plan is ready to review",
       "How this project runs",
       "Generated plan preview",
-      "One Codex permission",
+      "Optional Codex execution selected",
       "Create project",
-      "Fill remaining blanks",
+      "Fill blanks with Codex",
       "Cancel",
     ]) {
       requireText(editorText, label);

@@ -235,8 +235,8 @@ async function main(): Promise<void> {
     const text = root.textContent ?? "";
     for (const label of [
       "Setup needs a few answers",
-      "Fill missing setup with AI",
-      "AI Autofill Preview",
+      "Plan missing setup with Codex",
+      "Codex Plan Preview",
       "Apply draft",
       "Approve this setup after applying",
       "Remove from active plan",
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
     requireSelector(root, "[data-pcc-submilestone-action-menu]");
 
     [...root.querySelectorAll<HTMLButtonElement>("button")]
-      .find((button) => button.textContent?.includes("Fill missing setup with AI"))
+      .find((button) => button.textContent?.includes("Plan missing setup with Codex"))
       ?.click();
     [...root.querySelectorAll<HTMLButtonElement>("button")]
       .find((button) => button.textContent?.includes("Cancel"))

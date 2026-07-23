@@ -1471,7 +1471,7 @@ async function main() {
     await fillSetup.waitFor({ state: "visible", timeout: 30_000 });
     await fillSetup.click({ force: true });
     await page
-      .getByText("AI Autofill Preview", { exact: false })
+      .getByText("Codex Plan Preview", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
     const setupRepairPreviewVisible = true;
