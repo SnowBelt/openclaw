@@ -15,10 +15,15 @@ import {
   PCC_OPERATIONAL_EXCELLENCE_MILESTONES,
   validatePccOperationalExcellenceRoadmap,
 } from "../src/pcc/operational-excellence-roadmap.js";
+import {
+  PCC_PRODUCTION_EXCELLENCE_MILESTONES,
+  validatePccProductionExcellenceRoadmap,
+} from "../src/pcc/production-excellence-roadmap.js";
 import { PCC_WORKFLOW_TEMPLATES } from "../src/pcc/project-workflows.js";
 
 const errors = [
   ...validatePccOperationalExcellenceRoadmap(),
+  ...validatePccProductionExcellenceRoadmap(),
   ...PCC_CAPABILITY_ADDITION_STANDARDS.flatMap(validatePccCapabilityAddition),
   ...PCC_WORKFLOW_TEMPLATES.flatMap((template) =>
     validatePccCapabilityContract(buildPccCapabilityContract(template.id)),
@@ -70,6 +75,7 @@ if (errors.length > 0) {
         qualityThreshold: 93,
         workflows: PCC_WORKFLOW_TEMPLATES.map((template) => template.id),
         milestones: PCC_OPERATIONAL_EXCELLENCE_MILESTONES.map((milestone) => milestone.id),
+        productionMilestones: PCC_PRODUCTION_EXCELLENCE_MILESTONES.map((milestone) => milestone.id),
         additionStandards: standardIds,
         result: "passed",
       },

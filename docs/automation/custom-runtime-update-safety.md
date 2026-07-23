@@ -27,14 +27,30 @@ When an immutable custom runtime is active, normal `update.run` requests are rej
 - deterministic verification commands,
 - a matching owner, tests, proof surfaces, observability, upgrade impact, rollback, and documentation entry in `src/pcc/capability-addition-registry.ts`.
 
-Both files are checked by:
+Declared entries in both files are checked by:
 
 ```bash
 pnpm check:custom-runtime-capabilities
 pnpm check:pcc-capabilities
 ```
 
-Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries fails the build. A candidate may add requirements. It cannot silently remove an active requirement.
+A candidate may add declared requirements and cannot silently remove an active declared
+requirement. These registry checks do not prove that every customization has been declared. The
+deterministic customization inventory is the separate discovery surface for undeclared paths;
+PE-02 requires complete capability coverage or an accountable owner waiver before that inventory
+becomes a promotion gate.
+
+Generate a deterministic inventory of the customization delta against an exact cached official ref:
+
+```bash
+pnpm custom-runtime:customization-inventory -- --upstream-ref origin/main
+```
+
+The inventory binds exact commits, merge base, ahead/behind counts, patch equivalence, changed lines,
+path ownership, intended disposition, capability coverage, and an SHA-256 inventory hash. Paths
+that do not match an owned plugin, core, dashboard, proof, documentation, configuration, or tooling
+boundary are marked `manual_classification_required`; candidate extraction must not silently treat
+them as preserved.
 
 ## Durable source requirement
 
@@ -42,11 +58,81 @@ The active runtime pointer records an exact 40-character Git commit, canonical s
 
 - the active source is only a working-tree provenance hash,
 - the canonical checkout is dirty,
+- the canonical checkout or its Git object store resolves outside `$HOME` or the explicitly configured durable source root,
 - the commit is missing,
+- the checkout HEAD no longer equals the active source commit,
 - the configured branch does not contain the active commit, or
+- a credential-free remote branch or tag does not resolve to the exact active commit,
 - the preservation manifest or control plane is missing.
 
 This prevents an update from rebasing custom behavior from an unrelated or incomplete checkout.
+Set `OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT` only when the persistent source checkout
+intentionally lives on another operator-owned volume. Temporary directories remain invalid even
+when their Git object database is stored elsewhere.
+
+Use the migration helper to plan a stable worktree without changing the active runtime:
+
+```bash
+custom-runtime-source-migrate.sh \
+  --target "$HOME/OpenClaw-custom-runtime-source" \
+  --remote SnowBelt
+```
+
+After reviewing the JSON plan, the explicit `--apply` form creates a detached worktree at the exact
+active SHA and atomically updates source provenance. It does not rebuild or restart the Gateway. A
+failed Git or launcher verification restores the previous pointer and removes only a worktree that
+the failed attempt created:
+
+```bash
+custom-runtime-source-migrate.sh \
+  --target "$HOME/OpenClaw-custom-runtime-source" \
+  --remote SnowBelt \
+  --apply
+```
+
+The helper resolves the named remote to a credential-free URL, checks the exact branch or
+`--remote-ref`, verifies that the linked worktree's Git object store is persistent, and records the
+verified object store, remote URL, ref, and SHA in the active pointer. It shares lifecycle locks
+with activation and promotion so source metadata cannot be rewritten across a concurrent runtime
+change. Annotated tags are resolved
+to their peeled commit. It refuses to migrate when the remote ref is absent or identifies another
+commit. HTTPS, SSH, Git, file, absolute local, and SCP-style repository locations are supported;
+credential-bearing URLs and executable Git remote helpers are rejected. Remote verification is
+required for recovery provenance but never runs on Gateway startup. PCC accepts remote recovery
+evidence for at most eight days. The weekly broker writes an exact-identity source-provenance
+receipt after a fresh remote lookup; expired pointer metadata without a matching fresh receipt is
+reported as non-durable.
+
+## Release retention inventory
+
+Runtime retention is fail-closed and dry-run-only until a separately reviewed quarantine workflow is
+approved. Generate a deterministic plan without moving or deleting any release:
+
+```bash
+pnpm custom-runtime:retention-plan
+```
+
+The planner protects the active runtime, last-known-good runtime, registered rollback candidate and
+target, pending update, newest canonical releases, and releases inside the minimum age window.
+Legacy, malformed, symlinked, or otherwise unclassified releases are retained for manual review.
+The output sets `destructiveOperationsPermitted` to `false` and includes a SHA-256 `planHash`.
+There is intentionally no `--apply` or delete mode. Quarantine and permanent deletion remain
+separate future milestones requiring an exact reviewed plan and explicit destructive-action
+approval.
+
+Capture the broader storage baseline separately:
+
+```bash
+pnpm custom-runtime:storage-inventory -- --repo /path/to/durable/source
+```
+
+This read-only inventory reports filesystem-allocated bytes for releases, rollback bundles, update
+worktrees, receipts, and backups, plus Git loose objects, packed objects, garbage, refs, and linked
+worktrees. The complete inventory has one 30-second deadline; each Git or tree-size subprocess gets
+at most 15 seconds from the remaining budget. A tree that exceeds that budget is reported as
+`measurementStatus: "timed_out"` with `physicalBytes: null`, never as a false zero. Required Git
+metrics fail closed when missing, invalid, or timed out. The command does not run Git maintenance or
+remove an artifact.
 
 ## Prepare, review, approve
 
@@ -56,7 +142,10 @@ The scheduled broker only prepares a candidate:
 custom-runtime-updater.sh --prepare
 ```
 
-It fetches the selected official stable release, merges it onto the exact active custom commit on a dedicated candidate branch, runs the complete check/build/test/browser surface, constructs an immutable release, and writes a `ready_for_approval` receipt. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
+It fetches the selected official stable release, merges it onto the exact active custom commit on a
+dedicated candidate branch, runs the configured check/build/test/browser surface, constructs an
+immutable release, and writes a `ready_for_approval` receipt. It does not change the live runtime.
+The receipt names the candidate branch and its future recovery ref.
 
 After reviewing the receipt, an operator approves that exact candidate:
 
@@ -64,7 +153,15 @@ After reviewing the receipt, an operator approves that exact candidate:
 custom-runtime-update-approve.sh --receipt /path/to/update-receipt.json
 ```
 
-Approval fails if the active runtime changed after preparation, the release moved outside the immutable release root, or the source stamp changed. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
+Approval fails if the active runtime changed after preparation, the release moved outside the
+immutable release root, the source stamp changed, or the recovery ref already identifies another
+commit. Approval reruns the isolated staging preflight before it publishes the exact candidate SHA
+to the receipt-bound recovery ref, verifies it, and carries the stable source checkout, Git object
+store, remote URL, ref, SHA, and verification time into the promoted pointer. A successful approval
+reuses staging, health, route, WebSocket,
+RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime
+against the candidate-migrated copied state before promotion, so a state migration that would make
+rollback unreadable is rejected without touching live state.
 
 ## Project Command Center status
 
@@ -78,6 +175,17 @@ The PCC Update Safety card reports:
 - exact protection gaps that must be resolved before an update.
 
 The card is status evidence, not permission to promote. Candidate approval remains an explicit operator action.
+
+The scoped exact-SHA remote proof is:
+
+```bash
+gh workflow run update-durability-proof.yml \
+  --repo SnowBelt/openclaw \
+  --ref <update-durability-branch>
+```
+
+This dedicated workflow runs only the update-durability lane rather than the wider PCC proof
+fan-out.
 
 ## Primary Tailnet route continuity
 

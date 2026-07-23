@@ -46,6 +46,81 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function isOperatorOwned(stat: fs.Stats): boolean {
+  const uid = process.getuid?.();
+  return (uid === undefined || stat.uid === uid) && (stat.mode & 0o022) === 0;
+}
+
+function isExecutableFile(filePath: string): boolean {
+  try {
+    const stat = fs.lstatSync(filePath);
+    return (
+      stat.isFile() &&
+      !stat.isSymbolicLink() &&
+      isOperatorOwned(stat) &&
+      (fs.accessSync(filePath, fs.constants.X_OK), true)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function xmlText(value: string): string {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'");
+}
+
+function plistString(xml: string, key: string): string | null {
+  const match = new RegExp(`<key>\\s*${key}\\s*</key>\\s*<string>([^<]*)</string>`, "u").exec(xml);
+  return match ? xmlText(match[1].trim()) : null;
+}
+
+function plistInteger(xml: string, key: string): number | null {
+  const match = new RegExp(`<key>\\s*${key}\\s*</key>\\s*<integer>(\\d+)</integer>`, "u").exec(xml);
+  return match ? Number(match[1]) : null;
+}
+
+function isValidBrokerPlist(filePath: string, homedir: string, runtimeHome: string): boolean {
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size === 0 || !isOperatorOwned(stat)) {
+      return false;
+    }
+    const xml = fs.readFileSync(filePath, "utf8");
+    const programArray = /<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/u.exec(
+      xml,
+    )?.[1];
+    const schedule = /<key>\s*StartCalendarInterval\s*<\/key>\s*<dict>([\s\S]*?)<\/dict>/u.exec(
+      xml,
+    )?.[1];
+    if (!programArray || !schedule) {
+      return false;
+    }
+    const argumentsList = [...programArray.matchAll(/<string>([^<]*)<\/string>/gu)].map((match) =>
+      xmlText(match[1].trim()),
+    );
+    return (
+      plistString(xml, "Label") === "ai.openclaw.custom-runtime.update-weekly" &&
+      argumentsList.length === 1 &&
+      argumentsList[0] === path.join(runtimeHome, "bin", "custom-runtime-updater.sh") &&
+      /<key>\s*RunAtLoad\s*<\/key>\s*<false\s*\/>/u.test(xml) &&
+      plistInteger(schedule, "Weekday") === 0 &&
+      plistInteger(schedule, "Hour") === 3 &&
+      plistInteger(schedule, "Minute") === 30 &&
+      plistString(xml, "StandardOutPath") ===
+        path.join(homedir, "Library", "Logs", "openclaw", "custom-runtime-update.log") &&
+      plistString(xml, "StandardErrorPath") ===
+        path.join(homedir, "Library", "Logs", "openclaw", "custom-runtime-update-error.log")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function latestReceipt(receiptsDir: string): PccUpdateSafetyReceipt | null {
   let names: string[];
   try {
@@ -75,12 +150,13 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
     homedir,
     ...(options.argv ? { argv: options.argv } : {}),
     ...(options.pointerPath ? { pointerPath: options.pointerPath } : {}),
+    ...(options.durableSourceRoot ? { durableSourceRoot: options.durableSourceRoot } : {}),
   });
   const pointer = readJson(policy.pointerPath);
   const brokerConfigured =
-    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
-    fs.existsSync(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
-    fs.existsSync(
+    isExecutableFile(path.join(runtimeHome, "bin", "custom-runtime-updater.sh")) &&
+    isExecutableFile(path.join(runtimeHome, "bin", "custom-runtime-update-approve.sh")) &&
+    isValidBrokerPlist(
       options.launchAgentPath ??
         path.join(
           homedir,
@@ -88,6 +164,8 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
           "LaunchAgents",
           "ai.openclaw.custom-runtime.update-weekly.plist",
         ),
+      homedir,
+      runtimeHome,
     );
   const pending = readJson(path.join(runtimeHome, "pending-update.json"));
   const approvalPending = pending?.result === "ready_for_approval";
@@ -97,7 +175,7 @@ export function readPccUpdateSafety(options: PccUpdateSafetyOptions = {}): PccUp
   }
   if (policy.managedRuntime && !policy.sourceDurable) {
     issues.push(
-      "The active runtime is not bound to a durable Git commit, source repo, and branch.",
+      "The active runtime is not bound to a durable Git commit, persistent source and object store, branch, and exact remote recovery ref.",
     );
   }
   if (policy.managedRuntime && !brokerConfigured) {

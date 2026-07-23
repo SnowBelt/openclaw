@@ -11,6 +11,8 @@ const stageScript = path.resolve("scripts/custom-runtime/custom-runtime-stage.sh
 const promoteScript = path.resolve("scripts/custom-runtime/custom-runtime-promote.sh");
 const restartScript = path.resolve("scripts/custom-runtime/custom-runtime-restart.sh");
 const rollbackScript = path.resolve("scripts/custom-runtime/custom-runtime-rollback.sh");
+const sourceMigrateScript = path.resolve("scripts/custom-runtime/custom-runtime-source-migrate.sh");
+const updateApproveScript = path.resolve("scripts/custom-runtime/custom-runtime-update-approve.sh");
 const controlPlaneFiles = [
   "custom-runtime-activate.sh",
   "custom-runtime-auth.sh",
@@ -20,6 +22,7 @@ const controlPlaneFiles = [
   "custom-runtime-restart.sh",
   "custom-runtime-rollback.sh",
   "custom-runtime-seal.sh",
+  "custom-runtime-source-migrate.sh",
   "custom-runtime-stage.sh",
   "custom-runtime-status.sh",
   "custom-runtime-tailscale-primary.sh",
@@ -165,6 +168,38 @@ afterEach(() => {
 });
 
 describe("custom runtime lifecycle", () => {
+  it("avoids zsh-reserved cleanup variable names in operator-facing scripts", () => {
+    for (const script of [activateScript, promoteScript, sourceMigrateScript, stageScript]) {
+      expect(fs.readFileSync(script, "utf8")).not.toMatch(/^\s*status=\$\?/mu);
+    }
+  });
+
+  it("defers termination until lifecycle lock cleanup traps are installed", () => {
+    for (const [script, acquisition] of [
+      [activateScript, 'mkdir "$activation_lock"'],
+      [promoteScript, 'mkdir "$promotion_lock"'],
+      [rollbackScript, 'mkdir "$rollback_lock"'],
+      [sourceMigrateScript, 'mkdir "$activation_lock"'],
+    ] as const) {
+      const source = fs.readFileSync(script, "utf8");
+      expect(source.indexOf("trap '' INT TERM")).toBeGreaterThanOrEqual(0);
+      expect(source.indexOf("trap '' INT TERM")).toBeLessThan(source.indexOf(acquisition));
+    }
+  });
+
+  it("uses the candidate launcher for pre-publication update staging", () => {
+    const source = fs.readFileSync(updateApproveScript, "utf8");
+    expect(source).toMatch(
+      /OPENCLAW_CUSTOM_RUNTIME_LAUNCHER="\$release\/scripts\/custom-runtime\/custom-runtime-launcher\.sh"\s+\\\s+"\$release\/scripts\/custom-runtime\/custom-runtime-stage\.sh"/u,
+    );
+  });
+
+  it("reuses peeled remote verification after update publication", () => {
+    const source = fs.readFileSync(updateApproveScript, "utf8");
+    expect(source).toContain("published_remote_sha=$existing_remote_sha");
+    expect(source).not.toContain("awk 'NR == 1 { print $1 }'");
+  });
+
   it("blocks lifecycle mutation when exact-SHA governance evidence is missing", () => {
     const root = createRoot("openclaw-release-governor-deny-");
     const release = path.join(root, "release");
@@ -466,7 +501,34 @@ describe("custom runtime lifecycle", () => {
     const sigRpcEnvMarker = path.join(root, "sig-rpc-env");
     const sigRpcUrlMarker = path.join(root, "sig-rpc-url");
     const delayedPccRouteMarker = path.join(root, "delayed-pcc-route");
-    const sourceSha = "c".repeat(64);
+    const sourceRepo = path.join(home, "source");
+    const sourceRemote = path.join(home, "source-remote.git");
+    const sourceBranch = "codex/runtime-candidate";
+    const sourceRemoteRef = `refs/heads/${sourceBranch}`;
+    fs.mkdirSync(sourceRepo, { recursive: true });
+    expect(spawnSync("git", ["init", "-q", sourceRepo]).status).toBe(0);
+    expect(
+      spawnSync("git", ["-C", sourceRepo, "config", "user.email", "test@example.invalid"]).status,
+    ).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "config", "user.name", "Test"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "switch", "-qc", sourceBranch]).status).toBe(0);
+    writeFile(path.join(sourceRepo, "source.txt"), "candidate\n");
+    expect(spawnSync("git", ["-C", sourceRepo, "add", "source.txt"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "commit", "-qm", "candidate"]).status).toBe(0);
+    const sourceSha = spawnSync("git", ["-C", sourceRepo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    expect(spawnSync("git", ["init", "--bare", "-q", sourceRemote]).status).toBe(0);
+    expect(
+      spawnSync("git", [
+        "-C",
+        sourceRepo,
+        "push",
+        "-q",
+        sourceRemote,
+        `${sourceSha}:${sourceRemoteRef}`,
+      ]).status,
+    ).toBe(0);
     const previousRelease = path.join(releases, "previous");
     const previousPointer = {
       releaseId: "previous",
@@ -553,6 +615,14 @@ describe("custom runtime lifecycle", () => {
         release,
         "--source-sha",
         sourceSha,
+        "--source-repo",
+        sourceRepo,
+        "--source-branch",
+        sourceBranch,
+        "--source-remote-url",
+        sourceRemote,
+        "--source-remote-ref",
+        sourceRemoteRef,
         "--port",
         "18789",
         "--enable-sig-background",
@@ -565,6 +635,7 @@ describe("custom runtime lifecycle", () => {
           OPENCLAW_GATEWAY_TOKEN: "fixture-gateway-token",
           OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+          OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: home,
           OPENCLAW_GATEWAY_ENV_FILE: envFile,
           OPENCLAW_GATEWAY_ENV_WRAPPER: envWrapper,
           OPENCLAW_GATEWAY_PLIST: plistPath,
@@ -609,9 +680,26 @@ describe("custom runtime lifecycle", () => {
       requiredCapabilities?: string[];
       requiredSurfaces?: string[];
       runtimeRoot?: string;
+      sourceBranch?: string;
+      sourceGitCommonDir?: string;
+      sourceRemoteRef?: string;
+      sourceRemoteSha?: string;
+      sourceRemoteUrl?: string;
+      sourceRemoteVerifiedAt?: string;
+      sourceRepo?: string;
       sourceSha?: string;
     };
-    expect(pointer).toMatchObject({ runtimeRoot: release, sourceSha });
+    expect(pointer).toMatchObject({
+      runtimeRoot: release,
+      sourceBranch,
+      sourceGitCommonDir: path.join(sourceRepo, ".git"),
+      sourceRemoteRef,
+      sourceRemoteSha: sourceSha,
+      sourceRemoteUrl: sourceRemote,
+      sourceRepo,
+      sourceSha,
+    });
+    expect(Date.parse(pointer.sourceRemoteVerifiedAt ?? "")).not.toBeNaN();
     expect(pointer.requiredSurfaces).toEqual(["pcc"]);
     expect(pointer.requiredCapabilities).toEqual([
       "dashboard:pcc",
@@ -635,6 +723,60 @@ describe("custom runtime lifecycle", () => {
       rollbackReleaseId: "previous",
     });
     expect(fs.existsSync(path.join(rollbackRegistration.bundle, "manifest.json"))).toBe(true);
+  });
+
+  it("rejects promotion when the source checkout HEAD is not the promoted commit", () => {
+    const root = createRoot("openclaw-custom-promote-source-head-");
+    const home = path.join(root, "home");
+    const release = path.join(home, ".openclaw-runtime-releases", "candidate");
+    const runtimeHome = path.join(home, ".openclaw-custom-runtime");
+    const sourceRepo = path.join(home, "source");
+    const sourceBranch = "codex/runtime-candidate";
+
+    fs.mkdirSync(sourceRepo, { recursive: true });
+    expect(spawnSync("git", ["init", "-q", sourceRepo]).status).toBe(0);
+    expect(
+      spawnSync("git", ["-C", sourceRepo, "config", "user.email", "test@example.invalid"]).status,
+    ).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "config", "user.name", "Test"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "switch", "-qc", sourceBranch]).status).toBe(0);
+    writeFile(path.join(sourceRepo, "source.txt"), "candidate\n");
+    expect(spawnSync("git", ["-C", sourceRepo, "add", "source.txt"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "commit", "-qm", "candidate"]).status).toBe(0);
+    const sourceSha = spawnSync("git", ["-C", sourceRepo, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).stdout.trim();
+    expect(spawnSync("git", ["-C", sourceRepo, "switch", "--detach", sourceSha]).status).toBe(0);
+    writeFile(path.join(sourceRepo, "other.txt"), "other\n");
+    expect(spawnSync("git", ["-C", sourceRepo, "add", "other.txt"]).status).toBe(0);
+    expect(spawnSync("git", ["-C", sourceRepo, "commit", "-qm", "other"]).status).toBe(0);
+    writeCandidateContracts(release, sourceSha);
+
+    const result = spawnSync(
+      promoteScript,
+      [
+        "--release",
+        release,
+        "--source-sha",
+        sourceSha,
+        "--source-repo",
+        sourceRepo,
+        "--source-branch",
+        sourceBranch,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: home,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT: home,
+        },
+      },
+    );
+
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("source checkout does not identify the promoted commit");
   });
 
   it("restores the previous launcher before a failed promotion restart", () => {
@@ -789,6 +931,8 @@ describe("custom runtime lifecycle", () => {
       "",
     ].join("\n");
     const previousLauncher = candidateLauncher.replace("exit 1", "# previous\nexit 1");
+    const candidateUpdater = "#!/bin/sh\n# candidate updater\n";
+    const previousUpdater = "#!/bin/sh\n# previous updater\n";
 
     writeCandidateContracts(candidateRoot, "f".repeat(64));
     writeFile(path.join(candidateRoot, "snapshot.json"), '{"releaseId":"native-candidate"}\n');
@@ -799,6 +943,7 @@ describe("custom runtime lifecycle", () => {
       `${JSON.stringify(candidatePointer)}\n`,
     );
     writeFile(launcher, candidateLauncher, 0o700);
+    writeFile(path.join(runtimeHome, "bin", "custom-runtime-updater.sh"), candidateUpdater, 0o700);
     writeFile(plistPath, "candidate plist\n", 0o600);
     writeFile(envFile, "export CANDIDATE=1\n", 0o600);
 
@@ -806,8 +951,24 @@ describe("custom runtime lifecycle", () => {
     writeFile(path.join(bundle, "ai.openclaw.gateway.plist"), "previous plist\n", 0o600);
     writeFile(path.join(bundle, "ai.openclaw.gateway.env"), "export PREVIOUS=1\n", 0o600);
     writeFile(path.join(bundle, "custom-runtime-launcher.sh"), previousLauncher, 0o700);
+    writeFile(
+      path.join(bundle, "control-plane", "custom-runtime-launcher.sh"),
+      previousLauncher,
+      0o700,
+    );
+    writeFile(
+      path.join(bundle, "control-plane", "custom-runtime-updater.sh"),
+      previousUpdater,
+      0o700,
+    );
+    const controlPlaneHashes = Object.fromEntries(
+      controlPlaneFiles.map((name) => {
+        const filePath = path.join(bundle, "control-plane", name);
+        return [name, fs.existsSync(filePath) ? sha256(filePath) : null];
+      }),
+    );
     const manifest = {
-      version: 1,
+      version: 2,
       candidateReleaseId: "candidate",
       candidateRuntimeReleaseId: "native-candidate",
       candidateSourceSha: "f".repeat(64),
@@ -821,6 +982,7 @@ describe("custom runtime lifecycle", () => {
           "custom-runtime-launcher.sh",
         ].map((name) => [name, sha256(path.join(bundle, name))]),
       ),
+      controlPlaneFiles: controlPlaneHashes,
     };
     writeFile(path.join(bundle, "manifest.json"), `${JSON.stringify(manifest)}\n`);
     writeFile(
@@ -885,6 +1047,9 @@ describe("custom runtime lifecycle", () => {
       JSON.parse(fs.readFileSync(path.join(runtimeHome, "active-runtime.json"), "utf8")),
     ).toEqual(previousPointer);
     expect(fs.readFileSync(launcher, "utf8")).toBe(previousLauncher);
+    expect(
+      fs.readFileSync(path.join(runtimeHome, "bin", "custom-runtime-updater.sh"), "utf8"),
+    ).toBe(previousUpdater);
     expect(fs.readFileSync(envFile, "utf8")).toBe("export PREVIOUS=1\n");
     expect(fs.readFileSync(plistPath, "utf8")).toBe("previous plist\n");
     expect(fs.existsSync(path.join(runtimeHome, "active-rollback.json"))).toBe(false);
@@ -992,11 +1157,16 @@ describe("custom runtime lifecycle", () => {
       const controlSource = path.join(release, "scripts", "custom-runtime");
       const fakeBin = path.join(root, "bin");
       const promoteArgsMarker = path.join(root, "promote-args.txt");
+      const sourceRepo = path.join(home, "source");
+      const sourceRemote = path.join(home, "source-remote.git");
+      const sourceBranch = "codex/runtime-candidate";
+      const sourceRemoteRef = `refs/heads/${sourceBranch}`;
       const sourceSha = "e".repeat(64);
       const previousFiles = new Map<string, string>();
       const candidateFiles = new Map<string, string>();
 
       writeFile(path.join(release, ".openclaw-production-sha"), `${sourceSha}\n`);
+      fs.mkdirSync(sourceRepo, { recursive: true });
       for (const file of controlPlaneFiles) {
         const oldText =
           file === "custom-runtime-launcher.sh"
@@ -1029,6 +1199,14 @@ describe("custom runtime lifecycle", () => {
         release,
         "--source-sha",
         sourceSha,
+        "--source-repo",
+        sourceRepo,
+        "--source-branch",
+        sourceBranch,
+        "--source-remote-url",
+        sourceRemote,
+        "--source-remote-ref",
+        sourceRemoteRef,
         "--stage-port",
         "18790",
         "--port",
@@ -1056,6 +1234,10 @@ describe("custom runtime lifecycle", () => {
       expect(fs.readFileSync(promoteArgsMarker, "utf8").includes("--enable-sig-background")).toBe(
         promoteExit === 0,
       );
+      const promoteArgs = fs.readFileSync(promoteArgsMarker, "utf8");
+      expect(promoteArgs).toContain("--source-remote-url");
+      expect(promoteArgs).toContain(sourceRemote);
+      expect(promoteArgs).toContain(sourceRemoteRef);
       const receipt = fs
         .readdirSync(path.join(runtimeHome, "receipts"))
         .find((entry) => entry.startsWith("activation-"));

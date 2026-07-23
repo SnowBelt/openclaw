@@ -15,6 +15,7 @@ pointer="$runtime_home/active-runtime.json"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 registration="$runtime_home/active-rollback.json"
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-source-migrate.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh control-director-role-config.py copy_stage_state.py'
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
@@ -46,6 +47,7 @@ for operation in activation promotion restart; do
   }
 done
 rollback_lock="$runtime_home/locks/rollback.lock"
+trap '' INT TERM
 if ! mkdir "$rollback_lock" 2>/dev/null; then
   printf '%s\n' 'another custom-runtime rollback is already active' >&2
   exit 75
@@ -63,13 +65,13 @@ write_receipt() {
 }
 
 if ! rollback_identity=$(python3 - "$registration" "$pointer" "$runtime_home" "$releases_dir" \
-  "$candidate_runtime_release" "$rollback_release" <<'PY'
+  "$candidate_runtime_release" "$rollback_release" $managed_files <<'PY'
 import hashlib
 import json
 import os
 import sys
 
-registration_path, pointer_path, runtime_home, releases_dir, candidate_runtime_id, rollback_id = sys.argv[1:]
+registration_path, pointer_path, runtime_home, releases_dir, candidate_runtime_id, rollback_id, *managed_files = sys.argv[1:]
 with open(registration_path, encoding="utf-8") as f:
     registration = json.load(f)
 with open(pointer_path, encoding="utf-8") as f:
@@ -89,6 +91,8 @@ with open(manifest_path, "rb") as f:
 if hashlib.sha256(manifest_bytes).hexdigest() != registration.get("manifestSha256"):
     raise SystemExit("rollback manifest hash mismatch")
 manifest = json.loads(manifest_bytes)
+if manifest.get("version") not in (1, 2):
+    raise SystemExit("rollback manifest version is unsupported")
 expected = {
     "candidateReleaseId": active.get("releaseId"),
     "candidateRuntimeReleaseId": candidate_runtime_id,
@@ -124,6 +128,22 @@ for name in required:
         digest = hashlib.sha256(f.read()).hexdigest()
     if digest != files.get(name):
         raise SystemExit(f"rollback file hash mismatch: {name}")
+control_plane = manifest.get("controlPlaneFiles")
+if manifest.get("version") == 2:
+    if not isinstance(control_plane, dict) or set(control_plane) != set(managed_files):
+        raise SystemExit("rollback control-plane inventory is invalid")
+    for name, expected_digest in control_plane.items():
+        file_path = os.path.join(bundle, "control-plane", name)
+        if expected_digest is None:
+            if os.path.lexists(file_path):
+                raise SystemExit(f"unexpected rollback control-plane file: {name}")
+            continue
+        if not isinstance(expected_digest, str) or os.path.islink(file_path) or not os.path.isfile(file_path):
+            raise SystemExit(f"rollback control-plane file is invalid: {name}")
+        with open(file_path, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        if digest != expected_digest:
+            raise SystemExit(f"rollback control-plane hash mismatch: {name}")
 with open(os.path.join(bundle, "active-runtime.json"), encoding="utf-8") as f:
     rollback_pointer = json.load(f)
 if rollback_pointer.get("releaseId") != rollback_id:
@@ -149,6 +169,9 @@ candidate_runtime_root=$(printf '%s\n' "$rollback_identity" | sed -n '3p')
 custom_runtime_require_release_governance rollback "$candidate_source_sha" "$candidate_runtime_root"
 
 rollback_launcher="$bundle/custom-runtime-launcher.sh"
+if [ -d "$bundle/control-plane" ]; then
+  rollback_launcher="$bundle/control-plane/custom-runtime-launcher.sh"
+fi
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$bundle/active-runtime.json" \
   "$rollback_launcher" --verify >/dev/null 2>&1; then
   write_receipt rollback_launcher_preflight_failed
@@ -162,10 +185,15 @@ fi
 
 backup="$runtime_home/backups/rollback-candidate-$timestamp"
 mkdir -m 700 "$backup"
+mkdir -m 700 "$backup/control-plane"
 cp -p "$pointer" "$backup/active-runtime.json"
 cp -p "$plist" "$backup/ai.openclaw.gateway.plist"
 cp -p "$env_file" "$backup/ai.openclaw.gateway.env"
 cp -p "$launcher" "$backup/custom-runtime-launcher.sh"
+for file in $managed_files; do
+  [ ! -f "$runtime_home/bin/$file" ] ||
+    cp -p "$runtime_home/bin/$file" "$backup/control-plane/$file"
+done
 [ ! -f "$desired_plist" ] || cp -p "$desired_plist" "$backup/ai.openclaw.gateway.desired.plist"
 
 install_state() {
@@ -176,8 +204,19 @@ install_state() {
   mv "$plist.rollback-$$" "$plist"
   install -m 600 "$source_dir/ai.openclaw.gateway.env" "$env_file.rollback-$$"
   mv "$env_file.rollback-$$" "$env_file"
-  install -m 700 "$source_dir/custom-runtime-launcher.sh" "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$"
-  mv "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$" "$launcher"
+  if [ -d "$source_dir/control-plane" ]; then
+    for file in $managed_files; do
+      if [ -f "$source_dir/control-plane/$file" ]; then
+        install -m 700 "$source_dir/control-plane/$file" "$runtime_home/bin/.$file.rollback-$$"
+        mv "$runtime_home/bin/.$file.rollback-$$" "$runtime_home/bin/$file"
+      else
+        rm -f "$runtime_home/bin/$file"
+      fi
+    done
+  else
+    install -m 700 "$source_dir/custom-runtime-launcher.sh" "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$"
+    mv "$runtime_home/bin/.custom-runtime-launcher.sh.rollback-$$" "$launcher"
+  fi
   cp -p "$plist" "$desired_plist"
 }
 

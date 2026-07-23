@@ -26,6 +26,7 @@ const rootEntries = [
   "src/pcc/capability-addition-registry.ts!",
   "src/pcc/learning-store.ts!",
   "src/pcc/operational-excellence-roadmap.ts!",
+  "src/pcc/production-excellence-roadmap.ts!",
   "src/pcc/snes-game-creator-submilestones.ts!",
   "src/self-improvement/autonomy.ts!",
   "src/self-improvement/mlx-diagnostic.ts!",

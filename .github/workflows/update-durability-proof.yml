@@ -1,0 +1,106 @@
+name: Update Durability Proof
+
+on:
+  push:
+    branches:
+      - codex/update-durability-v1-20260723
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-durability-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    name: Custom Runtime Update Durability V1 proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      PROOF_BASE_SHA: d05347471845b0978be1b2bdc82f136d69391f2c
+    steps:
+      - name: Checkout
+        timeout-minutes: 10
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 24 and pnpm 11.2.2
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Print proof identity and command list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "proof_sha=$(git rev-parse HEAD)"
+          echo "proof_base_sha=${PROOF_BASE_SHA}"
+          echo "branch=${GITHUB_REF_NAME}"
+          echo "node=$(node -v)"
+          echo "pnpm=$(pnpm -v)"
+          cat <<'EOF_COMMANDS'
+          commands:
+          - pnpm test src/pcc/production-excellence-roadmap.test.ts src/pcc/capability-addition-registry.test.ts src/infra/custom-runtime-update-policy.test.ts src/pcc/update-safety.test.ts test/scripts/custom-runtime-lifecycle.test.ts test/scripts/custom-runtime-updater.test.ts test/scripts/custom-runtime-source-migrate.test.ts test/scripts/custom-runtime-retention-plan.test.ts test/scripts/custom-runtime-customization-inventory.test.ts test/scripts/custom-runtime-storage-inventory.test.ts
+          - pnpm tsgo:all
+          - pnpm check:pcc-capabilities
+          - pnpm check:custom-runtime-capabilities
+          - pnpm check:workflows
+          - pnpm build
+          - pnpm check:changed --base d05347471845b0978be1b2bdc82f136d69391f2c --head HEAD
+          EOF_COMMANDS
+
+      - name: Run update-durability tests
+        run: >-
+          pnpm test
+          src/pcc/production-excellence-roadmap.test.ts
+          src/pcc/capability-addition-registry.test.ts
+          src/infra/custom-runtime-update-policy.test.ts
+          src/pcc/update-safety.test.ts
+          test/scripts/custom-runtime-lifecycle.test.ts
+          test/scripts/custom-runtime-updater.test.ts
+          test/scripts/custom-runtime-source-migrate.test.ts
+          test/scripts/custom-runtime-retention-plan.test.ts
+          test/scripts/custom-runtime-customization-inventory.test.ts
+          test/scripts/custom-runtime-storage-inventory.test.ts
+
+      - name: Run TypeScript proof
+        run: pnpm tsgo:all
+
+      - name: Run capability checks
+        run: |
+          pnpm check:pcc-capabilities
+          pnpm check:custom-runtime-capabilities
+
+      - name: Run workflow syntax check
+        run: pnpm check:workflows
+
+      - name: Run build proof
+        run: pnpm build
+
+      - name: Run milestone changed gate
+        timeout-minutes: 60
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=4096
+          OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1"
+          OPENCLAW_CHANGED_LANES_RAW_SYNC: "1"
+          PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+          OPENCLAW_TEST_PROJECTS_PARALLEL: "6"
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+          OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS: "900000"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "${PROOF_BASE_SHA}^{commit}"
+          changed_count="$(git diff --name-only "${PROOF_BASE_SHA}"...HEAD | sed '/^$/d' | wc -l | tr -d ' ')"
+          if [[ "$changed_count" == "0" ]]; then
+            echo "No milestone files found between ${PROOF_BASE_SHA} and HEAD" >&2
+            exit 1
+          fi
+          echo "changed_file_count=${changed_count}"
+          pnpm check:changed --base "${PROOF_BASE_SHA}" --head HEAD

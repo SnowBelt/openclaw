@@ -78,6 +78,7 @@
       "kind": "workflow",
       "requiredPaths": [
         "src/pcc/operational-excellence-roadmap.ts",
+        "src/pcc/production-excellence-roadmap.ts",
         "src/pcc/capability-contract.ts"
       ]
     },
@@ -362,8 +363,13 @@
       "requiredPaths": [
         "src/infra/custom-runtime-update-policy.ts",
         "src/pcc/update-safety.ts",
+        "scripts/custom-runtime/custom-runtime-customization-inventory.ts",
+        "scripts/custom-runtime/custom-runtime-retention-plan.ts",
+        "scripts/custom-runtime/custom-runtime-storage-inventory.ts",
+        "scripts/custom-runtime/custom-runtime-source-migrate.sh",
         "scripts/custom-runtime/custom-runtime-updater.sh",
         "scripts/custom-runtime/custom-runtime-update-approve.sh",
+        ".github/workflows/update-durability-proof.yml",
         "docs/automation/custom-runtime-update-safety.md"
       ]
     },

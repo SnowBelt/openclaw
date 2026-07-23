@@ -50,6 +50,47 @@ The machine-readable roadmap lives in `src/pcc/operational-excellence-roadmap.ts
 
 The weights total 100. A milestone reaches 100 percent only after its own acceptance criteria and proof pass. Blocked live, remote, paid, destructive, publication, or reboot gates remain separate from autonomous engineering progress.
 
+## Production excellence successor
+
+The OE roadmap established the capability contract and update-preservation control plane. The
+audited production gaps continue in `src/pcc/production-excellence-roadmap.ts`. That successor
+program is also machine-readable, dependency ordered, and weighted to 100 points.
+
+Update durability is first:
+
+| ID    | Milestone                                                     | Weight |
+| ----- | ------------------------------------------------------------- | -----: |
+| PE-00 | Exact-runtime baseline and reliability freeze                 |      2 |
+| PE-01 | Durable source provenance                                     |      8 |
+| PE-02 | Bounded customization inventory and overlay extraction        |      9 |
+| PE-03 | Automated upstream canary and semantic preservation gate      |      7 |
+| PE-04 | Storage containment, retention, and approved reclamation      |      4 |
+| PE-05 | Capability availability and health truth model                |      4 |
+| PE-06 | Secrets, plugin, provider, and tool-policy hygiene            |      6 |
+| PE-07 | Exact-SHA full-CI closure                                     |      6 |
+| PE-08 | TaskFlow and cron lifecycle reconciliation                    |      7 |
+| PE-09 | Agent consolidation and capability catalog                    |      5 |
+| PE-10 | PCC canonical project, decision, and permission ledger        |      6 |
+| PE-11 | Local-first routing and model certification                   |      7 |
+| PE-12 | Dynamic context and retrieval quality                         |      4 |
+| PE-13 | Golden-task evaluation, SLOs, and error budgets               |      6 |
+| PE-14 | Codex-like Chat and progressive-disclosure UX                 |      6 |
+| PE-15 | UI modularity and performance budgets                         |      5 |
+| PE-16 | Unified observability and automatic incident intake           |      4 |
+| PE-17 | Paper-only profit and risk evidence                           |      1 |
+| PE-18 | Production proof, rollback drill, soak, and usability closure |      3 |
+
+The sequence does not treat the prior operational-excellence source work as failed. It records the
+new evidence-backed gaps that must close before the current customized system can claim production
+completion. Deletion, live promotion, restart, reboot, paid access, publication, and live-money
+proof remain separate explicit approval gates. PE-18 is a non-weighted veto in addition to its
+three-point planning weight: production cannot be claimed without it. PE-17 remains a paper-only
+domain program and does not block the general production closure gate.
+
+PE-00 applies the existing structured permission and local-first constraints immediately. PE-10
+and PE-11 productize those controls later; they do not postpone safe execution until midway through
+the program.
+
 ## Future additions
 
 A new workflow, process, skill, tool, agent, model provider, plugin, or custom dashboard surface is incomplete until it declares:
@@ -126,7 +167,7 @@ Custom functionality must be declared, versioned, and tested as desired state. A
 
 The desired-state inventory is `config/custom-runtime-capabilities.json`. It covers dashboard surfaces, required plugins, PCC workflows, Control Director truth gates, local-first model intelligence, and the update-safety control plane. Every capability has a stable ID and one or more required runtime paths. The v2 preservation contract also binds required criticality, preserve-or-block migration, immutable-pointer rollback, verification commands, and the checked addition-standards registry. The immutable runtime pointer binds the capability manifest hash and the cumulative required capability IDs. Candidates may add capabilities, but cannot silently remove an active requirement.
 
-The current inventory contains 32 preserved capabilities. It includes all seven app dashboards, both required plugins, PCC project management and operational excellence, Control Director truth gates, local-first model intelligence, the complete Codex-style Chat stack, mobile PCC control, PCC-to-Chat synchronization, Chat UX cleanup, the cumulative Codex-plus-apps dashboard, update-safe customizations, Operations Room, Control Director Codex Chat, the Self-Improvement Governor runtime, and the PCC Release Governor. Each preserved browser surface also has a named `pnpm ui:smoke:*` command so a future update cannot pass by keeping source files while silently removing the executable proof path.
+The current inventory contains 34 preserved capabilities. It includes all seven app dashboards, both required plugins, PCC project management and operational excellence, Control Director truth gates, local-first model intelligence, the complete Codex-style Chat stack, mobile PCC control, PCC-to-Chat synchronization, Chat UX cleanup, the cumulative Codex-plus-apps dashboard, update-safe customizations, Operations Room, Control Director Codex Chat, the Self-Improvement Governor runtime, and the PCC Release Governor. Each preserved browser surface also has a named `pnpm ui:smoke:*` command so a future update cannot pass by keeping source files while silently removing the executable proof path.
 
 Chat-native Projects uses the PCC project ledger as its only project source of truth. The picker lists and creates projects through `pcc.projects.*`, while the selected project ID is stored on the canonical session entry through `sessions.create` or `sessions.patch`. There is no second Chat-only project database to drift from PCC.
 
@@ -144,7 +185,10 @@ This follows the same principles used by mature reliability programs: user-cente
 
 ## Continuation receipt
 
-The current execution branch is `codex/openclaw-operational-excellence-v1-20260713`. Resume with the first dependency-ready milestone that is not proof-complete. Never use a chat transcript as the only source of milestone state.
+The successor execution branch is `codex/update-durability-v1-20260723`, based on active runtime
+source SHA `d05347471845b0978be1b2bdc82f136d69391f2c`. Resume with the first dependency-ready
+milestone that is not proof-complete. Never use a chat transcript as the only source of milestone
+state.
 
 At each handoff, record:
 
@@ -157,6 +201,20 @@ At each handoff, record:
 
 ### Current proof states
 
-- **Locally proof-complete:** OE-00 through OE-08 after the targeted tests, typechecks, capability checks, canary test, and rollback test recorded for the final branch SHA pass.
-- **Requires separate live or remote authority:** OE-09 remote CI, live immutable-runtime replacement, browser/mobile proof, bounded soak, and reconciliation activation.
-- **Never implied by local proof:** OpenAI API access, a live Gateway configuration change, publication, reboot, or a paid model request.
+- **Inherited baseline:** OE-00 through OE-08 remain the established local capability and
+  preservation baseline. Their prior proof does not substitute for successor exact-SHA proof.
+- **PE-00 in local proof:** the active source, runtime release, divergence, customization inventory,
+  retention plan, storage inventory, and update-safety state are captured without mutation.
+- **PE-01 in local proof:** durable-source policy, migration, rollback, exact candidate provenance,
+  remote evidence freshness, broker validation, and lifecycle coordination are implemented and
+  tested. It remains incomplete until exact-SHA remote proof passes and the active pointer is
+  migrated to a durable source/ref under explicit approval.
+- **PE-02 partial:** deterministic inventory reports 1,949 changed paths and 664 manual
+  classifications. Overlay extraction and complete owner/capability coverage remain incomplete.
+- **PE-04 partial:** dry-run retention and bounded storage inventory are implemented. No release,
+  bundle, worktree, receipt, ref, or Git object has been quarantined or deleted.
+- **Not started:** PE-03 and PE-05 through PE-18 remain dependency ordered in the machine-readable
+  roadmap.
+- **Never implied by local proof:** source-ref publication, active-pointer mutation, destructive
+  reclamation, live Gateway changes, OpenAI API access, restart, reboot, paid access, or live-money
+  execution.

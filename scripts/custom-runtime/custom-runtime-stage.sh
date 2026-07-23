@@ -52,7 +52,7 @@ printf '%s' '{"ids":["discord/bot-token"]}' | "$provider" | python3 -c 'import j
 stage=$(mktemp -d "$runtime_home/stage.XXXXXX")
 pid=
 cleanup() {
-  status=$?
+  exit_code=$?
   trap - EXIT INT TERM
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
@@ -65,9 +65,9 @@ cleanup() {
   done
   if [ -e "$stage" ]; then
     printf '%s\n' "candidate stage cleanup failed: $(basename "$stage")" >&2
-    [ "$status" -ne 0 ] || status=1
+    [ "$exit_code" -ne 0 ] || exit_code=1
   fi
-  exit "$status"
+  exit "$exit_code"
 }
 trap cleanup EXIT
 trap 'exit 130' INT

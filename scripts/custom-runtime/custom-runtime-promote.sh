@@ -9,24 +9,31 @@ env_wrapper=${OPENCLAW_GATEWAY_ENV_WRAPPER:-"$HOME/.openclaw-director-state/serv
 env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-env/ai.openclaw.gateway.env"}
 config_path=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 state_dir=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
+durable_source_root=${OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT:-"$HOME"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
 rollback_launcher=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}
+rollback_control_plane=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_CONTROL_PLANE:-"$runtime_home/bin"}
 rollback_root="$runtime_home/rollbacks"
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-source-migrate.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh control-director-role-config.py copy_stage_state.py'
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
-usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' >&2; exit 64; }
-release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
+usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF [--source-remote-url URL --source-remote-ref REF]] [--port 18789] [--enable-sig-background]' >&2; exit 64; }
+release= source_sha= source_repo= source_branch= source_remote_url= source_remote_ref=
+source_git_common_dir= source_remote_verified_at=
+port=18789 enable_sig_background=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --source-repo) source_repo=${2:-}; shift 2 ;;
     --source-branch) source_branch=${2:-}; shift 2 ;;
+    --source-remote-url) source_remote_url=${2:-}; shift 2 ;;
+    --source-remote-ref) source_remote_ref=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
     *) usage ;;
@@ -37,7 +44,87 @@ case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
   [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
   source_repo=$(cd "$source_repo" && pwd -P)
-  case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
+  case "$source_branch" in refs/heads/*) source_branch_ref=$source_branch ;; *) source_branch_ref="refs/heads/$source_branch" ;; esac
+  git check-ref-format "$source_branch_ref" >/dev/null 2>&1 || usage
+  [ -z "$(git -C "$source_repo" status --porcelain)" ] || {
+    printf '%s\n' 'source repository must be clean before promotion' >&2
+    exit 64
+  }
+  [ "$(git -C "$source_repo" rev-parse --verify HEAD^{commit})" = "$source_sha" ] || {
+    printf '%s\n' 'source checkout does not identify the promoted commit' >&2
+    exit 64
+  }
+  [ "$(git -C "$source_repo" rev-parse --verify "$source_branch_ref^{commit}")" = "$source_sha" ] || {
+    printf '%s\n' 'source branch does not identify the promoted commit' >&2
+    exit 64
+  }
+fi
+if [ -n "$source_remote_url" ] || [ -n "$source_remote_ref" ]; then
+  [ -n "$source_repo" ] && [ -n "$source_remote_url" ] && [ -n "$source_remote_ref" ] || usage
+  case "$source_remote_ref" in refs/heads/*|refs/tags/*) ;; *) usage ;; esac
+  git check-ref-format "$source_remote_ref" >/dev/null 2>&1 || usage
+  python3 - "$source_remote_url" <<'PY' || {
+import os
+import re
+import sys
+from urllib.parse import urlsplit
+
+value = sys.argv[1]
+if not value or any(character in value for character in ("\r", "\n", "\0")):
+    raise SystemExit(1)
+if os.path.isabs(value):
+    raise SystemExit(0)
+if "://" not in value:
+    if not re.fullmatch(r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
+        raise SystemExit(1)
+    raise SystemExit(0)
+parsed = urlsplit(value)
+if parsed.scheme not in {"file", "git", "https", "ssh"}:
+    raise SystemExit(1)
+if parsed.password or parsed.query or parsed.fragment:
+    raise SystemExit(1)
+if parsed.username and parsed.scheme != "ssh":
+    raise SystemExit(1)
+PY
+    printf '%s\n' 'source remote URL contains credentials or unsupported metadata' >&2
+    exit 64
+  }
+  durable_source_root=$(cd "$durable_source_root" && pwd -P) || usage
+  case "$source_repo" in
+    "$durable_source_root"|"$durable_source_root"/*) ;;
+    *)
+      printf '%s\n' 'source repository is outside the durable source root' >&2
+      exit 64
+      ;;
+  esac
+  source_git_common_dir=$(git -C "$source_repo" rev-parse --git-common-dir) || usage
+  case "$source_git_common_dir" in
+    /*) ;;
+    *) source_git_common_dir="$source_repo/$source_git_common_dir" ;;
+  esac
+  [ ! -L "$source_git_common_dir" ] || usage
+  source_git_common_dir=$(cd "$(dirname "$source_git_common_dir")" && pwd -P)/$(basename "$source_git_common_dir")
+  case "$source_git_common_dir" in
+    "$durable_source_root"|"$durable_source_root"/*) ;;
+    *)
+      printf '%s\n' 'source Git object store is outside the durable source root' >&2
+      exit 64
+      ;;
+  esac
+  remote_result=$(git ls-remote --exit-code -- "$source_remote_url" "$source_remote_ref" "${source_remote_ref}^{}" 2>/dev/null) || {
+    printf '%s\n' 'source remote ref is unavailable' >&2
+    exit 64
+  }
+  source_remote_sha=$(printf '%s\n' "$remote_result" | awk -v peeled="${source_remote_ref}^{}" '
+    $2 == peeled { peeled_sha = $1 }
+    !first_sha { first_sha = $1 }
+    END { print peeled_sha ? peeled_sha : first_sha }
+  ')
+  [ "$source_remote_sha" = "$source_sha" ] || {
+    printf '%s\n' 'source remote ref does not identify the promoted commit' >&2
+    exit 64
+  }
+  source_remote_verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 fi
 [ -d "$releases_dir" ] || { printf '%s\n' 'immutable releases root is missing' >&2; exit 64; }
 releases_dir=$(cd "$releases_dir" && pwd -P)
@@ -72,23 +159,33 @@ fi
 custom_runtime_require_release_governance promotion "$source_sha" "$release"
 mkdir -p "$runtime_home/backups" "$runtime_home/receipts" "$runtime_home/locks"
 promotion_lock="$runtime_home/locks/promotion.lock"
+rollback_bundle_tmp=
+promotion_applied=false
+promotion_committed=false
+trap '' INT TERM
 if ! mkdir "$promotion_lock" 2>/dev/null; then
   printf '%s\n' 'another custom-runtime promotion is already active' >&2
   exit 75
 fi
-rollback_bundle_tmp=
-promotion_applied=false
-promotion_committed=false
-cleanup_promotion() {
-  status=$?
+cleanup_promotion_lock() {
+  exit_code=$?
   trap - EXIT INT TERM
-  if [ "$status" -ne 0 ] && [ "$promotion_applied" = true ] && \
+  rmdir "$promotion_lock" 2>/dev/null || true
+  exit "$exit_code"
+}
+trap cleanup_promotion_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+cleanup_promotion() {
+  exit_code=$?
+  trap - EXIT INT TERM
+  if [ "$exit_code" -ne 0 ] && [ "$promotion_applied" = true ] && \
      [ "$promotion_committed" = false ]; then
-    restore || status=1
+    restore || exit_code=1
   fi
   [ -z "$rollback_bundle_tmp" ] || rm -rf "$rollback_bundle_tmp" 2>/dev/null || true
   rmdir "$promotion_lock" 2>/dev/null || true
-  exit "$status"
+  exit "$exit_code"
 }
 trap cleanup_promotion EXIT
 trap 'exit 130' INT
@@ -148,17 +245,22 @@ if [ -f "$pointer_backup" ]; then
   rollback_bundle_tmp="$rollback_root/.rollback-$timestamp-$$"
   rollback_bundle="$rollback_root/rollback-$timestamp-$$"
   mkdir -m 700 "$rollback_bundle_tmp"
+  mkdir -m 700 "$rollback_bundle_tmp/control-plane"
   cp -p "$pointer_backup" "$rollback_bundle_tmp/active-runtime.json"
   cp -p "$plist_backup" "$rollback_bundle_tmp/ai.openclaw.gateway.plist"
   cp -p "$env_backup" "$rollback_bundle_tmp/ai.openclaw.gateway.env"
   cp -p "$rollback_source_launcher" "$rollback_bundle_tmp/custom-runtime-launcher.sh"
-  python3 - "$rollback_bundle_tmp" "$release" "$source_sha" <<'PY'
+  for file in $managed_files; do
+    [ ! -f "$rollback_control_plane/$file" ] ||
+      cp -p "$rollback_control_plane/$file" "$rollback_bundle_tmp/control-plane/$file"
+  done
+  python3 - "$rollback_bundle_tmp" "$release" "$source_sha" $managed_files <<'PY'
 import hashlib
 import json
 import os
 import sys
 
-bundle, release, source_sha = sys.argv[1:]
+bundle, release, source_sha, *managed_files = sys.argv[1:]
 with open(os.path.join(bundle, "active-runtime.json"), encoding="utf-8") as f:
     previous = json.load(f)
 with open(os.path.join(release, "snapshot.json"), encoding="utf-8") as f:
@@ -173,14 +275,22 @@ for name in (
     with open(os.path.join(bundle, name), "rb") as f:
         files[name] = hashlib.sha256(f.read()).hexdigest()
 manifest = {
-    "version": 1,
+    "version": 2,
     "candidateReleaseId": os.path.basename(release),
     "candidateRuntimeReleaseId": snapshot.get("releaseId"),
     "candidateSourceSha": source_sha,
     "rollbackReleaseId": previous.get("releaseId"),
     "rollbackRuntimeRoot": previous.get("runtimeRoot"),
     "files": files,
+    "controlPlaneFiles": {},
 }
+for name in managed_files:
+    path = os.path.join(bundle, "control-plane", name)
+    if not os.path.exists(path):
+        manifest["controlPlaneFiles"][name] = None
+        continue
+    with open(path, "rb") as f:
+        manifest["controlPlaneFiles"][name] = hashlib.sha256(f.read()).hexdigest()
 required = (
     manifest["candidateRuntimeReleaseId"],
     manifest["rollbackReleaseId"],
@@ -200,9 +310,9 @@ fi
 manifest_sha=$(shasum -a 256 "$manifest" | awk '{print $1}')
 capability_manifest_sha=$(shasum -a 256 "$capability_manifest" | awk '{print $1}')
 pointer_tmp="$runtime_home/active-runtime.$$.json"
-python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$source_repo" "$source_branch" <<'PY'
+python3 - "$pointer_tmp" "$release" "$source_sha" "$manifest" "$manifest_sha" "$capability_manifest" "$capability_manifest_sha" "$timestamp" "$source_repo" "$source_git_common_dir" "$source_branch" "$source_remote_url" "$source_remote_ref" "$source_remote_verified_at" <<'PY'
 import json, os, sys
-target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_repo, source_branch = sys.argv[1:]
+target, root, sha, manifest, manifest_sha, capability_manifest, capability_manifest_sha, promoted_at, source_repo, source_git_common_dir, source_branch, source_remote_url, source_remote_ref, source_remote_verified_at = sys.argv[1:]
 previous = None
 previous_required = []
 previous_capabilities = []
@@ -272,6 +382,12 @@ data = {"schemaVersion": 1, "releaseId": os.path.basename(root), "runtimeRoot": 
 if source_repo and source_branch:
     data["sourceRepo"] = source_repo
     data["sourceBranch"] = source_branch
+if source_remote_url and source_remote_ref and source_remote_verified_at:
+    data["sourceGitCommonDir"] = source_git_common_dir
+    data["sourceRemoteUrl"] = source_remote_url
+    data["sourceRemoteRef"] = source_remote_ref
+    data["sourceRemoteSha"] = sha
+    data["sourceRemoteVerifiedAt"] = source_remote_verified_at
 with open(target, "w", encoding="utf-8") as f: json.dump(data, f, indent=2, sort_keys=True); f.write("\n")
 PY
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$pointer_tmp" "$launcher" --verify >/dev/null; then

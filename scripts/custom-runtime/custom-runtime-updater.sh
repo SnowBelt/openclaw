@@ -14,6 +14,7 @@ worktrees=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_WORKTREES:-"$HOME/OpenClaw-runtime-up
 receipts=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}/receipts
 runtime_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
 releases=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releases"}
+durable_source_root=${OPENCLAW_CUSTOM_RUNTIME_DURABLE_SOURCE_ROOT:-"$HOME"}
 mkdir -p "$worktrees" "$receipts"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 candidate="$worktrees/$stamp"
@@ -33,26 +34,127 @@ pointer_fields=$(python3 - "$active_pointer" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     value = json.load(f)
-for key in ("sourceSha", "sourceRepo", "sourceBranch"):
+for key in ("sourceSha", "sourceRepo", "sourceGitCommonDir", "sourceBranch", "sourceRemoteUrl",
+            "sourceRemoteRef", "sourceRemoteSha"):
     item = value.get(key, "")
     print(item if isinstance(item, str) else "")
 PY
 ) || fail active_pointer
 active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
 pointer_repo=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
-pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+pointer_git_common_dir=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
+source_remote_url=$(printf '%s\n' "$pointer_fields" | sed -n '5p')
+source_remote_ref=$(printf '%s\n' "$pointer_fields" | sed -n '6p')
+source_remote_sha=$(printf '%s\n' "$pointer_fields" | sed -n '7p')
 [ -n "$repo" ] || repo=$pointer_repo
 [ -n "$branch" ] || branch=$pointer_branch
 [ -n "$repo" ] && [ -n "$branch" ] || fail durable_source_config
+case "$branch" in refs/heads/*) branch_ref=$branch ;; *) branch_ref="refs/heads/$branch" ;; esac
+git check-ref-format "$branch_ref" >/dev/null 2>&1 || fail durable_source_branch
 case "$active_sha" in *[!0-9a-fA-F]*|'') fail durable_source_sha ;; esac
 [ "${#active_sha}" -eq 40 ] || fail durable_source_sha
 [ -d "$repo/.git" ] || git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || fail durable_source_repo
+[ ! -L "$repo" ] || fail durable_source_symlink
+repo=$(cd "$repo" && pwd -P) || fail durable_source_repo
+[ -d "$durable_source_root" ] || fail durable_source_root
+durable_source_root=$(cd "$durable_source_root" && pwd -P) || fail durable_source_root
+case "$repo" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *) fail durable_source_transient_path ;;
+esac
+[ ! -L "$worktrees" ] || fail durable_update_worktrees_symlink
+worktrees=$(cd "$worktrees" && pwd -P) || fail durable_update_worktrees
+case "$worktrees" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *) fail durable_update_worktrees_transient ;;
+esac
+candidate="$worktrees/$stamp"
 [ -z "$(git -C "$repo" status --porcelain)" ] || fail durable_source_dirty
+repo_git_common_dir=$(git -C "$repo" rev-parse --git-common-dir) || fail durable_source_git_common_dir
+case "$repo_git_common_dir" in
+  /*) ;;
+  *) repo_git_common_dir="$repo/$repo_git_common_dir" ;;
+esac
+[ ! -L "$repo_git_common_dir" ] || fail durable_source_git_common_dir_symlink
+[ -d "$repo_git_common_dir" ] || fail durable_source_git_common_dir
+repo_git_common_dir=$(cd "$(dirname "$repo_git_common_dir")" && pwd -P)/$(basename "$repo_git_common_dir")
+case "$repo_git_common_dir" in
+  "$durable_source_root"|"$durable_source_root"/*) ;;
+  *) fail durable_source_git_common_dir_transient ;;
+esac
+[ "$pointer_git_common_dir" = "$repo_git_common_dir" ] || fail durable_source_git_common_dir_mismatch
 git -C "$repo" cat-file -e "$active_sha^{commit}" 2>/dev/null || fail durable_source_missing_commit
-git -C "$repo" rev-parse --verify "$branch^{commit}" >/dev/null 2>&1 || fail durable_source_branch
-git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch" || fail durable_source_branch_history
+[ "$(git -C "$repo" rev-parse --verify "HEAD^{commit}")" = "$active_sha" ] ||
+  fail durable_source_head
+git -C "$repo" rev-parse --verify "$branch_ref^{commit}" >/dev/null 2>&1 || fail durable_source_branch
+git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch_ref" || fail durable_source_branch_history
 [ -f "$repo/config/custom-runtime-capabilities.json" ] || fail durable_source_capabilities
 [ -f "$repo/scripts/custom-runtime/custom-runtime-activate.sh" ] || fail durable_source_control_plane
+[ -n "$source_remote_url" ] && [ -n "$source_remote_ref" ] || fail durable_source_remote_config
+[ "$source_remote_sha" = "$active_sha" ] || fail durable_source_remote_sha
+case "$source_remote_ref" in refs/heads/*|refs/tags/*) ;; *) fail durable_source_remote_ref ;; esac
+git check-ref-format "$source_remote_ref" >/dev/null 2>&1 || fail durable_source_remote_ref
+python3 - "$source_remote_url" <<'PY' || fail durable_source_remote_url
+import os
+import re
+import sys
+from urllib.parse import urlsplit
+
+value = sys.argv[1]
+if not value or any(character in value for character in ("\r", "\n", "\0")):
+    raise SystemExit(1)
+if os.path.isabs(value):
+    raise SystemExit(0)
+if "://" not in value:
+    if not re.fullmatch(r"(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+", value):
+        raise SystemExit(1)
+    raise SystemExit(0)
+parsed = urlsplit(value)
+if parsed.scheme not in {"file", "git", "https", "ssh"}:
+    raise SystemExit(1)
+if parsed.password or parsed.query or parsed.fragment:
+    raise SystemExit(1)
+if parsed.username and parsed.scheme != "ssh":
+    raise SystemExit(1)
+PY
+remote_result=$(git ls-remote --exit-code -- "$source_remote_url" "$source_remote_ref" "${source_remote_ref}^{}" 2>/dev/null) ||
+  fail durable_source_remote_lookup
+remote_sha=$(printf '%s\n' "$remote_result" | awk -v peeled="${source_remote_ref}^{}" '
+  $2 == peeled { peeled_sha = $1 }
+  !first_sha { first_sha = $1 }
+  END { print peeled_sha ? peeled_sha : first_sha }
+')
+[ -n "$remote_sha" ] || fail durable_source_remote_lookup
+[ "$remote_sha" = "$active_sha" ] || fail durable_source_remote_mismatch
+source_verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+source_provenance_receipt="$receipts/source-provenance-$stamp.json"
+python3 - "$source_provenance_receipt" "$active_sha" "$source_remote_url" \
+  "$source_remote_ref" "$source_verified_at" <<'PY'
+import json
+import os
+import sys
+
+target, source_sha, remote_url, remote_ref, verified_at = sys.argv[1:]
+temporary = target + ".tmp"
+with open(temporary, "w", encoding="utf-8") as f:
+    json.dump(
+        {
+            "schema": "openclaw.custom-runtime-source-provenance.v1",
+            "result": "passed",
+            "sourceRemoteRef": remote_ref,
+            "sourceRemoteSha": source_sha,
+            "sourceRemoteUrl": remote_url,
+            "sourceSha": source_sha,
+            "verifiedAt": verified_at,
+        },
+        f,
+        indent=2,
+        sort_keys=True,
+    )
+    f.write("\n")
+os.replace(temporary, target)
+PY
 
 if [ -z "$official_ref" ]; then
   stable_version=$(npm view openclaw dist-tags.latest 2>/dev/null | tr -d '[:space:]') || fail stable_version_lookup
@@ -160,10 +262,12 @@ with open(target, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 "$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
+candidate_remote_ref="refs/heads/$update_branch"
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" <<'PY'
+  "$official_ref" "$active_sha" "$sha" "$candidate" "$candidate_remote_ref" "$source_remote_url" \
+  "$candidate_remote_ref" <<'PY'
 import json, os, sys
-receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch = sys.argv[1:]
+receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, remote_url, remote_ref = sys.argv[1:]
 data = {
     "schema": "openclaw.custom-runtime-update-candidate.v1",
     "at": at,
@@ -175,6 +279,8 @@ data = {
     "sourceSha": source_sha,
     "sourceRepo": repo,
     "sourceBranch": branch,
+    "sourceRemoteUrl": remote_url,
+    "sourceRemoteRef": remote_ref,
 }
 for target in (receipt, pending):
     temporary = target + ".tmp"

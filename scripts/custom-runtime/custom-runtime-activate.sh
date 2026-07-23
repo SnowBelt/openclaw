@@ -7,20 +7,23 @@ releases_dir=${OPENCLAW_CUSTOM_RUNTIME_RELEASES:-"$HOME/.openclaw-runtime-releas
 plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
-managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh control-director-role-config.py copy_stage_state.py'
+managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-source-migrate.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh control-director-role-config.py copy_stage_state.py'
 
 usage() {
-  printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2
+  printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF [--source-remote-url URL --source-remote-ref REF]] [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2
   exit 64
 }
 
-release= source_sha= source_repo= source_branch= stage_port=18790 port=18789 enable_sig_background=false
+release= source_sha= source_repo= source_branch= source_remote_url= source_remote_ref=
+stage_port=18790 port=18789 enable_sig_background=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
     --source-sha) source_sha=${2:-}; shift 2 ;;
     --source-repo) source_repo=${2:-}; shift 2 ;;
     --source-branch) source_branch=${2:-}; shift 2 ;;
+    --source-remote-url) source_remote_url=${2:-}; shift 2 ;;
+    --source-remote-ref) source_remote_ref=${2:-}; shift 2 ;;
     --stage-port) stage_port=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
@@ -33,6 +36,9 @@ if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
   [ -n "$source_repo" ] && [ -n "$source_branch" ] || usage
   source_repo=$(cd "$source_repo" && pwd -P)
   case "$source_branch" in *[!A-Za-z0-9._/-]*|'') usage ;; esac
+fi
+if [ -n "$source_remote_url" ] || [ -n "$source_remote_ref" ]; then
+  [ -n "$source_repo" ] && [ -n "$source_remote_url" ] && [ -n "$source_remote_ref" ] || usage
 fi
 release=$(cd "$release" && pwd -P)
 releases_dir=$(cd "$releases_dir" && pwd -P)
@@ -65,10 +71,20 @@ stamp_file="$release/.openclaw-production-sha"
 
 mkdir -p "$runtime_home/backups" "$runtime_home/bin" "$runtime_home/locks" "$runtime_home/receipts"
 activation_lock="$runtime_home/locks/activation.lock"
+trap '' INT TERM
 if ! mkdir "$activation_lock" 2>/dev/null; then
   printf '%s\n' 'another custom-runtime activation is already active' >&2
   exit 75
 fi
+cleanup_activation_lock() {
+  exit_code=$?
+  trap - EXIT INT TERM
+  rmdir "$activation_lock" 2>/dev/null || true
+  exit "$exit_code"
+}
+trap cleanup_activation_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="$runtime_home/backups/control-plane-$stamp"
@@ -119,14 +135,14 @@ rollback_activation() {
 }
 
 cleanup() {
-  status=$?
+  exit_code=$?
   trap - EXIT INT TERM
-  if [ "$status" -ne 0 ] && [ "$control_installed" = true ] && \
+  if [ "$exit_code" -ne 0 ] && [ "$control_installed" = true ] && \
      [ "$committed" = false ] && [ "$rollback_attempted" = false ]; then
-    rollback_activation || status=1
+    rollback_activation || exit_code=1
   fi
   rmdir "$activation_lock" 2>/dev/null || true
-  exit "$status"
+  exit "$exit_code"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -151,13 +167,18 @@ set -- --release "$release" --source-sha "$source_sha"
 if [ -n "$source_repo" ]; then
   set -- "$@" --source-repo "$source_repo" --source-branch "$source_branch"
 fi
+if [ -n "$source_remote_url" ]; then
+  set -- "$@" --source-remote-url "$source_remote_url" --source-remote-ref "$source_remote_ref"
+fi
 if [ "$enable_sig_background" = true ]; then
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_CONTROL_PLANE="$backup" \
     "$runtime_home/bin/custom-runtime-promote.sh" \
     "$@" --port "$port" \
     --enable-sig-background || exit 1
 else
   OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$rollback_launcher" \
+    OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_CONTROL_PLANE="$backup" \
     "$runtime_home/bin/custom-runtime-promote.sh" \
     "$@" --port "$port" || exit 1
 fi
