@@ -4,6 +4,7 @@
 
 - Active-lineage repair branch: `codex/control-director-active-lineage-m62-m67-20260722`.
 - Active runtime base: `08f32c3f012894c108236add95b4d3af8b47eda5`.
+- Repository integration base: `codex/pcc-release-governor-runtime-merge-v1-20260721`; resolve its current immutable SHA from Git rather than copying one from this file.
 - Resolve the exact candidate with `git rev-parse HEAD`; do not trust a SHA copied into this document.
 - The historical implementation baseline remains recorded in `roadmap.json`.
 - The dirty root checkout is excluded from implementation, validation, activation, and evidence.
@@ -19,7 +20,7 @@ Source implementation, remote CI, managed runtime, Dashboard/device, model, rest
 
 - Formal roadmap pass: 4/68. M62-M65 have clean exact-source implementation and targeted-test evidence; the overall program remains incomplete until every milestone has exact-SHA evidence and the post-commit ledger exits zero.
 - Source implementation: M01-M67 present on the active runtime lineage. M25 defaults governed Codex work explicitly to `openai/gpt-5.6-sol`, preserves explicit user overrides, and uses preset effort by bounded work class. M61 retains the update-survival control plane. M62 adds sanitized deterministic reproduction for the six observed subagent orchestration incident classes. M63-M65 add validated task-root inheritance, executable worker discovery and recovery guidance, and one typed least-privilege handoff contract. M66 adds immutable deployment consistency without removing any active capability. M67 binds completion, blocker, worker, and task-root diagnostics to typed evidence.
-- Exact local source proof: `dc637772d3915eba534bfd0f7cf5a887e12eac5c` passed the M62 six-scenario baseline, deployment-consistency source gate, 399-file Control Director format gate, 79/79 instruction torture suite, 59-test chaos suite, 120-test M62-M67 targeted suite, custom-runtime capability contract, and PCC capability contract.
+- Local source gates passed before the clean rebase: the M62 six-scenario baseline, deployment-consistency source gate, 399-file Control Director format gate, 79/79 instruction torture suite, 59-test chaos suite, 120-test M62-M67 targeted suite, custom-runtime capability contract, and PCC capability contract. These results guide the repair but are not authoritative post-rebase evidence; rerun them and the broad source gate against the final clean `HEAD`.
 - Capability monotonicity: compared with active runtime base `08f32c3f012894c108236add95b4d3af8b47eda5`, the candidate removes no capability and adds only `runtime:control-director-deployment-consistency`.
 - Current phase: remote exact-SHA source verification, landing, managed activation/restart, and live acceptance.
 - Remaining proof: exact runtime lineage; desktop, tablet, and mobile Chat; local-model routing and latency; memory; delegation; Judge; queue/steer; Pursue Goal; restart recovery; rollback/restore; five-minute soak; landing; reactivation; final ledger.
