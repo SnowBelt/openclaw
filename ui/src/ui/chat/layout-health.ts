@@ -69,7 +69,7 @@ export function detectControlDirectorLayoutObstruction(
   if (snapshot.pccProjectionPresent) {
     return "pcc_projection_in_chat";
   }
-  if (snapshot.truthCompletionPresent) {
+  if (snapshot.truthCompletionObstructing ?? snapshot.truthCompletionPresent) {
     return "truth_completion_in_chat";
   }
   if (!snapshot.transcript.visible) {
@@ -104,6 +104,7 @@ export function measureControlDirectorChatLayout(
   }
   const transcript = chat.querySelector<HTMLElement>(".chat-thread");
   const composer = chat.querySelector<HTMLElement>(".agent-chat__input");
+  const truthCompletion = chat.querySelector<HTMLElement>("[data-control-director-diagnostics]");
   const textarea = composer?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
   const transcriptRect = transcript?.getBoundingClientRect();
   const composerRect = composer?.getBoundingClientRect();
@@ -120,7 +121,10 @@ export function measureControlDirectorChatLayout(
       visible: isVisible(composer) && isVisible(textarea),
       ...(composerRect ? { rect: rectSnapshot(composerRect) } : {}),
     },
-    truthCompletionPresent: Boolean(chat.querySelector("[data-control-director-diagnostics]")),
+    truthCompletionPresent: Boolean(truthCompletion),
+    truthCompletionObstructing: Boolean(
+      truthCompletion && !truthCompletion.closest(".chat-thread-inner"),
+    ),
     pccProjectionPresent: Boolean(chat.querySelector("[data-pcc-chat-sync]")),
   };
 }

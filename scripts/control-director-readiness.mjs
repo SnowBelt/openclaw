@@ -18,6 +18,7 @@ import {
   CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG,
   isConfiguredControlDirectorAgent,
 } from "../src/agents/control-director-role.ts";
+import { readPccUpdateSafety } from "../src/pcc/update-safety.ts";
 import { auditOperationalRoleCapabilityPolicy } from "./lib/control-director-role-capability-audit.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -181,6 +182,7 @@ export function collectControlDirectorActiveWiring() {
   const journeySignals = source("src/self-improvement/control-director-journeys.ts");
   const layoutHealth = source("ui/src/ui/chat/layout-health.ts");
   const appLifecycle = source("ui/src/ui/app-lifecycle.ts");
+  const gatewayMaintenance = source("src/gateway/server-maintenance.ts");
   const resourceRuntime = source("src/agents/control-director-resource-runtime.ts");
   const resourceAdmission = source("src/agents/control-director-resource-admission.ts");
   const modelWarmup = source("src/agents/control-director-model-warmup.ts");
@@ -195,7 +197,24 @@ export function collectControlDirectorActiveWiring() {
   const appMain = source("ui/src/main.ts");
   const appRender = source("ui/src/ui/app-render.ts");
   const pccSync = source("ui/src/ui/pcc-chat-sync.ts");
+  const customRuntimePromote = source("scripts/custom-runtime/custom-runtime-promote.sh");
+  const customRuntimeUpdater = source("scripts/custom-runtime/custom-runtime-updater.sh");
+  const customRuntimeUpdateApprove = source(
+    "scripts/custom-runtime/custom-runtime-update-approve.sh",
+  );
+  const customRuntimeUpdateSurvival = source(
+    "scripts/custom-runtime/custom-runtime-update-survival.ts",
+  );
   const packageJson = readJson(path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, "package.json"));
+  const capabilityManifest = readJson(
+    path.join(CONTROL_DIRECTOR_READINESS_REPO_ROOT, "config/custom-runtime-capabilities.json"),
+  );
+  const preservation = capabilityManifest.preservation;
+  const updateSafeCapability = Array.isArray(capabilityManifest.capabilities)
+    ? capabilityManifest.capabilities.find(
+        (capability) => capability?.id === "runtime:update-safe-customizations",
+      )
+    : undefined;
   return {
     turnPolicyAndPromptBudget: hasAll(replyRun, [
       "compileControlDirectorTurnPolicy",
@@ -236,6 +255,15 @@ export function collectControlDirectorActiveWiring() {
       taskServer.includes("buildControlDirectorRuntimeLineage") &&
       taskServer.includes("readGatewayRuntimeSnapshotProvenance"),
     sigClosureGovernance: selfImprovementServer.includes("evaluateControlDirectorJourneyClosure"),
+    sigBackgroundRuntime:
+      hasAll(gatewayMaintenance, [
+        "isSelfImprovementBackgroundEnabled",
+        "startSelfImprovementGovernorBackgroundTask",
+      ]) &&
+      hasAll(customRuntimePromote, [
+        "OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=1",
+        "sigBackgroundEnabled",
+      ]),
     typedJourneySignals:
       hasAll(journeySignals, [
         "silence_after_ack",
@@ -285,13 +313,53 @@ export function collectControlDirectorActiveWiring() {
     typedPccBoundary:
       !/milestone.*(?:complete|status).*regex/iu.test(pccSync) &&
       pccSync.includes("hasExplicitPlanEnvelope"),
+    updateSafeCustomizationLifecycle:
+      packageJson.scripts?.["custom-runtime:update-survival"] ===
+        "node --import tsx scripts/custom-runtime/custom-runtime-update-survival.ts" &&
+      capabilityManifest.schema === "openclaw.custom-runtime-capabilities.v2" &&
+      Number(capabilityManifest.version) >= 5 &&
+      preservation?.contractVersion === 2 &&
+      preservation?.sourceStrategy === "merge_from_active_sha" &&
+      preservation?.dashboardChangePolicy === "register_verify_and_block" &&
+      preservation?.approvalPolicy === "explicit_exact_candidate" &&
+      preservation?.proofCommand === "pnpm custom-runtime:update-survival" &&
+      Array.isArray(updateSafeCapability?.requiredPaths) &&
+      updateSafeCapability.requiredPaths.includes(
+        "scripts/custom-runtime/custom-runtime-update-survival.ts",
+      ) &&
+      hasAll(customRuntimeUpdater, [
+        "custom-runtime:update-survival",
+        "preservationProof",
+        "executedVerificationCommands",
+        "active_sha:config/custom-runtime-capabilities.json",
+      ]) &&
+      hasAll(customRuntimePromote, [
+        "ai.openclaw.custom-runtime.update-weekly.plist",
+        "install_update_scheduler",
+        "updateBrokerScheduled",
+        "ai.openclaw.custom-runtime.guard.plist",
+        "install_runtime_guard",
+        "runtimeGuardScheduled",
+      ]) &&
+      hasAll(customRuntimeUpdateApprove, [
+        "preservationProof",
+        "executedVerificationCommands",
+        "runtime:update-safe-customizations",
+      ]) &&
+      hasAll(customRuntimeUpdateSurvival, [
+        "merge_from_active_sha",
+        "register_verify_and_block",
+        "explicit_exact_candidate",
+      ]),
     acceptanceScripts:
       typeof packageJson.scripts?.["control-director:format-check"] === "string" &&
       typeof packageJson.scripts?.["control-director:torture"] === "string" &&
       typeof packageJson.scripts?.["control-director:chaos"] === "string" &&
       typeof packageJson.scripts?.["control-director:readiness"] === "string" &&
       typeof packageJson.scripts?.["control-director:runtime-proof"] === "string" &&
-      typeof packageJson.scripts?.["control-director:verify"] === "string",
+      typeof packageJson.scripts?.["control-director:roadmap-proof"] === "string" &&
+      typeof packageJson.scripts?.["control-director:verify"] === "string" &&
+      typeof packageJson.scripts?.["custom-runtime:update-survival"] === "string",
   };
 }
 
@@ -475,6 +543,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     memoryHealthProjection: "Memory freshness and provenance are projected by execution state",
     runtimeLineage: "Runtime lineage is projected by the canonical execution-state RPC",
     sigClosureGovernance: "SIG Control Director closure governance has a production caller",
+    sigBackgroundRuntime: "Managed SIG background processing has an explicit production path",
     typedJourneySignals: "Every typed Control Director journey signal has a production observer",
     independentJudge: "Independent Judge execution and signed-receipt verification are wired",
     durableMailboxAndEvents: "Durable mailbox and typed execution events have production callers",
@@ -483,7 +552,10 @@ export function buildControlDirectorReadinessScorecard(params) {
     serverOwnedTurnInbox: "The server-owned mutable turn inbox is wired to Gateway lifecycle",
     singleProductionChat: "One production Chat stack owns the Dashboard entrypoint",
     typedPccBoundary: "Chat-to-PCC sync accepts explicit plan envelopes only",
-    acceptanceScripts: "Torture, chaos, and readiness gates are repository commands",
+    updateSafeCustomizationLifecycle:
+      "Update-safe customization lifecycle is manifest-driven and proof-bound",
+    acceptanceScripts:
+      "Torture, chaos, readiness, runtime, and roadmap gates are repository commands",
   })) {
     facts.push(fact(`wiring-${key}`, label, wiring[key] === true));
   }
@@ -504,6 +576,14 @@ export function buildControlDirectorReadinessScorecard(params) {
   );
   facts.push(
     fact(
+      "runtime-proof-contract",
+      "Managed runtime proof uses the SIG-enabled exact-runtime contract",
+      runtime?.schemaVersion === 2 && runtime?.sigBackgroundEnabled === true,
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
       "runtime-lineage",
       "Managed runtime reports ready exact lineage",
       runtime?.lineage?.status === "ready" &&
@@ -512,6 +592,31 @@ export function buildControlDirectorReadinessScorecard(params) {
         runtime.lineage.canary?.sourceSha === sourceSha &&
         runtime.lineage.canary?.uiBuildId === runtime.lineage.artifactHash &&
         /^[a-f0-9]{64}$/u.test(runtime?.artifacts?.lineage?.sha256 ?? ""),
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-sig-background",
+      "Managed SIG background processing is explicitly enabled",
+      runtime?.sigBackgroundEnabled === true,
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-update-broker",
+      "Prepare-only custom-runtime update broker is installed and scheduled",
+      params.updateSafety?.status === "protected" && params.updateSafety?.brokerConfigured === true,
+      runtimeSurface,
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-recovery-guard",
+      "Custom-runtime recovery guard is installed and scheduled",
+      params.updateSafety?.status === "protected" &&
+        params.updateSafety?.runtimeGuardConfigured === true,
       runtimeSurface,
     ),
   );
@@ -576,6 +681,17 @@ export function buildControlDirectorReadinessScorecard(params) {
     desktop: "Desktop Dashboard keeps transcript and composer visible",
     tablet: "Tablet Dashboard keeps transcript and composer visible",
     mobile: "Mobile Dashboard keeps transcript and composer visible",
+    localModelRouting: "Local model routing is exact and evidence-backed",
+    localModelLatency: "Local model latency meets the accepted runtime threshold",
+    memory: "Recent and durable memory retrieval is evidence-backed",
+    delegation: "Control Director delegation completes through a real worker",
+    judge: "The independent Judge signs an evidence-backed verdict",
+    sig: "The Self-Improvement Governor records typed runtime evidence",
+    pcc: "PCC state stays consistent with the managed orchestration run",
+    queue: "Queued turns are accepted and processed in order",
+    steer: "Steering changes the active run without losing work",
+    cancel: "Cancellation stops active work and clears stale running state",
+    pursueGoal: "Pursue Goal continues, resumes, and stops through live control",
     restartRecovery: "Gateway restart recovers goals and pending turns",
     rollback: "Rollback drill restores the prior verified runtime",
     liveDiagnostic: "A safe live Control Director diagnostic produced a usable final response",
@@ -608,6 +724,7 @@ export function buildControlDirectorReadinessScorecard(params) {
   const passed = facts.filter((entry) => entry.passed).length;
   return {
     schemaVersion: 2,
+    generatedAt: params.generatedAt ?? new Date().toISOString(),
     sourceSha,
     expectedSha,
     agentId,
@@ -755,6 +872,7 @@ async function main() {
     ollamaModelBases,
     ollamaEnv,
     ollamaChatSmoke,
+    updateSafety: args.sourceOnly ? undefined : readPccUpdateSafety(),
     sourceOnly: args.sourceOnly,
   });
   if (args.json) {

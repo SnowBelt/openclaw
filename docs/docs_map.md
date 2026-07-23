@@ -102,6 +102,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Source of truth
   - H2: Durable source requirement
   - H2: Prepare, review, approve
+  - H2: Dashboard customization rule
   - H2: Project Command Center status
   - H2: Primary Tailnet route continuity
   - H2: Recovery
@@ -2468,6 +2469,8 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /concepts/control-director
 - Headings:
   - H2: Responsibility boundaries
+  - H3: Executable delegation handoffs
+  - H3: Evidence-bound diagnostics
   - H2: Responsive Chat contract
   - H3: Queue and steer
   - H2: Pursue Goal

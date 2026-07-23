@@ -10,6 +10,10 @@ env_file=${OPENCLAW_GATEWAY_ENV_FILE:-"$HOME/.openclaw-director-state/service-en
 config_path=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 state_dir=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
+update_label=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_LABEL:-ai.openclaw.custom-runtime.update-weekly}
+update_plist=${OPENCLAW_CUSTOM_RUNTIME_UPDATE_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.custom-runtime.update-weekly.plist"}
+guard_label=${OPENCLAW_CUSTOM_RUNTIME_GUARD_LABEL:-ai.openclaw.custom-runtime.guard}
+guard_plist=${OPENCLAW_CUSTOM_RUNTIME_GUARD_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.custom-runtime.guard.plist"}
 uid=$(id -u)
 launcher="$runtime_home/bin/custom-runtime-launcher.sh"
 desired_plist="$runtime_home/ai.openclaw.gateway.desired.plist"
@@ -60,6 +64,10 @@ manifest="$release/dist/control-ui/dashboard-surfaces.json"
 [ -f "$manifest" ] || { printf '%s\n' 'release surface manifest is missing' >&2; exit 64; }
 capability_manifest="$release/config/custom-runtime-capabilities.json"
 [ -f "$capability_manifest" ] || { printf '%s\n' 'release capability manifest is missing' >&2; exit 64; }
+update_plist_source="$release/scripts/custom-runtime/ai.openclaw.custom-runtime.update-weekly.plist"
+[ -f "$update_plist_source" ] || { printf '%s\n' 'release update scheduler definition is missing' >&2; exit 64; }
+guard_plist_source="$release/scripts/custom-runtime/ai.openclaw.custom-runtime.guard.plist"
+[ -f "$guard_plist_source" ] || { printf '%s\n' 'release runtime guard definition is missing' >&2; exit 64; }
 stamp_file="$release/.openclaw-production-sha"
 [ -f "$stamp_file" ] || {
   printf '%s\n' 'release source stamp is missing' >&2
@@ -126,9 +134,29 @@ previous_pointer="$runtime_home/active-runtime.json"
 pointer_backup="$runtime_home/backups/active-runtime.$timestamp.json"
 plist_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.plist"
 env_backup="$runtime_home/backups/ai.openclaw.gateway.$timestamp.env"
+update_plist_backup="$runtime_home/backups/ai.openclaw.custom-runtime.update-weekly.$timestamp.plist"
+update_plist_existed=false
+update_scheduler_was_loaded=false
+guard_plist_backup="$runtime_home/backups/ai.openclaw.custom-runtime.guard.$timestamp.plist"
+guard_plist_existed=false
+guard_scheduler_was_loaded=false
 [ -f "$previous_pointer" ] && cp -p "$previous_pointer" "$pointer_backup" || :
 cp -p "$plist" "$plist_backup"
 cp -p "$env_file" "$env_backup"
+if [ -f "$update_plist" ]; then
+  cp -p "$update_plist" "$update_plist_backup"
+  update_plist_existed=true
+fi
+if launchctl print "gui/$uid/$update_label" >/dev/null 2>&1; then
+  update_scheduler_was_loaded=true
+fi
+if [ -f "$guard_plist" ]; then
+  cp -p "$guard_plist" "$guard_plist_backup"
+  guard_plist_existed=true
+fi
+if launchctl print "gui/$uid/$guard_label" >/dev/null 2>&1; then
+  guard_scheduler_was_loaded=true
+fi
 
 rollback_bundle=
 rollback_manifest_sha=
@@ -235,7 +263,7 @@ if schema not in ("openclaw.custom-runtime-capabilities.v1", "openclaw.custom-ru
     raise SystemExit("release capability manifest schema is invalid")
 if schema == "openclaw.custom-runtime-capabilities.v2":
     preservation = capability_data.get("preservation")
-    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 1 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer":
+    if not isinstance(preservation, dict) or preservation.get("contractVersion") != 2 or preservation.get("criticality") != "required" or preservation.get("migrationPolicy") != "preserve_or_block" or preservation.get("rollbackPolicy") != "immutable_release_pointer" or preservation.get("sourceStrategy") != "merge_from_active_sha" or preservation.get("dashboardChangePolicy") != "register_verify_and_block" or preservation.get("approvalPolicy") != "explicit_exact_candidate" or preservation.get("proofCommand") != "pnpm custom-runtime:update-survival":
         raise SystemExit("release preservation contract is invalid")
 raw_capabilities = capability_data.get("capabilities")
 if not isinstance(raw_capabilities, list):
@@ -311,6 +339,36 @@ restore() {
     sleep 2
   done
   if [ "$rollback_ok" = true ] && "$launcher" --verify >/dev/null 2>&1; then
+    launchctl bootout "gui/$uid/$update_label" 2>/dev/null || true
+    for _ in $(seq 1 15); do
+      launchctl print "gui/$uid/$update_label" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    if [ "$update_plist_existed" = true ]; then
+      cp -p "$update_plist_backup" "$update_plist"
+      if [ "$update_scheduler_was_loaded" = true ] && \
+         ! launchctl bootstrap "gui/$uid" "$update_plist"; then
+        printf '{"at":"%s","result":"rollback_update_scheduler_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+        return 1
+      fi
+    else
+      rm -f "$update_plist"
+    fi
+    launchctl bootout "gui/$uid/$guard_label" 2>/dev/null || true
+    for _ in $(seq 1 15); do
+      launchctl print "gui/$uid/$guard_label" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    if [ "$guard_plist_existed" = true ]; then
+      cp -p "$guard_plist_backup" "$guard_plist"
+      if [ "$guard_scheduler_was_loaded" = true ] && \
+         ! launchctl bootstrap "gui/$uid" "$guard_plist"; then
+        printf '{"at":"%s","result":"rollback_runtime_guard_failed"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
+        return 1
+      fi
+    else
+      rm -f "$guard_plist"
+    fi
     promotion_applied=false
     printf '{"at":"%s","result":"rolled_back_verified"}\n' "$timestamp" > "$runtime_home/receipts/promotion-$timestamp.json"
   else
@@ -323,6 +381,69 @@ fail_promotion() {
   record_failure "$1" "${2:-}"
   restore || exit 1
   exit 1
+}
+
+install_update_scheduler() {
+  mkdir -p "$(dirname "$update_plist")" "$HOME/Library/Logs/openclaw"
+  if ! python3 - "$update_plist_source" "$update_plist.tmp" "$update_label" \
+    "$runtime_home/bin/custom-runtime-updater.sh" "$HOME/Library/Logs/openclaw" <<'PY'
+import os
+import plistlib
+import sys
+
+source, target, label, updater, logs = sys.argv[1:]
+with open(source, "rb") as f:
+    data = plistlib.load(f)
+data["Label"] = label
+data["ProgramArguments"] = [updater]
+data["StandardOutPath"] = os.path.join(logs, "custom-runtime-update.log")
+data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-update-error.log")
+with open(target, "wb") as f:
+    plistlib.dump(data, f, sort_keys=False)
+os.chmod(target, 0o600)
+PY
+  then
+    return 1
+  fi
+  mv "$update_plist.tmp" "$update_plist" || return 1
+  launchctl bootout "gui/$uid/$update_label" 2>/dev/null || true
+  for _ in $(seq 1 15); do
+    launchctl print "gui/$uid/$update_label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  launchctl bootstrap "gui/$uid" "$update_plist"
+}
+
+install_runtime_guard() {
+  mkdir -p "$(dirname "$guard_plist")" "$HOME/Library/Logs/openclaw"
+  if ! python3 - "$guard_plist_source" "$guard_plist.tmp" "$guard_label" \
+    "$runtime_home/bin/custom-runtime-guard.sh" "$plist" "$HOME/Library/Logs/openclaw" <<'PY'
+import os
+import plistlib
+import sys
+
+source, target, label, guard, gateway_plist, logs = sys.argv[1:]
+with open(source, "rb") as f:
+    data = plistlib.load(f)
+data["Label"] = label
+data["ProgramArguments"] = [guard]
+data["WatchPaths"] = [gateway_plist]
+data["StandardOutPath"] = os.path.join(logs, "custom-runtime-guard.log")
+data["StandardErrorPath"] = os.path.join(logs, "custom-runtime-guard-error.log")
+with open(target, "wb") as f:
+    plistlib.dump(data, f, sort_keys=False)
+os.chmod(target, 0o600)
+PY
+  then
+    return 1
+  fi
+  mv "$guard_plist.tmp" "$guard_plist" || return 1
+  launchctl bootout "gui/$uid/$guard_label" 2>/dev/null || true
+  for _ in $(seq 1 15); do
+    launchctl print "gui/$uid/$guard_label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  launchctl bootstrap "gui/$uid" "$guard_plist"
 }
 
 promotion_applied=true
@@ -487,6 +608,14 @@ then
   fail_promotion self_improvement_contract
 fi
 rm -f "$self_improvement_summary"
+if ! install_update_scheduler; then
+  rm -f "$update_plist.tmp"
+  fail_promotion update_scheduler
+fi
+if ! install_runtime_guard; then
+  rm -f "$guard_plist.tmp"
+  fail_promotion runtime_guard
+fi
 if [ -n "$rollback_bundle" ]; then
   cp -p "$pointer_backup" "$runtime_home/last-known-good.json"
   rollback_pointer_tmp="$runtime_home/active-rollback.$$.json"
@@ -516,6 +645,6 @@ with open(target, "w", encoding="utf-8") as f:
 PY
   mv "$rollback_pointer_tmp" "$runtime_home/active-rollback.json"
 fi
-printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
+printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s,"updateBrokerScheduled":true,"runtimeGuardScheduled":true}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"
 promotion_committed=true

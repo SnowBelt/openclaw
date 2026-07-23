@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,21 @@ import { afterEach, describe, expect, it } from "vitest";
 const updater = path.resolve("scripts/custom-runtime/custom-runtime-updater.sh");
 const approve = path.resolve("scripts/custom-runtime/custom-runtime-update-approve.sh");
 const temporaryDirectories: string[] = [];
+const canonicalVerificationCommands = [
+  "pnpm check:custom-runtime-capabilities",
+  "pnpm check:pcc-capabilities",
+  "pnpm control-director:verify -- --expected-sha <candidate-sha>",
+  "pnpm check",
+  "pnpm ui:build",
+  "pnpm build",
+  "pnpm ui:smoke:dashboard --artifact-profile release --artifact-root .artifacts/custom-runtime-update",
+];
+
+function resolvedVerificationCommands(sourceSha: string): string[] {
+  return canonicalVerificationCommands.map((command) =>
+    command.replace("<candidate-sha>", sourceSha),
+  );
+}
 
 function root(prefix: string): string {
   const value = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -17,6 +33,49 @@ function root(prefix: string): string {
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value)}\n`);
+}
+
+function writePreservationProof(
+  runtimeHome: string,
+  baseSha: string,
+  sourceSha: string,
+  release: string,
+): { path: string; sha256: string; schema: string } {
+  const proofPath = path.join(runtimeHome, "receipts", "update-survival-test.json");
+  const officialSha = "e".repeat(40);
+  const manifestPath = path.join(release, "config", "custom-runtime-capabilities.json");
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  fs.writeFileSync(manifestPath, '{"schema":"openclaw.custom-runtime-capabilities.v2"}\n');
+  const manifestSha256 = createHash("sha256").update(fs.readFileSync(manifestPath)).digest("hex");
+  writeJson(proofPath, {
+    schema: "openclaw.custom-runtime-update-survival.v1",
+    mode: "candidate-merge",
+    sourceSha,
+    activeSha: baseSha,
+    officialSha,
+    candidateSha: sourceSha,
+    mergeParents: [baseSha, officialSha],
+    sourceClean: true,
+    contractVersion: 2,
+    sourceStrategy: "merge_from_active_sha",
+    dashboardChangePolicy: "register_verify_and_block",
+    approvalPolicy: "explicit_exact_candidate",
+    proofCommand: "pnpm custom-runtime:update-survival",
+    activeManifestVersion: 2,
+    candidateManifestVersion: 5,
+    requiredCapabilities: ["runtime:update-safe-customizations"],
+    requiredPathDigests: { "config/custom-runtime-capabilities.json": manifestSha256 },
+    verificationCommands: canonicalVerificationCommands,
+    executedVerificationCommands: resolvedVerificationCommands(sourceSha),
+    verificationResult: "passed",
+    verifiedAt: "2026-07-19T00:00:00.000Z",
+    passed: true,
+  });
+  return {
+    path: proofPath,
+    sha256: createHash("sha256").update(fs.readFileSync(proofPath)).digest("hex"),
+    schema: "openclaw.custom-runtime-update-survival.v1",
+  };
 }
 
 function latestUpdateReceipt(runtimeHome: string): Record<string, unknown> {
@@ -112,6 +171,7 @@ describe("custom runtime update broker", () => {
     const releases = path.join(base, "releases");
     const release = path.join(releases, "candidate");
     const marker = path.join(base, "activated.txt");
+    const sealMarker = path.join(base, "seal-verified.txt");
     const sourceRepo = path.join(base, "source");
     const sourceBranch = "codex/runtime-update-test";
     fs.mkdirSync(sourceRepo, { recursive: true });
@@ -141,8 +201,15 @@ describe("custom runtime update broker", () => {
       `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(marker)}\n`,
       { mode: 0o700 },
     );
+    fs.mkdirSync(path.join(runtimeHome, "bin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeHome, "bin", "custom-runtime-seal.sh"),
+      `#!/bin/sh\n[ "\${OPENCLAW_TEST_SEAL_FAIL:-0}" = 0 ] || exit 1\nprintf '%s\\n' "$@" > ${JSON.stringify(sealMarker)}\n`,
+      { mode: 0o700 },
+    );
     writeJson(path.join(runtimeHome, "active-runtime.json"), { sourceSha: "d".repeat(40) });
     const pending = path.join(runtimeHome, "pending-update.json");
+    let preservationProof = writePreservationProof(runtimeHome, baseSha, sourceSha, release);
     writeJson(pending, {
       schema: "openclaw.custom-runtime-update-candidate.v1",
       result: "ready_for_approval",
@@ -151,6 +218,9 @@ describe("custom runtime update broker", () => {
       sourceSha,
       sourceRepo,
       sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
     });
     let result = spawnSync(approve, [], {
       encoding: "utf8",
@@ -173,6 +243,9 @@ describe("custom runtime update broker", () => {
       sourceSha,
       sourceRepo,
       sourceBranch: "codex/stale",
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
     });
     result = spawnSync(approve, [], {
       encoding: "utf8",
@@ -194,6 +267,101 @@ describe("custom runtime update broker", () => {
       sourceSha,
       sourceRepo,
       sourceBranch,
+      preservationProof,
+      verificationCommands: [],
+      verificationResult: "passed",
+    });
+    result = spawnSync(approve, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("preservation verification ledger is invalid");
+    expect(fs.existsSync(marker)).toBe(false);
+
+    fs.appendFileSync(preservationProof.path, "tampered\n");
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
+    });
+    result = spawnSync(approve, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("preservation proof digest changed");
+    expect(fs.existsSync(marker)).toBe(false);
+
+    preservationProof = writePreservationProof(runtimeHome, baseSha, sourceSha, release);
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
+    });
+    result = spawnSync(approve, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+        OPENCLAW_TEST_SEAL_FAIL: "1",
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("immutable release seal verification failed");
+    expect(fs.existsSync(marker)).toBe(false);
+
+    fs.appendFileSync(
+      path.join(release, "config", "custom-runtime-capabilities.json"),
+      "tampered\n",
+    );
+    result = spawnSync(approve, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+        OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases,
+      },
+    });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("changed a preservation-bound path");
+    expect(fs.existsSync(marker)).toBe(false);
+
+    preservationProof = writePreservationProof(runtimeHome, baseSha, sourceSha, release);
+    writeJson(pending, {
+      schema: "openclaw.custom-runtime-update-candidate.v1",
+      result: "ready_for_approval",
+      release,
+      baseSha,
+      sourceSha,
+      sourceRepo,
+      sourceBranch,
+      preservationProof,
+      verificationCommands: resolvedVerificationCommands(sourceSha),
+      verificationResult: "passed",
     });
     result = spawnSync(approve, [], {
       encoding: "utf8",
@@ -206,10 +374,17 @@ describe("custom runtime update broker", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(fs.readFileSync(marker, "utf8")).toContain("--source-sha");
     expect(fs.readFileSync(marker, "utf8")).toContain(sourceBranch);
+    expect(fs.readFileSync(sealMarker, "utf8")).toContain("--verify");
     expect(fs.existsSync(pending)).toBe(false);
     const approval = fs
       .readdirSync(path.join(runtimeHome, "receipts"))
       .find((name) => name.startsWith("update-approval-"));
     expect(approval).toBeTruthy();
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, "receipts", approval!), "utf8")) as Record<
+        string,
+        unknown
+      >,
+    ).toMatchObject({ preservationProof });
   });
 });

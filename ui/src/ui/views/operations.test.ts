@@ -6,7 +6,7 @@ import type { OperationsSnapshot } from "../types.ts";
 import {
   createOperationsTestSnapshot,
   OPERATIONS_RAW_PROMPT_SENTINEL,
-} from "./operations.test-fixture.ts";
+} from "./operations.fixture.ts";
 import { renderOperations, type OperationsProps } from "./operations.ts";
 
 function props(overrides: Partial<OperationsProps> = {}): OperationsProps {

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { CONTROL_DIRECTOR_UX_SLOS } from "../src/agents/control-director-slos.js";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const MINIMUM_SOAK_MS = 300_000;
@@ -12,6 +13,17 @@ const SURFACES = [
   "desktop",
   "tablet",
   "mobile",
+  "localModelRouting",
+  "localModelLatency",
+  "memory",
+  "delegation",
+  "judge",
+  "sig",
+  "pcc",
+  "queue",
+  "steer",
+  "cancel",
+  "pursueGoal",
   "restartRecovery",
   "soak",
   "rollback",
@@ -48,6 +60,166 @@ function exactSha(value: unknown, expected: string, label: string): void {
   }
 }
 
+function requiredString(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label} requires a non-empty string.`);
+  }
+  return value.trim();
+}
+
+function requiredTrue(value: unknown, label: string): void {
+  if (value !== true) {
+    throw new Error(`${label} must be true.`);
+  }
+}
+
+function finiteNonNegative(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} requires a non-negative finite number.`);
+  }
+  return value;
+}
+
+function validateLatencySample(
+  value: unknown,
+  label: string,
+  substantiveResponseLimitMs: number,
+): void {
+  const sample = object(value, label);
+  const measurements = [
+    ["ackMs", CONTROL_DIRECTOR_UX_SLOS.ackMs],
+    ["firstActivityMs", CONTROL_DIRECTOR_UX_SLOS.firstActivityMs],
+    ["maximumActivityGapMs", CONTROL_DIRECTOR_UX_SLOS.activityHeartbeatMs],
+    ["cancelAckMs", CONTROL_DIRECTOR_UX_SLOS.cancelAckMs],
+    ["substantiveResponseMs", substantiveResponseLimitMs],
+  ] as const;
+  for (const [field, limit] of measurements) {
+    const observed = finiteNonNegative(sample[field], `${label}.${field}`);
+    if (observed > limit) {
+      throw new Error(`${label}.${field} exceeds the ${limit}ms Control Director SLO.`);
+    }
+  }
+}
+
+function validateSurfaceContract(surface: Surface, value: JsonObject): void {
+  switch (surface) {
+    case "desktop":
+    case "tablet":
+    case "mobile": {
+      const viewport = object(value.viewport, `${surface}.viewport`);
+      if (
+        finiteNonNegative(viewport.width, `${surface}.viewport.width`) <= 0 ||
+        finiteNonNegative(viewport.height, `${surface}.viewport.height`) <= 0
+      ) {
+        throw new Error(`${surface} viewport dimensions must be positive.`);
+      }
+      requiredTrue(value.transcriptVisible, `${surface}.transcriptVisible`);
+      requiredTrue(value.composerVisible, `${surface}.composerVisible`);
+      requiredTrue(value.pccOverlapFree, `${surface}.pccOverlapFree`);
+      requiredTrue(value.truthCompletionOverlapFree, `${surface}.truthCompletionOverlapFree`);
+      return;
+    }
+    case "localModelRouting":
+      if (value.route !== "local") {
+        throw new Error("localModelRouting.route must be local.");
+      }
+      requiredString(value.modelRef, "localModelRouting.modelRef");
+      if (finiteNonNegative(value.qualityScore, "localModelRouting.qualityScore") < 93) {
+        throw new Error("localModelRouting.qualityScore must be at least 93.");
+      }
+      return;
+    case "localModelLatency":
+      validateLatencySample(
+        value.cold,
+        "localModelLatency.cold",
+        CONTROL_DIRECTOR_UX_SLOS.coldSubstantiveResponseMs,
+      );
+      validateLatencySample(
+        value.warm,
+        "localModelLatency.warm",
+        CONTROL_DIRECTOR_UX_SLOS.warmSubstantiveResponseMs,
+      );
+      return;
+    case "memory":
+      if (finiteNonNegative(value.recentRecallTopK, "memory.recentRecallTopK") < 3) {
+        throw new Error("memory.recentRecallTopK must be at least 3.");
+      }
+      requiredTrue(value.recallPassed, "memory.recallPassed");
+      requiredTrue(value.provenanceVerified, "memory.provenanceVerified");
+      return;
+    case "delegation":
+      requiredString(value.controlDirectorRunId, "delegation.controlDirectorRunId");
+      requiredString(value.programManagerRunId, "delegation.programManagerRunId");
+      requiredString(value.workerRunId, "delegation.workerRunId");
+      requiredTrue(value.taskRootVerified, "delegation.taskRootVerified");
+      requiredTrue(value.handoffVerified, "delegation.handoffVerified");
+      return;
+    case "judge":
+      requiredString(value.receiptId, "judge.receiptId");
+      requiredTrue(value.independent, "judge.independent");
+      requiredTrue(value.signatureVerified, "judge.signatureVerified");
+      requiredTrue(value.claimBound, "judge.claimBound");
+      return;
+    case "sig":
+      requiredString(value.auditEventId, "sig.auditEventId");
+      requiredTrue(value.ingested, "sig.ingested");
+      requiredTrue(value.routed, "sig.routed");
+      requiredTrue(value.backgroundEnabled, "sig.backgroundEnabled");
+      return;
+    case "pcc":
+      requiredString(value.projectId, "pcc.projectId");
+      requiredTrue(value.stateConsistent, "pcc.stateConsistent");
+      requiredTrue(value.evidenceProjectionVerified, "pcc.evidenceProjectionVerified");
+      return;
+    case "queue":
+      requiredString(value.queuedTurnId, "queue.queuedTurnId");
+      requiredTrue(value.accepted, "queue.accepted");
+      requiredTrue(value.processed, "queue.processed");
+      requiredTrue(value.orderPreserved, "queue.orderPreserved");
+      return;
+    case "steer":
+      requiredString(value.steerTurnId, "steer.steerTurnId");
+      requiredTrue(value.accepted, "steer.accepted");
+      requiredTrue(value.applied, "steer.applied");
+      requiredTrue(value.activeRunPreserved, "steer.activeRunPreserved");
+      return;
+    case "cancel":
+      requiredString(value.cancelId, "cancel.cancelId");
+      requiredTrue(value.accepted, "cancel.accepted");
+      requiredTrue(value.workStopped, "cancel.workStopped");
+      requiredTrue(value.staleRunningCleared, "cancel.staleRunningCleared");
+      return;
+    case "pursueGoal":
+      requiredString(value.goalId, "pursueGoal.goalId");
+      requiredTrue(value.leaseObserved, "pursueGoal.leaseObserved");
+      requiredTrue(value.progressObserved, "pursueGoal.progressObserved");
+      requiredTrue(value.resumeVerified, "pursueGoal.resumeVerified");
+      requiredTrue(value.stopVerified, "pursueGoal.stopVerified");
+      return;
+    case "restartRecovery":
+      requiredString(value.restartId, "restartRecovery.restartId");
+      requiredTrue(value.serviceHealthy, "restartRecovery.serviceHealthy");
+      requiredTrue(value.goalRecovered, "restartRecovery.goalRecovered");
+      requiredTrue(value.pendingTurnsRecovered, "restartRecovery.pendingTurnsRecovered");
+      return;
+    case "rollback":
+      if (typeof value.rollbackSha !== "string" || !SHA_PATTERN.test(value.rollbackSha)) {
+        throw new Error("rollback.rollbackSha must be an immutable 40-character SHA.");
+      }
+      requiredTrue(value.restored, "rollback.restored");
+      requiredTrue(value.serviceHealthy, "rollback.serviceHealthy");
+      return;
+    case "liveDiagnostic":
+      requiredString(value.sessionId, "liveDiagnostic.sessionId");
+      requiredTrue(value.ackObserved, "liveDiagnostic.ackObserved");
+      requiredTrue(value.activityObserved, "liveDiagnostic.activityObserved");
+      requiredTrue(value.finalResponseReceived, "liveDiagnostic.finalResponseReceived");
+      break;
+    case "soak":
+      break;
+  }
+}
+
 function validateSurface(surface: Surface, value: JsonObject, sourceSha: string): void {
   if (value.passed !== true) {
     throw new Error(`${surface} evidence has not passed.`);
@@ -59,6 +231,7 @@ function validateSurface(surface: Surface, value: JsonObject, sourceSha: string)
   if (strings(value.evidenceRefs).length === 0) {
     throw new Error(`${surface} evidence requires at least one evidenceRef.`);
   }
+  validateSurfaceContract(surface, value);
   if (surface === "soak") {
     const durationMs = typeof value.durationMs === "number" ? value.durationMs : 0;
     if (durationMs < MINIMUM_SOAK_MS) {
@@ -89,6 +262,11 @@ export function buildControlDirectorRuntimeProof(params: {
   if (!SHA_PATTERN.test(sourceSha)) {
     throw new Error("sourceSha must be an immutable 40-character SHA.");
   }
+  const generatedAt = params.generatedAt ?? new Date().toISOString();
+  const generatedAtMs = Date.parse(generatedAt);
+  if (!Number.isFinite(generatedAtMs)) {
+    throw new Error("generatedAt must be a valid timestamp.");
+  }
   if (params.lineageReceipt.passed !== true) {
     throw new Error("lineage evidence has not passed.");
   }
@@ -98,6 +276,9 @@ export function buildControlDirectorRuntimeProof(params: {
     !Number.isFinite(Date.parse(params.lineageReceipt.checkedAt))
   ) {
     throw new Error("lineage evidence requires a valid checkedAt timestamp.");
+  }
+  if (Date.parse(params.lineageReceipt.checkedAt as string) > generatedAtMs) {
+    throw new Error("lineage evidence cannot postdate generatedAt.");
   }
   if (strings(params.lineageReceipt.evidenceRefs).length === 0) {
     throw new Error("lineage evidence requires at least one evidenceRef.");
@@ -111,6 +292,13 @@ export function buildControlDirectorRuntimeProof(params: {
   }
   exactSha(params.modelEval.sourceSha, sourceSha, "modelEval");
   if (
+    typeof params.modelEval.evaluatedAt !== "string" ||
+    !Number.isFinite(Date.parse(params.modelEval.evaluatedAt)) ||
+    Date.parse(params.modelEval.evaluatedAt) > generatedAtMs
+  ) {
+    throw new Error("model evaluation requires an evaluatedAt timestamp at or before generatedAt.");
+  }
+  if (
     params.modelEval.passRate !== 100 ||
     params.modelEval.criticalOmissions !== 0 ||
     params.modelEval.coveragePassed !== true
@@ -121,12 +309,20 @@ export function buildControlDirectorRuntimeProof(params: {
   }
   for (const surface of SURFACES) {
     validateSurface(surface, params.surfaces[surface], sourceSha);
+    if (Date.parse(params.surfaces[surface].checkedAt as string) > generatedAtMs) {
+      throw new Error(`${surface} evidence cannot postdate generatedAt.`);
+    }
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha,
-    generatedAt: params.generatedAt ?? new Date().toISOString(),
-    lineage,
+    generatedAt,
+    sigBackgroundEnabled: params.surfaces.sig.backgroundEnabled,
+    lineage: {
+      ...lineage,
+      checkedAt: params.lineageReceipt.checkedAt,
+      evidenceRefs: strings(params.lineageReceipt.evidenceRefs),
+    },
     modelEval: params.modelEval,
     ...params.surfaces,
     artifacts: params.artifacts ?? {},

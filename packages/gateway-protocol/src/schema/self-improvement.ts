@@ -192,6 +192,7 @@ export const ControlDirectorLayoutObservationReportParamsSchema = Type.Object(
     transcript: ControlDirectorLayoutElementSchema,
     composer: ControlDirectorLayoutElementSchema,
     truthCompletionPresent: Type.Boolean(),
+    truthCompletionObstructing: Type.Optional(Type.Boolean()),
     pccProjectionPresent: Type.Boolean(),
     reason: ControlDirectorLayoutObstructionReasonSchema,
   },

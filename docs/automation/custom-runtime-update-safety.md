@@ -24,6 +24,10 @@ When an immutable custom runtime is active, normal `update.run` requests are rej
 - required criticality,
 - preserve-or-block migration policy,
 - immutable-pointer rollback policy,
+- exact-active-SHA merge strategy,
+- register-verify-and-block Dashboard policy,
+- explicit exact-candidate approval,
+- the canonical update-survival proof command,
 - deterministic verification commands,
 - a matching owner, tests, proof surfaces, observability, upgrade impact, rollback, and documentation entry in `src/pcc/capability-addition-registry.ts`.
 
@@ -32,9 +36,20 @@ Both files are checked by:
 ```bash
 pnpm check:custom-runtime-capabilities
 pnpm check:pcc-capabilities
+pnpm custom-runtime:update-survival
 ```
 
-Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries fails the build. A candidate may add requirements. It cannot silently remove an active requirement.
+Adding a dashboard, plugin, workflow, skill, model policy, runtime feature, or update control without updating both registries and its executable preservation proof fails the build. Every tracked file under `scripts/custom-runtime/` must have an explicit capability owner, so a new control-plane file cannot silently fall outside the cumulative digest-bound inventory. A candidate may add requirements. It cannot silently remove an active capability identity or required path.
+
+Control Director deployment consistency is a separate exact-runtime gate. Its registered capability binds the required reliability skill, bundled plugin manifests, role and prompt contracts, Workflow Sanity definition, managed lifecycle helpers, and both customization inventories. Source verification runs as part of `control-director:verify`. Production verification must run after managed restart and consume that restart's receipt:
+
+```bash
+pnpm control-director:deployment-consistency -- \
+  --expected-sha <exact-sha> \
+  --restart-receipt <restart-receipt.json>
+```
+
+The live gate fails closed unless every registered file in the immutable release is byte-identical to the exact source, bundled app plugin manifests exist, the active pointer and capability manifest hashes agree, the managed launcher verifies, and Gateway, the prepare-only weekly broker, and the recovery guard are loaded. Its receipt contains hashes and boolean service results, not configuration or secret values.
 
 ## Durable source requirement
 
@@ -56,7 +71,7 @@ The scheduled broker only prepares a candidate:
 custom-runtime-updater.sh --prepare
 ```
 
-It fetches the selected official stable release, merges it onto the exact active custom commit on a dedicated candidate branch, runs the complete check/build/test/browser surface, constructs an immutable release, and writes a `ready_for_approval` receipt. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
+Managed promotion installs and loads `ai.openclaw.custom-runtime.update-weekly` and `ai.openclaw.custom-runtime.guard` from the promoted release. The update LaunchAgent runs the prepare-only broker every Sunday at 03:30 local time. The guard watches the managed Gateway definition and periodically verifies runtime health; it defers rather than restarting when the required Keychain secret is unavailable. Promotion renders both LaunchAgents with the active user's portable paths instead of retaining machine-specific source paths. The broker fetches the selected official stable release and creates an exact two-parent merge on a dedicated candidate branch: parent one is the exact active custom commit and parent two is the selected official commit. It proves that ancestry, checks the cumulative capability/path inventory, digest-binds every required candidate path, then runs the ordered verification commands from the preservation manifest. It constructs an immutable release and writes a `ready_for_approval` receipt that binds the update-survival proof by SHA-256. It does not change the live runtime. The receipt names that exact candidate branch so an approved runtime remains the durable base for the following update cycle.
 
 After reviewing the receipt, an operator approves that exact candidate:
 
@@ -64,7 +79,11 @@ After reviewing the receipt, an operator approves that exact candidate:
 custom-runtime-update-approve.sh --receipt /path/to/update-receipt.json
 ```
 
-Approval fails if the active runtime changed after preparation, the release moved outside the immutable release root, or the source stamp changed. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
+Approval fails if the active runtime changed after preparation, the preservation proof or digest changed, any preservation-bound release path is missing, unsafe, or no longer matches its proof digest, the proof names another candidate or parent pair, the release moved outside the immutable release root, the active runtime's trusted seal verifier finds any writable release file or directory, or the source stamp changed. The broker also rechecks that the verified candidate source remains clean immediately before snapshotting it. A successful approval reuses staging, health, route, WebSocket, RPC, capability, and rollback gates before atomic promotion. Staging starts the previous runtime against the candidate-migrated copied state before promotion, so a state migration that would make rollback unreadable is rejected without touching live state.
+
+## Dashboard customization rule
+
+Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, desktop/tablet/mobile acceptance, restart recovery, rollback-and-restore, and soak remain separate truth surfaces.
 
 ## Project Command Center status
 
@@ -72,7 +91,8 @@ The PCC Update Safety card reports:
 
 - whether normal updates are blocked,
 - whether source identity is durable,
-- whether the scheduled broker and approval command are installed,
+- whether the prepare-only broker and approval command are installed and its weekly LaunchAgent is loaded,
+- whether the managed runtime recovery guard is installed and its LaunchAgent is loaded,
 - whether a candidate is waiting for approval,
 - the active release, source branch, and latest update receipt,
 - exact protection gaps that must be resolved before an update.
@@ -99,9 +119,11 @@ Inspect the configured primary route without repairing it:
 
 The command exits nonzero when the configured service definition, node health, or persistent Serve target is not ready.
 
+Control Director production readiness independently calls the same status reader and fails when either the prepare-only broker or runtime recovery guard is missing or its LaunchAgent is not loaded. This prevents source-only control-plane claims from satisfying M61.
+
 ## Recovery
 
-Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, or RPC proof restores the prior control plane. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
+Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, RPC, update-scheduler installation, or recovery-guard installation restores the prior control plane and the prior loaded/unloaded state of both auxiliary LaunchAgents. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
 
 Never delete the previous immutable release or rollback bundle until the new runtime passes restart, desktop browser, mobile browser, and bounded soak proof.
 

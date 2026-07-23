@@ -110,12 +110,32 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     owner: "Project Command Center",
   },
   {
+    id: "runtime:control-director-deployment-consistency",
+    kind: "runtime",
+    owner: "Control Director and custom runtime update broker",
+    tests: [
+      "test/scripts/control-director-deployment-consistency.test.ts",
+      "test/scripts/control-director-verify.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+    ],
+    proofSurfaces: [
+      "pnpm control-director:deployment-consistency -- --source-only",
+      "exact-SHA post-restart deployment consistency receipt",
+    ],
+  },
+  {
     id: "runtime:control-director-truth-gates",
     kind: "runtime",
     owner: "Control Director",
     tests: [
+      "src/agents/agent-role-capabilities.test.ts",
+      "src/agents/control-director-diagnostic-evidence.test.ts",
       "src/agents/control-director-delivery-guards.test.ts",
       "src/agents/independent-judge-service.test.ts",
+      "src/agents/subagent-spawn-recovery.test.ts",
+      "src/agents/subagent-task-root.test.ts",
+      "src/agents/tools/agents-list-tool.test.ts",
+      "src/agents/tools/sessions-spawn-tool.test.ts",
       "src/tasks/pursue-goal-controller.test.ts",
       "src/gateway/server-methods/execution-state.test.ts",
     ],
@@ -333,13 +353,16 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
     tests: [
       "src/infra/custom-runtime-update-policy.test.ts",
       "src/pcc/update-safety.test.ts",
+      "test/scripts/custom-runtime-lifecycle.test.ts",
+      "test/scripts/custom-runtime-update-survival.test.ts",
       "test/scripts/custom-runtime-updater.test.ts",
       "src/gateway/server-methods/update.test.ts",
     ],
     proofSurfaces: [
       "pnpm check:custom-runtime-capabilities",
-      "PCC Update Safety dashboard status",
-      "custom runtime candidate and approval receipts",
+      "pnpm custom-runtime:update-survival",
+      "PCC Update Safety dashboard scheduled-broker and recovery-guard status",
+      "exact-parent candidate preservation and approval receipts",
     ],
   },
   {

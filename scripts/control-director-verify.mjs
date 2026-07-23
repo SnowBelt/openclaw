@@ -17,11 +17,15 @@ const IMMUTABLE_SHA_PATTERN = /^[a-f0-9]{40}$/u;
 
 const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-format-check.test.ts",
+  "test/scripts/control-director-deployment-consistency.test.ts",
   "test/scripts/control-director-readiness.test.ts",
   "test/scripts/control-director-role-config.test.ts",
+  "test/scripts/control-director-roadmap-proof.test.ts",
   "test/scripts/control-director-runtime-proof.test.ts",
   "test/scripts/control-director-verify.test.ts",
   "test/scripts/custom-runtime-lifecycle.test.ts",
+  "test/scripts/custom-runtime-stage-promote.test.ts",
+  "test/scripts/custom-runtime-update-survival.test.ts",
   "test/scripts/control-ui-i18n.test.ts",
   "test/scripts/control-ui-control-director-no-response-smoke.test.ts",
   "test/scripts/control-ui-production-chat-stack.test.ts",
@@ -34,6 +38,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "src/agents/control-director-contract.test.ts",
   "src/agents/control-director-context-budget.test.ts",
   "src/agents/control-director-delivery-guards.test.ts",
+  "src/agents/control-director-diagnostic-evidence.test.ts",
   "src/agents/control-director-execution-profile.test.ts",
   "src/agents/control-director-instruction-torture.test.ts",
   "src/agents/control-director-memory-index.test.ts",
@@ -51,13 +56,16 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "src/agents/execution-approval-envelope.test.ts",
   "src/agents/independent-judge-service.test.ts",
   "src/agents/judge-receipt-signer.test.ts",
+  "src/agents/tools/sessions-spawn-tool.test.ts",
   "src/auto-reply/reply/control-director-recent-context.test.ts",
   "src/gateway/chat-turn-inbox-controller.test.ts",
   "src/gateway/chat-turn-inbox-state.test.ts",
   "src/gateway/dashboard-session-title.test.ts",
+  "src/gateway/server-maintenance.test.ts",
   "src/gateway/server-methods/execution-state.test.ts",
   "src/gateway/server-methods/pcc.test.ts",
   "src/gateway/server-methods/self-improvement.test.ts",
+  "src/gateway/server-methods/tasks.test.ts",
   "src/gateway/server-startup-early.test.ts",
   "src/gateway/server-startup-post-attach.test.ts",
   "src/pcc/execution-capacity.test.ts",
@@ -68,6 +76,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "src/self-improvement/control-director-layout-observation.test.ts",
   "src/self-improvement/control-director-journeys.test.ts",
   "src/self-improvement/control-director-self-healing.test.ts",
+  "src/self-improvement/background.test.ts",
   "src/self-improvement/store.test.ts",
   "src/tasks/durable-worker-mailbox.test.ts",
   "src/tasks/execution-event.test.ts",
@@ -217,11 +226,17 @@ export function buildControlDirectorSourceGatePlan() {
     { id: "ui-tests", args: ["test", ...CONTROL_DIRECTOR_UI_TESTS] },
     { id: "extension-tests", args: ["test", ...CONTROL_DIRECTOR_EXTENSION_TESTS] },
     { id: "ui-i18n", args: ["ui:i18n:check"] },
+    {
+      id: "deployment-consistency",
+      args: ["control-director:deployment-consistency", "--", "--source-only"],
+    },
     { id: "custom-runtime-contracts", args: ["check:custom-runtime-capabilities"] },
+    { id: "update-survival", args: ["custom-runtime:update-survival"] },
     { id: "pcc-contracts", args: ["check:pcc-capabilities"] },
     { id: "plugin-sdk-api", args: ["plugin-sdk:api:check"] },
     { id: "docs-mdx", args: ["docs:check-mdx"] },
     { id: "docs-links", args: ["docs:check-links"] },
+    { id: "lint-scripts", args: ["lint:scripts"] },
     { id: "format-check", args: ["control-director:format-check"] },
     { id: "typecheck-core", args: ["tsgo:core"] },
     { id: "typecheck-ui", args: ["tsgo:test:ui"] },
@@ -243,10 +258,18 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-function initialReceipt(sourceSha, plan) {
+export function buildControlDirectorSourceGateReceipt(
+  sourceSha,
+  plan,
+  sourceRoot = CONTROL_DIRECTOR_VERIFY_REPO_ROOT,
+) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     sourceSha,
+    expectedSha: sourceSha,
+    sourceRoot,
+    sourceClean: true,
+    identityVerified: true,
     passed: false,
     generatedAt: new Date().toISOString(),
     torture: { passed: false },
@@ -361,7 +384,7 @@ async function main() {
 
   const receiptPath = path.join(args.artifactDir, `source-gates-${expectedSha}.json`);
   const configPath = path.join(args.artifactDir, `source-config-${expectedSha}.json`);
-  const receipt = initialReceipt(expectedSha, plan);
+  const receipt = buildControlDirectorSourceGateReceipt(expectedSha, plan);
   writeJson(configPath, buildControlDirectorSourceConfig());
   writeJson(receiptPath, receipt);
 
@@ -370,6 +393,14 @@ async function main() {
     finalizeGateFacts(receipt);
     writeJson(receiptPath, receipt);
     const scorecard = runReadiness({ configPath, expectedSha, receiptPath });
+    const finalIdentity = validateControlDirectorSourceIdentity({
+      head: runGit(["rev-parse", "HEAD"]).toLowerCase(),
+      expectedSha,
+      status: runGit(["status", "--porcelain=v1", "--untracked-files=all"]),
+    });
+    if (!finalIdentity.ok) {
+      throw new Error(`Source identity changed during verification: ${finalIdentity.reason}`);
+    }
     receipt.passed = true;
     receipt.completedAt = new Date().toISOString();
     receipt.readiness = {

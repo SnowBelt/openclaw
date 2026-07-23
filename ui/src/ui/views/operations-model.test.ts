@@ -7,7 +7,7 @@ import {
 import {
   createOperationsTestSnapshot,
   createSevenGroupOperationsTestSnapshot,
-} from "./operations.test-fixture.ts";
+} from "./operations.fixture.ts";
 
 describe("Operations Room presentation model", () => {
   it("keeps severity and health ahead of pins in priority sort", () => {

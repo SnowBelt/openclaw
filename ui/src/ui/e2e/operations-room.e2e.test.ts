@@ -17,7 +17,7 @@ import type { OperationsSnapshot } from "../types.ts";
 import {
   createSevenGroupOperationsTestSnapshot,
   OPERATIONS_RAW_PROMPT_SENTINEL,
-} from "../views/operations.test-fixture.ts";
+} from "../views/operations.fixture.ts";
 
 const chromiumExecutablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 const chromiumAvailable = canRunPlaywrightChromium(chromiumExecutablePath);

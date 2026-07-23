@@ -22,6 +22,8 @@ export type SpawnedToolContext = {
   agentGroupSpace?: string | null;
   agentMemberRoleIds?: string[];
   workspaceDir?: string;
+  /** Trusted effective cwd for this task; child cwd may narrow but never escape it. */
+  taskRoot?: string;
   inheritedToolAllowlist?: string[];
   inheritedToolDenylist?: string[];
 };
