@@ -27,12 +27,16 @@ function write(filePath: string, value: string) {
 function manifest() {
   return {
     schema: "openclaw.custom-runtime-capabilities.v2",
-    version: 2,
+    version: 5,
     preservation: {
-      contractVersion: 1,
+      contractVersion: 2,
       criticality: "required",
       migrationPolicy: "preserve_or_block",
       rollbackPolicy: "immutable_release_pointer",
+      sourceStrategy: "merge_from_active_sha",
+      dashboardChangePolicy: "register_verify_and_block",
+      approvalPolicy: "explicit_exact_candidate",
+      proofCommand: "pnpm custom-runtime:update-survival",
       standardsRegistry: "src/pcc/capability-addition-registry.ts",
       verificationCommands: ["pnpm check:custom-runtime-capabilities"],
     },
