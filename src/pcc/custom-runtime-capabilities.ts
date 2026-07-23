@@ -21,6 +21,12 @@ export type CustomRuntimeCapability = {
   pluginId?: string;
 };
 
+export type CustomRuntimeCapabilityPathMigration = {
+  capabilityId: string;
+  from: string;
+  to: string;
+};
+
 export type CustomRuntimePreservationContract = {
   contractVersion: 2;
   criticality: "required";
@@ -39,6 +45,7 @@ export type CustomRuntimeCapabilityManifest = {
   version: number;
   preservation?: CustomRuntimePreservationContract;
   capabilities: CustomRuntimeCapability[];
+  pathMigrations?: CustomRuntimeCapabilityPathMigration[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,8 +68,26 @@ function safeRelativePath(value: string): boolean {
   );
 }
 
-export function parseCustomRuntimeCapabilityManifest(
+function isPreviousPreservationContract(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const verificationCommands = strings(value.verificationCommands);
+  const standardsRegistry =
+    typeof value.standardsRegistry === "string" ? value.standardsRegistry.trim() : "";
+  return (
+    value.contractVersion === 1 &&
+    value.criticality === "required" &&
+    value.migrationPolicy === "preserve_or_block" &&
+    value.rollbackPolicy === "immutable_release_pointer" &&
+    Boolean(standardsRegistry) &&
+    verificationCommands.length > 0
+  );
+}
+
+function parseCapabilityManifest(
   value: unknown,
+  options: { allowPreviousPreservationContract: boolean },
 ): CustomRuntimeCapabilityManifest | null {
   const currentSchema = isRecord(value) && value.schema === CUSTOM_RUNTIME_CAPABILITY_SCHEMA;
   if (
@@ -97,20 +122,23 @@ export function parseCustomRuntimeCapabilityManifest(
       !standardsRegistry ||
       verificationCommands.length === 0
     ) {
-      return null;
+      if (!options.allowPreviousPreservationContract || !isPreviousPreservationContract(raw)) {
+        return null;
+      }
+    } else {
+      preservation = {
+        contractVersion: raw.contractVersion,
+        criticality: raw.criticality,
+        migrationPolicy: raw.migrationPolicy,
+        rollbackPolicy: raw.rollbackPolicy,
+        sourceStrategy: raw.sourceStrategy,
+        dashboardChangePolicy: raw.dashboardChangePolicy,
+        approvalPolicy: raw.approvalPolicy,
+        proofCommand: raw.proofCommand,
+        standardsRegistry,
+        verificationCommands,
+      };
     }
-    preservation = {
-      contractVersion: raw.contractVersion,
-      criticality: raw.criticality,
-      migrationPolicy: raw.migrationPolicy,
-      rollbackPolicy: raw.rollbackPolicy,
-      sourceStrategy: raw.sourceStrategy,
-      dashboardChangePolicy: raw.dashboardChangePolicy,
-      approvalPolicy: raw.approvalPolicy,
-      proofCommand: raw.proofCommand,
-      standardsRegistry,
-      verificationCommands,
-    };
   }
   const capabilities: CustomRuntimeCapability[] = [];
   for (const item of value.capabilities) {
@@ -137,12 +165,54 @@ export function parseCustomRuntimeCapabilityManifest(
       ...(pluginId ? { pluginId } : {}),
     });
   }
+  const pathMigrations: CustomRuntimeCapabilityPathMigration[] = [];
+  if (value.pathMigrations !== undefined) {
+    if (!Array.isArray(value.pathMigrations)) {
+      return null;
+    }
+    for (const migration of value.pathMigrations) {
+      if (!isRecord(migration)) {
+        return null;
+      }
+      const capabilityId =
+        typeof migration.capabilityId === "string" ? migration.capabilityId.trim() : "";
+      const from = typeof migration.from === "string" ? migration.from.trim() : "";
+      const to = typeof migration.to === "string" ? migration.to.trim() : "";
+      if (
+        !capabilityId ||
+        !from ||
+        !to ||
+        from === to ||
+        !safeRelativePath(from) ||
+        !safeRelativePath(to)
+      ) {
+        return null;
+      }
+      pathMigrations.push({ capabilityId, from, to });
+    }
+  }
   return {
     schema: value.schema,
     version: value.version,
     ...(preservation ? { preservation } : {}),
     capabilities,
+    ...(pathMigrations.length > 0 ? { pathMigrations } : {}),
   };
+}
+
+export function parseCustomRuntimeCapabilityManifest(
+  value: unknown,
+): CustomRuntimeCapabilityManifest | null {
+  return parseCapabilityManifest(value, { allowPreviousPreservationContract: false });
+}
+
+// Release comparison must understand the immediately previous immutable
+// contract so a trusted active Governor can evaluate its successor. Product and
+// build validation remain strict through parseCustomRuntimeCapabilityManifest.
+export function parseCustomRuntimeCapabilityManifestForComparison(
+  value: unknown,
+): CustomRuntimeCapabilityManifest | null {
+  return parseCapabilityManifest(value, { allowPreviousPreservationContract: true });
 }
 
 export function validateCustomRuntimeCapabilityManifest(params: {
@@ -187,6 +257,33 @@ export function validateCustomRuntimeCapabilityManifest(params: {
     }
     if (capability.kind === "plugin" && !capability.pluginId) {
       errors.push(`Plugin capability ${capability.id} is missing pluginId.`);
+    }
+  }
+  const migrationKeys = new Set<string>();
+  for (const migration of params.manifest.pathMigrations ?? []) {
+    const key = `${migration.capabilityId}\0${migration.from}`;
+    if (migrationKeys.has(key)) {
+      errors.push(
+        `Custom capability ${migration.capabilityId} repeats path migration ${migration.from}.`,
+      );
+    }
+    migrationKeys.add(key);
+    const capability = params.manifest.capabilities.find(
+      (entry) => entry.id === migration.capabilityId,
+    );
+    if (!capability) {
+      errors.push(`Path migration references unknown capability ${migration.capabilityId}.`);
+    } else {
+      if (capability.requiredPaths.includes(migration.from)) {
+        errors.push(
+          `Custom capability ${migration.capabilityId} path migration retains source ${migration.from}.`,
+        );
+      }
+      if (!capability.requiredPaths.includes(migration.to)) {
+        errors.push(
+          `Custom capability ${migration.capabilityId} path migration target is not required: ${migration.to}.`,
+        );
+      }
     }
   }
   const expected = [...params.dashboardSurfaceIds].toSorted();
