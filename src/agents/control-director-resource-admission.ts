@@ -30,6 +30,9 @@ export type ControlDirectorResourceAssessment = {
   activeControlDirectorRuns: number;
   residency: ControlDirectorResidencyObservation;
   admission?: ControlDirectorResourceDecision;
+  /** Generic host capacity before the single large-model Control Director admission is applied. */
+  hostCapacity: PccExecutionCapacitySnapshot;
+  /** Control Director-specific capacity projection used only for its model admission. */
   capacity: PccExecutionCapacitySnapshot;
 };
 
@@ -81,17 +84,19 @@ export async function assessControlDirectorResourceAdmission(params: {
   const director = params.config.agents?.list?.find((agent) => agent.role === "control_director");
   if (!director) {
     const residency = unavailableResidency("No Control Director role is configured.");
+    const hostCapacity = runtime.collectCapacity({
+      activeOpenClawTaskCount,
+      configuredSubagentLimit: resolveSubagentMaxConcurrent(params.config),
+      observedLocalModelProcessCount: 0,
+      localModelObservationAvailable: false,
+    });
     return {
       configured: false,
       activeOpenClawTaskCount,
       activeControlDirectorRuns: 0,
       residency,
-      capacity: runtime.collectCapacity({
-        activeOpenClawTaskCount,
-        configuredSubagentLimit: resolveSubagentMaxConcurrent(params.config),
-        observedLocalModelProcessCount: 0,
-        localModelObservationAvailable: false,
-      }),
+      hostCapacity,
+      capacity: hostCapacity,
     };
   }
 
@@ -155,6 +160,7 @@ export async function assessControlDirectorResourceAdmission(params: {
     activeControlDirectorRuns,
     residency,
     admission,
+    hostCapacity: baseCapacity,
     capacity,
   };
 }

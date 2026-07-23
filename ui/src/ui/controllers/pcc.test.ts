@@ -21,6 +21,8 @@ import {
   buildPccExecutionTeamReadiness,
   dismissPccSetupAutofill,
   dismissPccChatSync,
+  generatePccAutopilotLoopPrompts,
+  generatePccProjectPlan,
   loadPccDashboard,
   movePccMilestoneBefore,
   movePccSubMilestoneBefore,
@@ -49,6 +51,7 @@ import {
   updatePccAutofillApproval,
   updatePccChatSyncText,
   updatePccDecisionForm,
+  updatePccPlanningPolicy,
   updatePccViewMode,
   updatePccProjectEditMode,
   updatePccProjectForm,
@@ -752,6 +755,117 @@ describe("loadPccDashboard", () => {
       riskTier: "medium",
     });
     expect(approvedAutopilot?.permissionQueue?.[0]?.status).toBe("approved");
+  });
+
+  it("uses Codex for Autopilot planning and keeps local models as executors", async () => {
+    let savedProject = project;
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "pcc.plans.generate") {
+        return {
+          plan: {
+            schemaVersion: 1,
+            title: "PCC Bug Hunt",
+            goal: "Find and prioritize PCC defects.",
+            outcomeMetrics: ["Every finding has proof."],
+            workflowTemplateId: "software-product",
+            milestones: [
+              {
+                title: "Audit interactions",
+                phaseId: "mvp",
+                implementationPlan: "Exercise each interaction and record failures.",
+                acceptanceCriteria: ["Every interaction has a result."],
+                responsibility: "local_openclaw_agent",
+                proofLevel: "local",
+                dependencies: [],
+                subMilestones: [
+                  {
+                    title: "Test controls",
+                    implementationPlan: "Run the interaction matrix.",
+                    acceptanceCriteria: ["Results are recorded."],
+                    responsibility: "local_openclaw_agent",
+                    proofLevel: "local",
+                  },
+                ],
+              },
+            ],
+            risks: [],
+            assumptions: [],
+            provenance: {
+              generatedAt: "2026-07-22T12:00:00.000Z",
+              provider: "openai",
+              model: "openai/gpt-5.6-sol",
+              runtime: "codex",
+              effort: "medium",
+              auth: "oauth",
+              source: "live_codex",
+              planningOnly: true,
+            },
+          },
+        };
+      }
+      assertValidPccWriteParams(method, params);
+      if (method === "pcc.projects.upsert") {
+        savedProject = (params as { project: typeof project }).project;
+        return { project: savedProject, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project: savedProject,
+          milestones: [milestone],
+          subMilestones: [subMilestone],
+          permissions: [],
+          evidence: [evidence],
+          receipts: [receipt],
+          decisions: [decision],
+          lastKnownGood: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccSelectedProjectId: project.id,
+      pccProjectDetail: {
+        project,
+        milestones: [milestone],
+        subMilestones: [subMilestone],
+        permissions: [],
+        evidence: [evidence],
+        receipts: [receipt],
+        decisions: [decision],
+        lastKnownGood: [],
+        summary,
+      },
+    });
+
+    await generatePccAutopilotLoopPrompts(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.plans.generate",
+      expect.objectContaining({ surface: "autopilot_prompts" }),
+    );
+    const autopilot = (
+      savedProject.metadata as
+        | {
+            pccAutopilot?: {
+              promptSlots?: Array<{ executor?: string; title?: string }>;
+              lastOutputSummary?: string;
+            };
+          }
+        | undefined
+    )?.pccAutopilot;
+    expect(autopilot?.promptSlots?.[0]).toMatchObject({
+      executor: "local_model",
+      title: "Audit interactions",
+    });
+    expect(autopilot?.lastOutputSummary).toContain("openai/gpt-5.6-sol");
   });
 
   it("updates guided work-loop settings without starting Codex", async () => {
@@ -1466,6 +1580,30 @@ describe("PCC CRUD controller", () => {
     expect(preview.subMilestoneUpdates[0]?.fields).toContain("acceptance criteria");
 
     const request = vi.fn(async (method: string) => {
+      if (method === "pcc.plans.generate") {
+        return {
+          plan: {
+            schemaVersion: 1,
+            title: "Project Command Center",
+            goal: "Repair PCC setup safely.",
+            outcomeMetrics: ["Setup evaluation passes."],
+            workflowTemplateId: "software-product",
+            milestones: [],
+            risks: [],
+            assumptions: [],
+            provenance: {
+              generatedAt: "2026-07-22T12:00:00.000Z",
+              provider: "openai",
+              model: "openai/gpt-5.6-sol",
+              runtime: "codex",
+              effort: "medium",
+              auth: "oauth",
+              source: "live_codex",
+              planningOnly: true,
+            },
+          },
+        };
+      }
       if (method === "pcc.projects.upsert") {
         return { project: incompleteProject, summary };
       }
@@ -1500,8 +1638,15 @@ describe("PCC CRUD controller", () => {
       pccProjectDetail: detail,
     });
 
-    previewPccSetupAutofill(state);
-    expect(request).not.toHaveBeenCalled();
+    await previewPccSetupAutofill(state);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(
+      "pcc.plans.generate",
+      expect.objectContaining({
+        surface: "setup_repair",
+        existingTitle: "Project Command Center",
+      }),
+    );
     expect(state.pccAutofillPreview?.intakeApproved).toBe(false);
 
     updatePccAutofillApproval(state, true);
@@ -1509,14 +1654,14 @@ describe("PCC CRUD controller", () => {
 
     await applyPccSetupAutofill(state);
 
-    expect(request.mock.calls[0]).toEqual([
+    expect(request.mock.calls[1]).toEqual([
       "pcc.projects.upsert",
       expect.objectContaining({
         project: expect.objectContaining({
-          goal: "Project Command Center",
+          goal: "Repair PCC setup safely.",
           metadata: expect.objectContaining({
             pccIntake: expect.objectContaining({ approved: true, status: "approved" }),
-            pccSetupAutofill: expect.objectContaining({ source: "local_project_manager" }),
+            pccSetupAutofill: expect.objectContaining({ source: "live_codex" }),
           }),
         }),
       }),
@@ -2085,7 +2230,7 @@ describe("PCC CRUD controller", () => {
         permission: expect.objectContaining({
           status: "granted",
           grantedBy: "PCC New Project user approval",
-          allowedActions: [expect.stringContaining("Local AI handles routine work")],
+          allowedActions: [expect.stringContaining("local agents handle routine execution")],
           forbiddenActions: [expect.stringContaining("Deployment")],
         }),
       }),
@@ -2708,6 +2853,256 @@ describe("PCC CRUD controller", () => {
 
     updatePccProjectForm(state, { projectDescription: "A materially different request" });
     expect(state.pccProjectForm.planPreviewAccepted).toBe(false);
+    expect(state.pccProjectForm.generatedPlan).toBeNull();
+  });
+
+  it("does not turn a raw description into a fake project name before Codex plans it", () => {
+    const state = createState({
+      pccProjectForm: { ...EMPTY_PCC_PROJECT_FORM },
+    });
+
+    updatePccProjectForm(state, {
+      projectDescription: "I want to replace my kitchen without missing permits.",
+    });
+
+    expect(state.pccProjectForm.title).toBe("");
+    expect(state.pccProjectForm.goal).toBe("");
+    expect(state.pccProjectForm.plannerMode).toBe("codex");
+    expect(state.pccProjectForm.planningMode).toBe("codex_full_plan");
+  });
+
+  it("uses live Codex planning while preserving user-entered project fields", async () => {
+    const plan = {
+      schemaVersion: 1 as const,
+      title: "Generated Kitchen Project",
+      goal: "Generated goal",
+      outcomeMetrics: ["Permits and inspections are complete."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [
+        {
+          title: "Plan permits",
+          phaseId: "setup",
+          implementationPlan: "List required permits.",
+          acceptanceCriteria: ["Permit list is verified."],
+          responsibility: "codex",
+          proofLevel: "local",
+          dependencies: [],
+          subMilestones: [
+            {
+              title: "Check local rules",
+              implementationPlan: "Review applicable rules.",
+              acceptanceCriteria: ["Rules are cited."],
+              responsibility: "local_openclaw_agent",
+              proofLevel: "local",
+            },
+          ],
+        },
+      ],
+      risks: ["Permit timing may change."],
+      assumptions: ["The address is available."],
+      provenance: {
+        generatedAt: "2026-07-22T12:00:00.000Z",
+        provider: "openai" as const,
+        model: "openai/gpt-5.6-sol",
+        runtime: "codex" as const,
+        effort: "medium" as const,
+        auth: "oauth" as const,
+        source: "live_codex" as const,
+        planningOnly: true as const,
+      },
+    };
+    const request = vi.fn(async () => ({ plan }));
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "My Kitchen Plan",
+        goal: "Finish safely and on budget.",
+        projectDescription: "Plan a kitchen remodel.",
+        intakeAnswers: { owner: "Todd" },
+      },
+    });
+
+    await generatePccProjectPlan(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.plans.generate",
+      expect.objectContaining({
+        surface: "project_creation",
+        depth: "automatic",
+        existingTitle: "My Kitchen Plan",
+        existingGoal: "Finish safely and on budget.",
+      }),
+    );
+    expect(state.pccProjectForm).toMatchObject({
+      title: "My Kitchen Plan",
+      goal: "Finish safely and on budget.",
+      outcomeMetrics: "Permits and inspections are complete.",
+      planPreviewAccepted: true,
+      intakeApproved: true,
+      generatedPlan: plan,
+      intakeAnswers: expect.objectContaining({ owner: "Todd" }),
+    });
+  });
+
+  it("revokes and restores the persistent planning-only grant", async () => {
+    const request = vi.fn(async (_method: string, params: unknown) => ({
+      policy: {
+        schemaVersion: 1,
+        provider: "openai",
+        model: "openai/gpt-5.6-sol",
+        runtime: "codex",
+        depth: "automatic",
+        grant: {
+          kind: "persistent_planning_only",
+          enabled: (params as { enabled: boolean }).enabled,
+          allowedSurfaces: [
+            "project_creation",
+            "project_replan",
+            "setup_repair",
+            "autopilot_prompts",
+          ],
+          forbiddenActions: ["implementation", "external_write"],
+        },
+      },
+    }));
+    const state = createState({ client: { request } as unknown as PccDashboardState["client"] });
+
+    await updatePccPlanningPolicy(state, false);
+    expect(request).toHaveBeenCalledWith(
+      "pcc.planningPolicy.upsert",
+      expect.objectContaining({ enabled: false, model: "openai/gpt-5.6-sol" }),
+    );
+    expect(state.pccPlanningPolicy?.grant.enabled).toBe(false);
+
+    await updatePccPlanningPolicy(state, true);
+    expect(state.pccPlanningPolicy?.grant.enabled).toBe(true);
+  });
+
+  it("saves generated milestones, provenance, and resolved dependencies", async () => {
+    let milestoneNumber = 0;
+    const request = vi.fn(async (method: string, payload?: Record<string, unknown>) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        const input = (payload?.milestone ?? {}) as Record<string, unknown>;
+        return {
+          milestone: {
+            ...input,
+            id: typeof input.id === "string" ? input.id : `generated-${++milestoneNumber}`,
+            createdAt: "2026-07-22T12:00:00.000Z",
+            updatedAt: "2026-07-22T12:00:00.000Z",
+          },
+        };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          lastKnownGood: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const generatedPlan = {
+      schemaVersion: 1 as const,
+      title: "Generated Project",
+      goal: "Deliver a generated project.",
+      outcomeMetrics: ["The generated project passes proof."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [
+        {
+          title: "Plan",
+          phaseId: "setup",
+          implementationPlan: "Define the plan.",
+          acceptanceCriteria: ["Plan is defined."],
+          responsibility: "codex",
+          proofLevel: "local",
+          dependencies: [],
+          subMilestones: [
+            {
+              title: "Define done",
+              implementationPlan: "Write checks.",
+              acceptanceCriteria: ["Checks exist."],
+              responsibility: "local_openclaw_agent",
+              proofLevel: "local",
+            },
+          ],
+        },
+        {
+          title: "Build",
+          phaseId: "mvp",
+          implementationPlan: "Build the result.",
+          acceptanceCriteria: ["Result works."],
+          responsibility: "local_openclaw_agent",
+          proofLevel: "local",
+          dependencies: [0],
+          subMilestones: [
+            {
+              title: "Implement",
+              implementationPlan: "Implement the result.",
+              acceptanceCriteria: ["Implementation passes."],
+              responsibility: "local_openclaw_agent",
+              proofLevel: "local",
+            },
+          ],
+        },
+      ],
+      risks: [],
+      assumptions: [],
+      provenance: {
+        generatedAt: "2026-07-22T12:00:00.000Z",
+        provider: "openai" as const,
+        model: "openai/gpt-5.6-sol",
+        runtime: "codex" as const,
+        effort: "medium" as const,
+        auth: "oauth" as const,
+        source: "live_codex" as const,
+        planningOnly: true as const,
+      },
+    };
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: generatedPlan.title,
+        goal: generatedPlan.goal,
+        projectDescription: "Build a generated project.",
+        outcomeMetrics: generatedPlan.outcomeMetrics.join("\n"),
+        workflowTemplateId: generatedPlan.workflowTemplateId,
+        generatedPlan,
+        planPreviewAccepted: true,
+        intakeAnswers,
+        intakeApproved: true,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({
+          metadata: expect.objectContaining({ pccPlanningProvenance: generatedPlan.provenance }),
+        }),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith("pcc.milestones.upsert", {
+      milestone: expect.objectContaining({ id: "generated-2", dependsOn: ["generated-1"] }),
+    });
   });
 
   it("builds and applies scoped AI regenerate previews without broad milestone writes", async () => {
@@ -3255,7 +3650,20 @@ describe("PCC CRUD controller", () => {
       ),
     );
     expect(unavailable).toMatchObject({ status: "blocked", workerModelId: null });
-    expect(unavailable.reason).toContain("available OpenClaw worker model");
+    expect(unavailable.reason).toContain("available local OpenClaw worker model");
+
+    const hostedOnly = buildPccExecutionTeamReadiness(detail, teamCapacity, teamAgents, [
+      {
+        id: "gpt-5.6",
+        name: "GPT-5.6",
+        provider: "openai",
+        available: true,
+        route: "metered",
+        agentRuntime: { id: "openclaw", source: "model" as const },
+      },
+    ]);
+    expect(hostedOnly).toMatchObject({ status: "blocked", workerModelId: null });
+    expect(hostedOnly.reason).toContain("available local OpenClaw worker model");
 
     const exactModelDetail = executionTeamDetail();
     exactModelDetail.project.metadata = {
@@ -3303,6 +3711,26 @@ describe("PCC CRUD controller", () => {
     );
     expect(codexCoordinator).toMatchObject({ status: "blocked", coordinatorAgentId: null });
     expect(codexCoordinator.reason).toContain("non-Codex OpenClaw coordinator");
+  });
+
+  it("prefers the configured Program Manager as the supervised local coordinator", () => {
+    const agents = {
+      ...teamAgents,
+      agents: [
+        ...teamAgents.agents,
+        {
+          id: "pm",
+          name: "Program Manager",
+          role: "program_manager" as const,
+          model: { primary: "ollama/qwen3.6" },
+          agentRuntime: { id: "openclaw", source: "model" as const },
+        },
+      ],
+    };
+
+    expect(
+      buildPccExecutionTeamReadiness(executionTeamDetail(), teamCapacity, agents, teamModels),
+    ).toMatchObject({ status: "ready", coordinatorAgentId: "pm" });
   });
 
   it("requires one project-scoped Codex grant for Ultra hybrid and none for Ultra local", () => {
@@ -3464,7 +3892,7 @@ describe("PCC CRUD controller", () => {
     expect(request).toHaveBeenCalledWith(
       "chat.send",
       expect.objectContaining({
-        message: expect.stringContaining("pass model: ollama/qwen3.6"),
+        message: expect.stringContaining("pass each assignment's exact modelId"),
       }),
     );
     expect(request.mock.calls.some(([method]) => method === "pcc.milestones.upsert")).toBe(false);
@@ -3479,6 +3907,12 @@ describe("PCC CRUD controller", () => {
             status: "running",
             admittedWorkerCount: 2,
             coordinator: expect.objectContaining({ runId: "coordinator-run" }),
+            partitions: expect.arrayContaining([
+              expect.objectContaining({
+                modelId: "ollama/qwen3.6",
+                modelRationale: expect.any(String),
+              }),
+            ]),
           }),
         ],
       }),

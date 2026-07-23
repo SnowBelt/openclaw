@@ -308,8 +308,13 @@ function safeCapacity(value: number): number {
 }
 
 function localAgentLimit(profile: PccExecutionProfile): number {
-  const speedLimit = profile.speed === "focused" ? 1 : profile.speed === "parallel" ? 4 : 12;
-  return profile.capacityPolicy === "conservative" ? 1 : speedLimit;
+  if (profile.speed === "focused") {
+    return 1;
+  }
+  if (profile.capacityPolicy === "conservative") {
+    return 2;
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 /** Resolves an estimate only; it does not reserve capacity or invoke local/Codex models. */

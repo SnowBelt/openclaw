@@ -33,7 +33,7 @@ pointer_fields=$(python3 - "$active_pointer" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as f:
     value = json.load(f)
-for key in ("sourceSha", "sourceRepo", "sourceBranch"):
+for key in ("sourceSha", "sourceRepo", "sourceBranch", "capabilityManifestPath"):
     item = value.get(key, "")
     print(item if isinstance(item, str) else "")
 PY
@@ -41,6 +41,7 @@ PY
 active_sha=$(printf '%s\n' "$pointer_fields" | sed -n '1p')
 pointer_repo=$(printf '%s\n' "$pointer_fields" | sed -n '2p')
 pointer_branch=$(printf '%s\n' "$pointer_fields" | sed -n '3p')
+active_capability_manifest=$(printf '%s\n' "$pointer_fields" | sed -n '4p')
 [ -n "$repo" ] || repo=$pointer_repo
 [ -n "$branch" ] || branch=$pointer_branch
 [ -n "$repo" ] && [ -n "$branch" ] || fail durable_source_config
@@ -53,6 +54,16 @@ git -C "$repo" rev-parse --verify "$branch^{commit}" >/dev/null 2>&1 || fail dur
 git -C "$repo" merge-base --is-ancestor "$active_sha" "$branch" || fail durable_source_branch_history
 [ -f "$repo/config/custom-runtime-capabilities.json" ] || fail durable_source_capabilities
 [ -f "$repo/scripts/custom-runtime/custom-runtime-activate.sh" ] || fail durable_source_control_plane
+active_source_manifest="$receipts/active-capabilities-$stamp.json"
+active_source_manifest_tmp="$active_source_manifest.tmp"
+git -C "$repo" show "$active_sha:config/custom-runtime-capabilities.json" \
+  > "$active_source_manifest_tmp" || fail durable_source_capabilities
+mv "$active_source_manifest_tmp" "$active_source_manifest"
+if [ -n "$active_capability_manifest" ]; then
+  [ -f "$active_capability_manifest" ] || fail durable_source_capabilities
+  cmp -s "$active_capability_manifest" "$active_source_manifest" || fail durable_source_capabilities
+fi
+active_capability_manifest=$active_source_manifest
 
 if [ -z "$official_ref" ]; then
   stable_version=$(npm view openclaw dist-tags.latest 2>/dev/null | tr -d '[:space:]') || fail stable_version_lookup
@@ -80,11 +91,52 @@ pnpm -C "$candidate" install --frozen-lockfile || fail install
 pnpm -C "$candidate" deps:shrinkwrap:generate || fail shrinkwrap_generate
 git -C "$candidate" diff --quiet || fail generated_drift
 sha=$(git -C "$candidate" rev-parse HEAD)
-pnpm -C "$candidate" control-director:verify -- --expected-sha "$sha" || fail control_director_verify
-pnpm -C "$candidate" operations-room:verify || fail operations_room_verify
-pnpm -C "$candidate" check || fail check
-pnpm -C "$candidate" ui:build || fail ui_build
-pnpm -C "$candidate" build || fail build
+survival_receipt="$receipts/update-survival-$stamp.json"
+pnpm -C "$candidate" custom-runtime:update-survival -- \
+  --repo "$candidate" \
+  --active-sha "$active_sha" \
+  --official-ref "$official_ref" \
+  --candidate-sha "$sha" \
+  --active-manifest "$active_capability_manifest" \
+  --candidate-manifest "$candidate/config/custom-runtime-capabilities.json" \
+  --output "$survival_receipt" || fail update_survival
+verification_commands="$receipts/update-verification-commands-$stamp.txt"
+python3 - "$candidate/config/custom-runtime-capabilities.json" "$sha" "$verification_commands" <<'PY'
+import json, sys
+
+manifest_path, source_sha, output = sys.argv[1:]
+with open(manifest_path, encoding="utf-8") as f:
+    manifest = json.load(f)
+preservation = manifest.get("preservation")
+commands = preservation.get("verificationCommands") if isinstance(preservation, dict) else None
+if not isinstance(commands, list) or not commands or any(not isinstance(item, str) or not item.strip() for item in commands):
+    raise SystemExit("preservation verification commands are invalid")
+with open(output + ".tmp", "w", encoding="utf-8") as f:
+    for command in commands:
+        f.write(command.replace("<candidate-sha>", source_sha) + "\n")
+import os
+os.replace(output + ".tmp", output)
+PY
+while IFS= read -r verification_command || [ -n "$verification_command" ]; do
+  (cd "$candidate" && /bin/sh -c "$verification_command") || fail verification_commands
+done < "$verification_commands"
+python3 - "$survival_receipt" "$verification_commands" <<'PY'
+import datetime, json, os, sys
+
+proof_path, commands_path = sys.argv[1:]
+with open(proof_path, encoding="utf-8") as f:
+    proof = json.load(f)
+with open(commands_path, encoding="utf-8") as f:
+    commands = [line.rstrip("\n") for line in f if line.strip()]
+proof["executedVerificationCommands"] = commands
+proof["verificationResult"] = "passed"
+proof["verifiedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+with open(proof_path + ".tmp", "w", encoding="utf-8") as f:
+    json.dump(proof, f, indent=2, sort_keys=True)
+    f.write("\n")
+os.replace(proof_path + ".tmp", proof_path)
+PY
+survival_receipt_sha=$(shasum -a 256 "$survival_receipt" | awk '{print $1}')
 pnpm -C "$candidate" test \
   src/pcc/project-workflows.test.ts src/pcc/work-loop.test.ts \
   ui/src/ui/controllers/pcc.test.ts ui/src/ui/views/pcc.test.ts \
@@ -111,8 +163,7 @@ pnpm -C "$candidate" test \
   ui/src/ui/views/pattern-lab-dashboard.test.ts ui/src/ui/views/snes-studio.test.ts \
   src/cli/daemon-cli/install.test.ts src/commands/daemon-install-helpers.test.ts \
   || fail custom_surface_tests
-pnpm -C "$candidate" ui:smoke:dashboard --artifact-profile release \
-  --artifact-root "$candidate/.artifacts/custom-runtime-update" || fail dashboard_smoke
+[ -z "$(git -C "$candidate" status --porcelain)" ] || fail verified_source_drift
 short_sha=$(printf '%s' "$sha" | cut -c1-8)
 release="$releases/$stamp-$short_sha"
 [ ! -e "$release" ] || fail release_exists
@@ -161,9 +212,12 @@ with open(target, "w", encoding="utf-8") as f:
 PY
 "$(dirname "$0")/custom-runtime-seal.sh" --seal --release "$release" || fail release_seal
 python3 - "$receipt" "$runtime_home/pending-update.json" "$stamp" "$candidate" "$release" \
-  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" <<'PY'
+  "$official_ref" "$active_sha" "$sha" "$repo" "$update_branch" "$survival_receipt" \
+  "$survival_receipt_sha" "$verification_commands" <<'PY'
 import json, os, sys
-receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch = sys.argv[1:]
+receipt, pending, at, worktree, release, stable_ref, base_sha, source_sha, repo, branch, proof_path, proof_sha, commands_path = sys.argv[1:]
+with open(commands_path, encoding="utf-8") as f:
+    verification_commands = [line.rstrip("\n") for line in f if line.strip()]
 data = {
     "schema": "openclaw.custom-runtime-update-candidate.v1",
     "at": at,
@@ -175,6 +229,13 @@ data = {
     "sourceSha": source_sha,
     "sourceRepo": repo,
     "sourceBranch": branch,
+    "preservationProof": {
+        "path": os.path.realpath(proof_path),
+        "sha256": proof_sha,
+        "schema": "openclaw.custom-runtime-update-survival.v1",
+    },
+    "verificationCommands": verification_commands,
+    "verificationResult": "passed",
 }
 for target in (receipt, pending):
     temporary = target + ".tmp"

@@ -40,7 +40,7 @@ function reasonMatchesObservation(
             observation.viewport.height + LAYOUT_EDGE_TOLERANCE_PX),
       );
     case "truth_completion_in_chat":
-      return observation.truthCompletionPresent;
+      return observation.truthCompletionObstructing ?? observation.truthCompletionPresent;
     case "pcc_projection_in_chat":
       return observation.pccProjectionPresent;
   }
@@ -68,6 +68,7 @@ export function validateControlDirectorLayoutObservation(
       `composerTop=${rounded(observation.composer.rect?.top)}`,
       `composerBottom=${rounded(observation.composer.rect?.bottom)}`,
       `truthCompletionPresent=${observation.truthCompletionPresent}`,
+      `truthCompletionObstructing=${observation.truthCompletionObstructing ?? "unknown"}`,
       `pccProjectionPresent=${observation.pccProjectionPresent}`,
     ].join("; "),
   };

@@ -81,6 +81,7 @@ describe("assessControlDirectorResourceAdmission", () => {
       agentId: "director",
       activeOpenClawTaskCount: 0,
       admission: { decision: "admit", residency: "load" },
+      hostCapacity: { safeLocalAgentSlots: 2 },
       capacity: { safeLocalAgentSlots: 1 },
     });
     expect(collectCapacity).toHaveBeenCalledWith(

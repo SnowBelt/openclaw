@@ -66,7 +66,10 @@ import { countActiveRunsForSession, registerSubagentRun } from "./subagent-regis
 import { resolveSubagentRunTimerDelayMs } from "./subagent-run-timeout.js";
 import { resolveSubagentSpawnAcceptedNote } from "./subagent-spawn-accepted-note.js";
 import { resolveSubagentSpawnOwnership } from "./subagent-spawn-ownership.js";
-import { resolveSubagentTargetPolicy } from "./subagent-target-policy.js";
+import {
+  resolveSubagentAllowedTargetIds,
+  resolveSubagentTargetPolicy,
+} from "./subagent-target-policy.js";
 import { normalizeSubagentTaskName } from "./subagent-task-name.js";
 export {
   SUBAGENT_SPAWN_ACCEPTED_NOTE,
@@ -1070,6 +1073,10 @@ function hasRoutableDeliveryOrigin(
   return Boolean(origin?.channel && origin.to);
 }
 
+export function formatInvalidSubagentAgentIdError(agentId: string): string {
+  return `Invalid agentId "${agentId}". Retry with an id matching [a-z0-9][a-z0-9_-]{0,63}; do not resend an error message as an agent id.`;
+}
+
 export async function spawnSubagentDirect(
   params: SpawnSubagentParams,
   ctx: SpawnSubagentContext,
@@ -1093,7 +1100,7 @@ export async function spawnSubagentDirect(
   if (requestedAgentId && !isValidAgentId(requestedAgentId)) {
     return {
       status: "error",
-      error: `Invalid agentId "${requestedAgentId}". Agent IDs must match [a-z0-9][a-z0-9_-]{0,63}. Use agents_list to discover valid targets.`,
+      error: formatInvalidSubagentAgentIdError(requestedAgentId),
     };
   }
   const modelOverride = params.model;
@@ -1184,10 +1191,16 @@ export async function spawnSubagentDirect(
     cfg.agents?.defaults?.subagents?.requireAgentId ??
     false;
   if (requireAgentId && !requestedAgentId?.trim()) {
+    const allowed = resolveSubagentAllowedTargetIds({
+      requesterAgentId,
+      allowAgents:
+        resolveAgentConfig(cfg, requesterAgentId)?.subagents?.allowAgents ??
+        cfg.agents?.defaults?.subagents?.allowAgents,
+      configuredAgentIds: resolveConfiguredAgentIds(cfg),
+    }).allowedIds;
     return {
       status: "forbidden",
-      error:
-        "sessions_spawn requires explicit agentId when requireAgentId is configured. Use agents_list to see allowed agent ids.",
+      error: `sessions_spawn requires explicit agentId when requireAgentId is configured. Retry with one of these allowed agent ids: ${allowed.join(", ") || "none configured"}.`,
     };
   }
   const targetAgentId = requestedAgentId ? normalizeAgentId(requestedAgentId) : requesterAgentId;

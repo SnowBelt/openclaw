@@ -102,6 +102,21 @@ describe("PCC execution capacity", () => {
     expect(recommendPccExecutionCapacity(result, "conservative").slots).toBe(2);
   });
 
+  it("does not impose a hidden PCC worker cap below measured host capacity", () => {
+    const result = snapshot({
+      host: {
+        logicalCpuCount: 128,
+        performanceCpuCount: 96,
+        totalMemoryBytes: 1024 * GIB,
+        freeMemoryBytes: 900 * GIB,
+      },
+      configuredSubagentLimit: 32,
+    });
+
+    expect(result.safeLocalAgentSlots).toBe(24);
+    expect(recommendPccExecutionCapacity(result, "maximum_safe").slots).toBe(24);
+  });
+
   it("uses logical CPUs conservatively when performance-core count is unavailable", () => {
     const result = snapshot({ host: { performanceCpuCount: null } });
 

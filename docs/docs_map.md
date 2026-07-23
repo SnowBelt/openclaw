@@ -102,7 +102,9 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Source of truth
   - H2: Durable source requirement
   - H2: Prepare, review, approve
+  - H2: Dashboard customization rule
   - H2: Project Command Center status
+  - H2: Primary Tailnet route continuity
   - H2: Recovery
 
 ## automation/gmail-pubsub.md
@@ -180,6 +182,15 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Required proof receipts
   - H2: Zero-instruction 60-second usability protocol
   - H2: Focused verification
+
+## automation/pcc-codex-planning.md
+
+- Route: /automation/pcc-codex-planning
+- Headings:
+  - H1: PCC Codex planning
+  - H2: Planning contract
+  - H2: Plan generation
+  - H2: Execution boundary
 
 ## automation/pcc-execution-teams.md
 
@@ -2458,6 +2469,8 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /concepts/control-director
 - Headings:
   - H2: Responsibility boundaries
+  - H3: Executable delegation handoffs
+  - H3: Evidence-bound diagnostics
   - H2: Responsive Chat contract
   - H3: Queue and steer
   - H2: Pursue Goal

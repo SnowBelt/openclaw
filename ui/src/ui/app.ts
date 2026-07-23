@@ -5,6 +5,7 @@ import type { ExecutionStateSnapshot } from "../../../packages/gateway-protocol/
 import type { ControlUiBootstrapConfig } from "../../../src/gateway/control-ui-contract.ts";
 import type { PccExecutionCapacitySnapshot } from "../../../src/pcc/execution-capacity.js";
 import type { PccExecutionRuntimeProjection } from "../../../src/pcc/execution-state-projection.js";
+import { DEFAULT_PCC_PLANNING_POLICY, type PccPlanningPolicy } from "../../../src/pcc/planning.js";
 import type { ReleaseGovernanceStatus } from "../../../src/pcc/release-governance/contracts.js";
 import type { PccRuntimeIdentity } from "../../../src/pcc/runtime-identity.js";
 import type { PccUpdateSafety } from "../../../src/pcc/update-safety.js";
@@ -515,6 +516,7 @@ export class OpenClawApp extends LitElement {
   @state() pccUpdateSafety: PccUpdateSafety | null = null;
   @state() pccReleaseGovernance: ReleaseGovernanceStatus | null = null;
   @state() pccExecutionCapacity: PccExecutionCapacitySnapshot | null = null;
+  @state() pccPlanningPolicy: PccPlanningPolicy = DEFAULT_PCC_PLANNING_POLICY;
   @state() pccExecutionProjection: PccExecutionRuntimeProjection | null = null;
   @state() pccExecutionProjectionLoading = false;
   @state() pccExecutionProjectionError: string | null = null;

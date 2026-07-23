@@ -22,10 +22,14 @@ export type CustomRuntimeCapability = {
 };
 
 export type CustomRuntimePreservationContract = {
-  contractVersion: number;
+  contractVersion: 2;
   criticality: "required";
   migrationPolicy: "preserve_or_block";
   rollbackPolicy: "immutable_release_pointer";
+  sourceStrategy: "merge_from_active_sha";
+  dashboardChangePolicy: "register_verify_and_block";
+  approvalPolicy: "explicit_exact_candidate";
+  proofCommand: "pnpm custom-runtime:update-survival";
   standardsRegistry: string;
   verificationCommands: string[];
 };
@@ -82,10 +86,14 @@ export function parseCustomRuntimeCapabilityManifest(
     const standardsRegistry =
       typeof raw.standardsRegistry === "string" ? raw.standardsRegistry.trim() : "";
     if (
-      raw.contractVersion !== 1 ||
+      raw.contractVersion !== 2 ||
       raw.criticality !== "required" ||
       raw.migrationPolicy !== "preserve_or_block" ||
       raw.rollbackPolicy !== "immutable_release_pointer" ||
+      raw.sourceStrategy !== "merge_from_active_sha" ||
+      raw.dashboardChangePolicy !== "register_verify_and_block" ||
+      raw.approvalPolicy !== "explicit_exact_candidate" ||
+      raw.proofCommand !== "pnpm custom-runtime:update-survival" ||
       !standardsRegistry ||
       verificationCommands.length === 0
     ) {
@@ -96,6 +104,10 @@ export function parseCustomRuntimeCapabilityManifest(
       criticality: raw.criticality,
       migrationPolicy: raw.migrationPolicy,
       rollbackPolicy: raw.rollbackPolicy,
+      sourceStrategy: raw.sourceStrategy,
+      dashboardChangePolicy: raw.dashboardChangePolicy,
+      approvalPolicy: raw.approvalPolicy,
+      proofCommand: raw.proofCommand,
       standardsRegistry,
       verificationCommands,
     };
@@ -185,4 +197,21 @@ export function validateCustomRuntimeCapabilityManifest(params: {
     );
   }
   return errors;
+}
+
+export function findUnregisteredCustomRuntimePaths(
+  manifest: CustomRuntimeCapabilityManifest,
+  trackedPaths: readonly string[],
+): string[] {
+  const registeredPaths = new Set(
+    manifest.capabilities.flatMap((capability) => capability.requiredPaths),
+  );
+  return [
+    ...new Set(
+      trackedPaths.filter(
+        (trackedPath) =>
+          trackedPath.startsWith("scripts/custom-runtime/") && !registeredPaths.has(trackedPath),
+      ),
+    ),
+  ].toSorted((left, right) => left.localeCompare(right));
 }

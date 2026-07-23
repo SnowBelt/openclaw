@@ -795,9 +795,24 @@ async function main() {
       .isVisible();
     const previewStartedAt = performance.now();
     await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
-    await creationEditor
-      .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
-      .waitFor({ state: "visible", timeout: 15_000 });
+    try {
+      await creationEditor
+        .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
+        .waitFor({ state: "visible", timeout: 15_000 });
+    } catch (error) {
+      const editorError =
+        (
+          await creationEditor
+            .locator("[data-pcc-editor-error]")
+            .textContent()
+            .catch(() => "")
+        )
+          ?.replace(/\s+/gu, " ")
+          .trim() || "No editor error was rendered.";
+      throw new Error(`project plan generation did not reach review: ${editorError}`, {
+        cause: error,
+      });
+    }
     projectPreviewMs = Math.round(performance.now() - previewStartedAt);
     const userTitlePreserved =
       (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
@@ -1245,7 +1260,7 @@ async function main() {
       .waitFor({ state: "visible", timeout: 30_000 });
     await page.locator("[data-pcc-autopilot-generate-prompts]").first().click({ force: true });
     await page
-      .getByText("Autopilot prompts generated", { exact: false })
+      .getByText("Autopilot prompts planned by", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 30_000 });
     await page
@@ -1471,7 +1486,7 @@ async function main() {
     await fillSetup.waitFor({ state: "visible", timeout: 30_000 });
     await fillSetup.click({ force: true });
     await page
-      .getByText("AI Autofill Preview", { exact: false })
+      .getByText("Codex Plan Preview", { exact: false })
       .first()
       .waitFor({ state: "visible", timeout: 45_000 });
     const setupRepairPreviewVisible = true;

@@ -539,13 +539,13 @@ async function runBrowserProof(options: ProofOptions) {
     }
     const setupRepair = page
       .getByRole("button", {
-        name: /Fill missing setup with AI|Generate setup with AI|Fill missing details with AI/i,
+        name: /Plan missing setup with Codex|Plan setup repair with Codex|Fill blanks with Codex/i,
       })
       .first();
     if (await setupRepair.isVisible().catch(() => false)) {
       await setupRepair.click({ force: true });
       await page
-        .getByText("AI Autofill Preview", { exact: false })
+        .getByText("Codex Plan Preview", { exact: false })
         .first()
         .waitFor({ state: "visible", timeout: 45_000 });
       autofillPreviewOpened = true;
@@ -619,13 +619,13 @@ async function runBrowserProof(options: ProofOptions) {
         options.profile === "functionality-closure" ||
         options.profile === "focus-live-interaction" ||
         has("Setup needs a few answers") ||
-        has("Fill missing setup with AI") ||
-        has("Generate setup with AI") ||
-        has("Fill missing details with AI"),
+        has("Plan missing setup with Codex") ||
+        has("Plan setup repair with Codex") ||
+        has("Fill blanks with Codex"),
       autofillPreview:
         options.profile === "production-current" ||
         !autofillPreviewOpened ||
-        has("AI Autofill Preview"),
+        has("Codex Plan Preview"),
       actionMenu:
         options.profile === "production-current" ||
         options.profile === "functionality-closure" ||

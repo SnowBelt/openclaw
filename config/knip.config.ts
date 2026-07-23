@@ -18,6 +18,9 @@ const rootEntries = [
   "src/infra/kysely-node-sqlite.ts!",
   "src/infra/warning-filter.ts!",
   "src/infra/command-explainer/index.ts!",
+  // The immutable managed-runtime lifecycle executes the bundled
+  // dist/release-governor.js entry built from this production CLI.
+  "src/pcc/release-governance/cli.ts!",
   // Custom production support contracts are invoked by managed-runtime and
   // proof tooling that scripts/** intentionally excludes from Knip's graph.
   // Keep the real contract roots explicit instead of allowlisting findings.

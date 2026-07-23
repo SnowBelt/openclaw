@@ -563,6 +563,18 @@ import {
   type PccProjectsListResult,
   type PccProjectsGetResult,
   type PccProjectsUpsertResult,
+  type PccPlansGenerateParams,
+  PccPlansGenerateParamsSchema,
+  type PccPlansGenerateResult,
+  PccPlansGenerateResultSchema,
+  type PccPlanningPolicyGetParams,
+  PccPlanningPolicyGetParamsSchema,
+  type PccPlanningPolicyGetResult,
+  PccPlanningPolicyGetResultSchema,
+  type PccPlanningPolicyUpsertParams,
+  PccPlanningPolicyUpsertParamsSchema,
+  type PccPlanningPolicyUpsertResult,
+  PccPlanningPolicyUpsertResultSchema,
   type PccMilestonesUpsertResult,
   type PccSubMilestonesListResult,
   type PccSubMilestonesUpsertResult,
@@ -1204,6 +1216,15 @@ export const validatePccProjectsGetParams = lazyCompile<PccProjectsGetParams>(
 export const validatePccProjectsUpsertParams = lazyCompile<PccProjectsUpsertParams>(
   PccProjectsUpsertParamsSchema,
 );
+export const validatePccPlansGenerateParams = lazyCompile<PccPlansGenerateParams>(
+  PccPlansGenerateParamsSchema,
+);
+export const validatePccPlanningPolicyGetParams = lazyCompile<PccPlanningPolicyGetParams>(
+  PccPlanningPolicyGetParamsSchema,
+);
+export const validatePccPlanningPolicyUpsertParams = lazyCompile<PccPlanningPolicyUpsertParams>(
+  PccPlanningPolicyUpsertParamsSchema,
+);
 export const validatePccMilestonesUpsertParams = lazyCompile<PccMilestonesUpsertParams>(
   PccMilestonesUpsertParamsSchema,
 );
@@ -1707,6 +1728,12 @@ export {
   TasksGetResultSchema,
   TasksCancelParamsSchema,
   TasksCancelResultSchema,
+  PccPlansGenerateParamsSchema,
+  PccPlansGenerateResultSchema,
+  PccPlanningPolicyGetParamsSchema,
+  PccPlanningPolicyGetResultSchema,
+  PccPlanningPolicyUpsertParamsSchema,
+  PccPlanningPolicyUpsertResultSchema,
   ConfigGetParamsSchema,
   ConfigSetParamsSchema,
   ConfigApplyParamsSchema,
@@ -2136,6 +2163,12 @@ export type {
   TasksGetResult,
   TasksCancelParams,
   TasksCancelResult,
+  PccPlansGenerateParams,
+  PccPlansGenerateResult,
+  PccPlanningPolicyGetParams,
+  PccPlanningPolicyGetResult,
+  PccPlanningPolicyUpsertParams,
+  PccPlanningPolicyUpsertResult,
   PccStatus,
   PccProofLevel,
   PccPermissionStatus,

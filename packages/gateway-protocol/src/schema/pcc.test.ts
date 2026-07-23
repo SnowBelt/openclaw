@@ -5,6 +5,8 @@ import {
   validatePccDecisionsAddParams,
   validatePccMilestonesUpsertParams,
   validatePccPermissionsUpsertParams,
+  validatePccPlansGenerateParams,
+  validatePccPlanningPolicyUpsertParams,
   validatePccProjectsUpsertParams,
   validatePccReceiptsAddParams,
   validatePccSubMilestonesListParams,
@@ -13,6 +15,27 @@ import {
 import { PccProjectSummarySchema, PccSummaryGetResultSchema } from "./pcc.js";
 
 describe("Project Command Center protocol schemas", () => {
+  it("validates planning-only Codex generation requests", () => {
+    expect(
+      validatePccPlansGenerateParams({
+        surface: "project_creation",
+        description: "Create a production dashboard",
+        depth: "automatic",
+      }),
+    ).toBe(true);
+    expect(
+      validatePccPlansGenerateParams({
+        surface: "implementation",
+        description: "Change source code",
+      }),
+    ).toBe(false);
+  });
+
+  it("validates revocable persistent planning policy updates", () => {
+    expect(validatePccPlanningPolicyUpsertParams({ enabled: true, depth: "automatic" })).toBe(true);
+    expect(validatePccPlanningPolicyUpsertParams({ enabled: true, depth: "ultra" })).toBe(false);
+  });
+
   it("registers canonical PCC schemas", () => {
     expect(ProtocolSchemas.PccProject).toBeTruthy();
     expect(ProtocolSchemas.PccMilestone).toBeTruthy();

@@ -10,6 +10,7 @@ import {
   normalizeAgentId,
   parseAgentSessionKey,
 } from "../../routing/session-key.js";
+import { resolveAgentRoleCapabilityContract } from "../agent-role-capabilities.js";
 import { resolveModelAgentRuntimeMetadata } from "../agent-runtime-metadata.js";
 import { listAgentIds } from "../agent-scope-config.js";
 import { resolveAgentConfig, resolveAgentEffectiveModelPrimary } from "../agent-scope.js";
@@ -25,10 +26,16 @@ type AgentListEntry = {
   id: string;
   name?: string;
   configured: boolean;
+  spawnable: true;
   model?: string;
   agentRuntime?: {
     id: string;
     source: "env" | "agent" | "defaults" | "model" | "provider" | "implicit" | "session-key";
+  };
+  operationalRole?: {
+    role: string;
+    acceptedHandoffs: string[];
+    acceptsMutation: boolean;
   };
 };
 
@@ -79,7 +86,17 @@ export function createAgentsListTool(opts?: {
         allowAgents,
         configuredAgentIds: configuredIds,
       });
-      const all = allowed.allowedIds;
+      const requesterRoleContract = resolveAgentRoleCapabilityContract({
+        config: cfg,
+        agentId: requesterAgentId,
+      });
+      const all = allowed.allowedIds.filter((id) => {
+        if (!requesterRoleContract) {
+          return true;
+        }
+        const targetRole = resolveAgentRoleCapabilityContract({ config: cfg, agentId: id })?.role;
+        return Boolean(targetRole && requesterRoleContract.mayDelegateTo.includes(targetRole));
+      });
       const rest = all
         .filter((id) => id !== requesterAgentId)
         .toSorted((a, b) => a.localeCompare(b));
@@ -93,13 +110,23 @@ export function createAgentsListTool(opts?: {
           provider: resolvedModel.provider,
           model: resolvedModel.model,
         });
-        return {
+        const roleContract = resolveAgentRoleCapabilityContract({ config: cfg, agentId: id });
+        const entry: AgentListEntry = {
           id,
           name: configuredNameMap.get(id),
           configured: configuredIds.includes(id),
+          spawnable: true,
           model,
           agentRuntime,
         };
+        if (roleContract) {
+          entry.operationalRole = {
+            role: roleContract.role,
+            acceptedHandoffs: roleContract.acceptsHandoffs,
+            acceptsMutation: roleContract.acceptsMutation,
+          };
+        }
+        return entry;
       });
 
       return jsonResult({

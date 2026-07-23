@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("custom runtime sealing and status", () => {
-  it("seals every release directory and verifies the exact source marker", () => {
+  it("seals every release path and verifies the exact source marker", () => {
     const root = temporaryRoot("openclaw-runtime-seal-");
     const releases = path.join(root, "releases");
     const release = path.join(releases, "candidate");
@@ -42,18 +42,30 @@ describe("custom runtime sealing and status", () => {
     expect(fs.readFileSync(path.join(release, ".openclaw-runtime-sealed"), "utf8").trim()).toBe(
       sourceSha,
     );
-    for (const directory of [
+    for (const sealedPath of [
       release,
       path.join(release, "node_modules"),
       path.join(release, "node_modules", "json5"),
+      path.join(release, ".openclaw-production-sha"),
+      path.join(release, ".openclaw-runtime-sealed"),
+      path.join(release, "node_modules", "json5", "package.json"),
     ]) {
-      expect(fs.statSync(directory).mode & 0o222).toBe(0);
+      expect(fs.statSync(sealedPath).mode & 0o222).toBe(0);
     }
     const verified = spawnSync(sealScript, ["--verify", "--release", release], {
       encoding: "utf8",
       env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases },
     });
     expect(verified.status, verified.stderr).toBe(0);
+
+    const packagePath = path.join(release, "node_modules", "json5", "package.json");
+    fs.chmodSync(packagePath, 0o600);
+    const tampered = spawnSync(sealScript, ["--verify", "--release", release], {
+      encoding: "utf8",
+      env: { ...process.env, OPENCLAW_CUSTOM_RUNTIME_RELEASES: releases },
+    });
+    expect(tampered.status).not.toBe(0);
+    expect(tampered.stderr).toContain("writable path");
   });
 
   it("runs status through the managed launcher without invoking a package manager", () => {

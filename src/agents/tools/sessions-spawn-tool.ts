@@ -13,26 +13,42 @@ import { getRuntimeConfig } from "../../config/config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { callGateway } from "../../gateway/call.js";
 import { resolveSnakeCaseParamKey } from "../../param-key.js";
+import {
+  DEFAULT_AGENT_ID,
+  isValidAgentId,
+  normalizeAgentId,
+  parseAgentSessionKey,
+} from "../../routing/session-key.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
 import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
 import type { GatewayMessageChannel } from "../../utils/message-channel.js";
+import {
+  AGENT_HANDOFF_KINDS,
+  type AgentHandoffEnvelope,
+  validateAgentRoleHandoff,
+} from "../agent-role-capabilities.js";
+import { resolveAgentConfig } from "../agent-scope.js";
+import { verifyControlDirectorDiagnosticEvidence } from "../control-director-diagnostic-evidence.js";
 import {
   findAcpUnsupportedInheritedToolAllow,
   findAcpUnsupportedInheritedToolDeny,
   formatAcpInheritedToolAllowError,
   formatAcpInheritedToolDenyError,
 } from "../inherited-tool-deny.js";
-import { optionalStringEnum } from "../schema/typebox.js";
+import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import type { SpawnedToolContext } from "../spawned-context.js";
 import { resolveAcpSessionsSpawnImageAttachments } from "../subagent-attachments.js";
 import { registerSubagentRun } from "../subagent-registry.js";
 import { resolveSubagentSpawnOwnership } from "../subagent-spawn-ownership.js";
+import { addSubagentSpawnRecommendedAction } from "../subagent-spawn-recovery.js";
 import {
+  formatInvalidSubagentAgentIdError,
   SUBAGENT_SPAWN_CONTEXT_MODES,
   SUBAGENT_SPAWN_MODES,
   spawnSubagentDirect,
 } from "../subagent-spawn.js";
 import { normalizeSubagentTaskName } from "../subagent-task-name.js";
+import { resolveSubagentTaskRoot, type SubagentTaskRootReceipt } from "../subagent-task-root.js";
 import {
   describeSessionsSpawnTool,
   SESSIONS_SPAWN_SUBAGENT_TOOL_DISPLAY_SUMMARY,
@@ -93,6 +109,99 @@ function addRoleToFailureResult<T extends { status: string }>(
     return result;
   }
   return { ...result, role };
+}
+
+function finalizeSpawnResult<T extends { status: string; error?: string }>(
+  result: T,
+  taskRoot?: SubagentTaskRootReceipt,
+  expectedAgentId?: string,
+) {
+  const now = Date.now();
+  const resultIdentity = result as T & { childSessionKey?: string; runId?: string };
+  const childSessionKey = resultIdentity.childSessionKey?.trim();
+  const runId = resultIdentity.runId?.trim();
+  const workerSubject = runId || childSessionKey;
+  const observedWorkerAgentId = childSessionKey
+    ? parseAgentSessionKey(childSessionKey)?.agentId
+    : undefined;
+  const diagnosticClaims = [
+    ...(workerSubject
+      ? [
+          {
+            kind: "worker" as const,
+            verdict: verifyControlDirectorDiagnosticEvidence({
+              claim: {
+                schemaVersion: 1,
+                kind: "worker",
+                subjectId: workerSubject,
+                ...(expectedAgentId ? { expectedBinding: expectedAgentId } : {}),
+              },
+              evidence: {
+                schemaVersion: 1,
+                kind: "worker",
+                subjectId: workerSubject,
+                source: "spawn_receipt",
+                sourceId: runId || childSessionKey || "",
+                observedAt: now,
+                binding: observedWorkerAgentId,
+                status:
+                  result.status === "accepted" && observedWorkerAgentId
+                    ? "supported"
+                    : "unavailable",
+              },
+              now,
+            }),
+          },
+        ]
+      : []),
+    ...(taskRoot
+      ? [
+          {
+            kind: "task_root" as const,
+            verdict: verifyControlDirectorDiagnosticEvidence({
+              claim: {
+                schemaVersion: 1,
+                kind: "task_root",
+                subjectId: workerSubject || taskRoot.fingerprint,
+                expectedBinding: taskRoot.fingerprint,
+              },
+              evidence: {
+                schemaVersion: 1,
+                kind: "task_root",
+                subjectId: workerSubject || taskRoot.fingerprint,
+                source: "spawn_receipt",
+                sourceId: taskRoot.fingerprint,
+                observedAt: now,
+                binding: taskRoot.fingerprint,
+                status: "supported",
+              },
+              now,
+            }),
+          },
+        ]
+      : []),
+  ];
+  return addSubagentSpawnRecommendedAction({
+    ...result,
+    ...(taskRoot ? { taskRoot } : {}),
+    ...(diagnosticClaims.length ? { diagnosticClaims } : {}),
+  });
+}
+
+function readHandoffEnvelope(params: Record<string, unknown>): AgentHandoffEnvelope | undefined {
+  const value = params.handoff;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const kind = typeof record.kind === "string" ? record.kind : "";
+  if (!(AGENT_HANDOFF_KINDS as readonly string[]).includes(kind)) {
+    return undefined;
+  }
+  return {
+    kind: kind as AgentHandoffEnvelope["kind"],
+    requiresMutation: record.requiresMutation === true,
+  };
 }
 
 function resolveTrackedSpawnMode(params: {
@@ -179,7 +288,18 @@ function createSessionsSpawnToolSchema(params: {
     agentId: Type.Optional(Type.String()),
     model: Type.Optional(Type.String()),
     thinking: Type.Optional(Type.String()),
-    cwd: Type.Optional(Type.String()),
+    cwd: Type.Optional(
+      Type.String({
+        description:
+          "Optional descendant of the trusted current task root. Omit to inherit the exact approved root.",
+      }),
+    ),
+    handoff: Type.Optional(
+      Type.Object({
+        kind: stringEnum(AGENT_HANDOFF_KINDS),
+        requiresMutation: Type.Boolean(),
+      }),
+    ),
     ...(params.threadAvailable
       ? {
           thread: Type.Optional(
@@ -302,10 +422,12 @@ export function createSessionsSpawnTool(
       const task = readStringParam(params, "task", { required: true });
       const taskNameResult = normalizeSubagentTaskName(params.taskName);
       if (taskNameResult.error) {
-        return jsonResult({
-          status: "error",
-          error: taskNameResult.error,
-        });
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "error",
+            error: taskNameResult.error,
+          }),
+        );
       }
       const taskName = taskNameResult.taskName;
       const label = readStringParam(params, "label") ?? "";
@@ -315,6 +437,7 @@ export function createSessionsSpawnTool(
       const modelOverride = normalizeToolModelOverride(readStringParam(params, "model"));
       const thinkingOverrideRaw = readStringParam(params, "thinking");
       const cwd = readStringParam(params, "cwd");
+      const handoff = readHandoffEnvelope(params);
       const mode = params.mode === "run" || params.mode === "session" ? params.mode : undefined;
       const cleanup =
         params.cleanup === "keep" || params.cleanup === "delete" ? params.cleanup : "keep";
@@ -326,33 +449,39 @@ export function createSessionsSpawnTool(
       const lightContext = params.lightContext === true;
       const roleContext = requestedAgentId ? { role: requestedAgentId } : {};
       if (runtime === "acp" && !acpAvailable) {
-        return jsonResult({
-          status: "error",
-          error: resolveAcpUnavailableMessage(opts),
-          ...roleContext,
-        });
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "error",
+            error: resolveAcpUnavailableMessage(opts),
+            ...roleContext,
+          }),
+        );
       }
       const acpUnsupportedInheritedTool =
         runtime === "acp"
           ? findAcpUnsupportedInheritedToolDeny(opts?.inheritedToolDenylist)
           : undefined;
       if (acpUnsupportedInheritedTool) {
-        return jsonResult({
-          status: "forbidden",
-          error: formatAcpInheritedToolDenyError(acpUnsupportedInheritedTool),
-          ...roleContext,
-        });
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "forbidden",
+            error: formatAcpInheritedToolDenyError(acpUnsupportedInheritedTool),
+            ...roleContext,
+          }),
+        );
       }
       const acpUnsupportedInheritedAllow =
         runtime === "acp"
           ? findAcpUnsupportedInheritedToolAllow(opts?.inheritedToolAllowlist)
           : undefined;
       if (acpUnsupportedInheritedAllow) {
-        return jsonResult({
-          status: "forbidden",
-          error: formatAcpInheritedToolAllowError(acpUnsupportedInheritedAllow),
-          ...roleContext,
-        });
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "forbidden",
+            error: formatAcpInheritedToolAllowError(acpUnsupportedInheritedAllow),
+            ...roleContext,
+          }),
+        );
       }
       if (runtime === "acp" && lightContext) {
         throw new Error("lightContext is only supported for runtime='subagent'.");
@@ -370,18 +499,79 @@ export function createSessionsSpawnTool(
           }>)
         : undefined;
 
+      const cfg = opts?.config ?? getRuntimeConfig();
+      const requesterAgentId = normalizeAgentId(
+        opts?.requesterAgentIdOverride ??
+          (opts?.agentSessionKey
+            ? parseAgentSessionKey(opts.agentSessionKey)?.agentId
+            : undefined) ??
+          DEFAULT_AGENT_ID,
+      );
+      if (requestedAgentId && !isValidAgentId(requestedAgentId)) {
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "error",
+            error: formatInvalidSubagentAgentIdError(requestedAgentId),
+            ...roleContext,
+          }),
+        );
+      }
+      const targetAgentId = requestedAgentId
+        ? normalizeAgentId(requestedAgentId)
+        : requesterAgentId;
+      const handoffValidation = validateAgentRoleHandoff({
+        requesterRole: resolveAgentConfig(cfg, requesterAgentId)?.role,
+        targetRole: resolveAgentConfig(cfg, targetAgentId)?.role,
+        handoff,
+      });
+      if (!handoffValidation.ok) {
+        return jsonResult(
+          finalizeSpawnResult({
+            status: "forbidden",
+            error: handoffValidation.error,
+            ...roleContext,
+          }),
+        );
+      }
+
+      const taskRootResolution = await resolveSubagentTaskRoot({
+        approvedRoot: opts?.taskRoot,
+        requestedCwd: cwd,
+      });
+      if (!taskRootResolution.ok) {
+        return jsonResult(
+          finalizeSpawnResult(
+            {
+              status: "forbidden",
+              error: taskRootResolution.error,
+              issueCode: taskRootResolution.code,
+              ...roleContext,
+            },
+            taskRootResolution.receipt,
+            requestedAgentId,
+          ),
+        );
+      }
+      const effectiveCwd = taskRootResolution.effectiveCwd;
+
       if (runtime === "acp") {
         const { isSpawnAcpAcceptedResult, spawnAcpDirect } = await loadAcpSpawnModule();
         const acpAttachments = resolveAcpSessionsSpawnImageAttachments({
-          config: opts?.config ?? getRuntimeConfig(),
+          config: cfg,
           attachments,
         });
         if (acpAttachments?.status === "forbidden" || acpAttachments?.status === "error") {
-          return jsonResult({
-            status: acpAttachments.status,
-            error: acpAttachments.error,
-            ...roleContext,
-          });
+          return jsonResult(
+            finalizeSpawnResult(
+              {
+                status: acpAttachments.status,
+                error: acpAttachments.error,
+                ...roleContext,
+              },
+              taskRootResolution.receipt,
+              requestedAgentId,
+            ),
+          );
         }
         const result = await spawnAcpDirect(
           {
@@ -391,7 +581,7 @@ export function createSessionsSpawnTool(
             resumeSessionId,
             model: modelOverride,
             thinking: thinkingOverrideRaw,
-            cwd,
+            cwd: effectiveCwd,
             mode: mode === "run" || mode === "session" ? mode : undefined,
             thread,
             sandbox,
@@ -418,14 +608,14 @@ export function createSessionsSpawnTool(
         const shouldTrackViaRegistry =
           result.status === "accepted" && Boolean(childSessionKey) && Boolean(childRunId);
         if (shouldTrackViaRegistry && childSessionKey && childRunId) {
-          const cfg = getRuntimeConfig();
+          const trackingCfg = getRuntimeConfig();
           const trackedSpawnMode = resolveTrackedSpawnMode({
             requestedMode: result.mode,
             threadRequested: thread,
           });
           const trackedCleanup = trackedSpawnMode === "session" ? "keep" : cleanup;
           const ownership = resolveSubagentSpawnOwnership({
-            cfg,
+            cfg: trackingCfg,
             agentSessionKey: opts?.agentSessionKey,
             completionOwnerKey: opts?.completionOwnerKey,
           });
@@ -459,16 +649,28 @@ export function createSessionsSpawnTool(
             // Best-effort only: the ACP turn was already started above, so deleting the
             // child session record here does not guarantee the in-flight run was aborted.
             await cleanupUntrackedAcpSession(childSessionKey);
-            return jsonResult({
-              status: "error",
-              error: `Failed to register ACP run: ${summarizeError(err)}. Cleanup was attempted, but the already-started ACP run may still finish in the background.`,
-              childSessionKey,
-              runId: childRunId,
-              ...roleContext,
-            });
+            return jsonResult(
+              finalizeSpawnResult(
+                {
+                  status: "error",
+                  error: `Failed to register ACP run: ${summarizeError(err)}. Cleanup was attempted, but the already-started ACP run may still finish in the background.`,
+                  childSessionKey,
+                  runId: childRunId,
+                  ...roleContext,
+                },
+                taskRootResolution.receipt,
+                requestedAgentId,
+              ),
+            );
           }
         }
-        return jsonResult(addRoleToFailureResult(result, requestedAgentId));
+        return jsonResult(
+          finalizeSpawnResult(
+            addRoleToFailureResult(result, requestedAgentId),
+            taskRootResolution.receipt,
+            requestedAgentId,
+          ),
+        );
       }
 
       const result = await spawnSubagentDirect(
@@ -479,7 +681,7 @@ export function createSessionsSpawnTool(
           agentId: requestedAgentId,
           model: modelOverride,
           thinking: thinkingOverrideRaw,
-          cwd,
+          cwd: effectiveCwd,
           thread,
           mode,
           cleanup,
@@ -511,7 +713,13 @@ export function createSessionsSpawnTool(
         },
       );
 
-      return jsonResult(addRoleToFailureResult(result, requestedAgentId));
+      return jsonResult(
+        finalizeSpawnResult(
+          addRoleToFailureResult(result, requestedAgentId),
+          taskRootResolution.receipt,
+          requestedAgentId,
+        ),
+      );
     },
   };
 }

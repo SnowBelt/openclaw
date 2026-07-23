@@ -63,6 +63,8 @@ describe("Project Command Center gateway methods", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
+    pccTesting.resetPlanGenerator();
     pccTesting.closeLedgerStorage();
     if (previousStateDir === undefined) {
       delete process.env.OPENCLAW_STATE_DIR;
@@ -70,6 +72,116 @@ describe("Project Command Center gateway methods", () => {
       process.env.OPENCLAW_STATE_DIR = previousStateDir;
     }
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("uses an honest deterministic planner only inside the isolated browser proof Gateway", async () => {
+    vi.stubEnv("VITEST", "1");
+    vi.stubEnv("OPENCLAW_TEST_MINIMAL_GATEWAY", "1");
+    vi.stubEnv("OPENCLAW_PCC_LIVE_E2E_PLAN_FIXTURE", "1");
+    const liveGenerator = vi.fn(async () => {
+      throw new Error("live Codex must not run inside isolated browser proof");
+    });
+    pccTesting.setPlanGenerator(liveGenerator as never);
+
+    const payload = okPayload<{ plan: { title: string; provenance: Record<string, unknown> } }>(
+      await invoke("pcc.plans.generate", {
+        surface: "project_creation",
+        description: "Prove guided project creation without external model usage.",
+        existingTitle: "User Preserved Title",
+        depth: "automatic",
+      }),
+    );
+
+    expect(liveGenerator).not.toHaveBeenCalled();
+    expect(payload.plan).toMatchObject({
+      title: "User Preserved Title",
+      provenance: {
+        auth: "none",
+        source: "isolated_test_fixture",
+        planningOnly: true,
+      },
+    });
+  });
+
+  it("generates a genuine Codex plan through the planning-only gateway surface", async () => {
+    const generated = {
+      schemaVersion: 1 as const,
+      title: "Genuine Planning",
+      goal: "Generate a verified project plan with Codex.",
+      outcomeMetrics: ["The plan has model provenance."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [
+        {
+          title: "Define the plan",
+          phaseId: "setup",
+          implementationPlan: "Create the ordered execution plan.",
+          acceptanceCriteria: ["The plan is complete."],
+          responsibility: "codex",
+          proofLevel: "local",
+          dependencies: [],
+          subMilestones: [
+            {
+              title: "Define done",
+              implementationPlan: "Write observable checks.",
+              acceptanceCriteria: ["Checks are observable."],
+              responsibility: "local_openclaw_agent",
+              proofLevel: "local",
+            },
+          ],
+        },
+      ],
+      risks: [],
+      assumptions: [],
+      provenance: {
+        generatedAt: "2026-07-22T12:00:00.000Z",
+        provider: "openai" as const,
+        model: "openai/gpt-5.6-sol",
+        runtime: "codex" as const,
+        effort: "medium" as const,
+        auth: "oauth" as const,
+        source: "live_codex" as const,
+        planningOnly: true as const,
+      },
+    };
+    const generator = vi.fn(async () => generated);
+    pccTesting.setPlanGenerator(generator as never);
+
+    const payload = okPayload<{ plan: typeof generated }>(
+      await invoke("pcc.plans.generate", {
+        surface: "project_creation",
+        description: "Create a genuine Codex planner",
+        depth: "automatic",
+      }),
+    );
+
+    expect(generator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          surface: "project_creation",
+          description: "Create a genuine Codex planner",
+        }),
+      }),
+    );
+    expect(payload.plan.provenance.source).toBe("live_codex");
+  });
+
+  it("persists and revokes the PCC-wide planning-only grant", async () => {
+    const initial = okPayload<{ policy: { grant: { enabled: boolean }; depth: string } }>(
+      await invoke("pcc.planningPolicy.get", {}),
+    );
+    expect(initial.policy).toMatchObject({
+      depth: "automatic",
+      grant: { enabled: true },
+    });
+
+    const updated = okPayload<{ policy: { grant: { enabled: boolean }; depth: string } }>(
+      await invoke("pcc.planningPolicy.upsert", { enabled: false, depth: "high" }),
+    );
+    expect(updated.policy).toMatchObject({ depth: "high", grant: { enabled: false } });
+    expect(pccTesting.readLedger().settings?.planningPolicy).toMatchObject({
+      depth: "high",
+      grant: { enabled: false },
+    });
   });
 
   it("stores projects and milestones with deterministic summaries", async () => {
@@ -703,7 +815,7 @@ describe("Project Command Center gateway methods", () => {
       reason: expect.any(String),
     });
     expect(capacity.warnings.at(-1)).toContain("Control Director resource governor:");
-    expect(capacity.safeLocalAgentSlots).toBeLessThanOrEqual(1);
+    expect(capacity.safeLocalAgentSlots).toBeLessThanOrEqual(4);
   });
 
   it("returns the current Release Governor status without exposing approval secrets", async () => {

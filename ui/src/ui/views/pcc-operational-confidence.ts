@@ -89,7 +89,7 @@ export const PCC_INTERACTION_CONTRACTS: readonly PccInteractionContract[] = [
   },
   {
     id: "setup.repair",
-    label: "Fix Setup with AI",
+    label: "Plan Setup with Codex",
     selector: "[data-pcc-setup-repair-ai-fill]",
     surface: "setup",
     mutates: false,

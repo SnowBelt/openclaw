@@ -90,6 +90,9 @@ async function main(): Promise<void> {
   const instance = await createOpenClawTestInstance({
     name,
     cwd: process.cwd(),
+    env: {
+      OPENCLAW_PCC_LIVE_E2E_PLAN_FIXTURE: "1",
+    },
     config: {
       gateway: {
         controlUi: { enabled: true },

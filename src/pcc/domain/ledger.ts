@@ -8,6 +8,7 @@ import type {
   PccProject,
   PccSubMilestone,
 } from "../../../packages/gateway-protocol/src/schema/types.js";
+import type { PccPlanningPolicy } from "../planning.js";
 
 /**
  * Storage-independent PCC aggregate consumed by domain and read-model services.
@@ -23,4 +24,7 @@ export type PccLedger = {
   receipts: PccCompletionReceipt[];
   decisions: PccDecision[];
   lastKnownGood: PccLastKnownGood[];
+  settings?: {
+    planningPolicy?: PccPlanningPolicy;
+  };
 };

@@ -262,7 +262,10 @@ async function main() {
         !text.includes("Needs You Project") || text.includes("outside PCC Product"),
       currentProofOk: text.includes("Current proof: OK"),
       historicalCleanupSplit: text.includes("History cleanup"),
-      terminalMaintenanceLabel: text.includes("Maintenance") && !text.includes("Fix Setup with AI"),
+      terminalMaintenanceLabel:
+        text.includes("Maintenance") &&
+        !text.includes("Fix Setup with AI") &&
+        !text.includes("Plan Setup with Codex"),
       terminalHasNoFakePrimaryButton:
         root.querySelector("[data-pcc-primary-action] button") === null &&
         root

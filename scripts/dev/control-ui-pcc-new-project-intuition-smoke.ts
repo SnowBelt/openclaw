@@ -136,13 +136,76 @@ async function main(): Promise<void> {
             projectForm = { ...projectForm, ...patch };
             renderCurrent();
           },
+          onGenerateProjectPlan: () => {
+            projectForm = {
+              ...projectForm,
+              goal: projectForm.goal || "Complete a safe, permit-ready kitchen remodel plan.",
+              outcomeMetrics:
+                projectForm.outcomeMetrics ||
+                "Permits, inspections, and budget checks are verified.",
+              planningMode: "codex_full_plan",
+              plannerMode: "codex",
+              plannerModelId: "openai/gpt-5.6-sol",
+              planPreviewAccepted: true,
+              intakeApproved: true,
+              intakeAnswers: {
+                goal: "Complete a safe, permit-ready kitchen remodel plan.",
+                firstDeliverable: "Approve the permit and inspection plan.",
+                doneProof: "Every required check has receipt-backed proof.",
+                constraints: "Stop before missing permissions or unavailable tools.",
+                owner: "Codex plans; local OpenClaw agents execute.",
+                blockers: "No known blockers.",
+                ...projectForm.intakeAnswers,
+              },
+              generatedPlan: {
+                schemaVersion: 1,
+                title: "Kitchen Remodel Readiness",
+                goal: "Complete a safe, permit-ready kitchen remodel plan.",
+                outcomeMetrics: ["Permits, inspections, and budget checks are verified."],
+                workflowTemplateId: "software-product",
+                milestones: [
+                  {
+                    title: "Verify remodel requirements",
+                    phaseId: "setup",
+                    implementationPlan: "Verify permits, inspections, budget, and stop conditions.",
+                    acceptanceCriteria: ["Every requirement has an owner and proof path."],
+                    responsibility: "codex",
+                    proofLevel: "local",
+                    dependencies: [],
+                    subMilestones: [
+                      {
+                        title: "List permit requirements",
+                        implementationPlan: "List and verify the applicable permit requirements.",
+                        acceptanceCriteria: ["The permit list is reviewed."],
+                        responsibility: "local_openclaw_agent",
+                        proofLevel: "local",
+                      },
+                    ],
+                  },
+                ],
+                risks: ["Permit requirements can change."],
+                assumptions: ["The project address is available."],
+                provenance: {
+                  generatedAt: "2026-07-22T00:00:00.000Z",
+                  provider: "openai",
+                  model: "openai/gpt-5.6-sol",
+                  runtime: "codex",
+                  effort: "medium",
+                  auth: "oauth",
+                  source: "live_codex",
+                  planningOnly: true,
+                },
+              },
+            };
+            renderCurrent();
+          },
         }),
         root,
       );
     };
 
     renderCurrent();
-    requireText(root, "[data-pcc-create-ai-explainer]", "AI fills only the blanks");
+    requireText(root, "[data-pcc-create-ai-explainer]", "Codex fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
     requireText(root, "[data-pcc-ai-role-picker]", "Focused");
     requireText(root, "[data-pcc-ai-role-picker]", "Parallel");
@@ -173,7 +236,7 @@ async function main(): Promise<void> {
       throw new Error("Balanced team did not configure the canonical permission-gated profile");
     }
     requireText(root, "[data-pcc-ai-role-picker]", "Balanced team");
-    requireText(root, "[data-pcc-create-ai-summary]", "one Codex approval");
+    requireText(root, "[data-pcc-create-ai-summary]", "Codex execution remains blocked");
 
     (requireSelector(root, "[data-pcc-create-review-plan]") as HTMLButtonElement).click();
     if (projectForm.title !== "My Kitchen Plan" || projectForm.intakeAnswers.owner !== "Todd") {

@@ -345,10 +345,14 @@ jobs:
           echo "pnpm=$(pnpm -v)"
           cat <<'EOF'
           commands:
+          - pnpm custom-runtime:update-survival
           - pnpm control-director:verify -- --expected-sha "$GITHUB_SHA"
           - pnpm ui:smoke:control-director-no-response
           - pnpm check:changed
           EOF
+
+      - name: Run update-survival contract
+        run: pnpm custom-runtime:update-survival
 
       - name: Run exact-SHA Control Director source acceptance
         timeout-minutes: 70

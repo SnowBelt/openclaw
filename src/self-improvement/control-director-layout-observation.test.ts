@@ -44,7 +44,7 @@ describe("Control Director layout observation", () => {
     expect(validateControlDirectorLayoutObservation(observation())).toBeUndefined();
   });
 
-  it("accepts static PCC or Truth and Completion content inside Chat as an obstruction", () => {
+  it("accepts only obstructing PCC or Truth and Completion content as an obstruction", () => {
     expect(
       validateControlDirectorLayoutObservation(
         observation({ reason: "pcc_projection_in_chat", pccProjectionPresent: true }),
@@ -52,8 +52,21 @@ describe("Control Director layout observation", () => {
     ).toBeDefined();
     expect(
       validateControlDirectorLayoutObservation(
-        observation({ reason: "truth_completion_in_chat", truthCompletionPresent: true }),
+        observation({
+          reason: "truth_completion_in_chat",
+          truthCompletionPresent: true,
+          truthCompletionObstructing: true,
+        }),
       ),
     ).toBeDefined();
+    expect(
+      validateControlDirectorLayoutObservation(
+        observation({
+          reason: "truth_completion_in_chat",
+          truthCompletionPresent: true,
+          truthCompletionObstructing: false,
+        }),
+      ),
+    ).toBeUndefined();
   });
 });

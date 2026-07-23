@@ -52,8 +52,8 @@ import stat
 import sys
 
 root = os.path.realpath(sys.argv[1])
-for current, directories, _files in os.walk(root, topdown=False, followlinks=False):
-    for name in directories:
+for current, directories, files in os.walk(root, topdown=False, followlinks=False):
+    for name in [*files, *directories]:
         path = os.path.join(current, name)
         if os.path.islink(path):
             continue
@@ -73,14 +73,18 @@ root, marker, expected_sha = sys.argv[1:]
 with open(marker, encoding="utf-8") as handle:
     if handle.read().strip() != expected_sha:
         raise SystemExit("runtime seal verification failed: marker mismatch")
-for current, directories, _files in os.walk(root, followlinks=False):
-    paths = [current, *(os.path.join(current, name) for name in directories)]
+for current, directories, files in os.walk(root, followlinks=False):
+    paths = [
+        current,
+        *(os.path.join(current, name) for name in files),
+        *(os.path.join(current, name) for name in directories),
+    ]
     for path in paths:
         if os.path.islink(path):
             continue
         mode = stat.S_IMODE(os.stat(path, follow_symlinks=False).st_mode)
         if mode & 0o222:
-            raise SystemExit(f"runtime seal verification failed: writable directory: {path}")
+            raise SystemExit(f"runtime seal verification failed: writable path: {path}")
 PY
 
 printf '%s\n' "CUSTOM_RUNTIME_SEALED sha=$source_sha release=$(basename "$release")"

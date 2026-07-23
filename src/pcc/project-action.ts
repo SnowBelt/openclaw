@@ -108,8 +108,9 @@ export function resolvePccProjectAction(input: PccProjectActionInput): PccProjec
   if (!input.setupReady) {
     return {
       primaryActionId: "fix_setup",
-      primaryLabel: "Fix Setup with AI",
-      explanation: "PCC can draft the missing setup, then you approve it before work starts.",
+      primaryLabel: "Plan Setup with Codex",
+      explanation:
+        "Codex can draft the missing setup without tools, then you approve it before work starts.",
       statusLabel: "Needs setup",
       blockerLines: blockers,
       topBlocker: blockers[0],

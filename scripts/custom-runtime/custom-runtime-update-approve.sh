@@ -21,9 +21,9 @@ done
 [ -f "$receipt" ] || { printf '%s\n' 'prepared update receipt is missing' >&2; exit 64; }
 [ -f "$runtime_home/active-runtime.json" ] || { printf '%s\n' 'active runtime pointer is missing' >&2; exit 64; }
 
-fields=$(python3 - "$receipt" "$runtime_home/active-runtime.json" "$releases_dir" <<'PY'
-import json, os, re, sys
-receipt_path, active_path, releases_dir = sys.argv[1:]
+fields=$(python3 - "$receipt" "$runtime_home/active-runtime.json" "$releases_dir" "$runtime_home" <<'PY'
+import datetime, hashlib, json, os, re, sys
+receipt_path, active_path, releases_dir, runtime_home = sys.argv[1:]
 with open(receipt_path, encoding="utf-8") as f:
     receipt = json.load(f)
 with open(active_path, encoding="utf-8") as f:
@@ -40,9 +40,72 @@ source_sha = str(receipt.get("sourceSha", ""))
 base_sha = str(receipt.get("baseSha", ""))
 if not re.fullmatch(r"[0-9a-fA-F]{40}", source_sha):
     raise SystemExit("prepared update source SHA is invalid")
+if not re.fullmatch(r"[0-9a-fA-F]{40}", base_sha):
+    raise SystemExit("prepared update base SHA is invalid")
 if active.get("sourceSha") != base_sha:
     raise SystemExit("prepared update is stale because the active runtime changed")
-for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", ""))):
+if receipt.get("verificationResult") != "passed":
+    raise SystemExit("prepared update verification result is not passed")
+proof_binding = receipt.get("preservationProof")
+if not isinstance(proof_binding, dict):
+    raise SystemExit("prepared update preservationProof is missing")
+proof_path = os.path.realpath(str(proof_binding.get("path", "")))
+proof_root = os.path.realpath(os.path.join(runtime_home, "receipts"))
+if not proof_path.startswith(proof_root + os.sep) or not os.path.isfile(proof_path):
+    raise SystemExit("prepared update preservation proof is outside runtime receipts")
+proof_sha = str(proof_binding.get("sha256", "")).lower()
+if not re.fullmatch(r"[0-9a-f]{64}", proof_sha):
+    raise SystemExit("prepared update preservation proof digest is invalid")
+with open(proof_path, "rb") as f:
+    actual_proof_sha = hashlib.sha256(f.read()).hexdigest()
+if actual_proof_sha != proof_sha:
+    raise SystemExit("prepared update preservation proof digest changed after verification")
+with open(proof_path, encoding="utf-8") as f:
+    proof = json.load(f)
+if proof_binding.get("schema") != "openclaw.custom-runtime-update-survival.v1" or proof.get("schema") != proof_binding.get("schema"):
+    raise SystemExit("prepared update preservation proof schema is invalid")
+if proof.get("mode") != "candidate-merge" or proof.get("passed") is not True or proof.get("sourceClean") is not True:
+    raise SystemExit("prepared update preservation proof did not pass")
+if proof.get("sourceSha") != source_sha or proof.get("candidateSha") != source_sha or proof.get("activeSha") != base_sha:
+    raise SystemExit("prepared update preservation proof identity is stale")
+if proof.get("contractVersion") != 2 or proof.get("sourceStrategy") != "merge_from_active_sha" or proof.get("dashboardChangePolicy") != "register_verify_and_block" or proof.get("approvalPolicy") != "explicit_exact_candidate" or proof.get("proofCommand") != "pnpm custom-runtime:update-survival":
+    raise SystemExit("prepared update preservation proof policy is invalid")
+active_manifest_version = proof.get("activeManifestVersion")
+candidate_manifest_version = proof.get("candidateManifestVersion")
+if not isinstance(active_manifest_version, int) or not isinstance(candidate_manifest_version, int) or candidate_manifest_version < active_manifest_version:
+    raise SystemExit("prepared update preservation manifest version is invalid")
+required_capabilities = proof.get("requiredCapabilities")
+required_path_digests = proof.get("requiredPathDigests")
+if not isinstance(required_capabilities, list) or "runtime:update-safe-customizations" not in required_capabilities or not isinstance(required_path_digests, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(required_path_digests.get("config/custom-runtime-capabilities.json", ""))):
+    raise SystemExit("prepared update preservation capability ledger is invalid")
+for relative_path, expected_digest in required_path_digests.items():
+    if not isinstance(relative_path, str) or not relative_path or os.path.isabs(relative_path) or os.path.normpath(relative_path) != relative_path or relative_path == ".." or relative_path.startswith("../"):
+        raise SystemExit("prepared update preservation path ledger is unsafe")
+    if not isinstance(expected_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_digest):
+        raise SystemExit("prepared update preservation path digest is invalid")
+    release_path = os.path.join(release, relative_path)
+    if os.path.islink(release_path) or not os.path.isfile(release_path):
+        raise SystemExit("prepared release omitted a preservation-bound path")
+    with open(release_path, "rb") as f:
+        release_digest = hashlib.sha256(f.read()).hexdigest()
+    if release_digest != expected_digest:
+        raise SystemExit("prepared release changed a preservation-bound path")
+canonical_commands = proof.get("verificationCommands")
+executed_commands = proof.get("executedVerificationCommands")
+receipt_commands = receipt.get("verificationCommands")
+if not isinstance(canonical_commands, list) or not canonical_commands or any(not isinstance(item, str) or not item.strip() for item in canonical_commands):
+    raise SystemExit("prepared update preservation proof commands are invalid")
+expected_commands = [command.replace("<candidate-sha>", source_sha) for command in canonical_commands]
+if executed_commands != expected_commands or receipt_commands != expected_commands or proof.get("verificationResult") != "passed":
+    raise SystemExit("prepared update preservation verification ledger is invalid")
+try:
+    datetime.datetime.fromisoformat(str(proof.get("verifiedAt", "")).replace("Z", "+00:00"))
+except ValueError:
+    raise SystemExit("prepared update preservation verification timestamp is invalid") from None
+official_sha = str(proof.get("officialSha", ""))
+if not re.fullmatch(r"[0-9a-f]{40}", official_sha) or proof.get("mergeParents") != [base_sha, official_sha]:
+    raise SystemExit("prepared update preservation proof parents are invalid")
+for value in (release, source_sha, str(receipt.get("sourceRepo", "")), str(receipt.get("sourceBranch", "")), proof_path, proof_sha):
     print(value)
 PY
 ) || exit 64
@@ -50,6 +113,8 @@ release=$(printf '%s\n' "$fields" | sed -n '1p')
 source_sha=$(printf '%s\n' "$fields" | sed -n '2p')
 source_repo=$(printf '%s\n' "$fields" | sed -n '3p')
 source_branch=$(printf '%s\n' "$fields" | sed -n '4p')
+preservation_proof=$(printf '%s\n' "$fields" | sed -n '5p')
+preservation_proof_sha=$(printf '%s\n' "$fields" | sed -n '6p')
 [ -d "$source_repo/.git" ] || git -C "$source_repo" rev-parse --git-dir >/dev/null 2>&1 || {
   printf '%s\n' 'prepared update source repository is unavailable' >&2
   exit 64
@@ -75,6 +140,15 @@ branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 
   printf '%s\n' 'prepared release source stamp changed after proof' >&2
   exit 64
 }
+seal_verifier="$runtime_home/bin/custom-runtime-seal.sh"
+[ -x "$seal_verifier" ] || {
+  printf '%s\n' 'active runtime seal verifier is unavailable' >&2
+  exit 64
+}
+"$seal_verifier" --verify --release "$release" >/dev/null || {
+  printf '%s\n' 'prepared immutable release seal verification failed' >&2
+  exit 64
+}
 
 "$release/scripts/custom-runtime/custom-runtime-activate.sh" \
   --release "$release" --source-sha "$source_sha" --source-repo "$source_repo" \
@@ -82,9 +156,10 @@ branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 approval_receipt="$runtime_home/receipts/update-approval-$stamp.json"
-python3 - "$approval_receipt" "$receipt" "$stamp" "$release" "$source_sha" <<'PY'
+python3 - "$approval_receipt" "$receipt" "$stamp" "$release" "$source_sha" \
+  "$preservation_proof" "$preservation_proof_sha" <<'PY'
 import json, os, sys
-target, prepared, at, release, source_sha = sys.argv[1:]
+target, prepared, at, release, source_sha, proof_path, proof_sha = sys.argv[1:]
 with open(target + ".tmp", "w", encoding="utf-8") as f:
     json.dump({
         "schema": "openclaw.custom-runtime-update-approval.v1",
@@ -93,6 +168,11 @@ with open(target + ".tmp", "w", encoding="utf-8") as f:
         "preparedReceipt": os.path.realpath(prepared),
         "release": release,
         "sourceSha": source_sha,
+        "preservationProof": {
+            "path": proof_path,
+            "sha256": proof_sha,
+            "schema": "openclaw.custom-runtime-update-survival.v1",
+        },
     }, f, indent=2, sort_keys=True)
     f.write("\n")
 os.replace(target + ".tmp", target)

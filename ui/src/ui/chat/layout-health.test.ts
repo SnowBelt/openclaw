@@ -41,6 +41,14 @@ describe("Control Director Chat layout health", () => {
         }),
       ),
     ).toBeUndefined();
+    expect(
+      detectControlDirectorLayoutObstruction(
+        snapshot({
+          truthCompletionPresent: true,
+          truthCompletionObstructing: false,
+        }),
+      ),
+    ).toBeUndefined();
   });
 
   it("detects overlap, hidden content, viewport escape, and static PCC diagnostics", () => {
@@ -70,5 +78,13 @@ describe("Control Director Chat layout health", () => {
     expect(detectControlDirectorLayoutObstruction(snapshot({ pccProjectionPresent: true }))).toBe(
       "pcc_projection_in_chat",
     );
+    expect(
+      detectControlDirectorLayoutObstruction(
+        snapshot({
+          truthCompletionPresent: true,
+          truthCompletionObstructing: true,
+        }),
+      ),
+    ).toBe("truth_completion_in_chat");
   });
 });

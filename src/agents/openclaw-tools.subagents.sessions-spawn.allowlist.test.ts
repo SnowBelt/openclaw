@@ -265,7 +265,8 @@ describe("subagent spawn allowlist + sandbox guards", () => {
     const result = await spawn({ agentId: "Agent not found: xyz" });
     expectStatus(result, "error");
     expect(result.error ?? "").toContain("Invalid agentId");
-    expect(result.error ?? "").toContain("agents_list");
+    expect(result.error ?? "").toContain("Retry with an id matching");
+    expect(result.error ?? "").not.toContain("Use agents_list");
     expect(hoisted.callGatewayMock).not.toHaveBeenCalled();
   });
 
