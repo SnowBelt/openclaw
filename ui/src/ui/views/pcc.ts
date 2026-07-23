@@ -2239,7 +2239,6 @@ function runProjectIntakeFormAutofill(props: PccDashboardProps): void {
   }
   if (props.projectForm.id && props.onPreviewSetupAutofill) {
     props.onPreviewSetupAutofill();
-    return;
   }
 }
 

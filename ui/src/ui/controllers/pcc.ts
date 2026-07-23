@@ -3694,11 +3694,10 @@ export async function runPccExecutionTeamAction(
         availableModelRefs: localModels,
         preferredModelRef: preferredModel,
       });
-      return {
-        ...partition,
+      return Object.assign({}, partition, {
         modelId: route.modelRef ?? readiness.workerModelId!,
         modelRationale: route.rationale,
-      };
+      });
     });
     const sessionKey = `agent:${readiness.coordinatorAgentId}:pcc-execution-${detail.project.id}`;
     let plan = createPccExecutionPlan({
