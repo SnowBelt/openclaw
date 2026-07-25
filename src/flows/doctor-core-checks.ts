@@ -1147,18 +1147,22 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
   source: "doctor",
   async detect() {
     const { readPccLedger } = await import("../pcc/ledger-store.js");
+    const { repairPccLedgerIntegrity } = await import("../pcc/ledger-integrity-repair.js");
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
-    const project = readPccLedger().projects.find((item) => item.id === "project-command-center");
+    const currentLedger = readPccLedger();
+    const project = currentLedger.projects.find((item) => item.id === "project-command-center");
     if (!project) {
       return [];
     }
-    const repair = repairPccProductionTruthBindings(project);
-    return repair.changes.length
+    const bindingRepair = repairPccProductionTruthBindings(project);
+    const integrityRepair = repairPccLedgerIntegrity(structuredClone(currentLedger));
+    const changes = [...bindingRepair.changes, ...integrityRepair.changes];
+    return changes.length
       ? [
           {
             checkId: PCC_PRODUCTION_TRUTH_BINDINGS_CHECK_ID,
             severity: "warning",
-            message: `PCC production truth needs canonical proof bindings: ${repair.changes.join(" ")}`,
+            message: `PCC production truth needs canonical proof bindings: ${changes.join(" ")}`,
             fixHint:
               "Run `openclaw doctor --fix` to bind existing proof records to their verified SHAs.",
           },
@@ -1167,10 +1171,14 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
   },
   async repair(ctx) {
     const { readPccLedger, withPccLedger } = await import("../pcc/ledger-store.js");
+    const { repairPccLedgerIntegrity } = await import("../pcc/ledger-integrity-repair.js");
     const { repairPccProductionTruthBindings } = await import("../pcc/production-truth.js");
-    const project = readPccLedger().projects.find((item) => item.id === "project-command-center");
-    const preview = project ? repairPccProductionTruthBindings(project) : undefined;
-    const effects = preview?.changes.length
+    const currentLedger = readPccLedger();
+    const project = currentLedger.projects.find((item) => item.id === "project-command-center");
+    const bindingPreview = project ? repairPccProductionTruthBindings(project) : undefined;
+    const integrityPreview = repairPccLedgerIntegrity(structuredClone(currentLedger));
+    const previewChanges = [...(bindingPreview?.changes ?? []), ...integrityPreview.changes];
+    const effects = previewChanges.length
       ? [
           {
             kind: "state" as const,
@@ -1180,7 +1188,7 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
           },
         ]
       : [];
-    if (!preview?.changes.length || ctx.dryRun === true) {
+    if (previewChanges.length === 0 || ctx.dryRun === true) {
       return { status: "repaired" as const, changes: [], effects };
     }
     const repairedAt = new Date().toISOString();
@@ -1194,10 +1202,11 @@ const pccProductionTruthBindingsCheck: HealthCheck = {
         const repair = repairPccProductionTruthBindings(ledger.projects[index], repairedAt);
         if (repair.changes.length > 0) {
           ledger.projects[index] = repair.project;
-          changes = repair.changes;
         }
+        const integrityRepair = repairPccLedgerIntegrity(ledger);
+        changes = [...repair.changes, ...integrityRepair.changes];
       },
-      { write: true, auditKind: "production_truth.canonicalize" },
+      { write: true, auditKind: "production_truth_and_ledger.canonicalize" },
     );
     return { status: "repaired" as const, changes, effects };
   },

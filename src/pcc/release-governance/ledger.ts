@@ -38,6 +38,19 @@ export function recordReleaseEvidenceInPccLedger(
   const receiptId = releaseReceiptId(bundle);
   return withPccLedger(
     (ledger) => {
+      const project = ledger.projects.find((entry) => entry.id === bundle.ledger.projectId);
+      if (!project) {
+        throw new Error(`Release evidence project does not exist: ${bundle.ledger.projectId}.`);
+      }
+      const milestone = ledger.milestones.find(
+        (entry) =>
+          entry.id === bundle.ledger.milestoneId && entry.projectId === bundle.ledger.projectId,
+      );
+      if (!milestone) {
+        throw new Error(
+          `Release evidence milestone does not exist in project ${bundle.ledger.projectId}: ${bundle.ledger.milestoneId}.`,
+        );
+      }
       const evidenceAdded = !ledger.evidence.some((entry) => entry.id === evidenceId);
       if (evidenceAdded) {
         const evidence: PccEvidence = {

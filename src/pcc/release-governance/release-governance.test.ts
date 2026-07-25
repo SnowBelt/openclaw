@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { closePccLedgerStorageForTest, readPccLedger } from "../ledger-store.js";
+import { closePccLedgerStorageForTest, readPccLedger, withPccLedger } from "../ledger-store.js";
 import type {
   ReleaseApprovalGrant,
   ReleaseCandidateFacts,
@@ -445,6 +445,31 @@ describe("PCC Release Governor", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-release-governor-"));
     roots.push(root);
     const env = { OPENCLAW_STATE_DIR: root };
+    withPccLedger(
+      (ledger) => {
+        ledger.projects.push({
+          id: "project-command-center",
+          title: "Project Command Center",
+          goal: "PCC",
+          status: "active",
+          priority: 5,
+          owner: "OpenClaw",
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+        ledger.milestones.push({
+          id: "release-governor",
+          projectId: "project-command-center",
+          title: "Release Governor",
+          status: "complete",
+          order: 0,
+          createdAt: NOW,
+          updatedAt: NOW,
+        });
+      },
+      { write: true },
+      env,
+    );
     expect(recordReleaseEvidenceInPccLedger(bundle, env)).toMatchObject({
       evidenceAdded: true,
       receiptAdded: true,
@@ -455,6 +480,23 @@ describe("PCC Release Governor", () => {
     });
     expect(readPccLedger(env).evidence).toHaveLength(1);
     expect(readPccLedger(env).receipts).toHaveLength(1);
+  });
+
+  it("refuses to create dangling Release Governor ledger records", () => {
+    const evaluation = evaluateReleaseGovernor(
+      input({ changedFiles: ["docs/release.md"] }),
+      policy,
+    );
+    const bundle = createReleaseEvidenceBundle(finalizedBundleInput(evaluation));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-release-governor-"));
+    roots.push(root);
+    const env = { OPENCLAW_STATE_DIR: root };
+
+    expect(() => recordReleaseEvidenceInPccLedger(bundle, env)).toThrow(
+      "Release evidence project does not exist",
+    );
+    expect(readPccLedger(env).evidence).toEqual([]);
+    expect(readPccLedger(env).receipts).toEqual([]);
   });
 
   it("binds runtime artifacts and build information to the exact candidate SHA", () => {

@@ -1022,6 +1022,7 @@ describe("custom runtime lifecycle", () => {
     const launcher = path.join(runtimeHome, "bin", "custom-runtime-launcher.sh");
     const fakeBin = path.join(root, "bin");
     const restarted = path.join(root, "restarted");
+    const routeAttempts = path.join(root, "route-attempts");
     const rpcArgsMarker = path.join(root, "restart-rpc-args");
     const rpcUrlMarker = path.join(root, "restart-rpc-url");
     const manifestPath = path.join(runtimeRoot, "dist", "control-ui", "dashboard-surfaces.json");
@@ -1064,10 +1065,18 @@ describe("custom runtime lifecycle", () => {
       [
         "#!/bin/sh",
         "write_out=false",
+        "url=",
         "while [ $# -gt 0 ]; do",
-        '  case "$1" in --write-out) write_out=true; shift 2;; *) shift;; esac',
+        '  case "$1" in --write-out) write_out=true; shift 2;; http*) url=$1; shift;; *) shift;; esac',
         "done",
-        'if [ "$write_out" = true ]; then printf 200; else printf \'{"ok":true}\'; fi',
+        'if [ "$write_out" = true ]; then',
+        `  count=$(cat ${JSON.stringify(routeAttempts)} 2>/dev/null || printf 0)`,
+        "  count=$((count + 1))",
+        `  printf '%s\\n' "$count" > ${JSON.stringify(routeAttempts)}`,
+        '  if [ "$count" -eq 1 ] && [ "${url##*/}" = pcc ]; then printf 503; else printf 200; fi',
+        "else",
+        "  printf '{\"ok\":true}'",
+        "fi",
         "",
       ].join("\n"),
       0o700,
@@ -1085,6 +1094,7 @@ describe("custom runtime lifecycle", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("CUSTOM_RUNTIME_RESTARTED release=native-candidate");
+    expect(Number(fs.readFileSync(routeAttempts, "utf8").trim())).toBeGreaterThan(1);
     expect(fs.readFileSync(rpcArgsMarker, "utf8").split("\n")).not.toContain("--url");
     expect(fs.readFileSync(rpcUrlMarker, "utf8").trim()).toBe("ws://127.0.0.1:18789");
     const receipt = fs
