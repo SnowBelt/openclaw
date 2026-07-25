@@ -125,6 +125,23 @@ export function updateQueuedMessageForSession(
   return nextItem;
 }
 
+export function findQueuedMessageForAction(
+  host: ChatQueueSessionHost,
+  id: string,
+): { item: ChatQueueItem; sessionKey: string } | null {
+  const visible = host.chatQueue.find((item) => item.id === id);
+  if (visible) {
+    return { item: visible, sessionKey: visible.sessionKey ?? host.sessionKey };
+  }
+  for (const [sessionKey, queue] of Object.entries(host.chatQueueBySession ?? {})) {
+    const item = queue.find((entry) => entry.id === id);
+    if (item) {
+      return { item, sessionKey: item.sessionKey ?? sessionKey };
+    }
+  }
+  return null;
+}
+
 export function persistQueuedMessagesForSession(host: ChatQueueSessionHost, sessionKey: string) {
   persistStoredChatComposerQueue(host, sessionKey, readChatQueueForSession(host, sessionKey));
 }

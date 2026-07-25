@@ -42,6 +42,7 @@ import { loadChatHistory, type ChatState } from "./chat-history.ts";
 import {
   enqueueChatMessage,
   excludeComposerAttachments,
+  findQueuedMessageForAction,
   persistQueuedMessagesForSession,
   readChatQueueForSession,
   removeQueuedMessageWithoutReleasing,
@@ -988,10 +989,10 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
     return;
   }
   const activeRunId = host.chatRunId;
-  const item = host.chatQueue.find(
-    (entry) => entry.id === id && !entry.pendingRunId && !entry.localCommandName,
-  );
-  if (!item) {
+  const found = findQueuedMessageForAction(host, id);
+  const item = found?.item;
+  const sessionKey = found?.sessionKey ?? host.sessionKey;
+  if (!item || item.pendingRunId || item.localCommandName || sessionKey !== host.sessionKey) {
     return;
   }
   const message = item.text.trim();
@@ -1001,28 +1002,30 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
     return;
   }
 
-  host.chatQueue = host.chatQueue.map((entry) =>
-    entry.id === id ? { ...entry, kind: "steered", pendingRunId: activeRunId } : entry,
-  );
+  updateQueuedMessageForSession(host, sessionKey, id, (entry) => ({
+    ...entry,
+    kind: "steered",
+    pendingRunId: activeRunId,
+  }));
   const ack = await sendSteerChatMessage(
     host as unknown as ChatState,
     message,
     hasAttachments ? attachments : undefined,
   );
   if (!ack || isTerminalFailureChatSendAck(ack)) {
-    host.chatQueue = host.chatQueue.map((entry) => (entry.id === id ? item : entry));
+    updateQueuedMessageForSession(host, sessionKey, id, () => item);
     if (isTerminalFailureChatSendAck(ack)) {
       setChatError(host, formatTerminalChatSendAckError(ack, "steer"));
     }
     return;
   }
   if (ack.status === "ok") {
-    removeQueuedMessageWithoutReleasing(host, id, host.sessionKey);
+    removeQueuedMessageWithoutReleasing(host, id, sessionKey);
   }
   releaseChatAttachmentPayloads(attachments);
   setLastActiveSessionKey(
     host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
-    host.sessionKey,
+    sessionKey,
   );
   scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
 }
@@ -1101,7 +1104,9 @@ export async function retryReconnectableQueuedChatSends(host: ChatHost) {
 }
 
 export async function retryQueuedChatMessage(host: ChatHost, id: string) {
-  const item = host.chatQueue.find((entry) => entry.id === id);
+  const found = findQueuedMessageForAction(host, id);
+  const item = found?.item;
+  const sessionKey = found?.sessionKey ?? host.sessionKey;
   if (
     !item ||
     item.localCommandName ||
@@ -1111,12 +1116,12 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   ) {
     return;
   }
-  updateQueuedMessage(host, id, (entry) => ({
+  updateQueuedMessageForSession(host, sessionKey, id, (entry) => ({
     ...entry,
     sendError: undefined,
     sendState: host.connected && host.client ? "sending" : "waiting-reconnect",
   }));
-  await sendQueuedChatMessage(host, id);
+  await sendQueuedChatMessage(host, id, undefined, sessionKey);
   if (!host.chatRunId) {
     void flushChatQueue(host);
   }

@@ -667,6 +667,58 @@ describe("gateway session utils", () => {
     );
   });
 
+  test("uses resolved OpenAI GPT context instead of stale persisted session caps", () => {
+    const cfg = {
+      agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },
+      models: {
+        providers: {
+          openai: { models: [{ id: "gpt-5.5", contextTokens: 272_000 }] },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const row = buildGatewaySessionRow({
+      cfg,
+      storePath: "",
+      store: {},
+      key: "agent:main:main",
+      entry: {
+        sessionId: "stale-openai-session",
+        modelProvider: "openai",
+        model: "gpt-5.5",
+        contextTokens: 64_000,
+      } as SessionEntry,
+    });
+
+    expect(row.contextTokens).toBe(272_000);
+  });
+
+  test("keeps persisted local-model context caps for session rows", () => {
+    const cfg = {
+      agents: { defaults: { model: { primary: "ollama/qwen" } } },
+      models: {
+        providers: {
+          ollama: { models: [{ id: "qwen", contextTokens: 128_000 }] },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const row = buildGatewaySessionRow({
+      cfg,
+      storePath: "",
+      store: {},
+      key: "agent:main:main",
+      entry: {
+        sessionId: "local-session",
+        modelProvider: "ollama",
+        model: "qwen",
+        contextTokens: 64_000,
+      } as SessionEntry,
+    });
+
+    expect(row.contextTokens).toBe(64_000);
+  });
+
   test("preserves persisted Ultra while projecting picker levels without a catalog", () => {
     providerArtifactMocks.resolveBundledProviderPolicySurface.mockReturnValue({
       resolveThinkingProfile: ({ modelId, agentRuntime }) => ({
