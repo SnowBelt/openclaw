@@ -97,7 +97,7 @@ iPad unavailable (17.5) (0000)`),
       pursueGoalCompact: true,
       transcriptComposerNonOverlapping: true,
       composerInsideViewport: true,
-      truthCompletionAbsentFromChat: true,
+      truthCompletionNonObstructing: true,
       pccProjectionAbsentFromChat: true,
       commandRailHeight: 42,
     };
@@ -106,12 +106,12 @@ iPad unavailable (17.5) (0000)`),
       validateControlDirectorChatLayout({
         ...valid,
         composerVisible: false,
-        truthCompletionAbsentFromChat: false,
+        truthCompletionNonObstructing: false,
         commandRailHeight: 240,
       }),
     ).toEqual({
       ok: false,
-      missing: ["composerVisible", "truthCompletionAbsentFromChat", "commandRailCompact"],
+      missing: ["composerVisible", "truthCompletionNonObstructing", "commandRailCompact"],
     });
   });
 

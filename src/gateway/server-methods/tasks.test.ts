@@ -6,6 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createPursueGoalControllerState,
+  PURSUE_GOAL_CONTROLLER_ID,
+} from "../../tasks/pursue-goal-controller-state.js";
+import {
   createTaskRecord as createTaskRecordOrNull,
   getTaskById,
   markTaskTerminalById,
@@ -21,10 +25,6 @@ import {
   resetTaskFlowRegistryForTests,
   updateFlowRecordByIdExpectedRevision,
 } from "../../tasks/task-flow-registry.js";
-import {
-  createPursueGoalControllerState,
-  PURSUE_GOAL_CONTROLLER_ID,
-} from "../../tasks/pursue-goal-controller-state.js";
 import { saveTaskRegistryStateToSqlite } from "../../tasks/task-registry.store.sqlite.js";
 import type { TaskRecord } from "../../tasks/task-registry.types.js";
 import { captureEnv, setTestEnvValue } from "../../test-utils/env.js";

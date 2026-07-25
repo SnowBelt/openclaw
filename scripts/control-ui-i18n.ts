@@ -104,6 +104,8 @@ type RawCopyBaseline = {
 const CONTROL_UI_I18N_WORKFLOW = 1;
 const DEFAULT_OPENAI_MODEL = "gpt-5.5";
 const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
+const DEFAULT_OLLAMA_MODEL = "qwen3.6:27b-q8_0";
+const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
 const DEFAULT_PROVIDER = "openai";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -136,7 +138,7 @@ const ENV_BATCH_CHAR_BUDGET = "OPENCLAW_CONTROL_UI_I18N_BATCH_CHAR_BUDGET";
 const ENV_PROMPT_TIMEOUT = "OPENCLAW_CONTROL_UI_I18N_PROMPT_TIMEOUT";
 const ENV_AUTH_OPTIONAL = "OPENCLAW_CONTROL_UI_I18N_AUTH_OPTIONAL";
 
-type TranslationProvider = "openai" | "anthropic";
+type TranslationProvider = "openai" | "anthropic" | "ollama";
 
 const TRANSLATION_PROVIDER_DEFAULTS: Record<TranslationProvider, Omit<Model, "id" | "name">> = {
   openai: {
@@ -157,6 +159,16 @@ const TRANSLATION_PROVIDER_DEFAULTS: Record<TranslationProvider, Omit<Model, "id
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000,
+    maxTokens: 32_000,
+  },
+  ollama: {
+    api: "openai-completions",
+    provider: "ollama",
+    baseUrl: `${DEFAULT_OLLAMA_BASE_URL}/v1`,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 131_072,
     maxTokens: 32_000,
   },
 };
@@ -318,21 +330,43 @@ function resolveConfiguredModel(): string {
   if (configured) {
     return configured;
   }
-  return resolveConfiguredProvider() === "anthropic"
-    ? DEFAULT_ANTHROPIC_MODEL
-    : DEFAULT_OPENAI_MODEL;
+  switch (resolveConfiguredProvider()) {
+    case "anthropic":
+      return DEFAULT_ANTHROPIC_MODEL;
+    case "ollama":
+      return DEFAULT_OLLAMA_MODEL;
+    default:
+      return DEFAULT_OPENAI_MODEL;
+  }
 }
 
-function hasTranslationProvider(): boolean {
+export function hasTranslationProvider(): boolean {
+  const configured = process.env[ENV_PROVIDER]?.trim();
+  if (configured === "ollama") {
+    return true;
+  }
+  if (configured === "openai") {
+    return Boolean(process.env.OPENAI_API_KEY?.trim());
+  }
+  if (configured === "anthropic") {
+    return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  }
+  if (configured) {
+    throw new Error(`Unsupported translation provider: ${configured}`);
+  }
   return Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.ANTHROPIC_API_KEY?.trim());
 }
 
 function resolveKnownTranslationProvider(): TranslationProvider {
   const provider = resolveConfiguredProvider();
-  if (provider === "openai" || provider === "anthropic") {
+  if (provider === "openai" || provider === "anthropic" || provider === "ollama") {
     return provider;
   }
   throw new Error(`Unsupported translation provider: ${provider}`);
+}
+
+function resolveThinkingLabel(): "high" | "low" | "off" {
+  return resolveConfiguredProvider() === "ollama" ? "off" : resolveThinkingLevel();
 }
 
 function normalizeText(text: string): string {
@@ -1346,6 +1380,28 @@ export function resolveTranslationModel(): Model {
   };
 }
 
+export function buildOllamaTranslationRequest(
+  model: string,
+  systemPrompt: string,
+  message: string,
+) {
+  return {
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: message },
+    ],
+    stream: false,
+    think: false,
+    format: "json",
+    options: {
+      num_ctx: 8192,
+      num_predict: 4096,
+      temperature: 0,
+    },
+  };
+}
+
 class TranslationClient {
   private closed = false;
   private sequence: Promise<unknown> = Promise.resolve();
@@ -1357,6 +1413,29 @@ class TranslationClient {
 
   static async create(systemPrompt: string): Promise<TranslationClient> {
     return new TranslationClient(systemPrompt);
+  }
+
+  private async promptOllama(message: string, signal: AbortSignal): Promise<string> {
+    const response = await fetch(`${DEFAULT_OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify(
+        buildOllamaTranslationRequest(this.model.id, this.systemPrompt, message),
+      ),
+    });
+    if (!response.ok) {
+      throw new Error(`Ollama translation request failed with HTTP ${response.status}.`);
+    }
+    const payload = (await response.json()) as {
+      message?: { content?: unknown };
+    };
+    const content =
+      typeof payload.message?.content === "string" ? payload.message.content.trim() : "";
+    if (!content) {
+      throw new Error("Ollama translation response did not contain message content.");
+    }
+    return content;
   }
 
   async prompt(message: string, label: string): Promise<string> {
@@ -1381,23 +1460,27 @@ class TranslationClient {
           reject(new Error(`${label}: translation prompt timed out after ${timeoutMs}ms`));
         }, timeoutMs);
 
-        completeSimple(
-          this.model,
-          {
-            systemPrompt: this.systemPrompt,
-            messages: [{ role: "user", content: message, timestamp: Date.now() }],
-          },
-          {
-            maxTokens: 4096,
-            reasoning: resolveThinkingLevel(),
-            signal: controller.signal,
-            timeoutMs,
-          },
-        )
-          .then((assistantMessage) => {
+        const prompt =
+          this.model.provider === "ollama"
+            ? this.promptOllama(message, controller.signal)
+            : completeSimple(
+                this.model,
+                {
+                  systemPrompt: this.systemPrompt,
+                  messages: [{ role: "user", content: message, timestamp: Date.now() }],
+                },
+                {
+                  maxTokens: 4096,
+                  reasoning: resolveThinkingLevel(),
+                  signal: controller.signal,
+                  timeoutMs,
+                },
+              ).then(extractTranslationResult);
+        prompt
+          .then((translated) => {
             clearTimeout(timer);
             clearInterval(heartbeat);
-            resolve(extractTranslationResult(assistantMessage));
+            resolve(translated);
           })
           .catch((error: unknown) => {
             clearTimeout(timer);
@@ -1509,7 +1592,9 @@ export async function translateNativeEntries(
   glossary: readonly GlossaryEntry[] = [],
 ): Promise<Map<string, string>> {
   if (!hasTranslationProvider()) {
-    throw new Error("native app translation requires OPENAI_API_KEY or ANTHROPIC_API_KEY");
+    throw new Error(
+      "native app translation requires an explicit Ollama provider or an OpenAI/Anthropic API credential",
+    );
   }
   const pending = entries.map((entry) => ({
     cacheKey: cacheKey(entry.id, hashText(entry.source), targetLocale),
@@ -1647,7 +1732,7 @@ async function syncLocale(
     const batches = buildTranslationBatches(pending);
     const batchCount = batches.length;
     logProgress(
-      `${localeLabel}: start keys=${sourceFlat.size} pending=${pending.length} batches=${batchCount} provider=${resolveConfiguredProvider()} model=${resolveConfiguredModel()} thinking=${resolveThinkingLevel()} timeout=${formatDuration(resolvePromptTimeoutMs())} batch_chars=${resolveBatchCharBudget()}`,
+      `${localeLabel}: start keys=${sourceFlat.size} pending=${pending.length} batches=${batchCount} provider=${resolveConfiguredProvider()} model=${resolveConfiguredModel()} thinking=${resolveThinkingLabel()} timeout=${formatDuration(resolvePromptTimeoutMs())} batch_chars=${resolveBatchCharBudget()}`,
     );
     let client: TranslationClient | null = null;
     const clientAccess: ClientAccess = {
@@ -1887,7 +1972,7 @@ async function main() {
   }
 
   logProgress(
-    `command=${args.command} locales=${entries.length} provider=${hasTranslationProvider() ? resolveConfiguredProvider() : "fallback-only"} model=${hasTranslationProvider() ? resolveConfiguredModel() : "n/a"} thinking=${hasTranslationProvider() ? resolveThinkingLevel() : "n/a"} timeout=${formatDuration(resolvePromptTimeoutMs())} batch_chars=${resolveBatchCharBudget()}`,
+    `command=${args.command} locales=${entries.length} provider=${hasTranslationProvider() ? resolveConfiguredProvider() : "fallback-only"} model=${hasTranslationProvider() ? resolveConfiguredModel() : "n/a"} thinking=${hasTranslationProvider() ? resolveThinkingLabel() : "n/a"} timeout=${formatDuration(resolvePromptTimeoutMs())} batch_chars=${resolveBatchCharBudget()}`,
   );
   const outcomes: SyncOutcome[] = [];
   for (const [index, entry] of entries.entries()) {

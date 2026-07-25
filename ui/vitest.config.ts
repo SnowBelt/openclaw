@@ -60,7 +60,10 @@ const sharedUiTestConfig = {
   pool: resolveDefaultVitestPool(),
 } as const;
 const nodeDrivenBrowserLayoutTests = [
+  "src/ui/chat/chat-responsive.browser.test.ts",
   "src/ui/chat/sidebar-session-picker.browser.test.ts",
+  "src/ui/form-controls.browser.test.ts",
+  "src/ui/views/sessions.browser.test.ts",
   "src/pages/chat/chat-responsive.browser.test.ts",
   "src/components/form-controls.browser.test.ts",
   "src/pages/sessions/view.browser.test.ts",
@@ -97,6 +100,29 @@ function resolveChromiumLaunchOptions(): { executablePath: string } | undefined 
 }
 
 const chromiumLaunchOptions = resolveChromiumLaunchOptions();
+const browserExternalNodeModules = new Map([
+  ["fsevents", "export default undefined;"],
+  [
+    "playwright",
+    "export const chromium = undefined; export const firefox = undefined; export const webkit = undefined; export default {};",
+  ],
+  ["vitest/node", "export function isFileLoadingAllowed() { return false; }"],
+]);
+const browserExternalNodeModulePrefix = "\0openclaw-browser-external:";
+const browserExternalNodeModulesPlugin = {
+  name: "openclaw-browser-external-node-modules",
+  enforce: "pre" as const,
+  resolveId(source: string) {
+    return browserExternalNodeModules.has(source)
+      ? `${browserExternalNodeModulePrefix}${source}`
+      : null;
+  },
+  load(id: string) {
+    return id.startsWith(browserExternalNodeModulePrefix)
+      ? (browserExternalNodeModules.get(id.slice(browserExternalNodeModulePrefix.length)) ?? null)
+      : null;
+  },
+};
 
 export default defineConfig({
   resolve: {
@@ -133,6 +159,10 @@ export default defineConfig({
         },
       }),
       defineProject({
+        optimizeDeps: {
+          exclude: ["fsevents"],
+        },
+        plugins: [browserExternalNodeModulesPlugin],
         resolve: {
           alias: workspaceSourceAliases,
         },
