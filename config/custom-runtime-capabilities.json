@@ -21,6 +21,13 @@
       "pnpm ui:smoke:dashboard --artifact-profile release --artifact-root .artifacts/custom-runtime-update"
     ]
   },
+  "pathMigrations": [
+    {
+      "capabilityId": "runtime:operations-room",
+      "from": "ui/src/ui/views/operations.test-fixture.ts",
+      "to": "ui/src/ui/views/operations.fixture.ts"
+    }
+  ],
   "capabilities": [
     {
       "id": "dashboard:pcc",

@@ -3,6 +3,7 @@ import {
   CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
   findUnregisteredCustomRuntimePaths,
   parseCustomRuntimeCapabilityManifest,
+  parseCustomRuntimeCapabilityManifestForComparison,
   validateCustomRuntimeCapabilityManifest,
 } from "./custom-runtime-capabilities.js";
 
@@ -113,6 +114,61 @@ describe("custom runtime capability manifest", () => {
         capabilities: [],
       }),
     ).toBeNull();
+  });
+
+  it("parses the previous preservation contract only for release comparison", () => {
+    const previousPreservation = {
+      contractVersion: 1,
+      criticality: "required",
+      migrationPolicy: "preserve_or_block",
+      rollbackPolicy: "immutable_release_pointer",
+      standardsRegistry: "src/pcc/capability-addition-registry.ts",
+      verificationCommands: ["pnpm check:custom-runtime-capabilities"],
+    };
+    const previousManifest = {
+      schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+      version: 2,
+      preservation: previousPreservation,
+      capabilities: [
+        {
+          id: "runtime:required",
+          kind: "runtime",
+          requiredPaths: ["src/example.ts"],
+        },
+      ],
+    };
+
+    expect(parseCustomRuntimeCapabilityManifest(previousManifest)).toBeNull();
+    expect(parseCustomRuntimeCapabilityManifestForComparison(previousManifest)).toMatchObject({
+      capabilities: [{ id: "runtime:required" }],
+    });
+  });
+
+  it("validates explicit required-path migrations", () => {
+    const manifest = parseCustomRuntimeCapabilityManifest({
+      schema: CUSTOM_RUNTIME_CAPABILITY_SCHEMA,
+      version: 5,
+      preservation,
+      pathMigrations: [
+        {
+          capabilityId: "runtime:required",
+          from: "src/old.ts",
+          to: "src/new.ts",
+        },
+      ],
+      capabilities: [
+        {
+          id: "runtime:required",
+          kind: "runtime",
+          requiredPaths: ["src/new.ts"],
+        },
+      ],
+    });
+
+    expect(manifest).not.toBeNull();
+    expect(
+      validateCustomRuntimeCapabilityManifest({ manifest: manifest!, dashboardSurfaceIds: [] }),
+    ).toEqual([]);
   });
 
   it("reports tracked custom-runtime files without a capability owner", () => {
