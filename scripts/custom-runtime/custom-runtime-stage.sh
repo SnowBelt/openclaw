@@ -7,6 +7,7 @@ config_source=${OPENCLAW_CONFIG_PATH:-"$HOME/.openclaw/openclaw.director.json"}
 state_source=${OPENCLAW_STATE_DIR:-"$HOME/.openclaw-director-state"}
 provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-secret-provider"}
 launcher=${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-"$runtime_home/bin/custom-runtime-launcher.sh"}
+rollback_launcher=${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-"$launcher"}
 auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'candidate Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
@@ -278,7 +279,7 @@ PY
         OPENCLAW_SKIP_CHANNELS=1 OPENCLAW_SKIP_CRON=1 \
         OPENCLAW_SELF_IMPROVEMENT_BACKGROUND=0 \
         OPENCLAW_CUSTOM_RUNTIME_POINTER="$runtime_home/active-runtime.json" \
-        "$launcher" gateway --port "$port" >>"$stage/gateway.log" 2>&1 &
+        "$rollback_launcher" gateway --port "$port" >>"$stage/gateway.log" 2>&1 &
       pid=$!
       rollback_ok=false
       for _ in $(seq 1 45); do

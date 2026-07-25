@@ -132,7 +132,10 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+stage_rollback_launcher="$runtime_home/bin/custom-runtime-launcher.sh"
+[ -f "$stage_rollback_launcher" ] || stage_rollback_launcher="$control_source/custom-runtime-launcher.sh"
 OPENCLAW_CUSTOM_RUNTIME_LAUNCHER="$control_source/custom-runtime-launcher.sh" \
+  OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER="$stage_rollback_launcher" \
   "$control_source/custom-runtime-stage.sh" \
   --release "$release" --source-sha "$source_sha" --port "$stage_port"
 

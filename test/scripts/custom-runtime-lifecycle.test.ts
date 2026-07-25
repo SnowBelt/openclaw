@@ -1124,7 +1124,7 @@ describe("custom runtime lifecycle", () => {
               : `#!/bin/sh\n# previous ${file}\n`;
         const candidateText =
           file === "custom-runtime-stage.sh"
-            ? '#!/bin/sh\n[ -n "${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-}" ]\nexit 0\n'
+            ? '#!/bin/sh\n[ -n "${OPENCLAW_CUSTOM_RUNTIME_LAUNCHER:-}" ]\n[ -f "${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\ngrep -q "# previous" "$OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER"\nexit 0\n'
             : file === "custom-runtime-promote.sh"
               ? `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(promoteArgsMarker)}\n[ -f "\${OPENCLAW_CUSTOM_RUNTIME_ROLLBACK_LAUNCHER:-}" ]\nexit ${promoteExit}\n`
               : file.endsWith(".py")
