@@ -36,6 +36,8 @@ export const KNIP_OPTIONAL_UNUSED_FILE_ALLOWLIST = [
   "src/plugins/runtime-sidecar-paths-baseline.ts",
   "src/tasks/task-registry-control.runtime.ts",
   "extensions/qa-lab/src/auth-profile.fixture.ts",
+  "extensions/qa-lab/src/ci-smoke-plan.ts",
   "extensions/qa-lab/src/codex-plugin.fixture.ts",
   "extensions/qa-lab/src/mantis-phase-timer.runtime.ts",
+  "ui/src/ui/views/operations.test-fixture.ts",
 ];

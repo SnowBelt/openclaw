@@ -21,9 +21,6 @@ const rootEntries = [
   // The immutable managed-runtime lifecycle executes the bundled
   // dist/release-governor.js entry built from this production CLI.
   "src/pcc/release-governance/cli.ts!",
-  // The active-lineage Dashboard smoke imports this legacy fixture outside
-  // Knip's production graph while the v1-to-v2 trust bridge is temporary.
-  "ui/src/ui/views/operations.test-fixture.ts!",
   // Custom production support contracts are invoked by managed-runtime and
   // proof tooling that scripts/** intentionally excludes from Knip's graph.
   // Keep the real contract roots explicit instead of allowlisting findings.
