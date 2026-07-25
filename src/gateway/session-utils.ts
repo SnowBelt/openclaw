@@ -893,6 +893,65 @@ function resolveChildSessionKeys(
   return mergeChildSessionKeys(runtimeChildSessions, storeChildSessions);
 }
 
+function isOpenAiCodexSessionContextModel(provider?: string, model?: string): boolean {
+  const normalizedProvider = normalizeLowercaseStringOrEmpty(provider);
+  if (normalizedProvider !== "openai" && normalizedProvider !== "codex") {
+    return false;
+  }
+  const normalizedModel = normalizeLowercaseStringOrEmpty(model);
+  const family = normalizedModel.includes("/")
+    ? (normalizedModel.split("/").at(-1) ?? normalizedModel)
+    : normalizedModel;
+  return /^gpt-[0-9]/.test(family);
+}
+
+function resolveConfiguredContextCapForSessionRow(params: {
+  cfg: OpenClawConfig;
+  sessionAgentId: string;
+}): number | undefined {
+  const agentContextTokens = resolvePositiveNumber(
+    params.cfg.agents?.list?.find(
+      (entry) => entry.id && normalizeAgentId(entry.id) === params.sessionAgentId,
+    )?.contextTokens,
+  );
+  return agentContextTokens ?? resolvePositiveNumber(params.cfg.agents?.defaults?.contextTokens);
+}
+
+function resolveSessionRowContextTokens(params: {
+  configuredContextCap?: number;
+  provider?: string;
+  model?: string;
+  entryContextTokens?: number;
+  transcriptContextTokens?: number;
+  resolvedContextTokens?: number;
+  lightweight: boolean;
+}): number | undefined {
+  const configuredContextCap = resolvePositiveNumber(params.configuredContextCap);
+  const entryContextTokens = resolvePositiveNumber(params.entryContextTokens);
+  const transcriptContextTokens = params.lightweight
+    ? undefined
+    : resolvePositiveNumber(params.transcriptContextTokens);
+  const resolvedContextTokens = resolvePositiveNumber(params.resolvedContextTokens);
+
+  if (isOpenAiCodexSessionContextModel(params.provider, params.model)) {
+    if (
+      entryContextTokens !== undefined &&
+      configuredContextCap !== undefined &&
+      entryContextTokens === configuredContextCap
+    ) {
+      return entryContextTokens;
+    }
+    // Session rows are read-only UI projections. A persisted cap from an older
+    // local or hosted run can outlive a later GPT selection in either direction.
+    // Use the resolved hosted model window unless the persisted value is the
+    // current configured agent/default cap; configured caps stay authoritative
+    // for compaction/status signals.
+    return resolvedContextTokens ?? entryContextTokens ?? transcriptContextTokens;
+  }
+
+  return entryContextTokens ?? transcriptContextTokens ?? resolvedContextTokens;
+}
+
 function resolveTranscriptUsageFallback(params: {
   cfg: OpenClawConfig;
   key: string;
@@ -2275,26 +2334,27 @@ export function buildGatewaySessionRow(params: {
         entry,
         rowContext: params.rowContext,
       }) ?? resolveNonNegativeNumber(transcriptUsage?.estimatedCostUsd));
-  const contextTokens = lightweight
-    ? (resolvePositiveNumber(entry?.contextTokens) ??
-      resolvePositiveNumber(
-        resolveContextTokensForModel({
-          cfg,
-          provider: rowModelProvider,
-          model: rowModel,
-          allowAsyncLoad: false,
-        }),
-      ))
-    : (resolvePositiveNumber(entry?.contextTokens) ??
-      resolvePositiveNumber(transcriptUsage?.contextTokens) ??
-      resolvePositiveNumber(
-        resolveContextTokensForModel({
-          cfg,
-          provider: rowModelProvider,
-          model: rowModel,
-          allowAsyncLoad: false,
-        }),
-      ));
+  const resolvedModelContextTokens = resolveContextTokensForModel({
+    cfg,
+    provider: rowModelProvider,
+    model: rowModel,
+    fallbackContextTokens: isOpenAiCodexSessionContextModel(rowModelProvider, rowModel)
+      ? DEFAULT_CONTEXT_TOKENS
+      : undefined,
+    allowAsyncLoad: false,
+  });
+  const contextTokens = resolveSessionRowContextTokens({
+    configuredContextCap: resolveConfiguredContextCapForSessionRow({
+      cfg,
+      sessionAgentId,
+    }),
+    provider: rowModelProvider,
+    model: rowModel,
+    entryContextTokens: entry?.contextTokens,
+    transcriptContextTokens: transcriptUsage?.contextTokens,
+    resolvedContextTokens: resolvedModelContextTokens,
+    lightweight,
+  });
 
   let derivedTitle: string | undefined;
   let lastMessagePreview: string | undefined;

@@ -3,6 +3,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { UiSettings } from "../../app/settings.ts";
+import { createStorageMock } from "../../test-helpers/storage.ts";
+import { loadChatComposerSnapshot, persistChatComposerState } from "./composer-persistence.ts";
 import { createSessionCapability } from "../../lib/sessions/index.ts";
 import {
   getChatAttachmentDataUrl,
@@ -53,6 +55,7 @@ vi.mock("./chat-command-executor.ts", async (importOriginal) => {
 
 let handleSendChat: typeof import("./chat-send.ts").handleSendChat;
 let steerQueuedChatMessage: typeof import("./chat-send.ts").steerQueuedChatMessage;
+let retryQueuedChatMessage: typeof import("./chat-send.ts").retryQueuedChatMessage;
 let navigateChatInputHistory: typeof import("./chat-send.ts").navigateChatInputHistory;
 let handleAbortChat: typeof import("./run-lifecycle.ts").handleAbortChat;
 let hasAbortableSessionRun: typeof import("./run-lifecycle.ts").hasAbortableSessionRun;
@@ -71,6 +74,7 @@ async function loadChatHelpers(): Promise<void> {
   ({
     handleSendChat,
     steerQueuedChatMessage,
+    retryQueuedChatMessage,
     navigateChatInputHistory,
     retryReconnectableQueuedChatSends,
   } = await import("./chat-send.ts"));
@@ -2689,6 +2693,53 @@ describe("handleSendChat", () => {
     expect(payload.agentId).toBe("work");
   });
 
+  it("retries a session-scoped failed queued send from the scoped queue", async () => {
+    vi.stubGlobal("sessionStorage", createStorageMock());
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { status: "started", runId: "retry-run" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const queuedItem = {
+      id: "failed-scoped",
+      text: "retry scoped prompt",
+      createdAt: 1,
+      sendState: "failed" as const,
+      sendError: "previous failure",
+      sendRunId: "run-scoped",
+      // Older persisted failed/waiting queue items did not always carry
+      // session metadata; the scoped queue key must still route the retry.
+    };
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [],
+      chatQueueBySession: {
+        "agent:main:other": [queuedItem],
+      },
+    });
+    persistChatComposerState({
+      ...host,
+      chatMessage: "",
+      chatQueue: [queuedItem],
+      sessionKey: "agent:main:other",
+    });
+
+    await retryQueuedChatMessage(host, "failed-scoped");
+
+    const payload = findRequestPayload(
+      request as unknown as MockCallSource,
+      "chat.send",
+      "session-scoped retry payload",
+    );
+    expect(payload).toMatchObject({
+      message: "retry scoped prompt",
+      sessionKey: "agent:main:other",
+    });
+    expect(host.chatQueueBySession?.["agent:main:other"]).toBeUndefined();
+    expect(loadChatComposerSnapshot(host, "agent:main:other")).toBeNull();
+  });
+
   it("marks saved session queued sends waiting after a disconnect", () => {
     const host = makeHost({
       chatQueue: [],
@@ -2884,6 +2935,37 @@ describe("handleSendChat", () => {
     expect(host.chatQueue[0]?.text).toBe("/steer tighten the plan");
     expect(host.chatQueue[0]?.kind).toBe("steered");
     expect(host.chatQueue[0]?.pendingRunId).toBe("run-1");
+  });
+
+  it("does not steer a hidden session-scoped queue item into the visible run", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { status: "started", runId: "steer-run" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const scopedItem = {
+      id: "scoped-queued",
+      text: "do not steer hidden prompt",
+      createdAt: 1,
+      sessionKey: "agent:main:other",
+    };
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatRunId: "run-visible",
+      chatStream: "Working...",
+      sessionKey: "agent:main:main",
+      chatQueue: [],
+      chatQueueBySession: {
+        "agent:main:other": [scopedItem],
+      },
+    });
+
+    await steerQueuedChatMessage(host, "scoped-queued");
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.chatQueue).toStrictEqual([]);
+    expect(host.chatQueueBySession?.["agent:main:other"]).toStrictEqual([scopedItem]);
   });
 
   it("steers a queued message into the active run without replacing run tracking", async () => {

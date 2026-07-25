@@ -428,6 +428,9 @@ describe("gateway server chat", () => {
             updatedAt,
             modelProvider: "openai",
             model: "gpt-5",
+            // Older sessions may carry stale persisted caps. OpenAI/Codex rows
+            // should use the resolved model window so the UI does not show 64k
+            // or other legacy limits for current GPT models.
             contextTokens: 128_000,
           },
         },
@@ -463,7 +466,7 @@ describe("gateway server chat", () => {
         updatedAt,
         modelProvider: "openai",
         model: "gpt-5",
-        contextTokens: 128_000,
+        contextTokens: 200_000,
       });
 
       await writeSessionStore({ entries: {} });

@@ -7,6 +7,7 @@ import { renderProviderQuotaPill } from "../../components/provider-quota-pill.ts
 import { i18n, t } from "../../i18n/index.ts";
 import {
   getContextNoticeViewModel,
+  renderChatQueue,
   renderChatRunControls,
   renderChatRunStatusIndicator,
   renderCompactionIndicator,
@@ -285,6 +286,40 @@ describe("chat run controls", () => {
       getButton(container, `button[aria-label="${t("chat.runControls.sendMessage")}"]`).textContent,
     ).toContain(t("chat.runControls.send"));
     expect(container.querySelector('button[aria-label="New session"]')).toBeNull();
+  });
+});
+
+describe("chat queue", () => {
+  it("keeps sending items visible so the queue count matches the list", () => {
+    const container = document.createElement("div");
+    render(
+      renderChatQueue({
+        queue: [
+          {
+            id: "queued-sending",
+            text: "first queued prompt",
+            createdAt: 1,
+            sendState: "sending",
+          },
+          { id: "queued-waiting", text: "second queued prompt", createdAt: 2 },
+        ],
+        onQueueRemove: () => undefined,
+      }),
+      container,
+    );
+
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain("Queued (2)");
+    expect(Array.from(container.querySelectorAll(".chat-queue__item"))).toHaveLength(2);
+    expect(container.textContent).toContain("Sending now");
+    expect(container.textContent).toContain("Queued");
+
+    const removeButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".chat-queue__remove"),
+    );
+    expect(removeButtons).toHaveLength(2);
+    expect(removeButtons[0]?.disabled).toBe(true);
+    expect(removeButtons[0]?.getAttribute("aria-label")).toBe("Queued message is sending");
+    expect(removeButtons[1]?.disabled).toBe(false);
   });
 });
 
