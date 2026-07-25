@@ -910,6 +910,8 @@ type ChatQueueProps = {
 
 function sendStateLabel(item: ChatQueueItem): string | null {
   switch (item.sendState) {
+    case "sending":
+      return "Sending now";
     case "waiting-model":
       return "Waiting for model";
     case "waiting-reconnect":
@@ -917,20 +919,19 @@ function sendStateLabel(item: ChatQueueItem): string | null {
     case "failed":
       return "Failed";
     default:
-      return null;
+      return item.localCommandName ? "Queued command" : "Queued";
   }
 }
 
 export function renderChatQueue(props: ChatQueueProps) {
-  const visibleQueue = props.queue.filter((item) => item.sendState !== "sending");
-  if (!visibleQueue.length) {
+  if (!props.queue.length) {
     return nothing;
   }
   return html`
     <div class="chat-queue" role="status" aria-live="polite">
-      <div class="chat-queue__title">Queued (${visibleQueue.length})</div>
+      <div class="chat-queue__title">Queued (${props.queue.length})</div>
       <div class="chat-queue__list">
-        ${visibleQueue.map((item) => {
+        ${props.queue.map((item) => {
           const stateLabel = sendStateLabel(item);
           return html`
             <div
@@ -980,12 +981,23 @@ export function renderChatQueue(props: ChatQueueProps) {
                       </button>
                     `
                   : nothing}
-                <openclaw-tooltip content="Remove queued message">
+                <openclaw-tooltip
+                  content=${item.sendState === "sending"
+                    ? "This message is sending now"
+                    : "Remove queued message"}
+                >
                   <button
                     class="btn chat-queue__remove"
                     type="button"
-                    aria-label="Remove queued message"
-                    @click=${() => props.onQueueRemove(item.id)}
+                    aria-label=${item.sendState === "sending"
+                      ? "Queued message is sending"
+                      : "Remove queued message"}
+                    ?disabled=${item.sendState === "sending"}
+                    @click=${() => {
+                      if (item.sendState !== "sending") {
+                        props.onQueueRemove(item.id);
+                      }
+                    }}
                   >
                     ${icons.x}
                   </button>

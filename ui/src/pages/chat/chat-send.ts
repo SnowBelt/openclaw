@@ -42,6 +42,7 @@ import { loadChatHistory, type ChatState } from "./chat-history.ts";
 import {
   enqueueChatMessage,
   excludeComposerAttachments,
+  findQueuedMessageForAction,
   persistQueuedMessagesForSession,
   readChatQueueForSession,
   removeQueuedMessageWithoutReleasing,
@@ -536,20 +537,26 @@ function ensureQueuedSendState(
   item: ChatQueueItem,
   fallbackSessionKey = host.sessionKey,
 ): ChatQueueItem {
-  if (item.sendRunId && item.sendState) {
-    return item;
-  }
   const sessionKey = item.sessionKey ?? fallbackSessionKey;
   const agentId = item.agentId ?? scopedAgentIdForSession(host, sessionKey);
   const prepared: ChatQueueItem = {
     ...item,
     sendAttempts: item.sendAttempts ?? 0,
     sendRunId: item.sendRunId ?? generateUUID(),
-    sendState: host.connected && host.client ? "sending" : "waiting-reconnect",
+    sendState: item.sendState ?? (host.connected && host.client ? "sending" : "waiting-reconnect"),
     sessionKey,
     agentId,
   };
-  updateQueuedMessageForSession(host, sessionKey, item.id, () => prepared);
+  if (
+    prepared !== item &&
+    (prepared.sessionKey !== item.sessionKey ||
+      prepared.agentId !== item.agentId ||
+      prepared.sendRunId !== item.sendRunId ||
+      prepared.sendState !== item.sendState ||
+      prepared.sendAttempts !== item.sendAttempts)
+  ) {
+    updateQueuedMessageForSession(host, sessionKey, item.id, () => prepared);
+  }
   return prepared;
 }
 
@@ -567,11 +574,13 @@ async function sendQueuedChatMessage(
     return "failed";
   }
   const prepared = ensureQueuedSendState(host, queued, queuedSessionKey);
+  const sessionKey = prepared.sessionKey ?? host.sessionKey;
   const message = prepared.text.trim();
   const attachments = prepared.attachments ?? [];
   const hasAttachments = attachments.length > 0;
   if (!message && !hasAttachments) {
-    removeQueuedMessageWithoutReleasing(host, id, prepared.sessionKey ?? host.sessionKey);
+    removeQueuedMessageWithoutReleasing(host, id, sessionKey);
+    removeStoredChatComposerQueueItem(host, sessionKey, id);
     return "sent";
   }
   if (prepared.skillWorkshopRevision && hasAttachments) {
@@ -580,15 +589,16 @@ async function sendQueuedChatMessage(
       sendError: "Skill Workshop revision requests do not support attachments.",
       sendState: "failed",
     }));
+    persistQueuedMessagesForSession(host, sessionKey);
     return "failed";
   }
-  const sessionKey = prepared.sessionKey ?? host.sessionKey;
   if (!host.connected || !host.client) {
     updateQueuedMessageForSession(host, sessionKey, id, (item) => ({
       ...item,
       sendState: "waiting-reconnect",
       sendError: undefined,
     }));
+    persistQueuedMessagesForSession(host, sessionKey);
     return "pending";
   }
 
@@ -672,9 +682,11 @@ async function sendQueuedChatMessage(
         error,
         ackStatus: ack.status,
       });
+      persistQueuedMessagesForSession(host, sessionKey);
       return "failed";
     }
     removeQueuedMessageWithoutReleasing(host, id, sessionKey);
+    removeStoredChatComposerQueueItem(host, sessionKey, id);
     if (isVisibleSession()) {
       appendUserChatMessage(
         host as unknown as ChatState,
@@ -756,6 +768,7 @@ async function sendQueuedChatMessage(
       recordChatSendTiming(host, prepared, "waiting-reconnect", prepared.sendSubmittedAtMs, {
         error,
       });
+      persistQueuedMessagesForSession(host, sessionKey);
       return "pending";
     }
     updateQueuedMessageForSession(host, sessionKey, id, (item) => ({
@@ -768,6 +781,7 @@ async function sendQueuedChatMessage(
       restoreComposerAfterFailedSend(host, opts ?? {});
     }
     recordChatSendTiming(host, prepared, "failed", prepared.sendSubmittedAtMs, { error });
+    persistQueuedMessagesForSession(host, sessionKey);
     return "failed";
   } finally {
     host.chatSending = false;
@@ -988,10 +1002,10 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
     return;
   }
   const activeRunId = host.chatRunId;
-  const item = host.chatQueue.find(
-    (entry) => entry.id === id && !entry.pendingRunId && !entry.localCommandName,
-  );
-  if (!item) {
+  const found = findQueuedMessageForAction(host, id);
+  const item = found?.item;
+  const sessionKey = found?.sessionKey ?? host.sessionKey;
+  if (!item || item.pendingRunId || item.localCommandName || sessionKey !== host.sessionKey) {
     return;
   }
   const message = item.text.trim();
@@ -1001,28 +1015,30 @@ export async function steerQueuedChatMessage(host: ChatHost, id: string) {
     return;
   }
 
-  host.chatQueue = host.chatQueue.map((entry) =>
-    entry.id === id ? { ...entry, kind: "steered", pendingRunId: activeRunId } : entry,
-  );
+  updateQueuedMessageForSession(host, sessionKey, id, (entry) => ({
+    ...entry,
+    kind: "steered",
+    pendingRunId: activeRunId,
+  }));
   const ack = await sendSteerChatMessage(
     host as unknown as ChatState,
     message,
     hasAttachments ? attachments : undefined,
   );
   if (!ack || isTerminalFailureChatSendAck(ack)) {
-    host.chatQueue = host.chatQueue.map((entry) => (entry.id === id ? item : entry));
+    updateQueuedMessageForSession(host, sessionKey, id, () => item);
     if (isTerminalFailureChatSendAck(ack)) {
       setChatError(host, formatTerminalChatSendAckError(ack, "steer"));
     }
     return;
   }
   if (ack.status === "ok") {
-    removeQueuedMessageWithoutReleasing(host, id, host.sessionKey);
+    removeQueuedMessageWithoutReleasing(host, id, sessionKey);
   }
   releaseChatAttachmentPayloads(attachments);
   setLastActiveSessionKey(
     host as unknown as Parameters<typeof setLastActiveSessionKey>[0],
-    host.sessionKey,
+    sessionKey,
   );
   scheduleChatScroll(host as unknown as Parameters<typeof scheduleChatScroll>[0]);
 }
@@ -1101,7 +1117,9 @@ export async function retryReconnectableQueuedChatSends(host: ChatHost) {
 }
 
 export async function retryQueuedChatMessage(host: ChatHost, id: string) {
-  const item = host.chatQueue.find((entry) => entry.id === id);
+  const found = findQueuedMessageForAction(host, id);
+  const item = found?.item;
+  const sessionKey = found?.sessionKey ?? host.sessionKey;
   if (
     !item ||
     item.localCommandName ||
@@ -1111,12 +1129,12 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   ) {
     return;
   }
-  updateQueuedMessage(host, id, (entry) => ({
+  updateQueuedMessageForSession(host, sessionKey, id, (entry) => ({
     ...entry,
     sendError: undefined,
     sendState: host.connected && host.client ? "sending" : "waiting-reconnect",
   }));
-  await sendQueuedChatMessage(host, id);
+  await sendQueuedChatMessage(host, id, undefined, sessionKey);
   if (!host.chatRunId) {
     void flushChatQueue(host);
   }
