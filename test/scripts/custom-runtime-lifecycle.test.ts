@@ -505,6 +505,7 @@ describe("custom runtime lifecycle", () => {
     const previousPointer = {
       releaseId: "previous",
       runtimeRoot: previousRelease,
+      sourceSha,
     };
 
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");
@@ -741,7 +742,11 @@ describe("custom runtime lifecycle", () => {
       "ai.openclaw.custom-runtime.guard.plist",
     );
     const sourceSha = "d".repeat(64);
-    const previousPointer = { releaseId: "previous", runtimeRoot: "/previous/release" };
+    const previousPointer = {
+      releaseId: "previous",
+      runtimeRoot: "/previous/release",
+      sourceSha,
+    };
     const previousLauncherText = '#!/bin/sh\n[ "${1:-}" = --verify ]\n# previous\n';
 
     writeFile(path.join(release, "dist", "index.js"), "// candidate\n");

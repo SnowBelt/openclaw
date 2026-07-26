@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -278,12 +279,16 @@ describe("custom runtime canary and rollback", () => {
     const promotedPlist = path.join(input.home, "promoted-gateway.plist");
     const promotedEnv = path.join(input.home, "promoted-gateway.env");
     const rollbackLauncher = path.join(input.home, "rollback-launcher.sh");
+    const sourceRepo = path.join(input.home, "source");
+    const activeSourceSha = "1".repeat(40);
     mkdirSync(fakeBin, { recursive: true });
+    mkdirSync(sourceRepo);
     mkdirSync(input.runtimeHome, { recursive: true });
     const previousRuntimeRoot = path.join(input.releasesDir, "release-old");
     const originalPointer = `${JSON.stringify({
       releaseId: "release-old",
       runtimeRoot: previousRuntimeRoot,
+      sourceSha: activeSourceSha,
       requiredSurfaces: [],
     })}\n`;
     writeFileSync(activePointer, originalPointer);
@@ -297,6 +302,17 @@ describe("custom runtime canary and rollback", () => {
     writeFileSync(envFile, "export EXISTING_VALUE=1\n");
     executable(envWrapper, '#!/bin/sh\nexec "$@"\n');
     executable(rollbackLauncher, '#!/bin/sh\n[ "${1:-}" = --verify ]\n');
+    executable(
+      path.join(fakeBin, "git"),
+      `#!/bin/sh
+shift 2
+case "$1" in
+  cat-file|merge-base) exit 0 ;;
+  rev-parse) printf '%s\\n' "$CANDIDATE_SHA"; exit 0 ;;
+esac
+exit 64
+`,
+    );
     executable(
       path.join(fakeBin, "launchctl"),
       `#!/bin/sh
@@ -330,6 +346,10 @@ esac
         input.release,
         "--source-sha",
         input.sourceSha,
+        "--source-repo",
+        sourceRepo,
+        "--source-branch",
+        "candidate",
       ],
       {
         cwd: process.cwd(),
@@ -340,6 +360,7 @@ esac
           FAKE_LAUNCHCTL_STATE: launchctlState,
           FAKE_PROMOTED_PLIST: promotedPlist,
           FAKE_PROMOTED_ENV: promotedEnv,
+          CANDIDATE_SHA: input.sourceSha,
           HOME: input.home,
           OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
           OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
@@ -366,5 +387,73 @@ esac
     expect(readFileSync(promotedEnv, "utf8")).toContain(
       "export OPENCLAW_SERVICE_VERSION=2026.6.11",
     );
+  });
+
+  it("blocks promotion before service mutation when the active runtime is not an ancestor", () => {
+    const input = fixture();
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    const activeSourceSha = "1".repeat(40);
+    const sourceRepo = path.join(input.home, "source");
+    const fakeBin = path.join(input.home, "lineage-bin");
+    mkdirSync(sourceRepo);
+    mkdirSync(fakeBin);
+    executable(
+      path.join(fakeBin, "git"),
+      `#!/bin/sh
+shift 2
+case "$1" in
+  cat-file) exit 0 ;;
+  rev-parse) printf '%s\\n' "$CANDIDATE_SHA"; exit 0 ;;
+  merge-base) exit 1 ;;
+esac
+exit 64
+`,
+    );
+    writeFileSync(
+      activePointer,
+      `${JSON.stringify({
+        releaseId: "release-active",
+        runtimeRoot: path.join(input.releasesDir, "release-active"),
+        sourceSha: activeSourceSha,
+        requiredSurfaces: [],
+      })}\n`,
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        path.join(process.cwd(), "scripts", "custom-runtime", "custom-runtime-promote.sh"),
+        "--release",
+        input.release,
+        "--source-sha",
+        input.sourceSha,
+        "--source-repo",
+        sourceRepo,
+        "--source-branch",
+        "candidate",
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          HOME: input.home,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
+          OPENCLAW_NODE_BIN: process.execPath,
+          CANDIDATE_SHA: input.sourceSha,
+          PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+        },
+      },
+    );
+
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain(
+      "promotion blocked: active managed runtime is not an ancestor of the candidate",
+    );
+    expect(readFileSync(activePointer, "utf8")).toContain(activeSourceSha);
+    expect(existsSync(path.join(input.runtimeHome, "locks", "promotion.lock"))).toBe(false);
   });
 });

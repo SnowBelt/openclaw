@@ -102,6 +102,51 @@ trap cleanup_promotion EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+active_source_sha=
+if [ -f "$runtime_home/active-runtime.json" ]; then
+  active_source_sha=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    source_sha = json.load(f).get("sourceSha")
+if not isinstance(source_sha, str) or not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", source_sha):
+    raise SystemExit("active runtime source SHA is missing or invalid")
+print(source_sha)
+PY
+  ) || {
+    printf '%s\n' 'promotion blocked: active runtime source identity is invalid' >&2
+    exit 64
+  }
+fi
+if [ -n "$active_source_sha" ] && [ "$active_source_sha" != "$source_sha" ]; then
+  [ -n "$source_repo" ] && [ -n "$source_branch" ] || {
+    printf '%s\n' 'promotion blocked: source repository and branch are required to verify active runtime ancestry' >&2
+    exit 64
+  }
+  git -C "$source_repo" cat-file -e "$active_source_sha^{commit}" 2>/dev/null || {
+    printf '%s\n' 'promotion blocked: active runtime source commit is unavailable' >&2
+    exit 64
+  }
+  git -C "$source_repo" cat-file -e "$source_sha^{commit}" 2>/dev/null || {
+    printf '%s\n' 'promotion blocked: candidate source commit is unavailable' >&2
+    exit 64
+  }
+  branch_sha=$(git -C "$source_repo" rev-parse --verify "$source_branch^{commit}" 2>/dev/null) || {
+    printf '%s\n' 'promotion blocked: candidate source branch is unavailable' >&2
+    exit 64
+  }
+  [ "$branch_sha" = "$source_sha" ] || {
+    printf '%s\n' 'promotion blocked: candidate source branch does not identify the requested source SHA' >&2
+    exit 64
+  }
+  git -C "$source_repo" merge-base --is-ancestor "$active_source_sha" "$source_sha" || {
+    printf '%s\n' 'promotion blocked: active managed runtime is not an ancestor of the candidate' >&2
+    exit 64
+  }
+fi
+
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 failure_receipt="$runtime_home/receipts/promotion-failure-$timestamp.json"
 record_failure() {
