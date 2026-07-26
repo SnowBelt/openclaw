@@ -708,7 +708,11 @@ export const ja_JP: TranslationMap = {
       normal: "正常",
       memory: "メモリ",
       memoryInUse: "{percent}% 使用中",
+      memoryAvailable: "{percent}% 使用可能",
       memorySummary: "{percent}% メモリ",
+      localModels: "ローカル AI メモリ",
+      localModelProcessOne: "1 つのモデルプロセス · {rss} プロセス RSS",
+      localModelProcesses: "{count} つのモデルプロセス · {rss} プロセス RSS",
       gateway: "Gateway",
       cpu: "CPU",
       load: "{value} ロード",
@@ -719,7 +723,9 @@ export const ja_JP: TranslationMap = {
       host: "ホスト",
       logicalCores: "論理 CPU コア",
       unavailable: "利用不可",
-      memoryBreakdown: "{used} 使用中 · {available} 利用可能 · {total} 合計",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "メモリプレッシャーは、macOS が使用可能にできる容量を測定します。ローカル AI プロセスの RSS は別に表示され、回収可能または共有されたモデルページを含む場合があります。",
       agentRamNote:
         "エージェントが Gateway プロセスを共有している場合、エージェントごとの RAM は利用できません。",
     },

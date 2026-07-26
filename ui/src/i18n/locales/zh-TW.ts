@@ -690,7 +690,11 @@ export const zh_TW: TranslationMap = {
       normal: "正常",
       memory: "記憶體",
       memoryInUse: "使用 {percent}% ",
+      memoryAvailable: "{percent}% 可用",
       memorySummary: "{percent}% 記憶體",
+      localModels: "本地 AI 記憶體",
+      localModelProcessOne: "1 個模型程序 · {rss} 程序 RSS",
+      localModelProcesses: "{count} 個模型程序 · {rss} 程序 RSS",
       gateway: "Gateway",
       cpu: "CPU",
       load: "{value} 負載",
@@ -701,7 +705,9 @@ export const zh_TW: TranslationMap = {
       host: "主機",
       logicalCores: "邏輯 CPU 核心",
       unavailable: "不可用",
-      memoryBreakdown: "{used} 已使用 · {available} 可用 · {total} 總計",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "記憶體壓力衡量 macOS 可提供的容量。本地 AI 程序的 RSS 會單獨顯示，且可能包含可回收或共用的模型頁面。",
       agentRamNote: "當 Agent 共用 Gateway 程序時，無法取得個別 Agent 的 RAM 用量。",
     },
     automationsPanel: {

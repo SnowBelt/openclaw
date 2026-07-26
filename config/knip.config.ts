@@ -186,6 +186,9 @@ const config = {
         // Preserve the legacy custom import boundary while delegating to the
         // canonical browser redactor.
         "src/ui/browser-redact.ts!",
+        // Preserve the Operations Room fixture import boundary declared by the
+        // immutable custom-runtime capability inventory.
+        "src/ui/views/operations.test-fixture.ts!",
         "vite.config.ts!",
         "vitest*.ts!",
       ],

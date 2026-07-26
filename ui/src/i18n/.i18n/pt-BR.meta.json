@@ -1,11 +1,11 @@
 {
   "fallbackKeys": [],
-  "generatedAt": "2026-07-23T18:37:13.887Z",
+  "generatedAt": "2026-07-25T21:35:02.193Z",
   "locale": "pt-BR",
-  "model": "openclaw-control-gemma4-31b-q8:latest",
+  "model": "qwen3.6:27b-q8_0",
   "provider": "ollama",
-  "sourceHash": "235726017b1e55b725e8d3eb4bfaeccffdeec187b09bd8dd0740dd00de79fe74",
-  "totalKeys": 2004,
-  "translatedKeys": 2004,
+  "sourceHash": "c27e7685a8beae5876c2d7116522d9bda7d73ab91915ba0584e95afffdbb1822",
+  "totalKeys": 2009,
+  "translatedKeys": 2009,
   "workflow": 1
 }

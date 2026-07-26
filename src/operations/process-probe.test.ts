@@ -32,6 +32,22 @@ describe("Operations Room process probe", () => {
     expect(result.status).toBe("available");
   });
 
+  it("reports local-model process RSS separately from host memory pressure", () => {
+    const result = parseOperationsProcessTableResult(
+      [
+        "10 1 2048 1.2 /opt/homebrew/bin/ollama",
+        "11 10 4096 8.4 /opt/homebrew/Cellar/ollama/libexec/llama-server",
+        "12 1 1024 0.2 /usr/bin/other",
+      ].join("\n"),
+      { gatewayPid: 99 },
+    );
+
+    expect(result).toMatchObject({
+      localModelProcessCount: 2,
+      localModelRssBytes: 6_291_456,
+    });
+  });
+
   it("does not label unrelated Node processes as the Gateway", () => {
     const rows = parseOperationsProcessTable(
       "42 1 204800 3.2 /opt/homebrew/bin/node\n88 1 102400 0.2 /opt/homebrew/bin/node\n",
@@ -72,6 +88,8 @@ describe("Operations Room process probe", () => {
       processes: [],
       total: 0,
       rejectedRows: 0,
+      localModelProcessCount: 0,
+      localModelRssBytes: 0,
       status: "unavailable",
     });
   });
@@ -81,6 +99,8 @@ describe("Operations Room process probe", () => {
       processes: [],
       total: 0,
       rejectedRows: 2,
+      localModelProcessCount: 0,
+      localModelRssBytes: 0,
       status: "unavailable",
     });
   });

@@ -703,7 +703,11 @@ export const tr: TranslationMap = {
       normal: "Normal",
       memory: "Bellek",
       memoryInUse: "%{percent} kullanımda",
+      memoryAvailable: "%{percent} kullanılabilir",
       memorySummary: "%{percent} bellek",
+      localModels: "Yerel AI belleği",
+      localModelProcessOne: "1 model işlemi · %{rss} işlem RSS",
+      localModelProcesses: "%{count} model işlemi · %{rss} işlem RSS",
       gateway: "Gateway",
       cpu: "CPU",
       load: "{value} yük",
@@ -714,7 +718,9 @@ export const tr: TranslationMap = {
       host: "Ana Bilgisayar",
       logicalCores: "Mantıksal CPU çekirdekleri",
       unavailable: "Kullanılamıyor",
-      memoryBreakdown: "{used} kullanılıyor · {available} kullanılabilir · {total} toplam",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "Bellek baskısı, macOS'un kullanıma sunabileceği kapasiteyi ölçer. Yerel AI işlemi RSS ayrı olarak gösterilir ve geri alınabilir veya paylaşılan model sayfalarını içerebilir.",
       agentRamNote: "Ajanlar Gateway işlemini paylaştığında başına düşen RAM bilgisi kullanılamaz.",
     },
     automationsPanel: {

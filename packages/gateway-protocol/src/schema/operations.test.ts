@@ -121,6 +121,8 @@ describe("Operations Room protocol", () => {
         usedMemoryBytes: 40,
         memoryUsedPercent: 40,
         memoryAvailabilitySource: "macos_memory_pressure",
+        localModelProcessCount: 2,
+        localModelRssBytes: 30,
         processRssBytes: 10,
         processHeapUsedBytes: 5,
         processHeapTotalBytes: 8,

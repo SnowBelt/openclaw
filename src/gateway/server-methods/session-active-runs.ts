@@ -10,17 +10,18 @@ import type { GatewayRequestContext } from "./types.js";
  * It only reports runs visible to the Control UI so background or hidden runs
  * do not make a session look busy to user-facing session operations.
  */
-type TrackedActiveSessionRun = {
+export type VisibleActiveSessionRun = {
   runId: string;
   sessionKey?: string;
   sessionId?: string;
   agentId?: string;
+  startedAtMs: number;
 };
 
 function collectTrackedActiveSessionRuns(
   context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
-): TrackedActiveSessionRun[] {
-  const runs: TrackedActiveSessionRun[] = [];
+): VisibleActiveSessionRun[] {
+  const runs: VisibleActiveSessionRun[] = [];
   if (!(context.chatAbortControllers instanceof Map)) {
     return runs;
   }
@@ -36,14 +37,24 @@ function collectTrackedActiveSessionRuns(
         ...(sessionKey ? { sessionKey } : {}),
         ...(sessionId ? { sessionId } : {}),
         agentId: typeof active.agentId === "string" ? normalizeAgentId(active.agentId) : undefined,
+        startedAtMs: Number.isFinite(active.startedAtMs) ? active.startedAtMs : 0,
       });
     }
   }
   return runs;
 }
 
+/** Returns the bounded, Control UI-visible active runs used by operational status surfaces. */
+export function listVisibleActiveSessionRuns(
+  context: Partial<Pick<GatewayRequestContext, "chatAbortControllers">>,
+): VisibleActiveSessionRun[] {
+  return collectTrackedActiveSessionRuns(context).toSorted(
+    (left, right) => right.startedAtMs - left.startedAtMs || left.runId.localeCompare(right.runId),
+  );
+}
+
 function isTrackedActiveSessionRunForKey(
-  active: TrackedActiveSessionRun,
+  active: VisibleActiveSessionRun,
   key: string,
   agentId?: string,
   defaultAgentId?: string,

@@ -67,10 +67,12 @@ Activity, health, and attention are independent:
 - health: healthy, degraded, failed, or unknown; and
 - attention: needs user, OpenClaw handling, watching, or none.
 
-An agent can therefore be working and degraded at the same time. `Working` means an active task or
-workflow has a live owner. A terminal task is Last activity or History, never Current work. A running
-workflow without an active owner, active task, or explicit waiting state becomes a reconciliation
-warning.
+An agent can therefore be working and degraded at the same time. `Working` means an active task or a
+Control UI-visible Gateway session run has a live owner. The collector reconciles both sources by run
+ID so one task-backed session is counted once. Session activity changes the working-agent count
+without pretending that an interactive conversation is a detached background task. A terminal task
+is Last activity or History, never Current work. A running workflow without an active owner, active
+task, or explicit waiting state becomes a reconciliation warning.
 
 Current findings and historical outcomes are separate. The actionable count includes only unresolved
 current findings; informational history does not inflate it. Every actionable finding should report
@@ -167,8 +169,11 @@ content to assistive technology.
   invented sweep timestamps.
 - The browser refreshes the active Operations Room every 15 seconds while visible.
 - Host process collection is bounded, omits command arguments, and returns only the largest RSS rows.
-- Host RAM uses Linux `MemAvailable` or macOS `memory_pressure` when available, then falls back to
-  raw free memory. Available and free RAM remain distinct.
+- Host capacity uses Linux `MemAvailable` or macOS `memory_pressure` when available, then falls back
+  to raw free memory. The UI labels this as available capacity rather than total resident allocation.
+  Available and immediately free RAM remain distinct. Local-model process count and process RSS are
+  shown separately because RSS can include shared or reclaimable model pages and must not be added to
+  the host pressure estimate.
 - Catalogs keep configured, active, unavailable, and unverified states distinct.
 - Repeated dashboard findings and task runs are grouped by stable identity so quiet refreshes do not
   turn unchanged state into new visual alerts.

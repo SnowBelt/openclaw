@@ -549,7 +549,7 @@ export const es: TranslationMap = {
     workingItemsCount: "Elementos en curso: {count}",
     showingAgents: "Mostrando {count}",
     attentionAgentsCount: "{count} requieren atención",
-    agentStatusSummary: "{working} trabajando · {attention} requieren atención",
+    agentStatusSummary: "{working} trabajando · {attention} necesitan atención",
     automationCount: "Programaciones: {total} · Fallidas: {failing}",
     automations: "Automatizaciones",
     system: "Sistema",
@@ -674,7 +674,7 @@ export const es: TranslationMap = {
       pinned: "Fijadas",
       openAgent: "Abrir agente",
       reviewIssue: "Revisar problema",
-      whatNeedsAttention: "Qué requiere atención",
+      whatNeedsAttention: "Qué necesita atención",
       blockedTaskNeedsDecision:
         "{count} tarea bloqueada necesita tu decisión. Revisa el problema antes de cambiar al agente.",
       blockedTasksNeedDecision:
@@ -705,7 +705,11 @@ export const es: TranslationMap = {
       normal: "Normal",
       memory: "Memoria",
       memoryInUse: "{percent}% en uso",
+      memoryAvailable: "{percent}% disponible",
       memorySummary: "{percent}% de memoria",
+      localModels: "Memoria de IA local",
+      localModelProcessOne: "1 proceso de modelo · {rss} RSS del proceso",
+      localModelProcesses: "{count} procesos de modelo · {rss} RSS del proceso",
       gateway: "Gateway",
       cpu: "CPU",
       load: "Carga {value}",
@@ -716,7 +720,9 @@ export const es: TranslationMap = {
       host: "Host",
       logicalCores: "Núcleos lógicos de CPU",
       unavailable: "No disponible",
-      memoryBreakdown: "{used} usados · {available} disponibles · {total} en total",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "La presión de memoria mide la capacidad que macOS puede hacer disponible. El RSS del proceso de IA local se muestra por separado y puede incluir páginas de modelo recuperables o compartidas.",
       agentRamNote:
         "La RAM por agente no está disponible cuando los agentes comparten el proceso de Gateway.",
     },

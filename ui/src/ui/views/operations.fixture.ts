@@ -86,6 +86,8 @@ export function createOperationsTestSnapshot(now = Date.now()): OperationsSnapsh
       usedMemoryBytes: 28 * 1024 ** 3,
       memoryUsedPercent: 43.8,
       memoryAvailabilitySource: "macos_memory_pressure",
+      localModelProcessCount: 2,
+      localModelRssBytes: 24 * 1024 ** 3,
       processRssBytes: 256 * 1024 ** 2,
       processHeapUsedBytes: 64 * 1024 ** 2,
       processHeapTotalBytes: 128 * 1024 ** 2,
