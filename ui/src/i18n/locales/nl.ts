@@ -706,7 +706,11 @@ export const nl: TranslationMap = {
       normal: "Normaal",
       memory: "Geheugen",
       memoryInUse: "{percent}% in gebruik",
+      memoryAvailable: "{percent}% beschikbaar",
       memorySummary: "{percent}% geheugen",
+      localModels: "Lokaal AI-geheugen",
+      localModelProcessOne: "1 modelproces · {rss} proces-RSS",
+      localModelProcesses: "{count} modelprocessen · {rss} proces-RSS",
       gateway: "Gateway",
       cpu: "CPU",
       load: "{value} belasting",
@@ -717,7 +721,9 @@ export const nl: TranslationMap = {
       host: "Host",
       logicalCores: "Logische CPU-kernen",
       unavailable: "Niet beschikbaar",
-      memoryBreakdown: "{used} gebruikt · {available} beschikbaar · {total} totaal",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "Geheugendruk meet de capaciteit die macOS beschikbaar kan maken. De RSS van lokaal AI-processen wordt apart weergegeven en kan herbruikbare of gedeelde modelpagina's bevatten.",
       agentRamNote: "RAM per agent is niet beschikbaar wanneer agents het Gateway-proces delen.",
     },
     automationsPanel: {

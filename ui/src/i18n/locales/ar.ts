@@ -696,7 +696,11 @@ export const ar: TranslationMap = {
       normal: "طبيعي",
       memory: "الذاكرة",
       memoryInUse: "{percent}% مستخدمة",
+      memoryAvailable: "{percent}% متاح",
       memorySummary: "{percent}% من الذاكرة",
+      localModels: "ذاكرة الذكاء الاصطناعي المحلية",
+      localModelProcessOne: "عملية نموذج واحدة · {rss} RSS للعملية",
+      localModelProcesses: "{count} عمليات نموذج · {rss} RSS للعملية",
       gateway: "Gateway",
       cpu: "المعالج (CPU)",
       load: "حمولة {value}",
@@ -707,7 +711,9 @@ export const ar: TranslationMap = {
       host: "المضيف",
       logicalCores: "أنوية وحدة المعالجة المركزية المنطقية",
       unavailable: "غير متاح",
-      memoryBreakdown: "{used} مستخدم · {available} متاح · {total} إجمالي",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "تقيس ضغط الذاكرة السعة التي يمكن لنظام macOS جعلها متاحة. يتم عرض RSS لعملية الذكاء الاصطناعي المحلي بشكل منفصل وقد يتضمن صفحات نماذج قابلة للاسترداد أو مشتركة.",
       agentRamNote: "ذاكرة الوصول العشوائي لكل وكيل غير متاحة عندما يشارك الوكلاء عملية Gateway.",
     },
     automationsPanel: {

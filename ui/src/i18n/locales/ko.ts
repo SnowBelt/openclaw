@@ -700,7 +700,11 @@ export const ko: TranslationMap = {
       normal: "정상",
       memory: "메모리",
       memoryInUse: "{percent}% 사용 중",
+      memoryAvailable: "{percent}% 사용 가능",
       memorySummary: "{percent}% 메모리",
+      localModels: "로컬 AI 메모리",
+      localModelProcessOne: "1개 모델 프로세스 · {rss} 프로세스 RSS",
+      localModelProcesses: "{count}개 모델 프로세스 · {rss} 프로세스 RSS",
       gateway: "Gateway",
       cpu: "CPU",
       load: "{value} 부하",
@@ -711,7 +715,9 @@ export const ko: TranslationMap = {
       host: "호스트",
       logicalCores: "논리적 CPU 코어",
       unavailable: "사용 불가",
-      memoryBreakdown: "{used} 사용 중 · {available} 사용 가능 · {total} 전체",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "메모리 압력은 macOS에서 사용할 수 있는 용량을 측정합니다. 로컬 AI 프로세스 RSS는 별도로 표시되며, 회수 가능하거나 공유된 모델 페이지를 포함할 수 있습니다.",
       agentRamNote:
         "에이전트가 Gateway 프로세스를 공유하는 경우 에이전트별 RAM은 사용할 수 없습니다.",
     },

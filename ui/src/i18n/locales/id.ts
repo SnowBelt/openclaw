@@ -702,7 +702,11 @@ export const id: TranslationMap = {
       normal: "Normal",
       memory: "Memori",
       memoryInUse: "{percent}% digunakan",
+      memoryAvailable: "{percent}% tersedia",
       memorySummary: "{percent}% memori",
+      localModels: "Memori AI lokal",
+      localModelProcessOne: "1 proses model · {rss} RSS proses",
+      localModelProcesses: "{count} proses model · {rss} RSS proses",
       gateway: "Gateway",
       cpu: "CPU",
       load: "Beban {value}",
@@ -713,7 +717,9 @@ export const id: TranslationMap = {
       host: "Host",
       logicalCores: "Inti CPU logis",
       unavailable: "Tidak tersedia",
-      memoryBreakdown: "{used} digunakan · {available} tersedia · {total} total",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "Tekanan memori mengukur kapasitas yang dapat dibuat tersedia oleh macOS. RSS proses AI lokal ditampilkan secara terpisah dan dapat mencakup halaman model yang dapat dikembalikan atau dibagikan.",
       agentRamNote: "RAM per-agent tidak tersedia ketika agen berbagi proses Gateway.",
     },
     automationsPanel: {

@@ -1847,13 +1847,6 @@
       "kind": "html-attribute",
       "name": "aria-label",
       "path": "ui/src/pages/chat/components/chat-composer.ts",
-      "text": "Remove queued message"
-    },
-    {
-      "count": 1,
-      "kind": "html-attribute",
-      "name": "aria-label",
-      "path": "ui/src/pages/chat/components/chat-composer.ts",
       "text": "Slash commands"
     },
     {

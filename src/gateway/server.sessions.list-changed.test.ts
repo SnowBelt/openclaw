@@ -790,7 +790,7 @@ test("sessions.changed mutation events include live usage metadata", async () =>
   expectMainPatchBroadcast(result, {
     totalTokens: 6_643,
     totalTokensFresh: true,
-    contextTokens: 123_456,
+    contextTokens: 200_000,
     estimatedCostUsd: 0,
     modelProvider: "openai",
     model: "gpt-5.3-codex-spark",

@@ -704,7 +704,11 @@ export const pt_BR: TranslationMap = {
       normal: "Normal",
       memory: "Memória",
       memoryInUse: "{percent}% em uso",
+      memoryAvailable: "{percent}% disponível",
       memorySummary: "{percent}% de memória",
+      localModels: "Memória de IA local",
+      localModelProcessOne: "1 processo de modelo · {rss} RSS do processo",
+      localModelProcesses: "{count} processos de modelo · {rss} RSS do processo",
       gateway: "Gateway",
       cpu: "CPU",
       load: "Carga {value}",
@@ -715,7 +719,9 @@ export const pt_BR: TranslationMap = {
       host: "Host",
       logicalCores: "Núcleos lógicos de CPU",
       unavailable: "Indisponível",
-      memoryBreakdown: "{used} usados · {available} disponíveis · {total} total",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "A pressão de memória mede a capacidade que o macOS pode disponibilizar. O RSS do processo de IA local é exibido separadamente e pode incluir páginas de modelo recuperáveis ou compartilhadas.",
       agentRamNote:
         "A RAM por agente está indisponível quando os agentes compartilham o processo do Gateway.",
     },

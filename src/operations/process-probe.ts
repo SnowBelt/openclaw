@@ -20,6 +20,8 @@ export type OperationsProcessCollectionResult = {
   processes: OperationsProcessSnapshot[];
   total: number;
   rejectedRows: number;
+  localModelProcessCount: number;
+  localModelRssBytes: number;
   status: "available" | "partial" | "unavailable";
 };
 
@@ -90,10 +92,13 @@ export function parseOperationsProcessTableResult(
     (left, right) => right.rssBytes - left.rssBytes || left.pid - right.pid,
   );
   const rejectedRows = Math.max(0, nonblankLineCount - sorted.length);
+  const localModelProcesses = sorted.filter((process) => process.kind === "local_model");
   return {
     processes: sorted.slice(0, PROCESS_LIMIT),
     total: sorted.length,
     rejectedRows,
+    localModelProcessCount: localModelProcesses.length,
+    localModelRssBytes: localModelProcesses.reduce((total, process) => total + process.rssBytes, 0),
     status:
       nonblankLineCount === 0 || sorted.length === 0
         ? "unavailable"
@@ -118,7 +123,14 @@ export async function collectOperationsProcessesResult(): Promise<OperationsProc
     });
     return parseOperationsProcessTableResult(stdout);
   } catch {
-    return { processes: [], total: 0, rejectedRows: 0, status: "unavailable" };
+    return {
+      processes: [],
+      total: 0,
+      rejectedRows: 0,
+      localModelProcessCount: 0,
+      localModelRssBytes: 0,
+      status: "unavailable",
+    };
   }
 }
 

@@ -390,6 +390,72 @@ describe("Operations Room collector", () => {
     });
   });
 
+  it("counts visible active session runs as agent work without inflating task totals", async () => {
+    const now = 525_500;
+    const snapshot = await collectOperationsSnapshot({
+      cfg: cfg({ agents: ["main", "research"] }),
+      cron: cronService(),
+      includeProcesses: false,
+      now,
+      taskRecords: [],
+      flowRecords: [],
+      activeRuns: [
+        {
+          runId: "run-research",
+          sessionKey: "agent:research:main",
+          agentId: "research",
+          startedAtMs: now - 500,
+        },
+      ],
+      incidentLedgerOptions: { ledgerPath: ledgerPath() },
+    });
+
+    expect(snapshot.summary).toMatchObject({
+      workingAgents: 1,
+      activeTasks: 0,
+    });
+    expect(snapshot.agents.find((agent) => agent.id === "research")).toMatchObject({
+      activityState: "working",
+      activeTaskCount: 0,
+      currentWork: {
+        taskId: "run:run-research",
+        title: "Active conversation",
+        outcome: "active",
+      },
+    });
+  });
+
+  it("deduplicates an active run already represented by a running task", async () => {
+    const now = 525_750;
+    const snapshot = await collectOperationsSnapshot({
+      cfg: cfg(),
+      cron: cronService(),
+      includeProcesses: false,
+      now,
+      taskRecords: [
+        task({
+          taskId: "task-main",
+          status: "running",
+          runId: "run-main",
+          startedAt: now - 1_000,
+        }),
+      ],
+      flowRecords: [],
+      activeRuns: [
+        {
+          runId: "run-main",
+          sessionKey: "agent:main:main",
+          agentId: "main",
+          startedAtMs: now - 1_000,
+        },
+      ],
+      incidentLedgerOptions: { ledgerPath: ledgerPath() },
+    });
+
+    expect(snapshot.summary.workingAgents).toBe(1);
+    expect(snapshot.agents[0]?.currentWork?.taskId).toBe("task-main");
+  });
+
   it("reserves bounded activity history for a newly completed group when active groups fill the cap", async () => {
     const now = 526_000;
     const records = [
@@ -697,7 +763,14 @@ describe("Operations Room collector", () => {
       taskRecords: [],
       flowRecords: [],
       modelCatalogAvailable: false,
-      processCollection: { processes: [], total: 0, rejectedRows: 0, status: "unavailable" },
+      processCollection: {
+        processes: [],
+        total: 0,
+        rejectedRows: 0,
+        localModelProcessCount: 0,
+        localModelRssBytes: 0,
+        status: "unavailable",
+      },
       incidentLedgerOptions: { ledgerPath: corruptLedger },
     });
 
@@ -726,11 +799,13 @@ describe("Operations Room collector", () => {
             command: "node",
             rssBytes: 1_024,
             cpuPercent: 0.1,
-            kind: "gateway",
+            kind: "local_model",
           },
         ],
         total: 1,
         rejectedRows: 1,
+        localModelProcessCount: 1,
+        localModelRssBytes: 1_024,
         status: "partial",
       },
       incidentLedgerOptions: { ledgerPath: ledgerPath() },
@@ -743,6 +818,10 @@ describe("Operations Room collector", () => {
       shown: 1,
       truncated: false,
       rejected: 1,
+    });
+    expect(snapshot.host).toMatchObject({
+      localModelProcessCount: 1,
+      localModelRssBytes: 1_024,
     });
     expect(snapshot.overallStatus).toBe("unknown");
   });

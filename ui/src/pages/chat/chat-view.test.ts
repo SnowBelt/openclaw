@@ -2939,7 +2939,9 @@ describe("chat queue", () => {
     const steerButtons = container.querySelectorAll<HTMLButtonElement>(".chat-queue__steer");
     expect(steerButtons).toHaveLength(1);
     expect(steerButtons[0].textContent?.trim()).toBe("Steer");
-    expect(container.querySelector(".chat-queue__badge")?.textContent?.trim()).toBe("Steered");
+    expect(
+      container.querySelector(".chat-queue__item--steered .chat-queue__badge")?.textContent?.trim(),
+    ).toBe("Steered");
 
     steerButtons[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
 

@@ -703,7 +703,11 @@ export const uk: TranslationMap = {
       normal: "Норма",
       memory: "Пам'ять",
       memoryInUse: "{percent}% використано",
+      memoryAvailable: "{percent}% доступно",
       memorySummary: "{percent}% пам'яті",
+      localModels: "Локальна пам'ять ШІ",
+      localModelProcessOne: "1 процес моделі · {rss} RSS процесу",
+      localModelProcesses: "{count} процеси моделі · {rss} RSS процесу",
       gateway: "Gateway",
       cpu: "ЦП",
       load: "Навантаження {value}",
@@ -714,7 +718,9 @@ export const uk: TranslationMap = {
       host: "Хост",
       logicalCores: "Логічні ядра CPU",
       unavailable: "Недоступно",
-      memoryBreakdown: "{used} використано · {available} доступно · {total} всього",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "Тиск на пам'ять вимірює обсяг, який macOS може зробити доступним. RSS локального процесу ШІ показано окремо і може включати відновлювані або спільні сторінки моделі.",
       agentRamNote:
         "Оперативна пам'ять на агента недоступна, коли агенти використовують спільний процес Gateway.",
     },

@@ -691,7 +691,11 @@ export const th: TranslationMap = {
       normal: "ปกติ",
       memory: "หน่วยความจำ",
       memoryInUse: "ใช้งาน {percent}%",
+      memoryAvailable: "มีพื้นที่ว่าง {percent}%",
       memorySummary: "หน่วยความจำ {percent}%",
+      localModels: "หน่วยความจำ AI แบบโลคอล",
+      localModelProcessOne: "1 กระบวนการโมเดล · RSS ของกระบวนการ {rss}",
+      localModelProcesses: "{count} กระบวนการโมเดล · RSS ของกระบวนการ {rss}",
       gateway: "Gateway",
       cpu: "CPU",
       load: "โหลด {value}",
@@ -702,7 +706,9 @@ export const th: TranslationMap = {
       host: "โฮสต์",
       logicalCores: "คอร์ CPU แบบลอจิก",
       unavailable: "ไม่สามารถใช้งานได้",
-      memoryBreakdown: "{used} ที่ใช้ · {available} ที่ว่าง · {total} ทั้งหมด",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "แรงกดดันหน่วยความจำวัดความสามารถของ macOS ในการจัดสรรพื้นที่ว่างได้ กระบวนการ AI แบบโลคอลจะแสดงแยกต่างหากและอาจรวมหน้าเพจของโมเดลที่สามารถเรียกคืนหรือแชร์ได้",
       agentRamNote: "RAM ต่อเอเจนต์จะไม่สามารถดูได้เมื่อเอเจนต์แชร์กระบวนการ Gateway",
     },
     automationsPanel: {

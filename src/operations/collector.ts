@@ -91,6 +91,13 @@ const ROW_LIMITS = {
   rollups: 200,
 } as const;
 
+export type OperationsActiveRun = {
+  runId: string;
+  sessionKey?: string;
+  agentId?: string;
+  startedAtMs: number;
+};
+
 function compareFindingPriority(left: OperationsFinding, right: OperationsFinding): number {
   const severityRank = { critical: 0, warning: 1, info: 2 } as const;
   const dispositionRank = { needs_user: 0, handling: 1, watching: 2, historical: 3 } as const;
@@ -312,11 +319,13 @@ function buildAgentRows(params: {
   cfg: OpenClawConfig;
   modelCatalog: ModelCatalogEntry[];
   tasks: TaskRecord[];
+  activeRuns: OperationsActiveRun[];
   cronJobs: OperationsCronSnapshot[];
   now: number;
   taskSourceAvailable: boolean;
 }): OperationsAgentSnapshot[] {
   const agents = listAgentsForGateway(params.cfg, params.modelCatalog).agents;
+  const defaultAgentId = resolveDefaultAgentId(params.cfg);
   const tasksByAgent = new Map<string, TaskRecord[]>();
   for (const task of params.tasks) {
     const agentId = taskAgentId(task);
@@ -328,6 +337,27 @@ function buildAgentRows(params: {
       agentTasks.push(task);
     } else {
       tasksByAgent.set(agentId, [task]);
+    }
+  }
+  const runningTaskRunIds = new Set(
+    params.tasks
+      .filter(isRunningTask)
+      .map((task) => task.runId)
+      .filter((runId): runId is string => Boolean(runId)),
+  );
+  const activeRunsByAgent = new Map<string, OperationsActiveRun[]>();
+  for (const run of params.activeRuns) {
+    if (runningTaskRunIds.has(run.runId)) {
+      continue;
+    }
+    const agentId =
+      run.agentId ?? (run.sessionKey ? parseAgentSessionKey(run.sessionKey)?.agentId : undefined);
+    const resolvedAgentId = agentId ?? defaultAgentId;
+    const agentRuns = activeRunsByAgent.get(resolvedAgentId);
+    if (agentRuns) {
+      agentRuns.push(run);
+    } else {
+      activeRunsByAgent.set(resolvedAgentId, [run]);
     }
   }
   const cronByAgent = new Map<string, OperationsCronSnapshot[]>();
@@ -349,6 +379,10 @@ function buildAgentRows(params: {
       (left, right) => taskUpdatedAt(right) - taskUpdatedAt(left),
     );
     const runningTasks = agentTasks.filter(isRunningTask);
+    const activeRuns = (activeRunsByAgent.get(agent.id) ?? []).toSorted(
+      (left, right) =>
+        right.startedAtMs - left.startedAtMs || left.runId.localeCompare(right.runId),
+    );
     const queuedTasks = agentTasks.filter(isQueuedTask);
     const blockedTasks = agentTasks.filter((task) => isBlockedTask(task, params.now));
     const recentFailures = agentTasks.filter(
@@ -365,7 +399,7 @@ function buildAgentRows(params: {
         : "configuration";
     const states = deriveOperationsAgentStates({
       duty,
-      runningTaskCount: runningTasks.length,
+      runningTaskCount: runningTasks.length + activeRuns.length,
       queuedTaskCount: queuedTasks.length,
       blockedTaskCount: blockedTasks.length,
       recentFailureCount: recentFailures.length,
@@ -420,6 +454,14 @@ function buildAgentRows(params: {
     const currentTask = runningTasks[0];
     if (currentTask) {
       row.currentWork = taskSummary(currentTask);
+    } else if (activeRuns[0]) {
+      row.currentWork = {
+        taskId: `run:${activeRuns[0].runId}`,
+        title: "Active conversation",
+        summary: "The agent is responding in an active OpenClaw session.",
+        updatedAt: activeRuns[0].startedAtMs,
+        outcome: "active",
+      };
     }
     const lastTask = agentTasks.find((task) => !isRunningTask(task) && !isQueuedTask(task));
     if (lastTask) {
@@ -766,7 +808,7 @@ export function buildOperationsFindings(params: {
           severity: "critical",
           category: "resource",
           title: "Memory pressure is critical",
-          detail: `${params.hostMemoryUsedPercent.toFixed(1)}% of host memory is in use.`,
+          detail: `Host memory pressure is ${params.hostMemoryUsedPercent.toFixed(1)}%.`,
           disposition: "needs_user",
           responseState: "waiting_for_user",
           impact: "New local work can fail or make the Gateway unresponsive.",
@@ -785,7 +827,7 @@ export function buildOperationsFindings(params: {
           severity: "warning",
           category: "resource",
           title: "Memory pressure is elevated",
-          detail: `${params.hostMemoryUsedPercent.toFixed(1)}% of host memory is in use.`,
+          detail: `Host memory pressure is ${params.hostMemoryUsedPercent.toFixed(1)}%.`,
           disposition: "watching",
           responseState: "monitoring",
           impact: "Starting another large local model could reduce responsiveness.",
@@ -1074,6 +1116,7 @@ export async function collectOperationsSnapshot(params: {
   includeProcesses?: boolean;
   taskRecords?: TaskRecord[];
   flowRecords?: TaskFlowRecord[];
+  activeRuns?: OperationsActiveRun[];
   processCollection?: OperationsProcessCollectionResult;
   monitorState?: OperationsShadowMonitorState;
   incidentLedgerOptions?: OperationsIncidentLedgerOptions;
@@ -1089,7 +1132,14 @@ export async function collectOperationsSnapshot(params: {
     .catch(() => ({ jobs: [] as CronJob[], available: false as const }));
   const processPromise: Promise<OperationsProcessCollectionResult> =
     params.includeProcesses === false
-      ? Promise.resolve({ processes: [], total: 0, rejectedRows: 0, status: "available" })
+      ? Promise.resolve({
+          processes: [],
+          total: 0,
+          rejectedRows: 0,
+          localModelProcessCount: 0,
+          localModelRssBytes: 0,
+          status: "available",
+        })
       : params.processCollection
         ? Promise.resolve(params.processCollection)
         : collectOperationsProcessesResult();
@@ -1137,6 +1187,7 @@ export async function collectOperationsSnapshot(params: {
       cfg: params.cfg,
       modelCatalog,
       tasks: observableTasks,
+      activeRuns: params.activeRuns ?? [],
       cronJobs: cronRows,
       now,
       taskSourceAvailable,
@@ -1434,6 +1485,12 @@ export async function collectOperationsSnapshot(params: {
       usedMemoryBytes: hostMemory.usedMemoryBytes,
       memoryUsedPercent: hostMemory.memoryUsedPercent,
       memoryAvailabilitySource: hostMemory.availabilitySource,
+      ...(params.includeProcesses === false
+        ? {}
+        : {
+            localModelProcessCount: processResult.localModelProcessCount,
+            localModelRssBytes: processResult.localModelRssBytes,
+          }),
       processRssBytes: processMemory.rss,
       processHeapUsedBytes: processMemory.heapUsed,
       processHeapTotalBytes: processMemory.heapTotal,

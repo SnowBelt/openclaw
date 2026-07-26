@@ -703,7 +703,11 @@ export const vi: TranslationMap = {
       normal: "Bình thường",
       memory: "Bộ nhớ",
       memoryInUse: "{percent}% đang sử dụng",
+      memoryAvailable: "{percent}% khả dụng",
       memorySummary: "{percent}% bộ nhớ",
+      localModels: "Bộ nhớ AI cục bộ",
+      localModelProcessOne: "1 quy trình mô hình · RSS quy trình {rss}",
+      localModelProcesses: "{count} quy trình mô hình · RSS quy trình {rss}",
       gateway: "Gateway",
       cpu: "CPU",
       load: "Tải {value}",
@@ -714,7 +718,9 @@ export const vi: TranslationMap = {
       host: "Máy chủ",
       logicalCores: "Nhân CPU logic",
       unavailable: "Không khả dụng",
-      memoryBreakdown: "{used} đang dùng · {available} khả dụng · {total} tổng cộng",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "Áp lực bộ nhớ đo lường dung lượng mà macOS có thể cung cấp. RSS của quy trình AI cục bộ được hiển thị riêng và có thể bao gồm các trang mô hình có thể thu hồi hoặc chia sẻ.",
       agentRamNote: "RAM cho mỗi agent không khả dụng khi các agent chia sẻ tiến trình Gateway.",
     },
     automationsPanel: {

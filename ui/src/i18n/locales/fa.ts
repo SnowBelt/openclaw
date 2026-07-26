@@ -698,7 +698,11 @@ export const fa: TranslationMap = {
       normal: "عادی",
       memory: "حافظه",
       memoryInUse: "{percent}% در حال استفاده",
+      memoryAvailable: "{percent}% در دسترس",
       memorySummary: "{percent}% حافظه",
+      localModels: "حافظه هوش مصنوعی محلی",
+      localModelProcessOne: "۱ فرآیند مدل · {rss} RSS فرآیند",
+      localModelProcesses: "{count} فرآیند مدل · {rss} RSS فرآیند",
       gateway: "Gateway",
       cpu: "پردازنده",
       load: "بار {value}",
@@ -709,7 +713,9 @@ export const fa: TranslationMap = {
       host: "میزبان",
       logicalCores: "هسته‌های منطقی CPU",
       unavailable: "دسترس‌ناپذیر",
-      memoryBreakdown: "{used} استفاده شده · {available} در دسترس · {total} کل",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "فشار حافظه ظرفیتی را که macOS می‌تواند در دسترس قرار دهد، اندازه‌گیری می‌کند. RSS فرآیندهای هوش مصنوعی محلی به‌طور جداگانه نمایش داده می‌شود و ممکن است شامل صفحات مدل قابل بازیابی یا مشترک باشد.",
       agentRamNote:
         "RAM اختصاصی به هر agent زمانی که agentها فرآیند Gateway را به اشتراک می‌گذارند، در دسترس نیست.",
     },

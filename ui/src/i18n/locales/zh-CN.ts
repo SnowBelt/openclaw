@@ -689,7 +689,11 @@ export const zh_CN: TranslationMap = {
       normal: "正常",
       memory: "内存",
       memoryInUse: "已使用 {percent}%",
+      memoryAvailable: "{percent}% 可用",
       memorySummary: "{percent}% 内存",
+      localModels: "本地 AI 内存",
+      localModelProcessOne: "1 个模型进程 · {rss} 进程 RSS",
+      localModelProcesses: "{count} 个模型进程 · {rss} 进程 RSS",
       gateway: "Gateway",
       cpu: "CPU",
       load: "{value} 负载",
@@ -700,7 +704,9 @@ export const zh_CN: TranslationMap = {
       host: "主机",
       logicalCores: "逻辑 CPU 核心",
       unavailable: "不可用",
-      memoryBreakdown: "{used} 已用 · {available} 可用 · {total} 总计",
+      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryPressureNote:
+        "内存压力衡量 macOS 可提供的容量。本地 AI 进程的 RSS 单独显示，可能包含可回收或共享的模型页面。",
       agentRamNote: "当代理共享 Gateway 进程时，每个代理的 RAM 信息不可用。",
     },
     automationsPanel: {
