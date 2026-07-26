@@ -23,8 +23,16 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 [ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
 . "$auth_helper"
 
-usage() { printf '%s\n' 'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' >&2; exit 64; }
+usage() {
+  printf '%s\n' \
+    'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
+    '       custom-runtime-promote.sh --lease-acquire|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification [--ttl-seconds 3600]' \
+    '       custom-runtime-promote.sh --lease-status' >&2
+  exit 64
+}
 release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
+lease_action= lease_active_sha= lease_candidate_sha= lease_owner= lease_operation_class=
+lease_ttl_seconds=
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
@@ -33,9 +41,56 @@ while [ $# -gt 0 ]; do
     --source-branch) source_branch=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
+    --lease-acquire) [ -z "$lease_action" ] || usage; lease_action=acquire; shift ;;
+    --lease-release) [ -z "$lease_action" ] || usage; lease_action=release; shift ;;
+    --lease-recover-expired) [ -z "$lease_action" ] || usage; lease_action=recover-expired; shift ;;
+    --lease-status) [ -z "$lease_action" ] || usage; lease_action=status; shift ;;
+    --active-sha) lease_active_sha=${2:-}; shift 2 ;;
+    --candidate-sha) lease_candidate_sha=${2:-}; shift 2 ;;
+    --owner) lease_owner=${2:-}; shift 2 ;;
+    --operation-class) lease_operation_class=${2:-}; shift 2 ;;
+    --ttl-seconds) lease_ttl_seconds=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
+if [ -n "$lease_action" ]; then
+  [ -z "$release" ] && [ -z "$source_sha" ] && [ -z "$source_repo" ] && \
+    [ -z "$source_branch" ] && [ "$port" = 18789 ] && \
+    [ "$enable_sig_background" = false ] || usage
+  case "$lease_action" in
+    acquire) lease_ttl_seconds=${lease_ttl_seconds:-3600} ;;
+    status)
+      [ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
+        [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
+        [ -z "$lease_ttl_seconds" ] || usage
+      ;;
+    release|recover-expired) [ -z "$lease_ttl_seconds" ] || usage ;;
+    *) usage ;;
+  esac
+  mkdir -p "$runtime_home/locks" "$runtime_home/receipts"
+  chmod 700 "$runtime_home" "$runtime_home/locks" "$runtime_home/receipts" 2>/dev/null || true
+  certification_lock="$runtime_home/locks/promotion.lock"
+  if ! mkdir "$certification_lock" 2>/dev/null; then
+    printf '%s\n' 'another custom-runtime promotion or certification lease operation is already active' >&2
+    exit 75
+  fi
+  cleanup_certification_lock() {
+    status=$?
+    trap - EXIT INT TERM
+    rmdir "$certification_lock" 2>/dev/null || true
+    exit "$status"
+  }
+  trap cleanup_certification_lock EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  custom_runtime_certification_lease "$lease_action" "$runtime_home" \
+    "$lease_active_sha" "$lease_candidate_sha" "$lease_owner" \
+    "$lease_operation_class" "$lease_ttl_seconds"
+  exit 0
+fi
+[ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
+  [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
+  [ -z "$lease_ttl_seconds" ] || usage
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
@@ -120,6 +175,8 @@ PY
     exit 64
   }
 fi
+custom_runtime_certification_lease verify-promotion "$runtime_home" \
+  "$active_source_sha" "$source_sha" "" "" "" || exit $?
 if [ -n "$active_source_sha" ] && [ "$active_source_sha" != "$source_sha" ]; then
   [ -n "$source_repo" ] && [ -n "$source_branch" ] || {
     printf '%s\n' 'promotion blocked: source repository and branch are required to verify active runtime ancestry' >&2

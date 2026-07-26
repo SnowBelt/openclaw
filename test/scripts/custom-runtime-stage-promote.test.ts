@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -212,6 +213,302 @@ afterEach(() => {
 });
 
 describe("custom runtime canary and rollback", () => {
+  it("acquires, reports, and releases one exact certification lease", () => {
+    const input = fixture();
+    const activeSha = "1".repeat(40);
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    const promoteScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-promote.sh",
+    );
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(activePointer, `${JSON.stringify({ sourceSha: activeSha })}\n`);
+    const binding = [
+      "--active-sha",
+      activeSha,
+      "--candidate-sha",
+      input.sourceSha,
+      "--owner",
+      "codex:pr-40",
+      "--operation-class",
+      "release-certification",
+    ];
+    const env = {
+      ...process.env,
+      HOME: input.home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+    };
+
+    const acquired = spawnSync(
+      "sh",
+      [promoteScript, "--lease-acquire", ...binding, "--ttl-seconds", "600"],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(acquired.status, acquired.stderr).toBe(0);
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
+      activeSha,
+      candidateSha: input.sourceSha,
+      operationClass: "release-certification",
+      owner: "codex:pr-40",
+      schema: "openclaw.custom-runtime-certification-lease.v1",
+    });
+
+    const duplicate = spawnSync(
+      "sh",
+      [promoteScript, "--lease-acquire", ...binding, "--ttl-seconds", "600"],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(duplicate.status).toBe(75);
+    expect(duplicate.stderr).toContain("unexpired lease already exists");
+
+    const status = spawnSync("sh", [promoteScript, "--lease-status"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(status.status, status.stderr).toBe(0);
+    expect(JSON.parse(status.stdout)).toMatchObject({
+      activeSha,
+      candidateSha: input.sourceSha,
+      state: "active",
+    });
+
+    const released = spawnSync("sh", [promoteScript, "--lease-release", ...binding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(released.status, released.stderr).toBe(0);
+    expect(existsSync(leasePath)).toBe(false);
+    expect(readFileSync(released.stdout.trim(), "utf8")).toContain('"result": "released"');
+  });
+
+  it("recovers only an expired lease with the exact original binding", () => {
+    const input = fixture();
+    const activeSha = "1".repeat(40);
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    const promoteScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-promote.sh",
+    );
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(
+      leasePath,
+      `${JSON.stringify({
+        activeSha,
+        candidateSha: input.sourceSha,
+        createdAt: "2026-07-26T00:00:00Z",
+        expiresAt: "2026-07-26T00:05:00Z",
+        operationClass: "release-certification",
+        owner: "codex:pr-40",
+        schema: "openclaw.custom-runtime-certification-lease.v1",
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const env = {
+      ...process.env,
+      HOME: input.home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+    };
+    const wrongOwner = spawnSync(
+      "sh",
+      [
+        promoteScript,
+        "--lease-recover-expired",
+        "--active-sha",
+        activeSha,
+        "--candidate-sha",
+        input.sourceSha,
+        "--owner",
+        "other-owner",
+        "--operation-class",
+        "release-certification",
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(wrongOwner.status).toBe(78);
+    expect(existsSync(leasePath)).toBe(true);
+
+    const recovered = spawnSync(
+      "sh",
+      [
+        promoteScript,
+        "--lease-recover-expired",
+        "--active-sha",
+        activeSha,
+        "--candidate-sha",
+        input.sourceSha,
+        "--owner",
+        "codex:pr-40",
+        "--operation-class",
+        "release-certification",
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(recovered.status, recovered.stderr).toBe(0);
+    expect(existsSync(leasePath)).toBe(false);
+    expect(readFileSync(recovered.stdout.trim(), "utf8")).toContain('"result": "expired"');
+  });
+
+  it("blocks a competing promotion while an exact certification lease is active", () => {
+    const input = fixture();
+    const activeSha = "1".repeat(40);
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(
+      activePointer,
+      `${JSON.stringify({
+        releaseId: "release-active",
+        runtimeRoot: path.join(input.releasesDir, "release-active"),
+        sourceSha: activeSha,
+      })}\n`,
+    );
+    writeFileSync(
+      path.join(input.runtimeHome, "certification-lease.json"),
+      `${JSON.stringify({
+        activeSha,
+        candidateSha: "2".repeat(40),
+        createdAt: "2026-07-26T00:00:00Z",
+        expiresAt: "2999-07-26T01:00:00Z",
+        operationClass: "release-certification",
+        owner: "codex:other-candidate",
+        schema: "openclaw.custom-runtime-certification-lease.v1",
+      })}\n`,
+      { mode: 0o600 },
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        path.join(process.cwd(), "scripts", "custom-runtime", "custom-runtime-promote.sh"),
+        "--release",
+        input.release,
+        "--source-sha",
+        input.sourceSha,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: input.home,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
+          OPENCLAW_NODE_BIN: process.execPath,
+        },
+      },
+    );
+
+    expect(result.status).toBe(75);
+    expect(result.stderr).toContain("another candidate owns the active certification lease");
+    expect(readFileSync(activePointer, "utf8")).toContain(activeSha);
+    expect(readdirSync(path.join(input.runtimeHome, "backups"))).toEqual([]);
+    expect(existsSync(path.join(input.runtimeHome, "locks", "promotion.lock"))).toBe(false);
+  });
+
+  it("fails closed on a malformed lease before promotion state changes", () => {
+    const input = fixture();
+    const activeSha = "1".repeat(40);
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(activePointer, `${JSON.stringify({ sourceSha: activeSha })}\n`);
+    writeFileSync(path.join(input.runtimeHome, "certification-lease.json"), "{broken\n", {
+      mode: 0o600,
+    });
+
+    const result = spawnSync(
+      "sh",
+      [
+        path.join(process.cwd(), "scripts", "custom-runtime", "custom-runtime-promote.sh"),
+        "--release",
+        input.release,
+        "--source-sha",
+        input.sourceSha,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: input.home,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
+          OPENCLAW_NODE_BIN: process.execPath,
+        },
+      },
+    );
+
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("lease is malformed");
+    expect(readFileSync(activePointer, "utf8")).toContain(activeSha);
+    expect(readdirSync(path.join(input.runtimeHome, "backups"))).toEqual([]);
+  });
+
+  it("never lets a matching lease bypass Release Governor denial", () => {
+    const input = fixture();
+    const activeSha = "1".repeat(40);
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(activePointer, `${JSON.stringify({ sourceSha: activeSha })}\n`);
+    writeFileSync(
+      path.join(input.runtimeHome, "certification-lease.json"),
+      `${JSON.stringify({
+        activeSha,
+        candidateSha: input.sourceSha,
+        createdAt: "2026-07-26T00:00:00Z",
+        expiresAt: "2999-07-26T01:00:00Z",
+        operationClass: "release-certification",
+        owner: "codex:pr-40",
+        schema: "openclaw.custom-runtime-certification-lease.v1",
+      })}\n`,
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      path.join(input.evidenceRoot, input.sourceSha, "promotion.json"),
+      `${JSON.stringify({
+        candidateSha: input.sourceSha,
+        decision: "deny",
+        operation: "promotion",
+      })}\n`,
+      { mode: 0o600 },
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        path.join(process.cwd(), "scripts", "custom-runtime", "custom-runtime-promote.sh"),
+        "--release",
+        input.release,
+        "--source-sha",
+        input.sourceSha,
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HOME: input.home,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+          OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
+          OPENCLAW_NODE_BIN: process.execPath,
+        },
+      },
+    );
+
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("release governance blocked: policy denied promotion");
+    expect(readFileSync(activePointer, "utf8")).toContain(activeSha);
+    expect(existsSync(path.join(input.runtimeHome, "certification-lease.json"))).toBe(true);
+  });
+
   it("stages a candidate against copied state without changing the active pointer", () => {
     const input = fixture();
     const configPath = path.join(input.home, "openclaw.director.json");
