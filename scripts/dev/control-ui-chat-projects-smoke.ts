@@ -329,8 +329,13 @@ async function main() {
   try {
     server = await createServer({
       appType: "spa",
+      cacheDir: join(artifactDir, "vite-cache"),
       define: { "process.env": "{}" },
       logLevel: "error",
+      optimizeDeps: {
+        entries: [join(appDir, "index.html")],
+        force: true,
+      },
       resolve: controlUiSmokeViteResolve(),
       root: process.cwd(),
       server: { host: "127.0.0.1", port: 0, strictPort: false },
