@@ -231,6 +231,7 @@ async function main(): Promise<void> {
         },
         plannerPermissionScope: "project",
         plannerPermissionBudget: "50k tokens",
+        changeRequest: "",
         planPreviewAccepted: true,
         codexPlanningAllowed: true,
         remoteProofAllowed: false,
