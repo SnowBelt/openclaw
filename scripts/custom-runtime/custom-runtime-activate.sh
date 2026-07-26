@@ -8,6 +8,9 @@ plist=${OPENCLAW_GATEWAY_PLIST:-"$HOME/Library/LaunchAgents/ai.openclaw.gateway.
 label=${OPENCLAW_GATEWAY_LABEL:-ai.openclaw.gateway}
 uid=$(id -u)
 managed_files='custom-runtime-activate.sh custom-runtime-auth.sh custom-runtime-guard.sh custom-runtime-launcher.sh custom-runtime-promote.sh custom-runtime-restart.sh custom-runtime-rollback.sh custom-runtime-seal.sh custom-runtime-stage.sh custom-runtime-status.sh custom-runtime-tailscale-primary.sh custom-runtime-updater.sh custom-runtime-update-approve.sh control-director-role-config.py copy_stage_state.py'
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
+. "$auth_helper"
 
 usage() {
   printf '%s\n' 'usage: custom-runtime-activate.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--stage-port 18790] [--port 18789] [--enable-sig-background]' >&2
@@ -64,11 +67,24 @@ stamp_file="$release/.openclaw-production-sha"
 }
 
 mkdir -p "$runtime_home/backups" "$runtime_home/bin" "$runtime_home/locks" "$runtime_home/receipts"
-activation_lock="$runtime_home/locks/activation.lock"
-if ! mkdir "$activation_lock" 2>/dev/null; then
-  printf '%s\n' 'another custom-runtime activation is already active' >&2
-  exit 75
+active_source_sha=
+if [ -f "$runtime_home/active-runtime.json" ]; then
+  active_source_sha=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    source_sha = json.load(handle).get("sourceSha")
+if not isinstance(source_sha, str) or not re.fullmatch(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})", source_sha):
+    raise SystemExit("active runtime source SHA is missing or invalid")
+print(source_sha)
+PY
+  ) || exit 64
 fi
+custom_runtime_lifecycle_begin "$runtime_home" activation "$active_source_sha" "$source_sha"
+custom_runtime_certification_lease verify-activation "$runtime_home" \
+  "$active_source_sha" "$source_sha" "" "" "" "" "" "" ""
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="$runtime_home/backups/control-plane-$stamp"
@@ -125,7 +141,12 @@ cleanup() {
      [ "$committed" = false ] && [ "$rollback_attempted" = false ]; then
     rollback_activation || status=1
   fi
-  rmdir "$activation_lock" 2>/dev/null || true
+  if [ "$committed" = true ]; then
+    lifecycle_result=activated
+  else
+    lifecycle_result=activation-failed
+  fi
+  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
   exit "$status"
 }
 trap cleanup EXIT

@@ -26,13 +26,13 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 usage() {
   printf '%s\n' \
     'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
-    '       custom-runtime-promote.sh --lease-acquire|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification [--ttl-seconds 3600]' \
+    '       custom-runtime-promote.sh --lease-acquire|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600]' \
     '       custom-runtime-promote.sh --lease-status' >&2
   exit 64
 }
 release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
 lease_action= lease_active_sha= lease_candidate_sha= lease_owner= lease_operation_class=
-lease_ttl_seconds=
+lease_ttl_seconds= lease_approval_id= lease_operation_id= lease_invocation_id=
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
@@ -42,6 +42,7 @@ while [ $# -gt 0 ]; do
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
     --lease-acquire) [ -z "$lease_action" ] || usage; lease_action=acquire; shift ;;
+    --lease-authorize-promotion) [ -z "$lease_action" ] || usage; lease_action=authorize-promotion; shift ;;
     --lease-release) [ -z "$lease_action" ] || usage; lease_action=release; shift ;;
     --lease-recover-expired) [ -z "$lease_action" ] || usage; lease_action=recover-expired; shift ;;
     --lease-status) [ -z "$lease_action" ] || usage; lease_action=status; shift ;;
@@ -50,6 +51,9 @@ while [ $# -gt 0 ]; do
     --owner) lease_owner=${2:-}; shift 2 ;;
     --operation-class) lease_operation_class=${2:-}; shift 2 ;;
     --ttl-seconds) lease_ttl_seconds=${2:-}; shift 2 ;;
+    --approval-id) lease_approval_id=${2:-}; shift 2 ;;
+    --operation-id) lease_operation_id=${2:-}; shift 2 ;;
+    --invocation-id) lease_invocation_id=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -62,22 +66,29 @@ if [ -n "$lease_action" ]; then
     status)
       [ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
         [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
-        [ -z "$lease_ttl_seconds" ] || usage
+        [ -z "$lease_ttl_seconds" ] && [ -z "$lease_approval_id" ] && \
+        [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] || usage
       ;;
-    release|recover-expired) [ -z "$lease_ttl_seconds" ] || usage ;;
+    authorize-promotion|release|recover-expired) [ -z "$lease_ttl_seconds" ] || usage ;;
     *) usage ;;
   esac
+  if [ "$lease_action" != status ]; then
+    [ -n "$lease_active_sha" ] && [ -n "$lease_candidate_sha" ] && \
+      [ -n "$lease_owner" ] && [ -n "$lease_operation_class" ] && \
+      [ -n "$lease_approval_id" ] && [ -n "$lease_operation_id" ] && \
+      [ -n "$lease_invocation_id" ] || usage
+  fi
   mkdir -p "$runtime_home/locks" "$runtime_home/receipts"
   chmod 700 "$runtime_home" "$runtime_home/locks" "$runtime_home/receipts" 2>/dev/null || true
-  certification_lock="$runtime_home/locks/promotion.lock"
-  if ! mkdir "$certification_lock" 2>/dev/null; then
-    printf '%s\n' 'another custom-runtime promotion or certification lease operation is already active' >&2
-    exit 75
-  fi
+  OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID=${lease_approval_id:-not-required:lease-status}
+  OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID=${lease_operation_id:-custom-runtime:lease-status}
+  export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID
+  custom_runtime_lifecycle_begin "$runtime_home" certification-lease \
+    "$lease_active_sha" "$lease_candidate_sha"
   cleanup_certification_lock() {
     status=$?
     trap - EXIT INT TERM
-    rmdir "$certification_lock" 2>/dev/null || true
+    custom_runtime_lifecycle_finish "$runtime_home" "lease-$lease_action" "$status" || status=1
     exit "$status"
   }
   trap cleanup_certification_lock EXIT
@@ -85,12 +96,14 @@ if [ -n "$lease_action" ]; then
   trap 'exit 143' TERM
   custom_runtime_certification_lease "$lease_action" "$runtime_home" \
     "$lease_active_sha" "$lease_candidate_sha" "$lease_owner" \
-    "$lease_operation_class" "$lease_ttl_seconds"
+    "$lease_operation_class" "$lease_ttl_seconds" "$lease_approval_id" \
+    "$lease_operation_id" "$lease_invocation_id"
   exit 0
 fi
 [ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
   [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
-  [ -z "$lease_ttl_seconds" ] || usage
+  [ -z "$lease_ttl_seconds" ] && [ -z "$lease_approval_id" ] && \
+  [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] || usage
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then
@@ -134,11 +147,8 @@ if [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
 fi
 custom_runtime_require_release_governance promotion "$source_sha" "$release"
 mkdir -p "$runtime_home/backups" "$runtime_home/receipts" "$runtime_home/locks"
-promotion_lock="$runtime_home/locks/promotion.lock"
-if ! mkdir "$promotion_lock" 2>/dev/null; then
-  printf '%s\n' 'another custom-runtime promotion is already active' >&2
-  exit 75
-fi
+custom_runtime_lifecycle_begin "$runtime_home" promotion "" "$source_sha"
+custom_runtime_lifecycle_refresh_provenance "$runtime_home" "" "$source_sha"
 rollback_bundle_tmp=
 promotion_applied=false
 promotion_committed=false
@@ -150,7 +160,12 @@ cleanup_promotion() {
     restore || status=1
   fi
   [ -z "$rollback_bundle_tmp" ] || rm -rf "$rollback_bundle_tmp" 2>/dev/null || true
-  rmdir "$promotion_lock" 2>/dev/null || true
+  if [ "$promotion_committed" = true ]; then
+    lifecycle_result=promoted
+  else
+    lifecycle_result=promotion-failed
+  fi
+  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
   exit "$status"
 }
 trap cleanup_promotion EXIT
@@ -747,6 +762,8 @@ with open(target, "w", encoding="utf-8") as f:
 PY
   mv "$rollback_pointer_tmp" "$runtime_home/active-rollback.json"
 fi
+custom_runtime_certification_lease record-promoted "$runtime_home" \
+  "$active_source_sha" "$source_sha" "" "" "" "" "" "" "" >/dev/null
 printf '{"at":"%s","result":"promoted","release":"%s","sourceSha":"%s","sigBackgroundEnabled":%s,"updateBrokerScheduled":true,"runtimeGuardScheduled":true}\n' "$timestamp" "$(basename "$release")" "$source_sha" "$enable_sig_background" > "$runtime_home/receipts/promotion-$timestamp.json"
 printf '%s\n' "CUSTOM_RUNTIME_PROMOTED release=$(basename "$release")"
 promotion_committed=true

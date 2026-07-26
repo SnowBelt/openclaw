@@ -28,19 +28,17 @@ done
 case "$port" in ''|*[!0-9]*) usage ;; esac
 
 mkdir -p "$runtime_home/locks" "$runtime_home/receipts"
-for operation in activation promotion rollback; do
-  [ ! -d "$runtime_home/locks/$operation.lock" ] || {
-    printf '%s\n' "custom runtime $operation is already active" >&2
-    exit 75
-  }
-done
-restart_lock="$runtime_home/locks/restart.lock"
-if ! mkdir "$restart_lock" 2>/dev/null; then
-  printf '%s\n' 'another custom-runtime restart is already active' >&2
-  exit 75
-fi
-cleanup_restart_lock() { rmdir "$restart_lock" 2>/dev/null || true; }
-trap cleanup_restart_lock EXIT
+custom_runtime_lifecycle_begin "$runtime_home" restart "" ""
+lifecycle_result=restart-failed
+summary=
+cleanup_restart() {
+  status=$?
+  trap - EXIT INT TERM
+  [ -z "$summary" ] || rm -f "$summary"
+  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
+  exit "$status"
+}
+trap cleanup_restart EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -83,6 +81,10 @@ runtime_release_id=$(printf '%s\n' "$identity" | sed -n '2p')
 runtime_source_sha=$(printf '%s\n' "$identity" | sed -n '3p')
 
 custom_runtime_require_release_governance restart "$runtime_source_sha" "$runtime_root"
+custom_runtime_lifecycle_refresh_provenance "$runtime_home" \
+  "$runtime_source_sha" "$runtime_source_sha"
+custom_runtime_certification_lease verify-restart "$runtime_home" \
+  "$runtime_source_sha" "$runtime_source_sha" "" "" "" "" "" "" ""
 
 if ! "$launcher" --verify >/dev/null 2>&1 || \
    ! launchctl print "gui/$uid/$label" >/dev/null 2>&1; then
@@ -154,7 +156,6 @@ fi
 
 summary="$runtime_home/self-improvement-restart.$$.json"
 cleanup_summary() { rm -f "$summary"; }
-trap 'cleanup_summary; cleanup_restart_lock' EXIT
 if ! custom_runtime_export_gateway_auth "$config_path"; then
   write_receipt restart_sig_auth_failed
   exit 1
@@ -186,5 +187,7 @@ then
   exit 1
 fi
 cleanup_summary
+summary=
 write_receipt restarted_verified
+lifecycle_result=restarted
 printf '%s\n' "CUSTOM_RUNTIME_RESTARTED release=$runtime_release_id"

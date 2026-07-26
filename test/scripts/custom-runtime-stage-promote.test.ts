@@ -234,6 +234,12 @@ describe("custom runtime canary and rollback", () => {
       "codex:pr-40",
       "--operation-class",
       "release-certification",
+      "--approval-id",
+      "release-governor:pr-41",
+      "--operation-id",
+      "certification:pr-41",
+      "--invocation-id",
+      "certification-pr-41",
     ];
     const env = {
       ...process.env,
@@ -253,8 +259,28 @@ describe("custom runtime canary and rollback", () => {
       candidateSha: input.sourceSha,
       operationClass: "release-certification",
       owner: "codex:pr-40",
-      schema: "openclaw.custom-runtime-certification-lease.v1",
+      schema: "openclaw.custom-runtime-certification-lease.v2",
+      state: "acquired",
     });
+
+    const prematurePromotion = spawnSync(
+      "sh",
+      [promoteScript, "--release", input.release, "--source-sha", input.sourceSha],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...env,
+          OPENCLAW_CUSTOM_RUNTIME_RELEASES: realpathSync(input.releasesDir),
+          OPENCLAW_NODE_BIN: process.execPath,
+          OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR: input.evidenceRoot,
+        },
+      },
+    );
+    expect(prematurePromotion.status).toBe(75);
+    expect(prematurePromotion.stderr).toContain(
+      "same-candidate promotion is not owner-authorized yet",
+    );
 
     const duplicate = spawnSync(
       "sh",
@@ -273,7 +299,8 @@ describe("custom runtime canary and rollback", () => {
     expect(JSON.parse(status.stdout)).toMatchObject({
       activeSha,
       candidateSha: input.sourceSha,
-      state: "active",
+      state: "acquired",
+      validity: "active",
     });
 
     const released = spawnSync("sh", [promoteScript, "--lease-release", ...binding], {
@@ -297,16 +324,24 @@ describe("custom runtime canary and rollback", () => {
       "custom-runtime-promote.sh",
     );
     mkdirSync(input.runtimeHome, { recursive: true });
+    const createdAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    const expiresAt = new Date(Date.now() - 5 * 60_000).toISOString();
     writeFileSync(
       leasePath,
       `${JSON.stringify({
         activeSha,
+        actor: os.userInfo().username,
+        approvalId: "release-governor:pr-41",
         candidateSha: input.sourceSha,
-        createdAt: "2026-07-26T00:00:00Z",
-        expiresAt: "2026-07-26T00:05:00Z",
+        createdAt,
+        expiresAt,
+        invocationId: "certification-pr-41",
         operationClass: "release-certification",
+        operationId: "certification:pr-41",
         owner: "codex:pr-40",
-        schema: "openclaw.custom-runtime-certification-lease.v1",
+        pid: process.pid,
+        schema: "openclaw.custom-runtime-certification-lease.v2",
+        state: "acquired",
       })}\n`,
       { mode: 0o600 },
     );
@@ -328,6 +363,12 @@ describe("custom runtime canary and rollback", () => {
         "other-owner",
         "--operation-class",
         "release-certification",
+        "--approval-id",
+        "release-governor:pr-41",
+        "--operation-id",
+        "certification:pr-41",
+        "--invocation-id",
+        "certification-pr-41",
       ],
       { cwd: process.cwd(), encoding: "utf8", env },
     );
@@ -347,12 +388,20 @@ describe("custom runtime canary and rollback", () => {
         "codex:pr-40",
         "--operation-class",
         "release-certification",
+        "--approval-id",
+        "release-governor:pr-41",
+        "--operation-id",
+        "certification:pr-41",
+        "--invocation-id",
+        "certification-pr-41",
       ],
       { cwd: process.cwd(), encoding: "utf8", env },
     );
     expect(recovered.status, recovered.stderr).toBe(0);
     expect(existsSync(leasePath)).toBe(false);
-    expect(readFileSync(recovered.stdout.trim(), "utf8")).toContain('"result": "expired"');
+    expect(readFileSync(recovered.stdout.trim(), "utf8")).toContain(
+      '"result": "expired-recovered"',
+    );
   });
 
   it("blocks a competing promotion while an exact certification lease is active", () => {
@@ -372,12 +421,18 @@ describe("custom runtime canary and rollback", () => {
       path.join(input.runtimeHome, "certification-lease.json"),
       `${JSON.stringify({
         activeSha,
+        actor: "codex",
+        approvalId: "release-governor:pr-41",
         candidateSha: "2".repeat(40),
-        createdAt: "2026-07-26T00:00:00Z",
-        expiresAt: "2999-07-26T01:00:00Z",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        invocationId: "certification-pr-41",
         operationClass: "release-certification",
+        operationId: "certification:pr-41",
         owner: "codex:other-candidate",
-        schema: "openclaw.custom-runtime-certification-lease.v1",
+        pid: process.pid,
+        schema: "openclaw.custom-runtime-certification-lease.v2",
+        state: "acquired",
       })}\n`,
       { mode: 0o600 },
     );
@@ -461,12 +516,18 @@ describe("custom runtime canary and rollback", () => {
       path.join(input.runtimeHome, "certification-lease.json"),
       `${JSON.stringify({
         activeSha,
+        actor: "codex",
+        approvalId: "release-governor:pr-41",
         candidateSha: input.sourceSha,
-        createdAt: "2026-07-26T00:00:00Z",
-        expiresAt: "2999-07-26T01:00:00Z",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        invocationId: "certification-pr-41",
         operationClass: "release-certification",
+        operationId: "certification:pr-41",
         owner: "codex:pr-40",
-        schema: "openclaw.custom-runtime-certification-lease.v1",
+        pid: process.pid,
+        schema: "openclaw.custom-runtime-certification-lease.v2",
+        state: "acquired",
       })}\n`,
       { mode: 0o600 },
     );
