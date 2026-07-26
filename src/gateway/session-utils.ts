@@ -923,6 +923,7 @@ function resolveSessionRowContextTokens(params: {
   model?: string;
   entryContextTokens?: number;
   transcriptContextTokens?: number;
+  transcriptUsageFresh?: boolean;
   resolvedContextTokens?: number;
   lightweight: boolean;
 }): number | undefined {
@@ -934,6 +935,9 @@ function resolveSessionRowContextTokens(params: {
   const resolvedContextTokens = resolvePositiveNumber(params.resolvedContextTokens);
 
   if (isOpenAiCodexSessionContextModel(params.provider, params.model)) {
+    if (params.transcriptUsageFresh && entryContextTokens !== undefined) {
+      return entryContextTokens;
+    }
     if (
       entryContextTokens !== undefined &&
       configuredContextCap !== undefined &&
@@ -2352,6 +2356,7 @@ export function buildGatewaySessionRow(params: {
     model: rowModel,
     entryContextTokens: entry?.contextTokens,
     transcriptContextTokens: transcriptUsage?.contextTokens,
+    transcriptUsageFresh: transcriptUsage?.totalTokensFresh === true,
     resolvedContextTokens: resolvedModelContextTokens,
     lightweight,
   });
