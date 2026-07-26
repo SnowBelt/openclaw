@@ -3,9 +3,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewaySessionRow, SessionsListResult } from "../../api/types.ts";
 import type { UiSettings } from "../../app/settings.ts";
-import { createStorageMock } from "../../test-helpers/storage.ts";
-import { loadChatComposerSnapshot, persistChatComposerState } from "./composer-persistence.ts";
 import { createSessionCapability } from "../../lib/sessions/index.ts";
+import { createStorageMock } from "../../test-helpers/storage.ts";
 import {
   getChatAttachmentDataUrl,
   getChatAttachmentPreviewUrl,
@@ -18,6 +17,7 @@ import type { executeSlashCommand } from "./chat-command-executor.ts";
 import type { ChatHost } from "./chat-send.ts";
 import { buildChatSessionListOptions } from "./chat-session.ts";
 import type { ChatPageHost } from "./chat-state.ts";
+import { loadChatComposerSnapshot, persistChatComposerState } from "./composer-persistence.ts";
 
 type ExecuteSlashCommand = typeof executeSlashCommand;
 type TestChatHost = Omit<ChatHost, "settings"> & {
