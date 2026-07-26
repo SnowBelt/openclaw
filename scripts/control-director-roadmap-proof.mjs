@@ -9,9 +9,11 @@ import { CONTROL_DIRECTOR_UX_SLOS } from "../src/agents/control-director-slos.js
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const EXPECTED_MILESTONES = Array.from(
-  { length: 68 },
+  { length: 86 },
   (_, index) => `M${String(index + 1).padStart(2, "0")}`,
 );
+const IMPLEMENTATION_STATUSES = new Set(["unassessed", "pending", "implemented", "blocked"]);
+const CERTIFICATION_STATUSES = new Set(["pending", "passed", "blocked"]);
 const REQUIRED_TRUTH_SURFACES = [
   "source",
   "targeted-tests",
@@ -148,6 +150,8 @@ const REQUIRED_MILESTONE_BINDINGS = {
   M66: ["runtimeProof"],
   M67: ["runtimeProof"],
   M68: ["sourceProof", "updateSurvival", "runtimeProof", "remoteProof", "readiness"],
+  M85: ["runtimeProof", "readiness"],
+  M86: ["sourceProof", "updateSurvival", "runtimeProof", "remoteProof", "readiness"],
 };
 
 function object(value, label) {
@@ -406,12 +410,119 @@ export function controlDirectorSourceProofMatchesRoot(proofRoot, repoRoot) {
   );
 }
 
+function milestoneProgress(milestone) {
+  const certificationStatus = milestone.certificationStatus ?? milestone.status;
+  const implementationStatus =
+    milestone.implementationStatus ??
+    (milestone.status === "passed" ? "implemented" : "unassessed");
+  return { certificationStatus, implementationStatus };
+}
+
+function validateMilestoneGraph(milestones) {
+  const byId = new Map(milestones.map((milestone) => [milestone.id, milestone]));
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (id) => {
+    if (visiting.has(id)) {
+      throw new Error(`Roadmap dependency graph contains a cycle at ${id}.`);
+    }
+    if (visited.has(id)) {
+      return;
+    }
+    const milestone = byId.get(id);
+    if (!milestone) {
+      throw new Error(`Roadmap dependency ${id} does not exist.`);
+    }
+    visiting.add(id);
+    for (const dependency of Array.isArray(milestone.dependsOn) ? milestone.dependsOn : []) {
+      if (!byId.has(dependency)) {
+        throw new Error(`${id} dependency ${String(dependency)} does not exist.`);
+      }
+      visit(dependency);
+    }
+    visiting.delete(id);
+    visited.add(id);
+  };
+  for (const id of byId.keys()) {
+    visit(id);
+  }
+}
+
+export function summarizeControlDirectorProgress(roadmapValue) {
+  const roadmap = object(roadmapValue, "roadmap");
+  if (roadmap.schemaVersion !== 2 || roadmap.programId !== "control-director-reliability-v1") {
+    throw new Error("Roadmap identity is not Control Director Reliability V2.");
+  }
+  const progressModel = object(roadmap.progressModel, "progressModel");
+  if (
+    progressModel.officialCompletionField !== "certificationStatus" ||
+    progressModel.legacyCertificationMirrorField !== "status" ||
+    progressModel.defaultImplementationStatus !== "unassessed" ||
+    progressModel.defaultCertificationStatusFrom !== "status"
+  ) {
+    throw new Error("Roadmap progress model is not the required dual-progress contract.");
+  }
+  const milestones = Array.isArray(roadmap.milestones)
+    ? roadmap.milestones.map((entry) => object(entry, "milestone"))
+    : [];
+  const milestoneIds = milestones.map((milestone) => milestone.id);
+  if (JSON.stringify(milestoneIds) !== JSON.stringify(EXPECTED_MILESTONES)) {
+    throw new Error("Roadmap must contain exactly M01 through M86 in stable ID order.");
+  }
+  for (const milestone of milestones) {
+    const { certificationStatus, implementationStatus } = milestoneProgress(milestone);
+    if (!IMPLEMENTATION_STATUSES.has(implementationStatus)) {
+      throw new Error(`${milestone.id} implementationStatus is invalid.`);
+    }
+    if (!CERTIFICATION_STATUSES.has(certificationStatus)) {
+      throw new Error(`${milestone.id} certificationStatus is invalid.`);
+    }
+    if (milestone.certificationStatus !== undefined && milestone.status !== certificationStatus) {
+      throw new Error(`${milestone.id} status does not mirror certificationStatus.`);
+    }
+  }
+  validateMilestoneGraph(milestones);
+  const executionWaves = Array.isArray(roadmap.executionWaves)
+    ? roadmap.executionWaves.map((entry) => object(entry, "execution wave"))
+    : [];
+  const executionIds = executionWaves.flatMap((wave) =>
+    Array.isArray(wave.milestones) ? wave.milestones : [],
+  );
+  const duplicateExecutionIds = executionIds.filter(
+    (id, index) => executionIds.indexOf(id) !== index,
+  );
+  if (duplicateExecutionIds.length > 0) {
+    throw new Error(
+      `Execution waves contain duplicate milestones: ${duplicateExecutionIds.join(", ")}.`,
+    );
+  }
+  const missingExpandedMilestones = EXPECTED_MILESTONES.slice(68).filter(
+    (id) => !executionIds.includes(id),
+  );
+  if (missingExpandedMilestones.length > 0) {
+    throw new Error(
+      `Execution waves omit expanded milestones: ${missingExpandedMilestones.join(", ")}.`,
+    );
+  }
+  const implemented = milestones.filter(
+    (milestone) => milestoneProgress(milestone).implementationStatus === "implemented",
+  ).length;
+  const certified = milestones.filter(
+    (milestone) => milestoneProgress(milestone).certificationStatus === "passed",
+  ).length;
+  return {
+    milestoneCount: milestones.length,
+    implementedMilestones: implemented,
+    certifiedMilestones: certified,
+    implementationPercent: Number(((implemented / milestones.length) * 100).toFixed(2)),
+    certificationPercent: Number(((certified / milestones.length) * 100).toFixed(2)),
+  };
+}
+
 export function validateControlDirectorRoadmap(params) {
   const roadmap = object(params.roadmap, "roadmap");
   const sourceSha = immutableSha(params.sourceSha, "sourceSha");
-  if (roadmap.schemaVersion !== 1 || roadmap.programId !== "control-director-reliability-v1") {
-    throw new Error("Roadmap identity is not Control Director Reliability V1.");
-  }
+  const progress = summarizeControlDirectorProgress(roadmap);
   const completionPolicy = object(roadmap.completionPolicy, "completionPolicy");
   if (
     completionPolicy.requireAllMilestones !== true ||
@@ -441,13 +552,13 @@ export function validateControlDirectorRoadmap(params) {
   const milestones = Array.isArray(roadmap.milestones)
     ? roadmap.milestones.map((entry) => object(entry, "milestone"))
     : [];
-  const milestoneIds = milestones.map((milestone) => milestone.id);
-  if (JSON.stringify(milestoneIds) !== JSON.stringify(EXPECTED_MILESTONES)) {
-    throw new Error("Roadmap must contain exactly M01 through M68 in order.");
-  }
   const byId = new Map(milestones.map((milestone) => [milestone.id, milestone]));
   for (const milestone of milestones) {
-    if (milestone.status !== "passed") {
+    const { certificationStatus, implementationStatus } = milestoneProgress(milestone);
+    if (implementationStatus !== "implemented") {
+      throw new Error(`${milestone.id} is not implemented.`);
+    }
+    if (certificationStatus !== "passed") {
       throw new Error(`${milestone.id} is not passed.`);
     }
     if (typeof milestone.acceptance !== "string" || !milestone.acceptance.trim()) {
@@ -484,7 +595,7 @@ export function validateControlDirectorRoadmap(params) {
     }
     const dependencies = Array.isArray(milestone.dependsOn) ? milestone.dependsOn : [];
     for (const dependency of dependencies) {
-      if (byId.get(dependency)?.status !== "passed") {
+      if (milestoneProgress(byId.get(dependency)).certificationStatus !== "passed") {
         throw new Error(`${milestone.id} dependency ${String(dependency)} is not passed.`);
       }
     }
@@ -787,6 +898,10 @@ export function validateControlDirectorRoadmap(params) {
   return {
     milestoneCount: milestones.length,
     passedMilestones: milestones.length,
+    implementedMilestones: progress.implementedMilestones,
+    certifiedMilestones: progress.certifiedMilestones,
+    implementationPercent: progress.implementationPercent,
+    certificationPercent: progress.certificationPercent,
     weightedCompletionPercent: 100,
     minimumQualityScore: Math.min(...qualityScores),
     requiredQualityScore: Number(completionPolicy.requiredQualityScore),
@@ -873,7 +988,7 @@ function main() {
     throw new Error("output path does not match evidenceBinding.finalReceipt.");
   }
   const receipt = {
-    schema: "openclaw.control-director-final-ledger.v1",
+    schema: "openclaw.control-director-final-ledger.v2",
     sourceSha,
     checkedAt: new Date().toISOString(),
     passed: true,
