@@ -1408,10 +1408,13 @@ export function buildPccAutopilotContextPack(
   const active = activeMilestones(input);
   const blockers = projectBlockers(input);
   const executionProfile = normalizePccExecutionProfile(input.project.metadata);
+  const checkpointPolicy = Object.entries(executionProfile.codexCheckpoints)
+    .map(([checkpoint, executor]) => `${checkpoint}: ${executor}`)
+    .join(", ");
   const codexProfileRule =
     executionProfile.codexRole === "off"
       ? "Project profile forbids Codex. Keep every prompt on OpenClaw or safe-stub execution."
-      : `Project profile allows Codex only as ${executionProfile.codexRole} at ${executionProfile.codexEffort} depth after a usable scoped grant.`;
+      : `Project profile allows Codex only at these visible checkpoints after a usable scoped grant: ${checkpointPolicy}. Normal effort is ${executionProfile.codexEffort}; automatic execution cannot exceed ${executionProfile.codexMaxEffort}.`;
   return {
     projectSummary: `${input.project.title}: ${input.project.goal || "No goal recorded."}`,
     selectedLoopMode: state.mode,

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
+  applyPccCodexPolicy,
+  applyPccLocalExecutionPreset,
   derivePccAiUsePolicy,
   normalizePccExecutionProfile,
   pccCodexEffortIsSupported,
+  resolvePccCodexCheckpoint,
   resolvePccEstimatedAgentCounts,
   resolvePccExecutionProfilePreset,
   validatePccModelSelection,
@@ -13,7 +16,7 @@ describe("PCC canonical execution profile", () => {
   it("keeps Ultra local-only and performs no Codex routing", () => {
     const profile = resolvePccExecutionProfilePreset("ultra_local");
 
-    expect(profile.schemaVersion).toBe(1);
+    expect(profile.schemaVersion).toBe(2);
     expect(profile.codexRole).toBe("off");
     expect(derivePccAiUsePolicy(profile)).toBe("local_only");
     expect(resolvePccEstimatedAgentCounts(profile, 20)).toEqual({
@@ -24,13 +27,14 @@ describe("PCC canonical execution profile", () => {
     });
   });
 
-  it("models Ultra hybrid as local execution with one Codex lead", () => {
+  it("migrates the legacy Ultra hybrid preset into explicit Codex oversight", () => {
     const profile = resolvePccExecutionProfilePreset("ultra_hybrid");
 
     expect(profile.speed).toBe("ultra");
     expect(profile.codexRole).toBe("lead");
     expect(profile.codexEffort).toBe("max");
-    expect(derivePccAiUsePolicy(profile)).toBe("codex_everything");
+    expect(profile.codexPolicyId).toBe("more_oversight");
+    expect(derivePccAiUsePolicy(profile)).toBe("codex_expert");
     expect(resolvePccEstimatedAgentCounts(profile, 12)).toEqual({
       availableCapacity: 12,
       localAgents: 12,
@@ -79,7 +83,7 @@ describe("PCC canonical execution profile", () => {
     });
 
     expect(profile).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       presetId: "local_parallel",
       speed: "focused",
       codexRole: "off",
@@ -149,6 +153,114 @@ describe("PCC canonical execution profile", () => {
       localAgents: 1,
       codexAgents: 1,
       totalAgents: 2,
+    });
+  });
+
+  it("changes local speed without changing Codex checkpoints", () => {
+    const recommended = applyPccCodexPolicy(
+      resolvePccExecutionProfilePreset("local_parallel"),
+      "recommended_minimum",
+    );
+    const maximumSafe = applyPccLocalExecutionPreset(recommended, "ultra");
+
+    expect(maximumSafe).toMatchObject({
+      speed: "ultra",
+      capacityPolicy: "maximum_safe",
+      codexPolicyId: "recommended_minimum",
+      codexRole: "checkpoints",
+    });
+    expect(maximumSafe.codexCheckpoints).toEqual(recommended.codexCheckpoints);
+  });
+
+  it("uses the recommended minimum only at explicit or deterministic checkpoints", () => {
+    const profile = applyPccCodexPolicy(
+      resolvePccExecutionProfilePreset("local_parallel"),
+      "recommended_minimum",
+    );
+
+    expect(profile.codexCheckpoints).not.toHaveProperty("initial_plan");
+    expect(profile.codexCheckpoints.material_replan).toBe("codex");
+    expect(
+      resolvePccCodexCheckpoint({
+        profile,
+        checkpoint: "blocked_recovery",
+        localAttemptCount: 1,
+      }),
+    ).toMatchObject({
+      executor: "local_ai",
+      trigger: "automatic_local",
+      requiresApproval: false,
+    });
+    expect(
+      resolvePccCodexCheckpoint({
+        profile,
+        checkpoint: "blocked_recovery",
+        localAttemptCount: 2,
+      }),
+    ).toMatchObject({
+      executor: "codex",
+      trigger: "repeated_local_failure",
+      requiresApproval: true,
+    });
+  });
+
+  it("keeps custom all-local checkpoints local without a conflicting legacy role", () => {
+    const profile = normalizePccExecutionProfile({
+      pccExecutionProfile: {
+        ...resolvePccExecutionProfilePreset("balanced"),
+        codexPolicyId: "custom",
+        codexCheckpoints: {
+          material_replan: "local",
+          architecture_review: "local",
+          blocked_recovery: "local",
+          final_review: "local",
+        },
+      },
+    });
+
+    expect(profile.codexPolicyId).toBe("custom");
+    expect(profile.codexRole).toBe("off");
+    expect(derivePccAiUsePolicy(profile)).toBe("local_only");
+    expect(resolvePccCodexCheckpoint({ profile, checkpoint: "final_review" })).toMatchObject({
+      executor: "local_ai",
+      trigger: "explicit_local",
+    });
+  });
+
+  it("requires approval for the resolved Codex effort rather than accepting a weaker grant", () => {
+    const profile = {
+      ...applyPccCodexPolicy(
+        resolvePccExecutionProfilePreset("local_parallel"),
+        "recommended_minimum",
+      ),
+      codexMaxEffort: "high" as const,
+    };
+
+    expect(
+      resolvePccCodexCheckpoint({
+        profile,
+        checkpoint: "architecture_review",
+        highImpact: true,
+        codexApproved: true,
+        approvedMaxEffort: "medium",
+      }),
+    ).toMatchObject({
+      executor: "codex",
+      effort: "high",
+      requiresApproval: true,
+    });
+    expect(
+      resolvePccCodexCheckpoint({
+        profile,
+        checkpoint: "architecture_review",
+        highImpact: true,
+        codexApproved: true,
+        approvedMaxEffort: "high",
+      }),
+    ).toMatchObject({
+      executor: "codex",
+      effort: "high",
+      requiresApproval: false,
     });
   });
 

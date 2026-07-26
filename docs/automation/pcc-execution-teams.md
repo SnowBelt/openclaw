@@ -7,23 +7,38 @@ title: "PCC Execution Teams"
 sidebarTitle: "PCC Execution Teams"
 ---
 
-PCC execution teams run explicitly independent project tasks in parallel while keeping one project-level execution profile as the source of truth. `Ultra` is a team-speed preset, not a reasoning level and not permission to use Codex. Semantic project planning is a separate tool-free OAuth capability described in [PCC Codex Planning](/automation/pcc-codex-planning).
+PCC execution teams run explicitly independent project tasks in parallel while keeping one project-level execution profile as the source of truth. Local work speed and Codex help are two independent parts of that profile. `Ultra` is a local-team speed preset, not a reasoning level and not permission to use Codex. Semantic project planning is a separate tool-free OAuth capability described in [PCC Codex Planning](/automation/pcc-codex-planning).
 
-## Choose One Team Plan
+## Choose Local Work Speed
 
-Each project stores one canonical `pccExecutionProfile`:
+The first decision controls only OpenClaw local work:
 
-| Preset        | OpenClaw work                | Codex role                    |
-| ------------- | ---------------------------- | ----------------------------- |
-| Focused       | One local worker at a time   | Off                           |
-| Parallel      | Safe available local workers | Off                           |
-| Ultra local   | Maximum safe local workers   | Off                           |
-| Balanced      | Parallel local workers       | Approval-gated checkpoints    |
-| Ultra + Codex | Maximum safe local workers   | One approval-gated Codex lead |
+| Local speed | OpenClaw work                                          |
+| ----------- | ------------------------------------------------------ |
+| Focused     | One local worker at a time                             |
+| Parallel    | Independent local work runs together when safe         |
+| Ultra       | Maximum safe local work with resource-governed backoff |
 
-Fine-tuning the local model, Codex model, Codex depth, capacity policy, or approval scope edits this same profile. There is no second routing switch that can silently override it. A canonical profile takes precedence over legacy planner metadata.
+Changing local speed does not turn Codex on or off and cannot change a Codex checkpoint choice.
 
-`Ultra local` never invokes Codex. `Ultra + Codex` cannot start until the selected project has a usable scoped Codex permission grant. Codex depth uses `Medium`, `High`, `Very high`, or `Maximum`; it is not a token budget or a team-size control. `Maximum` is admitted only with a configured GPT-5.6 model, so an older saved model cannot silently downgrade the requested depth.
+## Choose Codex Help
+
+The second decision controls the checkpoints where Codex may provide a clear advantage:
+
+| Codex policy        | Checkpoint behavior                                                                                                              |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Local only          | Every post-plan checkpoint stays with local AI                                                                                   |
+| Recommended minimum | Codex handles material replans and final review, and automatically helps with high-impact architecture or repeated local failure |
+| More oversight      | Codex handles every defined post-plan checkpoint                                                                                 |
+| Custom              | The user chooses Local AI, Codex, or Automatic independently for each post-plan checkpoint                                       |
+
+`Recommended minimum` is the default. It keeps routine implementation local while using Codex for major replanning, difficult recovery, and final verification. `Automatic` means local AI remains the default and Codex is selected only for a high-impact change or after two documented local attempts fail. The decision records the checkpoint, selected executor, exact model, effort, reason, and whether approval is still required.
+
+Initial project planning is controlled only by the separate planning-only OAuth policy. The project execution profile does not duplicate or override that authority. Its supported post-plan checkpoints are material replanning, architecture review, blocked recovery, and final review. A checkpoint is a review or planning gate, not an executable project milestone. Generated project milestones therefore default to OpenClaw local execution even when Codex planned them.
+
+Fine-tuning the local model, Codex model, normal effort, maximum automatic effort, or approval scope edits the same canonical `pccExecutionProfile`. There is no second routing switch that can silently override it. A canonical profile takes precedence over legacy planner metadata.
+
+Codex effort uses `Medium`, `High`, `Very high`, or `Maximum`; it is not a token budget or a team-size control. The normal effort is used for explicit Codex checkpoints. The maximum automatic effort is only a ceiling for an automatically escalated checkpoint. A configured project-scoped permission is still required before Codex execution.
 
 ## Model Truth
 

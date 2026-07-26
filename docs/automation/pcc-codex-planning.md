@@ -19,7 +19,7 @@ The canonical planning policy is stored once in the PCC ledger. Its default mode
 The persistent planning-only grant covers four surfaces:
 
 - new project creation;
-- project replanning;
+- project replanning from a natural-language change request;
 - setup repair;
 - Autopilot prompt generation.
 
@@ -41,8 +41,16 @@ User-entered title, goal, and setup answers are preserved. Codex fills blanks an
 
 Autopilot uses Codex to plan editable prompts, but those prompt slots default to local-model execution. Any later Codex execution remains governed by the project execution profile and a separate project-bound approval.
 
+## Changing An Existing Project
+
+The selected-project action `Change this project with AI` accepts an everyday-language request. PCC asks Codex for a planning-only revision and shows an impact preview before writing anything. The preview identifies milestones that will be added or updated, completed history that will be preserved, affected active work, dependency changes, proof that becomes stale, the exact planning model and effort, and the rollback path.
+
+Completed milestones and completed sub-milestones are immutable history. A revision that would overwrite them, create duplicate titles, introduce a dependency cycle, or reference an unknown dependency fails closed. Applying an accepted revision pauses affected active work, stores the prior plan snapshot, and records the change reason. `Undo last AI plan change` restores that snapshot without deleting historical records. If the project changes after the preview was generated, PCC rejects the stale preview and requires a fresh one.
+
 ## Execution boundary
 
-Planning provenance is not execution permission. PCC execution teams use the resource governor, project coordinator, workspace leases, local model routing, stop conditions, and proof-gated fan-in described in [PCC Execution Teams](/automation/pcc-execution-teams).
+Planning provenance is not execution permission. PCC always uses the separate planning-only OAuth grant for initial project planning and AI-assisted project changes. Project creation then separates local work speed from optional Codex help after planning. The recommended minimum post-plan policy uses Codex for material replanning and final review, and uses Automatic for high-impact architecture or repeated local failure. All executable work remains assigned to OpenClaw local agents unless the user explicitly changes an individual milestone after creation.
+
+PCC execution teams use the resource governor, project coordinator, workspace leases, local model routing, stop conditions, and proof-gated fan-in described in [PCC Execution Teams](/automation/pcc-execution-teams).
 
 If the planner is unavailable, PCC reports the exact OAuth or model-catalog blocker. It does not substitute deterministic text or claim that local autofill came from Codex.

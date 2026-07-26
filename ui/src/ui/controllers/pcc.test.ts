@@ -1024,7 +1024,7 @@ describe("loadPccDashboard", () => {
         pccCapabilityRequirementIds: ["targeted-proof", "openclaw-testing"],
       },
     };
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "skills.status") {
         return {
           workspaceDir: "/tmp/workspace",
@@ -1146,7 +1146,7 @@ describe("loadPccDashboard", () => {
         pccCapabilityRequirementIds: ["missing-required-skill"],
       },
     };
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "skills.status") {
         return { workspaceDir: "/tmp/workspace", managedSkillsDir: "/tmp/skills", skills: [] };
       }
@@ -1207,7 +1207,7 @@ describe("loadPccDashboard", () => {
         pccCapabilityRequirementIds: ["main", "ollama/gemma"],
       },
     };
-    const request = vi.fn(async (method: string) => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === "skills.status") {
         throw new Error("skills refresh unavailable");
       }
@@ -2035,6 +2035,7 @@ describe("PCC CRUD controller", () => {
         plannerPermissionBudget: "",
         planPreviewAccepted: true,
         codexPlanningAllowed: true,
+        executionProfile: resolvePccExecutionProfilePreset("local_focused"),
         remoteProofAllowed: false,
         runtimeActionsAllowed: false,
         intakeAnswers,
@@ -2053,7 +2054,7 @@ describe("PCC CRUD controller", () => {
         metadata: expect.objectContaining({
           pccWorkflowTemplateId: "software-product",
           pccExecutionProfile: expect.objectContaining({
-            schemaVersion: 1,
+            schemaVersion: 2,
             presetId: "local_focused",
             codexRole: "off",
           }),
@@ -2219,7 +2220,7 @@ describe("PCC CRUD controller", () => {
             }
           ).milestone?.metadata?.pccResponsibility ?? "",
       );
-    expect(responsibilities).toContain("codex");
+    expect(responsibilities).not.toContain("codex");
     expect(responsibilities).toContain("local_openclaw_agent");
     expect(responsibilities).toContain("remote_proof");
     const permissionCall = request.mock.calls.find(
@@ -2228,9 +2229,16 @@ describe("PCC CRUD controller", () => {
     expect(permissionCall?.[1]).toEqual(
       expect.objectContaining({
         permission: expect.objectContaining({
+          type: "high_reasoning_model",
           status: "granted",
           grantedBy: "PCC New Project user approval",
-          allowedActions: [expect.stringContaining("local agents handle routine execution")],
+          allowedActions: expect.arrayContaining([
+            "Major project change: Codex",
+            expect.stringContaining("Architecture decision: Automatic"),
+            expect.stringContaining("Stuck or repeated failure: Automatic"),
+            "Final completion review: Codex",
+          ]),
+          target: expect.stringContaining("Only these post-plan checkpoints"),
           forbiddenActions: [expect.stringContaining("Deployment")],
         }),
       }),
@@ -2241,10 +2249,37 @@ describe("PCC CRUD controller", () => {
     expect(permissionParams?.permission?.maxUses).toBeUndefined();
   });
 
-  it("fails closed when a Codex role reaches save without the single New Project approval", async () => {
-    const request = vi.fn();
+  it("creates the project but queues its visible Codex checkpoints when approval is deferred", async () => {
+    const request = vi.fn(async (method: string, _params?: unknown) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      chatModelCatalog: teamModels,
       pccProjectForm: {
         ...EMPTY_PCC_PROJECT_FORM,
         title: "Approval contract",
@@ -2263,8 +2298,20 @@ describe("PCC CRUD controller", () => {
 
     await savePccProject(state);
 
-    expect(request).not.toHaveBeenCalled();
-    expect(state.pccActionError).toContain("Approve the selected Codex role once");
+    expect(state.pccActionError).toBeNull();
+    const permissionCall = request.mock.calls.find(
+      ([method]) => method === "pcc.permissions.upsert",
+    );
+    expect(permissionCall?.[1]).toEqual(
+      expect.objectContaining({
+        permission: expect.objectContaining({
+          type: "high_reasoning_model",
+          status: "needed",
+          allowedActions: expect.not.arrayContaining([expect.stringContaining("Initial")]),
+          note: expect.stringContaining("blocked until the user grants"),
+        }),
+      }),
+    );
   });
 
   it("refuses to save a model that the live catalog marks unavailable", async () => {
@@ -2945,6 +2992,245 @@ describe("PCC CRUD controller", () => {
     });
   });
 
+  it("previews a natural-language project change without mutating active work", async () => {
+    const plan = {
+      schemaVersion: 1 as const,
+      title: project.title,
+      goal: project.goal,
+      outcomeMetrics: ["The revised plan passes mobile proof."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [
+        {
+          title: milestone.title,
+          phaseId: "mvp",
+          implementationPlan: "Finish the desktop UI and add mobile layout protection.",
+          acceptanceCriteria: ["Desktop and mobile browser proof pass."],
+          responsibility: "local_openclaw_agent",
+          proofLevel: "local",
+          dependencies: [],
+          subMilestones: [],
+        },
+        {
+          title: "Mobile launch proof",
+          phaseId: "production-proof",
+          implementationPlan: "Verify the project on a mobile viewport.",
+          acceptanceCriteria: ["No controls overlap or clip."],
+          responsibility: "local_openclaw_agent",
+          proofLevel: "runtime",
+          dependencies: [0],
+          subMilestones: [],
+        },
+      ],
+      risks: [],
+      assumptions: [],
+      provenance: {
+        generatedAt: "2026-07-26T12:00:00.000Z",
+        provider: "openai" as const,
+        model: "openai/gpt-5.6-sol",
+        runtime: "codex" as const,
+        effort: "medium" as const,
+        auth: "oauth" as const,
+        source: "live_codex" as const,
+        planningOnly: true as const,
+      },
+    };
+    const request = vi.fn(async () => ({ plan }));
+    const detail = {
+      project,
+      milestones: [milestone],
+      subMilestones: [subMilestone],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      decisions: [],
+      lastKnownGood: [],
+      summary,
+    };
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        id: project.id,
+        title: project.title,
+        goal: project.goal,
+        changeRequest: "Add mobile launch proof without changing completed work.",
+      },
+    });
+
+    await generatePccProjectPlan(state);
+
+    expect(request).toHaveBeenCalledWith(
+      "pcc.plans.generate",
+      expect.objectContaining({
+        surface: "project_replan",
+        description: expect.stringContaining("Requested project change"),
+        constraints: expect.arrayContaining(["Preserve completed milestones and their receipts."]),
+      }),
+    );
+    expect(state.pccProjectForm).toMatchObject({
+      planPreviewAccepted: false,
+      generatedPlan: plan,
+      planRevision: {
+        safeToApply: true,
+        addedMilestones: 1,
+        updatedMilestones: 1,
+        mustPauseActiveWork: true,
+        sourceModel: "openai/gpt-5.6-sol",
+      },
+    });
+    expect(state.pccProjectDetail?.milestones[0]?.status).toBe("in_progress");
+
+    state.chatModelCatalog = teamModels;
+    state.pccProjectForm = {
+      ...state.pccProjectForm,
+      intakeAnswers,
+      intakeApproved: true,
+      planPreviewAccepted: true,
+    };
+    state.pccProjectDetail = {
+      ...detail,
+      milestones: [{ ...milestone, updatedAt: "2026-07-26T12:01:00.000Z" }],
+    };
+    request.mockClear();
+
+    await savePccProject(state);
+
+    expect(state.pccActionError).toContain("changed after the preview");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("restores project state when an accepted plan revision fails partway through", async () => {
+    const plan = {
+      schemaVersion: 1 as const,
+      title: project.title,
+      goal: project.goal,
+      outcomeMetrics: ["The revised plan passes proof."],
+      workflowTemplateId: "software-product" as const,
+      milestones: [
+        {
+          title: milestone.title,
+          phaseId: "mvp",
+          implementationPlan: "A revised implementation plan.",
+          acceptanceCriteria: ["Revised proof passes."],
+          responsibility: "local_openclaw_agent",
+          proofLevel: "local",
+          dependencies: [],
+          subMilestones: [],
+        },
+        {
+          title: "New proof step",
+          phaseId: "production-proof",
+          implementationPlan: "Add a new proof step.",
+          acceptanceCriteria: ["New proof passes."],
+          responsibility: "local_openclaw_agent",
+          proofLevel: "runtime",
+          dependencies: [0],
+          subMilestones: [],
+        },
+      ],
+      risks: [],
+      assumptions: [],
+      provenance: {
+        generatedAt: "2026-07-26T12:00:00.000Z",
+        provider: "openai" as const,
+        model: "openai/gpt-5.6-sol",
+        runtime: "codex" as const,
+        effort: "medium" as const,
+        auth: "oauth" as const,
+        source: "live_codex" as const,
+        planningOnly: true as const,
+      },
+    };
+    const detail = {
+      project,
+      milestones: [milestone],
+      subMilestones: [subMilestone],
+      permissions: [],
+      evidence: [],
+      receipts: [],
+      decisions: [],
+      lastKnownGood: [],
+      summary,
+    };
+    const generateRequest = vi.fn(async () => ({ plan }));
+    const state = createState({
+      client: { request: generateRequest } as unknown as PccDashboardState["client"],
+      pccProjectDetail: detail,
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        id: project.id,
+        title: project.title,
+        goal: project.goal,
+        changeRequest: "Revise active work and add the new proof step.",
+      },
+    });
+    await generatePccProjectPlan(state);
+
+    const saveRequest = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        const input = (params as { milestone: Partial<typeof milestone> }).milestone;
+        if (input.title === "New proof step") {
+          throw new Error("simulated revision write failure");
+        }
+        return {
+          milestone: {
+            ...milestone,
+            ...input,
+            createdAt: milestone.createdAt,
+            updatedAt: milestone.updatedAt,
+          },
+        };
+      }
+      if (method === "pcc.subMilestones.upsert") {
+        return { subMilestone };
+      }
+      return {};
+    });
+    state.client = { request: saveRequest } as unknown as PccDashboardState["client"];
+    state.chatModelCatalog = teamModels;
+    state.pccProjectForm = {
+      ...state.pccProjectForm,
+      intakeAnswers,
+      intakeApproved: true,
+      planPreviewAccepted: true,
+    };
+
+    await savePccProject(state);
+
+    expect(state.pccActionError).toContain("simulated revision write failure");
+    expect(state.pccActionNotice).toBeNull();
+    const projectWrites = saveRequest.mock.calls.filter(
+      ([method]) => method === "pcc.projects.upsert",
+    );
+    expect(projectWrites).toHaveLength(2);
+    expect(projectWrites.at(-1)?.[1]).toEqual({
+      project: expect.objectContaining({
+        id: project.id,
+        title: project.title,
+        metadata: project.metadata,
+      }),
+    });
+    expect(saveRequest).toHaveBeenCalledWith("pcc.milestones.upsert", {
+      milestone: expect.objectContaining({
+        id: milestone.id,
+        title: milestone.title,
+        implementationPlan: milestone.implementationPlan,
+        status: milestone.status,
+      }),
+    });
+    expect(saveRequest).toHaveBeenCalledWith("pcc.subMilestones.upsert", {
+      subMilestone: expect.objectContaining({
+        id: subMilestone.id,
+        title: subMilestone.title,
+        implementationPlan: subMilestone.implementationPlan,
+      }),
+    });
+  });
+
   it("revokes and restores the persistent planning-only grant", async () => {
     const request = vi.fn(async (_method: string, params: unknown) => ({
       policy: {
@@ -3076,6 +3362,7 @@ describe("PCC CRUD controller", () => {
     };
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      chatModelCatalog: teamModels,
       pccProjectForm: {
         ...EMPTY_PCC_PROJECT_FORM,
         title: generatedPlan.title,

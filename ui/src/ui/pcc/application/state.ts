@@ -5,6 +5,7 @@ import {
   type PccExecutionProfile,
 } from "../../../../../src/pcc/execution-profile.js";
 import type { PccExecutionRuntimeProjection } from "../../../../../src/pcc/execution-state-projection.js";
+import type { PccPlanRevisionPreview } from "../../../../../src/pcc/plan-revision.js";
 import type {
   PccPlanGenerationResult,
   PccPlanningDepth,
@@ -168,6 +169,7 @@ export type PccProjectFormState = {
   title: string;
   goal: string;
   projectDescription: string;
+  changeRequest: string;
   status: PccStatus;
   priority: string;
   dueDate: string;
@@ -183,6 +185,7 @@ export type PccProjectFormState = {
   planPreviewAccepted: boolean;
   planningDepth: PccPlanningDepth;
   generatedPlan: PccPlanGenerationResult | null;
+  planRevision: PccPlanRevisionPreview | null;
   codexPlanningAllowed: boolean;
   remoteProofAllowed: boolean;
   runtimeActionsAllowed: boolean;
@@ -267,6 +270,7 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   title: "",
   goal: "",
   projectDescription: "",
+  changeRequest: "",
   status: "active",
   priority: "3",
   dueDate: "",
@@ -274,13 +278,14 @@ export const EMPTY_PCC_PROJECT_FORM: PccProjectFormState = {
   workflowTemplateId: "software-product",
   planningMode: "codex_full_plan",
   plannerMode: "codex",
-  aiUsePolicy: "local_only",
+  aiUsePolicy: "codex_focused",
   plannerModelId: "openai/gpt-5.6-sol",
   plannerPermissionScope: "project",
   plannerPermissionBudget: "",
   planPreviewAccepted: false,
   planningDepth: "automatic",
   generatedPlan: null,
+  planRevision: null,
   codexPlanningAllowed: false,
   remoteProofAllowed: false,
   runtimeActionsAllowed: false,

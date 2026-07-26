@@ -74,6 +74,8 @@ describe("PCC planning policy", () => {
     });
     expect(prompt).toContain("Planning only");
     expect(prompt).toContain("Return exactly one JSON object");
+    expect(prompt).toContain("Do not assign codex or high_reasoning_codex");
+    expect(prompt).toContain("separate visible Codex checkpoints");
     const result = parsePccPlanGenerationResult({
       text: `result\n${planJson}`,
       effort: "high",

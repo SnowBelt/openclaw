@@ -202,8 +202,11 @@ Return exactly one JSON object and no markdown. Use this shape:
 
 Requirements:
 - Produce 4-10 milestones and 2-8 sub-milestones per milestone.
-- Use Codex only for planning, architecture, difficult diagnosis, and final review where it has a clear advantage.
-- Assign routine implementation and deterministic verification to local_openclaw_agent.
+- This JSON is the executable project plan, not the Codex-checkpoint policy. Assign executable work
+  to local_openclaw_agent, remote_proof, or user. PCC configures planning, architecture review,
+  blocked recovery, and final review as separate visible Codex checkpoints.
+- Do not assign codex or high_reasoning_codex as a milestone owner. PCC prevents those legacy values
+  from overriding the separate checkpoint policy.
 - Put dependencies in zero-based milestone indexes and never create cycles.
 - Include acceptance criteria, proof level, and responsibility for every item.
 - Never claim that an unavailable tool, permission, proof, or integration exists.`;
