@@ -1,0 +1,1651 @@
+{
+  "schemaVersion": 3,
+  "programId": "control-director-reliability-v1",
+  "title": "Control Director Reliability and Codex-like Chat",
+  "baseline": {
+    "sourceSha": "a9a72db96dc2deb4dffb7ba240ede33e03b48839",
+    "sourceBranch": "codex/control-director-codex-chat-v1-20260718",
+    "runtimeVersion": "2026.7.1",
+    "capturedAt": "2026-07-18T21:17:00Z"
+  },
+  "completionPolicy": {
+    "requiredQualityScore": 93,
+    "requireAllMilestones": true,
+    "allowPartialCompletionClaim": false,
+    "truthSurfaces": [
+      "source",
+      "targeted-tests",
+      "build",
+      "full-tests",
+      "remote-ci",
+      "landing",
+      "update-survival",
+      "managed-runtime",
+      "dashboard-desktop",
+      "dashboard-tablet",
+      "dashboard-mobile",
+      "local-model-routing",
+      "local-model-latency",
+      "memory",
+      "delegation",
+      "judge",
+      "sig",
+      "pcc",
+      "queue",
+      "steer",
+      "cancel",
+      "pursue-goal",
+      "restart-recovery",
+      "soak",
+      "rollback",
+      "live-diagnostic",
+      "model-identity",
+      "evidence-invalidation",
+      "configuration-residency",
+      "latency-telemetry",
+      "fallback-governance",
+      "quality-cascade",
+      "shadow-review",
+      "judge-diversity",
+      "statistical-evaluation",
+      "cache-identity",
+      "immutable-runtime-invocation",
+      "pcc-observability",
+      "sig-incidents",
+      "proof-planning",
+      "workflow-skill-convergence",
+      "chaos-drill",
+      "rollback-restoration",
+      "extended-soak",
+      "final-ledger"
+    ]
+  },
+  "progressModel": {
+    "officialCompletionField": "certificationStatus",
+    "legacyCertificationMirrorField": "status",
+    "implementationStatuses": [
+      "unassessed",
+      "pending",
+      "implemented",
+      "blocked"
+    ],
+    "certificationStatuses": [
+      "pending",
+      "passed",
+      "blocked"
+    ],
+    "defaultImplementationStatus": "unassessed",
+    "defaultCertificationStatusFrom": "status"
+  },
+  "executionWaves": [
+    {
+      "id": "A",
+      "milestones": [
+        "M69",
+        "M70",
+        "M71",
+        "M72",
+        "M73",
+        "M74",
+        "M75"
+      ]
+    },
+    {
+      "id": "B",
+      "milestones": [
+        "M76",
+        "M77",
+        "M78",
+        "M79",
+        "M80",
+        "M81"
+      ]
+    },
+    {
+      "id": "C",
+      "milestones": [
+        "M82"
+      ]
+    },
+    {
+      "id": "D",
+      "milestones": [
+        "M83"
+      ]
+    },
+    {
+      "id": "E",
+      "milestones": [
+        "M84"
+      ]
+    },
+    {
+      "id": "F",
+      "milestones": [
+        "M66",
+        "M67",
+        "M68",
+        "M85"
+      ]
+    },
+    {
+      "id": "G",
+      "milestones": [
+        "M86"
+      ]
+    },
+    {
+      "id": "H",
+      "milestones": [
+        "M87",
+        "M88",
+        "M89",
+        "M90",
+        "M91"
+      ]
+    },
+    {
+      "id": "I",
+      "milestones": [
+        "M92",
+        "M93",
+        "M94",
+        "M95",
+        "M96"
+      ]
+    },
+    {
+      "id": "J",
+      "milestones": [
+        "M97",
+        "M98",
+        "M99",
+        "M100",
+        "M101",
+        "M102"
+      ]
+    },
+    {
+      "id": "K",
+      "milestones": [
+        "M103",
+        "M104",
+        "M105",
+        "M106"
+      ]
+    }
+  ],
+  "evidenceBinding": {
+    "sourceProof": ".artifacts/control-director/source-gates-<source-sha>.json",
+    "updateSurvival": ".artifacts/control-director/update-survival-<source-sha>.json",
+    "runtimeProof": ".artifacts/control-director/runtime-<source-sha>/runtime-proof.json",
+    "remoteProof": ".artifacts/control-director/remote-gates-<source-sha>.json",
+    "readiness": ".artifacts/control-director/runtime-<source-sha>/readiness.json",
+    "finalReceipt": ".artifacts/control-director/final-ledger-<source-sha>.json",
+    "modelGovernanceProof": ".artifacts/control-director/model-governance-<source-sha>.json",
+    "stabilityProof": ".artifacts/control-director/stability-<source-sha>.json"
+  },
+  "milestones": [
+    {
+      "id": "M01",
+      "phase": "foundation",
+      "title": "Exact-runtime baseline and dirty-checkout protection",
+      "status": "pending",
+      "dependsOn": [],
+      "acceptance": "Every proof names the immutable source SHA and refuses a dirty or mismatched source root.",
+      "evidence": []
+    },
+    {
+      "id": "M02",
+      "phase": "foundation",
+      "title": "User-experience SLOs and quality rubric",
+      "status": "pending",
+      "dependsOn": [
+        "M01"
+      ],
+      "acceptance": "Executable acceptance defines ACK, activity, cancellation, memory, layout, completion, and quality thresholds.",
+      "evidence": []
+    },
+    {
+      "id": "M03",
+      "phase": "foundation",
+      "title": "Ownership charter",
+      "status": "pending",
+      "dependsOn": [
+        "M01"
+      ],
+      "acceptance": "Chat, PCC, Control Director, Program Manager, Judge, SIG, System Quality, and orchestrator each have one non-overlapping owner contract.",
+      "evidence": []
+    },
+    {
+      "id": "M04",
+      "phase": "foundation",
+      "title": "Canonical Control Director identity and model registry",
+      "status": "pending",
+      "dependsOn": [
+        "M01"
+      ],
+      "acceptance": "Runtime scope is agent-role based, supports Gemma default and safe alternatives, and has no exact-name or stale-model bypass.",
+      "evidence": []
+    },
+    {
+      "id": "M05",
+      "phase": "foundation",
+      "title": "Typed execution event protocol",
+      "status": "pending",
+      "dependsOn": [
+        "M03"
+      ],
+      "acceptance": "Task, run, goal, activity, evidence, approval, Judge, and notification events are typed and versioned.",
+      "evidence": []
+    },
+    {
+      "id": "M06",
+      "phase": "foundation",
+      "title": "Canonical execution-state store",
+      "status": "pending",
+      "dependsOn": [
+        "M05"
+      ],
+      "acceptance": "Chat, PCC, goals, workers, and diagnostics project one authoritative durable execution state.",
+      "evidence": []
+    },
+    {
+      "id": "M07",
+      "phase": "direction",
+      "title": "Typed intent and response-mode classification",
+      "status": "pending",
+      "dependsOn": [
+        "M04"
+      ],
+      "acceptance": "Chat, answer, plan, execute, status, steer, queue, and goal intents produce deterministic mode contracts.",
+      "evidence": []
+    },
+    {
+      "id": "M08",
+      "phase": "direction",
+      "title": "Durable immediate ACK",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M07"
+      ],
+      "acceptance": "Accepted messages receive a persisted run identity and visible ACK within the declared SLO.",
+      "evidence": []
+    },
+    {
+      "id": "M09",
+      "phase": "direction",
+      "title": "Always-available conversation lane",
+      "status": "pending",
+      "dependsOn": [
+        "M08"
+      ],
+      "acceptance": "Long-running work never prevents the user from receiving an ACK, asking a side question, or issuing control input.",
+      "evidence": []
+    },
+    {
+      "id": "M10",
+      "phase": "direction",
+      "title": "Least-privilege delegation policy",
+      "status": "pending",
+      "dependsOn": [
+        "M03",
+        "M09"
+      ],
+      "acceptance": "The Director delegates execution by default and receives only narrowly justified direct mutation capabilities.",
+      "evidence": []
+    },
+    {
+      "id": "M11",
+      "phase": "direction",
+      "title": "Durable worker mailbox",
+      "status": "pending",
+      "dependsOn": [
+        "M06",
+        "M10"
+      ],
+      "acceptance": "Assignments and results survive process restart and are idempotently correlated to the originating mission.",
+      "evidence": []
+    },
+    {
+      "id": "M12",
+      "phase": "direction",
+      "title": "Continuous worker fan-in",
+      "status": "pending",
+      "dependsOn": [
+        "M11"
+      ],
+      "acceptance": "Worker state and evidence generate condensed user-visible updates without polling loops.",
+      "evidence": []
+    },
+    {
+      "id": "M13",
+      "phase": "direction",
+      "title": "Cancellation and preemption",
+      "status": "pending",
+      "dependsOn": [
+        "M06",
+        "M11"
+      ],
+      "acceptance": "Cancel, pause, and preempt are sticky, idempotent, and prevent new child work after acknowledgement.",
+      "evidence": []
+    },
+    {
+      "id": "M14",
+      "phase": "direction",
+      "title": "Lease-driven Pursue Goal executor",
+      "status": "pending",
+      "dependsOn": [
+        "M06",
+        "M11",
+        "M13"
+      ],
+      "acceptance": "A goal marked running owns a current lease, heartbeat, controller, next action, and terminal completion delivery.",
+      "evidence": []
+    },
+    {
+      "id": "M15",
+      "phase": "direction",
+      "title": "Pursue Goal controls",
+      "status": "pending",
+      "dependsOn": [
+        "M14"
+      ],
+      "acceptance": "Create, edit, pause, resume, stop, retry, and inspect controls work from Chat and survive refresh.",
+      "evidence": []
+    },
+    {
+      "id": "M16",
+      "phase": "direction",
+      "title": "Crash and disconnect recovery",
+      "status": "pending",
+      "dependsOn": [
+        "M11",
+        "M14"
+      ],
+      "acceptance": "Gateway restart, browser disconnect, and worker loss resume safely or reach an honest terminal state.",
+      "evidence": []
+    },
+    {
+      "id": "M17",
+      "phase": "chat",
+      "title": "Bidirectional queue and steer controls",
+      "status": "pending",
+      "dependsOn": [
+        "M09"
+      ],
+      "acceptance": "Any pending input can switch queue to steer or steer to queue until server admission closes the mutation window.",
+      "evidence": []
+    },
+    {
+      "id": "M18",
+      "phase": "chat",
+      "title": "Atomic multi-client turn mutation",
+      "status": "pending",
+      "dependsOn": [
+        "M17"
+      ],
+      "acceptance": "Revision and idempotency checks prevent duplicate, lost, or misordered queue and steer actions across clients.",
+      "evidence": []
+    },
+    {
+      "id": "M19",
+      "phase": "chat",
+      "title": "Condensed inline activity timeline",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M12"
+      ],
+      "acceptance": "Chat shows acknowledged, delegated, working, waiting, blocked, verifying, and terminal activity inline and collapsibly.",
+      "evidence": []
+    },
+    {
+      "id": "M20",
+      "phase": "chat",
+      "title": "Unobstructed Chat layout",
+      "status": "pending",
+      "dependsOn": [
+        "M19"
+      ],
+      "acceptance": "Transcript and composer remain primary with no static Project, PCC, goal, or diagnostic blocks between them.",
+      "evidence": []
+    },
+    {
+      "id": "M21",
+      "phase": "chat",
+      "title": "PCC strict-boundary redesign",
+      "status": "pending",
+      "dependsOn": [
+        "M03",
+        "M06"
+      ],
+      "acceptance": "PCC owns plans and evidence while execution state remains an orchestrator projection.",
+      "evidence": []
+    },
+    {
+      "id": "M22",
+      "phase": "chat",
+      "title": "Typed Chat-to-PCC projection",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M21"
+      ],
+      "acceptance": "No PCC milestone or status mutation is inferred from assistant prose or regular expressions.",
+      "evidence": []
+    },
+    {
+      "id": "M23",
+      "phase": "chat",
+      "title": "Recents, titles, rename, and pinning",
+      "status": "pending",
+      "dependsOn": [
+        "M20"
+      ],
+      "acceptance": "Recent sessions are immediately visible, meaningfully named, renameable, and pinnable without delaying the primary reply.",
+      "evidence": []
+    },
+    {
+      "id": "M24",
+      "phase": "chat",
+      "title": "Responsive and accessible Chat",
+      "status": "pending",
+      "dependsOn": [
+        "M20",
+        "M23"
+      ],
+      "acceptance": "Desktop, tablet, and mobile viewport/device tests prove transcript, composer, controls, keyboard, and screen-reader behavior.",
+      "evidence": []
+    },
+    {
+      "id": "M25",
+      "phase": "models",
+      "title": "Canonical execution profile",
+      "status": "pending",
+      "dependsOn": [
+        "M04",
+        "M06"
+      ],
+      "acceptance": "Chat, PCC, goals, and agents resolve one versioned local/Codex model and approval policy; Codex defaults explicitly to the current quality-first model (GPT-5.6 Sol as of 2026-07-20), selects effort by bounded work class, preserves explicit user overrides, and never silently downgrades.",
+      "evidence": []
+    },
+    {
+      "id": "M26",
+      "phase": "models",
+      "title": "Quality-gated local-first routing",
+      "status": "pending",
+      "dependsOn": [
+        "M25"
+      ],
+      "acceptance": "Deterministic and local lanes handle suitable work without silently lowering evaluated output quality.",
+      "evidence": []
+    },
+    {
+      "id": "M27",
+      "phase": "models",
+      "title": "Governed Codex escalation adapter",
+      "status": "pending",
+      "dependsOn": [
+        "M25",
+        "M26"
+      ],
+      "acceptance": "Codex escalation is explicit, scoped, budgeted, attributable, and fail-closed when unavailable.",
+      "evidence": []
+    },
+    {
+      "id": "M28",
+      "phase": "models",
+      "title": "Compact Codex mission packets",
+      "status": "pending",
+      "dependsOn": [
+        "M27"
+      ],
+      "acceptance": "Codex receives typed goals, constraints, evidence, state, and acceptance criteria instead of raw transcript bloat.",
+      "evidence": []
+    },
+    {
+      "id": "M29",
+      "phase": "models",
+      "title": "Model-routing evaluation matrix",
+      "status": "pending",
+      "dependsOn": [
+        "M26",
+        "M27"
+      ],
+      "acceptance": "Representative tasks prove quality, latency, memory, and resource thresholds for each admitted route.",
+      "evidence": []
+    },
+    {
+      "id": "M30",
+      "phase": "models",
+      "title": "Resource and model-residency governor",
+      "status": "pending",
+      "dependsOn": [
+        "M25"
+      ],
+      "acceptance": "CPU, memory, thermal, concurrency, and model residency remain within tested Mac Studio budgets.",
+      "evidence": []
+    },
+    {
+      "id": "M31",
+      "phase": "models",
+      "title": "Cold and warm latency SLOs",
+      "status": "pending",
+      "dependsOn": [
+        "M29",
+        "M30"
+      ],
+      "acceptance": "Exact managed-model cold and warm trials meet ACK, activity, and substantive-response thresholds.",
+      "evidence": []
+    },
+    {
+      "id": "M32",
+      "phase": "memory",
+      "title": "Tiered memory architecture",
+      "status": "pending",
+      "dependsOn": [
+        "M06"
+      ],
+      "acceptance": "Recent session/task memory is hot, project summaries are warm, and compressed older history remains searchable.",
+      "evidence": []
+    },
+    {
+      "id": "M33",
+      "phase": "memory",
+      "title": "First-turn recent recall",
+      "status": "pending",
+      "dependsOn": [
+        "M32"
+      ],
+      "acceptance": "Yesterday and recent-task references are retrieved automatically with measured Top-3 recall.",
+      "evidence": []
+    },
+    {
+      "id": "M34",
+      "phase": "memory",
+      "title": "Context budget and compaction continuity",
+      "status": "pending",
+      "dependsOn": [
+        "M28",
+        "M32"
+      ],
+      "acceptance": "Long conversations compact before overflow while retaining mission, decisions, work state, approvals, and recent turns.",
+      "evidence": []
+    },
+    {
+      "id": "M35",
+      "phase": "memory",
+      "title": "Memory privacy and rebuild",
+      "status": "pending",
+      "dependsOn": [
+        "M32"
+      ],
+      "acceptance": "Visibility, retention, provenance, deletion, corruption recovery, and deterministic rebuild are tested.",
+      "evidence": []
+    },
+    {
+      "id": "M36",
+      "phase": "quality",
+      "title": "SIG responsibility contract",
+      "status": "pending",
+      "dependsOn": [
+        "M03"
+      ],
+      "acceptance": "SIG detects and routes recurring systemic deficiencies but cannot silently mutate or deploy production.",
+      "evidence": []
+    },
+    {
+      "id": "M37",
+      "phase": "quality",
+      "title": "UX and reliability telemetry",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M36"
+      ],
+      "acceptance": "ACK, activity, goals, memory, layout, titles, queueing, delivery, and completion expose typed health signals.",
+      "evidence": []
+    },
+    {
+      "id": "M38",
+      "phase": "quality",
+      "title": "Exact-config canary and replay",
+      "status": "pending",
+      "dependsOn": [
+        "M02",
+        "M29",
+        "M37"
+      ],
+      "acceptance": "Canaries use the deployed identity, model, prompt, tools, skills, memory, and UI rather than a mock substitute.",
+      "evidence": []
+    },
+    {
+      "id": "M39",
+      "phase": "quality",
+      "title": "System Quality surface",
+      "status": "pending",
+      "dependsOn": [
+        "M21",
+        "M36",
+        "M37"
+      ],
+      "acceptance": "Judge, SIG, diagnostics, and canary evidence live outside the Chat transcript flow with contextual deep links.",
+      "evidence": []
+    },
+    {
+      "id": "M40",
+      "phase": "quality",
+      "title": "Bounded self-healing",
+      "status": "pending",
+      "dependsOn": [
+        "M36",
+        "M37"
+      ],
+      "acceptance": "Only allowlisted reversible repairs run automatically with rollback, evidence, and escalation on recurrence.",
+      "evidence": []
+    },
+    {
+      "id": "M41",
+      "phase": "quality",
+      "title": "Independent Judge service",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M11"
+      ],
+      "acceptance": "A real independent Judge validates exact mission acceptance and evidence and emits a signed claim-bound receipt.",
+      "evidence": []
+    },
+    {
+      "id": "M42",
+      "phase": "quality",
+      "title": "Role, prompt, skill, and tool alignment",
+      "status": "pending",
+      "dependsOn": [
+        "M03",
+        "M04",
+        "M10"
+      ],
+      "acceptance": "Workspace files, prompts, skills, tool permissions, plugins, docs, and runtime configuration express the same role contract.",
+      "evidence": []
+    },
+    {
+      "id": "M43",
+      "phase": "quality",
+      "title": "Instruction-following torture suite",
+      "status": "pending",
+      "dependsOn": [
+        "M07",
+        "M34",
+        "M41",
+        "M42"
+      ],
+      "acceptance": "Multi-turn, compaction, steering, delegation, blocker, and completion scenarios pass at least 98 percent with zero critical omissions.",
+      "evidence": []
+    },
+    {
+      "id": "M44",
+      "phase": "quality",
+      "title": "Canary, soak, rollback, and production acceptance",
+      "status": "pending",
+      "dependsOn": [
+        "M38",
+        "M43"
+      ],
+      "acceptance": "Exact SHA promotion, restart, soak, rollback, desktop, tablet, mobile, and user-visible completion are verified.",
+      "evidence": []
+    },
+    {
+      "id": "M45",
+      "phase": "integration",
+      "title": "Active contract wiring gate",
+      "status": "pending",
+      "dependsOn": [
+        "M01",
+        "M04"
+      ],
+      "acceptance": "Every required contract, prompt, guard, and policy has an executable production caller and dead wiring fails readiness.",
+      "evidence": []
+    },
+    {
+      "id": "M46",
+      "phase": "integration",
+      "title": "Proportional response contracts",
+      "status": "pending",
+      "dependsOn": [
+        "M07",
+        "M45"
+      ],
+      "acceptance": "Ordinary conversation is not forced through project completion fields while execution claims remain evidence-gated.",
+      "evidence": []
+    },
+    {
+      "id": "M47",
+      "phase": "integration",
+      "title": "Immutable mission envelope",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M07"
+      ],
+      "acceptance": "The full request, criteria, scope, approvals, provenance, artifacts, and idempotency identity survive continuation and compaction.",
+      "evidence": []
+    },
+    {
+      "id": "M48",
+      "phase": "integration",
+      "title": "Durable workflow orchestrator",
+      "status": "pending",
+      "dependsOn": [
+        "M06",
+        "M47"
+      ],
+      "acceptance": "One engine owns leases, heartbeats, retries, dependencies, fan-in, cancellation, and terminal transitions.",
+      "evidence": []
+    },
+    {
+      "id": "M49",
+      "phase": "integration",
+      "title": "Server-owned mutable turn inbox and outbox",
+      "status": "pending",
+      "dependsOn": [
+        "M06",
+        "M17"
+      ],
+      "acceptance": "Pending turns and delivery receipts are durable, revisioned, recoverable, and client-independent.",
+      "evidence": []
+    },
+    {
+      "id": "M50",
+      "phase": "integration",
+      "title": "Single production Chat stack",
+      "status": "pending",
+      "dependsOn": [
+        "M20"
+      ],
+      "acceptance": "One Chat implementation owns production behavior and all acceptance tests target that implementation.",
+      "evidence": []
+    },
+    {
+      "id": "M51",
+      "phase": "integration",
+      "title": "Execution-state reconciler",
+      "status": "pending",
+      "dependsOn": [
+        "M06",
+        "M48",
+        "M49"
+      ],
+      "acceptance": "Stale running goals, pending delivery, lost workers, and orphaned state reconcile automatically and visibly.",
+      "evidence": []
+    },
+    {
+      "id": "M52",
+      "phase": "integration",
+      "title": "Prompt and capability budget compiler",
+      "status": "pending",
+      "dependsOn": [
+        "M07",
+        "M42"
+      ],
+      "acceptance": "Only mode-relevant instructions, tools, skills, and memory enter each prompt, with deterministic token budgets.",
+      "evidence": []
+    },
+    {
+      "id": "M53",
+      "phase": "integration",
+      "title": "Program Manager and Judge capability repair",
+      "status": "pending",
+      "dependsOn": [
+        "M10",
+        "M41"
+      ],
+      "acceptance": "Program Manager can dispatch and fan in scoped work; Judge can inspect evidence; neither gains unrelated mutation authority.",
+      "evidence": []
+    },
+    {
+      "id": "M54",
+      "phase": "integration",
+      "title": "Unified approval envelope",
+      "status": "pending",
+      "dependsOn": [
+        "M05",
+        "M25"
+      ],
+      "acceptance": "All execution surfaces enforce the same actor, action, resource, risk, budget, expiry, use-count, revocation, and audit contract.",
+      "evidence": []
+    },
+    {
+      "id": "M55",
+      "phase": "integration",
+      "title": "Memory freshness and provenance",
+      "status": "pending",
+      "dependsOn": [
+        "M32",
+        "M35"
+      ],
+      "acceptance": "Current-day ingestion, recent-task indexing, conflicts, source attribution, and rollup health are measurable and repaired.",
+      "evidence": []
+    },
+    {
+      "id": "M56",
+      "phase": "integration",
+      "title": "Exact-runtime lineage monitoring",
+      "status": "pending",
+      "dependsOn": [
+        "M01",
+        "M45"
+      ],
+      "acceptance": "Readiness proves active immutable source, managed config, runtime process, and Dashboard build lineage with no arbitrary cwd dependence.",
+      "evidence": []
+    },
+    {
+      "id": "M57",
+      "phase": "integration",
+      "title": "Typed SIG user-journey signals",
+      "status": "pending",
+      "dependsOn": [
+        "M37"
+      ],
+      "acceptance": "Silence, stalled goals, memory misses, layout obstruction, title failures, queue races, and delivery misses become typed SIG evidence.",
+      "evidence": []
+    },
+    {
+      "id": "M58",
+      "phase": "integration",
+      "title": "SIG proof-backed closure governance",
+      "status": "pending",
+      "dependsOn": [
+        "M36",
+        "M41",
+        "M57"
+      ],
+      "acceptance": "Resolution requires typed proof, independent validation, observation windows, owner, SLA, and recurrence reopening.",
+      "evidence": []
+    },
+    {
+      "id": "M59",
+      "phase": "integration",
+      "title": "Chaos and state-hygiene suite",
+      "status": "pending",
+      "dependsOn": [
+        "M16",
+        "M18",
+        "M34",
+        "M51"
+      ],
+      "acceptance": "Restart, disconnect, compaction, concurrency, duplicate delivery, migration, and model-unload failures are reproducibly contained.",
+      "evidence": []
+    },
+    {
+      "id": "M60",
+      "phase": "integration",
+      "title": "Instruction coverage and quality acceptance",
+      "status": "pending",
+      "dependsOn": [
+        "M02",
+        "M43",
+        "M44",
+        "M59"
+      ],
+      "acceptance": "Every instruction maps to outcome, evidence, or explicit blocker; aggregate quality is at least 93 with no unresolved P0 defect.",
+      "evidence": []
+    },
+    {
+      "id": "M61",
+      "phase": "integration",
+      "title": "Customization update-survival acceptance",
+      "status": "pending",
+      "dependsOn": [
+        "M44",
+        "M45",
+        "M60"
+      ],
+      "acceptance": "Every Dashboard, plugin, skill, workflow, and runtime customization is registered; an exact-parent simulated official update preserves the monotonic capability/path inventory, runs the manifest gate, binds approval proof, loads the prepare-only weekly broker and runtime recovery guard from the promoted release, and retains managed rollback.",
+      "evidence": []
+    },
+    {
+      "id": "M62",
+      "phase": "orchestration-repair",
+      "title": "Deterministic subagent incident reproduction baseline",
+      "status": "passed",
+      "dependsOn": [],
+      "acceptance": "Missing task cwd, workspace-root mismatch, unavailable worker discovery, explicit self-spawn, role-capability conflict, and unsupported completion claims are reproduced deterministically without exposing secrets or raw diagnostic paths.",
+      "evidence": [
+        "binding:sourceProof",
+        "source:scripts/lib/control-director-subagent-incident-audit.ts",
+        "test:test/scripts/control-director-subagent-incident-audit.test.ts"
+      ]
+    },
+    {
+      "id": "M63",
+      "phase": "orchestration-repair",
+      "title": "Task-root inheritance and worktree confinement",
+      "status": "passed",
+      "dependsOn": [
+        "M62"
+      ],
+      "acceptance": "Native and ACP workers receive one validated task root, remain inside approved worktrees, reject mismatched roots before launch, and report the effective root in sanitized diagnostics.",
+      "evidence": [
+        "binding:sourceProof",
+        "source:src/agents/subagent-task-root.ts",
+        "source:src/agents/tools/sessions-spawn-tool.ts",
+        "test:src/agents/subagent-task-root.test.ts",
+        "test:src/agents/tools/sessions-spawn-tool.test.ts"
+      ]
+    },
+    {
+      "id": "M64",
+      "phase": "orchestration-repair",
+      "title": "Reliable worker discovery and spawn guidance",
+      "status": "passed",
+      "dependsOn": [
+        "M62"
+      ],
+      "acceptance": "Every orchestrator can discover only spawnable workers through an available capability, and every spawn failure recommends an action the caller can actually perform.",
+      "evidence": [
+        "binding:sourceProof",
+        "source:src/agents/tools/agents-list-tool.ts",
+        "source:src/agents/subagent-spawn-recovery.ts",
+        "test:src/agents/tools/agents-list-tool.test.ts",
+        "test:src/agents/subagent-spawn-recovery.test.ts"
+      ]
+    },
+    {
+      "id": "M65",
+      "phase": "orchestration-repair",
+      "title": "Role-capability and handoff alignment",
+      "status": "passed",
+      "dependsOn": [
+        "M62",
+        "M64"
+      ],
+      "acceptance": "Control Director, Program Manager, worker, Judge, SIG, and PCC prompts, tools, roles, and handoffs express one executable least-privilege contract with no impossible assignment.",
+      "evidence": [
+        "binding:sourceProof",
+        "source:src/agents/agent-role-capabilities.ts",
+        "source:src/agents/control-director-turn-policy.ts",
+        "source:scripts/custom-runtime/control-director-role-config.py",
+        "test:src/agents/agent-role-capabilities.test.ts",
+        "test:test/scripts/control-director-role-config.test.ts"
+      ]
+    },
+    {
+      "id": "M66",
+      "phase": "orchestration-repair",
+      "title": "Mandatory skill and workflow deployment consistency",
+      "status": "pending",
+      "dependsOn": [
+        "M65"
+      ],
+      "acceptance": "Required skills, plugins, prompts, workflows, runtime helpers, and customization inventory entries are installed from the immutable release and verified after update and restart.",
+      "evidence": []
+    },
+    {
+      "id": "M67",
+      "phase": "orchestration-repair",
+      "title": "Evidence-bound completion and diagnostic truth",
+      "status": "pending",
+      "dependsOn": [
+        "M65"
+      ],
+      "acceptance": "Completion, blocker, worker, and task-root claims are derived from typed evidence and independently rejected when unsupported, stale, mismatched, or unavailable.",
+      "evidence": []
+    },
+    {
+      "id": "M68",
+      "phase": "orchestration-repair",
+      "title": "Exact-runtime end-to-end orchestration acceptance",
+      "status": "pending",
+      "dependsOn": [
+        "M63",
+        "M64",
+        "M65",
+        "M66",
+        "M67"
+      ],
+      "acceptance": "The landed exact SHA passes source, remote CI, managed activation, Control Director to Program Manager to worker to Judge flow, SIG and PCC consistency, queue, steer, cancel, Pursue Goal, memory, restart, rollback, soak, and desktop, tablet, and mobile proof.",
+      "evidence": []
+    },
+    {
+      "id": "M69",
+      "phase": "certification-reliability",
+      "title": "Dual progress and roadmap schema migration",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [],
+      "acceptance": "M01 through M86 expose implementation and certification state separately while status remains a validated compatibility mirror of certification state.",
+      "evidence": [
+        "source:work/control-director/reliability-v1/roadmap.json",
+        "test:test/scripts/control-director-roadmap-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M70",
+      "phase": "certification-reliability",
+      "title": "Canonical active-lineage registry",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M69"
+      ],
+      "acceptance": "One sanitized record binds active, candidate, rollback, base-tip, capability, roadmap, and accepted-head identities.",
+      "evidence": [
+        "source:scripts/control-director-preflight.mjs",
+        "test:test/scripts/control-director-preflight.test.ts"
+      ]
+    },
+    {
+      "id": "M71",
+      "phase": "certification-reliability",
+      "title": "Required-head and landing guard",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M70"
+      ],
+      "acceptance": "Certification and landing fail when the base moves, an accepted runtime head is absent, or candidate content differs from the reviewed identity.",
+      "evidence": [
+        "source:scripts/control-director-preflight.mjs",
+        "test:test/scripts/control-director-preflight.test.ts"
+      ]
+    },
+    {
+      "id": "M72",
+      "phase": "certification-reliability",
+      "title": "Semantic reconciliation inventory",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M70"
+      ],
+      "acceptance": "Every accepted-lineage delta is deterministically classified as required, inherited, superseded, overlapping, or excluded before mutation.",
+      "evidence": [
+        "source:scripts/control-director-preflight.mjs",
+        "test:test/scripts/control-director-preflight.test.ts"
+      ]
+    },
+    {
+      "id": "M73",
+      "phase": "certification-reliability",
+      "title": "One-shot diagnostic preflight",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M69",
+        "M72"
+      ],
+      "acceptance": "One bounded non-fail-fast command reports every detectable source, lineage, roadmap, workflow, and approval blocker.",
+      "evidence": [
+        "source:scripts/control-director-preflight.mjs",
+        "test:test/scripts/control-director-preflight.test.ts"
+      ]
+    },
+    {
+      "id": "M74",
+      "phase": "certification-reliability",
+      "title": "Automatic Control Director CI proof",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M73"
+      ],
+      "acceptance": "Applicable pull requests automatically run exact-source Control Director proof instead of relying on manual dispatch.",
+      "evidence": [
+        "workflow:.github/workflows/control-director-reliability.yml",
+        "test:scripts/check-workflows.mjs"
+      ]
+    },
+    {
+      "id": "M75",
+      "phase": "certification-reliability",
+      "title": "Batched remediation manifest",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M73"
+      ],
+      "acceptance": "Preflight emits one deterministic allowlist of required files, commands, exclusions, approval class, and expected proof surfaces.",
+      "evidence": [
+        "source:scripts/control-director-preflight.mjs",
+        "test:test/scripts/control-director-preflight.test.ts"
+      ]
+    },
+    {
+      "id": "M76",
+      "phase": "certification-reliability",
+      "title": "Certification freeze and lease bootstrap",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M70",
+        "M71",
+        "M75"
+      ],
+      "acceptance": "Certification safely starts when the active runtime predates lease support and freezes non-emergency lifecycle mutation without bypassing Release Governor.",
+      "evidence": [
+        "source:scripts/custom-runtime/custom-runtime-auth.sh",
+        "test:test/scripts/custom-runtime-stage-promote.test.ts"
+      ]
+    },
+    {
+      "id": "M77",
+      "phase": "certification-reliability",
+      "title": "Owner-authorized certification state machine",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M76"
+      ],
+      "acceptance": "Lease transitions bind exact active and candidate SHAs, owner, operation class, timestamps, actor, and approval while rejecting premature same-candidate promotion.",
+      "evidence": [
+        "source:scripts/custom-runtime/custom-runtime-auth.sh",
+        "test:test/scripts/custom-runtime-stage-promote.test.ts"
+      ]
+    },
+    {
+      "id": "M78",
+      "phase": "certification-reliability",
+      "title": "Global lifecycle arbitration",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M77"
+      ],
+      "acceptance": "Promotion, activation, restart, rollback, recovery guard, and certification operations use one exclusive repository-managed arbitration contract.",
+      "evidence": [
+        "source:scripts/custom-runtime/custom-runtime-auth.sh",
+        "test:test/scripts/custom-runtime-lifecycle-arbitration.test.ts"
+      ]
+    },
+    {
+      "id": "M79",
+      "phase": "certification-reliability",
+      "title": "Emergency recovery and invalidation receipt",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M78"
+      ],
+      "acceptance": "Emergency rollback remains available but atomically invalidates certification and emits a typed sanitized recovery receipt.",
+      "evidence": [
+        "source:scripts/custom-runtime/custom-runtime-rollback.sh",
+        "test:test/scripts/custom-runtime-lifecycle-arbitration.test.ts"
+      ]
+    },
+    {
+      "id": "M80",
+      "phase": "certification-reliability",
+      "title": "Lifecycle provenance and audit receipts",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M77",
+        "M78"
+      ],
+      "acceptance": "Every transition records actor, approval, operation, PID, invocation identity, timestamps, active and candidate SHAs, result, and evidence digest.",
+      "evidence": [
+        "source:scripts/custom-runtime/custom-runtime-auth.sh",
+        "test:test/scripts/custom-runtime-lifecycle-arbitration.test.ts"
+      ]
+    },
+    {
+      "id": "M81",
+      "phase": "certification-reliability",
+      "title": "Concurrent lifecycle stress and adversarial review",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M78",
+        "M79",
+        "M80"
+      ],
+      "acceptance": "Malformed, conflicting, expired, excessive-duration, owner-mismatched, concurrent, crashed, and partially written lifecycle states fail safely.",
+      "evidence": [
+        "source:scripts/custom-runtime/custom-runtime-auth.sh",
+        "test:test/scripts/custom-runtime-lifecycle-arbitration.test.ts"
+      ]
+    },
+    {
+      "id": "M82",
+      "phase": "certification-reliability",
+      "title": "M01 through M68 implementation and evidence audit",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M73",
+        "M74",
+        "M81"
+      ],
+      "acceptance": "Every legacy milestone is inspected, genuine implementation gaps are closed, current evidence is mapped, and stale or missing proof remains explicitly pending.",
+      "evidence": [
+        "source:scripts/control-director-milestone-audit.mjs",
+        "test:test/scripts/control-director-milestone-audit.test.ts"
+      ]
+    },
+    {
+      "id": "M83",
+      "phase": "certification-reliability",
+      "title": "Canonical candidate reconciliation and freeze",
+      "status": "pending",
+      "implementationStatus": "unassessed",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M71",
+        "M75",
+        "M82"
+      ],
+      "acceptance": "One active-lineage candidate contains every necessary accepted change, all required capabilities, the complete roadmap, and no unrelated behavior.",
+      "evidence": []
+    },
+    {
+      "id": "M84",
+      "phase": "certification-reliability",
+      "title": "Exact-source acceptance and canonical landing",
+      "status": "pending",
+      "implementationStatus": "unassessed",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M74",
+        "M83"
+      ],
+      "acceptance": "The frozen SHA passes source, browser, exact-SHA Workflow Sanity, full non-Android CI, independent review, and approved landing without content drift.",
+      "evidence": []
+    },
+    {
+      "id": "M85",
+      "phase": "certification-reliability",
+      "title": "Managed-runtime certification campaign",
+      "status": "pending",
+      "implementationStatus": "unassessed",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M68",
+        "M76",
+        "M77",
+        "M78",
+        "M79",
+        "M80",
+        "M81",
+        "M84"
+      ],
+      "acceptance": "The landed exact SHA completes activation, configuration, restart, outstanding legacy runtime proof, desktop, tablet, mobile, rollback-and-restore, and minimum soak.",
+      "evidence": []
+    },
+    {
+      "id": "M86",
+      "phase": "certification-reliability",
+      "title": "Control Director Functioning 100% baseline",
+      "status": "pending",
+      "implementationStatus": "unassessed",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M85"
+      ],
+      "acceptance": "All 86 milestones, capability inventory, evidence bundles, Judge receipt, and sanitized SIG closure agree on one landed and active exact SHA.",
+      "evidence": []
+    },
+    {
+      "id": "M87",
+      "phase": "model-governance",
+      "title": "Immutable model admission identity",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M86"
+      ],
+      "acceptance": "Every admitted local model route binds provider, model ref, alias, digest, Modelfile/base digests, context window, quantization, runtime root, config revision, and selected fallback position before any production use.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M88",
+      "phase": "model-governance",
+      "title": "Evidence invalidation graph",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M87"
+      ],
+      "acceptance": "Source, config, model alias, digest, runtime, prompt, skill, cache, and proof-surface changes deterministically invalidate stale receipts before certification can continue.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M89",
+      "phase": "model-governance",
+      "title": "Transactional managed-model configuration",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M88"
+      ],
+      "acceptance": "Managed model-order changes are backed up, validated, applied atomically, and governed through an explicit Release Governor configuration operation without unrelated config drift.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M90",
+      "phase": "model-governance",
+      "title": "Residency lease and prewarm readiness",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M89"
+      ],
+      "acceptance": "Model residency, prewarm, unload, and contention state are lease-bound, resource-governed, and visible before expensive trials or activation proceed.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M91",
+      "phase": "model-governance",
+      "title": "Latency phase telemetry",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M90"
+      ],
+      "acceptance": "Cold start, warm start, queue wait, first token/activity, substantive response, tool wait, cancellation, and recovery phases are measured separately against SLOs.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M92",
+      "phase": "model-governance",
+      "title": "Qualified local-only fallback",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M91"
+      ],
+      "acceptance": "Fallbacks remain local-only unless explicitly escalated, preserve the 93 quality floor, and record why a primary route was bypassed or retried.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M93",
+      "phase": "model-governance",
+      "title": "Proof-gated quality cascade",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M92"
+      ],
+      "acceptance": "Quality cascade decisions use deterministic thresholds, bounded retries, no silent downgrade, and receipts that bind task class, score, model identity, and blocker state.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M94",
+      "phase": "model-governance",
+      "title": "Bounded shadow challenger",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M93"
+      ],
+      "acceptance": "A bounded challenger can review high-risk local outputs without taking over execution, leaking secrets, or changing user-visible results without a signed promotion decision.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M95",
+      "phase": "model-governance",
+      "title": "Judge diversity and independence",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M94"
+      ],
+      "acceptance": "Judge review uses an independent route or model identity where feasible, records conflicts of lineage/model/provider, and fails closed on non-independent certification claims.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M96",
+      "phase": "model-governance",
+      "title": "Statistical model-evaluation durability",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M95"
+      ],
+      "acceptance": "At least 48 exact-runtime trials cover core, long-context, and adversarial task classes with quality, latency, omission, resource, and fallback metrics at or above the 93 floor.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M97",
+      "phase": "model-governance",
+      "title": "Prompt-prefix and cache identity",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M96"
+      ],
+      "acceptance": "Prompt prefix, skill set, tool set, cache policy, model identity, and memory projection are hash-bound so cached or compacted turns cannot masquerade as fresh proof.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M98",
+      "phase": "model-governance",
+      "title": "Immutable runtime invocation",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M97"
+      ],
+      "acceptance": "Every runtime invocation binds release id, source SHA, runtime root, wrapper identity, config revision, model identity, and proof directory without cwd fallback.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M99",
+      "phase": "model-governance",
+      "title": "PCC model and proof observability",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M98"
+      ],
+      "acceptance": "PCC exposes sanitized model route, proof freshness, invalidation, fallback, latency, and certification state without secrets or transcript scraping.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M100",
+      "phase": "model-governance",
+      "title": "Typed SIG incidents for model/proof drift",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M99"
+      ],
+      "acceptance": "SIG receives typed incidents for model drift, stale proof, fallback downgrade, evidence invalidation, latency regression, and certification lease conflicts.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M101",
+      "phase": "model-governance",
+      "title": "Source/runtime proof planner",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M100"
+      ],
+      "acceptance": "A deterministic planner enumerates required proof surfaces for a source/config/runtime/model change before CI, runtime mutation, or certification begins.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M102",
+      "phase": "model-governance",
+      "title": "Workflow and skill convergence",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M101"
+      ],
+      "acceptance": "Source-controlled workflows, skills, prompts, memory replacement notes, and runtime procedures express the same Governor/lease-aware process with no obsolete direct-kill or unmanaged-sync path.",
+      "evidence": [
+        "binding:modelGovernanceProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M103",
+      "phase": "stability",
+      "title": "Model-governance chaos suite",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M102"
+      ],
+      "acceptance": "Malformed identity receipts, stale caches, config races, model unloads, latency spikes, fallback failures, Judge disagreement, and proof invalidation are reproducibly contained.",
+      "evidence": [
+        "binding:stabilityProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M104",
+      "phase": "stability",
+      "title": "Fallback and rollback restoration",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M103"
+      ],
+      "acceptance": "Primary/fallback model restoration and Release Governor rollback restore exact runtime, config, cache, proof, and capability state with typed receipts.",
+      "evidence": [
+        "binding:stabilityProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M105",
+      "phase": "stability",
+      "title": "Extended active and passive monitoring",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M104"
+      ],
+      "acceptance": "Certification includes at least 30 minutes active soak plus 24 hours passive monitoring for route drift, resource pressure, stale proof, SIG recurrence, and PCC inconsistency.",
+      "evidence": [
+        "binding:stabilityProof",
+        "source:src/agents/control-director-model-governance-proof.ts",
+        "test:src/agents/control-director-model-governance-proof.test.ts"
+      ]
+    },
+    {
+      "id": "M106",
+      "phase": "stability",
+      "title": "Durable Control Director 100% certification and ledger closure",
+      "status": "pending",
+      "implementationStatus": "implemented",
+      "certificationStatus": "pending",
+      "dependsOn": [
+        "M105"
+      ],
+      "acceptance": "All 106 milestones, 35 capabilities, model-governance proofs, stability proofs, readiness, Judge, SIG, PCC, rollback, soak, and sanitized final ledger agree on one active exact SHA with quality at least 93.",
+      "evidence": [
+        "binding:sourceProof",
+        "binding:updateSurvival",
+        "binding:runtimeProof",
+        "binding:remoteProof",
+        "binding:readiness",
+        "binding:modelGovernanceProof",
+        "binding:stabilityProof",
+        "source:scripts/control-director-roadmap-proof.mjs",
+        "test:test/scripts/control-director-roadmap-proof.test.ts"
+      ]
+    }
+  ]
+}

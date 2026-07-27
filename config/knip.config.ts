@@ -14,6 +14,7 @@ const rootEntries = [
   "src/cli/daemon-cli.ts!",
   "src/agents/code-mode.worker.ts!",
   "src/agents/model-provider-auth.worker.ts!",
+  "src/agents/control-director-model-governance-proof.ts!",
   "src/infra/kysely-node-sqlite.ts!",
   "src/infra/warning-filter.ts!",
   "src/infra/command-explainer/index.ts!",
