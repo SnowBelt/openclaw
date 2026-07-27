@@ -564,6 +564,21 @@ describe("ci workflow guards", () => {
     );
   });
 
+  it("resolves the PCC operational proof base from the current default branch", () => {
+    const workflow = readWorkflowSanityWorkflow();
+    const job = workflow.jobs["pcc-operational-excellence-proof"];
+    const resolveStep = job.steps.find((step) => step.name === "Resolve current branch proof base");
+    const changedGate = job.steps.find((step) => step.name === "Run milestone changed gate");
+    const source = readFileSync(".github/workflows/workflow-sanity.yml", "utf8");
+
+    expect(resolveStep.env.DEFAULT_BRANCH).toBe("${{ github.event.repository.default_branch }}");
+    expect(resolveStep.run).toContain('default_ref="refs/remotes/origin/${DEFAULT_BRANCH}"');
+    expect(resolveStep.run).toContain('proof_base_sha="$(git merge-base HEAD "${default_ref}")"');
+    expect(resolveStep.run).toContain('echo "PROOF_BASE_SHA=${proof_base_sha}" >> "${GITHUB_ENV}"');
+    expect(changedGate.run).toContain('pnpm check:changed --base "${PROOF_BASE_SHA}" --head HEAD');
+    expect(source).not.toContain("4f9a4672b645a57f62fa04ce7339253dd4e5fa38");
+  });
+
   it("bounds platform checkout fetches without GNU timeout", () => {
     const source = readFileSync(".github/workflows/ci.yml", "utf8");
     const workflow = readCiWorkflow();

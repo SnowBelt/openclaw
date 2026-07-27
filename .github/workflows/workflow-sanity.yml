@@ -2069,14 +2069,24 @@ jobs:
     name: PCC Operational Excellence + Self-Improvement Governor proof
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      PROOF_BASE_SHA: 4f9a4672b645a57f62fa04ce7339253dd4e5fa38
     steps:
       - name: Checkout
         timeout-minutes: 10
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
+
+      - name: Resolve current branch proof base
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          default_ref="refs/remotes/origin/${DEFAULT_BRANCH}"
+          git cat-file -e "${default_ref}^{commit}"
+          proof_base_sha="$(git merge-base HEAD "${default_ref}")"
+          test -n "${proof_base_sha}"
+          echo "PROOF_BASE_SHA=${proof_base_sha}" >> "${GITHUB_ENV}"
 
       - name: Setup Node 24 and pnpm 11.2.2
         uses: ./.github/actions/setup-node-env
@@ -2110,7 +2120,7 @@ jobs:
           - pnpm ui:smoke:dashboard-codex-plus-apps
           - pnpm ui:smoke:self-improvement
           - pnpm check:workflows
-          - pnpm check:changed --base 4f9a4672b645a57f62fa04ce7339253dd4e5fa38 --head HEAD
+          - pnpm check:changed --base ${PROOF_BASE_SHA} --head HEAD
           EOF_COMMANDS
 
       - name: Run targeted operational-excellence tests
