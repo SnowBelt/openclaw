@@ -2943,10 +2943,12 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             project: projectUpsertPayload(previousDetail.project),
           });
         } catch (projectRestoreError) {
-          throw new AggregateError(
+          const recoveryError = new AggregateError(
             [error, projectRestoreError],
             `Project plan revision partially applied; recovery is required for project ${previousDetail.project.id}. Project metadata restore failed: ${projectRestoreError instanceof Error ? projectRestoreError.message : String(projectRestoreError)}`,
           );
+          recoveryError.cause = projectRestoreError;
+          throw recoveryError;
         }
         throw error;
       }
