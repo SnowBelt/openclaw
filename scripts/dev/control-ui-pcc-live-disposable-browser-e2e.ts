@@ -760,24 +760,40 @@ async function main() {
         "Create a disposable project that proves the guided PCC creation flow without touching user work.",
       );
     const aiRolePicker = creationEditor.locator("[data-pcc-ai-role-picker]").first();
-    await aiRolePicker.locator(":scope > summary").click();
-    await aiRolePicker.locator('[data-pcc-execution-profile="balanced"]').check({ force: true });
-    const balancedTeamPresetVisible = await creationEditor
-      .locator("[data-pcc-ai-role-picker]")
-      .getByText("Balanced team", { exact: false })
+    const localExecutionPicker = aiRolePicker.locator("[data-pcc-local-execution-picker]").first();
+    await localExecutionPicker.locator(":scope > summary").click();
+    const parallelExecution = localExecutionPicker.locator('[data-pcc-local-execution="parallel"]');
+    await parallelExecution.check({ force: true });
+    const parallelExecutionVisible = await localExecutionPicker
+      .getByText("Parallel", { exact: false })
       .first()
       .isVisible();
-    const codexApprovalExplainedOnce = await creationEditor
-      .locator("[data-pcc-create-ai-summary]")
-      .getByText("one Codex approval", { exact: false })
+    const codexPolicyPicker = aiRolePicker.locator("[data-pcc-codex-policy-picker]").first();
+    await codexPolicyPicker.locator(":scope > summary").click();
+    const recommendedCodexPolicy = codexPolicyPicker.locator(
+      '[data-pcc-codex-policy="recommended_minimum"]',
+    );
+    await recommendedCodexPolicy.check({ force: true });
+    const recommendedCodexPolicyVisible = await codexPolicyPicker
+      .getByText("Recommended minimum", { exact: false })
+      .first()
       .isVisible();
-    const allAiPlansVisible =
-      (await aiRolePicker.locator("[data-pcc-execution-profile]").count()) === 5 &&
-      (await aiRolePicker.locator('[data-pcc-execution-profile="local_focused"]').count()) === 1 &&
-      (await aiRolePicker.locator('[data-pcc-execution-profile="local_parallel"]').count()) === 1 &&
-      (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_local"]').count()) === 1 &&
-      (await aiRolePicker.locator('[data-pcc-execution-profile="balanced"]').count()) === 1 &&
-      (await aiRolePicker.locator('[data-pcc-execution-profile="ultra_hybrid"]').count()) === 1;
+    const codexCheckpointsExplained = await creationEditor
+      .locator("[data-pcc-create-ai-summary]")
+      .getByText("Codex checkpoints remain visible and approval-gated", { exact: false })
+      .isVisible();
+    const allExecutionAndCodexOptionsVisible =
+      (await localExecutionPicker.locator("[data-pcc-local-execution]").count()) === 3 &&
+      (await localExecutionPicker.locator('[data-pcc-local-execution="focused"]').count()) === 1 &&
+      (await localExecutionPicker.locator('[data-pcc-local-execution="parallel"]').count()) === 1 &&
+      (await localExecutionPicker.locator('[data-pcc-local-execution="ultra"]').count()) === 1 &&
+      (await codexPolicyPicker.locator("[data-pcc-codex-policy]").count()) === 4 &&
+      (await codexPolicyPicker.locator('[data-pcc-codex-policy="local_only"]').count()) === 1 &&
+      (await codexPolicyPicker.locator('[data-pcc-codex-policy="recommended_minimum"]').count()) ===
+        1 &&
+      (await codexPolicyPicker.locator('[data-pcc-codex-policy="more_oversight"]').count()) === 1 &&
+      (await codexPolicyPicker.locator('[data-pcc-codex-policy="custom"]').count()) === 1 &&
+      (await aiRolePicker.locator("[data-pcc-execution-profile]").count()) === 0;
     const customizeDetails = creationEditor.locator("[data-pcc-create-customize]").first();
     const customizeSummary = customizeDetails.locator(":scope > summary");
     await customizeSummary.scrollIntoViewIfNeeded();
@@ -834,9 +850,9 @@ async function main() {
     const duplicatePlannerSelectorCount = await creationEditor
       .locator("[data-pcc-planner-selector]")
       .count();
-    const createDisabledBeforeApproval = await creationEditor
+    const createEnabledBeforeCheckpointApproval = await creationEditor
       .locator("[data-pcc-create-project-confirm]")
-      .isDisabled();
+      .isEnabled();
     await creationEditor.locator("[data-pcc-planner-permission-allow]").click({ force: true });
     const permissionApproved = await creationEditor
       .locator("[data-pcc-planner-permission-saved]")
@@ -855,20 +871,34 @@ async function main() {
       ) &&
       (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
         createdProjectTitle;
-    if ((await aiRolePicker.getAttribute("open")) === null) {
-      await aiRolePicker.locator(":scope > summary").click();
+    if ((await localExecutionPicker.getAttribute("open")) === null) {
+      await localExecutionPicker.locator(":scope > summary").click();
     }
-    const localParallelProfile = aiRolePicker.locator(
-      '[data-pcc-execution-profile="local_parallel"]',
+    const localParallelProfile = localExecutionPicker.locator(
+      '[data-pcc-local-execution="parallel"]',
     );
     await localParallelProfile.check({ force: true });
+    if ((await codexPolicyPicker.getAttribute("open")) === null) {
+      await codexPolicyPicker.locator(":scope > summary").click();
+    }
+    const localOnlyCodexPolicy = codexPolicyPicker.locator('[data-pcc-codex-policy="local_only"]');
+    await localOnlyCodexPolicy.locator("..").click();
+    await page.waitForFunction(
+      () =>
+        document.querySelector<HTMLInputElement>(
+          '[data-pcc-editor="project"] [data-pcc-codex-policy="local_only"]',
+        )?.checked === true,
+      undefined,
+      { timeout: 15_000 },
+    );
+    const selectedLocalOnlyCodexPolicy = creationEditor.locator(
+      '[data-pcc-codex-policy="local_only"]',
+    );
     const localFallbackSelected =
       (await localParallelProfile.isChecked()) &&
-      (await creationEditor
-        .locator("[data-pcc-ai-role-picker]")
-        .getByText("Parallel", { exact: true })
-        .first()
-        .isVisible());
+      (await selectedLocalOnlyCodexPolicy.isChecked()) &&
+      (await localExecutionPicker.getByText("Parallel", { exact: false }).first().isVisible()) &&
+      (await codexPolicyPicker.getByText("Local AI only", { exact: false }).first().isVisible());
     await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
     await creationEditor
       .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
@@ -918,16 +948,17 @@ async function main() {
       ) !== false;
     const newProjectGuidedCreateWorked =
       aiExplainerVisible &&
-      balancedTeamPresetVisible &&
-      codexApprovalExplainedOnce &&
-      allAiPlansVisible &&
+      parallelExecutionVisible &&
+      recommendedCodexPolicyVisible &&
+      codexCheckpointsExplained &&
+      allExecutionAndCodexOptionsVisible &&
       userTitlePreserved &&
       reviewExplainsSafety &&
       routingSummaryVisible &&
       permissionCardCount === 1 &&
       tokenBudgetControlCount === 0 &&
       duplicatePlannerSelectorCount === 0 &&
-      createDisabledBeforeApproval &&
+      createEnabledBeforeCheckpointApproval &&
       permissionApproved &&
       createEnabledAfterApproval &&
       backPreservedUserInput &&
@@ -1789,14 +1820,16 @@ async function main() {
       actionMenuWorked: true,
       newProjectCancelWorked,
       newProjectGuidedCreateWorked,
-      newProjectBalancedTeamPresetVisible: balancedTeamPresetVisible,
-      newProjectAllAiPlansVisible: allAiPlansVisible,
-      newProjectCodexApprovalExplainedOnce: codexApprovalExplainedOnce,
+      newProjectParallelExecutionVisible: parallelExecutionVisible,
+      newProjectRecommendedCodexPolicyVisible: recommendedCodexPolicyVisible,
+      newProjectAllExecutionAndCodexOptionsVisible: allExecutionAndCodexOptionsVisible,
+      newProjectCodexCheckpointsExplained: codexCheckpointsExplained,
       newProjectRoutingSummaryVisible: routingSummaryVisible,
       newProjectSinglePermissionCard: permissionCardCount === 1,
       newProjectNoTokenBudgetControl: tokenBudgetControlCount === 0,
       newProjectNoDuplicatePlannerSelector: duplicatePlannerSelectorCount === 0,
-      newProjectCreateDisabledBeforeCodexApproval: createDisabledBeforeApproval,
+      newProjectCreateEnabledBeforeOptionalCheckpointApproval:
+        createEnabledBeforeCheckpointApproval,
       newProjectCodexPermissionApproved: permissionApproved,
       newProjectCreateEnabledAfterCodexApproval: createEnabledAfterApproval,
       newProjectBackPreservesInput: backPreservedUserInput,
