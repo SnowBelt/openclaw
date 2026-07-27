@@ -208,6 +208,29 @@ single-use preview, an exact action and target match, fresh and complete source 
 confirmation. Preview cancellation changes nothing; replay is rejected. Process killing, model
 starting, plugin installation, config editing, and permission changes remain in their owner surfaces.
 
+## Resolving an issue
+
+Every current issue has a **Resolve** disclosure. It explains what happened, the impact, owner,
+recommended next step, risk, current response, exact change preview, approval requirement, where
+progress and completion evidence will appear, and how a proposed change would be undone.
+
+When the issue maps to an existing guarded control, Resolve opens that exact preview and retains the
+same freshness, permission, confirmation, and single-use receipt requirements. When no safe exact
+mutation exists, **Investigate with local AI** opens a visible read-only Chat draft. Opening the draft
+does not send it or start work. The operator reviews and sends it explicitly. The draft requires
+deterministic checks first, local AI for investigation and recommendations, an independent local
+Judge safety review, Codex only for high-risk or low-confidence escalation, and a proposed
+change/verification/rollback plan before any separate approval.
+
+The UI never labels an issue as investigating, applying, verifying, or resolved unless the
+authoritative finding state supports that label. Missing, stale, partial, ambiguous, or unsupported
+state fails closed to **Needs review** and never exposes a generic one-click mutation.
+
+The overview labels active managed work as **OpenClaw work**. Separately, the System summary shows
+**Local AI processes: _N_** from host process telemetry. A loaded local model process is not counted
+as an OpenClaw agent or work item and does not prove that an inference is actively generating.
+Local-model RSS remains separate from host memory pressure.
+
 ## Addition and update standard
 
 Every new agent, workflow, skill, plugin, tool, model route, or process declares a stable ID, owner,

@@ -72,7 +72,13 @@ describe("Operations Room view", () => {
     );
     expect(
       container.querySelector('.operations-quick-link[href*="section=working"]')?.textContent,
-    ).toContain("Agents working now 1");
+    ).toContain("OpenClaw work 1");
+    expect(
+      container.querySelector('.operations-quick-link[href*="section=system"]')?.textContent,
+    ).toContain("Local AI processes: 2");
+    expect(container.querySelector("#operations-working")?.textContent).toContain(
+      "OpenClaw-managed tasks and workflows only. Local AI processes appear under System.",
+    );
     expect(
       container.querySelector('.operations-quick-link[href*="section=agents"]')?.textContent,
     ).toContain("1 working · 1 need attention");
@@ -88,6 +94,53 @@ describe("Operations Room view", () => {
     ).toBe("In progress · Owner: release-ops");
     expect(container.querySelector(".operations-issue__next-action")?.textContent).toContain(
       "Next: Install the required local tool.",
+    );
+  });
+
+  it("offers a clear, non-mutating local-AI resolution path with complete safeguards", async () => {
+    const container = await renderView();
+    const resolution = container.querySelector<HTMLDetailsElement>(".operations-resolution");
+    const link = resolution?.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
+
+    expect(resolution?.querySelector("summary")?.textContent).toContain("Resolve");
+    expect(resolution?.textContent).toContain("What happened");
+    expect(resolution?.textContent).toContain("Owner");
+    expect(resolution?.textContent).toContain("Next action");
+    expect(resolution?.textContent).toContain("Issue risk");
+    expect(resolution?.textContent).toContain("What will change");
+    expect(resolution?.textContent).toContain("Your approval");
+    expect(resolution?.textContent).toContain("Updates");
+    expect(resolution?.textContent).toContain("Undo plan");
+    expect(resolution?.textContent).toContain(
+      "OpenClaw will not change anything consequential without your confirmation.",
+    );
+    expect(link?.textContent).toContain("Investigate with local AI");
+    expect(link?.href).toContain("draft=");
+    const draft = new URL(link?.href ?? "http://localhost/chat").searchParams.get("draft");
+    expect(draft).toContain("Read-only investigation only");
+    expect(draft).toContain("independent local Judge");
+    expect(resolution?.textContent).toContain("Opening the draft does not send it or start work.");
+  });
+
+  it("fails closed instead of inventing an owner or next step", async () => {
+    const snapshot = createOperationsTestSnapshot();
+    snapshot.findings[0] = {
+      ...snapshot.findings[0]!,
+      ownerId: undefined,
+      nextAction: undefined,
+      recommendedAction: undefined,
+    };
+    const container = await renderView({ snapshot });
+    const issue = container.querySelector(".operations-issue");
+
+    expect(issue?.querySelector(".operations-issue__assignment")?.textContent).toMatch(
+      /Owner:\s+Unassigned/,
+    );
+    expect(issue?.textContent).toContain(
+      "No safe next step is confirmed. Investigate before changing anything.",
+    );
+    expect(issue?.querySelector(".operations-issue__assignment")?.textContent).not.toMatch(
+      /Owner:\s+OpenClaw/,
     );
   });
 
@@ -165,13 +218,16 @@ describe("Operations Room view", () => {
     expect(issue?.textContent).toContain("Remediation task");
     expect(issue?.textContent).toContain("task-1");
     issue?.querySelector<HTMLButtonElement>(".operations-remediation-link")?.click();
-    [...(issue?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
-      .find((button) => button.textContent?.includes("Cancel workflow"))
+    issue
+      ?.querySelector<HTMLButtonElement>(".operations-resolution__actions .btn--primary")
       ?.click();
 
     expect(onNavigate).toHaveBeenCalledWith("workboard");
     expect(onAction).toHaveBeenCalledWith("flow.cancel", "flow-1");
-    expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain("Details for");
+    expect(issue?.querySelector("summary")?.getAttribute("aria-label")).toContain("Resolve");
+    expect(issue?.textContent).toContain("Review cancellation");
+    expect(issue?.textContent).toContain("Prepare a guarded preview");
+    expect(issue?.textContent).not.toContain("Opening the draft does not send it or start work.");
   });
 
   it("explains agent attention and routes review without implying an automatic fix", async () => {
