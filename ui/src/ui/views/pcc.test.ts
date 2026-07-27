@@ -3116,7 +3116,7 @@ describe("renderPccDashboard", () => {
     );
     expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain("Focused");
     expect(container.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "No automatic Codex use",
+      "Recommended minimum",
     );
     expect(container.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
       "Codex GPT-5.6 Sol will generate the project plan",
@@ -3132,7 +3132,7 @@ describe("renderPccDashboard", () => {
     );
   });
 
-  it("offers five conflict-free execution profiles with qualitative Codex usage guidance", () => {
+  it("separates local work speed from Codex checkpoint policy without override conflicts", () => {
     const onProjectFormChange = vi.fn();
     const container = renderView(
       createProps({
@@ -3145,17 +3145,28 @@ describe("renderPccDashboard", () => {
       }),
     );
 
-    expect(container.querySelectorAll("[data-pcc-execution-profile]")).toHaveLength(5);
-    expect(container.querySelector('[data-pcc-execution-profile="ultra_local"]')).not.toBeNull();
+    expect(container.querySelectorAll("[data-pcc-local-execution]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-pcc-codex-policy]")).toHaveLength(4);
     container
-      .querySelector<HTMLInputElement>('[data-pcc-execution-profile="ultra_hybrid"]')
+      .querySelector<HTMLInputElement>('[data-pcc-local-execution="ultra"]')
       ?.dispatchEvent(new Event("change", { bubbles: true }));
     expect(onProjectFormChange).toHaveBeenCalledWith(
       expect.objectContaining({
         executionProfile: expect.objectContaining({
-          presetId: "ultra_hybrid",
-          codexRole: "lead",
           speed: "ultra",
+          codexPolicyId: "recommended_minimum",
+        }),
+      }),
+    );
+    container
+      .querySelector<HTMLInputElement>('[data-pcc-codex-policy="local_only"]')
+      ?.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(onProjectFormChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionProfile: expect.objectContaining({
+          speed: "parallel",
+          codexPolicyId: "local_only",
+          codexRole: "off",
         }),
         codexPlanningAllowed: false,
       }),
@@ -3172,13 +3183,94 @@ describe("renderPccDashboard", () => {
       }),
     );
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
-      "Ultra + Codex",
+      "More Codex oversight",
     );
     expect(codexContainer.querySelector("[data-pcc-create-ai-summary]")?.textContent).toContain(
-      "Codex execution remains blocked until you approve that separate role",
+      "Codex checkpoints remain visible and approval-gated",
     );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-card]")).toBeNull();
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
+  });
+
+  it("shows a reviewable AI project-change impact before any saved-project mutation", () => {
+    const onProjectFormChange = vi.fn();
+    const onGenerateProjectPlan = vi.fn();
+    const container = renderView(
+      createProps({
+        editorMode: "edit-project",
+        projectEditMode: "ai",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          id: project.id,
+          title: project.title,
+          goal: project.goal,
+          changeRequest: "Add mobile launch proof without changing completed work.",
+          generatedPlan: {
+            schemaVersion: 1,
+            title: project.title,
+            goal: project.goal,
+            outcomeMetrics: ["Mobile proof passes."],
+            workflowTemplateId: "software-product",
+            milestones: [],
+            risks: [],
+            assumptions: [],
+            provenance: {
+              generatedAt: "2026-07-26T12:00:00.000Z",
+              provider: "openai",
+              model: "openai/gpt-5.6-sol",
+              runtime: "codex",
+              effort: "medium",
+              auth: "oauth",
+              source: "live_codex",
+              planningOnly: true,
+            },
+          },
+          planRevision: {
+            schemaVersion: 1,
+            id: "revision-1",
+            projectId: project.id,
+            request: "Add mobile launch proof without changing completed work.",
+            generatedAt: "2026-07-26T12:00:00.000Z",
+            sourceModel: "openai/gpt-5.6-sol",
+            sourceEffort: "medium",
+            beforeFingerprint: "pcc-before",
+            changes: [],
+            addedMilestones: 1,
+            updatedMilestones: 1,
+            preservedCompletedMilestones: 2,
+            addedSubMilestones: 0,
+            affectedActiveMilestoneIds: [milestone.id],
+            mustPauseActiveWork: true,
+            staleProofMilestoneIds: [milestone.id],
+            integrityErrors: [],
+            safeToApply: true,
+            rollbackAvailable: true,
+            summary: "1 milestone added, 1 updated, and 2 completed milestones protected.",
+          },
+          planPreviewAccepted: false,
+        },
+        onProjectFormChange,
+        onGenerateProjectPlan,
+      }),
+    );
+
+    expect(
+      container.querySelector<HTMLTextAreaElement>("[data-pcc-project-change-request]")?.value,
+    ).toContain("mobile launch proof");
+    expect(container.querySelector("[data-pcc-plan-revision-preview]")?.textContent).toContain(
+      "2 completed",
+    );
+    expect(container.querySelector("[data-pcc-plan-revision-preview]")?.textContent).toContain(
+      "1 paused before apply",
+    );
+    expect(container.querySelector("[data-pcc-plan-revision-preview]")?.textContent).toContain(
+      "openai/gpt-5.6-sol · medium",
+    );
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(
+      true,
+    );
+    container.querySelector<HTMLButtonElement>("[data-pcc-preview-project-change]")?.click();
+    expect(onGenerateProjectPlan).toHaveBeenCalledOnce();
   });
 
   it("keeps unavailable models out of new choices while explaining a stale saved selection", () => {
@@ -3404,7 +3496,7 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
     expect(
       container.querySelector<HTMLButtonElement>("[data-pcc-create-project-confirm]")?.disabled,
-    ).toBe(true);
+    ).toBe(false);
     container.querySelector<HTMLButtonElement>("[data-pcc-planner-permission-allow]")?.click();
     expect(onProjectFormChange).toHaveBeenCalledWith({ codexPlanningAllowed: true });
 
@@ -3801,9 +3893,11 @@ describe("renderPccDashboard", () => {
     expect(codexContainer.querySelector("[data-pcc-ai-role-picker]")?.textContent).toContain(
       "Codex",
     );
-    expect(codexContainer.textContent).toContain("Optional Codex execution");
-    expect(codexContainer.textContent).toContain("planning-only Codex grant");
-    expect(codexContainer.textContent).toContain("no hard token cap");
+    expect(codexContainer.textContent).toContain("Codex checkpoint permission");
+    expect(codexContainer.textContent).toContain("planning-only OAuth grant");
+    expect(codexContainer.textContent?.replace(/\s+/gu, " ").toLowerCase()).toContain(
+      "no hard token cap",
+    );
     expect(codexContainer.querySelector("[data-pcc-planner-permission-budget]")).toBeNull();
     expect(codexContainer.querySelectorAll("[data-pcc-planner-permission-card]")).toHaveLength(1);
     expect(codexContainer.querySelector("[data-pcc-planning-policy]")?.textContent).toContain(

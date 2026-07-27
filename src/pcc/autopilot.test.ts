@@ -66,7 +66,7 @@ describe("PCC Autopilot Project Loop", () => {
     expect(context.projectSummary).toContain("Autopilot Test Project");
     expect(context.blockers.join("\n")).toContain("Manual verification pending");
     expect(context.forbiddenActions.join("\n")).toContain("Do not spend Codex");
-    expect(context.approvalRules.join("\n")).toContain("focused local execution");
+    expect(context.approvalRules.join("\n")).toContain("one local worker");
     expect(context.forbiddenActions).toContain("Do not invoke Codex for this project profile.");
   });
 
@@ -80,8 +80,10 @@ describe("PCC Autopilot Project Loop", () => {
       defaultPccAutopilotState({ ...input(), project: hybridProject }, now),
     );
 
-    expect(context.approvalRules.join("\n")).toContain("ultra local execution");
-    expect(context.approvalRules.join("\n")).toContain("allows Codex only as lead");
+    expect(context.approvalRules.join("\n")).toContain("maximum safe local workers");
+    expect(context.approvalRules.join("\n")).toContain(
+      "allows Codex only at these visible checkpoints",
+    );
     expect(context.forbiddenActions).toContain(
       "Do not broaden Codex beyond the project profile or its scoped grant.",
     );

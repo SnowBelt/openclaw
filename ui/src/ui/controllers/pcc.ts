@@ -43,7 +43,9 @@ import {
   derivePccAiUsePolicy,
   normalizePccExecutionProfile,
   pccCodexEffortIsSupported,
+  resolvePccCodexCheckpoint,
   resolvePccExecutionProfilePreset,
+  summarizePccExecutionProfile,
   validatePccModelSelection,
 } from "../../../../src/pcc/execution-profile.js";
 import {
@@ -66,6 +68,10 @@ import {
   pccResponsibilityForItem,
 } from "../../../../src/pcc/metadata.js";
 import { selectPccLocalModel } from "../../../../src/pcc/model-routing.js";
+import {
+  buildPccPlanRevisionPreview,
+  pccProjectPlanFingerprint,
+} from "../../../../src/pcc/plan-revision.js";
 import {
   DEFAULT_PCC_PLANNING_POLICY,
   PCC_CODEX_PLANNER_MODEL,
@@ -368,10 +374,26 @@ function buildPccExecutionCoordinatorPrompt(
       workspaceLease: lease ? { workspaceId: lease.workspaceId, expiresAt: lease.expiresAt } : null,
     };
   });
+  const checkpointRules = Object.keys(plan.profile.codexCheckpoints).map((checkpoint) => {
+    const resolved = resolvePccCodexCheckpoint({
+      profile: plan.profile,
+      checkpoint: checkpoint as keyof typeof plan.profile.codexCheckpoints,
+      codexApproved: false,
+    });
+    return {
+      checkpoint,
+      executor: resolved.executor,
+      automatic: resolved.automatic,
+      modelId: resolved.modelId,
+      effort: resolved.effort,
+      approvalRequired: resolved.requiresApproval,
+      rationale: resolved.rationale,
+    };
+  });
   const codexRule =
-    plan.profile.codexRole === "off"
-      ? "Codex is OFF. Do not invoke Codex or any Codex model for this plan."
-      : `A scoped PCC grant exists for Codex role ${plan.profile.codexRole}. Use ${codexModelId} at ${plan.profile.codexEffort} effort only for that role; do not broaden it.`;
+    plan.profile.codexPolicyId === "local_only"
+      ? "Codex is OFF for every project checkpoint. Do not invoke Codex or any Codex model."
+      : `Codex policy: ${summarizePccExecutionProfile(plan.profile)} Use ${codexModelId} only at an approved checkpoint. Never broaden checkpoint scope or infer approval. Checkpoint routing: ${JSON.stringify(checkpointRules)}`;
   return [
     "You are the PCC supervised execution coordinator.",
     `Project: ${detail.project.title} (${detail.project.id})`,
@@ -582,15 +604,30 @@ function aiUsePolicyNeedsCodex(policy: PccAiUsePolicy): boolean {
   return policy !== "local_only";
 }
 
-function aiUsePolicyAllowedAction(policy: PccAiUsePolicy): string {
-  switch (policy) {
-    case "codex_focused":
-      return "Use Codex only at selected architecture, difficult diagnosis, verification, and final-review checkpoints; local agents handle routine execution";
-    case "codex_everything":
-      return "Use Codex for all eligible project execution and review work after the separate planning-only phase";
-    default:
-      return "Use Codex for architecture, difficult problem-solving, debugging, and final review; local agents handle routine execution";
-  }
+const PCC_CODEX_CHECKPOINT_LABELS = {
+  material_replan: "Major project change",
+  architecture_review: "Architecture decision",
+  blocked_recovery: "Stuck or repeated failure",
+  final_review: "Final completion review",
+} as const;
+
+function codexCheckpointPermissionActions(
+  profile: PccProjectFormState["executionProfile"],
+): string[] {
+  return Object.entries(profile.codexCheckpoints)
+    .filter(([, mode]) => mode !== "local")
+    .map(
+      ([checkpoint, mode]) =>
+        `${PCC_CODEX_CHECKPOINT_LABELS[checkpoint as keyof typeof PCC_CODEX_CHECKPOINT_LABELS]}: ${mode === "codex" ? "Codex" : "Automatic (local first, then Codex only on its documented trigger)"}`,
+    );
+}
+
+function codexPermissionType(
+  profile: PccProjectFormState["executionProfile"],
+): "codex_usage" | "high_reasoning_model" {
+  return profile.codexEffort === "medium" && profile.codexMaxEffort === "medium"
+    ? "codex_usage"
+    : "high_reasoning_model";
 }
 
 function canonicalizeProjectAiRouting(form: PccProjectFormState): PccProjectFormState {
@@ -716,6 +753,13 @@ function generatedPlanIntake(plan: PccPlanGenerationResult): Record<string, stri
   };
 }
 
+function generatedExecutionResponsibility(value: string): string {
+  const responsibility = normalizePccResponsibility(value);
+  return responsibility === "remote_proof" || responsibility === "user"
+    ? responsibility
+    : "local_openclaw_agent";
+}
+
 function generatedMilestoneDraft(
   milestone: PccGeneratedMilestone,
   order: number,
@@ -730,12 +774,301 @@ function generatedMilestoneDraft(
     implementationPlan: milestone.implementationPlan,
     acceptanceCriteria: milestone.acceptanceCriteria,
     metadata: {
-      pccResponsibility: normalizePccResponsibility(milestone.responsibility),
+      pccResponsibility: generatedExecutionResponsibility(milestone.responsibility),
+      pccPlannerSuggestedResponsibility: normalizePccResponsibility(milestone.responsibility),
       pccProofLevel: milestone.proofLevel,
       pccGeneratedBy: generatedBy,
       pccParallelSafe: milestone.dependencies.length === 0,
     },
   };
+}
+
+function normalizedMilestoneTitle(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/\s+/gu, " ");
+}
+
+function planRevisionHistoryMetadata(form: PccProjectFormState, now: string): unknown[] {
+  if (!form.planRevision || !form.generatedPlan) {
+    return [];
+  }
+  return [
+    {
+      schemaVersion: form.planRevision.schemaVersion,
+      id: form.planRevision.id,
+      request: form.planRevision.request,
+      generatedAt: form.planRevision.generatedAt,
+      appliedAt: now,
+      sourceModel: form.planRevision.sourceModel,
+      sourceEffort: form.planRevision.sourceEffort,
+      beforeFingerprint: form.planRevision.beforeFingerprint,
+      summary: form.planRevision.summary,
+      changes: form.planRevision.changes,
+      staleProofMilestoneIds: form.planRevision.staleProofMilestoneIds,
+      rollbackAvailable: true,
+    },
+  ];
+}
+
+function reconcileExecutionPlansForRevision(
+  project: PccProject | undefined,
+  now: string,
+): PccExecutionPlan[] | null {
+  if (!project) {
+    return null;
+  }
+  const plans = executionPlansFromProject(project);
+  if (!plans.some((plan) => isPccExecutionPlanActive(plan.status))) {
+    return null;
+  }
+  return plans.map((plan) => {
+    if (!isPccExecutionPlanActive(plan.status)) {
+      return plan;
+    }
+    if (plan.status === "prepared") {
+      return transitionPccExecutionPlan(plan, "cancelled", {
+        at: now,
+        reason: "Cancelled before applying a material project plan revision.",
+      });
+    }
+    if (plan.status === "dispatching" || plan.status === "running" || plan.status === "blocked") {
+      return transitionPccExecutionPlan(plan, "paused", {
+        at: now,
+        reason: "Paused before applying a material project plan revision.",
+      });
+    }
+    return plan;
+  });
+}
+
+async function applyGeneratedPlanRevision(params: {
+  state: PccDashboardState;
+  detail: PccProjectDetail;
+  plan: PccPlanGenerationResult;
+  now: string;
+}): Promise<{
+  added: PccMilestone[];
+  updated: PccMilestone[];
+  addedSubMilestones: PccSubMilestone[];
+}> {
+  const client = params.state.client;
+  if (!client) {
+    return { added: [], updated: [], addedSubMilestones: [] };
+  }
+  const existingByTitle = new Map(
+    params.detail.milestones.map((milestone) => [
+      normalizedMilestoneTitle(milestone.title),
+      milestone,
+    ]),
+  );
+  const maxOrder = params.detail.milestones.reduce(
+    (maximum, milestone) => Math.max(maximum, milestone.order ?? -1),
+    -1,
+  );
+  const added: PccMilestone[] = [];
+  const updated: PccMilestone[] = [];
+  const addedSubMilestones: PccSubMilestone[] = [];
+  const resolvedByGeneratedIndex: PccMilestone[] = [];
+
+  try {
+    for (const [index, generated] of params.plan.milestones.entries()) {
+      const existing = existingByTitle.get(normalizedMilestoneTitle(generated.title));
+      const completed =
+        existing && (existing.status === "complete" || existing.status === "skipped");
+      if (completed) {
+        resolvedByGeneratedIndex.push(existing);
+        continue;
+      }
+      const revisionChange = params.state.pccProjectForm.planRevision?.changes.find(
+        (change) => change.generatedIndex === index,
+      );
+      if (existing && (!revisionChange || revisionChange.fields.length === 0)) {
+        resolvedByGeneratedIndex.push(existing);
+        continue;
+      }
+      const draft = generatedMilestoneDraft(
+        generated,
+        existing?.order ?? maxOrder + added.length + 1,
+        params.plan.provenance.source,
+      );
+      const next = existing
+        ? {
+            ...existing,
+            ...draft,
+            id: existing.id,
+            projectId: existing.projectId,
+            order: existing.order,
+            status: existing.status === "in_progress" ? ("on_hold" as const) : existing.status,
+            percentComplete: existing.percentComplete,
+            blocker: existing.blocker,
+            metadata: {
+              ...pccMetadataObject(existing.metadata),
+              ...pccMetadataObject(draft.metadata),
+              pccPlanRevisionId: params.state.pccProjectForm.planRevision?.id,
+              ...(existing.status === "in_progress"
+                ? {
+                    pccRevisionPausedAt: params.now,
+                    pccRevisionPauseReason:
+                      "Active work paused before an approved material plan revision was applied.",
+                  }
+                : {}),
+            },
+          }
+        : {
+            ...draft,
+            projectId: params.detail.project.id,
+            metadata: {
+              ...pccMetadataObject(draft.metadata),
+              pccPlanRevisionId: params.state.pccProjectForm.planRevision?.id,
+            },
+          };
+      const result = await client.request<{ milestone: PccMilestone }>("pcc.milestones.upsert", {
+        milestone: milestoneUpsertPayload(next),
+      });
+      resolvedByGeneratedIndex.push(result.milestone);
+      if (existing) {
+        updated.push(result.milestone);
+      } else {
+        added.push(result.milestone);
+      }
+      const existingSubMilestones = existing
+        ? (params.detail.subMilestones ?? []).filter(
+            (subMilestone) => subMilestone.milestoneId === existing.id,
+          )
+        : [];
+      const existingSubMilestonesByTitle = new Map(
+        existingSubMilestones.map((subMilestone) => [
+          normalizedMilestoneTitle(subMilestone.title),
+          subMilestone,
+        ]),
+      );
+      const maxSubMilestoneOrder = existingSubMilestones.reduce(
+        (maximum, subMilestone) => Math.max(maximum, subMilestone.order ?? -1),
+        -1,
+      );
+      for (const [subIndex, generatedSubMilestone] of generated.subMilestones.entries()) {
+        const existingSubMilestone = existingSubMilestonesByTitle.get(
+          normalizedMilestoneTitle(generatedSubMilestone.title),
+        );
+        if (
+          existingSubMilestone?.status === "complete" ||
+          existingSubMilestone?.status === "skipped"
+        ) {
+          continue;
+        }
+        const subMilestoneResult = await client.request<{ subMilestone: PccSubMilestone }>(
+          "pcc.subMilestones.upsert",
+          {
+            subMilestone: subMilestoneUpsertPayload({
+              ...(existingSubMilestone ? { ...existingSubMilestone } : {}),
+              projectId: params.detail.project.id,
+              milestoneId: result.milestone.id,
+              title: generatedSubMilestone.title,
+              status: existingSubMilestone?.status ?? "not_started",
+              order: existingSubMilestone?.order ?? maxSubMilestoneOrder + subIndex + 1,
+              percentComplete: existingSubMilestone?.percentComplete ?? 0,
+              implementationPlan: generatedSubMilestone.implementationPlan,
+              acceptanceCriteria: generatedSubMilestone.acceptanceCriteria,
+              metadata: {
+                ...pccMetadataObject(existingSubMilestone?.metadata),
+                pccResponsibility: generatedExecutionResponsibility(
+                  generatedSubMilestone.responsibility,
+                ),
+                pccPlannerSuggestedResponsibility: normalizePccResponsibility(
+                  generatedSubMilestone.responsibility,
+                ),
+                pccProofLevel: generatedSubMilestone.proofLevel,
+                pccPlanRevisionId: params.state.pccProjectForm.planRevision?.id,
+              },
+            }),
+          },
+        );
+        if (!existingSubMilestone) {
+          addedSubMilestones.push(subMilestoneResult.subMilestone);
+        }
+      }
+    }
+
+    for (const [index, generated] of params.plan.milestones.entries()) {
+      const milestone = resolvedByGeneratedIndex[index];
+      const revisionChange = params.state.pccProjectForm.planRevision?.changes.find(
+        (change) => change.generatedIndex === index,
+      );
+      if (revisionChange?.kind === "preserve_completed") {
+        continue;
+      }
+      const dependsOn = generated.dependencies
+        .map((dependency) => resolvedByGeneratedIndex[dependency]?.id)
+        .filter((id): id is string => Boolean(id));
+      if (milestone && JSON.stringify(milestone.dependsOn ?? []) !== JSON.stringify(dependsOn)) {
+        const result = await client.request<{ milestone: PccMilestone }>("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload({ ...milestone, dependsOn }),
+        });
+        const updatedIndex = updated.findIndex((item) => item.id === milestone.id);
+        if (updatedIndex >= 0) {
+          updated[updatedIndex] = result.milestone;
+        }
+        const addedIndex = added.findIndex((item) => item.id === milestone.id);
+        if (addedIndex >= 0) {
+          added[addedIndex] = result.milestone;
+        }
+      }
+    }
+    return { added, updated, addedSubMilestones };
+  } catch (error) {
+    const rollbackErrors: string[] = [];
+    const rollback = async (label: string, action: () => Promise<unknown>): Promise<void> => {
+      try {
+        await action();
+      } catch (rollbackError) {
+        rollbackErrors.push(
+          `${label}: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        );
+      }
+    };
+    for (const milestone of params.detail.milestones) {
+      await rollback(`restore milestone ${milestone.id}`, () =>
+        client.request("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload(milestone),
+        }),
+      );
+    }
+    for (const subMilestone of params.detail.subMilestones ?? []) {
+      await rollback(`restore sub-milestone ${subMilestone.id}`, () =>
+        client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload(subMilestone),
+        }),
+      );
+    }
+    for (const subMilestone of addedSubMilestones) {
+      await rollback(`roll back added sub-milestone ${subMilestone.id}`, () =>
+        client.request("pcc.subMilestones.upsert", {
+          subMilestone: subMilestoneUpsertPayload({
+            ...subMilestone,
+            status: "skipped",
+            blocker: "Rolled back after a project plan revision failed.",
+          }),
+        }),
+      );
+    }
+    for (const milestone of added) {
+      await rollback(`roll back added milestone ${milestone.id}`, () =>
+        client.request("pcc.milestones.upsert", {
+          milestone: milestoneUpsertPayload({
+            ...milestone,
+            status: "skipped",
+            blocker: "Rolled back after a project plan revision failed.",
+          }),
+        }),
+      );
+    }
+    if (rollbackErrors.length > 0) {
+      throw new Error(
+        `Project plan revision partially applied; recovery is required for project ${params.detail.project.id}. ${rollbackErrors.join(" ")}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: number | undefined) {
@@ -750,7 +1083,7 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
       remoteProofAllowed: form.remoteProofAllowed,
       runtimeActionsAllowed: form.runtimeActionsAllowed,
       planningMode: form.planningMode,
-      aiUsePolicy: form.aiUsePolicy,
+      aiUsePolicy: "local_only",
     });
   }
   const base = buildPccWorkflowDraft({
@@ -762,7 +1095,7 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
     planningMode: "codex_full_plan",
-    aiUsePolicy: form.aiUsePolicy,
+    aiUsePolicy: "local_only",
   });
   const milestones = plan.milestones.map((milestone, order) =>
     generatedMilestoneDraft(milestone, order, plan.provenance.source),
@@ -790,7 +1123,10 @@ function workflowDraftFromGeneratedPlan(form: PccProjectFormState, priority: num
           implementationPlan: subMilestone.implementationPlan,
           acceptanceCriteria: subMilestone.acceptanceCriteria,
           metadata: {
-            pccResponsibility: normalizePccResponsibility(subMilestone.responsibility),
+            pccResponsibility: generatedExecutionResponsibility(subMilestone.responsibility),
+            pccPlannerSuggestedResponsibility: normalizePccResponsibility(
+              subMilestone.responsibility,
+            ),
             pccProofLevel: subMilestone.proofLevel,
             pccGeneratedBy: plan.provenance.source,
             pccParallelSafe: true,
@@ -1059,7 +1395,10 @@ function workflowDraftForSetup(
           implementationPlan: subMilestone.implementationPlan,
           acceptanceCriteria: subMilestone.acceptanceCriteria,
           metadata: {
-            pccResponsibility: normalizePccResponsibility(subMilestone.responsibility),
+            pccResponsibility: generatedExecutionResponsibility(subMilestone.responsibility),
+            pccPlannerSuggestedResponsibility: normalizePccResponsibility(
+              subMilestone.responsibility,
+            ),
             pccProofLevel: subMilestone.proofLevel,
             pccGeneratedBy: generatedPlan.provenance.source,
             parallelSafe: true,
@@ -1348,6 +1687,7 @@ function projectFormFromProject(
     title: project.title,
     goal: project.goal ?? "",
     projectDescription: metadataString(metadata.pccProjectDescription, project.goal ?? ""),
+    changeRequest: "",
     status: project.status,
     priority: String(project.priority ?? 3),
     dueDate: metadataDateInput(metadata.dueDate ?? metadata.pccDueDate),
@@ -1373,6 +1713,7 @@ function projectFormFromProject(
     planPreviewAccepted: true,
     planningDepth: "automatic",
     generatedPlan: null,
+    planRevision: null,
     codexPlanningAllowed: permissions.some((permission) =>
       pccCodexPermissionIsUsable(permission, executionProfile),
     ),
@@ -1820,7 +2161,20 @@ export function updatePccProjectForm(
     nextForm.planningMode = plannerModeToPlanningMode(patch.plannerMode);
   }
   if (patch.projectDescription !== undefined) {
-    nextForm = { ...nextForm, planPreviewAccepted: false, generatedPlan: null };
+    nextForm = {
+      ...nextForm,
+      planPreviewAccepted: false,
+      generatedPlan: null,
+      planRevision: null,
+    };
+  }
+  if (patch.changeRequest !== undefined) {
+    nextForm = {
+      ...nextForm,
+      planPreviewAccepted: false,
+      generatedPlan: null,
+      planRevision: null,
+    };
   }
   state.pccProjectForm = nextForm;
   state.requestUpdate?.();
@@ -1832,7 +2186,16 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
       return;
     }
     const form = state.pccProjectForm;
-    const description = form.projectDescription.trim() || form.goal.trim() || form.title.trim();
+    const changeRequest = form.changeRequest.trim();
+    const detail =
+      form.id && state.pccProjectDetail?.project.id === form.id ? state.pccProjectDetail : null;
+    const baseDescription = detail?.project.id
+      ? detailText(detail)
+      : form.projectDescription.trim() || form.goal.trim() || form.title.trim();
+    const description =
+      form.id && changeRequest
+        ? `${baseDescription}\n\nRequested project change:\n${changeRequest}`
+        : baseDescription;
     if (!description) {
       state.pccActionError = "Describe what you want this project to accomplish first.";
       return;
@@ -1844,11 +2207,33 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
         description,
         ...(form.title.trim() ? { existingTitle: form.title.trim() } : {}),
         ...(form.goal.trim() ? { existingGoal: form.goal.trim() } : {}),
+        ...(form.id && changeRequest
+          ? {
+              desiredOutcome:
+                "Create a safe revised project plan that implements the requested change, preserves completed work, and identifies all affected milestones, dependencies, proof, and permissions.",
+              constraints: [
+                "Preserve completed milestones and their receipts.",
+                "Do not delete project history.",
+                "Do not start implementation.",
+                "Do not perform external writes, deployment, credential changes, destructive actions, purchases, publication, or reboot.",
+              ],
+            }
+          : {}),
         preferredTemplateId: form.workflowTemplateId,
         depth: form.planningDepth,
       },
     );
     const plan = result.plan;
+    const planRevision =
+      detail && changeRequest
+        ? buildPccPlanRevisionPreview({
+            project: detail.project,
+            milestones: detail.milestones,
+            subMilestones: detail.subMilestones ?? [],
+            request: changeRequest,
+            plan,
+          })
+        : null;
     state.pccProjectForm = {
       ...form,
       title: form.title.trim() || plan.title,
@@ -1860,14 +2245,17 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
       planningMode: "codex_full_plan",
       plannerMode: "codex",
       plannerModelId: plan.provenance.model,
-      planPreviewAccepted: true,
+      planPreviewAccepted: !form.id,
       generatedPlan: plan,
+      planRevision,
       intakeAnswers: { ...generatedPlanIntake(plan), ...form.intakeAnswers },
       intakeApproved: true,
     };
     setActionNotice(
       state,
-      `Plan generated by ${plan.provenance.model} at ${plan.provenance.effort} effort. Review it before creating the project.`,
+      planRevision
+        ? `Change preview generated by ${plan.provenance.model} at ${plan.provenance.effort} effort. Review the impact before applying it.`
+        : `Plan generated by ${plan.provenance.model} at ${plan.provenance.effort} effort. Review it before creating the project.`,
     );
   });
 }
@@ -2372,10 +2760,31 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           : "Review and approve the generated plan preview before creating the project.";
       return;
     }
-    if (!form.id && aiUsePolicyNeedsCodex(form.aiUsePolicy) && !form.codexPlanningAllowed) {
-      state.pccActionError =
-        "Approve the selected Codex role once, or choose Local first, before creating the project.";
-      return;
+    if (form.id && form.planRevision) {
+      if (!form.planRevision.safeToApply) {
+        state.pccActionError =
+          form.planRevision.integrityErrors[0] ??
+          "The proposed plan revision failed its integrity check.";
+        return;
+      }
+      if (!form.planPreviewAccepted) {
+        state.pccActionError = "Review and approve the project change preview before applying it.";
+        return;
+      }
+      const currentDetail =
+        state.pccProjectDetail?.project.id === form.id ? state.pccProjectDetail : null;
+      if (
+        !currentDetail ||
+        pccProjectPlanFingerprint(
+          currentDetail.project,
+          currentDetail.milestones,
+          currentDetail.subMilestones ?? [],
+        ) !== form.planRevision.beforeFingerprint
+      ) {
+        state.pccActionError =
+          "This project changed after the preview was generated. Generate a fresh change preview before applying it.";
+        return;
+      }
     }
     const resolvedCodexModel =
       form.executionProfile.codexRole === "off"
@@ -2408,6 +2817,17 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     const existingIntake = pccMetadataObject(
       pccMetadataObject(state.pccProjectDetail?.project.metadata).pccIntake,
     );
+    const existingProjectMetadata = pccMetadataObject(state.pccProjectDetail?.project.metadata);
+    const existingPlanRevisionHistory = Array.isArray(
+      existingProjectMetadata.pccPlanRevisionHistory,
+    )
+      ? existingProjectMetadata.pccPlanRevisionHistory
+      : [];
+    const newPlanRevisionHistory = planRevisionHistoryMetadata(form, now);
+    const reconciledExecutionPlans =
+      form.planRevision && form.id
+        ? reconcileExecutionPlansForRevision(state.pccProjectDetail?.project, now)
+        : null;
     const intakeMetadata = {
       answers: form.intakeAnswers,
       approved: form.intakeApproved,
@@ -2453,6 +2873,24 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             pccExecutionProfile: form.executionProfile,
             pccProjectDescription: form.projectDescription,
             ...(form.generatedPlan ? { pccPlanningProvenance: form.generatedPlan.provenance } : {}),
+            ...(newPlanRevisionHistory.length > 0
+              ? {
+                  pccPlanRevisionHistory: [
+                    ...existingPlanRevisionHistory.slice(-9),
+                    ...newPlanRevisionHistory,
+                  ],
+                  pccCurrentPlanRevisionId: form.planRevision?.id,
+                  pccPlanRevisionProofStale: form.planRevision?.staleProofMilestoneIds ?? [],
+                  pccPlanRevisionRollbackAvailable: true,
+                  ...(reconciledExecutionPlans
+                    ? {
+                        pccExecutionPlans: reconciledExecutionPlans,
+                        pccActiveExecutionPlanId: null,
+                        pccExecutionLastUpdatedAt: now,
+                      }
+                    : {}),
+                }
+              : {}),
             pccOutcomeMetrics: outcomeMetrics,
             ...(dueDate
               ? { dueDate, pccDueDate: dueDate }
@@ -2489,6 +2927,30 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
     const result = await state.client.request<PccProjectsUpsertResult>("pcc.projects.upsert", {
       project: projectUpsertPayload(projectForUpsert),
     });
+    const previousDetail = form.id ? state.pccProjectDetail : null;
+    let revisionResult: Awaited<ReturnType<typeof applyGeneratedPlanRevision>> | null = null;
+    if (form.id && form.generatedPlan && form.planRevision && previousDetail) {
+      try {
+        revisionResult = await applyGeneratedPlanRevision({
+          state,
+          detail: previousDetail,
+          plan: form.generatedPlan,
+          now,
+        });
+      } catch (error) {
+        try {
+          await state.client.request("pcc.projects.upsert", {
+            project: projectUpsertPayload(previousDetail.project),
+          });
+        } catch (projectRestoreError) {
+          throw new AggregateError(
+            [error, projectRestoreError],
+            `Project plan revision partially applied; recovery is required for project ${previousDetail.project.id}. Project metadata restore failed: ${projectRestoreError instanceof Error ? projectRestoreError.message : String(projectRestoreError)}`,
+          );
+        }
+        throw error;
+      }
+    }
     if (draft && !form.id) {
       const createdMilestones: PccMilestone[] = [];
       for (const milestone of draft.milestones) {
@@ -2526,13 +2988,11 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
         permission.type === "codex_usage" || permission.type === "high_reasoning_model",
     );
     if (aiUsePolicyNeedsCodex(form.aiUsePolicy)) {
-      const permissionType =
-        form.executionProfile.codexEffort === "high" || form.executionProfile.codexEffort === "max"
-          ? "high_reasoning_model"
-          : "codex_usage";
+      const permissionType = codexPermissionType(form.executionProfile);
       const existingPermission = existingCodexPermissions.find(
         (permission) => permission.type === permissionType,
       );
+      const checkpointActions = codexCheckpointPermissionActions(form.executionProfile);
       await state.client.request("pcc.permissions.upsert", {
         permission: {
           ...(existingPermission ? { id: existingPermission.id } : {}),
@@ -2540,14 +3000,11 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
           type: permissionType,
           status: form.codexPlanningAllowed ? "granted" : "needed",
           riskLevel: permissionType === "high_reasoning_model" ? "high" : "medium",
-          allowedActions: [aiUsePolicyAllowedAction(form.aiUsePolicy)],
+          allowedActions: checkpointActions,
           forbiddenActions: [
             "Deployment, credential changes, destructive actions, reboot, purchases, publishing, and unrelated external writes",
           ],
-          target:
-            form.aiUsePolicy === "codex_everything"
-              ? "All eligible project execution and review work"
-              : "Selected expert execution and review checkpoints",
+          target: `Only these post-plan checkpoints: ${checkpointActions.join("; ")}`,
           ...(form.plannerPermissionScope === "plan" || form.plannerPermissionScope === "ask"
             ? { maxUses: 1 }
             : {}),
@@ -2582,6 +3039,54 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
       state.pccProjectFilter = "all";
     }
     await selectPccProject(state, result.project.id);
+    if (revisionResult && previousDetail) {
+      setPccUndo(state, `Undo project plan change`, async () => {
+        if (!state.client) {
+          return;
+        }
+        await state.client.request("pcc.projects.upsert", {
+          project: projectUpsertPayload(previousDetail.project),
+        });
+        for (const milestone of previousDetail.milestones) {
+          await state.client.request("pcc.milestones.upsert", {
+            milestone: milestoneUpsertPayload(milestone),
+          });
+        }
+        for (const added of revisionResult.added) {
+          await state.client.request("pcc.milestones.upsert", {
+            milestone: milestoneUpsertPayload({
+              ...added,
+              status: "skipped",
+              blocker: "Rolled back by the user after a project plan revision.",
+              metadata: {
+                ...pccMetadataObject(added.metadata),
+                pccPlanRevisionRolledBackAt: new Date().toISOString(),
+              },
+            }),
+          });
+        }
+        for (const addedSubMilestone of revisionResult.addedSubMilestones) {
+          await state.client.request("pcc.subMilestones.upsert", {
+            subMilestone: subMilestoneUpsertPayload({
+              ...addedSubMilestone,
+              status: "skipped",
+              blocker: "Rolled back by the user after a project plan revision.",
+              metadata: {
+                ...pccMetadataObject(addedSubMilestone.metadata),
+                pccPlanRevisionRolledBackAt: new Date().toISOString(),
+              },
+            }),
+          });
+        }
+        await loadPccDashboard(state);
+        await selectPccProject(state, previousDetail.project.id);
+      });
+      setActionNotice(
+        state,
+        `Project change applied. ${form.planRevision?.summary ?? "The revised plan is ready."}`,
+        "Undo",
+      );
+    }
     if (creating) {
       const firstMilestone = draft?.milestones[0]?.title;
       setActionNotice(

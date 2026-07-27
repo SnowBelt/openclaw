@@ -906,7 +906,7 @@
 .pcc-create-steps {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1127,7 +1127,11 @@
   overflow: hidden;
 }
 
-.pcc-ai-role-picker > summary {
+.pcc-ai-role-picker > details + details {
+  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.pcc-ai-role-picker > details > summary {
   align-items: center;
   cursor: pointer;
   display: flex;
@@ -1138,17 +1142,24 @@
   padding: 14px 16px;
 }
 
-.pcc-ai-role-picker > summary::-webkit-details-marker {
+.pcc-ai-role-picker > details > summary:focus-visible,
+.pcc-policy-terms summary:focus-visible {
+  border-radius: 12px;
+  outline: 3px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: -3px;
+}
+
+.pcc-ai-role-picker > details > summary::-webkit-details-marker {
   display: none;
 }
 
-.pcc-ai-role-picker > summary > span:first-child {
+.pcc-ai-role-picker > details > summary > span:first-child {
   display: grid;
   gap: 3px;
   min-width: 0;
 }
 
-.pcc-ai-role-picker > summary small {
+.pcc-ai-role-picker > details > summary small {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 900;
@@ -1156,12 +1167,12 @@
   text-transform: uppercase;
 }
 
-.pcc-ai-role-picker > summary strong {
+.pcc-ai-role-picker > details > summary strong {
   color: var(--text);
   font-size: 1rem;
 }
 
-.pcc-ai-role-picker > summary em {
+.pcc-ai-role-picker > details > summary em {
   color: var(--muted);
   font-size: 0.85rem;
   font-style: normal;
@@ -1258,6 +1269,89 @@
   line-height: 1.45;
   margin: 0;
   padding: 12px 15px 14px;
+}
+
+.pcc-codex-checkpoints {
+  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  display: grid;
+  gap: 10px;
+  padding: 15px;
+}
+
+.pcc-codex-checkpoints label {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 0.35fr);
+  min-width: 0;
+}
+
+.pcc-codex-checkpoints label > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pcc-codex-checkpoints small {
+  color: var(--muted);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pcc-codex-checkpoints select {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pcc-policy-terms {
+  border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  padding: 12px 15px;
+}
+
+.pcc-policy-terms summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.pcc-policy-terms dl {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.pcc-policy-terms dt {
+  font-weight: 800;
+}
+
+.pcc-policy-terms dd {
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 3px 0 0;
+}
+
+.pcc-ai-regenerate__request {
+  display: grid;
+  gap: 7px;
+}
+
+.pcc-plan-revision {
+  background: color-mix(in srgb, var(--ok) 7%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, var(--border));
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.pcc-plan-revision.is-blocked {
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
+}
+
+.pcc-plan-revision__errors {
+  color: var(--danger);
+  margin: 0;
+  padding-left: 20px;
 }
 
 .pcc-create-options,
@@ -1378,6 +1472,10 @@
     gap: 5px;
   }
 
+  .pcc-create-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .pcc-create-steps li::after {
     display: none;
   }
@@ -1401,12 +1499,22 @@
     white-space: normal;
   }
 
-  .pcc-ai-role-picker > summary {
+  .pcc-ai-role-picker > details > summary {
     align-items: flex-start;
+    gap: 10px;
   }
 
-  .pcc-ai-role-picker > summary em {
+  .pcc-ai-role-picker > details > summary em {
     display: none;
+  }
+
+  .pcc-codex-checkpoints label {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .pcc-codex-checkpoints select {
+    width: 100%;
   }
 }
 

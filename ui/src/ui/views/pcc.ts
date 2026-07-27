@@ -13,12 +13,17 @@ import {
 import type { PccExecutionCapacitySnapshot } from "../../../../src/pcc/execution-capacity.js";
 import {
   PCC_BEST_AVAILABLE_MODEL_ID,
+  applyPccCodexPolicy,
+  applyPccLocalExecutionPreset,
   normalizePccExecutionProfile,
   resolvePccEstimatedAgentCounts,
-  resolvePccExecutionProfilePreset,
   summarizePccExecutionProfile,
+  updatePccCodexCheckpoint,
+  type PccCodexCheckpointId,
+  type PccCodexCheckpointMode,
+  type PccCodexPolicyId,
+  type PccExecutionSpeed,
   type PccExecutionProfile,
-  type PccExecutionProfilePresetId,
 } from "../../../../src/pcc/execution-profile.js";
 import type { PccExecutionRuntimeProjection } from "../../../../src/pcc/execution-state-projection.js";
 import {
@@ -254,49 +259,88 @@ const PARALLEL_WORK_OPTIONS = [
   ["supervised", "Supervised"],
 ] as const;
 
-const EXECUTION_PROFILE_OPTIONS = [
+const LOCAL_EXECUTION_OPTIONS = [
   {
-    value: "local_focused",
+    value: "focused",
     title: "Focused",
     detail: "One OpenClaw worker at a time. The calmest and most resource-efficient option.",
-    badge: "No automatic Codex use",
-    usage: "Codex off · 1 OpenClaw worker",
+    usage: "One local task at a time",
   },
   {
-    value: "local_parallel",
-    title: "Parallel",
+    value: "parallel",
+    title: "Parallel · Recommended",
     detail: "Independent OpenClaw tasks run together when the Mac has safe capacity.",
-    badge: "Fast, Codex off",
-    usage: "As many independent workers as the Mac can safely run",
+    usage: "Faster local work with automatic resource protection",
   },
   {
-    value: "ultra_local",
-    title: "Ultra",
+    value: "ultra",
+    title: "Maximum Safe",
     detail: "Use the maximum safe OpenClaw team. PCC automatically backs off when the Mac is busy.",
-    badge: "Maximum speed, Codex off",
-    usage: "No PCC worker cap · resource-governed",
-  },
-  {
-    value: "balanced",
-    title: "Balanced team",
-    detail: "OpenClaw workers do routine work; Codex reviews key checkpoints after approval.",
-    badge: "Recommended when Codex helps",
-    usage: "Parallel OpenClaw team · one approval-gated Codex reviewer",
-  },
-  {
-    value: "ultra_hybrid",
-    title: "Ultra + Codex",
-    detail: "Maximum safe OpenClaw team with one approval-gated Codex lead for the hardest work.",
-    badge: "Highest quality and speed",
-    usage: "Codex is never used until explicitly approved",
+    usage: "No PCC worker cap · governed by live host capacity",
   },
 ] as const satisfies ReadonlyArray<{
-  value: PccExecutionProfilePresetId;
+  value: PccExecutionSpeed;
   title: string;
   detail: string;
-  badge: string;
   usage: string;
 }>;
+
+const CODEX_POLICY_OPTIONS = [
+  {
+    value: "recommended_minimum",
+    title: "Recommended minimum",
+    detail:
+      "After planning, Codex handles major replans, helps when local AI is stuck, and reviews completion.",
+    usage: "2 planned post-plan checkpoints · extra help only when evidence shows it is needed",
+  },
+  {
+    value: "local_only",
+    title: "Local AI only",
+    detail:
+      "After Codex creates the initial plan, OpenClaw local models handle the work and review.",
+    usage: "No Codex project checkpoints after planning",
+  },
+  {
+    value: "more_oversight",
+    title: "More Codex oversight",
+    detail: "Codex reviews every major plan, architecture, recovery, and completion checkpoint.",
+    usage: "Higher Codex use · routine implementation still stays local",
+  },
+  {
+    value: "custom",
+    title: "Custom",
+    detail: "Choose Local AI, Codex, or Automatic for each major checkpoint.",
+    usage: "Your visible checkpoint choices are the only policy",
+  },
+] as const satisfies ReadonlyArray<{
+  value: PccCodexPolicyId;
+  title: string;
+  detail: string;
+  usage: string;
+}>;
+
+const CODEX_CHECKPOINT_OPTIONS = [
+  [
+    "material_replan",
+    "Major project change",
+    "Replans when scope, dependencies, or done criteria change.",
+  ],
+  [
+    "architecture_review",
+    "Architecture decision",
+    "Reviews high-impact technical choices before implementation.",
+  ],
+  [
+    "blocked_recovery",
+    "Stuck or repeated failure",
+    "Helps after two documented local attempts or a high-impact blocker.",
+  ],
+  [
+    "final_review",
+    "Final completion review",
+    "Checks current evidence before PCC claims completion.",
+  ],
+] as const satisfies ReadonlyArray<[PccCodexCheckpointId, string, string]>;
 
 const PROJECT_FILTER_OPTIONS: Array<[PccProjectFilter, string]> = [
   ["active", "Active"],
@@ -387,18 +431,17 @@ function projectPlannerSummary(props: PccDashboardProps): {
   safety: string;
 } {
   const form = props.projectForm;
-  const option = executionProfileOption(form.executionProfile.presetId);
+  const execution = localExecutionOption(form.executionProfile.speed);
+  const codex = codexPolicyOption(form.executionProfile.codexPolicyId);
   const capacity = props.executionCapacity?.safeLocalAgentSlots ?? 0;
   const counts = resolvePccEstimatedAgentCounts(form.executionProfile, capacity);
   return {
-    title: option.title,
-    detail: `Codex GPT-5.6 Sol creates the plan. ${option.detail} Current safe execution: ${counts.localAgents} OpenClaw worker${counts.localAgents === 1 ? "" : "s"}${counts.codexAgents ? " + 1 Codex role" : ""}.`,
+    title: `${execution.title.replace(" · Recommended", "")} · ${codex.title}`,
+    detail: `${execution.detail} ${codex.detail} Current safe execution: ${counts.localAgents} OpenClaw worker${counts.localAgents === 1 ? "" : "s"}.`,
     safety:
-      form.executionProfile.codexRole === "off"
-        ? "Codex off"
-        : form.codexPlanningAllowed
-          ? "Codex approved for this scope"
-          : "Codex remains blocked until approved",
+      form.executionProfile.codexPolicyId === "local_only"
+        ? "Codex off after initial planning"
+        : "Codex is used only at visible checkpoints",
   };
 }
 
@@ -2070,13 +2113,27 @@ function projectIntakeSourceText(
     .trim();
 }
 
-function executionProfileFormPatch(
-  presetId: PccExecutionProfilePresetId,
+function localExecutionFormPatch(
+  form: PccProjectFormState,
+  speed: PccExecutionSpeed,
 ): Partial<PccProjectFormState> {
-  const executionProfile = resolvePccExecutionProfilePreset(presetId);
+  const executionProfile = applyPccLocalExecutionPreset(form.executionProfile, speed);
   return {
     executionProfile,
-    codexPlanningAllowed: false,
+    plannerPermissionScope: executionProfile.approvalScope,
+    plannerPermissionBudget: "",
+    planPreviewAccepted: false,
+  };
+}
+
+function codexPolicyFormPatch(
+  form: PccProjectFormState,
+  codexPolicyId: PccCodexPolicyId,
+): Partial<PccProjectFormState> {
+  const executionProfile = applyPccCodexPolicy(form.executionProfile, codexPolicyId);
+  return {
+    executionProfile,
+    codexPlanningAllowed: codexPolicyId === "local_only" ? false : form.codexPlanningAllowed,
     plannerPermissionScope: executionProfile.approvalScope,
     plannerPermissionBudget: "",
     planPreviewAccepted: false,
@@ -2096,11 +2153,14 @@ function executionProfileFieldPatch(
   };
 }
 
-function executionProfileOption(presetId: PccExecutionProfilePresetId) {
+function localExecutionOption(speed: PccExecutionSpeed) {
   return (
-    EXECUTION_PROFILE_OPTIONS.find((option) => option.value === presetId) ??
-    EXECUTION_PROFILE_OPTIONS[0]
+    LOCAL_EXECUTION_OPTIONS.find((option) => option.value === speed) ?? LOCAL_EXECUTION_OPTIONS[0]
   );
+}
+
+function codexPolicyOption(id: PccCodexPolicyId) {
+  return CODEX_POLICY_OPTIONS.find((option) => option.value === id) ?? CODEX_POLICY_OPTIONS[0];
 }
 
 function projectCreationAiTruth(form: PccProjectFormState): string {
@@ -2108,11 +2168,9 @@ function projectCreationAiTruth(form: PccProjectFormState): string {
     ? `${form.generatedPlan.provenance.model} generated this plan at ${form.generatedPlan.provenance.effort} effort.`
     : "Codex GPT-5.6 Sol will generate the project plan after you choose Generate.";
   const execution =
-    form.executionProfile.codexRole === "off"
-      ? "OpenClaw local agents execute the work."
-      : form.codexPlanningAllowed
-        ? "The selected Codex execution role is approved."
-        : "Codex execution remains blocked until you approve that separate role. You will give one Codex approval.";
+    form.executionProfile.codexPolicyId === "local_only"
+      ? "OpenClaw local agents execute and review the work."
+      : "OpenClaw local agents execute routine work. Codex checkpoints remain visible and approval-gated.";
   return `${planning} ${execution}`;
 }
 
@@ -2149,7 +2207,7 @@ function projectCreationDraftStats(form: PccProjectFormState): {
     codexPlanningAllowed: form.codexPlanningAllowed,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
-    aiUsePolicy: form.aiUsePolicy,
+    aiUsePolicy: "local_only",
   });
   return {
     milestones: draft.milestones.length,
@@ -2167,8 +2225,10 @@ function projectCreationRoutingStats(form: PccProjectFormState): {
 } {
   if (form.generatedPlan) {
     const responsibilities = form.generatedPlan.milestones.flatMap((milestone) => [
-      milestone.responsibility,
-      ...milestone.subMilestones.map((item) => item.responsibility),
+      generatedPlanExecutionResponsibility(milestone.responsibility),
+      ...milestone.subMilestones.map((item) =>
+        generatedPlanExecutionResponsibility(item.responsibility),
+      ),
     ]);
     return {
       codex: responsibilities.filter((value) => /codex/iu.test(value)).length,
@@ -2185,7 +2245,7 @@ function projectCreationRoutingStats(form: PccProjectFormState): {
     codexPlanningAllowed: form.codexPlanningAllowed,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
-    aiUsePolicy: form.aiUsePolicy,
+    aiUsePolicy: "local_only",
   });
   return draft.milestones.reduce(
     (counts, milestone) => {
@@ -2204,6 +2264,10 @@ function projectCreationRoutingStats(form: PccProjectFormState): {
     },
     { codex: 0, local: 0, gated: 0 },
   );
+}
+
+function generatedPlanExecutionResponsibility(value: string): string {
+  return /^(?:remote_proof|user)$/u.test(value) ? value : "local_openclaw_agent";
 }
 
 function projectIntakeNeedsAiDraft(form: PccProjectFormState): boolean {
@@ -2322,28 +2386,56 @@ function renderSectionAiRegeneratePanel(props: PccDashboardProps) {
   return html`<section class="pcc-ai-regenerate" data-pcc-section-ai-regenerate>
     <div class="pcc-section-heading">
       <div>
-        <p class="pcc-kicker">AI edit</p>
-        <h4>Regenerate any section</h4>
+        <p class="pcc-kicker">Change this project with AI</p>
+        <h4>Describe the change in your own words</h4>
         <p>
-          Preview changes before PCC writes goal, intake, workflow, milestones, proof, permissions,
-          blockers, or handoff details.
+          Codex proposes a revised plan. PCC shows what will change, protects completed work, pauses
+          affected active work, checks dependencies, and offers Undo after applying.
         </p>
       </div>
-      <span>No token spend unless separately approved</span>
+      <span>Planning only · nothing changes before review</span>
     </div>
-    <div class="pcc-ai-regenerate__grid">
-      ${PCC_AI_REGENERATE_SECTIONS.map(
-        ([id, label]) => html`<button
-          class="btn btn--subtle"
-          type="button"
-          data-pcc-section-ai-regenerate=${id}
-          ?disabled=${props.actionBusy}
-          @click=${() => runSectionAiRegenerate(props, id)}
-        >
-          Regenerate ${label}
-        </button>`,
-      )}
-    </div>
+    <label class="pcc-ai-regenerate__request">
+      What should change?
+      <textarea
+        data-pcc-project-change-request
+        rows="4"
+        placeholder="Example: Add a mobile launch milestone, keep completed work unchanged, and make accessibility proof required."
+        .value=${props.projectForm.changeRequest}
+        @input=${(event: Event) =>
+          props.onProjectFormChange({
+            changeRequest: (event.target as HTMLTextAreaElement).value,
+          })}
+      ></textarea>
+    </label>
+    <button
+      class="btn"
+      type="button"
+      data-pcc-preview-project-change
+      ?disabled=${props.actionBusy ||
+      props.planningPolicy?.grant.enabled === false ||
+      !props.projectForm.changeRequest.trim()}
+      @click=${() => props.onGenerateProjectPlan?.()}
+    >
+      Preview project change with Codex
+    </button>
+    <details class="pcc-detail-drawer">
+      <summary>Change only one section</summary>
+      <p>Use these shortcuts when the rest of the project should remain exactly as it is.</p>
+      <div class="pcc-ai-regenerate__grid">
+        ${PCC_AI_REGENERATE_SECTIONS.map(
+          ([id, label]) => html`<button
+            class="btn btn--subtle"
+            type="button"
+            data-pcc-section-ai-regenerate=${id}
+            ?disabled=${props.actionBusy}
+            @click=${() => runSectionAiRegenerate(props, id)}
+          >
+            Regenerate ${label}
+          </button>`,
+        )}
+      </div>
+    </details>
   </section>`;
 }
 
@@ -2386,28 +2478,28 @@ function renderProjectEditModeTabs(props: PccDashboardProps) {
 
 function renderPlannerPermissionCard(props: PccDashboardProps) {
   const form = props.projectForm;
-  const needsPermission = form.executionProfile.codexRole !== "off";
+  const needsPermission = form.executionProfile.codexPolicyId !== "local_only";
   if (!needsPermission) {
     return nothing;
   }
-  const selected = executionProfileOption(form.executionProfile.presetId);
+  const selected = codexPolicyOption(form.executionProfile.codexPolicyId);
   return html`<section class="pcc-planner-permission" data-pcc-planner-permission-card>
     <div>
-      <p class="pcc-kicker">Optional Codex execution</p>
+      <p class="pcc-kicker">Codex checkpoint permission</p>
       <h4>
         ${form.codexPlanningAllowed
-          ? "Codex execution approved"
-          : "Approve the selected Codex execution role"}
+          ? "Recommended checkpoints approved"
+          : "PCC will ask before the first Codex checkpoint"}
       </h4>
       <p>
-        ${selected.title}: ${selected.detail} Project planning already uses the separate persistent,
-        planning-only Codex grant. This approval controls Codex execution after creation. It never
-        overrides deployment, credential, destructive, purchase, publishing, reboot, or unrelated
-        external-write gates.
+        ${selected.title}: ${selected.detail} Initial project planning uses the separate
+        planning-only OAuth grant. This optional approval covers only the visible project
+        checkpoints below.
       </p>
       <p data-pcc-codex-usage-guidance>
-        ${selected.usage}. There is no hard token cap. Actual usage depends on project context,
-        files, tool output, retries, and verification, so PCC does not invent a token estimate.
+        ${selected.usage}. Deployment, credentials, destructive actions, purchases, publishing,
+        reboot, and unrelated external writes always remain separate approval gates. There is no
+        hard token cap; PCC records the model, effort, reason, and completed Codex runs instead.
       </p>
     </div>
     <div class="pcc-planner-permission__fields">
@@ -2451,16 +2543,16 @@ function renderPlannerPermissionCard(props: PccDashboardProps) {
         ?disabled=${props.actionBusy || form.codexPlanningAllowed}
         @click=${() => props.onProjectFormChange({ codexPlanningAllowed: true })}
       >
-        ${form.codexPlanningAllowed ? "Approved" : "Approve Codex execution"}
+        ${form.codexPlanningAllowed ? "Approved" : "Approve recommended checkpoints"}
       </button>
       <button
         class="btn btn--subtle"
         type="button"
         data-pcc-planner-permission-cancel
         ?disabled=${props.actionBusy}
-        @click=${() => props.onProjectFormChange(executionProfileFormPatch("local_focused"))}
+        @click=${() => props.onProjectFormChange(codexPolicyFormPatch(form, "local_only"))}
       >
-        Use Local first instead
+        Use local AI only
       </button>
     </div>
   </section>`;
@@ -4861,7 +4953,7 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
   const repairPreview =
     autopilot.permissionRepair?.status === "preview" ? autopilot.permissionRepair : undefined;
   const executionProfile = normalizePccExecutionProfile(detail.project.metadata);
-  const executionOption = executionProfileOption(executionProfile.presetId);
+  const executionOption = localExecutionOption(executionProfile.speed);
   return html`<section
     class="pcc-autopilot"
     data-pcc-autopilot-project-loop
@@ -4886,12 +4978,12 @@ function renderAutopilotProjectLoop(detail: PccProjectDetail, props: PccDashboar
     <article class="pcc-autopilot__inherited-profile" data-pcc-autopilot-execution-profile>
       <div>
         <span>Project team</span>
-        <strong>${executionOption.title}</strong>
+        <strong>${executionOption.title.replace(" · Recommended", "")}</strong>
         <small>${summarizePccExecutionProfile(executionProfile)}</small>
       </div>
       <p>
-        Autopilot inherits this project profile. Prompt slots may narrow a role, but cannot enable
-        Codex or exceed local capacity beyond this profile.
+        Autopilot inherits the local work speed and visible Codex checkpoint policy. Prompt slots
+        may narrow either setting, but cannot silently enable Codex or exceed safe local capacity.
       </p>
     </article>
     <article class="pcc-autopilot__status-card" data-pcc-autopilot-status-card>
@@ -6075,7 +6167,8 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     (!terminal && !projectIsOnHold(project) && needsSetupRepair && !props.onPreviewSetupAutofill);
   const simple = pccViewMode(props) === "simple";
   const executionProfile = normalizePccExecutionProfile(project.metadata);
-  const executionOption = executionProfileOption(executionProfile.presetId);
+  const executionOption = localExecutionOption(executionProfile.speed);
+  const codexOption = codexPolicyOption(executionProfile.codexPolicyId);
   const executionCounts = resolvePccEstimatedAgentCounts(
     executionProfile,
     props.executionCapacity?.safeLocalAgentSlots ?? 0,
@@ -6103,14 +6196,17 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
     <section class="pcc-execution-profile-chip" data-pcc-project-execution-profile>
       <div>
         <span>How this project runs</span>
-        <strong>${executionOption.title}</strong>
+        <strong>${executionOption.title.replace(" · Recommended", "")}</strong>
         <small>
           ${executionCounts.localAgents} OpenClaw
           worker${executionCounts.localAgents === 1 ? "" : "s"} ·
           ${executionModelLabel(props, executionProfile.localModelId, "openclaw")} ·
-          ${executionProfile.codexRole === "off"
-            ? "Codex off"
-            : `Codex ${formatStatus(executionProfile.codexRole)}${executionCounts.codexAgents ? " after approval" : ""}`}
+          ${codexOption.title}${executionCounts.codexAgents ? " · approval-gated" : ""}
+        </small>
+        <small data-pcc-project-codex-provenance>
+          ${executionProfile.codexPolicyId === "local_only"
+            ? "Codex will not run for this project."
+            : `Codex: ${executionModelLabel(props, executionProfile.codexModelId, "codex")} · ${formatStatus(executionProfile.codexEffort)} normally · ${formatStatus(executionProfile.codexMaxEffort)} automatic maximum`}
         </small>
       </div>
       <button
@@ -7484,7 +7580,7 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
     codexPlanningAllowed: form.codexPlanningAllowed,
     remoteProofAllowed: form.remoteProofAllowed,
     runtimeActionsAllowed: form.runtimeActionsAllowed,
-    aiUsePolicy: form.aiUsePolicy,
+    aiUsePolicy: "local_only",
   });
   const previewMilestones = generatedPlan?.milestones ?? draft.milestones;
   const milestoneCount = previewMilestones.length;
@@ -7532,6 +7628,65 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
           : "Execution routing ready"}</span
       >
     </div>
+    ${form.planRevision
+      ? html`<section
+          class="pcc-plan-revision ${form.planRevision.safeToApply ? "" : "is-blocked"}"
+          data-pcc-plan-revision-preview
+        >
+          <div class="pcc-section-heading">
+            <div>
+              <p class="pcc-kicker">Impact preview</p>
+              <h4>${form.planRevision.safeToApply ? "Safe to apply after review" : "Blocked"}</h4>
+              <p>${form.planRevision.summary}</p>
+            </div>
+            <span>${form.planRevision.rollbackAvailable ? "Undo available" : "No rollback"}</span>
+          </div>
+          <dl class="pcc-workflow-quality__facts">
+            <div>
+              <dt>Add</dt>
+              <dd>${form.planRevision.addedMilestones} milestones</dd>
+            </div>
+            <div>
+              <dt>Update</dt>
+              <dd>${form.planRevision.updatedMilestones} milestones</dd>
+            </div>
+            <div>
+              <dt>Protected</dt>
+              <dd>${form.planRevision.preservedCompletedMilestones} completed</dd>
+            </div>
+            <div>
+              <dt>Active work</dt>
+              <dd>
+                ${form.planRevision.mustPauseActiveWork
+                  ? `${form.planRevision.affectedActiveMilestoneIds.length} paused before apply`
+                  : "No pause needed"}
+              </dd>
+            </div>
+            <div>
+              <dt>Proof</dt>
+              <dd>
+                ${form.planRevision.staleProofMilestoneIds.length
+                  ? `${form.planRevision.staleProofMilestoneIds.length} items need fresh proof`
+                  : "No proof invalidated"}
+              </dd>
+            </div>
+            <div>
+              <dt>Planner</dt>
+              <dd>${form.planRevision.sourceModel} · ${form.planRevision.sourceEffort}</dd>
+            </div>
+          </dl>
+          ${form.planRevision.integrityErrors.length
+            ? html`<ul class="pcc-plan-revision__errors">
+                ${form.planRevision.integrityErrors.map((error) => html`<li>${error}</li>`)}
+              </ul>`
+            : nothing}
+          <p>
+            PCC never overwrites completed milestones. New milestones are appended. Matching active
+            milestones are updated, and any affected work is put on hold before the revision is
+            applied.
+          </p>
+        </section>`
+      : nothing}
     ${executionNeedsPermission
       ? html`<div class="pcc-callout" data-pcc-codex-planning-gate>
           <strong>Optional Codex execution selected · approval below</strong>
@@ -7550,7 +7705,7 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
             : (draft.subMilestonesByMilestoneTitle[milestone.title] ?? []);
         const responsibility =
           "responsibility" in milestone
-            ? milestone.responsibility
+            ? generatedPlanExecutionResponsibility(milestone.responsibility)
             : metadataString(
                 metadataObject(milestone.metadata).pccResponsibility,
                 "local_openclaw_agent",
@@ -7577,7 +7732,9 @@ function renderGeneratedPlanPreview(props: PccDashboardProps, showApproval = tru
                 planPreviewAccepted: (event.target as HTMLInputElement).checked,
               })}
           />
-          I reviewed this generated plan preview.
+          ${form.planRevision
+            ? "I reviewed the impact and approve this project change."
+            : "I reviewed this generated plan preview."}
         </label>`
       : nothing}
   </section>`;
@@ -7694,61 +7851,154 @@ function renderProjectPlannerSummary(props: PccDashboardProps) {
 
 function renderProjectAiRolePicker(props: PccDashboardProps) {
   const form = props.projectForm;
-  const selected = executionProfileOption(form.executionProfile.presetId);
-  const routing = projectCreationRoutingStats(form);
-  return html`<details class="pcc-ai-role-picker" data-pcc-ai-role-picker>
-    <summary>
-      <span>
-        <small>How this project runs</small>
-        <strong>${selected.title}</strong>
-        <em>${selected.detail}</em>
-      </span>
-      <span class="pcc-ai-role-picker__change">Change</span>
-    </summary>
-    <fieldset>
-      <legend>Choose one team plan</legend>
-      ${EXECUTION_PROFILE_OPTIONS.map(
-        (option) => html`<label
-          class="pcc-ai-role-option ${form.executionProfile.presetId === option.value
-            ? "is-selected"
-            : ""}"
-        >
-          <input
-            type="radio"
-            name="pcc-execution-profile"
-            value=${option.value}
-            data-pcc-execution-profile=${option.value}
-            .checked=${form.executionProfile.presetId === option.value}
-            @change=${() => props.onProjectFormChange(executionProfileFormPatch(option.value))}
-          />
-          <span>
-            <strong>${option.title}</strong>
-            <small>${option.detail}</small>
-            <em>${option.badge} · ${option.usage}</em>
-          </span>
-        </label>`,
-      )}
-    </fieldset>
+  const execution = localExecutionOption(form.executionProfile.speed);
+  const codex = codexPolicyOption(form.executionProfile.codexPolicyId);
+  return html`<section class="pcc-ai-role-picker" data-pcc-ai-role-picker>
+    <details data-pcc-local-execution-picker>
+      <summary>
+        <span>
+          <small>How fast should OpenClaw work?</small>
+          <strong>${execution.title.replace(" · Recommended", "")}</strong>
+          <em>${execution.detail}</em>
+        </span>
+        <span class="pcc-ai-role-picker__change">Change</span>
+      </summary>
+      <fieldset>
+        <legend>Choose local work speed</legend>
+        ${LOCAL_EXECUTION_OPTIONS.map(
+          (option) => html`<label
+            class="pcc-ai-role-option ${form.executionProfile.speed === option.value
+              ? "is-selected"
+              : ""}"
+          >
+            <input
+              type="radio"
+              name="pcc-local-execution"
+              value=${option.value}
+              data-pcc-local-execution=${option.value}
+              .checked=${form.executionProfile.speed === option.value}
+              @change=${() =>
+                props.onProjectFormChange(localExecutionFormPatch(form, option.value))}
+            />
+            <span>
+              <strong>${option.title}</strong>
+              <small>${option.detail}</small>
+              <em>${option.usage}</em>
+            </span>
+          </label>`,
+        )}
+      </fieldset>
+    </details>
+    <details data-pcc-codex-policy-picker>
+      <summary>
+        <span>
+          <small>When should Codex help after planning?</small>
+          <strong>${codex.title}</strong>
+          <em>${codex.detail}</em>
+        </span>
+        <span class="pcc-ai-role-picker__change">Change</span>
+      </summary>
+      <fieldset>
+        <legend>Choose Codex involvement</legend>
+        ${CODEX_POLICY_OPTIONS.map(
+          (option) => html`<label
+            class="pcc-ai-role-option ${form.executionProfile.codexPolicyId === option.value
+              ? "is-selected"
+              : ""}"
+          >
+            <input
+              type="radio"
+              name="pcc-codex-policy"
+              value=${option.value}
+              data-pcc-codex-policy=${option.value}
+              .checked=${form.executionProfile.codexPolicyId === option.value}
+              @change=${() => props.onProjectFormChange(codexPolicyFormPatch(form, option.value))}
+            />
+            <span>
+              <strong
+                >${option.title}${option.value === "recommended_minimum"
+                  ? " · Recommended"
+                  : ""}</strong
+              >
+              <small>${option.detail}</small>
+              <em>${option.usage}</em>
+            </span>
+          </label>`,
+        )}
+      </fieldset>
+      ${form.executionProfile.codexPolicyId === "custom"
+        ? html`<div class="pcc-codex-checkpoints" data-pcc-codex-checkpoints>
+            ${CODEX_CHECKPOINT_OPTIONS.map(
+              ([id, label, help]) => html`<label>
+                <span><strong>${label}</strong><small>${help}</small></span>
+                <select
+                  data-pcc-codex-checkpoint=${id}
+                  .value=${form.executionProfile.codexCheckpoints[id]}
+                  @change=${(event: Event) => {
+                    const executionProfile = updatePccCodexCheckpoint(
+                      form.executionProfile,
+                      id,
+                      (event.target as HTMLSelectElement).value as PccCodexCheckpointMode,
+                    );
+                    props.onProjectFormChange({
+                      executionProfile,
+                      plannerPermissionScope: executionProfile.approvalScope,
+                      codexPlanningAllowed:
+                        executionProfile.codexRole === "off" ? false : form.codexPlanningAllowed,
+                      planPreviewAccepted: false,
+                    });
+                  }}
+                >
+                  <option value="local">Local AI</option>
+                  <option value="codex">Codex</option>
+                  <option value="automatic">Automatic</option>
+                </select>
+              </label>`,
+            )}
+          </div>`
+        : nothing}
+      <details class="pcc-policy-terms" data-pcc-policy-terms>
+        <summary>What do these terms mean?</summary>
+        <dl>
+          <div>
+            <dt>Automatic</dt>
+            <dd>
+              Starts with local AI. Codex is selected only after two documented local attempts or
+              for a high-impact checkpoint. It cannot bypass approval or safety gates.
+            </dd>
+          </div>
+          <div>
+            <dt>Checkpoint</dt>
+            <dd>
+              A planned review moment after the initial project plan. It is not routine
+              implementation.
+            </dd>
+          </div>
+          <div>
+            <dt>Effort</dt>
+            <dd>How deeply Codex reasons. Medium is the recommended default.</dd>
+          </div>
+        </dl>
+      </details>
+    </details>
     <p data-pcc-ai-role-routing>
-      Planned routing: ${routing.local} OpenClaw milestone${routing.local === 1 ? "" : "s"} ·
-      ${routing.codex} Codex milestone${routing.codex === 1 ? "" : "s"} · ${routing.gated}
-      user/proof gate${routing.gated === 1 ? "" : "s"}. ${projectCreationAiTruth(form)} This AI plan
-      is the single source of truth. Fine-tuning below edits this same plan; no second setting can
-      silently override it. You can still change an individual milestone's worker after creation.
+      OpenClaw ${execution.title.toLowerCase().replace(" · recommended", "")}. ${codex.detail}
+      ${projectCreationAiTruth(form)} These two settings are the single source of truth; neither
+      silently overrides the other.
     </p>
-  </details>`;
+  </section>`;
 }
 
 function renderProjectPlannerControls(props: PccDashboardProps) {
   const form = props.projectForm;
   const profile = form.executionProfile;
-  const usesCodex = profile.codexRole !== "off";
+  const usesCodex = profile.codexPolicyId !== "local_only";
   const capacity = props.executionCapacity?.safeLocalAgentSlots ?? 0;
   const counts = resolvePccEstimatedAgentCounts(profile, capacity);
   return html`<section class="pcc-create-options__group" data-pcc-create-model-options>
     <div>
-      <strong>Fine-tune the team</strong>
-      <span>Optional. Every choice updates the single team plan above.</span>
+      <strong>Advanced model settings</strong>
+      <span>Optional. These refine the two choices above; they cannot override them.</span>
     </div>
     <div class="pcc-callout" data-pcc-planning-policy>
       <div>
@@ -7818,7 +8068,7 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
               <small>Only configured Codex models appear. Removed models stay unavailable.</small>
             </label>
             <label>
-              Codex depth
+              Normal Codex effort
               <select
                 data-pcc-codex-reasoning
                 .value=${profile.codexEffort}
@@ -7836,7 +8086,32 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
                 <option value="xhigh">Very high · difficult reviews</option>
                 <option value="max">Maximum · hardest quality-first work</option>
               </select>
-              <small>Changing Codex depth requires approval again. It is not a token cap.</small>
+              <small>
+                Medium is recommended. Effort controls reasoning depth, not a token allowance.
+              </small>
+            </label>
+            <label>
+              Maximum automatic effort
+              <select
+                data-pcc-codex-maximum-reasoning
+                .value=${profile.codexMaxEffort}
+                @change=${(event: Event) =>
+                  props.onProjectFormChange({
+                    ...executionProfileFieldPatch(form, {
+                      codexMaxEffort: (event.target as HTMLSelectElement)
+                        .value as PccExecutionProfile["codexMaxEffort"],
+                    }),
+                    codexPlanningAllowed: false,
+                  })}
+              >
+                <option value="medium">Medium · routine checkpoint ceiling</option>
+                <option value="high">High · recommended automatic ceiling</option>
+                <option value="xhigh">Very high · difficult recovery ceiling</option>
+                <option value="max">Maximum · hardest quality-first ceiling</option>
+              </select>
+              <small>
+                Automatic never exceeds this effort and always records why it escalated.
+              </small>
             </label>
           `
         : nothing}
@@ -7877,8 +8152,8 @@ function renderProjectPlannerControls(props: PccDashboardProps) {
     </button>
     <p data-pcc-model-routing-contract>
       ${usesCodex
-        ? "OpenClaw workers handle routine and parallel steps. The selected Codex role applies only where this profile allows it, and stays blocked until approved."
-        : "All steps remain with OpenClaw workers. Ultra can use maximum safe parallel capacity without invoking Codex."}
+        ? "OpenClaw workers perform routine implementation. Codex is used only at the visible checkpoints above, records the selected model, effort, and reason, and remains blocked until approved."
+        : "All planning checkpoints and execution stay local. Maximum Safe can use all measured safe capacity without invoking Codex."}
     </p>
   </section>`;
 }
@@ -7951,9 +8226,10 @@ function renderProjectCreationFlow(props: PccDashboardProps) {
     data-pcc-create-step=${reviewing ? "review" : "describe"}
   >
     <ol class="pcc-create-steps" aria-label="New project progress">
-      <li class=${reviewing ? "is-complete" : "is-current"}><span>1</span>Describe</li>
-      <li class=${reviewing ? "is-current" : ""}><span>2</span>Review plan</li>
-      <li><span>3</span>Create</li>
+      <li class=${reviewing ? "is-complete" : "is-current"}><span>1</span>Goal</li>
+      <li class="is-complete"><span>2</span>Work speed</li>
+      <li class="is-complete"><span>3</span>Codex help</li>
+      <li class=${reviewing ? "is-current" : ""}><span>4</span>Review & create</li>
     </ol>
     ${reviewing
       ? html`
@@ -8055,13 +8331,8 @@ function renderProjectEditor(props: PccDashboardProps) {
   const missingIntake = pccMissingRequiredIntakeAnswers(form.intakeAnswers);
   const creating = props.editorMode === "create-project";
   const editMode = props.projectEditMode ?? "simple";
-  const codexApprovalMissing =
-    creating && form.executionProfile.codexRole !== "off" && !form.codexPlanningAllowed;
   const projectSaveBlocked = creating
-    ? missingIntake.length > 0 ||
-      !form.intakeApproved ||
-      !form.planPreviewAccepted ||
-      codexApprovalMissing
+    ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
     : false;
   const needsAiDraft = projectIntakeNeedsAiDraft(form);
   const intakeSummary = missingIntake.length
@@ -8188,9 +8459,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           `}
       ${creating && form.planPreviewAccepted && projectSaveBlocked
         ? html`<p class="pcc-intake-wizard__missing" data-pcc-plan-preview-blocked>
-            ${codexApprovalMissing
-              ? "Approve the selected Codex role once, or choose Local first, before creating the project."
-              : "Review the missing setup details before creating the project."}
+            Review the missing setup details before creating the project.
           </p>`
         : nothing}
       <footer>
@@ -8237,9 +8506,13 @@ function renderProjectEditor(props: PccDashboardProps) {
           : html`<button
               class="btn"
               type="submit"
-              ?disabled=${props.actionBusy || !form.title.trim()}
+              ?disabled=${props.actionBusy ||
+              !form.title.trim() ||
+              Boolean(
+                form.planRevision && (!form.planRevision.safeToApply || !form.planPreviewAccepted),
+              )}
             >
-              Save project
+              ${form.planRevision ? "Apply approved change" : "Save project"}
             </button>`}
         ${creating
           ? nothing

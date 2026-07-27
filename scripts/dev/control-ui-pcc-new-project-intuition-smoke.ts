@@ -169,7 +169,7 @@ async function main(): Promise<void> {
                     phaseId: "setup",
                     implementationPlan: "Verify permits, inspections, budget, and stop conditions.",
                     acceptanceCriteria: ["Every requirement has an owner and proof path."],
-                    responsibility: "codex",
+                    responsibility: "local_openclaw_agent",
                     proofLevel: "local",
                     dependencies: [],
                     subMilestones: [
@@ -207,12 +207,15 @@ async function main(): Promise<void> {
     renderCurrent();
     requireText(root, "[data-pcc-create-ai-explainer]", "Codex fills only the blanks");
     requireText(root, "[data-pcc-create-ai-explainer]", "Anything you type stays unchanged");
+    requireText(root, "[data-pcc-ai-role-picker]", "How fast should OpenClaw work?");
     requireText(root, "[data-pcc-ai-role-picker]", "Focused");
     requireText(root, "[data-pcc-ai-role-picker]", "Parallel");
-    requireText(root, "[data-pcc-ai-role-picker]", "Ultra");
-    requireText(root, "[data-pcc-ai-role-picker]", "Balanced team");
-    requireText(root, "[data-pcc-ai-role-picker]", "Ultra + Codex");
-    requireText(root, "[data-pcc-ai-role-picker]", "single source of truth");
+    requireText(root, "[data-pcc-ai-role-picker]", "Maximum Safe");
+    requireText(root, "[data-pcc-ai-role-picker]", "When should Codex help after planning?");
+    requireText(root, "[data-pcc-ai-role-picker]", "Recommended minimum");
+    requireText(root, "[data-pcc-ai-role-picker]", "Local AI only");
+    requireText(root, "[data-pcc-ai-role-picker]", "More Codex oversight");
+    requireText(root, "[data-pcc-ai-role-picker]", "Custom");
     requireText(root, "[data-pcc-create-review-plan]", "Generate project plan");
     if (root.querySelector("[data-pcc-planner-selector]")) {
       throw new Error("new project flow must not expose a second planner policy selector");
@@ -225,18 +228,35 @@ async function main(): Promise<void> {
       throw new Error("optional project customization must be collapsed by default");
     }
 
-    requireSelector(root, '[data-pcc-execution-profile="balanced"]').dispatchEvent(
+    requireSelector(root, '[data-pcc-local-execution="ultra"]').dispatchEvent(
       new dom.window.Event("change", { bubbles: true }),
     );
     if (
-      projectForm.executionProfile.presetId !== "balanced" ||
-      projectForm.executionProfile.codexRole !== "checkpoints" ||
-      projectForm.codexPlanningAllowed
+      projectForm.executionProfile.speed !== "ultra" ||
+      projectForm.executionProfile.codexPolicyId !== "recommended_minimum"
     ) {
-      throw new Error("Balanced team did not configure the canonical permission-gated profile");
+      throw new Error("local speed changed the independent Codex policy");
     }
-    requireText(root, "[data-pcc-ai-role-picker]", "Balanced team");
-    requireText(root, "[data-pcc-create-ai-summary]", "Codex execution remains blocked");
+    requireSelector(root, '[data-pcc-codex-policy="custom"]').dispatchEvent(
+      new dom.window.Event("change", { bubbles: true }),
+    );
+    if (
+      projectForm.executionProfile.speed !== "ultra" ||
+      projectForm.executionProfile.codexPolicyId !== "custom"
+    ) {
+      throw new Error("Codex policy changed the independent local speed");
+    }
+    requireText(root, "[data-pcc-policy-terms]", "Automatic");
+    requireText(root, "[data-pcc-policy-terms]", "Checkpoint");
+    requireText(root, "[data-pcc-policy-terms]", "Effort");
+    requireSelector(root, '[data-pcc-codex-checkpoint="material_replan"]');
+    if (root.querySelector('[data-pcc-codex-checkpoint="initial_plan"]')) {
+      throw new Error("initial planning must not be duplicated by the project checkpoint policy");
+    }
+
+    requireSelector(root, '[data-pcc-codex-policy="recommended_minimum"]').dispatchEvent(
+      new dom.window.Event("change", { bubbles: true }),
+    );
 
     (requireSelector(root, "[data-pcc-create-review-plan]") as HTMLButtonElement).click();
     if (projectForm.title !== "My Kitchen Plan" || projectForm.intakeAnswers.owner !== "Todd") {
@@ -245,10 +265,12 @@ async function main(): Promise<void> {
     requireText(root, "[data-pcc-create-review-ready]", "Your plan is ready to review");
     requireText(root, "[data-pcc-create-review-ready]", "Nothing has been created or started yet");
     requireSelector(root, "[data-pcc-plan-preview]");
-    requireText(root, "[data-pcc-ai-routing-summary]", "Codex");
+    requireText(root, "[data-pcc-ai-routing-summary]", "local");
     const confirm = requireSelector(root, "[data-pcc-create-project-confirm]") as HTMLButtonElement;
-    if (!confirm.disabled) {
-      throw new Error("Codex project creation must wait for its single scoped approval");
+    if (confirm.disabled) {
+      throw new Error(
+        "reviewed project creation must remain available while later Codex checkpoints wait for approval",
+      );
     }
     if (root.querySelectorAll("[data-pcc-planner-permission-card]").length !== 1) {
       throw new Error("project creation must render exactly one Codex permission card");
@@ -261,11 +283,7 @@ async function main(): Promise<void> {
       throw new Error("single Codex permission approval did not persist in form state");
     }
     requireText(root, "[data-pcc-planner-permission-saved]", "no hard token cap");
-    if (
-      (requireSelector(root, "[data-pcc-create-project-confirm]") as HTMLButtonElement).disabled
-    ) {
-      throw new Error("reviewed project create action should be enabled after Codex approval");
-    }
+    requireText(root, "[data-pcc-create-project-confirm]", "Create project");
 
     writeFileSync(join(artifactDir, "dom.txt"), root.textContent ?? "");
     console.log("PCC_NEW_PROJECT_INTUITION_SMOKE_OK", artifactDir);

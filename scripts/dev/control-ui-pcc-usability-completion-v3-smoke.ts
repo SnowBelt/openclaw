@@ -259,6 +259,7 @@ async function main(): Promise<void> {
         },
         plannerPermissionScope: "plan",
         plannerPermissionBudget: "",
+        changeRequest: "",
         planPreviewAccepted: false,
         codexPlanningAllowed: false,
         remoteProofAllowed: false,
@@ -311,7 +312,7 @@ async function main(): Promise<void> {
         intakeAnswers?: Record<string, string>;
         codexPlanningAllowed?: boolean;
         plannerMode?: string;
-        executionProfile?: { presetId?: string };
+        executionProfile?: { codexPolicyId?: string };
       }) => {
         if (patch.intakeAnswers?.firstDeliverable && patch.intakeAnswers.doneProof) {
           calls.push("draft-intake-answers");
@@ -320,7 +321,7 @@ async function main(): Promise<void> {
           calls.push("allow-planner");
         }
         if (
-          patch.executionProfile?.presetId === "local_focused" &&
+          patch.executionProfile?.codexPolicyId === "local_only" &&
           patch.codexPlanningAllowed === false
         ) {
           calls.push("cancel-planner-permission");
@@ -401,8 +402,8 @@ async function main(): Promise<void> {
     requireText(text, "Best available");
     requireText(text, "GPT-5.6 Sol");
     requireText(text, "Optional Codex execution");
-    requireText(text, "Approve the selected Codex execution role");
-    requireText(text, "Regenerate any section");
+    requireText(text, "PCC will ask before the first Codex checkpoint");
+    requireText(text, "Change only one section");
     requireText(text, "Basics");
     requireText(text, "Full plan");
     requireText(text, "AI help");

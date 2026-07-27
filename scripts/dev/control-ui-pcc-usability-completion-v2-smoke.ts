@@ -331,7 +331,7 @@ async function main(): Promise<void> {
     requireText(text, "No recorded update since");
     requireText(text, "Best available");
     requireText(text, "No configured models from last refresh");
-    requireText(text, "Optional Codex execution");
+    requireText(text, "Codex checkpoint permission");
     requireText(text, "Setup needs a few answers");
     requireText(text, "Plan missing setup with Codex");
     requireText(text, "Milestone Journey");
