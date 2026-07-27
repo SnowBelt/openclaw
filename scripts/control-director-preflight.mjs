@@ -187,17 +187,27 @@ export function evaluateControlDirectorPreflight(input) {
       : "candidate does not descend from the exact active runtime",
   );
 
+  const classifications = new Map(input.classifications.map((entry) => [entry.name, entry.value]));
   const missingAcceptedHeads = input.acceptedHeads.filter((head) => head.isAncestor !== true);
+  const blockingMissingHeads = missingAcceptedHeads.filter((head) => {
+    const classification = classifications.get(head.name);
+    return !CLASSIFICATIONS.has(classification) || classification === "required";
+  });
   addCheck(
     checks,
     "accepted-heads",
-    missingAcceptedHeads.length === 0,
+    blockingMissingHeads.length === 0,
     missingAcceptedHeads.length === 0
       ? "candidate contains every accepted runtime-intended head"
-      : `candidate omits accepted heads: ${missingAcceptedHeads.map((head) => head.name).join(", ")}`,
-    missingAcceptedHeads.flatMap((head) => head.files ?? []),
+      : blockingMissingHeads.length === 0
+        ? `non-ancestor heads have explicit semantic dispositions: ${missingAcceptedHeads
+            .map((head) => `${head.name}=${classifications.get(head.name)}`)
+            .join(", ")}`
+        : `candidate omits required or unclassified accepted heads: ${blockingMissingHeads
+            .map((head) => head.name)
+            .join(", ")}`,
+    blockingMissingHeads.flatMap((head) => head.files ?? []),
   );
-  const classifications = new Map(input.classifications.map((entry) => [entry.name, entry.value]));
   const unclassified = input.acceptedHeads
     .map((head) => head.name)
     .filter((name) => !CLASSIFICATIONS.has(classifications.get(name)));

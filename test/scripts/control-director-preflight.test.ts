@@ -63,6 +63,30 @@ describe("Control Director one-shot preflight", () => {
     });
   });
 
+  it("accepts an absent head only with an explicit non-required semantic disposition", () => {
+    const reconciled = input();
+    reconciled.acceptedHeads[0]!.isAncestor = false;
+    reconciled.classifications[0]!.value = "superseded";
+
+    const result = evaluateControlDirectorPreflight(reconciled);
+    expect(result.passed).toBe(true);
+    expect(result.checks.find((check) => check.id === "accepted-heads")).toMatchObject({
+      passed: true,
+      detail: "non-ancestor heads have explicit semantic dispositions: trust-bridge=superseded",
+    });
+  });
+
+  it("continues to block an absent head classified as required", () => {
+    const missing = input();
+    missing.acceptedHeads[0]!.isAncestor = false;
+
+    const result = evaluateControlDirectorPreflight(missing);
+    expect(result.blockers.map((blocker) => blocker.id)).toEqual(["accepted-heads"]);
+    expect(result.remediationManifest.files).toEqual([
+      "scripts/deadcode-unused-files.allowlist.mjs",
+    ]);
+  });
+
   it("enumerates all independent blockers instead of failing at the first one", () => {
     const broken = input();
     broken.headSha = sha("e");
