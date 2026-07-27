@@ -3132,6 +3132,64 @@ describe("renderPccDashboard", () => {
     );
   });
 
+  it("shows truthful project-planning progress instead of an idle saving state", () => {
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        actionBusy: true,
+        planningRun: {
+          schemaVersion: 1,
+          id: "run-1",
+          requestFingerprint: "fingerprint",
+          surface: "project_creation",
+          status: "running",
+          stage: "planner_running",
+          model: "openai/gpt-5.6-sol",
+          effort: "high",
+          createdAt: "2026-07-27T00:00:00.000Z",
+          updatedAt: "2026-07-27T00:00:01.000Z",
+          startedAt: "2026-07-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const progress = container.querySelector("[data-pcc-planning-progress]");
+    expect(progress?.textContent).toContain("Creating your project plan");
+    expect(progress?.textContent).toContain("Codex is planning milestones and sub-steps");
+    expect(progress?.textContent).toContain("GPT-5.6 Sol");
+    expect(progress?.textContent).toContain("High effort");
+    expect(progress?.textContent).toContain("You can leave this screen");
+  });
+
+  it("captures a file's role, project target, instructions, and AI access in one form", () => {
+    const onUploadAttachment = vi.fn();
+    const container = renderView(createProps({ onUploadAttachment }));
+    const form = container.querySelector<HTMLFormElement>("[data-pcc-attachment-form]");
+    expect(form).not.toBeNull();
+    if (!form) {
+      throw new Error("expected attachment form");
+    }
+    const fileInput = form.elements.namedItem("attachmentFile") as HTMLInputElement;
+    const file = new File(["brief"], "brief.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", { value: [file] });
+    (form.elements.namedItem("attachmentRole") as HTMLSelectElement).value = "requirement";
+    (form.elements.namedItem("attachmentTarget") as HTMLSelectElement).value =
+      `milestone:${milestone.id}`;
+    (form.elements.namedItem("attachmentInstructions") as HTMLTextAreaElement).value =
+      "Treat this as the source of truth.";
+    (form.elements.namedItem("attachmentModelAccess") as HTMLSelectElement).value = "local_only";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(onUploadAttachment).toHaveBeenCalledWith(file, {
+      role: "requirement",
+      scope: "milestone",
+      milestoneId: milestone.id,
+      instructions: "Treat this as the source of truth.",
+      modelAccess: "local_only",
+      sensitivity: "normal",
+    });
+  });
+
   it("separates local work speed from Codex checkpoint policy without override conflicts", () => {
     const onProjectFormChange = vi.fn();
     const container = renderView(

@@ -141,6 +141,8 @@ import {
   applyPccSetupAutofill,
   configurePccAutopilotLoopMode,
   cancelPccEditor,
+  cancelPccProjectPlan,
+  clarifyPccAttachmentDraft,
   applyPccChatSyncProposal,
   cancelPccDecisionForm,
   dismissPccSetupAutofill,
@@ -149,6 +151,7 @@ import {
   approvePccSetupAutofill,
   generatePccAutopilotLoopPrompts,
   generatePccProjectPlan,
+  loadPccAttachments,
   loadPccDashboard,
   preparePccNextWorkItem,
   previewPccSectionAutofill,
@@ -189,6 +192,7 @@ import {
   updatePccPlanningPolicy,
   updatePccReorderMode,
   updatePccViewMode,
+  uploadPccAttachment,
 } from "./controllers/pcc.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import {
@@ -2971,6 +2975,7 @@ export function renderApp(state: AppViewState) {
                 projectDetail: state.pccProjectDetail,
                 projectDetails: state.pccProjectDetails,
                 actionBusy: state.pccActionBusy,
+                planningRun: state.pccPlanningRun,
                 actionError: state.pccActionError,
                 actionNotice: state.pccActionNotice,
                 projectFilter: state.pccProjectFilter,
@@ -3038,6 +3043,10 @@ export function renderApp(state: AppViewState) {
                 onOpenMilestoneEditor: (milestone) => openPccMilestoneEditor(state, milestone),
                 onProjectFormChange: (patch) => updatePccProjectForm(state, patch),
                 onGenerateProjectPlan: () => void generatePccProjectPlan(state),
+                onCancelProjectPlan: () => void cancelPccProjectPlan(state),
+                onLoadAttachments: () => void loadPccAttachments(state),
+                onClarifyAttachmentInstructions: (input) => clarifyPccAttachmentDraft(state, input),
+                onUploadAttachment: (file, draft) => void uploadPccAttachment(state, file, draft),
                 onMilestoneFormChange: (patch) => updatePccMilestoneForm(state, patch),
                 onSaveProject: () => void savePccProject(state),
                 onSaveMilestone: () => void savePccMilestone(state),

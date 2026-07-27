@@ -108,6 +108,8 @@ function defaultLedger(): PccLedger {
     receipts: [],
     decisions: [],
     lastKnownGood: [],
+    attachments: [],
+    attachmentUsageReceipts: [],
     settings: {},
   };
 }
@@ -127,6 +129,10 @@ export function assertPccLedger(value: unknown): PccLedger {
     receipts: Array.isArray(raw.receipts) ? raw.receipts : [],
     decisions: Array.isArray(raw.decisions) ? raw.decisions : [],
     lastKnownGood: Array.isArray(raw.lastKnownGood) ? raw.lastKnownGood : [],
+    attachments: Array.isArray(raw.attachments) ? raw.attachments : [],
+    attachmentUsageReceipts: Array.isArray(raw.attachmentUsageReceipts)
+      ? raw.attachmentUsageReceipts
+      : [],
     settings:
       raw.settings && typeof raw.settings === "object" && !Array.isArray(raw.settings)
         ? raw.settings

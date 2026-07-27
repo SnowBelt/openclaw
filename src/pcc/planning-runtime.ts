@@ -57,7 +57,10 @@ export async function generatePccPlanWithCodex(params: {
   policy?: PccPlanningPolicy;
   runAgent?: PccPlannerRunner;
   now?: () => Date;
+  abortSignal?: AbortSignal;
+  onStage?: (stage: "preparing" | "planner_running" | "validating") => void | Promise<void>;
 }): Promise<PccPlanGenerationResult> {
+  await params.onStage?.("preparing");
   const policy = params.policy ?? DEFAULT_PCC_PLANNING_POLICY;
   assertPccPlanningAuthorized(params.request, policy);
   const effort = resolvePccPlanningEffort(params.request, policy);
@@ -69,6 +72,7 @@ export async function generatePccPlanWithCodex(params: {
   const sessionFile = path.join(tempDir, `${runId}.jsonl`);
   try {
     const runner = params.runAgent ?? runEmbeddedAgent;
+    await params.onStage?.("planner_running");
     const result = await runner({
       sessionId: runId,
       sessionKey: `agent:${agentId}:pcc-planner:${runId}`,
@@ -93,6 +97,7 @@ export async function generatePccPlanWithCodex(params: {
       suppressToolErrorWarnings: true,
       cleanupBundleMcpOnRunEnd: true,
       authProfileFailurePolicy: "local",
+      abortSignal: params.abortSignal,
     });
     const text = payloadText(result);
     if (!text) {
@@ -102,6 +107,7 @@ export async function generatePccPlanWithCodex(params: {
     if (firstError) {
       throw new Error(firstError.text || "Codex planning failed.");
     }
+    await params.onStage?.("validating");
     return parsePccPlanGenerationResult({
       text,
       effort,

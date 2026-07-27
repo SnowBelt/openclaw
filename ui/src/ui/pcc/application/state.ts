@@ -19,11 +19,13 @@ import type {
   AgentsListResult,
   ModelCatalogEntry,
   PccCompletionReceipt,
+  PccAttachment,
   PccDecision,
   PccEvidence,
   PccLastKnownGood,
   PccMilestone,
   PccPermissionGrant,
+  PccPlanningRun,
   PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
@@ -41,7 +43,24 @@ export type PccProjectDetail = {
   receipts: PccCompletionReceipt[];
   decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
+  attachments?: PccAttachment[];
   summary: PccProjectSummary;
+};
+
+export type PccAttachmentDraft = {
+  role: PccAttachment["role"];
+  scope: PccAttachment["scope"];
+  milestoneId?: string;
+  subMilestoneId?: string;
+  instructions: string;
+  clarifiedInstructions?: string;
+  instructionProvenance?: {
+    provider: string;
+    model: string;
+    generatedAt: string;
+  };
+  modelAccess: PccAttachment["modelAccess"];
+  sensitivity: PccAttachment["sensitivity"];
 };
 
 export type PccRequestClient = {
@@ -233,6 +252,7 @@ export type PccDashboardState = {
   pccProjectDetail: PccProjectDetail | null;
   pccProjectDetails: Record<string, PccProjectDetail>;
   pccActionBusy: boolean;
+  pccPlanningRun?: PccPlanningRun | null;
   pccActionError: string | null;
   pccActionNotice?: PccActionNotice | null;
   pccProjectFilter?: PccProjectFilter;

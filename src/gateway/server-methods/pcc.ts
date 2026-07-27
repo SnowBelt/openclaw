@@ -13,6 +13,15 @@ import {
   type PccPermissionGrant,
   type PccProject,
   type PccStatus,
+  validatePccAttachmentsListParams,
+  validatePccAttachmentsClarifyParams,
+  validatePccAttachmentsReadParams,
+  validatePccAttachmentsUpdateParams,
+  validatePccAttachmentsUploadBeginParams,
+  validatePccAttachmentsUploadChunkParams,
+  validatePccAttachmentsUploadCommitParams,
+  validatePccAttachmentUsageListParams,
+  validatePccAttachmentUsageRecordParams,
   validatePccDecisionsAddParams,
   validatePccEvidenceAddParams,
   validatePccLastKnownGoodUpsertParams,
@@ -24,6 +33,9 @@ import {
   validatePccProjectsListParams,
   validatePccProjectsUpsertParams,
   validatePccPlansGenerateParams,
+  validatePccPlansStartParams,
+  validatePccPlansGetParams,
+  validatePccPlansCancelParams,
   validatePccPlanningPolicyGetParams,
   validatePccPlanningPolicyUpsertParams,
   validatePccReceiptsAddParams,
@@ -31,6 +43,17 @@ import {
 } from "../../../packages/gateway-protocol/src/index.js";
 import { assessControlDirectorResourceAdmission } from "../../agents/control-director-resource-admission.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { clarifyPccAttachmentInstructions } from "../../pcc/attachment-instructions.js";
+import {
+  appendPccAttachmentChunk,
+  beginPccAttachmentUpload,
+  commitPccAttachmentUpload,
+  listPccAttachments,
+  listPccAttachmentUsage,
+  readPccAttachmentChunk,
+  recordPccAttachmentUsage,
+  updatePccAttachment,
+} from "../../pcc/attachments.js";
 import { evaluatePccCapabilityEvidence } from "../../pcc/capability-evidence.js";
 import {
   isPccCompleteStatus,
@@ -54,6 +77,12 @@ import {
   pccWorkScopeForProject,
   repairPccCanonicalWorkItems,
 } from "../../pcc/metadata.js";
+import {
+  cancelPccPlanningRun,
+  readPccPlanningRun,
+  resetPccPlanningRunsForTest,
+  startPccPlanningRun,
+} from "../../pcc/planning-run-store.js";
 import { generatePccPlanWithCodex } from "../../pcc/planning-runtime.js";
 import {
   DEFAULT_PCC_PLANNING_POLICY,
@@ -1413,6 +1442,191 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
+  "pcc.plans.start": async ({ params, respond, context }) => {
+    if (!validatePccPlansStartParams(params)) {
+      respondInvalid(respond, "pcc.plans.start", validatePccPlansStartParams.errors);
+      return;
+    }
+    try {
+      const request = params as PccPlanGenerationRequest;
+      const policy = normalizePccPlanningPolicy(readLedger().settings?.planningPolicy);
+      const run = await startPccPlanningRun({
+        cfg: context.getRuntimeConfig(),
+        request,
+        policy,
+        ...(isolatedPlanFixtureEnabled()
+          ? {
+              generatePlan: async () => generateIsolatedPlanFixture(request, policy),
+            }
+          : {}),
+      });
+      respond(true, { run });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.plans.get": async ({ params, respond }) => {
+    if (!validatePccPlansGetParams(params)) {
+      respondInvalid(respond, "pcc.plans.get", validatePccPlansGetParams.errors);
+      return;
+    }
+    try {
+      const run = await readPccPlanningRun(params.runId);
+      if (!run) {
+        respondNotFound(respond, `planning run ${params.runId}`);
+        return;
+      }
+      respond(true, { run });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.plans.cancel": async ({ params, respond }) => {
+    if (!validatePccPlansCancelParams(params)) {
+      respondInvalid(respond, "pcc.plans.cancel", validatePccPlansCancelParams.errors);
+      return;
+    }
+    try {
+      respond(true, { run: await cancelPccPlanningRun(params.runId) });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.upload.begin": async ({ params, respond }) => {
+    if (!validatePccAttachmentsUploadBeginParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.attachments.upload.begin",
+        validatePccAttachmentsUploadBeginParams.errors,
+      );
+      return;
+    }
+    try {
+      respond(true, await beginPccAttachmentUpload(params));
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.upload.chunk": async ({ params, respond }) => {
+    if (!validatePccAttachmentsUploadChunkParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.attachments.upload.chunk",
+        validatePccAttachmentsUploadChunkParams.errors,
+      );
+      return;
+    }
+    try {
+      respond(true, await appendPccAttachmentChunk(params));
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.upload.commit": async ({ params, respond }) => {
+    if (!validatePccAttachmentsUploadCommitParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.attachments.upload.commit",
+        validatePccAttachmentsUploadCommitParams.errors,
+      );
+      return;
+    }
+    try {
+      respond(true, { attachment: await commitPccAttachmentUpload(params) });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.list": ({ params, respond }) => {
+    if (!validatePccAttachmentsListParams(params)) {
+      respondInvalid(respond, "pcc.attachments.list", validatePccAttachmentsListParams.errors);
+      return;
+    }
+    try {
+      respond(true, {
+        attachments: listPccAttachments(params.projectId, {
+          includeTombstoned: params.includeTombstoned,
+        }),
+      });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.read": async ({ params, respond }) => {
+    if (!validatePccAttachmentsReadParams(params)) {
+      respondInvalid(respond, "pcc.attachments.read", validatePccAttachmentsReadParams.errors);
+      return;
+    }
+    try {
+      respond(true, await readPccAttachmentChunk(params));
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.update": ({ params, respond }) => {
+    if (!validatePccAttachmentsUpdateParams(params)) {
+      respondInvalid(respond, "pcc.attachments.update", validatePccAttachmentsUpdateParams.errors);
+      return;
+    }
+    try {
+      respond(true, { attachment: updatePccAttachment(params) });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.clarify": async ({ params, respond, context }) => {
+    if (!validatePccAttachmentsClarifyParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.attachments.clarify",
+        validatePccAttachmentsClarifyParams.errors,
+      );
+      return;
+    }
+    try {
+      respond(
+        true,
+        await clarifyPccAttachmentInstructions({
+          cfg: context.getRuntimeConfig(),
+          originalName: params.originalName,
+          role: params.role,
+          instructions: params.instructions,
+        }),
+      );
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.usage.record": ({ params, respond }) => {
+    if (!validatePccAttachmentUsageRecordParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.attachments.usage.record",
+        validatePccAttachmentUsageRecordParams.errors,
+      );
+      return;
+    }
+    try {
+      respond(true, { receipt: recordPccAttachmentUsage(params) });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
+  "pcc.attachments.usage.list": ({ params, respond }) => {
+    if (!validatePccAttachmentUsageListParams(params)) {
+      respondInvalid(
+        respond,
+        "pcc.attachments.usage.list",
+        validatePccAttachmentUsageListParams.errors,
+      );
+      return;
+    }
+    try {
+      respond(true, { receipts: listPccAttachmentUsage(params) });
+    } catch (error) {
+      respondUnhandled(respond, error);
+    }
+  },
   "pcc.planningPolicy.get": ({ params, respond }) => {
     if (!validatePccPlanningPolicyGetParams(params)) {
       respondInvalid(respond, "pcc.planningPolicy.get", validatePccPlanningPolicyGetParams.errors);
@@ -2092,5 +2306,6 @@ export const pccTesting = {
   },
   resetPlanGenerator: () => {
     pccPlanGenerator = generatePccPlanWithCodex;
+    resetPccPlanningRunsForTest();
   },
 };

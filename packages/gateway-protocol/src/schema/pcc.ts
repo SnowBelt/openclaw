@@ -582,51 +582,341 @@ export const PccPlansGenerateParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const PccPlansGenerateResultSchema = Type.Object(
+const PccGeneratedPlanSchema = Type.Object(
   {
-    plan: Type.Object(
-      {
-        schemaVersion: Type.Literal(1),
-        title: NonEmptyString,
-        goal: NonEmptyString,
-        outcomeMetrics: Type.Array(NonEmptyString, { minItems: 1, maxItems: 100 }),
-        workflowTemplateId: NonEmptyString,
-        milestones: Type.Array(
-          Type.Intersect([
-            PccGeneratedSubMilestoneSchema,
-            Type.Object(
-              {
-                phaseId: NonEmptyString,
-                dependencies: Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 100 }),
-                subMilestones: Type.Array(PccGeneratedSubMilestoneSchema, {
-                  minItems: 1,
-                  maxItems: 100,
-                }),
-              },
-              { additionalProperties: false },
-            ),
-          ]),
-          { minItems: 1, maxItems: 100 },
-        ),
-        risks: Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 }),
-        assumptions: Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 }),
-        provenance: Type.Object(
+    schemaVersion: Type.Literal(1),
+    title: NonEmptyString,
+    goal: NonEmptyString,
+    outcomeMetrics: Type.Array(NonEmptyString, { minItems: 1, maxItems: 100 }),
+    workflowTemplateId: NonEmptyString,
+    milestones: Type.Array(
+      Type.Intersect([
+        PccGeneratedSubMilestoneSchema,
+        Type.Object(
           {
-            generatedAt: TimestampSchema,
-            provider: Type.Literal("openai"),
-            model: NonEmptyString,
-            runtime: Type.Literal("codex"),
-            effort: Type.Union([Type.Literal("medium"), Type.Literal("high")]),
-            auth: Type.Literal("oauth"),
-            source: Type.Literal("live_codex"),
-            planningOnly: Type.Literal(true),
+            phaseId: NonEmptyString,
+            dependencies: Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 100 }),
+            subMilestones: Type.Array(PccGeneratedSubMilestoneSchema, {
+              minItems: 1,
+              maxItems: 100,
+            }),
           },
           { additionalProperties: false },
         ),
+      ]),
+      { minItems: 1, maxItems: 100 },
+    ),
+    risks: Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 }),
+    assumptions: Type.Array(Type.String({ maxLength: 4_000 }), { maxItems: 100 }),
+    provenance: Type.Object(
+      {
+        generatedAt: TimestampSchema,
+        provider: Type.Literal("openai"),
+        model: NonEmptyString,
+        runtime: Type.Literal("codex"),
+        effort: Type.Union([Type.Literal("medium"), Type.Literal("high")]),
+        auth: Type.Union([Type.Literal("oauth"), Type.Literal("none")]),
+        source: Type.Union([Type.Literal("live_codex"), Type.Literal("isolated_test_fixture")]),
+        planningOnly: Type.Literal(true),
       },
       { additionalProperties: false },
     ),
   },
+  { additionalProperties: false },
+);
+
+export const PccPlansGenerateResultSchema = Type.Object(
+  { plan: PccGeneratedPlanSchema },
+  { additionalProperties: false },
+);
+
+const PccPlanningRunStatusSchema = Type.Union([
+  Type.Literal("queued"),
+  Type.Literal("running"),
+  Type.Literal("succeeded"),
+  Type.Literal("failed"),
+  Type.Literal("cancelled"),
+  Type.Literal("lost"),
+]);
+
+const PccPlanningRunStageSchema = Type.Union([
+  Type.Literal("preparing"),
+  Type.Literal("planner_running"),
+  Type.Literal("validating"),
+  Type.Literal("ready"),
+]);
+
+export const PccPlanningRunSchema = Type.Object(
+  {
+    schemaVersion: Type.Literal(1),
+    id: NonEmptyString,
+    requestFingerprint: NonEmptyString,
+    surface: PccPlanningSurfaceSchema,
+    status: PccPlanningRunStatusSchema,
+    stage: PccPlanningRunStageSchema,
+    model: NonEmptyString,
+    effort: Type.Union([Type.Literal("medium"), Type.Literal("high")]),
+    createdAt: TimestampSchema,
+    updatedAt: TimestampSchema,
+    startedAt: Type.Optional(TimestampSchema),
+    endedAt: Type.Optional(TimestampSchema),
+    error: Type.Optional(Type.String({ maxLength: 4_000 })),
+    plan: Type.Optional(PccGeneratedPlanSchema),
+  },
+  { additionalProperties: false },
+);
+
+export const PccPlansStartParamsSchema = PccPlansGenerateParamsSchema;
+export const PccPlansStartResultSchema = Type.Object(
+  { run: PccPlanningRunSchema },
+  { additionalProperties: false },
+);
+export const PccPlansGetParamsSchema = Type.Object(
+  { runId: NonEmptyString },
+  { additionalProperties: false },
+);
+export const PccPlansGetResultSchema = Type.Object(
+  { run: PccPlanningRunSchema },
+  { additionalProperties: false },
+);
+export const PccPlansCancelParamsSchema = PccPlansGetParamsSchema;
+export const PccPlansCancelResultSchema = PccPlansGetResultSchema;
+
+const PccAttachmentRoleSchema = Type.Union([
+  Type.Literal("requirement"),
+  Type.Literal("reference"),
+  Type.Literal("example"),
+  Type.Literal("proof"),
+  Type.Literal("deliverable"),
+]);
+const PccAttachmentScopeSchema = Type.Union([
+  Type.Literal("project"),
+  Type.Literal("milestone"),
+  Type.Literal("sub_milestone"),
+  Type.Literal("proof_only"),
+]);
+const PccAttachmentModelAccessSchema = Type.Union([
+  Type.Literal("local_only"),
+  Type.Literal("project_policy"),
+  Type.Literal("no_model"),
+]);
+
+export const PccAttachmentSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    logicalId: NonEmptyString,
+    version: Type.Integer({ minimum: 1 }),
+    projectId: NonEmptyString,
+    milestoneId: Type.Optional(NonEmptyString),
+    subMilestoneId: Type.Optional(NonEmptyString),
+    originalName: NonEmptyString,
+    title: NonEmptyString,
+    mimeType: NonEmptyString,
+    sizeBytes: Type.Integer({ minimum: 1 }),
+    sha256: Type.String({ minLength: 64, maxLength: 64 }),
+    role: PccAttachmentRoleSchema,
+    scope: PccAttachmentScopeSchema,
+    instructions: Type.String({ maxLength: 20_000 }),
+    clarifiedInstructions: Type.Optional(Type.String({ maxLength: 20_000 })),
+    instructionProvenance: Type.Optional(
+      Type.Object(
+        {
+          provider: NonEmptyString,
+          model: NonEmptyString,
+          generatedAt: TimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    modelAccess: PccAttachmentModelAccessSchema,
+    sensitivity: Type.Union([
+      Type.Literal("normal"),
+      Type.Literal("sensitive"),
+      Type.Literal("restricted"),
+    ]),
+    status: Type.Union([Type.Literal("ready"), Type.Literal("tombstoned")]),
+    createdAt: TimestampSchema,
+    updatedAt: TimestampSchema,
+    sourceUploadKey: Type.Optional(Type.String({ minLength: 1, maxLength: 2_048 })),
+  },
+  { additionalProperties: false },
+);
+
+export const PccAttachmentUsageReceiptSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    attachmentId: NonEmptyString,
+    projectId: NonEmptyString,
+    milestoneId: Type.Optional(NonEmptyString),
+    runId: Type.Optional(NonEmptyString),
+    model: Type.Optional(NonEmptyString),
+    purpose: NonEmptyString,
+    outcome: Type.Optional(Type.String({ maxLength: 20_000 })),
+    usedAt: TimestampSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const PccAttachmentsUploadBeginParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    originalName: NonEmptyString,
+    mimeType: NonEmptyString,
+    sizeBytes: Type.Integer({ minimum: 1, maximum: 104_857_600 }),
+    sha256: Type.Optional(Type.String({ minLength: 64, maxLength: 64 })),
+    role: PccAttachmentRoleSchema,
+    scope: PccAttachmentScopeSchema,
+    milestoneId: Type.Optional(NonEmptyString),
+    subMilestoneId: Type.Optional(NonEmptyString),
+    instructions: Type.Optional(Type.String({ maxLength: 20_000 })),
+    clarifiedInstructions: Type.Optional(Type.String({ maxLength: 20_000 })),
+    instructionProvenance: Type.Optional(
+      Type.Object(
+        {
+          provider: NonEmptyString,
+          model: NonEmptyString,
+          generatedAt: TimestampSchema,
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    modelAccess: Type.Optional(PccAttachmentModelAccessSchema),
+    sensitivity: Type.Optional(
+      Type.Union([Type.Literal("normal"), Type.Literal("sensitive"), Type.Literal("restricted")]),
+    ),
+    idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 2_048 })),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUploadBeginResultSchema = Type.Object(
+  {
+    uploadId: NonEmptyString,
+    offset: Type.Integer({ minimum: 0 }),
+    expiresAt: TimestampSchema,
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUploadChunkParamsSchema = Type.Object(
+  {
+    uploadId: NonEmptyString,
+    offset: Type.Integer({ minimum: 0 }),
+    dataBase64: Type.String({ minLength: 1, maxLength: 5_592_408 }),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUploadChunkResultSchema = Type.Object(
+  { uploadId: NonEmptyString, offset: Type.Integer({ minimum: 0 }) },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUploadCommitParamsSchema = Type.Object(
+  {
+    uploadId: NonEmptyString,
+    sha256: Type.Optional(Type.String({ minLength: 64, maxLength: 64 })),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUploadCommitResultSchema = Type.Object(
+  { attachment: PccAttachmentSchema },
+  { additionalProperties: false },
+);
+export const PccAttachmentsListParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    includeTombstoned: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsListResultSchema = Type.Object(
+  { attachments: Type.Array(PccAttachmentSchema, { maxItems: 2_000 }) },
+  { additionalProperties: false },
+);
+export const PccAttachmentsReadParamsSchema = Type.Object(
+  {
+    attachmentId: NonEmptyString,
+    offset: Type.Optional(Type.Integer({ minimum: 0 })),
+    maxBytes: Type.Optional(Type.Integer({ minimum: 1, maximum: 4_194_304 })),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsReadResultSchema = Type.Object(
+  {
+    attachmentId: NonEmptyString,
+    offset: Type.Integer({ minimum: 0 }),
+    nextOffset: Type.Integer({ minimum: 0 }),
+    totalBytes: Type.Integer({ minimum: 1 }),
+    dataBase64: Type.String({ maxLength: 5_592_408 }),
+    eof: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUpdateParamsSchema = Type.Object(
+  {
+    attachmentId: NonEmptyString,
+    title: Type.Optional(NonEmptyString),
+    role: Type.Optional(PccAttachmentRoleSchema),
+    scope: Type.Optional(PccAttachmentScopeSchema),
+    milestoneId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+    subMilestoneId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+    instructions: Type.Optional(Type.String({ maxLength: 20_000 })),
+    clarifiedInstructions: Type.Optional(Type.String({ maxLength: 20_000 })),
+    modelAccess: Type.Optional(PccAttachmentModelAccessSchema),
+    sensitivity: Type.Optional(
+      Type.Union([Type.Literal("normal"), Type.Literal("sensitive"), Type.Literal("restricted")]),
+    ),
+    tombstone: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsUpdateResultSchema = Type.Object(
+  { attachment: PccAttachmentSchema },
+  { additionalProperties: false },
+);
+export const PccAttachmentsClarifyParamsSchema = Type.Object(
+  {
+    originalName: NonEmptyString,
+    role: PccAttachmentRoleSchema,
+    instructions: Type.String({ minLength: 1, maxLength: 20_000 }),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentsClarifyResultSchema = Type.Object(
+  {
+    clarifiedInstructions: Type.String({ minLength: 1, maxLength: 20_000 }),
+    provenance: Type.Object(
+      {
+        provider: NonEmptyString,
+        model: NonEmptyString,
+        generatedAt: TimestampSchema,
+      },
+      { additionalProperties: false },
+    ),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentUsageRecordParamsSchema = Type.Object(
+  {
+    attachmentId: NonEmptyString,
+    milestoneId: Type.Optional(NonEmptyString),
+    runId: Type.Optional(NonEmptyString),
+    model: Type.Optional(NonEmptyString),
+    purpose: NonEmptyString,
+    outcome: Type.Optional(Type.String({ maxLength: 20_000 })),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentUsageRecordResultSchema = Type.Object(
+  { receipt: PccAttachmentUsageReceiptSchema },
+  { additionalProperties: false },
+);
+export const PccAttachmentUsageListParamsSchema = Type.Object(
+  {
+    projectId: NonEmptyString,
+    attachmentId: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+export const PccAttachmentUsageListResultSchema = Type.Object(
+  { receipts: Type.Array(PccAttachmentUsageReceiptSchema, { maxItems: 10_000 }) },
   { additionalProperties: false },
 );
 

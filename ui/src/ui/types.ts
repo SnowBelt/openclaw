@@ -1004,6 +1004,10 @@ export type PccPermissionStatus =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPermissionStatus;
 export type PccProjectSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccProjectSummary;
+export type PccPlanningRun =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccPlanningRun;
+export type PccAttachment =
+  import("../../../packages/gateway-protocol/src/schema/types.js").PccAttachment;
 export type PccPortfolioSummary =
   import("../../../packages/gateway-protocol/src/schema/types.js").PccPortfolioSummary;
 export type PccWorkLoopSettings = import("../../../src/pcc/work-loop.js").PccWorkLoopSettings;

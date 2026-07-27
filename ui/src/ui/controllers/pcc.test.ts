@@ -208,6 +208,26 @@ const decision = {
   decidedAt: "2026-06-26T01:00:00Z",
 };
 
+function completedPlanningRun(plan: unknown) {
+  return {
+    run: {
+      schemaVersion: 1,
+      id: "planning-run-1",
+      requestFingerprint: "planning-fingerprint",
+      surface: "project_creation",
+      status: "succeeded",
+      stage: "ready",
+      model: "openai/gpt-5.6-sol",
+      effort: "medium",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:01.000Z",
+      startedAt: "2026-07-27T00:00:00.000Z",
+      endedAt: "2026-07-27T00:00:01.000Z",
+      plan,
+    },
+  };
+}
+
 const summary = {
   id: "project-1",
   title: "Project Command Center",
@@ -2958,7 +2978,9 @@ describe("PCC CRUD controller", () => {
         planningOnly: true as const,
       },
     };
-    const request = vi.fn(async () => ({ plan }));
+    const request = vi.fn(async (method: string) =>
+      method === "pcc.plans.start" ? completedPlanningRun(plan) : {},
+    );
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
       pccProjectForm: {
@@ -2973,7 +2995,7 @@ describe("PCC CRUD controller", () => {
     await generatePccProjectPlan(state);
 
     expect(request).toHaveBeenCalledWith(
-      "pcc.plans.generate",
+      "pcc.plans.start",
       expect.objectContaining({
         surface: "project_creation",
         depth: "automatic",
@@ -3034,7 +3056,9 @@ describe("PCC CRUD controller", () => {
         planningOnly: true as const,
       },
     };
-    const request = vi.fn(async () => ({ plan }));
+    const request = vi.fn(async (method: string) =>
+      method === "pcc.plans.start" ? completedPlanningRun(plan) : {},
+    );
     const detail = {
       project,
       milestones: [milestone],
@@ -3061,7 +3085,7 @@ describe("PCC CRUD controller", () => {
     await generatePccProjectPlan(state);
 
     expect(request).toHaveBeenCalledWith(
-      "pcc.plans.generate",
+      "pcc.plans.start",
       expect.objectContaining({
         surface: "project_replan",
         description: expect.stringContaining("Requested project change"),
@@ -3153,7 +3177,9 @@ describe("PCC CRUD controller", () => {
       lastKnownGood: [],
       summary,
     };
-    const generateRequest = vi.fn(async () => ({ plan }));
+    const generateRequest = vi.fn(async (method: string) =>
+      method === "pcc.plans.start" ? completedPlanningRun(plan) : {},
+    );
     const state = createState({
       client: { request: generateRequest } as unknown as PccDashboardState["client"],
       pccProjectDetail: detail,

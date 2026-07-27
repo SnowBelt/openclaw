@@ -133,6 +133,26 @@ function milestoneProofGaps(detail: PccProjectDetail, milestone: PccMilestone): 
   ].filter(Boolean);
 }
 
+function attachmentSummaries(detail: PccProjectDetail, milestoneId?: string): string[] {
+  return (detail.attachments ?? [])
+    .filter((attachment) => attachment.status === "ready")
+    .filter(
+      (attachment) =>
+        attachment.modelAccess !== "no_model" && attachment.sensitivity !== "restricted",
+    )
+    .filter((attachment) =>
+      milestoneId
+        ? attachment.scope === "project" ||
+          attachment.scope === "proof_only" ||
+          attachment.milestoneId === milestoneId
+        : true,
+    )
+    .map(
+      (attachment) =>
+        `id=${attachment.id}; ${attachment.title}; role=${attachment.role}; scope=${attachment.scope}; model access=${attachment.modelAccess}; sensitivity=${attachment.sensitivity}; instructions=${attachment.clarifiedInstructions || attachment.instructions || "use only for its declared role"}; sha256=${attachment.sha256}; read content in bounded chunks with pcc.attachments.read; after use record a PCC attachment usage receipt`,
+    );
+}
+
 function renderMilestoneBlock(
   detail: PccProjectDetail,
   milestone: PccMilestone,
@@ -159,6 +179,13 @@ function renderMilestoneBlock(
     "Acceptance criteria:",
     milestone.acceptanceCriteria ?? [],
     "No acceptance criteria recorded.",
+  );
+  lines.push("");
+  pushList(
+    lines,
+    "Relevant project files:",
+    attachmentSummaries(detail, milestone.id),
+    "No project file is attached to this work.",
   );
   const subMilestones = subMilestonesForMilestone(detail, milestone);
   if (subMilestones.length > 0) {
@@ -257,6 +284,13 @@ export function buildPccContextPackage(
     "Portfolio next actions:",
     detail.summary.nextActions,
     "No next action recorded.",
+  );
+  lines.push("");
+  pushList(
+    lines,
+    "Project files and usage instructions:",
+    attachmentSummaries(detail),
+    "No project files are attached.",
   );
   lines.push("");
   pushList(

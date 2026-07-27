@@ -259,6 +259,7 @@ export type AppViewState = {
   pccProjectDetail: PccProjectDetail | null;
   pccProjectDetails: Record<string, PccProjectDetail>;
   pccActionBusy: boolean;
+  pccPlanningRun: import("./types.ts").PccPlanningRun | null;
   pccActionError: string | null;
   pccActionNotice?: PccActionNotice | null;
   pccProjectFilter?: PccProjectFilter;

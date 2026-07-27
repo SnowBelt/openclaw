@@ -3,6 +3,8 @@ import type {
   PccDecision,
   PccEvidence,
   PccLastKnownGood,
+  PccAttachment,
+  PccAttachmentUsageReceipt,
   PccMilestone,
   PccPermissionGrant,
   PccProject,
@@ -24,6 +26,8 @@ export type PccLedger = {
   receipts: PccCompletionReceipt[];
   decisions: PccDecision[];
   lastKnownGood: PccLastKnownGood[];
+  attachments?: PccAttachment[];
+  attachmentUsageReceipts?: PccAttachmentUsageReceipt[];
   settings?: {
     planningPolicy?: PccPlanningPolicy;
   };

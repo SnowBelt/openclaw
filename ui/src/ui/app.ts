@@ -527,6 +527,7 @@ export class OpenClawApp extends LitElement {
   @state() pccProjectDetail: PccProjectDetail | null = null;
   @state() pccProjectDetails: Record<string, PccProjectDetail> = {};
   @state() pccActionBusy = false;
+  @state() pccPlanningRun: import("./types.ts").PccPlanningRun | null = null;
   @state() pccActionError: string | null = null;
   @state() pccActionNotice: PccActionNotice | null = null;
   @state() pccProjectFilter: PccProjectFilter | undefined = undefined;

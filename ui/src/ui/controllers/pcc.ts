@@ -115,6 +115,7 @@ import {
   type PccAiRegenerateSection,
   type PccAutofillPreview,
   type PccAutopilotAction,
+  type PccAttachmentDraft,
   type PccDashboardState,
   type PccDecisionFormState,
   type PccExecutionTeamAction,
@@ -127,6 +128,7 @@ import {
   type PccViewMode,
 } from "../pcc/application/state.ts";
 import type {
+  PccAttachment,
   PccCompletionReceipt,
   PccDecision,
   PccEvidence,
@@ -135,6 +137,7 @@ import type {
   PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
+  PccPlanningRun,
   PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
@@ -194,6 +197,10 @@ type PccProjectsGetResult = {
   decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
   summary: PccProjectSummary;
+};
+
+type PccAttachmentsListResult = {
+  attachments: PccAttachment[];
 };
 
 type PccProjectsUpsertResult = {
@@ -1997,6 +2004,123 @@ export async function selectPccProject(state: PccDashboardState, projectId: stri
   }
 }
 
+export async function loadPccAttachments(state: PccDashboardState): Promise<void> {
+  const detail = state.pccProjectDetail;
+  if (!state.client || !detail) {
+    return;
+  }
+  try {
+    const result = await state.client.request<PccAttachmentsListResult>("pcc.attachments.list", {
+      projectId: detail.project.id,
+    });
+    if (state.pccProjectDetail?.project.id !== detail.project.id) {
+      return;
+    }
+    state.pccProjectDetail = {
+      ...state.pccProjectDetail,
+      attachments: Array.isArray(result.attachments) ? result.attachments : [],
+    };
+    rememberPccProjectDetailForState(state, state.pccProjectDetail);
+  } catch (error) {
+    setActionError(state, error);
+  } finally {
+    state.requestUpdate?.();
+  }
+}
+
+export async function clarifyPccAttachmentDraft(
+  state: PccDashboardState,
+  input: { originalName: string; role: PccAttachment["role"]; instructions: string },
+): Promise<{
+  clarifiedInstructions: string;
+  provenance: { provider: string; model: string; generatedAt: string };
+}> {
+  if (!state.client) {
+    throw new Error("PCC is disconnected; local AI cannot clarify the file instructions.");
+  }
+  return state.client.request("pcc.attachments.clarify", input);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const stride = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += stride) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + stride));
+  }
+  return globalThis.btoa(binary);
+}
+
+export async function uploadPccAttachment(
+  state: PccDashboardState,
+  file: File,
+  draft: PccAttachmentDraft,
+): Promise<void> {
+  const projectId = state.pccProjectDetail?.project.id;
+  if (!state.client || !projectId) {
+    state.pccActionError = "Choose a project before adding a file.";
+    state.requestUpdate?.();
+    return;
+  }
+  await withPccAction(state, async () => {
+    const begin = await state.client!.request<{
+      uploadId: string;
+      offset: number;
+      expiresAt: string;
+    }>("pcc.attachments.upload.begin", {
+      projectId,
+      originalName: file.name,
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+      role: draft.role,
+      scope: draft.scope,
+      ...(draft.milestoneId ? { milestoneId: draft.milestoneId } : {}),
+      ...(draft.subMilestoneId ? { subMilestoneId: draft.subMilestoneId } : {}),
+      instructions: draft.instructions,
+      ...(draft.clarifiedInstructions
+        ? { clarifiedInstructions: draft.clarifiedInstructions }
+        : {}),
+      ...(draft.instructionProvenance
+        ? { instructionProvenance: draft.instructionProvenance }
+        : {}),
+      modelAccess: draft.modelAccess,
+      sensitivity: draft.sensitivity,
+      idempotencyKey: `${projectId}:${file.name}:${file.size}:${file.lastModified}`,
+    });
+    let offset = begin.offset;
+    const chunkBytes = 1024 * 1024;
+    while (offset < file.size) {
+      const bytes = new Uint8Array(
+        await file.slice(offset, Math.min(offset + chunkBytes, file.size)).arrayBuffer(),
+      );
+      const result = await state.client!.request<{ offset: number }>(
+        "pcc.attachments.upload.chunk",
+        {
+          uploadId: begin.uploadId,
+          offset,
+          dataBase64: bytesToBase64(bytes),
+        },
+      );
+      offset = result.offset;
+    }
+    const result = await state.client!.request<{ attachment: PccAttachment }>(
+      "pcc.attachments.upload.commit",
+      { uploadId: begin.uploadId },
+    );
+    const detail = state.pccProjectDetail;
+    if (detail?.project.id === projectId) {
+      detail.attachments = [
+        result.attachment,
+        ...(detail.attachments ?? []).filter((item) => item.id !== result.attachment.id),
+      ];
+      rememberPccProjectDetailForState(state, detail);
+    }
+    setActionNotice(
+      state,
+      `${file.name} is attached as ${draft.role}. Its instructions and model access are saved.`,
+    );
+  });
+}
+
 const PCC_EXECUTION_SESSION_LIMIT = 24;
 
 export async function loadPccExecutionProjection(
@@ -2200,30 +2324,58 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
       state.pccActionError = "Describe what you want this project to accomplish first.";
       return;
     }
-    const result = await state.client.request<{ plan: PccPlanGenerationResult }>(
-      "pcc.plans.generate",
-      {
-        surface: form.id ? "project_replan" : "project_creation",
-        description,
-        ...(form.title.trim() ? { existingTitle: form.title.trim() } : {}),
-        ...(form.goal.trim() ? { existingGoal: form.goal.trim() } : {}),
-        ...(form.id && changeRequest
-          ? {
-              desiredOutcome:
-                "Create a safe revised project plan that implements the requested change, preserves completed work, and identifies all affected milestones, dependencies, proof, and permissions.",
-              constraints: [
-                "Preserve completed milestones and their receipts.",
-                "Do not delete project history.",
-                "Do not start implementation.",
-                "Do not perform external writes, deployment, credential changes, destructive actions, purchases, publication, or reboot.",
-              ],
-            }
-          : {}),
-        preferredTemplateId: form.workflowTemplateId,
-        depth: form.planningDepth,
-      },
+    const planningRequest = {
+      surface: form.id ? "project_replan" : "project_creation",
+      description,
+      ...(form.title.trim() ? { existingTitle: form.title.trim() } : {}),
+      ...(form.goal.trim() ? { existingGoal: form.goal.trim() } : {}),
+      ...(form.id && changeRequest
+        ? {
+            desiredOutcome:
+              "Create a safe revised project plan that implements the requested change, preserves completed work, and identifies all affected milestones, dependencies, proof, and permissions.",
+            constraints: [
+              "Preserve completed milestones and their receipts.",
+              "Do not delete project history.",
+              "Do not start implementation.",
+              "Do not perform external writes, deployment, credential changes, destructive actions, purchases, publication, or reboot.",
+            ],
+          }
+        : {}),
+      preferredTemplateId: form.workflowTemplateId,
+      depth: form.planningDepth,
+    };
+    const started = await state.client.request<{ run: PccPlanningRun }>(
+      "pcc.plans.start",
+      planningRequest,
     );
-    const plan = result.plan;
+    state.pccPlanningRun = started.run;
+    state.requestUpdate?.();
+    let run = started.run;
+    const deadline = Date.now() + 4 * 60_000;
+    while (run.status === "queued" || run.status === "running") {
+      if (Date.now() >= deadline) {
+        throw new Error(
+          "Project planning is still running. Your description is safe; refresh PCC to reconnect to the planning run.",
+        );
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 750);
+      });
+      const current = await state.client.request<{ run: PccPlanningRun }>("pcc.plans.get", {
+        runId: run.id,
+      });
+      run = current.run;
+      state.pccPlanningRun = run;
+      state.requestUpdate?.();
+    }
+    if (run.status === "cancelled") {
+      setActionNotice(state, "Plan generation cancelled. Your project description is still here.");
+      return;
+    }
+    if (run.status !== "succeeded" || !run.plan) {
+      throw new Error(run.error || `Project planning ${run.status}. Your description is safe.`);
+    }
+    const plan = run.plan as PccPlanGenerationResult;
     const planRevision =
       detail && changeRequest
         ? buildPccPlanRevisionPreview({
@@ -2258,6 +2410,24 @@ export async function generatePccProjectPlan(state: PccDashboardState): Promise<
         : `Plan generated by ${plan.provenance.model} at ${plan.provenance.effort} effort. Review it before creating the project.`,
     );
   });
+}
+
+export async function cancelPccProjectPlan(state: PccDashboardState): Promise<void> {
+  const run = state.pccPlanningRun;
+  if (!run || !state.client || (run.status !== "queued" && run.status !== "running")) {
+    return;
+  }
+  try {
+    const result = await state.client.request<{ run: PccPlanningRun }>("pcc.plans.cancel", {
+      runId: run.id,
+    });
+    state.pccPlanningRun = result.run;
+    setActionNotice(state, "Plan generation cancelled. Your project description is still here.");
+  } catch (error) {
+    setActionError(state, error);
+  } finally {
+    state.requestUpdate?.();
+  }
 }
 
 export function openPccDecisionForm(state: PccDashboardState): void {

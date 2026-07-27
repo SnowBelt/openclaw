@@ -103,6 +103,47 @@ const detail: PccProjectDetail = {
       completedAt: "2026-06-26T00:00:00Z",
     },
   ],
+  attachments: [
+    {
+      id: "attachment-1",
+      logicalId: "attachment-1",
+      version: 1,
+      projectId: "project-1",
+      milestoneId: "milestone-1",
+      originalName: "requirements.txt",
+      title: "Approved requirements",
+      mimeType: "text/plain",
+      sizeBytes: 42,
+      sha256: "a".repeat(64),
+      role: "requirement",
+      scope: "milestone",
+      instructions: "Treat this as the source of truth for the next milestone.",
+      modelAccess: "local_only",
+      sensitivity: "normal",
+      status: "ready",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+    },
+    {
+      id: "attachment-2",
+      logicalId: "attachment-2",
+      version: 1,
+      projectId: "project-1",
+      originalName: "private.txt",
+      title: "Storage-only note",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      sha256: "b".repeat(64),
+      role: "reference",
+      scope: "project",
+      instructions: "Never send this to a model.",
+      modelAccess: "no_model",
+      sensitivity: "restricted",
+      status: "ready",
+      createdAt: "2026-07-27T00:00:00.000Z",
+      updatedAt: "2026-07-27T00:00:00.000Z",
+    },
+  ],
   summary: {
     id: "project-1",
     title: "Project Command Center",
@@ -134,6 +175,9 @@ describe("buildPccContextPackage", () => {
     expect(packet).toContain("Worker: local_openclaw_agent");
     expect(packet).toContain("Token/cost risk: low");
     expect(packet).toContain("Packet includes permissions");
+    expect(packet).toContain("Approved requirements; role=requirement");
+    expect(packet).toContain("Treat this as the source of truth");
+    expect(packet).not.toContain("Never send this to a model");
     expect(packet).toContain("Required evidence missing: evidence-1");
     expect(packet).toContain("Do not redo: Do not redo local proof without a regression.");
     expect(packet).not.toContain("## Milestone: Automatic Chat Sync V1");

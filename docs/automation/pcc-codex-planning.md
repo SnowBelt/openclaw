@@ -39,7 +39,15 @@ PCC sends a tool-free request to the native Codex runtime. The response must be 
 
 User-entered title, goal, and setup answers are preserved. Codex fills blanks and presents a reviewable draft. No project, milestone, or sub-milestone is written until the user creates the project or applies the setup-repair preview.
 
+Project creation runs as a durable planning job. PCC shows the current stage, exact model, effort, and elapsed time while the planner is working. The operator can cancel without losing the project description. The run record remains under the OpenClaw state directory across page navigation, and an interrupted Gateway marks an unfinished run as lost instead of pretending it succeeded.
+
 Autopilot uses Codex to plan editable prompts, but those prompt slots default to local-model execution. Any later Codex execution remains governed by the project execution profile and a separate project-bound approval.
+
+## Project files
+
+Existing projects can attach images, documents, text, audio, video, and common office files. Every file records a role, project or milestone scope, usage instructions, sensitivity, model-access policy, SHA-256 identity, and versioned attachment metadata. Uploads are chunked, resumable for one hour, size-bounded, MIME-checked, content-addressed outside the web root, and idempotent.
+
+The optional `Make my instructions clearer with local AI` action uses only a configured local utility model. PCC fails closed rather than silently sending the note to a cloud model, preserves the original note, stores the improved wording separately, and shows the exact local provider and model provenance. Storage-only and restricted attachments are excluded from AI handoff packets. Other attachment instructions are included in project and milestone context so workers know what the file is for before acting. Authorized workers read content through the bounded `pcc.attachments.read` method and record a usage receipt afterward; raw attachment bytes never enter the PCC ledger.
 
 ## Changing An Existing Project
 

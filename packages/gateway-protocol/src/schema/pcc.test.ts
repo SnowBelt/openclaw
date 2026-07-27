@@ -2,6 +2,8 @@ import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import {
   ProtocolSchemas,
+  validatePccAttachmentsReadParams,
+  validatePccAttachmentsUploadBeginParams,
   validatePccDecisionsAddParams,
   validatePccMilestonesUpsertParams,
   validatePccPermissionsUpsertParams,
@@ -34,6 +36,42 @@ describe("Project Command Center protocol schemas", () => {
   it("validates revocable persistent planning policy updates", () => {
     expect(validatePccPlanningPolicyUpsertParams({ enabled: true, depth: "automatic" })).toBe(true);
     expect(validatePccPlanningPolicyUpsertParams({ enabled: true, depth: "ultra" })).toBe(false);
+  });
+
+  it("keeps PCC attachment uploads and reads bounded", () => {
+    expect(
+      validatePccAttachmentsUploadBeginParams({
+        projectId: "project-pcc",
+        originalName: "brief.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 1_024,
+        role: "requirement",
+        scope: "project",
+      }),
+    ).toBe(true);
+    expect(
+      validatePccAttachmentsUploadBeginParams({
+        projectId: "project-pcc",
+        originalName: "too-large.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 104_857_601,
+        role: "requirement",
+        scope: "project",
+      }),
+    ).toBe(false);
+    expect(
+      validatePccAttachmentsReadParams({
+        attachmentId: "attachment-1",
+        offset: 0,
+        maxBytes: 4_194_304,
+      }),
+    ).toBe(true);
+    expect(
+      validatePccAttachmentsReadParams({
+        attachmentId: "attachment-1",
+        maxBytes: 4_194_305,
+      }),
+    ).toBe(false);
   });
 
   it("registers canonical PCC schemas", () => {

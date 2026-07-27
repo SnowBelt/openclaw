@@ -82,6 +82,7 @@ import {
 } from "../pcc/application/execution-readiness.ts";
 import type {
   PccActionNotice,
+  PccAttachmentDraft,
   PccAiRegenerateSection,
   PccAutofillPreview,
   PccDecisionFormState,
@@ -101,6 +102,7 @@ import {
   formatPccUpdatedAt as formatUpdatedAt,
 } from "../pcc/presentation/formatters.ts";
 import type {
+  PccAttachment,
   PccCompletionReceipt,
   PccDecision,
   PccEvidence,
@@ -109,6 +111,7 @@ import type {
   PccSubMilestone,
   PccPermissionGrant,
   PccPermissionStatus,
+  PccPlanningRun,
   PccPortfolioSummary,
   PccProject,
   PccProjectSummary,
@@ -135,6 +138,7 @@ export type PccDashboardProps = {
   projectDetail: PccProjectDetail | null;
   projectDetails?: Record<string, PccProjectDetail>;
   actionBusy: boolean;
+  planningRun?: PccPlanningRun | null;
   actionError: string | null;
   actionNotice?: PccActionNotice | null;
   projectFilter?: PccProjectFilter;
@@ -181,6 +185,17 @@ export type PccDashboardProps = {
   onOpenMilestoneEditor: (milestone?: PccMilestone) => void;
   onProjectFormChange: (patch: Partial<PccProjectFormState>) => void;
   onGenerateProjectPlan?: () => void;
+  onCancelProjectPlan?: () => void;
+  onLoadAttachments?: () => void;
+  onClarifyAttachmentInstructions?: (input: {
+    originalName: string;
+    role: PccAttachment["role"];
+    instructions: string;
+  }) => Promise<{
+    clarifiedInstructions: string;
+    provenance: { provider: string; model: string; generatedAt: string };
+  }>;
+  onUploadAttachment?: (file: File, draft: PccAttachmentDraft) => void;
   onMilestoneFormChange: (patch: Partial<PccMilestoneFormState>) => void;
   onSaveProject: () => void;
   onSaveMilestone: () => void;
@@ -223,6 +238,257 @@ export type PccDashboardProps = {
   onApplyChatSyncProposal: (proposal: PccChatSyncProposal) => void;
   onDismissChatSync: () => void;
 };
+
+function attachmentRoleLabel(role: PccAttachment["role"]): string {
+  return {
+    requirement: "Requirement",
+    reference: "Reference",
+    example: "Example",
+    proof: "Proof",
+    deliverable: "Deliverable",
+  }[role];
+}
+
+function submitPccAttachment(event: Event, props: PccDashboardProps): void {
+  event.preventDefault();
+  const form = event.currentTarget as HTMLFormElement;
+  const fileInput = form.elements.namedItem("attachmentFile");
+  const roleInput = form.elements.namedItem("attachmentRole");
+  const targetInput = form.elements.namedItem("attachmentTarget");
+  const instructionsInput = form.elements.namedItem("attachmentInstructions");
+  const modelAccessInput = form.elements.namedItem("attachmentModelAccess");
+  const sensitivityInput = form.elements.namedItem("attachmentSensitivity");
+  const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0] : undefined;
+  if (!file) {
+    if (fileInput instanceof HTMLInputElement) {
+      fileInput.setCustomValidity("Choose a file to attach.");
+      fileInput.reportValidity();
+      fileInput.addEventListener("change", () => fileInput.setCustomValidity(""), { once: true });
+    }
+    return;
+  }
+  const role =
+    roleInput instanceof HTMLSelectElement
+      ? (roleInput.value as PccAttachment["role"])
+      : "reference";
+  const target = targetInput instanceof HTMLSelectElement ? targetInput.value : "project";
+  const milestoneId = target.startsWith("milestone:")
+    ? target.slice("milestone:".length)
+    : undefined;
+  props.onUploadAttachment?.(file, {
+    role,
+    scope: milestoneId ? "milestone" : role === "proof" ? "proof_only" : "project",
+    ...(milestoneId ? { milestoneId } : {}),
+    instructions:
+      form.dataset.pccOriginalInstructions ??
+      (instructionsInput instanceof HTMLTextAreaElement ? instructionsInput.value.trim() : ""),
+    ...(form.dataset.pccOriginalInstructions && instructionsInput instanceof HTMLTextAreaElement
+      ? { clarifiedInstructions: instructionsInput.value.trim() }
+      : {}),
+    ...(form.dataset.pccClarifiedProvider &&
+    form.dataset.pccClarifiedModel &&
+    form.dataset.pccClarifiedAt
+      ? {
+          instructionProvenance: {
+            provider: form.dataset.pccClarifiedProvider,
+            model: form.dataset.pccClarifiedModel,
+            generatedAt: form.dataset.pccClarifiedAt,
+          },
+        }
+      : {}),
+    modelAccess:
+      modelAccessInput instanceof HTMLSelectElement
+        ? (modelAccessInput.value as PccAttachment["modelAccess"])
+        : "project_policy",
+    sensitivity:
+      sensitivityInput instanceof HTMLSelectElement
+        ? (sensitivityInput.value as PccAttachment["sensitivity"])
+        : "normal",
+  });
+}
+
+async function clarifyAttachmentFromForm(event: Event, props: PccDashboardProps): Promise<void> {
+  const button = event.currentTarget as HTMLButtonElement;
+  const form = button.closest("form");
+  if (!form) {
+    return;
+  }
+  const textarea = form?.elements.namedItem("attachmentInstructions");
+  const roleInput = form?.elements.namedItem("attachmentRole");
+  const fileInput = form?.elements.namedItem("attachmentFile");
+  const status = form?.querySelector<HTMLElement>("[data-pcc-attachment-clarifier-status]");
+  if (!(textarea instanceof HTMLTextAreaElement) || !textarea.value.trim()) {
+    if (textarea instanceof HTMLTextAreaElement) {
+      textarea.focus();
+    }
+    if (status) {
+      status.textContent =
+        "Write a rough note first. Local AI will make it clear without changing your intent.";
+    }
+    return;
+  }
+  if (!props.onClarifyAttachmentInstructions) {
+    return;
+  }
+  button.disabled = true;
+  if (status) {
+    status.textContent = "Local AI is clarifying your instructions…";
+  }
+  try {
+    const file = fileInput instanceof HTMLInputElement ? fileInput.files?.[0]?.name : undefined;
+    const result = await props.onClarifyAttachmentInstructions({
+      originalName: file || "project file",
+      role:
+        roleInput instanceof HTMLSelectElement
+          ? (roleInput.value as PccAttachment["role"])
+          : "reference",
+      instructions: textarea.value,
+    });
+    form.dataset.pccOriginalInstructions = textarea.value.trim();
+    form.dataset.pccClarifiedProvider = result.provenance.provider;
+    form.dataset.pccClarifiedModel = result.provenance.model;
+    form.dataset.pccClarifiedAt = result.provenance.generatedAt;
+    textarea.value = result.clarifiedInstructions;
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    if (status) {
+      status.textContent = `Improved locally by ${result.provenance.model}. Review before attaching.`;
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderPccProjectFiles(detail: PccProjectDetail, props: PccDashboardProps) {
+  const attachments = detail.attachments ?? [];
+  return html`<section class="pcc-project-files" data-pcc-project-files>
+    <header>
+      <div>
+        <span>Project files</span>
+        <strong
+          >${attachments.length ? `${attachments.length} attached` : "Add context or proof"}</strong
+        >
+        <p>
+          Tell PCC what the file is and where it belongs. Its purpose stays attached so every agent
+          uses it correctly.
+        </p>
+      </div>
+    </header>
+    <details
+      class="pcc-project-files__add"
+      @toggle=${(event: Event) => {
+        if ((event.currentTarget as HTMLDetailsElement).open) {
+          props.onLoadAttachments?.();
+        }
+      }}
+    >
+      <summary>Add a file</summary>
+      <form
+        class="pcc-project-files__form"
+        data-pcc-attachment-form
+        @submit=${(event: Event) => submitPccAttachment(event, props)}
+      >
+        <label class="pcc-project-files__file">
+          <span>Choose a file</span>
+          <input
+            type="file"
+            name="attachmentFile"
+            ?disabled=${props.actionBusy}
+            data-pcc-attachment-file
+          />
+        </label>
+        <label>
+          <span>Use it as</span>
+          <select name="attachmentRole" ?disabled=${props.actionBusy}>
+            <option value="requirement">A requirement PCC must follow</option>
+            <option value="reference">A reference to consult</option>
+            <option value="example">An example to learn from</option>
+            <option value="proof">Proof that work is complete</option>
+            <option value="deliverable">A project deliverable</option>
+          </select>
+        </label>
+        <label>
+          <span>Use it for</span>
+          <select name="attachmentTarget" ?disabled=${props.actionBusy}>
+            <option value="project">The whole project</option>
+            ${sortedMilestones(detail).map(
+              (milestone) =>
+                html`<option value=${`milestone:${milestone.id}`}>
+                  Step: ${milestone.title}
+                </option>`,
+            )}
+          </select>
+        </label>
+        <label class="pcc-project-files__instructions">
+          <span>What should PCC do with it?</span>
+          <textarea
+            name="attachmentInstructions"
+            rows="2"
+            placeholder="Optional. Example: Use this as the source of truth for colors and layout."
+            ?disabled=${props.actionBusy}
+          ></textarea>
+        </label>
+        <div class="pcc-project-files__clarifier">
+          <button
+            class="btn btn--subtle"
+            type="button"
+            ?disabled=${props.actionBusy}
+            @click=${(event: Event) => void clarifyAttachmentFromForm(event, props)}
+          >
+            Make my instructions clearer with local AI
+          </button>
+          <small data-pcc-attachment-clarifier-status>
+            Optional. Your original intent stays in place until you review the improved wording.
+          </small>
+        </div>
+        <details class="pcc-project-files__options">
+          <summary>Privacy and AI access</summary>
+          <div>
+            <label>
+              <span>Who may read it?</span>
+              <select name="attachmentModelAccess" ?disabled=${props.actionBusy}>
+                <option value="project_policy">Agents allowed by this project</option>
+                <option value="local_only">Local AI only</option>
+                <option value="no_model">No AI — storage only</option>
+              </select>
+            </label>
+            <label>
+              <span>Sensitivity</span>
+              <select name="attachmentSensitivity" ?disabled=${props.actionBusy}>
+                <option value="normal">Normal</option>
+                <option value="sensitive">Sensitive</option>
+                <option value="restricted">Restricted</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <button class="btn" type="submit" ?disabled=${props.actionBusy}>Attach to project</button>
+      </form>
+    </details>
+    ${attachments.length
+      ? html`<ul class="pcc-project-files__list">
+          ${attachments.map(
+            (attachment) => html`<li>
+              <div>
+                <strong>${attachment.title}</strong>
+                <span>${attachmentRoleLabel(attachment.role)} · ${attachment.mimeType}</span>
+                ${attachment.instructions
+                  ? html`<p>${attachment.instructions}</p>`
+                  : html`<p>No special instructions. PCC will use the selected role and scope.</p>`}
+              </div>
+              <span class="pcc-status">${attachment.modelAccess.replaceAll("_", " ")}</span>
+            </li>`,
+          )}
+        </ul>`
+      : html`<p class="pcc-project-files__empty">
+          No files yet. Add only what the project needs; PCC keeps the file, purpose, and target
+          together.
+        </p>`}
+  </section>`;
+}
 
 const PROJECT_STATUSES: PccStatus[] = [
   "active",
@@ -6350,6 +6616,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
                 </section>`;
           })()}
         `}
+    ${props.editorMode ? nothing : renderPccProjectFiles(detail, props)}
     ${terminal || simple ? nothing : renderSetupRepairCard(setupEvaluation, props)}
     ${terminal || simple
       ? nothing
@@ -8737,6 +9004,44 @@ function renderPccActionFeedback(props: PccDashboardProps) {
     </div>`;
   }
   if (props.actionBusy) {
+    const run = props.planningRun;
+    if (run && (run.status === "queued" || run.status === "running")) {
+      const stageText: Record<PccPlanningRun["stage"], string> = {
+        preparing: "Preparing the planner",
+        planner_running: "Codex is planning milestones and sub-steps",
+        validating: "Checking owners, proof, and dependencies",
+        ready: "Preparing your review",
+      };
+      const modelLabel = run.model
+        .replace(/^openai\//u, "")
+        .replace(/^gpt-/u, "GPT-")
+        .replace(/-sol$/u, " Sol");
+      const effortLabel = `${run.effort.slice(0, 1).toUpperCase()}${run.effort.slice(1)} effort`;
+      const started = Date.parse(run.startedAt ?? run.createdAt);
+      const elapsedSeconds = Number.isFinite(started)
+        ? Math.max(0, Math.round((Date.now() - started) / 1000))
+        : 0;
+      return html`<div
+        class="pcc-callout pcc-callout--busy pcc-planning-progress"
+        data-pcc-planning-progress
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div class="pcc-planning-progress__indicator" aria-hidden="true"></div>
+        <div>
+          <strong>Creating your project plan</strong>
+          <span>${stageText[run.stage]}</span>
+          <small
+            >${modelLabel} · ${effortLabel} · ${elapsedSeconds}s elapsed. You can leave this screen;
+            PCC keeps the run record so you can reconnect.</small
+          >
+        </div>
+        <button class="btn btn--subtle" type="button" @click=${() => props.onCancelProjectPlan?.()}>
+          Cancel generation
+        </button>
+      </div>`;
+    }
     return html`<div
       class="pcc-callout pcc-callout--busy"
       data-pcc-action-busy
