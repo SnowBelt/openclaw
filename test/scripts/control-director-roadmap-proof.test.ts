@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   controlDirectorSourceProofMatchesRoot,
+  summarizeControlDirectorProgress,
   validateControlDirectorRoadmap,
 } from "../../scripts/control-director-roadmap-proof.mjs";
 
@@ -26,6 +27,8 @@ function roadmap(): Record<string, unknown> {
   };
   for (const milestone of value.milestones as Array<Record<string, unknown>>) {
     milestone.status = "passed";
+    milestone.implementationStatus = "implemented";
+    milestone.certificationStatus = "passed";
     milestone.evidence = ["binding:sourceProof", "test:synthetic"];
   }
   const milestone61 = (value.milestones as Array<Record<string, unknown>>).find(
@@ -57,6 +60,25 @@ function roadmap(): Record<string, unknown> {
     "binding:remoteProof",
     "binding:readiness",
     "runtime:end-to-end-orchestration",
+  ];
+  const milestone85 = (value.milestones as Array<Record<string, unknown>>).find(
+    (milestone) => milestone.id === "M85",
+  );
+  milestone85!.evidence = [
+    "binding:runtimeProof",
+    "binding:readiness",
+    "runtime:managed-certification",
+  ];
+  const milestone86 = (value.milestones as Array<Record<string, unknown>>).find(
+    (milestone) => milestone.id === "M86",
+  );
+  milestone86!.evidence = [
+    "binding:sourceProof",
+    "binding:updateSurvival",
+    "binding:runtimeProof",
+    "binding:remoteProof",
+    "binding:readiness",
+    "runtime:final-ledger",
   ];
   return value;
 }
@@ -426,10 +448,14 @@ describe("Control Director final roadmap proof", () => {
     expect(controlDirectorSourceProofMatchesRoot(undefined, "/tmp/repo")).toBe(false);
   });
 
-  it("accepts only the complete 68-milestone exact-proof ledger", () => {
+  it("accepts only the complete 86-milestone exact-proof ledger", () => {
     expect(validate()).toMatchObject({
-      milestoneCount: 68,
-      passedMilestones: 68,
+      milestoneCount: 86,
+      passedMilestones: 86,
+      implementedMilestones: 86,
+      certifiedMilestones: 86,
+      implementationPercent: 100,
+      certificationPercent: 100,
       weightedCompletionPercent: 100,
       minimumQualityScore: 100,
       requiredQualityScore: 93,
@@ -438,9 +464,14 @@ describe("Control Director final roadmap proof", () => {
 
   it("rejects a pending milestone, missing evidence, stale SHA, or weak quality", () => {
     const pending = structuredClone(roadmap()) as {
-      milestones: Array<{ status: string; evidence: string[] }>;
+      milestones: Array<{
+        certificationStatus: string;
+        status: string;
+        evidence: string[];
+      }>;
     };
     pending.milestones[0]!.status = "pending";
+    pending.milestones[0]!.certificationStatus = "pending";
     expect(() => validate(pending)).toThrow("M01 is not passed");
 
     const missingEvidence = structuredClone(roadmap()) as {
@@ -532,6 +563,46 @@ describe("Control Director final roadmap proof", () => {
         readiness: readiness(),
       }),
     ).toThrow("clean exact-identity v2 pass");
+  });
+
+  it("reports implementation and certification coverage separately", () => {
+    const pending = JSON.parse(
+      fs.readFileSync(path.resolve("work/control-director/reliability-v1/roadmap.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(summarizeControlDirectorProgress(pending)).toMatchObject({
+      milestoneCount: 86,
+      implementedMilestones: 18,
+      certifiedMilestones: 4,
+      implementationPercent: 20.93,
+      certificationPercent: 4.65,
+    });
+  });
+
+  it("rejects contradictory progress, missing execution milestones, and dependency cycles", () => {
+    const contradictory = structuredClone(roadmap()) as {
+      milestones: Array<{ certificationStatus: string; status: string }>;
+    };
+    contradictory.milestones[68]!.status = "pending";
+    expect(() => summarizeControlDirectorProgress(contradictory)).toThrow(
+      "M69 status does not mirror certificationStatus",
+    );
+
+    const missingExecution = structuredClone(roadmap()) as {
+      executionWaves: Array<{ milestones: string[] }>;
+    };
+    missingExecution.executionWaves.at(-1)!.milestones = [];
+    expect(() => summarizeControlDirectorProgress(missingExecution)).toThrow(
+      "Execution waves omit expanded milestones: M86",
+    );
+
+    const cyclic = structuredClone(roadmap()) as {
+      milestones: Array<{ dependsOn: string[] }>;
+    };
+    cyclic.milestones[0]!.dependsOn = ["M86"];
+    cyclic.milestones[85]!.dependsOn.push("M01");
+    expect(() => summarizeControlDirectorProgress(cyclic)).toThrow(
+      "dependency graph contains a cycle",
+    );
   });
 
   it("rejects abbreviated or unauditable remote-gate evidence", () => {

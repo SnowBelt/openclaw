@@ -19,17 +19,19 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 . "$auth_helper"
 
 usage() {
-  printf '%s\n' 'usage: custom-runtime-rollback.sh --candidate-runtime-release ID --rollback-release ID [--port 18789] [--verify-only]' >&2
+  printf '%s\n' 'usage: custom-runtime-rollback.sh --candidate-runtime-release ID --rollback-release ID [--port 18789] [--verify-only] [--emergency --reason ID]' >&2
   exit 64
 }
 
-candidate_runtime_release= rollback_release= port=18789 verify_only=false
+candidate_runtime_release= rollback_release= port=18789 verify_only=false emergency=false emergency_reason=
 while [ $# -gt 0 ]; do
   case "$1" in
     --candidate-runtime-release) candidate_runtime_release=${2:-}; shift 2 ;;
     --rollback-release) rollback_release=${2:-}; shift 2 ;;
     --port) port=${2:-}; shift 2 ;;
     --verify-only) verify_only=true; shift ;;
+    --emergency) emergency=true; shift ;;
+    --reason) emergency_reason=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -37,21 +39,23 @@ done
 case "$candidate_runtime_release" in *[!A-Za-z0-9._-]*|'') usage ;; esac
 case "$rollback_release" in *[!A-Za-z0-9._-]*|'') usage ;; esac
 case "$port" in ''|*[!0-9]*) usage ;; esac
+if [ "$emergency" = true ]; then
+  [ "$verify_only" = false ] && [ -n "$emergency_reason" ] || usage
+  case "$emergency_reason" in *[!A-Za-z0-9._:@/+~-]*|'') usage ;; esac
+else
+  [ -z "$emergency_reason" ] || usage
+fi
 
 mkdir -p "$runtime_home/backups" "$runtime_home/locks" "$runtime_home/receipts"
-for operation in activation promotion restart; do
-  [ ! -d "$runtime_home/locks/$operation.lock" ] || {
-    printf '%s\n' "custom runtime $operation is already active" >&2
-    exit 75
-  }
-done
-rollback_lock="$runtime_home/locks/rollback.lock"
-if ! mkdir "$rollback_lock" 2>/dev/null; then
-  printf '%s\n' 'another custom-runtime rollback is already active' >&2
-  exit 75
-fi
-cleanup_rollback_lock() { rmdir "$rollback_lock" 2>/dev/null || true; }
-trap cleanup_rollback_lock EXIT
+custom_runtime_lifecycle_begin "$runtime_home" rollback "" ""
+lifecycle_result=rollback-failed
+cleanup_rollback() {
+  status=$?
+  trap - EXIT INT TERM
+  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
+  exit "$status"
+}
+trap cleanup_rollback EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
@@ -147,6 +151,17 @@ bundle=$(printf '%s\n' "$rollback_identity" | sed -n '1p')
 candidate_source_sha=$(printf '%s\n' "$rollback_identity" | sed -n '2p')
 candidate_runtime_root=$(printf '%s\n' "$rollback_identity" | sed -n '3p')
 custom_runtime_require_release_governance rollback "$candidate_source_sha" "$candidate_runtime_root"
+custom_runtime_lifecycle_refresh_provenance "$runtime_home" \
+  "$candidate_source_sha" "$candidate_source_sha"
+if [ "$verify_only" = false ]; then
+  if [ "$emergency" = true ]; then
+    custom_runtime_certification_lease break-emergency "$runtime_home" \
+      "" "" "" "" "" "" "" "" "$emergency_reason" >/dev/null
+  else
+    custom_runtime_certification_lease verify-rollback "$runtime_home" \
+      "$candidate_source_sha" "$candidate_source_sha" "" "" "" "" "" "" ""
+  fi
+fi
 
 rollback_launcher="$bundle/custom-runtime-launcher.sh"
 if ! OPENCLAW_CUSTOM_RUNTIME_POINTER="$bundle/active-runtime.json" \
@@ -286,6 +301,7 @@ if verify_gateway "$rollback_runtime_root"; then
   cp -p "$pointer" "$runtime_home/last-known-good.json"
   mv "$registration" "$runtime_home/receipts/rollback-registration-used-$timestamp.json"
   write_receipt rolled_back_verified
+  lifecycle_result=rolled-back
   printf '%s\n' "CUSTOM_RUNTIME_ROLLED_BACK release=$rollback_release"
   exit 0
 fi

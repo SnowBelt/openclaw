@@ -83,6 +83,28 @@ Approval fails if the active runtime changed after preparation, the preservation
 
 Direct managed promotion independently reads the current active pointer under the promotion lock and verifies that its exact source commit is an ancestor of the requested candidate commit. A changed or invalid active source identity, missing candidate repository provenance, branch-to-SHA mismatch, or non-ancestor candidate stops before backups, rollback registration, pointer replacement, service files, or launchd are changed. This closes the race where a candidate's CI remains green after another approved runtime is promoted.
 
+Long-running exact-SHA certification can additionally bootstrap an expiring freeze through `custom-runtime-promote.sh --lease-acquire`. The lease binds the current active SHA, candidate SHA, owner, `release-certification` operation class, approval identity, operation identity, certification invocation identity, actor, PID, creation time, and expiration time. Acquisition leaves the lease in `acquired`; even the matching candidate cannot activate or promote until the exact owner binding performs `--lease-authorize-promotion`. A successful promotion advances the lease to `promoted`, after which candidate restart and soak verification can proceed. Exact release or verifiable expiration recovery removes the lease with a private typed receipt.
+
+Promotion, activation, restart, rollback, guard repair, and lease transitions share one private global lifecycle lock. Its receipts bind actor, Release Governor approval identity, operation identity, PID, invocation identity, timestamps, and the exact active/candidate SHA pair. Malformed or conflicting state, unsafe permissions, future creation times, durations above 24 hours, live concurrency, and recently orphaned locks fail closed. A valid dead lock becomes recoverable only after the bounded stale interval and produces a recovery receipt; the guard never deletes lifecycle locks by age alone.
+
+An active certification lease freezes normal rollback and guard mutation. Emergency rollback remains available only after the normal exact-SHA Release Governor bundle succeeds and the caller supplies a typed reason. Before runtime mutation, that path removes the lease and writes a `certification-invalidated` receipt, so recovery cannot be mistaken for successful certification. The lease is never an approval substitute: every stage, promotion, restart, rollback, and finalization operation still requires its operation-specific Release Governor evidence.
+
+Use one stable owner, approval, operation, and certification invocation binding throughout the campaign:
+
+```bash
+custom-runtime-promote.sh --lease-acquire \
+  --active-sha <active-sha> --candidate-sha <candidate-sha> \
+  --owner <owner> --operation-class release-certification \
+  --approval-id <approval-id> --operation-id <operation-id> \
+  --invocation-id <certification-invocation-id> --ttl-seconds 3600
+
+custom-runtime-promote.sh --lease-authorize-promotion \
+  --active-sha <active-sha> --candidate-sha <candidate-sha> \
+  --owner <owner> --operation-class release-certification \
+  --approval-id <approval-id> --operation-id <operation-id> \
+  --invocation-id <certification-invocation-id>
+```
+
 ## Dashboard customization rule
 
 Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, desktop/tablet/mobile acceptance, restart recovery, rollback-and-restore, and soak remain separate truth surfaces.

@@ -1,0 +1,72 @@
+name: Control Director Reliability
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/control-director-reliability.yml"
+      - ".github/workflows/workflow-sanity.yml"
+      - "package.json"
+      - "scripts/control-director-**"
+      - "scripts/custom-runtime/**"
+      - "src/agents/control-director-**"
+      - "src/self-improvement/control-director-**"
+      - "test/scripts/control-director-**"
+      - "test/scripts/custom-runtime-**"
+      - "ui/src/**/control-director-**"
+      - "work/control-director/reliability-v1/**"
+  workflow_dispatch:
+
+concurrency:
+  group: control-director-reliability-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  exact-source-proof:
+    name: Exact-source Control Director proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.CANDIDATE_SHA }}
+
+      - name: Setup Node and pnpm
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          frozen-lockfile: "true"
+
+      - name: Verify immutable source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Verify update-survival contract
+        run: pnpm custom-runtime:update-survival
+
+      - name: Run exact-source Control Director acceptance
+        timeout-minutes: 90
+        env:
+          CI: "true"
+          NODE_OPTIONS: --max-old-space-size=6144
+          OPENCLAW_EXPECTED_SOURCE_SHA: ${{ env.CANDIDATE_SHA }}
+          OPENCLAW_VITEST_MAX_WORKERS: "1"
+        run: pnpm control-director:verify -- --expected-sha "$CANDIDATE_SHA"
+
+      - name: Upload sanitized proof artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: control-director-reliability-${{ env.CANDIDATE_SHA }}
+          path: .artifacts/control-director/
+          if-no-files-found: error

@@ -11,46 +11,58 @@ provider=${OPENCLAW_SECRET_PROVIDER:-"$HOME/.openclaw/bin/patternlab-keychain-se
 port=${OPENCLAW_GATEWAY_PORT:-18789}
 tailscale_primary_guard="$runtime_home/bin/custom-runtime-tailscale-primary.sh"
 uid=$(id -u)
+auth_helper=$(dirname "$0")/custom-runtime-auth.sh
+[ -f "$auth_helper" ] || { printf '%s\n' 'custom runtime Gateway auth helper is missing' >&2; exit 64; }
+. "$auth_helper"
 mkdir -p "$runtime_home/receipts" "$runtime_home/locks"
-for operation in activation promotion restart rollback; do
-  operation_lock="$runtime_home/locks/$operation.lock"
-  if [ -d "$operation_lock" ]; then
-    now=$(date +%s)
-    modified=$(stat -f %m "$operation_lock" 2>/dev/null || printf 0)
-    case "$modified" in *[!0-9]*|'') modified=0 ;; esac
-    age=$((now - modified))
-    if [ "$age" -ge 0 ] && [ "$age" -lt 900 ]; then
-      exit 0
-    fi
-    rmdir "$operation_lock" 2>/dev/null || exit 0
-    receipt_stamp=$(date -u +%Y%m%dT%H%M%SZ)
-    printf '{"at":"%s","result":"stale_%s_lock_removed"}\n' \
-      "$receipt_stamp" "$operation" > "$runtime_home/receipts/guard-stale-$operation-lock-$receipt_stamp.json"
-  fi
-done
-lock="$runtime_home/locks/guard.lock"
-if ! mkdir "$lock" 2>/dev/null; then exit 0; fi
-trap 'rmdir "$lock"' EXIT
+if custom_runtime_lifecycle_begin "$runtime_home" guard "" ""; then
+  :
+else
+  lifecycle_status=$?
+  [ "$lifecycle_status" -eq 75 ] && exit 0
+  exit "$lifecycle_status"
+fi
+lifecycle_result=guard-failed
+cleanup_guard() {
+  status=$?
+  trap - EXIT INT TERM
+  custom_runtime_lifecycle_finish "$runtime_home" "$lifecycle_result" "$status" || status=1
+  exit "$status"
+}
+trap cleanup_guard EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
-receipt() { printf '{"at":"%s","result":"%s"}\n' "$stamp" "$1" > "$runtime_home/receipts/guard-$stamp.json"; }
+receipt() {
+  lifecycle_result=$1
+  printf '{"at":"%s","result":"%s"}\n' "$stamp" "$1" > "$runtime_home/receipts/guard-$stamp.json"
+}
 
 tailscale_primary_ok=true
 if [ -x "$tailscale_primary_guard" ] && ! "$tailscale_primary_guard" guard; then
   tailscale_primary_ok=false
 fi
 complete_guard() {
-  [ "$tailscale_primary_ok" = true ] && exit 0
+  if [ "$tailscale_primary_ok" = true ]; then
+    [ "$lifecycle_result" != guard-failed ] || lifecycle_result=guard-healthy
+    exit 0
+  fi
+  lifecycle_result=guard-tailscale-failed
   exit 1
 }
 
-runtime_root=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
+runtime_identity=$(python3 - "$runtime_home/active-runtime.json" <<'PY'
 import json, sys
 try:
-    print(json.load(open(sys.argv[1])).get("runtimeRoot", ""))
+    pointer = json.load(open(sys.argv[1]))
+    print(pointer.get("runtimeRoot", ""))
+    print(pointer.get("sourceSha", ""))
 except Exception:
     pass
 PY
 )
+runtime_root=$(printf '%s\n' "$runtime_identity" | sed -n '1p')
+runtime_source_sha=$(printf '%s\n' "$runtime_identity" | sed -n '2p')
 plist_uses_launcher=false
 if [ -f "$plist" ] && python3 - "$plist" "$launcher" <<'PY'
 import plistlib, sys
@@ -99,7 +111,8 @@ PY
   if "$rollback_script" \
     --candidate-runtime-release "$candidate_runtime_release" \
     --rollback-release "$rollback_release" \
-    --port "$port"; then
+    --port "$port" \
+    --emergency --reason guard-registered-rollback; then
     receipt repaired_by_registered_rollback
     complete_guard
   fi
@@ -108,6 +121,15 @@ PY
 fi
 [ -f "$runtime_home/last-known-good.json" ] || { receipt repair_unavailable_no_last_good; exit 1; }
 [ -f "$desired_plist" ] || { receipt repair_unavailable_no_desired_plist; exit 1; }
+[ -n "$runtime_root" ] && [ -n "$runtime_source_sha" ] || {
+  receipt repair_unavailable_runtime_identity
+  exit 1
+}
+custom_runtime_require_release_governance rollback "$runtime_source_sha" "$runtime_root"
+custom_runtime_lifecycle_refresh_provenance "$runtime_home" \
+  "$runtime_source_sha" "$runtime_source_sha"
+custom_runtime_certification_lease break-emergency "$runtime_home" \
+  "" "" "" "" "" "" "" "" "guard-last-known-good-recovery" >/dev/null
 python3 - "$desired_plist" "$launcher" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], "rb") as f: args = plistlib.load(f).get("ProgramArguments", [])
