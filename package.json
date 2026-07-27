@@ -1920,7 +1920,7 @@
     "qrcode": "1.5.4",
     "quickjs-wasi": "3.0.0",
     "rastermill": "0.3.1",
-    "tar": "7.5.15",
+    "tar": "7.5.19",
     "tree-sitter-bash": "0.25.1",
     "tslog": "4.10.2",
     "typebox": "1.1.39",
@@ -1950,7 +1950,7 @@
     "@types/proper-lockfile": "4.1.4",
     "@types/ws": "8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260527.2",
-    "@vitest/coverage-v8": "4.1.9",
+    "@vitest/coverage-v8": "4.1.10",
     "esbuild": "0.28.1",
     "jscpd": "4.2.4",
     "jsdom": "29.1.1",
@@ -1963,7 +1963,7 @@
     "tsdown": "0.22.1",
     "tsx": "4.22.3",
     "unrun": "0.3.0",
-    "vitest": "4.1.9"
+    "vitest": "4.1.10"
   },
   "optionalDependencies": {
     "sqlite-vec": "0.1.9"
