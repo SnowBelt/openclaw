@@ -268,10 +268,9 @@
 }
 
 .pcc-callout[data-pcc-action-notice] > div:first-child {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  align-items: start;
+  display: grid;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -493,11 +492,13 @@
 .pcc-layout {
   align-items: start;
   display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(250px, 330px) minmax(0, 1fr);
+  gap: 20px;
+  grid-template-columns: minmax(290px, 350px) minmax(0, 1fr);
 }
 
 .pcc-projects {
+  container-name: pcc-project-list;
+  container-type: inline-size;
   min-width: 0;
   position: sticky;
   top: 12px;
@@ -3584,7 +3585,7 @@
 .pcc-project-orientation__facts {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
 }
 
@@ -4567,6 +4568,33 @@
   outline: none;
 }
 
+@container pcc-project-list (max-width: 420px) {
+  .pcc-project-focus-bar__top,
+  .pcc-project-search__scope {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pcc-project-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pcc-project-tabs button,
+  .pcc-project-search__scope .btn {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .pcc-project-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pcc-project-search__count {
+    display: none;
+  }
+}
+
 @media (max-width: 780px) {
   .pcc-project-focus-bar {
     grid-template-columns: 1fr;
@@ -4599,6 +4627,17 @@
   .pcc-project-snapshot__badges {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@container pcc-project-snapshot (max-width: 760px) {
+  .pcc-execution-profile-chip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pcc-execution-profile-chip > .btn {
+    align-self: flex-start;
   }
 }
 
@@ -4882,6 +4921,29 @@
 
   .pcc-today__next {
     width: 100%;
+  }
+}
+
+@container pcc-shell (min-width: 761px) and (max-width: 1400px) {
+  .pcc-today__bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px 12px;
+  }
+
+  .pcc-today__bar-title,
+  .pcc-today__plain-summary {
+    grid-column: 1 / -1;
+  }
+
+  .pcc-today__next {
+    grid-column: 1;
+    width: 100%;
+  }
+
+  .pcc-today__metrics-more {
+    align-self: center;
+    grid-column: 2;
+    justify-self: end;
   }
 }
 

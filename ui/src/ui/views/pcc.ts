@@ -4379,7 +4379,7 @@ function renderProjectSearch(
       <input
         type="search"
         aria-label=${`Search ${label} projects`}
-        placeholder=${`Search ${label} projects by title, status, next action, blocker, proof, or owner`}
+        placeholder="Search projects"
         .value=${query}
         @input=${(event: Event) =>
           props.onSetProjectSearchQuery?.((event.target as HTMLInputElement).value)}
