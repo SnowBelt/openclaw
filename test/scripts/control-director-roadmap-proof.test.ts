@@ -12,6 +12,8 @@ const selectedModel = "ollama/openclaw-control-gemma4-31b-q8:latest";
 const sourceCheckedAt = "2026-07-19T12:05:00.000Z";
 const runtimeCheckedAt = "2026-07-21T02:05:00.000Z";
 const readinessCheckedAt = "2026-07-21T02:10:00.000Z";
+const modelGovernanceCheckedAt = "2026-07-21T02:15:00.000Z";
+const stabilityCheckedAt = "2026-07-22T02:20:00.000Z";
 
 function roadmap(): Record<string, unknown> {
   const value = JSON.parse(
@@ -23,6 +25,8 @@ function roadmap(): Record<string, unknown> {
     runtimeProof: ".artifacts/control-director/runtime-<source-sha>/runtime-proof.json",
     localValidationProof: ".artifacts/control-director/mac-studio-validation-<source-sha>.json",
     readiness: ".artifacts/control-director/runtime-<source-sha>/readiness.json",
+    modelGovernanceProof: ".artifacts/control-director/model-governance-<source-sha>.json",
+    stabilityProof: ".artifacts/control-director/stability-<source-sha>.json",
     finalReceipt: ".artifacts/control-director/final-ledger-<source-sha>.json",
   };
   for (const milestone of value.milestones as Array<Record<string, unknown>>) {
@@ -79,6 +83,33 @@ function roadmap(): Record<string, unknown> {
     "binding:localValidationProof",
     "binding:readiness",
     "runtime:final-ledger",
+  ];
+  for (const milestone of (value.milestones as Array<Record<string, unknown>>).filter(
+    (entry) => typeof entry.id === "string" && /^M(?:8[7-9]|9[0-9]|10[0-2])$/u.test(entry.id),
+  )) {
+    milestone.evidence = [
+      "binding:modelGovernanceProof",
+      "source:model-governance-contract",
+      "test:model-governance",
+    ];
+  }
+  for (const milestone of (value.milestones as Array<Record<string, unknown>>).filter(
+    (entry) => typeof entry.id === "string" && /^M10[3-5]$/u.test(entry.id),
+  )) {
+    milestone.evidence = ["binding:stabilityProof", "source:stability-contract", "test:stability"];
+  }
+  const milestone106 = (value.milestones as Array<Record<string, unknown>>).find(
+    (milestone) => milestone.id === "M106",
+  );
+  milestone106!.evidence = [
+    "binding:sourceProof",
+    "binding:updateSurvival",
+    "binding:runtimeProof",
+    "binding:localValidationProof",
+    "binding:readiness",
+    "binding:modelGovernanceProof",
+    "binding:stabilityProof",
+    "runtime:durable-final-ledger",
   ];
   return value;
 }
@@ -445,6 +476,91 @@ function readiness() {
   };
 }
 
+function modelGovernanceProof() {
+  const requiredFacts = [
+    "M87-model-admission-identity",
+    "M88-evidence-invalidation-graph",
+    "M89-transactional-model-config",
+    "M90-residency-lease-prewarm",
+    "M91-latency-phase-telemetry",
+    "M92-qualified-local-fallback",
+    "M93-proof-gated-quality-cascade",
+    "M94-bounded-shadow-challenger",
+    "M95-judge-diversity",
+    "M96-statistical-evaluation",
+    "M97-cache-identity",
+    "M98-immutable-runtime-invocation",
+    "M99-pcc-observability",
+    "M100-sig-incidents",
+    "M101-proof-planner",
+    "M102-workflow-skill-convergence",
+  ];
+  return {
+    schema: "openclaw.control-director-model-governance-proof.v1",
+    sourceSha,
+    generatedAt: modelGovernanceCheckedAt,
+    passed: true,
+    requiredQualityScore: 93,
+    minimumQualityScore: 100,
+    failedCritical: [],
+    evidenceRefs: ["artifact:model-governance"],
+    modelIdentity: {
+      sourceSha,
+      selectedModel,
+      identityDigest: "e".repeat(64),
+      configDigest: "f".repeat(64),
+    },
+    statisticalEvaluation: {
+      trialCount: 48,
+      passRate: 100,
+      criticalOmissions: 0,
+      minimumQualityScore: 100,
+    },
+    facts: requiredFacts.map((id) => ({
+      id,
+      passed: true,
+      checkedAt: modelGovernanceCheckedAt,
+      evidenceRefs: ["artifact:model-governance"],
+      qualityScore: 100,
+    })),
+  };
+}
+
+function stabilityProof() {
+  const requiredFacts = [
+    "M103-chaos-suite",
+    "M104-fallback-rollback-restoration",
+    "M105-extended-monitoring",
+    "M106-final-ledger-closure",
+  ];
+  return {
+    schema: "openclaw.control-director-stability-proof.v1",
+    sourceSha,
+    generatedAt: stabilityCheckedAt,
+    passed: true,
+    failedCritical: [],
+    evidenceRefs: ["artifact:stability"],
+    monitoring: {
+      activeSoakMinutes: 30,
+      passiveMonitorHours: 24,
+      routeDriftDetected: false,
+      capabilityLossDetected: false,
+    },
+    restoration: {
+      rollbackRestored: true,
+      fallbackOrderRestored: true,
+      cacheIdentityRestored: true,
+      proofStateRestored: true,
+    },
+    facts: requiredFacts.map((id) => ({
+      id,
+      passed: true,
+      checkedAt: stabilityCheckedAt,
+      evidenceRefs: ["artifact:stability"],
+    })),
+  };
+}
+
 function validate(value = roadmap()) {
   return validateControlDirectorRoadmap({
     roadmap: value,
@@ -454,6 +570,8 @@ function validate(value = roadmap()) {
     runtimeProof: runtimeProof(),
     localValidationProof: localValidationProof(),
     readiness: readiness(),
+    modelGovernanceProof: modelGovernanceProof(),
+    stabilityProof: stabilityProof(),
   });
 }
 
@@ -464,12 +582,12 @@ describe("Control Director final roadmap proof", () => {
     expect(controlDirectorSourceProofMatchesRoot(undefined, "/tmp/repo")).toBe(false);
   });
 
-  it("accepts only the complete 86-milestone exact-proof ledger", () => {
+  it("accepts only the complete 106-milestone exact-proof ledger", () => {
     expect(validate()).toMatchObject({
-      milestoneCount: 86,
-      passedMilestones: 86,
-      implementedMilestones: 86,
-      certifiedMilestones: 86,
+      milestoneCount: 106,
+      passedMilestones: 106,
+      implementedMilestones: 106,
+      certifiedMilestones: 106,
       implementationPercent: 100,
       certificationPercent: 100,
       weightedCompletionPercent: 100,
@@ -507,6 +625,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("sourceProof sourceSha");
 
@@ -521,6 +641,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: weakRuntime,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("quality score");
 
@@ -535,6 +657,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: staleModelEval,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("runtimeProof.modelEval sourceSha");
 
@@ -549,6 +673,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: incompleteCoverage,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("missing required cold or warm task coverage");
 
@@ -563,6 +689,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: weakReadiness,
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("all-passed fact ledger");
 
@@ -577,6 +705,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("clean exact-identity v2 pass");
   });
@@ -586,11 +716,11 @@ describe("Control Director final roadmap proof", () => {
       fs.readFileSync(path.resolve("work/control-director/reliability-v1/roadmap.json"), "utf8"),
     ) as Record<string, unknown>;
     expect(summarizeControlDirectorProgress(pending)).toMatchObject({
-      milestoneCount: 86,
-      implementedMilestones: 18,
+      milestoneCount: 106,
+      implementedMilestones: 38,
       certifiedMilestones: 4,
-      implementationPercent: 20.93,
-      certificationPercent: 4.65,
+      implementationPercent: 35.85,
+      certificationPercent: 3.77,
     });
   });
 
@@ -608,14 +738,14 @@ describe("Control Director final roadmap proof", () => {
     };
     missingExecution.executionWaves.at(-1)!.milestones = [];
     expect(() => summarizeControlDirectorProgress(missingExecution)).toThrow(
-      "Execution waves omit expanded milestones: M86",
+      "Execution waves omit expanded milestones: M103",
     );
 
     const cyclic = structuredClone(roadmap()) as {
       milestones: Array<{ dependsOn: string[] }>;
     };
-    cyclic.milestones[0]!.dependsOn = ["M86"];
-    cyclic.milestones[85]!.dependsOn.push("M01");
+    cyclic.milestones[0]!.dependsOn = ["M106"];
+    cyclic.milestones[105]!.dependsOn.push("M01");
     expect(() => summarizeControlDirectorProgress(cyclic)).toThrow(
       "dependency graph contains a cycle",
     );
@@ -633,6 +763,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: abbreviatedLocal,
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("does not contain every exact-SHA all-passed local gate");
 
@@ -647,6 +779,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: unboundLanding,
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("Landing does not bind the exact locally validated source SHA");
   });
@@ -688,6 +822,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("Exact-source proof must complete before the local validation bundle");
 
@@ -724,6 +860,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: preLandingRuntime,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("Managed-runtime proof must be measured after exact-SHA landing");
   });
@@ -740,6 +878,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("Update-survival proof");
 
@@ -756,6 +896,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("protocol-coverage");
 
@@ -772,6 +914,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("exact-parent-update-broker");
 
@@ -795,6 +939,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: runtimeProof(),
         localValidationProof: localValidationProof(),
         readiness: weakReadiness,
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("runtime-update-broker");
   });
@@ -811,6 +957,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: obstructed,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("runtimeProof.macStudioDashboard.truthCompletionOverlapFree must be true");
 
@@ -825,6 +973,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: unsignedJudge,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("runtimeProof.judge.signatureVerified must be true");
 
@@ -839,6 +989,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: disabledSigBackground,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("runtimeProof.sig.backgroundEnabled must be true");
 
@@ -853,6 +1005,8 @@ describe("Control Director final roadmap proof", () => {
         runtimeProof: slowLocalModel,
         localValidationProof: localValidationProof(),
         readiness: readiness(),
+        modelGovernanceProof: modelGovernanceProof(),
+        stabilityProof: stabilityProof(),
       }),
     ).toThrow("runtimeProof.localModelLatency.warm.ackMs exceeds");
   });

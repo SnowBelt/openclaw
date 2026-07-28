@@ -5,12 +5,18 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+  CONTROL_DIRECTOR_MODEL_GOVERNANCE_FACT_IDS,
+  CONTROL_DIRECTOR_MODEL_GOVERNANCE_PROOF_SCHEMA,
+  CONTROL_DIRECTOR_STABILITY_FACT_IDS,
+  CONTROL_DIRECTOR_STABILITY_PROOF_SCHEMA,
+} from "../src/agents/control-director-model-governance-proof.js";
 import { CONTROL_DIRECTOR_UX_SLOS } from "../src/agents/control-director-slos.js";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const EXPECTED_MILESTONES = Array.from(
-  { length: 86 },
+  { length: 106 },
   (_, index) => `M${String(index + 1).padStart(2, "0")}`,
 );
 const IMPLEMENTATION_STATUSES = new Set(["unassessed", "pending", "implemented", "blocked"]);
@@ -40,6 +46,25 @@ const REQUIRED_TRUTH_SURFACES = [
   "soak",
   "rollback",
   "live-diagnostic",
+  "model-identity",
+  "evidence-invalidation",
+  "configuration-residency",
+  "latency-telemetry",
+  "fallback-governance",
+  "quality-cascade",
+  "shadow-review",
+  "judge-diversity",
+  "statistical-evaluation",
+  "cache-identity",
+  "immutable-runtime-invocation",
+  "pcc-observability",
+  "sig-incidents",
+  "proof-planning",
+  "workflow-skill-convergence",
+  "chaos-drill",
+  "rollback-restoration",
+  "extended-soak",
+  "final-ledger",
 ];
 const REQUIRED_BINDINGS = [
   "sourceProof",
@@ -47,6 +72,8 @@ const REQUIRED_BINDINGS = [
   "runtimeProof",
   "localValidationProof",
   "readiness",
+  "modelGovernanceProof",
+  "stabilityProof",
 ];
 const UPDATE_SURVIVAL_COMMANDS = [
   "pnpm check:custom-runtime-capabilities",
@@ -158,7 +185,37 @@ const REQUIRED_MILESTONE_BINDINGS = {
   M68: ["sourceProof", "updateSurvival", "runtimeProof", "localValidationProof", "readiness"],
   M85: ["runtimeProof", "readiness"],
   M86: ["sourceProof", "updateSurvival", "runtimeProof", "localValidationProof", "readiness"],
+  M87: ["modelGovernanceProof"],
+  M88: ["modelGovernanceProof"],
+  M89: ["modelGovernanceProof"],
+  M90: ["modelGovernanceProof"],
+  M91: ["modelGovernanceProof"],
+  M92: ["modelGovernanceProof"],
+  M93: ["modelGovernanceProof"],
+  M94: ["modelGovernanceProof"],
+  M95: ["modelGovernanceProof"],
+  M96: ["modelGovernanceProof"],
+  M97: ["modelGovernanceProof"],
+  M98: ["modelGovernanceProof"],
+  M99: ["modelGovernanceProof"],
+  M100: ["modelGovernanceProof"],
+  M101: ["modelGovernanceProof"],
+  M102: ["modelGovernanceProof"],
+  M103: ["stabilityProof"],
+  M104: ["stabilityProof"],
+  M105: ["stabilityProof"],
+  M106: [
+    "sourceProof",
+    "updateSurvival",
+    "runtimeProof",
+    "localValidationProof",
+    "readiness",
+    "modelGovernanceProof",
+    "stabilityProof",
+  ],
 };
+const REQUIRED_MODEL_GOVERNANCE_FACTS = [...CONTROL_DIRECTOR_MODEL_GOVERNANCE_FACT_IDS];
+const REQUIRED_STABILITY_FACTS = [...CONTROL_DIRECTOR_STABILITY_FACT_IDS];
 
 function object(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -416,6 +473,29 @@ function validateRuntimeSurface(name, value, sourceSha) {
   return surface;
 }
 
+function validateRequiredFactLedger(value, label, requiredFacts) {
+  const facts = Array.isArray(value) ? value.map((entry) => object(entry, `${label} fact`)) : [];
+  if (
+    facts.length === 0 ||
+    facts.some(
+      (entry) =>
+        typeof entry.id !== "string" ||
+        !entry.id.trim() ||
+        entry.passed !== true ||
+        !validDate(entry.checkedAt) ||
+        nonEmptyStrings(entry.evidenceRefs).length === 0,
+    )
+  ) {
+    throw new Error(`${label} does not contain an all-passed timestamped fact ledger.`);
+  }
+  const factIds = new Set(facts.map((entry) => entry.id));
+  const missingFacts = requiredFacts.filter((factId) => !factIds.has(factId));
+  if (missingFacts.length > 0) {
+    throw new Error(`${label} omits required facts: ${missingFacts.join(", ")}.`);
+  }
+  return facts;
+}
+
 function git(repoRoot, args) {
   const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
   if (result.status !== 0) {
@@ -496,7 +576,7 @@ export function summarizeControlDirectorProgress(roadmapValue) {
     : [];
   const milestoneIds = milestones.map((milestone) => milestone.id);
   if (JSON.stringify(milestoneIds) !== JSON.stringify(EXPECTED_MILESTONES)) {
-    throw new Error("Roadmap must contain exactly M01 through M86 in stable ID order.");
+    throw new Error("Roadmap must contain exactly M01 through M106 in stable ID order.");
   }
   for (const milestone of milestones) {
     const { certificationStatus, implementationStatus } = milestoneProgress(milestone);
@@ -950,6 +1030,84 @@ export function validateControlDirectorRoadmap(params) {
     );
   }
 
+  const modelGovernanceProof = object(params.modelGovernanceProof, "modelGovernanceProof");
+  exactSha(modelGovernanceProof.sourceSha, sourceSha, "modelGovernanceProof");
+  if (
+    modelGovernanceProof.schema !== CONTROL_DIRECTOR_MODEL_GOVERNANCE_PROOF_SCHEMA ||
+    modelGovernanceProof.passed !== true ||
+    !validDate(modelGovernanceProof.generatedAt) ||
+    Date.parse(modelGovernanceProof.generatedAt) < Date.parse(readiness.generatedAt) ||
+    Number(modelGovernanceProof.requiredQualityScore) < 93 ||
+    Number(modelGovernanceProof.minimumQualityScore) <
+      Number(completionPolicy.requiredQualityScore) ||
+    nonEmptyStrings(modelGovernanceProof.failedCritical).length !== 0 ||
+    nonEmptyStrings(modelGovernanceProof.evidenceRefs).length === 0
+  ) {
+    throw new Error("Model governance proof is not an exact-SHA 93+ all-passed v1 ledger.");
+  }
+  const modelGovernanceFacts = validateRequiredFactLedger(
+    modelGovernanceProof.facts,
+    "Model governance proof",
+    REQUIRED_MODEL_GOVERNANCE_FACTS,
+  );
+  const statisticalEvaluation = object(
+    modelGovernanceProof.statisticalEvaluation,
+    "modelGovernanceProof.statisticalEvaluation",
+  );
+  if (
+    statisticalEvaluation.trialCount < 48 ||
+    statisticalEvaluation.passRate !== 100 ||
+    statisticalEvaluation.criticalOmissions !== 0 ||
+    Number(statisticalEvaluation.minimumQualityScore) <
+      Number(completionPolicy.requiredQualityScore)
+  ) {
+    throw new Error("Model governance proof does not satisfy the 48-trial quality floor.");
+  }
+  const modelIdentity = object(
+    modelGovernanceProof.modelIdentity,
+    "modelGovernanceProof.modelIdentity",
+  );
+  if (
+    modelIdentity.selectedModel !== lineage.selectedModel ||
+    modelIdentity.sourceSha !== sourceSha ||
+    !/^[a-f0-9]{64}$/u.test(String(modelIdentity.identityDigest ?? "")) ||
+    !/^[a-f0-9]{64}$/u.test(String(modelIdentity.configDigest ?? ""))
+  ) {
+    throw new Error("Model governance proof model identity is not bound to the runtime route.");
+  }
+
+  const stabilityProof = object(params.stabilityProof, "stabilityProof");
+  exactSha(stabilityProof.sourceSha, sourceSha, "stabilityProof");
+  if (
+    stabilityProof.schema !== CONTROL_DIRECTOR_STABILITY_PROOF_SCHEMA ||
+    stabilityProof.passed !== true ||
+    !validDate(stabilityProof.generatedAt) ||
+    Date.parse(stabilityProof.generatedAt) < Date.parse(modelGovernanceProof.generatedAt) ||
+    nonEmptyStrings(stabilityProof.failedCritical).length !== 0 ||
+    nonEmptyStrings(stabilityProof.evidenceRefs).length === 0
+  ) {
+    throw new Error("Stability proof is not an exact-SHA all-passed v1 ledger.");
+  }
+  validateRequiredFactLedger(stabilityProof.facts, "Stability proof", REQUIRED_STABILITY_FACTS);
+  const monitoring = object(stabilityProof.monitoring, "stabilityProof.monitoring");
+  if (
+    Number(monitoring.activeSoakMinutes) < 30 ||
+    Number(monitoring.passiveMonitorHours) < 24 ||
+    monitoring.routeDriftDetected !== false ||
+    monitoring.capabilityLossDetected !== false
+  ) {
+    throw new Error("Stability proof does not satisfy active/passive monitoring requirements.");
+  }
+  const restoration = object(stabilityProof.restoration, "stabilityProof.restoration");
+  if (
+    restoration.rollbackRestored !== true ||
+    restoration.fallbackOrderRestored !== true ||
+    restoration.cacheIdentityRestored !== true ||
+    restoration.proofStateRestored !== true
+  ) {
+    throw new Error("Stability proof does not prove rollback and fallback restoration.");
+  }
+
   return {
     milestoneCount: milestones.length,
     passedMilestones: milestones.length,
@@ -958,7 +1116,10 @@ export function validateControlDirectorRoadmap(params) {
     implementationPercent: progress.implementationPercent,
     certificationPercent: progress.certificationPercent,
     weightedCompletionPercent: 100,
-    minimumQualityScore: Math.min(...qualityScores),
+    minimumQualityScore: Math.min(
+      ...qualityScores,
+      ...modelGovernanceFacts.map((fact) => Number(fact.qualityScore ?? 100)),
+    ),
     requiredQualityScore: Number(completionPolicy.requiredQualityScore),
     evidenceBinding: binding,
   };
@@ -988,6 +1149,8 @@ function parseArgs(argv) {
     "runtime-proof",
     "local-validation-proof",
     "readiness",
+    "model-governance-proof",
+    "stability-proof",
     "output",
   ]) {
     if (!values.get(key)) {
@@ -1015,6 +1178,8 @@ function main() {
     runtimeProof: path.resolve(args.get("runtime-proof")),
     localValidationProof: path.resolve(args.get("local-validation-proof")),
     readiness: path.resolve(args.get("readiness")),
+    modelGovernanceProof: path.resolve(args.get("model-governance-proof")),
+    stabilityProof: path.resolve(args.get("stability-proof")),
   };
   const roadmap = readJson(roadmapPath);
   const sourceProof = readJson(inputPaths.sourceProof);
@@ -1029,6 +1194,8 @@ function main() {
     runtimeProof: readJson(inputPaths.runtimeProof),
     localValidationProof: readJson(inputPaths.localValidationProof),
     readiness: readJson(inputPaths.readiness),
+    modelGovernanceProof: readJson(inputPaths.modelGovernanceProof),
+    stabilityProof: readJson(inputPaths.stabilityProof),
   });
   const bindings = object(roadmap.evidenceBinding, "evidenceBinding");
   for (const [name, inputPath] of Object.entries(inputPaths)) {

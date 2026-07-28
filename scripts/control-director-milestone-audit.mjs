@@ -6,7 +6,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const AUDITED_MILESTONE_IDS = Array.from(
-  { length: 68 },
+  { length: 106 },
   (_, index) => `M${String(index + 1).padStart(2, "0")}`,
 );
 const AUDITED_MILESTONE_ID_SET = new Set(AUDITED_MILESTONE_IDS);
@@ -357,6 +357,203 @@ export const MILESTONE_EVIDENCE_CONTRACTS = Object.freeze([
     ["scripts/control-director-roadmap-proof.mjs"],
     ["test/scripts/control-director-roadmap-proof.test.ts"],
   ),
+
+  evidenceContract(
+    "M69",
+    ["scripts/control-director-roadmap-proof.mjs"],
+    ["test/scripts/control-director-roadmap-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M70",
+    ["src/agents/control-director-runtime-lineage.ts"],
+    ["src/agents/control-director-runtime-lineage.test.ts"],
+  ),
+  evidenceContract(
+    "M71",
+    ["src/pcc/release-governance/governor.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M72",
+    ["scripts/control-director-preflight.mjs"],
+    ["test/scripts/control-director-preflight.test.ts"],
+  ),
+  evidenceContract(
+    "M73",
+    ["scripts/control-director-preflight.mjs"],
+    ["test/scripts/control-director-preflight.test.ts"],
+  ),
+  evidenceContract(
+    "M74",
+    ["scripts/control-director-verify.mjs"],
+    ["test/scripts/control-director-verify.test.ts"],
+  ),
+  evidenceContract(
+    "M75",
+    ["scripts/custom-runtime/custom-runtime-update-survival.ts"],
+    ["test/scripts/custom-runtime-update-survival.test.ts"],
+  ),
+  evidenceContract(
+    "M76",
+    ["src/pcc/release-governance/governor.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M77",
+    ["src/pcc/release-governance/policy.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M78",
+    ["src/pcc/release-governance/store.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M79",
+    ["src/pcc/release-governance/evidence.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M80",
+    ["src/pcc/release-governance/ledger.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M81",
+    ["src/pcc/release-governance/store.ts", "src/pcc/release-governance/governor.ts"],
+    ["src/pcc/release-governance/release-governance.test.ts"],
+  ),
+  evidenceContract(
+    "M82",
+    ["scripts/control-director-milestone-audit.mjs"],
+    ["test/scripts/control-director-milestone-audit.test.ts"],
+  ),
+  evidenceContract(
+    "M83",
+    ["scripts/control-director-preflight.mjs"],
+    ["test/scripts/control-director-preflight.test.ts"],
+  ),
+  evidenceContract(
+    "M84",
+    ["scripts/control-director-roadmap-proof.mjs"],
+    ["test/scripts/control-director-roadmap-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M85",
+    ["scripts/control-director-readiness.mjs"],
+    ["test/scripts/control-director-readiness.test.ts"],
+  ),
+  evidenceContract(
+    "M86",
+    ["scripts/control-director-roadmap-proof.mjs"],
+    ["test/scripts/control-director-roadmap-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M87",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M88",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M89",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M90",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M91",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M92",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M93",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M94",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M95",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M96",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M97",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M98",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M99",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M100",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M101",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M102",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M103",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M104",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M105",
+    ["src/agents/control-director-model-governance-proof.ts"],
+    ["src/agents/control-director-model-governance-proof.test.ts"],
+  ),
+  evidenceContract(
+    "M106",
+    [
+      "scripts/control-director-roadmap-proof.mjs",
+      "src/agents/control-director-model-governance-proof.ts",
+    ],
+    [
+      "test/scripts/control-director-roadmap-proof.test.ts",
+      "src/agents/control-director-model-governance-proof.test.ts",
+    ],
+  ),
 ]);
 
 function isRepositoryRelativePath(value) {
@@ -453,7 +650,7 @@ function readRoadmap(rootDir, roadmapPath) {
   const errors = [];
   for (const milestone of parsed.milestones) {
     const id = milestone?.id;
-    if (typeof id !== "string" || !/^M\d{2}$/u.test(id)) {
+    if (typeof id !== "string" || !/^M\d{2,3}$/u.test(id)) {
       errors.push(`roadmap contains an unknown milestone ID: ${String(id)}`);
       continue;
     }
