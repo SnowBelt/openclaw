@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
@@ -257,6 +258,8 @@ describe("custom runtime canary and rollback", () => {
     expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
       activeSha,
       candidateSha: input.sourceSha,
+      heartbeatRequired: true,
+      heartbeatSequence: 0,
       operationClass: "release-certification",
       owner: "codex:pr-40",
       schema: "openclaw.custom-runtime-certification-lease.v2",
@@ -299,8 +302,21 @@ describe("custom runtime canary and rollback", () => {
     expect(JSON.parse(status.stdout)).toMatchObject({
       activeSha,
       candidateSha: input.sourceSha,
+      heartbeatValidity: "fresh",
       state: "acquired",
       validity: "active",
+    });
+
+    const heartbeat = spawnSync("sh", [promoteScript, "--lease-heartbeat", ...binding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(heartbeat.status, heartbeat.stderr).toBe(0);
+    expect(readFileSync(heartbeat.stdout.trim(), "utf8")).toContain('"result": "heartbeat"');
+    expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
+      heartbeatRequired: true,
+      heartbeatSequence: 1,
     });
 
     const released = spawnSync("sh", [promoteScript, "--lease-release", ...binding], {
@@ -402,6 +418,190 @@ describe("custom runtime canary and rollback", () => {
     expect(readFileSync(recovered.stdout.trim(), "utf8")).toContain(
       '"result": "expired-recovered"',
     );
+  });
+
+  it("recovers only a heartbeat-stale acquired lease with fresh inactive proof", () => {
+    const input = fixture();
+    const activeSha = "1".repeat(40);
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    const proofPath = path.join(input.runtimeHome, "orphan-proof.json");
+    const fakeBin = path.join(input.home, "fake-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    executable(
+      path.join(fakeBin, "gh"),
+      "#!/bin/sh\nprintf '%s\\n' \"${FAKE_GH_RUNS_JSON:-[]}\"\n",
+    );
+    const promoteScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-promote.sh",
+    );
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(
+      path.join(input.runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ sourceSha: activeSha })}\n`,
+    );
+    const binding = [
+      "--active-sha",
+      activeSha,
+      "--candidate-sha",
+      input.sourceSha,
+      "--owner",
+      "codex:pr-40",
+      "--operation-class",
+      "release-certification",
+      "--approval-id",
+      "release-governor:pr-41",
+      "--operation-id",
+      "certification:pr-41",
+      "--invocation-id",
+      "certification-pr-41",
+    ];
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: input.home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+      PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+    };
+    const writeLease = (overrides: Record<string, unknown> = {}) => {
+      const createdAt = new Date(Date.now() - 40 * 60_000).toISOString();
+      writeFileSync(
+        leasePath,
+        `${JSON.stringify({
+          activeSha,
+          actor: os.userInfo().username,
+          approvalId: "release-governor:pr-41",
+          candidateSha: input.sourceSha,
+          createdAt,
+          expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
+          heartbeatAt: new Date(Date.now() - 35 * 60_000).toISOString(),
+          heartbeatRequired: true,
+          heartbeatSequence: 3,
+          invocationId: "certification-pr-41",
+          operationClass: "release-certification",
+          operationId: "certification:pr-41",
+          owner: "codex:pr-40",
+          pid: 999_999,
+          schema: "openclaw.custom-runtime-certification-lease.v2",
+          state: "acquired",
+          ...overrides,
+        })}\n`,
+        { mode: 0o600 },
+      );
+    };
+    const writeProof = (overrides: Record<string, unknown> = {}) => {
+      const leaseDigest = createHash("sha256").update(readFileSync(leasePath)).digest("hex");
+      writeFileSync(
+        proofPath,
+        `${JSON.stringify({
+          activeSha,
+          candidateSha: input.sourceSha,
+          checksActive: false,
+          invocationId: "certification-pr-41",
+          leaseSha256: leaseDigest,
+          observedAt: new Date().toISOString(),
+          owner: "codex:pr-40",
+          ownerActivityActive: false,
+          ownerPidLive: false,
+          schema: "openclaw.custom-runtime-certification-orphan-proof.v1",
+          ...overrides,
+        })}\n`,
+        { mode: 0o600 },
+      );
+    };
+    const recover = () =>
+      spawnSync(
+        "sh",
+        [
+          promoteScript,
+          "--lease-recover-orphaned",
+          ...binding,
+          "--recovery-approval-id",
+          "release-governor:orphan-recovery:approved",
+          "--activity-proof",
+          proofPath,
+          "--github-repo",
+          "SnowBelt/openclaw",
+          "--reason",
+          "owner-heartbeat-stale",
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+
+    writeLease({ heartbeatAt: new Date().toISOString(), heartbeatSequence: 4 });
+    writeProof();
+    const freshHeartbeat = recover();
+    expect(freshHeartbeat.status).toBe(75);
+    expect(freshHeartbeat.stderr).toContain("heartbeat is too recent");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeLease({ state: "promotion-authorized", promotionAuthorizedAt: new Date().toISOString() });
+    writeProof();
+    const promoted = recover();
+    expect(promoted.status).toBe(75);
+    expect(promoted.stderr).toContain("only an acquired lease");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeLease();
+    writeProof({ checksActive: true });
+    const activeChecks = recover();
+    expect(activeChecks.status).toBe(75);
+    expect(activeChecks.stderr).toContain("inactive checks");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeProof({ observedAt: new Date(Date.now() - 10 * 60_000).toISOString() });
+    const staleProof = recover();
+    expect(staleProof.status).toBe(75);
+    expect(staleProof.stderr).toContain("proof is stale");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeProof({ leaseSha256: "0".repeat(64) });
+    const wrongDigest = recover();
+    expect(wrongDigest.status).toBe(78);
+    expect(wrongDigest.stderr).toContain("lease digest does not match");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeProof({ observedAt: new Date(Date.now() + 5 * 60_000).toISOString() });
+    const futureProof = recover();
+    expect(futureProof.status).toBe(78);
+    expect(futureProof.stderr).toContain("observation is in the future");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeProof();
+    env.FAKE_GH_RUNS_JSON = JSON.stringify([{ headSha: input.sourceSha, status: "in_progress" }]);
+    const activeGitHubChecks = recover();
+    expect(activeGitHubChecks.status).toBe(75);
+    expect(activeGitHubChecks.stderr).toContain("GitHub checks are active");
+    expect(existsSync(leasePath)).toBe(true);
+    delete env.FAKE_GH_RUNS_JSON;
+
+    writeLease({ pid: process.pid });
+    writeProof();
+    const activeOwnerPid = recover();
+    expect(activeOwnerPid.status).toBe(75);
+    expect(activeOwnerPid.stderr).toContain("owner PID is still active");
+    expect(existsSync(leasePath)).toBe(true);
+
+    writeLease();
+    writeProof();
+    const recovered = recover();
+    expect(recovered.status, recovered.stderr).toBe(0);
+    expect(existsSync(leasePath)).toBe(false);
+    const receipt = JSON.parse(readFileSync(recovered.stdout.trim(), "utf8"));
+    expect(receipt).toMatchObject({
+      activeSha,
+      candidateSha: input.sourceSha,
+      reason: "owner-heartbeat-stale",
+      result: "orphaned-recovered",
+      schema: "openclaw.custom-runtime-certification-lease-receipt.v2",
+      lease: {
+        orphanGitHubChecksRepo: "SnowBelt/openclaw",
+        orphanRecoveredByApprovalId: "release-governor:orphan-recovery:approved",
+      },
+    });
+    expect(receipt.lease.orphanActivityProofSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(receipt.lease.orphanGitHubChecksSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("blocks a competing promotion while an exact certification lease is active", () => {
