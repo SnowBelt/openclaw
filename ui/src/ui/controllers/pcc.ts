@@ -42,6 +42,7 @@ import {
 import {
   derivePccAiUsePolicy,
   normalizePccExecutionProfile,
+  PCC_BEST_AVAILABLE_MODEL_ID,
   pccCodexEffortIsSupported,
   resolvePccCodexCheckpoint,
   resolvePccExecutionProfilePreset,
@@ -2964,8 +2965,13 @@ export async function savePccProject(state: PccDashboardState): Promise<void> {
             state.chatModelCatalog,
             "codex",
           );
+    // "Best available" is intentionally a deferred route: project setup must remain durable even
+    // when no Codex checkpoint is runnable yet. Execution readiness resolves it before dispatch.
+    const codexModelResolvesAtCheckpoint =
+      form.executionProfile.codexModelId === PCC_BEST_AVAILABLE_MODEL_ID;
     if (
       form.executionProfile.codexRole !== "off" &&
+      !codexModelResolvesAtCheckpoint &&
       (!resolvedCodexModel ||
         !pccCodexEffortIsSupported(resolvedCodexModel, form.executionProfile.codexEffort))
     ) {

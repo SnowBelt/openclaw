@@ -899,11 +899,39 @@ async function main() {
       (await selectedLocalOnlyCodexPolicy.isChecked()) &&
       (await localExecutionPicker.getByText("Parallel", { exact: false }).first().isVisible()) &&
       (await codexPolicyPicker.getByText("Local AI only", { exact: false }).first().isVisible());
+    await recommendedCodexPolicy.locator("..").click();
+    await page.waitForFunction(
+      () =>
+        document.querySelector<HTMLInputElement>(
+          '[data-pcc-editor="project"] [data-pcc-codex-policy="recommended_minimum"]',
+        )?.checked === true,
+      undefined,
+      { timeout: 15_000 },
+    );
+    const recommendedPolicyRestored = await recommendedCodexPolicy.isChecked();
     await creationEditor.locator("[data-pcc-create-review-plan]").click({ force: true });
     await creationEditor
       .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
       .waitFor({ state: "visible", timeout: 15_000 });
     await creationEditor.locator("[data-pcc-create-fill-remaining]").click({ force: true });
+    const finalPermissionAllow = creationEditor.locator("[data-pcc-planner-permission-allow]");
+    if (await finalPermissionAllow.isVisible().catch(() => false)) {
+      await page.waitForFunction(
+        () => {
+          const button = document.querySelector<HTMLButtonElement>(
+            '[data-pcc-editor="project"] [data-pcc-planner-permission-allow]',
+          );
+          return Boolean(button && !button.disabled);
+        },
+        undefined,
+        { timeout: 45_000 },
+      );
+      await finalPermissionAllow.click({ force: true });
+      await creationEditor
+        .locator("[data-pcc-planner-permission-saved]")
+        .getByText("no hard token cap", { exact: false })
+        .waitFor({ state: "visible", timeout: 15_000 });
+    }
     await page.waitForFunction(
       () => {
         const button = document.querySelector<HTMLButtonElement>(
@@ -961,14 +989,16 @@ async function main() {
     const modelRoutingPersisted =
       recordString(createdProject.project.metadata, "pccAiUsePolicy") === "" &&
       recordObject(createdProject.project.metadata, "pccExecutionProfile").presetId ===
-        "local_parallel" &&
+        "balanced" &&
       !createdResponsibilities.has("codex") &&
       createdResponsibilities.has("local_openclaw_agent") &&
       createdResponsibilities.has("remote_proof");
-    const codexPermissionNotCreated =
-      createdProject.permissions?.every(
-        (item) => item.type !== "codex_usage" && item.type !== "high_reasoning_model",
-      ) !== false;
+    const codexCheckpointPermissionPersisted =
+      createdProject.permissions?.some(
+        (item) =>
+          (item.type === "codex_usage" || item.type === "high_reasoning_model") &&
+          item.status === "granted",
+      ) === true;
     const newProjectGuidedCreateWorked =
       aiExplainerVisible &&
       parallelExecutionVisible &&
@@ -986,9 +1016,10 @@ async function main() {
       createEnabledAfterApproval &&
       backPreservedUserInput &&
       localFallbackSelected &&
+      recommendedPolicyRestored &&
       fillRemainingPreservedUserInput &&
       modelRoutingPersisted &&
-      codexPermissionNotCreated;
+      codexCheckpointPermissionPersisted;
 
     phase = "testing guided creation on mobile";
     summary.phase = phase;
@@ -1953,9 +1984,10 @@ async function main() {
       newProjectCreateEnabledAfterCodexApproval: createEnabledAfterApproval,
       newProjectBackPreservesInput: backPreservedUserInput,
       newProjectLocalFallbackSelected: localFallbackSelected,
+      newProjectRecommendedPolicyRestored: recommendedPolicyRestored,
       newProjectFillRemainingPreservesInput: fillRemainingPreservedUserInput,
       newProjectModelRoutingPersisted: modelRoutingPersisted,
-      newProjectCodexPermissionNotPersistedForLocalProfile: codexPermissionNotCreated,
+      newProjectCodexCheckpointPermissionPersisted: codexCheckpointPermissionPersisted,
       newProjectMobileFitsViewport: newProjectMobileLayout.fitsViewport,
       newProjectMobileDoesNotOverflow: newProjectMobileLayout.noHorizontalOverflow,
       newProjectMobileExplainerVisible: newProjectMobileLayout.explainerVisible,
