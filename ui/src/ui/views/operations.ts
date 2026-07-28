@@ -24,6 +24,9 @@ import {
   groupOperationsAgents,
   isOperationsSnapshotStale,
   operationsChangesSince,
+  operationsFindingRisk,
+  operationsInvestigationDraft,
+  operationsResolutionStage,
   operationsWorkingItems,
   type OperationsAgentGroup,
   type OperationsAgentGroupId,
@@ -342,25 +345,56 @@ function quickLink(params: {
 function findingOwnerLabel(finding: OperationsFinding): string {
   return finding.ownerId === "operator" || finding.ownerId === "You"
     ? t("operationsRoom.attention.you")
-    : (finding.ownerId ?? t("operationsRoom.openClaw"));
+    : (finding.ownerId ?? t("operationsRoom.attention.unassignedOwner"));
 }
 
-function renderFindingDetails(finding: OperationsFinding, props: OperationsProps) {
+function investigationHref(finding: OperationsFinding): string {
+  const url = new URL(window.location.href);
+  const gateway = url.searchParams.get("gateway");
+  url.pathname = "/chat";
+  url.search = "";
+  if (gateway) {
+    url.searchParams.set("gateway", gateway);
+  }
+  url.searchParams.set("draft", operationsInvestigationDraft(finding));
+  url.hash = "";
+  return `${url.pathname}${url.search}`;
+}
+
+function resolutionStageLabel(finding: OperationsFinding): string {
+  return t(`operationsRoom.resolution.stages.${operationsResolutionStage(finding)}`);
+}
+
+function renderFindingResolution(finding: OperationsFinding, props: OperationsProps) {
   const workflowMutationSafe = props.snapshot
     ? mutationSourceConfirmed(props.snapshot, props, "workflows")
     : false;
-  return html`<details>
+  const canCancelWorkflow =
+    finding.category === "workflow" &&
+    Boolean(finding.entityId) &&
+    props.canWrite &&
+    Boolean(props.snapshot?.controls.supportedActions.includes("flow.cancel"));
+  const risk = operationsFindingRisk(finding);
+  return html`<details class="operations-resolution">
     <summary
-      aria-label=${t("operationsRoom.actions.detailsFor", {
+      aria-label=${t("operationsRoom.resolution.resolveFor", {
         title: finding.title,
       })}
     >
-      ${t("operationsRoom.actions.details")}
+      ${t("operationsRoom.resolution.resolve")}
     </summary>
+    <div class="operations-resolution__intro">
+      <strong>${t("operationsRoom.resolution.whatHappened")}</strong>
+      <p>${finding.title}. ${finding.impact}</p>
+    </div>
     <dl>
       <div>
         <dt>${t("operationsRoom.attention.impact")}</dt>
         <dd>${finding.impact}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.progress")}</dt>
+        <dd>${resolutionStageLabel(finding)}</dd>
       </div>
       <div>
         <dt>${t("operationsRoom.attention.owner")}</dt>
@@ -371,11 +405,41 @@ function renderFindingDetails(finding: OperationsFinding, props: OperationsProps
         <dd>${t(`operationsRoom.attention.responseStates.${finding.responseState}`)}</dd>
       </div>
       <div>
+        <dt>${t("operationsRoom.resolution.risk")}</dt>
+        <dd>${t(`operationsRoom.resolution.risks.${risk}`)}</dd>
+      </div>
+      <div>
         <dt>${t("operationsRoom.attention.nextAction")}</dt>
         <dd>
           ${finding.nextAction ??
           finding.recommendedAction ??
-          t("operationsRoom.attention.continueMonitoring")}
+          t("operationsRoom.resolution.nextStepUnknown")}
+        </dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.changePreview")}</dt>
+        <dd>
+          ${canCancelWorkflow
+            ? t("operationsRoom.resolution.cancelPreview", {
+                title: finding.title,
+              })
+            : t("operationsRoom.resolution.investigationPreview")}
+        </dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.approval")}</dt>
+        <dd>${t("operationsRoom.resolution.approvalRequired")}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.evidence")}</dt>
+        <dd>${t("operationsRoom.resolution.evidenceLocation")}</dd>
+      </div>
+      <div>
+        <dt>${t("operationsRoom.resolution.rollback")}</dt>
+        <dd>
+          ${canCancelWorkflow
+            ? t("operationsRoom.resolution.cancelRollback")
+            : t("operationsRoom.resolution.investigationRollback")}
         </dd>
       </div>
       ${finding.lastProgressAt != null
@@ -397,30 +461,37 @@ function renderFindingDetails(finding: OperationsFinding, props: OperationsProps
           </div>`
         : nothing}
     </dl>
-    ${finding.remediationTaskId
-      ? html`<button
-          class="btn btn--sm operations-remediation-link"
-          @click=${(event: Event) => openWorkDetail(props, "tasks", event.currentTarget)}
-        >
-          ${props.workboardEnabled
-            ? t("operationsRoom.attention.openRemediation")
-            : t("operationsRoom.more.title")}
-        </button>`
-      : nothing}
-    ${finding.category === "workflow" &&
-    finding.entityId &&
-    props.canWrite &&
-    props.snapshot?.controls.supportedActions.includes("flow.cancel")
-      ? html`<button
-          class="btn btn--sm"
-          aria-label=${t("operationsRoom.actions.cancelWork", { title: finding.title })}
-          title=${workflowMutationSafe ? nothing : t("operationsRoom.actions.unavailable")}
-          ?disabled=${props.actionBusy || !workflowMutationSafe}
-          @click=${() => props.onAction("flow.cancel", finding.entityId!)}
-        >
-          ${t("operationsRoom.actions.cancelWorkflow")}
-        </button>`
-      : nothing}
+    <p class="operations-resolution__safeguard" role="note">
+      ${t("operationsRoom.resolution.safeguard")}
+    </p>
+    <div class="operations-resolution__actions">
+      ${finding.remediationTaskId
+        ? html`<button
+            class="btn btn--sm operations-remediation-link"
+            @click=${(event: Event) => openWorkDetail(props, "tasks", event.currentTarget)}
+          >
+            ${props.workboardEnabled
+              ? t("operationsRoom.attention.openRemediation")
+              : t("operationsRoom.more.title")}
+          </button>`
+        : nothing}
+      ${canCancelWorkflow
+        ? html`<button
+            class="btn btn--sm btn--primary"
+            aria-label=${t("operationsRoom.actions.cancelWork", { title: finding.title })}
+            title=${workflowMutationSafe ? nothing : t("operationsRoom.actions.unavailable")}
+            ?disabled=${props.actionBusy || !workflowMutationSafe}
+            @click=${() => props.onAction("flow.cancel", finding.entityId!)}
+          >
+            ${t("operationsRoom.resolution.reviewCancellation")}
+          </button>`
+        : html`<a class="btn btn--sm btn--primary" href=${investigationHref(finding)}>
+            ${t("operationsRoom.resolution.investigate")}
+          </a>`}
+    </div>
+    ${canCancelWorkflow
+      ? nothing
+      : html`<small class="operations-muted">${t("operationsRoom.resolution.draftNotice")}</small>`}
   </details>`;
 }
 
@@ -428,7 +499,7 @@ function renderFinding(finding: OperationsFinding, props: OperationsProps) {
   const nextAction =
     finding.nextAction ??
     finding.recommendedAction ??
-    t("operationsRoom.attention.continueMonitoring");
+    t("operationsRoom.resolution.nextStepUnknown");
   return html`<article class=${`operations-issue operations-issue--${finding.severity}`}>
     <div class="operations-issue__heading">
       <strong>${finding.title}</strong>
@@ -456,7 +527,7 @@ function renderFinding(finding: OperationsFinding, props: OperationsProps) {
         time: relativeTime(finding.firstObservedAt ?? finding.lastObservedAt),
       })}
     </small>
-    ${renderFindingDetails(finding, props)}
+    ${renderFindingResolution(finding, props)}
   </article>`;
 }
 
@@ -1868,9 +1939,16 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
     sourceConfirmed(snapshot, "agents");
   const agentsConfirmed = attentionConfirmed && sourceConfirmed(snapshot, "agents");
   const schedulesConfirmed = attentionConfirmed && sourceConfirmed(snapshot, "schedules");
-  const systemDetail = t("operationsRoom.systemHealth.memorySummary", {
-    percent: String(snapshot.host.memoryUsedPercent),
-  });
+  const localModelCount = snapshot.host.localModelProcessCount;
+  const systemDetail =
+    localModelCount == null
+      ? t("operationsRoom.systemHealth.memorySummary", {
+          percent: String(snapshot.host.memoryUsedPercent),
+        })
+      : t("operationsRoom.systemHealth.memoryAndLocalAiSummary", {
+          percent: String(snapshot.host.memoryUsedPercent),
+          count: String(localModelCount),
+        });
   const agentCount = snapshot.collections.agents.total;
   const cronCount = snapshot.collections.cronJobs.total;
   return html`
@@ -1961,10 +2039,10 @@ function renderSnapshot(snapshot: OperationsSnapshot, props: OperationsProps) {
       ${quickLink({
         section: "working",
         label: workingConfirmed
-          ? t("operationsRoom.agentsWorkingNowCount", {
+          ? t("operationsRoom.openClawWorkCount", {
               count: String(snapshot.summary.workingAgents),
             })
-          : t("operationsRoom.agentsWorkingUnconfirmed"),
+          : t("operationsRoom.openClawWorkUnconfirmed"),
         detail: workingConfirmed
           ? t("operationsRoom.workingItemsCount", {
               count: String(working.length),

@@ -1,11 +1,11 @@
 {
   "fallbackKeys": [],
-  "generatedAt": "2026-07-25T21:58:23.956Z",
+  "generatedAt": "2026-07-28T00:55:19.097Z",
   "locale": "id",
   "model": "qwen3.6:27b-q8_0",
   "provider": "ollama",
-  "sourceHash": "c27e7685a8beae5876c2d7116522d9bda7d73ab91915ba0584e95afffdbb1822",
-  "totalKeys": 2009,
-  "translatedKeys": 2009,
+  "sourceHash": "382ad97812e14d0ad9b15ffa972afe113d2325d69351b09326b5a797beb20f91",
+  "totalKeys": 2040,
+  "translatedKeys": 2040,
   "workflow": 1
 }

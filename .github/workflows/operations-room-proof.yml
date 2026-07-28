@@ -182,6 +182,7 @@ jobs:
             "incidentHistoryBoundedAndSafe",
             "increasedContrast",
             "issueLanesAndNonColorCues",
+            "issueResolutionWorkflow",
             "keyboardOnlyIssueJourney",
             "largeInventoryDisclosed",
             "legacyFallbackOnlyWhenUnsupported",

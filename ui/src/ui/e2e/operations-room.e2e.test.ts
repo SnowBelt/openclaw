@@ -65,6 +65,7 @@ const proofCheckDefaults = {
   incidentHistoryBoundedAndSafe: false,
   increasedContrast: false,
   issueLanesAndNonColorCues: false,
+  issueResolutionWorkflow: false,
   keyboardOnlyIssueJourney: false,
   largeInventoryDisclosed: false,
   legacyFallbackOnlyWhenUnsupported: false,
@@ -1025,14 +1026,16 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       await page.goto(`${server.baseUrl}operations`);
       await waitForOperationsRoom(page, snapshot.briefing.text);
       await page.getByText("Nothing needs your attention.", { exact: true }).waitFor();
-      await page.getByText("No agent is actively working right now.", { exact: true }).waitFor();
+      await page
+        .getByText("No OpenClaw agent is actively working right now.", { exact: true })
+        .waitFor();
       expect(await page.locator("#operations-attention .operations-good").count()).toBe(1);
       expect(
         await page.locator('.operations-quick-link[href*="section=attention"]').textContent(),
       ).toContain("Decisions needed 0");
       expect(
         await page.locator('.operations-quick-link[href*="section=working"]').textContent(),
-      ).toContain("Agents working now 0");
+      ).toContain("OpenClaw work 0");
 
       await gateway.setAcceptingConnections(false);
       await gateway.closeLatest(1012, "simulated offline state");
@@ -1117,11 +1120,30 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
         await details.locator("summary").focus();
         await page.keyboard.press("Enter");
         expect(await details.getAttribute("open")).not.toBeNull();
+        expect(await details.locator("summary").textContent()).toContain("Resolve");
         await details.getByText(scenario.owner, { exact: true }).waitFor();
         await details.getByText(scenario.response, { exact: true }).waitFor();
         await details.getByText(scenario.impact, { exact: true }).waitFor();
         await details.getByText(scenario.nextAction, { exact: true }).waitFor();
+        await details
+          .getByText("You must approve any change before it happens.", {
+            exact: true,
+          })
+          .waitFor();
       }
+      const investigation = page
+        .locator(".operations-issue", { hasText: "Release approval needed" })
+        .getByRole("link", { name: "Investigate with local AI" });
+      const investigationUrl = new URL((await investigation.getAttribute("href"))!, server.baseUrl);
+      expect(investigationUrl.pathname).toBe("/chat");
+      expect(investigationUrl.searchParams.get("draft")).toContain(
+        "Read-only investigation only; do not make changes.",
+      );
+      expect(investigationUrl.searchParams.get("draft")).toContain("independent local Judge");
+      await page
+        .getByText("Opening the draft does not send it or start work.", { exact: true })
+        .first()
+        .waitFor();
       const watchedStatus = await page
         .locator(".operations-issue", { hasText: "Response delay is being watched" })
         .locator(".operations-issue__status")
@@ -1137,6 +1159,7 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
     }
     markChecks(
       "attentionOwnershipAndResponse",
+      "issueResolutionWorkflow",
       "issueLanesAndNonColorCues",
       "keyboardOnlyIssueJourney",
     );

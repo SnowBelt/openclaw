@@ -177,6 +177,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Runtime policy
   - H2: Registry restore safety
   - H2: Guarded controls
+  - H2: Resolving an issue
   - H2: Addition and update standard
   - H2: Milestone and proof map
   - H2: Required proof receipts

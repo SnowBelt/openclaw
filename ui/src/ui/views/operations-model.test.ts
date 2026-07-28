@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   groupOperationsAgents,
   operationsChangesSince,
+  operationsFindingRisk,
+  operationsInvestigationDraft,
+  operationsResolutionStage,
   operationsWorkingItems,
 } from "./operations-model.ts";
 import {
@@ -106,5 +109,44 @@ describe("Operations Room presentation model", () => {
       "ready",
       "off",
     ]);
+  });
+
+  it("derives resolution progress and risk only from finding truth", () => {
+    const finding = createOperationsTestSnapshot().findings[0]!;
+
+    expect(operationsResolutionStage(finding)).toBe("openclaw_handling");
+    expect(operationsFindingRisk(finding)).toBe("medium");
+    expect(
+      operationsResolutionStage({
+        ...finding,
+        disposition: "needs_user",
+        responseState: "unassigned",
+      }),
+    ).toBe("needs_review");
+    expect(
+      operationsResolutionStage({
+        ...finding,
+        disposition: "watching",
+        responseState: "monitoring",
+      }),
+    ).toBe("watching");
+  });
+
+  it("builds a bounded read-only local investigation handoff without raw detail", () => {
+    const finding = createOperationsTestSnapshot().findings[0]!;
+    const draft = operationsInvestigationDraft(finding);
+
+    expect(draft).toContain("Read-only investigation only; do not make changes.");
+    expect(draft).toContain("Use local AI");
+    expect(draft).toContain("independent local Judge");
+    expect(draft).toContain("Escalate to Codex only for high-risk or low-confidence");
+    expect(draft).toContain("Wait for my explicit confirmation");
+    expect(draft).not.toContain(finding.detail);
+
+    const unassignedDraft = operationsInvestigationDraft({
+      ...finding,
+      ownerId: undefined,
+    });
+    expect(unassignedDraft).toContain("Owner: Unassigned");
   });
 });

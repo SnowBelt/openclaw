@@ -48,6 +48,61 @@ export type OperationsChangeItem =
       finding?: OperationsFinding;
     };
 
+export type OperationsResolutionStage =
+  | "needs_review"
+  | "openclaw_handling"
+  | "watching"
+  | "resolved";
+
+export function operationsResolutionStage(finding: OperationsFinding): OperationsResolutionStage {
+  if (finding.responseState === "resolved" || finding.disposition === "historical") {
+    return "resolved";
+  }
+  if (finding.disposition === "handling" && finding.responseState === "in_progress") {
+    return "openclaw_handling";
+  }
+  if (finding.disposition === "watching" && finding.responseState === "monitoring") {
+    return "watching";
+  }
+  return "needs_review";
+}
+
+export function operationsFindingRisk(finding: OperationsFinding): "low" | "medium" | "high" {
+  if (finding.severity === "critical") {
+    return "high";
+  }
+  if (finding.severity === "warning") {
+    return "medium";
+  }
+  return "low";
+}
+
+export function operationsInvestigationDraft(finding: OperationsFinding): string {
+  const owner = finding.ownerId?.trim() || "Unassigned";
+  const next =
+    finding.nextAction?.trim() ||
+    finding.recommendedAction?.trim() ||
+    "Determine the safest next step.";
+  return [
+    "Investigate this Operations Room issue. Read-only investigation only; do not make changes.",
+    "",
+    `Issue: ${finding.title}`,
+    `Impact: ${finding.impact}`,
+    `Owner: ${owner}`,
+    `Recommended next step: ${next}`,
+    `Risk: ${operationsFindingRisk(finding)}`,
+    `Finding ID: ${finding.id}`,
+    "",
+    "Requirements:",
+    "1. Run deterministic checks first and cite the evidence.",
+    "2. Use local AI for investigation and recommendations when quality remains at least 93/100.",
+    "3. Require an independent local Judge safety review of the proposed resolution.",
+    "4. Escalate to Codex only for high-risk or low-confidence diagnosis.",
+    "5. Return the root cause, owner, evidence, recommended fix, exact change preview, approval needed, verification plan, and rollback plan.",
+    "6. Do not mutate anything. Wait for my explicit confirmation after I review the plan.",
+  ].join("\n");
+}
+
 export const OPERATIONS_AGENT_GROUP_ORDER: OperationsAgentGroupId[] = [
   "urgent",
   "attention",

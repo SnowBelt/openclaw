@@ -541,6 +541,8 @@ export const es: TranslationMap = {
     workingUnconfirmed: "Trabajando ahora —",
     agentsWorkingNowCount: "Agentes trabajando ahora {count}",
     agentsWorkingUnconfirmed: "Agentes trabajando ahora —",
+    openClawWorkCount: "{count} trabajos de OpenClaw",
+    openClawWorkUnconfirmed: "Trabajo de OpenClaw —",
     allAgentsCount: "Todos los agentes {count}",
     agentsUnconfirmed: "Todos los agentes —",
     agentsCount: "{count} agentes",
@@ -570,6 +572,7 @@ export const es: TranslationMap = {
       impact: "Impacto",
       owner: "Propietario",
       you: "Tú",
+      unassignedOwner: "No asignado",
       response: "Respuesta",
       nextAction: "Siguiente acción",
       nextActionShort: "Siguiente",
@@ -596,11 +599,50 @@ export const es: TranslationMap = {
         resolved: "Resuelto",
       },
     },
+    resolution: {
+      resolve: "Resolver",
+      resolveFor: "Resolver {title}",
+      whatHappened: "Qué sucedió",
+      progress: "Progreso",
+      risk: "Riesgo del problema",
+      changePreview: "Qué cambiará",
+      approval: "Tu aprobación",
+      evidence: "Actualizaciones de progreso",
+      rollback: "Plan de reversión",
+      investigate: "Investigar con IA local",
+      reviewCancellation: "Revisar cancelación",
+      investigationPreview:
+        "Nada cambia aún. Se abre un borrador de investigación de solo lectura para que lo revises y envíes.",
+      cancelPreview: "Prepara una vista previa protegida para cancelar «{title}».",
+      approvalRequired: "Debes aprobar cualquier cambio antes de que se produzca.",
+      evidenceLocation:
+        'El progreso y la prueba aparecerán en este problema, la sección "Desde tu última visita" y Workboard.',
+      investigationRollback:
+        "No es necesario aún porque la investigación no realiza cambios. Cualquier solución propuesta debe incluir un Plan de reversión.",
+      cancelRollback:
+        "La cancelación no puede restaurar el trabajo completado. Revise la vista previa exacta del cambio antes de aprobarlo.",
+      safeguard: "OpenClaw no realizará ningún cambio importante sin tu confirmación.",
+      draftNotice: "Abrir el borrador no lo envía ni inicia el trabajo.",
+      nextStepUnknown:
+        "No se ha confirmado ningún siguiente paso seguro. Investiga antes de cambiar nada.",
+      stages: {
+        needs_review: "Requiere revisión",
+        openclaw_handling: "OpenClaw está gestionando esto",
+        watching: "OpenClaw está observando esto",
+        resolved: "Resuelto",
+      },
+      risks: {
+        low: "Baja",
+        medium: "Media",
+        high: "Alta",
+      },
+    },
     working: {
       eyebrow: "En curso",
       title: "Trabajando ahora",
-      subtitle: "Resultados activos, agrupados sin repetir instrucciones crudas.",
-      none: "Ningún agente está trabajando activamente en este momento.",
+      subtitle:
+        "Solo tareas y flujos de trabajo gestionados por OpenClaw. Los procesos de IA locales aparecen en Sistema.",
+      none: "Ningún agente de OpenClaw está trabajando activamente en este momento.",
       unconfirmed:
         "El trabajo actual no se puede confirmar hasta que sus fuentes de datos se recuperen.",
       unverified: "Trabajo actual no verificado",
@@ -703,10 +745,11 @@ export const es: TranslationMap = {
       eyebrow: "Sistema",
       title: "Estado del Mac",
       normal: "Normal",
-      memory: "Memoria",
-      memoryInUse: "{percent}% en uso",
+      memory: "Capacidad de memoria",
+      memoryInUse: "{percent}% bajo presión",
       memoryAvailable: "{percent}% disponible",
       memorySummary: "{percent}% de memoria",
+      memoryAndLocalAiSummary: "{percent}% de memoria · Procesos de IA local: {count}",
       localModels: "Memoria de IA local",
       localModelProcessOne: "1 proceso de modelo · {rss} RSS del proceso",
       localModelProcesses: "{count} procesos de modelo · {rss} RSS del proceso",
@@ -720,7 +763,7 @@ export const es: TranslationMap = {
       host: "Host",
       logicalCores: "Núcleos lógicos de CPU",
       unavailable: "No disponible",
-      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryBreakdown: "{available} disponible · {free} libre inmediatamente · {total} total",
       memoryPressureNote:
         "La presión de memoria mide la capacidad que macOS puede hacer disponible. El RSS del proceso de IA local se muestra por separado y puede incluir páginas de modelo recuperables o compartidas.",
       agentRamNote:
@@ -1217,7 +1260,7 @@ export const es: TranslationMap = {
     layout: "Card layout",
     layoutCompact: "Densidad de tarjeta compacta",
     layoutComfortable: "Densidad de tarjeta cómoda",
-    dispatch: "Avisar al despachador",
+    dispatch: "Despachar trabajo listo",
     dispatchSummary:
       "Dispatch complete: started {started}, promoted {promoted}, blocked {blocked}, reclaimed {reclaimed}, orchestrated {orchestrated}, failures {failures}.",
     dispatchSummaryEmpty: "Dispatch complete: no ready work changed.",
