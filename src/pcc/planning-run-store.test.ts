@@ -48,7 +48,9 @@ async function waitForTerminal(runId: string, env: NodeJS.ProcessEnv) {
     if (run && !["queued", "running"].includes(run.status)) {
       return run;
     }
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
   }
   throw new Error("planning run did not reach a terminal state");
 }
@@ -130,7 +132,9 @@ describe("PCC durable planning runs", () => {
     const cancelled = await cancelPccPlanningRun(run.id, env);
     expect(cancelled.status).toBe("cancelled");
     release();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
     expect((await readPccPlanningRun(run.id, env))?.status).toBe("cancelled");
   });
 });
