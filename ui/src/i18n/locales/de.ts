@@ -544,6 +544,8 @@ export const de: TranslationMap = {
     workingUnconfirmed: "Aktiv —",
     agentsWorkingNowCount: "{count} Agenten arbeiten gerade",
     agentsWorkingUnconfirmed: "Agenten arbeiten gerade —",
+    openClawWorkCount: "OpenClaw-Aufgabe {count}",
+    openClawWorkUnconfirmed: "OpenClaw-Aufgabe —",
     allAgentsCount: "Alle Agenten {count}",
     agentsUnconfirmed: "Alle Agenten —",
     agentsCount: "{count} Agenten",
@@ -573,6 +575,7 @@ export const de: TranslationMap = {
       impact: "Auswirkung",
       owner: "Verantwortlicher",
       you: "Sie",
+      unassignedOwner: "Nicht zugewiesen",
       response: "Antwort",
       nextAction: "Nächste Aktion",
       nextActionShort: "Nächste",
@@ -599,11 +602,50 @@ export const de: TranslationMap = {
         resolved: "Gelöst",
       },
     },
+    resolution: {
+      resolve: "Lösen",
+      resolveFor: "{title} lösen",
+      whatHappened: "Was ist passiert",
+      progress: "Fortschritt",
+      risk: "Risiko des Problems",
+      changePreview: "Was sich ändern wird",
+      approval: "Ihre Genehmigung",
+      evidence: "Fortschrittsaktualisierungen",
+      rollback: "Rollback-Plan",
+      investigate: "Mit lokaler KI untersuchen",
+      reviewCancellation: "Stornierung überprüfen",
+      investigationPreview:
+        "Es ändert sich noch nichts. Ein schreibgeschützter Entwurf der Untersuchung wird geöffnet, damit Sie ihn überprüfen und senden können.",
+      cancelPreview: "Bereite eine geschützte Vorschau vor, um „{title}“ abzubrechen.",
+      approvalRequired: "Sie müssen jede Änderung genehmigen, bevor sie durchgeführt wird.",
+      evidenceLocation:
+        "Fortschritt und Nachweise werden in diesem Issue, im Abschnitt „Seit Ihrem letzten Besuch“ und auf dem Workboard angezeigt.",
+      investigationRollback:
+        "Noch nicht erforderlich, da die Untersuchung keine Änderungen vornimmt. Jeder vorgeschlagene Fix muss einen Rollback-Plan enthalten.",
+      cancelRollback:
+        "Eine Stornierung kann abgeschlossene Arbeiten nicht wiederherstellen. Überprüfen Sie die genaue Änderungsübersicht, bevor Sie sie genehmigen.",
+      safeguard: "OpenClaw wird ohne Ihre Bestätigung keine folgenschweren Änderungen vornehmen.",
+      draftNotice: "Das Öffnen des Entwurfs sendet ihn nicht und startet keine Arbeit.",
+      nextStepUnknown:
+        "Kein sicherer nächster Schritt ist bestätigt. Untersuchen Sie die Situation, bevor Sie etwas ändern.",
+      stages: {
+        needs_review: "Muss überprüft werden",
+        openclaw_handling: "OpenClaw bearbeitet dies",
+        watching: "OpenClaw beobachtet dies",
+        resolved: "Gelöst",
+      },
+      risks: {
+        low: "Niedrig",
+        medium: "Mittel",
+        high: "Hoch",
+      },
+    },
     working: {
       eyebrow: "In Bearbeitung",
       title: "Aktuell in Arbeit",
-      subtitle: "Aktive Ergebnisse, gruppiert ohne Wiederholung roher Anweisungen.",
-      none: "Derzeit arbeitet kein Agent aktiv.",
+      subtitle:
+        "Nur von OpenClaw verwaltete Aufgaben und Workflows. Lokale KI-Prozesse werden unter System angezeigt.",
+      none: "Derzeit ist kein OpenClaw-Agent aktiv.",
       unconfirmed:
         "Die aktuelle Arbeit kann nicht bestätigt werden, bis die Datenquellen wiederhergestellt sind.",
       unverified: "Aktuelle Arbeit nicht verifiziert",
@@ -707,10 +749,11 @@ export const de: TranslationMap = {
       eyebrow: "System",
       title: "Mac-Gesundheit",
       normal: "Normal",
-      memory: "Arbeitsspeicher",
-      memoryInUse: "{percent}% in Verwendung",
+      memory: "Speicherkapazität",
+      memoryInUse: "{percent}% unter Druck",
       memoryAvailable: "{percent}% verfügbar",
       memorySummary: "{percent}% Arbeitsspeicher",
+      memoryAndLocalAiSummary: "{percent}% Speicher · Lokale KI-Prozesse: {count}",
       localModels: "Lokaler KI-Speicher",
       localModelProcessOne: "1 Modellprozess · {rss} Prozess-RSS",
       localModelProcesses: "{count} Modellprozesse · {rss} Prozess-RSS",
@@ -724,7 +767,7 @@ export const de: TranslationMap = {
       host: "Host",
       logicalCores: "Logische CPU-Kerne",
       unavailable: "Nicht verfügbar",
-      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryBreakdown: "{available} verfügbar · {free} sofort frei · {total} gesamt",
       memoryPressureNote:
         "Der Speicherdruck misst die Kapazität, die macOS bereitstellen kann. Der RSS-Wert des lokalen KI-Prozesses wird separat angezeigt und kann wiederherstellbare oder gemeinsam genutzte Modellseiten enthalten.",
       agentRamNote:
@@ -1220,7 +1263,7 @@ export const de: TranslationMap = {
     layout: "Card layout",
     layoutCompact: "Kompakte Kartendichte",
     layoutComfortable: "Komfortable Kartendichte",
-    dispatch: "Dispatcher anstoßen",
+    dispatch: "Bereite Arbeit zur Ausführung vor",
     dispatchSummary:
       "Dispatch complete: started {started}, promoted {promoted}, blocked {blocked}, reclaimed {reclaimed}, orchestrated {orchestrated}, failures {failures}.",
     dispatchSummaryEmpty: "Dispatch complete: no ready work changed.",
