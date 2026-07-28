@@ -339,6 +339,38 @@ timestamps, elapsed milliseconds, four per-outcome booleans, hint count, unsafe-
 observer attestation, and aggregate result. Store consent separately from the repository and never
 put participant names in the receipt.
 
+The durable coordinator replaces chat-based `READY`/`DONE` handshakes:
+
+```bash
+pnpm operations-room:usability init \
+  --campaign "$OPENCLAW_CUSTOM_RUNTIME_HOME/usability/<campaign>.json" \
+  --campaign-id <id> --candidate-sha <sha> --fixture-sha256 <sha256> \
+  --expires-at <iso-utc>
+
+pnpm operations-room:usability status \
+  --campaign "$OPENCLAW_CUSTOM_RUNTIME_HOME/usability/<campaign>.json"
+```
+
+Use `register` once per anonymous SHA-256 participant identifier, then `start` and `complete` for
+the single bounded attempt. The coordinator records consent presence, cohort, device, viewport,
+accessibility mode, timestamps, the four outcomes, hints, unsafe actions, and terminal status. Its
+private participant ledger spans campaigns, so an identifier already registered as trained or
+attempted cannot be presented again as first-use. A failed attempt makes the campaign terminal; it
+cannot be discarded, replaced, or retried through the coordinator.
+
+Campaign states are `waiting`, `ready`, `running`, `passed`, `failed`, `expired`, and `blocked`.
+Every `status` result includes exact missing coverage and one next valid action. `ready` means all
+five anonymous slots and required cohort, device, and accessibility coverage exist. Only then may
+the finalization lease be acquired. The lease continuously revalidates the campaign rather than
+trusting its stored summary; a failed, expired, malformed, identity-changing, or unsafe campaign
+cannot retain the lease. Explicit exact-binding lease release remains available so invalid human
+evidence cannot wedge the managed runtime.
+
+After all five attempts pass, the coordinator automatically writes one private, machine-readable
+exact-SHA receipt and binds it to the participant-ledger digest. `finalize` revalidates and returns
+that same receipt; it cannot replace it or move it to a different path. The campaign and ledger live below
+`$OPENCLAW_CUSTOM_RUNTIME_HOME/usability`, use owner-only permissions, and must never be committed.
+
 ## Focused verification
 
 Run the focused source tests as one Vitest invocation so the shared cache cannot race:
