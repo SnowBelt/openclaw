@@ -35,6 +35,7 @@ function fixture() {
     ...process.env,
     HOME: home,
     OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+    OPENCLAW_USABILITY_COORDINATOR_TEST_CLOCK: "1",
   };
   return { campaign, env, home, receipt, runtimeHome };
 }
@@ -258,6 +259,24 @@ describe("Operations Room usability coordinator", () => {
     expectSuccess(register(input, 0));
   });
 
+  it("rejects caller-controlled timestamps unless the explicit test clock is enabled", () => {
+    const input = fixture();
+    initialize(input);
+    const env = { ...input.env };
+    Reflect.deleteProperty(env, "OPENCLAW_USABILITY_COORDINATOR_TEST_CLOCK");
+    const result = spawnSync(
+      process.execPath,
+      [script, "status", "--campaign", input.campaign, "--now", "2026-07-28T18:00:30.000Z"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env,
+      },
+    );
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain("explicit coordinator test clock");
+  });
+
   it("records trained participants as ineligible and never allows their identity to be recycled", () => {
     const input = fixture();
     initialize(input);
@@ -313,6 +332,20 @@ describe("Operations Room usability coordinator", () => {
     for (let index = 0; index < participantPlans.length; index += 1) {
       const minute = index * 2;
       expectSuccess(start(input, index, minute));
+      const startedCampaign = JSON.parse(readFileSync(input.campaign, "utf8"));
+      const startedLedger = JSON.parse(
+        readFileSync(path.join(path.dirname(input.campaign), "participant-ledger.json"), "utf8"),
+      );
+      expect(
+        startedLedger.participants.find(
+          (participant: { participantId: string }) =>
+            participant.participantId === participantId(index),
+        ).attempt,
+      ).toEqual(
+        startedCampaign.participants.find(
+          (participant: { id: string }) => participant.id === participantId(index),
+        ).attempt,
+      );
       expectSuccess(complete(input, index, minute, 45));
       const retry = start(input, index, minute + 1);
       expect(retry.status).toBe(75);
@@ -411,8 +444,15 @@ describe("Operations Room usability coordinator", () => {
     initialize(overtime);
     registerReadyCohort(overtime);
     expectSuccess(start(overtime, 0, 0));
-    expectSuccess(complete(overtime, 0, 1, 1));
+    const overtimeResult = complete(overtime, 0, 1, 1);
+    expect(overtimeResult.status).toBe(75);
+    expect(overtimeResult.stderr).toContain("exceeded 60 seconds");
     expect(JSON.parse(readFileSync(overtime.campaign, "utf8")).state).toBe("failed");
+    expect(
+      JSON.parse(
+        readFileSync(path.join(path.dirname(overtime.campaign), "participant-ledger.json"), "utf8"),
+      ).participants[0].status,
+    ).toBe("failed");
   });
 
   it("preserves failed participant history across replacement campaigns", () => {

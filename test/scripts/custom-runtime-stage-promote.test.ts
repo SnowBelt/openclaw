@@ -369,6 +369,72 @@ describe("custom runtime canary and rollback", () => {
       usabilityCampaignPath: campaignPath,
     });
 
+    const coordinatorScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-usability-coordinator.mjs",
+    );
+    const participantIds = JSON.parse(readFileSync(campaignPath, "utf8")).participants.map(
+      (participant: { id: string }) => participant.id,
+    );
+    for (const [index, participantId] of participantIds.entries()) {
+      const started = spawnSync(
+        process.execPath,
+        [coordinatorScript, "start", "--campaign", campaignPath, "--participant-id", participantId],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+      expect(started.status, started.stderr).toBe(0);
+      if (index === 0) {
+        const runningStatus = spawnSync("sh", [promoteScript, "--lease-status"], {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env,
+        });
+        expect(runningStatus.status, runningStatus.stderr).toBe(0);
+      }
+      const completed = spawnSync(
+        process.execPath,
+        [
+          coordinatorScript,
+          "complete",
+          "--campaign",
+          campaignPath,
+          "--participant-id",
+          participantId,
+          "--overall-state-correct",
+          "true",
+          "--operator-action-correct",
+          "true",
+          "--working-item-identified",
+          "true",
+          "--issue-details-and-owner-or-next",
+          "true",
+          "--hint-count",
+          "0",
+          "--unsafe-action-count",
+          "0",
+          "--observer-attested",
+          "true",
+        ],
+        { cwd: process.cwd(), encoding: "utf8", env },
+      );
+      expect(completed.status, completed.stderr).toBe(0);
+    }
+    const passedStatus = spawnSync("sh", [promoteScript, "--lease-status"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(passedStatus.status, passedStatus.stderr).toBe(0);
+    const automaticReceiptPath = `${campaignPath}.receipt.json`;
+    expect(existsSync(automaticReceiptPath)).toBe(true);
+    expect(JSON.parse(readFileSync(automaticReceiptPath, "utf8"))).toMatchObject({
+      candidateSha: input.sourceSha,
+      result: "passed",
+      schema: "openclaw.operations-room.usability-receipt.v1",
+    });
+
     const campaign = JSON.parse(readFileSync(campaignPath, "utf8"));
     campaign.participants[0].device = "mobile";
     writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, { mode: 0o600 });

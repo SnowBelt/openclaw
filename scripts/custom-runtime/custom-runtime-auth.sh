@@ -707,7 +707,10 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
     validate_identity(campaign_id, "usability campaign ID")
     if expected_campaign_id is not None and campaign_id != expected_campaign_id:
         fail("usability campaign identity changed after lease acquisition")
+    created_at = parse_time(campaign.get("createdAt"), "usability campaign creation")
     expires_at = parse_time(campaign.get("expiresAt"), "usability campaign expiration")
+    if expires_at <= created_at:
+        fail("usability campaign expiration must follow creation")
     participants = campaign.get("participants")
     if not isinstance(participants, list):
         fail("usability campaign participants are missing or invalid")
@@ -785,8 +788,14 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
         if not isinstance(attempt, dict):
             fail("usability participant attempt evidence is missing")
         if status == "running":
-            if not isinstance(attempt.get("startedAt"), str):
-                fail("running usability participant start time is missing")
+            started_at = parse_time(
+                attempt.get("startedAt"),
+                "running usability participant start time",
+            )
+            if started_at < created_at or started_at > now + dt.timedelta(seconds=60):
+                fail("running usability participant start time is outside the campaign")
+            if (now - started_at).total_seconds() > 60:
+                fail("running usability participant exceeded the 60-second limit")
             continue
         unsafe_actions = attempt.get("unsafeActionCount")
         hints = attempt.get("hintCount")
@@ -805,6 +814,30 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
             or not isinstance(outcomes, dict)
         ):
             fail("completed usability participant attempt evidence is invalid")
+        started_at = parse_time(
+            attempt.get("startedAt"),
+            "completed usability participant start time",
+        )
+        finished_at = parse_time(
+            attempt.get("finishedAt"),
+            "completed usability participant finish time",
+        )
+        elapsed_delta = finished_at - started_at
+        if elapsed_delta.microseconds % 1000:
+            fail("completed usability participant timing precision is invalid")
+        computed_elapsed_ms = (
+            elapsed_delta.days * 86400000
+            + elapsed_delta.seconds * 1000
+            + elapsed_delta.microseconds // 1000
+        )
+        if (
+            started_at < created_at
+            or finished_at < started_at
+            or finished_at > expires_at
+            or finished_at > now + dt.timedelta(seconds=60)
+            or elapsed_ms != computed_elapsed_ms
+        ):
+            fail("completed usability participant timing evidence is inconsistent")
         unsafe_action_count += unsafe_actions
         computed_passed = (
             elapsed_ms <= 60000

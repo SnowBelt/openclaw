@@ -15,7 +15,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CAMPAIGN_SCHEMA = "openclaw.operations-room.usability-campaign.v1";
@@ -94,6 +94,9 @@ function requireOption(options, name) {
 }
 
 function nowFrom(options) {
+  if (options.now !== undefined && process.env.OPENCLAW_USABILITY_COORDINATOR_TEST_CLOCK !== "1") {
+    fail("--now is available only when the explicit coordinator test clock is enabled");
+  }
   const value = options.now ?? new Date().toISOString();
   return parseTimestamp(value, "--now").value;
 }
@@ -116,17 +119,13 @@ function safeCampaignPath(input) {
   );
   const usabilityRoot = join(runtimeHome, "usability");
   const target = resolve(input);
-  const relativeTarget = relative(usabilityRoot, target);
-  if (
-    relativeTarget.length === 0 ||
-    relativeTarget.startsWith("..") ||
-    isAbsolute(relativeTarget)
-  ) {
-    fail("--campaign must be a file below the custom runtime usability directory");
-  }
   mkdirSync(usabilityRoot, { recursive: true, mode: 0o700 });
   chmodSync(usabilityRoot, 0o700);
-  return target;
+  const canonicalRoot = realpathSync(usabilityRoot);
+  if (realpathSync(dirname(target)) !== canonicalRoot) {
+    fail("--campaign must be a direct file in the custom runtime usability directory");
+  }
+  return join(canonicalRoot, basename(target));
 }
 
 function safeReceiptPath(input, campaignPath) {
@@ -134,16 +133,11 @@ function safeReceiptPath(input, campaignPath) {
     fail("--receipt must be an absolute path");
   }
   const target = resolve(input);
-  const root = dirname(campaignPath);
-  const relativeTarget = relative(root, target);
-  if (
-    relativeTarget.length === 0 ||
-    relativeTarget.startsWith("..") ||
-    isAbsolute(relativeTarget)
-  ) {
+  const root = realpathSync(dirname(campaignPath));
+  if (realpathSync(dirname(target)) !== root || basename(target) === basename(campaignPath)) {
     fail("--receipt must be a different file in the campaign directory");
   }
-  return target;
+  return join(root, basename(target));
 }
 
 function assertRegularSecureFile(path, label) {
@@ -366,6 +360,37 @@ function refreshCampaign(campaign, now) {
   return campaign;
 }
 
+function failOvertimeAttempt(campaign, ledger, now) {
+  const participant = campaign.participants.find((entry) => entry.status === "running");
+  if (!participant?.attempt?.startedAt) {
+    return false;
+  }
+  const elapsedMs = Date.parse(now) - Date.parse(participant.attempt.startedAt);
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 60_000) {
+    return false;
+  }
+  participant.attempt = {
+    ...participant.attempt,
+    elapsedMs,
+    finishedAt: now,
+    hintCount: 0,
+    observerAttested: false,
+    outcomes: {
+      issueDetailsAndOwnerOrNext: false,
+      operatorActionCorrect: false,
+      overallStateCorrect: false,
+      workingItemIdentified: false,
+    },
+    passed: false,
+    unsafeActionCount: 0,
+  };
+  participant.status = "failed";
+  const ledgerParticipant = requireLedgerParticipant(ledger, campaign, participant.id);
+  ledgerParticipant.attempt = participant.attempt;
+  ledgerParticipant.status = "failed";
+  return true;
+}
+
 function validateParticipantId(value) {
   if (!PARTICIPANT_ID_PATTERN.test(value)) {
     fail("--participant-id must be a lowercase SHA-256 identifier");
@@ -439,8 +464,10 @@ function mutateCampaign(options, allowedOptions, mutation) {
   const campaignPath = safeCampaignPath(requireOption(options, "campaign"));
   const now = nowFrom(options);
   return withCampaignLock(campaignPath, () => {
-    const campaign = refreshCampaign(loadCampaign(campaignPath), now);
+    const campaign = loadCampaign(campaignPath);
     const ledger = loadParticipantLedger(campaignPath, now);
+    const timedOut = failOvertimeAttempt(campaign, ledger, now);
+    refreshCampaign(campaign, now);
     const campaignRecord = ledger.campaigns.find(
       (entry) =>
         entry.campaignId === campaign.campaignId &&
@@ -449,6 +476,11 @@ function mutateCampaign(options, allowedOptions, mutation) {
     );
     if (!campaignRecord) {
       fail("campaign is not bound to the participant ledger", 78);
+    }
+    if (timedOut) {
+      atomicWriteJson(campaignPath, campaign);
+      writeParticipantLedger(campaignPath, ledger, now);
+      fail("the active attempt exceeded 60 seconds and is now terminal", 75);
     }
     const next = mutation(campaign, now, ledger);
     refreshCampaign(next, now);
@@ -600,7 +632,7 @@ function startAttempt(options) {
     if (ledgerParticipant.status !== "registered") {
       fail("participant ledger already contains an attempt", 75);
     }
-    ledgerParticipant.attemptStartedAt = now;
+    ledgerParticipant.attempt = participant.attempt;
     ledgerParticipant.status = "running";
     return campaign;
   });
@@ -680,8 +712,12 @@ function completeAttempt(options) {
       };
       participant.status = passed ? "passed" : "failed";
       const ledgerParticipant = requireLedgerParticipant(ledger, campaign, participantId);
-      if (ledgerParticipant.status !== "running" || ledgerParticipant.attempt) {
-        fail("participant ledger attempt is missing or already finalized", 78);
+      if (
+        ledgerParticipant.status !== "running" ||
+        JSON.stringify(ledgerParticipant.attempt ?? null) !==
+          JSON.stringify({ startedAt: participant.attempt.startedAt })
+      ) {
+        fail("participant ledger running attempt conflicts with the campaign", 78);
       }
       ledgerParticipant.attempt = participant.attempt;
       ledgerParticipant.status = participant.status;
@@ -722,8 +758,10 @@ function campaignStatus(options) {
   const campaignPath = safeCampaignPath(requireOption(options, "campaign"));
   const now = nowFrom(options);
   return withCampaignLock(campaignPath, () => {
-    const campaign = refreshCampaign(loadCampaign(campaignPath), now);
+    const campaign = loadCampaign(campaignPath);
     const ledger = loadParticipantLedger(campaignPath, now);
+    const timedOut = failOvertimeAttempt(campaign, ledger, now);
+    refreshCampaign(campaign, now);
     if (
       !ledger.campaigns.some(
         (entry) =>
@@ -735,6 +773,9 @@ function campaignStatus(options) {
       fail("campaign is not bound to the participant ledger", 78);
     }
     atomicWriteJson(campaignPath, campaign);
+    if (timedOut) {
+      writeParticipantLedger(campaignPath, ledger, now);
+    }
     if (campaign.state === "passed") {
       ensureFinalReceipt(campaignPath, campaign, ledger, now);
     }
