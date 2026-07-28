@@ -109,7 +109,7 @@ describe("Operations Room view", () => {
     expect(resolution?.textContent).toContain("Issue risk");
     expect(resolution?.textContent).toContain("What will change");
     expect(resolution?.textContent).toContain("Your approval");
-    expect(resolution?.textContent).toContain("Updates");
+    expect(resolution?.textContent).toContain("Progress updates");
     expect(resolution?.textContent).toContain("Undo plan");
     expect(resolution?.textContent).toContain(
       "OpenClaw will not change anything consequential without your confirmation.",

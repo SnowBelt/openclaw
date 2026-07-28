@@ -603,7 +603,7 @@ export const en: TranslationMap = {
       risk: "Issue risk",
       changePreview: "What will change",
       approval: "Your approval",
-      evidence: "Updates",
+      evidence: "Progress updates",
       rollback: "Undo plan",
       investigate: "Investigate with local AI",
       reviewCancellation: "Review cancellation",
@@ -612,11 +612,11 @@ export const en: TranslationMap = {
       cancelPreview: "Prepare a guarded preview to cancel “{title}”.",
       approvalRequired: "You must approve any change before it happens.",
       evidenceLocation:
-        "Progress and proof will appear in this issue, Since your last visit, and Workboard.",
+        "Progress and proof will appear in this issue, the “Since your last visit” section, and Workboard.",
       investigationRollback:
         "Not needed yet because investigation makes no changes. Any proposed fix must include an undo plan.",
       cancelRollback:
-        "Cancellation cannot restore completed work. Review the exact preview before approving it.",
+        "Cancellation cannot restore completed work. Review the exact change preview before approving it.",
       safeguard: "OpenClaw will not change anything consequential without your confirmation.",
       draftNotice: "Opening the draft does not send it or start work.",
       nextStepUnknown: "No safe next step is confirmed. Investigate before changing anything.",

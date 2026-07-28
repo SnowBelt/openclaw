@@ -214,7 +214,7 @@ function usage(): never {
     [
       "Usage:",
       "  node --import tsx scripts/control-ui-i18n.ts check",
-      "  node --import tsx scripts/control-ui-i18n.ts sync [--write] [--locale <code>] [--force]",
+      "  node --import tsx scripts/control-ui-i18n.ts sync [--write] [--locale <code>] [--force] [--key <segment-id>]",
     ].join("\n"),
   );
   process.exit(2);
@@ -229,6 +229,7 @@ function parseArgs(argv: string[]) {
   let localeFilter: string | null = null;
   let write = false;
   let force = false;
+  const forceKeys: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
     const part = rest[index];
@@ -243,18 +244,28 @@ function parseArgs(argv: string[]) {
       case "--force":
         force = true;
         break;
+      case "--key": {
+        const key = rest[index + 1]?.trim();
+        if (!key) {
+          usage();
+        }
+        forceKeys.push(key);
+        index += 1;
+        break;
+      }
       default:
         usage();
     }
   }
 
-  if (command === "check" && write) {
+  if ((command === "check" && write) || (forceKeys.length > 0 && !force)) {
     usage();
   }
 
   return {
     command,
     force,
+    forceKeys,
     localeFilter,
     write,
   };
@@ -365,8 +376,15 @@ function resolveKnownTranslationProvider(): TranslationProvider {
   throw new Error(`Unsupported translation provider: ${provider}`);
 }
 
+function resolveOllamaThinking(): boolean {
+  return process.env[ENV_THINKING]?.trim().toLowerCase() === "high";
+}
+
 function resolveThinkingLabel(): "high" | "low" | "off" {
-  return resolveConfiguredProvider() === "ollama" ? "off" : resolveThinkingLevel();
+  if (resolveConfiguredProvider() === "ollama") {
+    return resolveOllamaThinking() ? "high" : "off";
+  }
+  return resolveThinkingLevel();
 }
 
 function normalizeText(text: string): string {
@@ -627,6 +645,27 @@ function buildTranslationMemoryByTextHash(
   return byTextHash;
 }
 
+function buildTranslationMemoryTextHashesBySegment(
+  entries: Map<string, TranslationMemoryEntry>,
+  locale: string,
+): Map<string, Set<string>> {
+  const bySegment = new Map<string, Set<string>>();
+  for (const entry of entries.values()) {
+    if (
+      entry.tgt_lang !== locale ||
+      !entry.segment_id ||
+      !entry.text_hash ||
+      !entry.translated.trim()
+    ) {
+      continue;
+    }
+    const hashes = bySegment.get(entry.segment_id) ?? new Set<string>();
+    hashes.add(entry.text_hash);
+    bySegment.set(entry.segment_id, hashes);
+  }
+  return bySegment;
+}
+
 function buildGlossaryPrompt(glossary: readonly GlossaryEntry[]): string {
   if (glossary.length === 0) {
     return "";
@@ -637,6 +676,31 @@ function buildGlossaryPrompt(glossary: readonly GlossaryEntry[]): string {
       .filter((entry) => entry.source.trim() && entry.target.trim())
       .map((entry) => `- ${entry.source} -> ${entry.target}`),
   ].join("\n");
+}
+
+export function buildRuntimeGlossary(
+  glossary: readonly GlossaryEntry[],
+  existingTranslations: ReadonlyMap<string, string>,
+  forceKeys: ReadonlySet<string> = new Set(),
+): GlossaryEntry[] {
+  const runtimeGlossary = [...glossary];
+  for (const productName of ["OpenClaw", "Workboard"]) {
+    if (!runtimeGlossary.some((entry) => entry.source === productName)) {
+      runtimeGlossary.push({ source: productName, target: productName });
+    }
+  }
+  const changesTitle = existingTranslations.get("operationsRoom.changes.title");
+  if (changesTitle) {
+    runtimeGlossary.push({ source: "Since your last visit", target: changesTitle });
+  }
+  const rollbackLabel = existingTranslations.get("operationsRoom.resolution.rollback");
+  if (rollbackLabel && !forceKeys.has("operationsRoom.resolution.rollback")) {
+    runtimeGlossary.push(
+      { source: "Undo plan", target: rollbackLabel },
+      { source: "undo plan", target: rollbackLabel },
+    );
+  }
+  return runtimeGlossary;
 }
 
 function buildSystemPrompt(targetLocale: string, glossary: readonly GlossaryEntry[]): string {
@@ -655,6 +719,11 @@ function buildSystemPrompt(targetLocale: string, glossary: readonly GlossaryEntr
     "- Preserve punctuation, ellipses, arrows, and casing when they are part of literal UI text.",
     "- Preserve Markdown, inline code, HTML tags, and slash commands when present.",
     "- Use fluent, neutral product UI language.",
+    "- Match the target locale’s established formality and register across related UI strings; do not mix informal and formal address within the same feature.",
+    '- For the id "operationsRoom.resolution.rollback", translate the supplied semantic text as a concise conventional software rollback-plan noun label. Never produce a phrase meaning physical return or backward movement, an action command, or a cancellation plan; prefer the target locale’s established technical term for software rollback, or the English loanword "rollback" when that is more natural.',
+    '- For the id "operationsRoom.resolution.investigationRollback", translate "undo plan" as the same noun-form rollback or recovery plan label used elsewhere, never as cancellation.',
+    '- For the id "operationsRoom.resolution.evidenceLocation", translate the quoted “Since your last visit” UI destination into the target locale using that locale’s existing section-label wording; never leave it in English or turn it into a causal clause.',
+    '- For the id "operationsRoom.resolution.cancelRollback", translate "exact change preview" as a concrete read-only preview of the proposed change, never as a prediction or forecast.',
     "- Do not add explanations, comments, or extra keys.",
     "- Never return an empty string for a key; if unsure, return the source text unchanged.",
   ];
@@ -664,8 +733,17 @@ function buildSystemPrompt(targetLocale: string, glossary: readonly GlossaryEntr
   return lines.join("\n");
 }
 
+export function resolveTranslationPromptText(item: Pick<TranslationBatchItem, "key" | "text">) {
+  if (item.key === "operationsRoom.resolution.rollback") {
+    return "Rollback plan";
+  }
+  return item.text;
+}
+
 function buildBatchPrompt(items: readonly TranslationBatchItem[]): string {
-  const payload = Object.fromEntries(items.map((item) => [item.key, item.text]));
+  const payload = Object.fromEntries(
+    items.map((item) => [item.key, resolveTranslationPromptText(item)]),
+  );
   return [
     "Translate this JSON object.",
     "Return ONLY a JSON object with the same keys.",
@@ -1384,6 +1462,7 @@ export function buildOllamaTranslationRequest(
   model: string,
   systemPrompt: string,
   message: string,
+  think = false,
 ) {
   return {
     model,
@@ -1392,7 +1471,7 @@ export function buildOllamaTranslationRequest(
       { role: "user", content: message },
     ],
     stream: false,
-    think: false,
+    think,
     format: "json",
     options: {
       num_ctx: 8192,
@@ -1421,7 +1500,12 @@ class TranslationClient {
       headers: { "Content-Type": "application/json" },
       signal,
       body: JSON.stringify(
-        buildOllamaTranslationRequest(this.model.id, this.systemPrompt, message),
+        buildOllamaTranslationRequest(
+          this.model.id,
+          this.systemPrompt,
+          message,
+          resolveOllamaThinking(),
+        ),
       ),
     });
     if (!response.ok) {
@@ -1650,13 +1734,38 @@ export function shouldReuseExistingTranslation(options: {
   allowTranslate: boolean;
   force: boolean;
   isFallback: boolean;
+  sourceChanged: boolean;
 }): boolean {
-  return !options.isFallback || (!options.allowTranslate && !options.force);
+  return (
+    !options.force && !options.sourceChanged && (!options.isFallback || !options.allowTranslate)
+  );
+}
+
+export function shouldRefreshExistingTranslationForSourceChange(options: {
+  currentTextHash: string;
+  knownTextHashes: ReadonlySet<string> | undefined;
+}): boolean {
+  return (
+    options.knownTextHashes !== undefined && !options.knownTextHashes.has(options.currentTextHash)
+  );
+}
+
+export function shouldForceTranslationKey(options: {
+  force: boolean;
+  forceKeys: ReadonlySet<string>;
+  key: string;
+}): boolean {
+  return options.force && (options.forceKeys.size === 0 || options.forceKeys.has(options.key));
 }
 
 async function syncLocale(
   entry: LocaleEntry,
-  options: { checkOnly: boolean; force: boolean; write: boolean },
+  options: {
+    checkOnly: boolean;
+    force: boolean;
+    forceKeys: ReadonlySet<string>;
+    write: boolean;
+  },
   context: LocaleRunContext,
 ) {
   const localeLabel = formatLocaleLabel(entry.locale, context);
@@ -1672,13 +1781,17 @@ async function syncLocale(
   const previousFallbackKeys = new Set(previousMeta?.fallbackKeys ?? []);
   const glossaryFilePath = glossaryPath(entry);
   const glossary = await loadGlossary(glossaryFilePath);
+  const runtimeGlossary = buildRuntimeGlossary(glossary, existingFlat, options.forceKeys);
   const tm = await loadTranslationMemory(tmPath(entry));
   const tmByTextHash = buildTranslationMemoryByTextHash(tm, entry.locale);
+  const tmTextHashesBySegment = buildTranslationMemoryTextHashesBySegment(tm, entry.locale);
   const allowTranslate = hasTranslationProvider();
 
   const nextFlat = new Map<string, string>();
   const pending: TranslationBatchItem[] = [];
   const fallbackKeys: string[] = [];
+  const forcedKeys = new Set<string>();
+  const sourceChangedKeys = new Set<string>();
 
   for (const [key, text] of sourceFlat.entries()) {
     const textHash = hashText(text);
@@ -1687,10 +1800,28 @@ async function syncLocale(
     const cachedByText = tmByTextHash.get(textHash);
     const existing = existingFlat.get(key);
     const shouldRefreshFallback = previousFallbackKeys.has(key);
+    const shouldRefreshSource =
+      existing !== undefined &&
+      shouldRefreshExistingTranslationForSourceChange({
+        currentTextHash: textHash,
+        knownTextHashes: tmTextHashesBySegment.get(key),
+      });
+    if (shouldRefreshSource) {
+      sourceChangedKeys.add(key);
+    }
+    const shouldForce = shouldForceTranslationKey({
+      force: options.force,
+      forceKeys: options.forceKeys,
+      key,
+    });
+    if (shouldForce) {
+      forcedKeys.add(key);
+    }
     const shouldReuse = shouldReuseExistingTranslation({
       allowTranslate,
-      force: options.force,
+      force: shouldForce,
       isFallback: shouldRefreshFallback,
+      sourceChanged: shouldRefreshSource,
     });
 
     if (cached && shouldReuse) {
@@ -1701,7 +1832,7 @@ async function syncLocale(
       continue;
     }
 
-    if (cachedByText && (shouldRefreshFallback || existing === undefined)) {
+    if (cachedByText && (shouldRefreshFallback || shouldRefreshSource || existing === undefined)) {
       nextFlat.set(key, cachedByText.translated);
       tm.set(segmentCacheKey, {
         ...cachedByText,
@@ -1738,7 +1869,7 @@ async function syncLocale(
     const clientAccess: ClientAccess = {
       async getClient() {
         if (!client) {
-          client = await TranslationClient.create(buildSystemPrompt(entry.locale, glossary));
+          client = await TranslationClient.create(buildSystemPrompt(entry.locale, runtimeGlossary));
         }
         return client;
       },
@@ -1807,7 +1938,7 @@ async function syncLocale(
       continue;
     }
     const existing = existingFlat.get(item.key);
-    if (existing !== undefined && !options.force) {
+    if (existing !== undefined && !forcedKeys.has(item.key) && !sourceChangedKeys.has(item.key)) {
       nextFlat.set(item.key, existing);
       if (previousFallbackKeys.has(item.key)) {
         fallbackKeys.push(item.key);
@@ -1956,6 +2087,14 @@ async function verifyRuntimeLocaleConfig() {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   await verifyRuntimeLocaleConfig();
+  if (args.forceKeys.length > 0) {
+    const sourceMap = (await loadLocaleMap(SOURCE_LOCALE_PATH, "en")) ?? {};
+    const sourceKeys = new Set(flattenTranslations(sourceMap).keys());
+    const unknownKeys = args.forceKeys.filter((key) => !sourceKeys.has(key));
+    if (unknownKeys.length > 0) {
+      throw new Error(`unknown translation key: ${unknownKeys.join(", ")}`);
+    }
+  }
   if (args.command === "check" || (args.command === "sync" && args.write && !args.localeFilter)) {
     await syncControlUiRawCopyBaseline({
       checkOnly: args.command === "check",
@@ -1981,6 +2120,7 @@ async function main() {
       {
         checkOnly: args.command === "check",
         force: args.force,
+        forceKeys: new Set(args.forceKeys),
         write: args.write,
       },
       {
