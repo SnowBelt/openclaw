@@ -177,6 +177,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Runtime policy
   - H2: Registry restore safety
   - H2: Guarded controls
+  - H2: Resolving an issue
   - H2: Addition and update standard
   - H2: Milestone and proof map
   - H2: Required proof receipts
@@ -190,13 +191,16 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: PCC Codex planning
   - H2: Planning contract
   - H2: Plan generation
+  - H2: Project files
+  - H2: Changing An Existing Project
   - H2: Execution boundary
 
 ## automation/pcc-execution-teams.md
 
 - Route: /automation/pcc-execution-teams
 - Headings:
-  - H2: Choose One Team Plan
+  - H2: Choose Local Work Speed
+  - H2: Choose Codex Help
   - H2: Model Truth
   - H2: Capacity Governor
   - H2: Task Admission And Coordination

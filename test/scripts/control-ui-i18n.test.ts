@@ -8,9 +8,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendBoundedProcessOutput,
   buildOllamaTranslationRequest,
+  buildRuntimeGlossary,
   hasTranslationProvider,
+  resolveTranslationPromptText,
   resolveTranslationModel,
   runProcess,
+  shouldForceTranslationKey,
+  shouldRefreshExistingTranslationForSourceChange,
   shouldReuseExistingTranslation,
 } from "../../scripts/control-ui-i18n.ts";
 import { createTempDirTracker } from "../helpers/temp-dir.js";
@@ -82,6 +86,11 @@ describe("control-ui-i18n process runner", () => {
         temperature: 0,
       },
     });
+    expect(buildOllamaTranslationRequest("qwen3.6:27b-q8_0", "system", "user", true)).toMatchObject(
+      {
+        think: true,
+      },
+    );
   });
 
   it("fails closed on an unsupported explicit translation provider", () => {
@@ -112,6 +121,7 @@ describe("control-ui-i18n process runner", () => {
         allowTranslate: false,
         force: true,
         isFallback: true,
+        sourceChanged: false,
       }),
     ).toBe(false);
     expect(
@@ -119,8 +129,138 @@ describe("control-ui-i18n process runner", () => {
         allowTranslate: false,
         force: false,
         isFallback: true,
+        sourceChanged: false,
       }),
     ).toBe(true);
+  });
+
+  it("refreshes only forced or source-changed existing translations", () => {
+    expect(
+      shouldReuseExistingTranslation({
+        allowTranslate: true,
+        force: false,
+        isFallback: false,
+        sourceChanged: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldReuseExistingTranslation({
+        allowTranslate: true,
+        force: true,
+        isFallback: false,
+        sourceChanged: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReuseExistingTranslation({
+        allowTranslate: true,
+        force: false,
+        isFallback: false,
+        sourceChanged: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("detects source changes only when translation-memory identity is known", () => {
+    expect(
+      shouldRefreshExistingTranslationForSourceChange({
+        currentTextHash: "current",
+        knownTextHashes: new Set(["current"]),
+      }),
+    ).toBe(false);
+    expect(
+      shouldRefreshExistingTranslationForSourceChange({
+        currentTextHash: "current",
+        knownTextHashes: new Set(["previous"]),
+      }),
+    ).toBe(true);
+    expect(
+      shouldRefreshExistingTranslationForSourceChange({
+        currentTextHash: "current",
+        knownTextHashes: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("bounds forced refreshes to explicitly selected translation keys", () => {
+    expect(
+      shouldForceTranslationKey({
+        force: true,
+        forceKeys: new Set(),
+        key: "operationsRoom.resolution.rollback",
+      }),
+    ).toBe(true);
+    expect(
+      shouldForceTranslationKey({
+        force: true,
+        forceKeys: new Set(["operationsRoom.resolution.rollback"]),
+        key: "operationsRoom.resolution.rollback",
+      }),
+    ).toBe(true);
+    expect(
+      shouldForceTranslationKey({
+        force: true,
+        forceKeys: new Set(["operationsRoom.resolution.rollback"]),
+        key: "operationsRoom.resolution.evidence",
+      }),
+    ).toBe(false);
+    expect(
+      shouldForceTranslationKey({
+        force: false,
+        forceKeys: new Set(["operationsRoom.resolution.rollback"]),
+        key: "operationsRoom.resolution.rollback",
+      }),
+    ).toBe(false);
+  });
+
+  it("reuses each locale's existing navigation and rollback labels as runtime context", () => {
+    expect(
+      buildRuntimeGlossary(
+        [{ source: "OpenClaw", target: "OpenClaw" }],
+        new Map([
+          ["operationsRoom.changes.title", "Seit Ihrem letzten Besuch"],
+          ["operationsRoom.resolution.rollback", "Rollback-Plan"],
+        ]),
+      ),
+    ).toEqual([
+      { source: "OpenClaw", target: "OpenClaw" },
+      { source: "Workboard", target: "Workboard" },
+      { source: "Since your last visit", target: "Seit Ihrem letzten Besuch" },
+      { source: "Undo plan", target: "Rollback-Plan" },
+      { source: "undo plan", target: "Rollback-Plan" },
+    ]);
+  });
+
+  it("does not pin a stale rollback label while that label is force-refreshed", () => {
+    expect(
+      buildRuntimeGlossary(
+        [],
+        new Map([
+          ["operationsRoom.changes.title", "Seit Ihrem letzten Besuch"],
+          ["operationsRoom.resolution.rollback", "Rückgängigplan"],
+        ]),
+        new Set(["operationsRoom.resolution.rollback"]),
+      ),
+    ).toEqual([
+      { source: "OpenClaw", target: "OpenClaw" },
+      { source: "Workboard", target: "Workboard" },
+      { source: "Since your last visit", target: "Seit Ihrem letzten Besuch" },
+    ]);
+  });
+
+  it("translates the rollback label from its intended software meaning", () => {
+    expect(
+      resolveTranslationPromptText({
+        key: "operationsRoom.resolution.rollback",
+        text: "Undo plan",
+      }),
+    ).toBe("Rollback plan");
+    expect(
+      resolveTranslationPromptText({
+        key: "operationsRoom.resolution.evidence",
+        text: "Progress updates",
+      }),
+    ).toBe("Progress updates");
   });
 
   it("keeps a bounded process output tail", () => {

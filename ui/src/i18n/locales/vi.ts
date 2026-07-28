@@ -540,6 +540,8 @@ export const vi: TranslationMap = {
     workingUnconfirmed: "Đang làm việc —",
     agentsWorkingNowCount: "Tác nhân đang làm việc {count}",
     agentsWorkingUnconfirmed: "Tác nhân đang làm việc —",
+    openClawWorkCount: "{count} công việc OpenClaw",
+    openClawWorkUnconfirmed: "Công việc OpenClaw —",
     allAgentsCount: "Tất cả agents {count}",
     agentsUnconfirmed: "Tất cả agents —",
     agentsCount: "{count} tác nhân",
@@ -569,6 +571,7 @@ export const vi: TranslationMap = {
       impact: "Tác động",
       owner: "Người phụ trách",
       you: "Bạn",
+      unassignedOwner: "Chưa được chỉ định",
       response: "Phản hồi",
       nextAction: "Hành động tiếp theo",
       nextActionShort: "Tiếp theo",
@@ -595,11 +598,51 @@ export const vi: TranslationMap = {
         resolved: "Đã giải quyết",
       },
     },
+    resolution: {
+      resolve: "Giải quyết",
+      resolveFor: "Giải quyết {title}",
+      whatHappened: "Điều gì đã xảy ra",
+      progress: "Tiến độ",
+      risk: "Rủi ro của sự cố",
+      changePreview: "Những thay đổi sẽ diễn ra",
+      approval: "Sự phê duyệt của bạn",
+      evidence: "Cập nhật tiến độ",
+      rollback: "Kế hoạch hoàn tác",
+      investigate: "Khảo sát với AI cục bộ",
+      reviewCancellation: "Xem lại việc hủy bỏ",
+      investigationPreview:
+        "Chưa có gì thay đổi. Bản nháp điều tra chỉ đọc sẽ mở ra để bạn xem xét và gửi đi.",
+      cancelPreview: "Chuẩn bị bản xem trước được bảo vệ để hủy “{title}”.",
+      approvalRequired: "Bạn phải phê duyệt mọi thay đổi trước khi nó diễn ra.",
+      evidenceLocation:
+        "Tiến độ và bằng chứng sẽ xuất hiện trong vấn đề này, phần “Kể từ lần bạn truy cập trước”, và Workboard.",
+      investigationRollback:
+        "Chưa cần thiết vì quá trình điều tra không thực hiện thay đổi nào. Mọi giải pháp đề xuất phải bao gồm Kế hoạch hoàn tác.",
+      cancelRollback:
+        "Việc hủy bỏ không thể khôi phục công việc đã hoàn thành. Xem trước chính xác thay đổi trước khi phê duyệt.",
+      safeguard:
+        "OpenClaw sẽ không thay đổi bất kỳ điều gì quan trọng nào nếu không có sự xác nhận của bạn.",
+      draftNotice: "Việc mở bản nháp không gửi nó hoặc bắt đầu công việc.",
+      nextStepUnknown:
+        "Không xác nhận được bước tiếp theo an toàn. Hãy điều tra trước khi thay đổi bất kỳ thứ gì.",
+      stages: {
+        needs_review: "Cần xem xét",
+        openclaw_handling: "OpenClaw đang xử lý vấn đề này",
+        watching: "OpenClaw đang theo dõi vấn đề này",
+        resolved: "Đã giải quyết",
+      },
+      risks: {
+        low: "Thấp",
+        medium: "Trung bình",
+        high: "Cao",
+      },
+    },
     working: {
       eyebrow: "Đang thực hiện",
       title: "Đang xử lý",
-      subtitle: "Kết quả đang hoạt động, được nhóm lại mà không lặp lại các hướng dẫn thô.",
-      none: "Hiện không có tác nhân nào đang tích cực làm việc.",
+      subtitle:
+        "Chỉ dành cho các tác vụ và quy trình do OpenClaw quản lý. Các tiến trình AI cục bộ sẽ hiển thị dưới mục System.",
+      none: "Hiện không có agent OpenClaw nào đang hoạt động.",
       unconfirmed:
         "Không thể xác nhận công việc hiện tại cho đến khi nguồn dữ liệu của nó được khôi phục.",
       unverified: "Công việc hiện tại chưa được xác minh",
@@ -701,10 +744,11 @@ export const vi: TranslationMap = {
       eyebrow: "Hệ thống",
       title: "Tình trạng Mac",
       normal: "Bình thường",
-      memory: "Bộ nhớ",
-      memoryInUse: "{percent}% đang sử dụng",
+      memory: "Dung lượng bộ nhớ",
+      memoryInUse: "{percent}% đang chịu áp lực",
       memoryAvailable: "{percent}% khả dụng",
       memorySummary: "{percent}% bộ nhớ",
+      memoryAndLocalAiSummary: "{percent}% bộ nhớ · Quy trình AI cục bộ: {count}",
       localModels: "Bộ nhớ AI cục bộ",
       localModelProcessOne: "1 quy trình mô hình · RSS quy trình {rss}",
       localModelProcesses: "{count} quy trình mô hình · RSS quy trình {rss}",
@@ -718,7 +762,7 @@ export const vi: TranslationMap = {
       host: "Máy chủ",
       logicalCores: "Nhân CPU logic",
       unavailable: "Không khả dụng",
-      memoryBreakdown: "{available} available · {free} immediately free · {total} total",
+      memoryBreakdown: "{available} khả dụng · {free} trống ngay lập tức · {total} tổng cộng",
       memoryPressureNote:
         "Áp lực bộ nhớ đo lường dung lượng mà macOS có thể cung cấp. RSS của quy trình AI cục bộ được hiển thị riêng và có thể bao gồm các trang mô hình có thể thu hồi hoặc chia sẻ.",
       agentRamNote: "RAM cho mỗi agent không khả dụng khi các agent chia sẻ tiến trình Gateway.",
@@ -1208,7 +1252,7 @@ export const vi: TranslationMap = {
     layout: "Card layout",
     layoutCompact: "Mật độ thẻ gọn",
     layoutComfortable: "Mật độ thẻ thoải mái",
-    dispatch: "Nhắc dispatcher",
+    dispatch: "Phân phối công việc sẵn sàng",
     dispatchSummary:
       "Dispatch complete: started {started}, promoted {promoted}, blocked {blocked}, reclaimed {reclaimed}, orchestrated {orchestrated}, failures {failures}.",
     dispatchSummaryEmpty: "Dispatch complete: no ready work changed.",
