@@ -904,13 +904,23 @@ async function main() {
       .locator('[data-pcc-create-flow][data-pcc-create-step="review"]')
       .waitFor({ state: "visible", timeout: 15_000 });
     await creationEditor.locator("[data-pcc-create-fill-remaining]").click({ force: true });
+    await page.waitForFunction(
+      () => {
+        const button = document.querySelector<HTMLButtonElement>(
+          '[data-pcc-editor="project"] [data-pcc-create-project-confirm]',
+        );
+        return Boolean(button && !button.disabled);
+      },
+      undefined,
+      { timeout: 45_000 },
+    );
     const fillRemainingPreservedUserInput =
       (await creationEditor.locator("[data-pcc-project-title]").inputValue()) ===
       createdProjectTitle;
     await page.screenshot({ path: creationDesktopScreenshotPath, fullPage: true });
-    await creationEditor.locator("[data-pcc-create-project-confirm]").click({ force: true });
+    await creationEditor.locator("[data-pcc-create-project-confirm]").click();
     try {
-      await creationEditor.waitFor({ state: "hidden", timeout: 30_000 });
+      await creationEditor.waitFor({ state: "hidden", timeout: 60_000 });
     } catch (error) {
       const editorError =
         (
@@ -921,7 +931,20 @@ async function main() {
         )
           ?.replace(/\s+/gu, " ")
           .trim() || "No editor error was rendered.";
-      throw new Error(`guided project creation remained open: ${editorError}`, { cause: error });
+      const busyState =
+        (
+          await page
+            .locator("[data-pcc-planning-progress], [data-pcc-action-busy]")
+            .first()
+            .textContent()
+            .catch(() => "")
+        )
+          ?.replace(/\s+/gu, " ")
+          .trim() || "No active progress state was rendered.";
+      throw new Error(
+        `guided project creation remained open: ${editorError} Progress: ${busyState}`,
+        { cause: error },
+      );
     }
     const createdProjects = await gateway<{ projects?: PccProjectSummary[] }>("pcc.projects.list", {
       includeArchived: false,
@@ -1127,6 +1150,102 @@ async function main() {
     // Simple mode intentionally hides maintenance and editing controls. Switch to
     // Detailed before exercising durable project mutations.
     await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
+
+    phase = "testing project and milestone file attachments";
+    summary.phase = phase;
+    const attachFile = async (params: {
+      name: string;
+      contents: string;
+      role: "requirement" | "reference";
+      target: string;
+      instructions: string;
+    }) => {
+      const files = page.locator("[data-pcc-project-files]").first();
+      await files.waitFor({ state: "visible", timeout: 15_000 });
+      const addFile = files.locator(":scope > details").first();
+      if ((await addFile.getAttribute("open")) === null) {
+        await addFile.locator(":scope > summary").click();
+      }
+      const form = files.locator("[data-pcc-attachment-form]").first();
+      await form.locator("[data-pcc-attachment-file]").setInputFiles({
+        name: params.name,
+        mimeType: "text/plain",
+        buffer: Buffer.from(params.contents, "utf8"),
+      });
+      await form.locator('select[name="attachmentRole"]').selectOption(params.role);
+      await form.locator('select[name="attachmentTarget"]').selectOption(params.target);
+      await form.locator('textarea[name="attachmentInstructions"]').fill(params.instructions);
+      await form.getByRole("button", { name: /^Attach to project$/i }).click();
+      await page
+        .getByText(`${params.name} is attached as ${params.role}`, { exact: false })
+        .waitFor({
+          state: "visible",
+          timeout: 30_000,
+        });
+      await page.getByText(params.name, { exact: true }).first().waitFor({
+        state: "visible",
+        timeout: 15_000,
+      });
+    };
+    await attachFile({
+      name: "project-requirement.txt",
+      contents: "Keep every disposable proof isolated and remove its temporary state.",
+      role: "requirement",
+      target: "project",
+      instructions: "Apply this requirement to the whole disposable project.",
+    });
+    await attachFile({
+      name: "milestone-reference.txt",
+      contents: "The first milestone must retain deterministic browser evidence.",
+      role: "reference",
+      target: `milestone:${actionProjectId}-step-1`,
+      instructions: "Use this only while working on the first milestone.",
+    });
+    const attachmentList = await gateway<{
+      attachments?: Array<{
+        title: string;
+        role: string;
+        scope: string;
+        milestoneId?: string;
+        sha256: string;
+        instructions: string;
+      }>;
+    }>("pcc.attachments.list", { projectId: actionProjectId });
+    const projectAttachment = attachmentList.attachments?.find(
+      (attachment) => attachment.title === "project-requirement.txt",
+    );
+    const milestoneAttachment = attachmentList.attachments?.find(
+      (attachment) => attachment.title === "milestone-reference.txt",
+    );
+    const projectAttachmentPersisted =
+      projectAttachment?.role === "requirement" &&
+      projectAttachment.scope === "project" &&
+      /^[a-f0-9]{64}$/u.test(projectAttachment.sha256) &&
+      projectAttachment.instructions.includes("whole disposable project");
+    const milestoneAttachmentPersisted =
+      milestoneAttachment?.role === "reference" &&
+      milestoneAttachment.scope === "milestone" &&
+      milestoneAttachment.milestoneId === `${actionProjectId}-step-1` &&
+      /^[a-f0-9]{64}$/u.test(milestoneAttachment.sha256) &&
+      milestoneAttachment.instructions.includes("first milestone");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
+    await clickSafely(page.locator('[data-pcc-focus-mode-option="project_work"]'));
+    await clickSafely(
+      page.locator("[data-pcc-project-tabs] button:visible", { hasText: /\bActive\b/i }).first(),
+    );
+    await openProjectCard(page, actionProjectId);
+    await clickSafely(page.locator('[data-pcc-view-mode-option="detailed"]'));
+    const reloadedFiles = page.locator("[data-pcc-project-files]").first();
+    const reloadedAddFile = reloadedFiles.locator(":scope > details").first();
+    await reloadedAddFile.locator(":scope > summary").click();
+    await page.getByText("project-requirement.txt", { exact: true }).first().waitFor({
+      state: "visible",
+      timeout: 15_000,
+    });
+    const attachmentReloadPersisted =
+      (await page.getByText("project-requirement.txt", { exact: true }).count()) === 1 &&
+      (await page.getByText("milestone-reference.txt", { exact: true }).count()) === 1;
 
     phase = "testing project edit save and cancel";
     summary.phase = phase;
@@ -1845,6 +1964,9 @@ async function main() {
       archiveConfirmationPersisted: archivePersisted,
       projectSearchWorked,
       projectFilterWorked,
+      projectAttachmentPersisted,
+      milestoneAttachmentPersisted,
+      attachmentReloadPersisted,
       editSavePersisted,
       editCancelDiscarded,
       workLoopEnabled,
