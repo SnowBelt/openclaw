@@ -1948,6 +1948,13 @@ async function main() {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator(".pcc-shell").first().waitFor({ state: "visible", timeout: 45_000 });
     await clickSafely(page.locator('[data-pcc-focus-mode-option="project_work"]'));
+    await page.waitForFunction(
+      () =>
+        document.querySelector("[data-pcc-loading-state]") === null &&
+        document.querySelector("[data-pcc-project-empty-state]") !== null,
+      undefined,
+      { timeout: 45_000 },
+    );
     const emptyStateVisible = await page
       .locator("[data-pcc-project-empty-state]")
       .first()
