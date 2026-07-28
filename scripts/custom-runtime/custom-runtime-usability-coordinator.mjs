@@ -12,7 +12,6 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -46,7 +45,7 @@ function parseBoolean(value, label) {
   if (value === "false") {
     return false;
   }
-  fail(`${label} must be true or false`);
+  return fail(`${label} must be true or false`);
 }
 
 function parseCount(value, label) {
@@ -938,7 +937,7 @@ export function run(argv) {
     case "finalize":
       return finalizeCampaign(options);
     default:
-      fail(`unknown coordinator command: ${command}`);
+      return fail(`unknown coordinator command: ${command}`);
   }
 }
 
