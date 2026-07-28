@@ -514,12 +514,14 @@ custom_runtime_certification_lease() {
   custom_runtime_lease_operation_id=${9:-}
   custom_runtime_lease_invocation_id=${10:-${OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_INVOCATION_ID:-}}
   custom_runtime_lease_reason=${11:-}
+  custom_runtime_lease_usability_campaign=${12:-}
   python3 - "$custom_runtime_lease_action" "$custom_runtime_lease_home" \
     "$custom_runtime_lease_active_sha" "$custom_runtime_lease_candidate_sha" \
     "$custom_runtime_lease_owner" "$custom_runtime_lease_operation_class" \
     "$custom_runtime_lease_ttl_seconds" "$custom_runtime_lease_approval_id" \
     "$custom_runtime_lease_operation_id" "$custom_runtime_lease_invocation_id" \
-    "$custom_runtime_lease_reason" "${OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR:-}" "$$" <<'PY'
+    "$custom_runtime_lease_reason" "$custom_runtime_lease_usability_campaign" \
+    "${OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR:-}" "$$" <<'PY'
 import datetime as dt
 import getpass
 import json
@@ -541,6 +543,7 @@ import sys
     operation_id,
     invocation_id,
     reason,
+    usability_campaign_path,
     actor,
     caller_pid_raw,
 ) = sys.argv[1:]
@@ -550,7 +553,7 @@ receipts_dir = os.path.join(runtime_home, "receipts")
 sha_pattern = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
 identity_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
 reason_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
-allowed_operation_classes = {"release-certification"}
+allowed_operation_classes = {"human-usability-finalization", "release-certification"}
 allowed_states = {"acquired", "promotion-authorized", "promoted"}
 max_ttl_seconds = 86400
 now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
@@ -661,16 +664,296 @@ def load_lease():
         fail("expiration must follow creation")
     if (expires_at - created_at).total_seconds() > max_ttl_seconds:
         fail("lease duration exceeds the maximum")
+    if lease["operationClass"] == "human-usability-finalization":
+        campaign_path = lease.get("usabilityCampaignPath")
+        campaign_id = lease.get("usabilityCampaignId")
+        if not isinstance(campaign_path, str) or not os.path.isabs(campaign_path):
+            fail("usability campaign path is missing or invalid")
+        validate_identity(campaign_id, "usability campaign ID")
     return lease, created_at, expires_at
 
 
-def require_live(lease, expires_at):
+def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=None):
+    if not isinstance(path, str) or not os.path.isabs(path):
+        fail("usability campaign path is missing or invalid")
+    if os.path.islink(path):
+        fail("usability campaign is missing or unsafe")
+    usability_root = os.path.realpath(os.path.join(runtime_home, "usability"))
+    resolved = os.path.realpath(path)
+    try:
+        if os.path.commonpath([usability_root, resolved]) != usability_root:
+            fail("usability campaign must be below the custom runtime usability directory")
+    except ValueError:
+        fail("usability campaign path is invalid")
+    if not os.path.isfile(resolved) or os.path.islink(resolved):
+        fail("usability campaign is missing or unsafe")
+    if stat.S_IMODE(os.stat(resolved).st_mode) & 0o077:
+        fail("usability campaign permissions are unsafe")
+    try:
+        with open(resolved, encoding="utf-8") as handle:
+            campaign = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        fail("usability campaign is malformed")
+    if not isinstance(campaign, dict):
+        fail("usability campaign is malformed")
+    if campaign.get("schema") != "openclaw.operations-room.usability-campaign.v1":
+        fail("usability campaign schema is invalid")
+    if campaign.get("candidateSha") != expected_candidate_sha:
+        fail("usability campaign candidate SHA does not match the lease")
+    fixture_sha = campaign.get("fixtureSha256")
+    if not isinstance(fixture_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", fixture_sha):
+        fail("usability campaign fixture hash is missing or invalid")
+    campaign_id = campaign.get("campaignId")
+    validate_identity(campaign_id, "usability campaign ID")
+    if expected_campaign_id is not None and campaign_id != expected_campaign_id:
+        fail("usability campaign identity changed after lease acquisition")
+    expires_at = parse_time(campaign.get("expiresAt"), "usability campaign expiration")
+    participants = campaign.get("participants")
+    if not isinstance(participants, list):
+        fail("usability campaign participants are missing or invalid")
+    forbidden_identity_fields = {"contact", "email", "name", "phone"}
+
+    def contains_forbidden_identity(value):
+        if isinstance(value, dict):
+            if forbidden_identity_fields.intersection(value):
+                return True
+            return any(contains_forbidden_identity(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_forbidden_identity(item) for item in value)
+        return False
+
+    eligible = []
+    participant_ids = set()
+    for participant in participants:
+        if not isinstance(participant, dict):
+            fail("usability campaign participant is invalid")
+        if contains_forbidden_identity(participant):
+            fail("usability campaign contains forbidden participant identity fields")
+        participant_id = participant.get("id")
+        if (
+            not isinstance(participant_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", participant_id)
+            or participant_id in participant_ids
+        ):
+            fail("usability campaign participant identity is missing, invalid, or duplicated")
+        participant_ids.add(participant_id)
+        cohort = participant.get("cohort")
+        device = participant.get("device")
+        accessibility_mode = participant.get("accessibilityMode")
+        if cohort not in {"7-12", "13-64", "65-90"}:
+            fail("usability campaign participant cohort is invalid")
+        if device not in {"desktop", "mobile"}:
+            fail("usability campaign participant device is invalid")
+        if accessibility_mode not in {"standard", "keyboard-only", "zoom-200"}:
+            fail("usability campaign participant accessibility mode is invalid")
+        first_use = participant.get("firstUse") is True
+        consent = participant.get("consentRecorded") is True
+        guardian_consent = participant.get("guardianConsentRecorded") is True
+        computed_eligible = first_use and consent and (cohort != "7-12" or guardian_consent)
+        if participant.get("eligible") is not computed_eligible:
+            fail("usability campaign participant eligibility is inconsistent")
+        if computed_eligible:
+            eligible.append(participant)
+    eligible_count = len(eligible)
+    cohorts = {participant["cohort"] for participant in eligible}
+    devices = {participant["device"] for participant in eligible}
+    accessibility_modes = {participant["accessibilityMode"] for participant in eligible}
+    computed_coverage = {
+        "accessibility": bool(
+            {"keyboard-only", "zoom-200"}.intersection(accessibility_modes)
+        ),
+        "ageCohorts": {"7-12", "13-64", "65-90"}.issubset(cohorts),
+        "desktop": "desktop" in devices,
+        "mobile": "mobile" in devices,
+    }
+    statuses = [participant.get("status") for participant in eligible]
+    if any(status not in {"registered", "running", "passed", "failed"} for status in statuses):
+        fail("usability campaign participant status is invalid")
+    running_count = statuses.count("running")
+    failed_count = statuses.count("failed")
+    passed_count = statuses.count("passed")
+    if running_count > 1:
+        fail("usability campaign contains multiple running attempts")
+    unsafe_action_count = 0
+    for participant in eligible:
+        attempt = participant.get("attempt")
+        status = participant.get("status")
+        if status == "registered":
+            if attempt is not None:
+                fail("registered usability participant already contains attempt evidence")
+            continue
+        if not isinstance(attempt, dict):
+            fail("usability participant attempt evidence is missing")
+        if status == "running":
+            if not isinstance(attempt.get("startedAt"), str):
+                fail("running usability participant start time is missing")
+            continue
+        unsafe_actions = attempt.get("unsafeActionCount")
+        hints = attempt.get("hintCount")
+        elapsed_ms = attempt.get("elapsedMs")
+        outcomes = attempt.get("outcomes")
+        if (
+            not isinstance(unsafe_actions, int)
+            or isinstance(unsafe_actions, bool)
+            or unsafe_actions < 0
+            or not isinstance(hints, int)
+            or isinstance(hints, bool)
+            or hints < 0
+            or not isinstance(elapsed_ms, int)
+            or isinstance(elapsed_ms, bool)
+            or elapsed_ms < 0
+            or not isinstance(outcomes, dict)
+        ):
+            fail("completed usability participant attempt evidence is invalid")
+        unsafe_action_count += unsafe_actions
+        computed_passed = (
+            elapsed_ms <= 60000
+            and all(outcomes.get(key) is True for key in (
+                "issueDetailsAndOwnerOrNext",
+                "operatorActionCorrect",
+                "overallStateCorrect",
+                "workingItemIdentified",
+            ))
+            and hints == 0
+            and unsafe_actions == 0
+            and attempt.get("observerAttested") is True
+        )
+        if attempt.get("passed") is not computed_passed:
+            fail("usability participant pass result is inconsistent")
+        if (status == "passed") is not computed_passed:
+            fail("usability participant status conflicts with attempt evidence")
+    summary = campaign.get("summary")
+    if not isinstance(summary, dict):
+        fail("usability campaign summary is missing or invalid")
+    coverage = summary.get("coverage")
+    if coverage != computed_coverage or not all(computed_coverage.values()):
+        fail("usability campaign coverage is incomplete")
+    if summary.get("eligibleParticipantCount") != eligible_count or eligible_count < 5:
+        fail("usability campaign needs at least five eligible participants")
+    if summary.get("remainingParticipantCount") != max(0, 5 - eligible_count):
+        fail("usability campaign still has unfilled participant slots")
+    if summary.get("failedAttemptCount") != failed_count or failed_count != 0:
+        fail("usability campaign contains a failed attempt")
+    if summary.get("passedAttemptCount") != passed_count:
+        fail("usability campaign passed-attempt count is inconsistent")
+    if summary.get("runningAttemptCount") != running_count:
+        fail("usability campaign running-attempt count is inconsistent")
+    if summary.get("unsafeActionCount") != unsafe_action_count or unsafe_action_count != 0:
+        fail("usability campaign contains an unsafe action")
+    state = campaign.get("state")
+    state_valid = (
+        (state == "ready" and all(status == "registered" for status in statuses))
+        or (
+            state == "running"
+            and running_count == 1
+            and all(status in {"registered", "running", "passed"} for status in statuses)
+        )
+        or (state == "passed" and passed_count == eligible_count)
+    )
+    if not state_valid:
+        fail("usability campaign state conflicts with participant evidence")
+    if summary.get("leaseAllowed") is not True:
+        fail("usability campaign does not allow a finalization lease")
+    participant_ledger_path = os.path.join(os.path.dirname(resolved), "participant-ledger.json")
+    if (
+        not os.path.isfile(participant_ledger_path)
+        or os.path.islink(participant_ledger_path)
+        or stat.S_IMODE(os.stat(participant_ledger_path).st_mode) & 0o077
+    ):
+        fail("usability participant ledger is missing or unsafe")
+    try:
+        with open(participant_ledger_path, encoding="utf-8") as handle:
+            participant_ledger = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        fail("usability participant ledger is malformed")
+    if (
+        not isinstance(participant_ledger, dict)
+        or participant_ledger.get("schema")
+        != "openclaw.operations-room.usability-participant-ledger.v1"
+        or not isinstance(participant_ledger.get("campaigns"), list)
+        or not isinstance(participant_ledger.get("participants"), list)
+    ):
+        fail("usability participant ledger schema is invalid")
+    if not any(
+        isinstance(entry, dict)
+        and entry.get("campaignId") == campaign_id
+        and entry.get("candidateSha") == expected_candidate_sha
+        and entry.get("fixtureSha256") == fixture_sha
+        for entry in participant_ledger["campaigns"]
+    ):
+        fail("usability campaign is not registered in the participant ledger")
+    ledger_participants = {}
+    for entry in participant_ledger["participants"]:
+        if not isinstance(entry, dict):
+            fail("usability participant ledger entry is invalid")
+        participant_id = entry.get("participantId")
+        if (
+            not isinstance(participant_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", participant_id)
+            or participant_id in ledger_participants
+        ):
+            fail("usability participant ledger identity is invalid or duplicated")
+        ledger_participants[participant_id] = entry
+    compared_fields = (
+        ("accessibilityMode", "accessibilityMode"),
+        ("campaignId", None),
+        ("candidateSha", None),
+        ("cohort", "cohort"),
+        ("consentRecorded", "consentRecorded"),
+        ("device", "device"),
+        ("eligibilityReason", "eligibilityReason"),
+        ("eligible", "eligible"),
+        ("firstUse", "firstUse"),
+        ("guardianConsentRecorded", "guardianConsentRecorded"),
+        ("registeredAt", "registeredAt"),
+        ("status", "status"),
+        ("viewport", "viewport"),
+    )
+    for participant in participants:
+        entry = ledger_participants.get(participant["id"])
+        if entry is None:
+            fail("usability participant is missing from the durable ledger")
+        for ledger_field, campaign_field in compared_fields:
+            expected = (
+                campaign_id
+                if ledger_field == "campaignId"
+                else expected_candidate_sha
+                if ledger_field == "candidateSha"
+                else participant.get(campaign_field)
+            )
+            if entry.get(ledger_field) != expected:
+                fail("usability campaign conflicts with the durable participant ledger")
+        if entry.get("attempt") != participant.get("attempt"):
+            fail("usability attempt conflicts with the durable participant ledger")
+    return campaign, expires_at, resolved
+
+
+def require_usability_campaign(lease, allowed_states):
+    campaign, campaign_expires_at, resolved = load_usability_campaign(
+        lease["usabilityCampaignPath"],
+        lease["candidateSha"],
+        lease["usabilityCampaignId"],
+    )
+    if resolved != lease["usabilityCampaignPath"]:
+        fail("usability campaign path changed after lease acquisition")
+    if campaign_expires_at <= now:
+        fail("usability campaign is expired; release the lease explicitly")
+    if campaign.get("state") not in allowed_states:
+        fail(
+            f"usability campaign state {campaign.get('state')} cannot retain the finalization lease"
+        )
+    return campaign
+
+
+def require_live(lease, expires_at, require_usability=True):
     if expires_at <= now:
         fail("lease is expired; recover it explicitly")
     pointer_sha = load_pointer_sha()
     expected_sha = lease["candidateSha"] if lease["state"] == "promoted" else lease["activeSha"]
     if pointer_sha != expected_sha:
         fail("active runtime conflicts with the certification state")
+    if require_usability and lease["operationClass"] == "human-usability-finalization":
+        require_usability_campaign(lease, {"passed", "ready", "running"})
 
 
 def require_requested_binding():
@@ -733,6 +1016,8 @@ def replace_lease(lease):
 
 if action == "status":
     lease, _, expires_at = load_lease()
+    if lease["operationClass"] == "human-usability-finalization":
+        require_live(lease, expires_at)
     output = dict(lease)
     output["validity"] = "expired" if expires_at <= now else "active"
     print(json.dumps(output, sort_keys=True))
@@ -752,6 +1037,20 @@ if action == "acquire":
         fail(f"{validity} lease already exists; recover or release it explicitly", 75)
     if load_pointer_sha() != active_sha:
         fail("active runtime does not match the requested lease")
+    usability_campaign = None
+    usability_campaign_resolved = None
+    if operation_class == "human-usability-finalization":
+        if active_sha != candidate_sha:
+            fail("human usability finalization requires the candidate to be active")
+        usability_campaign, campaign_expires_at, usability_campaign_resolved = (
+            load_usability_campaign(usability_campaign_path, candidate_sha)
+        )
+        if campaign_expires_at <= now:
+            fail("usability campaign is expired")
+        if usability_campaign.get("state") != "ready":
+            fail("usability campaign must be ready before lease acquisition")
+    elif usability_campaign_path:
+        fail("usability campaign is only valid for human usability finalization")
     lease = {
         "activeSha": active_sha,
         "actor": actor,
@@ -767,6 +1066,9 @@ if action == "acquire":
         "schema": "openclaw.custom-runtime-certification-lease.v2",
         "state": "acquired",
     }
+    if usability_campaign is not None:
+        lease["usabilityCampaignId"] = usability_campaign["campaignId"]
+        lease["usabilityCampaignPath"] = usability_campaign_resolved
     replace_lease(lease)
     write_receipt("acquired", lease)
     print(lease_path)
@@ -782,7 +1084,7 @@ if action in {"authorize-promotion", "release", "recover-expired"}:
         os.unlink(lease_path)
         print(receipt)
         raise SystemExit(0)
-    require_live(lease, expires_at)
+    require_live(lease, expires_at, require_usability=action != "release")
     if action == "authorize-promotion":
         if lease["state"] != "acquired":
             fail("promotion authorization requires an acquired lease")

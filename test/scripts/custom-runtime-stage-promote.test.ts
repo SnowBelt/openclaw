@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
@@ -153,6 +154,7 @@ if (args[0] === "self-improvement" && args[1] === "summary") {
   process.stdout.write('{"scorecard":{},"groups":[]}\\n');
   process.exit(0);
 }
+
 const port = Number(args[args.indexOf("--port") + 1]);
 const server = http.createServer((req, res) => {
   res.statusCode = 200;
@@ -206,6 +208,95 @@ server.listen(port, "127.0.0.1");
   };
 }
 
+function writeReadyUsabilityCampaign(
+  input: ReturnType<typeof fixture>,
+  overrides: Record<string, unknown> = {},
+) {
+  const usabilityRoot = path.join(input.runtimeHome, "usability");
+  const campaignPath = path.join(usabilityRoot, "or2-human-proof.json");
+  mkdirSync(usabilityRoot, { recursive: true, mode: 0o700 });
+  const plans = [
+    ["7-12", "desktop", "standard"],
+    ["13-64", "desktop", "keyboard-only"],
+    ["65-90", "mobile", "standard"],
+    ["13-64", "mobile", "standard"],
+    ["13-64", "desktop", "zoom-200"],
+  ] as const;
+  const participants = plans.map(([cohort, device, accessibilityMode], index) => ({
+    accessibilityMode,
+    cohort,
+    consentRecorded: true,
+    device,
+    eligible: true,
+    eligibilityReason: "first-use-and-consent-confirmed",
+    firstUse: true,
+    guardianConsentRecorded: cohort === "7-12",
+    id: createHash("sha256").update(`anonymous-usability-${index}`).digest("hex"),
+    registeredAt: "2026-07-28T18:00:00.000Z",
+    status: "registered",
+    viewport: device === "mobile" ? "390x844" : "1440x900",
+  }));
+  const campaign = {
+    campaignId: "or2-final-human-proof",
+    candidateSha: input.sourceSha,
+    createdAt: "2026-07-28T18:00:00.000Z",
+    expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    fixtureSha256: "b".repeat(64),
+    neutralGoal:
+      "Use this screen to tell me whether OpenClaw needs the operator, what it is doing now, and show me the most important issue's details.",
+    participants,
+    schema: "openclaw.operations-room.usability-campaign.v1",
+    state: "ready",
+    summary: {
+      coverage: {
+        accessibility: true,
+        ageCohorts: true,
+        desktop: true,
+        mobile: true,
+      },
+      eligibleParticipantCount: 5,
+      excludedParticipantCount: 0,
+      failedAttemptCount: 0,
+      leaseAllowed: true,
+      nextAction: "Start the next eligible participant's timed attempt.",
+      passedAttemptCount: 0,
+      remainingParticipantCount: 0,
+      runningAttemptCount: 0,
+      unsafeActionCount: 0,
+    },
+    updatedAt: "2026-07-28T18:05:00.000Z",
+    ...overrides,
+  };
+  writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, { mode: 0o600 });
+  const ledgerPath = path.join(usabilityRoot, "participant-ledger.json");
+  writeFileSync(
+    ledgerPath,
+    `${JSON.stringify({
+      campaigns: [
+        {
+          campaignId: campaign.campaignId,
+          candidateSha: campaign.candidateSha,
+          createdAt: campaign.createdAt,
+          expiresAt: campaign.expiresAt,
+          fixtureSha256: campaign.fixtureSha256,
+        },
+      ],
+      participants: participants.map(({ id, ...participant }) => ({
+        ...participant,
+        campaignId: campaign.campaignId,
+        candidateSha: campaign.candidateSha,
+        participantId: id,
+      })),
+      schema: "openclaw.operations-room.usability-participant-ledger.v1",
+      updatedAt: campaign.updatedAt,
+    })}\n`,
+    { mode: 0o600 },
+  );
+  chmodSync(campaignPath, 0o600);
+  chmodSync(ledgerPath, 0o600);
+  return campaignPath;
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -213,6 +304,127 @@ afterEach(() => {
 });
 
 describe("custom runtime canary and rollback", () => {
+  it("retains a finalization lease only while exact human-usability evidence stays valid", () => {
+    const input = fixture();
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    const promoteScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-promote.sh",
+    );
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(activePointer, `${JSON.stringify({ sourceSha: input.sourceSha })}\n`);
+    const campaignPath = writeReadyUsabilityCampaign(input);
+    const binding = [
+      "--active-sha",
+      input.sourceSha,
+      "--candidate-sha",
+      input.sourceSha,
+      "--owner",
+      "codex:or2-finalization",
+      "--operation-class",
+      "human-usability-finalization",
+      "--approval-id",
+      "user:or2-human-proof",
+      "--operation-id",
+      "or2:human-finalization",
+      "--invocation-id",
+      "or2-human-finalization-20260728",
+    ];
+    const env = {
+      ...process.env,
+      HOME: input.home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+    };
+
+    const missingCampaign = spawnSync(
+      "sh",
+      [promoteScript, "--lease-acquire", ...binding, "--ttl-seconds", "600"],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(missingCampaign.status).toBe(64);
+    expect(existsSync(leasePath)).toBe(false);
+
+    const acquired = spawnSync(
+      "sh",
+      [
+        promoteScript,
+        "--lease-acquire",
+        ...binding,
+        "--ttl-seconds",
+        "600",
+        "--usability-campaign",
+        campaignPath,
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(acquired.status, acquired.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
+      activeSha: input.sourceSha,
+      candidateSha: input.sourceSha,
+      operationClass: "human-usability-finalization",
+      usabilityCampaignId: "or2-final-human-proof",
+      usabilityCampaignPath: campaignPath,
+    });
+
+    const campaign = JSON.parse(readFileSync(campaignPath, "utf8"));
+    campaign.participants[0].device = "mobile";
+    writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, { mode: 0o600 });
+    const tamperedStatus = spawnSync("sh", [promoteScript, "--lease-status"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(tamperedStatus.status).toBe(78);
+    expect(tamperedStatus.stderr).toContain("durable participant ledger");
+    campaign.participants[0].device = "desktop";
+
+    campaign.participants[0].status = "failed";
+    campaign.participants[0].attempt = {
+      elapsedMs: 61_000,
+      finishedAt: new Date().toISOString(),
+      hintCount: 0,
+      observerAttested: true,
+      outcomes: {
+        issueDetailsAndOwnerOrNext: true,
+        operatorActionCorrect: true,
+        overallStateCorrect: true,
+        workingItemIdentified: true,
+      },
+      passed: false,
+      startedAt: new Date(Date.now() - 61_000).toISOString(),
+      unsafeActionCount: 0,
+    };
+    campaign.state = "failed";
+    campaign.summary.failedAttemptCount = 1;
+    campaign.summary.leaseAllowed = false;
+    writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, { mode: 0o600 });
+    const ledgerPath = path.join(path.dirname(campaignPath), "participant-ledger.json");
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    ledger.participants[0].status = "failed";
+    ledger.participants[0].attempt = campaign.participants[0].attempt;
+    writeFileSync(ledgerPath, `${JSON.stringify(ledger)}\n`, { mode: 0o600 });
+
+    const invalidStatus = spawnSync("sh", [promoteScript, "--lease-status"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(invalidStatus.status).toBe(78);
+    expect(invalidStatus.stderr).toContain("failed attempt");
+    expect(existsSync(leasePath)).toBe(true);
+
+    const released = spawnSync("sh", [promoteScript, "--lease-release", ...binding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(released.status, released.stderr).toBe(0);
+    expect(existsSync(leasePath)).toBe(false);
+  });
+
   it("acquires, reports, and releases one exact certification lease", () => {
     const input = fixture();
     const activeSha = "1".repeat(40);

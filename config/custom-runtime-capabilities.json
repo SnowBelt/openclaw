@@ -402,6 +402,11 @@
         "ui/src/i18n/custom-locale-overlays.ts",
         "ui/src/ui/e2e/operations-room.e2e.test.ts",
         "scripts/dev/control-ui-operations-room-smoke.ts",
+        "scripts/custom-runtime/custom-runtime-auth.sh",
+        "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-usability-coordinator.mjs",
+        "test/scripts/custom-runtime-stage-promote.test.ts",
+        "test/scripts/custom-runtime-usability-coordinator.test.ts",
         "package.json",
         ".github/workflows/operations-room-proof.yml",
         ".agents/skills/control-ui-e2e/SKILL.md",
@@ -442,6 +447,7 @@
         "scripts/custom-runtime/custom-runtime-update-approve.sh",
         "scripts/custom-runtime/custom-runtime-stage.sh",
         "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-usability-coordinator.mjs",
         "scripts/custom-runtime/custom-runtime-restart.sh",
         "scripts/custom-runtime/custom-runtime-rollback.sh",
         "scripts/custom-runtime/custom-runtime-launcher.sh",
@@ -453,6 +459,7 @@
         "test/scripts/custom-runtime-lifecycle.test.ts",
         "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",
         "test/scripts/custom-runtime-stage-promote.test.ts",
+        "test/scripts/custom-runtime-usability-coordinator.test.ts",
         "test/scripts/custom-runtime-update-survival.test.ts",
         "test/scripts/custom-runtime-updater.test.ts",
         "ui/src/ui/views/pcc.test.ts",
@@ -487,6 +494,7 @@
         "scripts/custom-runtime/custom-runtime-auth.sh",
         "scripts/custom-runtime/custom-runtime-guard.sh",
         "scripts/custom-runtime/custom-runtime-promote.sh",
+        "scripts/custom-runtime/custom-runtime-usability-coordinator.mjs",
         "scripts/custom-runtime/custom-runtime-restart.sh",
         "scripts/custom-runtime/custom-runtime-rollback.sh",
         "scripts/custom-runtime/custom-runtime-stage.sh",
@@ -514,6 +522,7 @@
         "scripts/dev/control-ui-pcc-release-governor-smoke.ts",
         "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",
         "test/scripts/custom-runtime-stage-promote.test.ts",
+        "test/scripts/custom-runtime-usability-coordinator.test.ts",
         "ui/src/ui/views/pcc.ts"
       ]
     }
