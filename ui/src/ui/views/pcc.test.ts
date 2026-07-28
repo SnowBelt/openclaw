@@ -3130,6 +3130,11 @@ describe("renderPccDashboard", () => {
     expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
       "Generate project plan with Codex",
     );
+    expect(
+      container
+        .querySelector("[data-pcc-create-review-plan]")
+        ?.classList.contains("pcc-editor-primary-action"),
+    ).toBe(true);
   });
 
   it("shows truthful project-planning progress instead of an idle saving state", () => {
@@ -3154,11 +3159,17 @@ describe("renderPccDashboard", () => {
     );
 
     const progress = container.querySelector("[data-pcc-planning-progress]");
+    const editor = container.querySelector('[data-pcc-editor="project"]');
+    expect(container.querySelectorAll("[data-pcc-planning-progress]")).toHaveLength(1);
+    expect(editor?.contains(progress)).toBe(true);
     expect(progress?.textContent).toContain("Creating your project plan");
     expect(progress?.textContent).toContain("Codex is planning milestones and sub-steps");
     expect(progress?.textContent).toContain("GPT-5.6 Sol");
     expect(progress?.textContent).toContain("High effort");
     expect(progress?.textContent).toContain("You can leave this screen");
+    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
+      "Generating project plan…",
+    );
   });
 
   it("captures a file's role, project target, instructions, and AI access in one form", () => {

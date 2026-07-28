@@ -8652,6 +8652,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           ×
         </button>
       </header>
+      ${props.actionNotice ? renderPccActionFeedback(props) : renderPccBusyFeedback(props)}
       ${renderEditorActionError(props)}
       ${creating
         ? renderProjectCreationFlow(props)
@@ -8734,7 +8735,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           ? form.planPreviewAccepted
             ? html`
                 <button
-                  class="btn"
+                  class="btn pcc-editor-primary-action"
                   type="submit"
                   data-pcc-create-project-confirm
                   ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
@@ -8760,7 +8761,7 @@ function renderProjectEditor(props: PccDashboardProps) {
                 </button>
               `
             : html`<button
-                class="btn"
+                class="btn pcc-editor-primary-action"
                 type="button"
                 data-pcc-create-review-plan
                 ?disabled=${props.actionBusy ||
@@ -8768,10 +8769,12 @@ function renderProjectEditor(props: PccDashboardProps) {
                 !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}
                 @click=${() => props.onGenerateProjectPlan?.()}
               >
-                Generate project plan with Codex
+                ${props.actionBusy
+                  ? "Generating project plan…"
+                  : "Generate project plan with Codex"}
               </button>`
           : html`<button
-              class="btn"
+              class="btn pcc-editor-primary-action"
               type="submit"
               ?disabled=${props.actionBusy ||
               !form.title.trim() ||
@@ -8935,7 +8938,7 @@ function renderMilestoneEditor(props: PccDashboardProps) {
       </label>
       <footer>
         <button
-          class="btn"
+          class="btn pcc-editor-primary-action"
           type="submit"
           ?disabled=${props.actionBusy || !form.title.trim() || !form.projectId}
         >
@@ -8945,6 +8948,65 @@ function renderMilestoneEditor(props: PccDashboardProps) {
       </footer>
     </form>
   `;
+}
+
+function renderPccBusyFeedback(props: PccDashboardProps) {
+  if (props.actionBusy) {
+    const run = props.planningRun;
+    if (run && (run.status === "queued" || run.status === "running")) {
+      const stageText: Record<PccPlanningRun["stage"], string> = {
+        preparing: "Preparing the planner",
+        planner_running: "Codex is planning milestones and sub-steps",
+        validating: "Checking owners, proof, and dependencies",
+        ready: "Preparing your review",
+      };
+      const modelLabel = run.model
+        .replace(/^openai\//u, "")
+        .replace(/^gpt-/u, "GPT-")
+        .replace(/-sol$/u, " Sol");
+      const effortLabel = `${run.effort.slice(0, 1).toUpperCase()}${run.effort.slice(1)} effort`;
+      const started = Date.parse(run.startedAt ?? run.createdAt);
+      const elapsedSeconds = Number.isFinite(started)
+        ? Math.max(0, Math.round((Date.now() - started) / 1000))
+        : 0;
+      return html`<div
+        class="pcc-callout pcc-callout--busy pcc-planning-progress"
+        data-pcc-planning-progress
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div class="pcc-planning-progress__indicator" aria-hidden="true"></div>
+        <div>
+          <strong>Creating your project plan</strong>
+          <span>${stageText[run.stage]}</span>
+          <small
+            >${modelLabel} · ${effortLabel} · ${elapsedSeconds}s elapsed. You can leave this screen;
+            PCC keeps the run record so you can reconnect.</small
+          >
+        </div>
+        <button class="btn btn--subtle" type="button" @click=${() => props.onCancelProjectPlan?.()}>
+          Cancel generation
+        </button>
+      </div>`;
+    }
+    return html`<div
+      class="pcc-callout pcc-callout--busy"
+      data-pcc-action-busy
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div>
+        <strong>Saving PCC change</strong>
+        <span>Writing the update and refreshing the project state.</span>
+        <small
+          >Controls are temporarily disabled so the ledger does not receive duplicate writes.</small
+        >
+      </div>
+    </div>`;
+  }
+  return nothing;
 }
 
 function renderPccActionFeedback(props: PccDashboardProps) {
@@ -9003,62 +9065,7 @@ function renderPccActionFeedback(props: PccDashboardProps) {
       </div>
     </div>`;
   }
-  if (props.actionBusy) {
-    const run = props.planningRun;
-    if (run && (run.status === "queued" || run.status === "running")) {
-      const stageText: Record<PccPlanningRun["stage"], string> = {
-        preparing: "Preparing the planner",
-        planner_running: "Codex is planning milestones and sub-steps",
-        validating: "Checking owners, proof, and dependencies",
-        ready: "Preparing your review",
-      };
-      const modelLabel = run.model
-        .replace(/^openai\//u, "")
-        .replace(/^gpt-/u, "GPT-")
-        .replace(/-sol$/u, " Sol");
-      const effortLabel = `${run.effort.slice(0, 1).toUpperCase()}${run.effort.slice(1)} effort`;
-      const started = Date.parse(run.startedAt ?? run.createdAt);
-      const elapsedSeconds = Number.isFinite(started)
-        ? Math.max(0, Math.round((Date.now() - started) / 1000))
-        : 0;
-      return html`<div
-        class="pcc-callout pcc-callout--busy pcc-planning-progress"
-        data-pcc-planning-progress
-        role="status"
-        aria-live="polite"
-        aria-busy="true"
-      >
-        <div class="pcc-planning-progress__indicator" aria-hidden="true"></div>
-        <div>
-          <strong>Creating your project plan</strong>
-          <span>${stageText[run.stage]}</span>
-          <small
-            >${modelLabel} · ${effortLabel} · ${elapsedSeconds}s elapsed. You can leave this screen;
-            PCC keeps the run record so you can reconnect.</small
-          >
-        </div>
-        <button class="btn btn--subtle" type="button" @click=${() => props.onCancelProjectPlan?.()}>
-          Cancel generation
-        </button>
-      </div>`;
-    }
-    return html`<div
-      class="pcc-callout pcc-callout--busy"
-      data-pcc-action-busy
-      role="status"
-      aria-live="polite"
-      aria-busy="true"
-    >
-      <div>
-        <strong>Saving PCC change</strong>
-        <span>Writing the update and refreshing the project state.</span>
-        <small
-          >Controls are temporarily disabled so the ledger does not receive duplicate writes.</small
-        >
-      </div>
-    </div>`;
-  }
-  return nothing;
+  return renderPccBusyFeedback(props);
 }
 
 function renderProjectListEmptyState(
@@ -9201,7 +9208,9 @@ export function renderPccDashboard(props: PccDashboardProps) {
             <strong>Project Command Center unavailable</strong><span>${props.error}</span>
           </div>`
         : nothing}
-      ${renderPccActionFeedback(props)}
+      ${props.editorMode === "create-project" || props.editorMode === "edit-project"
+        ? nothing
+        : renderPccActionFeedback(props)}
       ${props.loading && allProjects.length > 0 ? renderPccLoadingState() : nothing}
       ${renderPccOfflineState(props)}
       ${deferTodayUntilAfterWorkspace ? nothing : renderTodayView(props)}
