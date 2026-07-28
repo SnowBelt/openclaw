@@ -26,13 +26,14 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 usage() {
   printf '%s\n' \
     'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
-    '       custom-runtime-promote.sh --lease-acquire|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600]' \
+    '       custom-runtime-promote.sh --lease-acquire|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
     '       custom-runtime-promote.sh --lease-status' >&2
   exit 64
 }
 release= source_sha= source_repo= source_branch= port=18789 enable_sig_background=false
 lease_action= lease_active_sha= lease_candidate_sha= lease_owner= lease_operation_class=
 lease_ttl_seconds= lease_approval_id= lease_operation_id= lease_invocation_id=
+lease_usability_campaign=
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
     --approval-id) lease_approval_id=${2:-}; shift 2 ;;
     --operation-id) lease_operation_id=${2:-}; shift 2 ;;
     --invocation-id) lease_invocation_id=${2:-}; shift 2 ;;
+    --usability-campaign) lease_usability_campaign=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -67,9 +69,12 @@ if [ -n "$lease_action" ]; then
       [ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
         [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
         [ -z "$lease_ttl_seconds" ] && [ -z "$lease_approval_id" ] && \
-        [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] || usage
+        [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] && \
+        [ -z "$lease_usability_campaign" ] || usage
       ;;
-    authorize-promotion|release|recover-expired) [ -z "$lease_ttl_seconds" ] || usage ;;
+    authorize-promotion|release|recover-expired)
+      [ -z "$lease_ttl_seconds" ] && [ -z "$lease_usability_campaign" ] || usage
+      ;;
     *) usage ;;
   esac
   if [ "$lease_action" != status ]; then
@@ -77,6 +82,13 @@ if [ -n "$lease_action" ]; then
       [ -n "$lease_owner" ] && [ -n "$lease_operation_class" ] && \
       [ -n "$lease_approval_id" ] && [ -n "$lease_operation_id" ] && \
       [ -n "$lease_invocation_id" ] || usage
+  fi
+  if [ "$lease_action" = acquire ]; then
+    case "$lease_operation_class" in
+      human-usability-finalization) [ -n "$lease_usability_campaign" ] || usage ;;
+      release-certification) [ -z "$lease_usability_campaign" ] || usage ;;
+      *) usage ;;
+    esac
   fi
   mkdir -p "$runtime_home/locks" "$runtime_home/receipts"
   chmod 700 "$runtime_home" "$runtime_home/locks" "$runtime_home/receipts" 2>/dev/null || true
@@ -97,13 +109,14 @@ if [ -n "$lease_action" ]; then
   custom_runtime_certification_lease "$lease_action" "$runtime_home" \
     "$lease_active_sha" "$lease_candidate_sha" "$lease_owner" \
     "$lease_operation_class" "$lease_ttl_seconds" "$lease_approval_id" \
-    "$lease_operation_id" "$lease_invocation_id"
+    "$lease_operation_id" "$lease_invocation_id" "" "$lease_usability_campaign"
   exit 0
 fi
 [ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
-  [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
+[ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
   [ -z "$lease_ttl_seconds" ] && [ -z "$lease_approval_id" ] && \
-  [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] || usage
+  [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] && \
+  [ -z "$lease_usability_campaign" ] || usage
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then

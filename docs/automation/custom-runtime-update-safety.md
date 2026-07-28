@@ -85,6 +85,14 @@ Direct managed promotion independently reads the current active pointer under th
 
 Long-running exact-SHA certification can additionally bootstrap an expiring freeze through `custom-runtime-promote.sh --lease-acquire`. The lease binds the current active SHA, candidate SHA, owner, `release-certification` operation class, approval identity, operation identity, certification invocation identity, actor, PID, creation time, and expiration time. Acquisition leaves the lease in `acquired`; even the matching candidate cannot activate or promote until the exact owner binding performs `--lease-authorize-promotion`. A successful promotion advances the lease to `promoted`, after which candidate restart and soak verification can proceed. Exact release or verifiable expiration recovery removes the lease with a private typed receipt.
 
+Human proof uses the separate `human-usability-finalization` operation class after the candidate is
+already active. Acquisition requires `--usability-campaign` pointing to an owner-only file below
+`$OPENCLAW_CUSTOM_RUNTIME_HOME/usability`. The campaign must be exact-SHA `ready`, contain at least
+five eligible anonymous first-use participants, satisfy every age, device, and accessibility slot,
+and contain no failed or unsafe attempt. Status and lifecycle checks independently recompute those
+facts while the lease exists. An invalid campaign blocks retention, but exact-binding release still
+works so failed human evidence cannot strand the runtime behind a lease.
+
 Promotion, activation, restart, rollback, guard repair, and lease transitions share one private global lifecycle lock. Its receipts bind actor, Release Governor approval identity, operation identity, PID, invocation identity, timestamps, and the exact active/candidate SHA pair. Malformed or conflicting state, unsafe permissions, future creation times, durations above 24 hours, live concurrency, and recently orphaned locks fail closed. A valid dead lock becomes recoverable only after the bounded stale interval and produces a recovery receipt; the guard never deletes lifecycle locks by age alone.
 
 An active certification lease freezes normal rollback and guard mutation. Emergency rollback remains available only after the normal exact-SHA Release Governor bundle succeeds and the caller supplies a typed reason. Before runtime mutation, that path removes the lease and writes a `certification-invalidated` receipt, so recovery cannot be mistaken for successful certification. The lease is never an approval substitute: every stage, promotion, restart, rollback, and finalization operation still requires its operation-specific Release Governor evidence.
@@ -103,6 +111,14 @@ custom-runtime-promote.sh --lease-authorize-promotion \
   --owner <owner> --operation-class release-certification \
   --approval-id <approval-id> --operation-id <operation-id> \
   --invocation-id <certification-invocation-id>
+
+# Acquire only after `operations-room:usability status` reports ready.
+custom-runtime-promote.sh --lease-acquire \
+  --active-sha <active-candidate-sha> --candidate-sha <active-candidate-sha> \
+  --owner <owner> --operation-class human-usability-finalization \
+  --approval-id <approval-id> --operation-id <operation-id> \
+  --invocation-id <finalization-invocation-id> --ttl-seconds 3600 \
+  --usability-campaign "$OPENCLAW_CUSTOM_RUNTIME_HOME/usability/<campaign>.json"
 ```
 
 ## Dashboard customization rule
