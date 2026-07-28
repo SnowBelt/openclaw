@@ -26,7 +26,8 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 usage() {
   printf '%s\n' \
     'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
-    '       custom-runtime-promote.sh --lease-acquire|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
+    '       custom-runtime-promote.sh --lease-acquire|--lease-heartbeat|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
+    '       custom-runtime-promote.sh --lease-recover-orphaned --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification --approval-id ID --operation-id ID --invocation-id ID --recovery-approval-id ID --activity-proof PATH --github-repo OWNER/REPO --reason ID' \
     '       custom-runtime-promote.sh --lease-status' >&2
   exit 64
 }
@@ -34,6 +35,7 @@ release= source_sha= source_repo= source_branch= port=18789 enable_sig_backgroun
 lease_action= lease_active_sha= lease_candidate_sha= lease_owner= lease_operation_class=
 lease_ttl_seconds= lease_approval_id= lease_operation_id= lease_invocation_id=
 lease_usability_campaign=
+lease_recovery_approval_id= lease_activity_proof= lease_github_repo= lease_reason=
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) release=${2:-}; shift 2 ;;
@@ -43,9 +45,11 @@ while [ $# -gt 0 ]; do
     --port) port=${2:-}; shift 2 ;;
     --enable-sig-background) enable_sig_background=true; shift ;;
     --lease-acquire) [ -z "$lease_action" ] || usage; lease_action=acquire; shift ;;
+    --lease-heartbeat) [ -z "$lease_action" ] || usage; lease_action=heartbeat; shift ;;
     --lease-authorize-promotion) [ -z "$lease_action" ] || usage; lease_action=authorize-promotion; shift ;;
     --lease-release) [ -z "$lease_action" ] || usage; lease_action=release; shift ;;
     --lease-recover-expired) [ -z "$lease_action" ] || usage; lease_action=recover-expired; shift ;;
+    --lease-recover-orphaned) [ -z "$lease_action" ] || usage; lease_action=recover-orphaned; shift ;;
     --lease-status) [ -z "$lease_action" ] || usage; lease_action=status; shift ;;
     --active-sha) lease_active_sha=${2:-}; shift 2 ;;
     --candidate-sha) lease_candidate_sha=${2:-}; shift 2 ;;
@@ -56,6 +60,10 @@ while [ $# -gt 0 ]; do
     --operation-id) lease_operation_id=${2:-}; shift 2 ;;
     --invocation-id) lease_invocation_id=${2:-}; shift 2 ;;
     --usability-campaign) lease_usability_campaign=${2:-}; shift 2 ;;
+    --recovery-approval-id) lease_recovery_approval_id=${2:-}; shift 2 ;;
+    --activity-proof) lease_activity_proof=${2:-}; shift 2 ;;
+    --github-repo) lease_github_repo=${2:-}; shift 2 ;;
+    --reason) lease_reason=${2:-}; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -70,13 +78,28 @@ if [ -n "$lease_action" ]; then
         [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
         [ -z "$lease_ttl_seconds" ] && [ -z "$lease_approval_id" ] && \
         [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] && \
-        [ -z "$lease_usability_campaign" ] || usage
+        [ -z "$lease_usability_campaign" ] && \
+        [ -z "$lease_recovery_approval_id" ] && [ -z "$lease_activity_proof" ] && \
+        [ -z "$lease_github_repo" ] && [ -z "$lease_reason" ] || usage
       ;;
-    authorize-promotion|release|recover-expired)
-      [ -z "$lease_ttl_seconds" ] && [ -z "$lease_usability_campaign" ] || usage
+    recover-orphaned)
+      [ -z "$lease_ttl_seconds" ] && [ -z "$lease_usability_campaign" ] && \
+        [ -n "$lease_recovery_approval_id" ] && \
+        [ -n "$lease_activity_proof" ] && [ -n "$lease_github_repo" ] && \
+        [ -n "$lease_reason" ] || usage
+      ;;
+    heartbeat|authorize-promotion|release|recover-expired)
+      [ -z "$lease_ttl_seconds" ] && [ -z "$lease_usability_campaign" ] && \
+        [ -z "$lease_recovery_approval_id" ] && \
+        [ -z "$lease_activity_proof" ] && [ -z "$lease_github_repo" ] && \
+        [ -z "$lease_reason" ] || usage
       ;;
     *) usage ;;
   esac
+  if [ "$lease_action" != recover-orphaned ] && [ "$lease_action" != status ]; then
+    [ -z "$lease_recovery_approval_id" ] && [ -z "$lease_activity_proof" ] && \
+      [ -z "$lease_github_repo" ] && [ -z "$lease_reason" ] || usage
+  fi
   if [ "$lease_action" != status ]; then
     [ -n "$lease_active_sha" ] && [ -n "$lease_candidate_sha" ] && \
       [ -n "$lease_owner" ] && [ -n "$lease_operation_class" ] && \
@@ -92,9 +115,12 @@ if [ -n "$lease_action" ]; then
   fi
   mkdir -p "$runtime_home/locks" "$runtime_home/receipts"
   chmod 700 "$runtime_home" "$runtime_home/locks" "$runtime_home/receipts" 2>/dev/null || true
-  OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID=${lease_approval_id:-not-required:lease-status}
+  OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID=${lease_recovery_approval_id:-${lease_approval_id:-not-required:lease-status}}
   OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID=${lease_operation_id:-custom-runtime:lease-status}
-  export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID
+  OPENCLAW_CERTIFICATION_ORPHAN_ACTIVITY_PROOF=$lease_activity_proof
+  OPENCLAW_CERTIFICATION_ORPHAN_GITHUB_REPO=$lease_github_repo
+  export OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID \
+    OPENCLAW_CERTIFICATION_ORPHAN_ACTIVITY_PROOF OPENCLAW_CERTIFICATION_ORPHAN_GITHUB_REPO
   custom_runtime_lifecycle_begin "$runtime_home" certification-lease \
     "$lease_active_sha" "$lease_candidate_sha"
   cleanup_certification_lock() {
@@ -109,14 +135,16 @@ if [ -n "$lease_action" ]; then
   custom_runtime_certification_lease "$lease_action" "$runtime_home" \
     "$lease_active_sha" "$lease_candidate_sha" "$lease_owner" \
     "$lease_operation_class" "$lease_ttl_seconds" "$lease_approval_id" \
-    "$lease_operation_id" "$lease_invocation_id" "" "$lease_usability_campaign"
+    "$lease_operation_id" "$lease_invocation_id" "$lease_reason" "$lease_usability_campaign"
   exit 0
 fi
 [ -z "$lease_active_sha" ] && [ -z "$lease_candidate_sha" ] && \
 [ -z "$lease_owner" ] && [ -z "$lease_operation_class" ] && \
   [ -z "$lease_ttl_seconds" ] && [ -z "$lease_approval_id" ] && \
   [ -z "$lease_operation_id" ] && [ -z "$lease_invocation_id" ] && \
-  [ -z "$lease_usability_campaign" ] || usage
+  [ -z "$lease_usability_campaign" ] && \
+  [ -z "$lease_recovery_approval_id" ] && [ -z "$lease_activity_proof" ] && \
+  [ -z "$lease_github_repo" ] && [ -z "$lease_reason" ] || usage
 [ -n "$release" ] && [ -n "$source_sha" ] || usage
 case "$source_sha" in *[!0-9a-fA-F]*|'') usage ;; esac
 if [ -n "$source_repo" ] || [ -n "$source_branch" ]; then

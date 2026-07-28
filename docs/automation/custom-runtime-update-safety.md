@@ -97,6 +97,20 @@ behind a lease.
 
 Promotion, activation, restart, rollback, guard repair, and lease transitions share one private global lifecycle lock. Its receipts bind actor, Release Governor approval identity, operation identity, PID, invocation identity, timestamps, and the exact active/candidate SHA pair. Malformed or conflicting state, unsafe permissions, future creation times, durations above 24 hours, live concurrency, and recently orphaned locks fail closed. A valid dead lock becomes recoverable only after the bounded stale interval and produces a recovery receipt; the guard never deletes lifecycle locks by age alone.
 
+New certification leases also carry an exact-owner heartbeat sequence. The owner must refresh it during remote checks, review waits, and soak:
+
+```bash
+custom-runtime-promote.sh --lease-heartbeat \
+  --active-sha <active-sha> --candidate-sha <candidate-sha> \
+  --owner <owner> --operation-class release-certification \
+  --approval-id <approval-id> --operation-id <operation-id> \
+  --invocation-id <certification-invocation-id>
+```
+
+`--lease-status` reports the heartbeat age as `fresh` or `stale`. A missing or malformed heartbeat fails closed. A lease created before heartbeat support reports `unsupported` and remains recoverable only through the existing explicit emergency path.
+
+Bounded orphan recovery is narrower than emergency invalidation. It is available only for an unexpired lease that is still in `acquired`, has never been promotion-authorized or promoted, is at least 30 minutes old, and has received no heartbeat for at least 30 minutes. Recovery also requires a fresh private activity proof bound to the exact lease digest and identities. That proof must confirm a dead owner PID and no active owner work. While holding the global lifecycle lock, the recovery command independently queries the named GitHub repository for the exact candidate and rejects any queued, waiting, requested, pending, in-progress, malformed, ambiguous, or unqueryable check state. The caller must supply a separate exact Release Governor recovery approval and typed reason. Any ambiguity, recent or future-dated evidence, digest drift, active check, lifecycle concurrency, or state transition blocks recovery without changing the lease.
+
 An active certification lease freezes normal rollback and guard mutation. Emergency rollback remains available only after the normal exact-SHA Release Governor bundle succeeds and the caller supplies a typed reason. Before runtime mutation, that path removes the lease and writes a `certification-invalidated` receipt, so recovery cannot be mistaken for successful certification. The lease is never an approval substitute: every stage, promotion, restart, rollback, and finalization operation still requires its operation-specific Release Governor evidence.
 
 Use one stable owner, approval, operation, and certification invocation binding throughout the campaign:

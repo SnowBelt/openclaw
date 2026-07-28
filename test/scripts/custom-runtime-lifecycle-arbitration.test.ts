@@ -234,6 +234,38 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
     const excessive = status();
     expect(excessive.status).toBe(78);
     expect(excessive.stderr).toContain("lease duration exceeds the maximum");
+
+    writeFileSync(
+      leasePath,
+      `${JSON.stringify({
+        ...baseLease,
+        createdAt: new Date(Date.now() - 60_000).toISOString(),
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        heartbeatAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        heartbeatRequired: true,
+        heartbeatSequence: 1,
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const futureHeartbeat = status();
+    expect(futureHeartbeat.status).toBe(78);
+    expect(futureHeartbeat.stderr).toContain("heartbeat time is in the future");
+
+    writeFileSync(
+      leasePath,
+      `${JSON.stringify({
+        ...baseLease,
+        createdAt: new Date(Date.now() - 60_000).toISOString(),
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        heartbeatAt: new Date().toISOString(),
+        heartbeatRequired: true,
+        heartbeatSequence: -1,
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const malformedHeartbeat = status();
+    expect(malformedHeartbeat.status).toBe(78);
+    expect(malformedHeartbeat.stderr).toContain("heartbeat sequence is missing or invalid");
   });
 
   it("serializes concurrent promote, activate, restart, rollback, and guard contenders", async () => {
@@ -281,6 +313,55 @@ custom_runtime_certification_lease verify-promotion "$OPENCLAW_CUSTOM_RUNTIME_HO
     });
     expect(receipt.createdAt).toEqual(expect.any(String));
     expect(receipt.finishedAt).toEqual(expect.any(String));
+  });
+
+  it("serializes heartbeat and orphan recovery with every managed lifecycle mutation", async () => {
+    const input = fixture();
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    const lockOwner = path.join(input.runtimeHome, "locks", "lifecycle.lock", "owner.json");
+    const acquired = spawnSync(
+      "sh",
+      [promoteScript, "--lease-acquire", ...leaseBinding, "--ttl-seconds", "600"],
+      { cwd: process.cwd(), encoding: "utf8", env: input.env },
+    );
+    expect(acquired.status, acquired.stderr).toBe(0);
+
+    const holder = runChild(lifecycleCommand(input.runtimeHome, "promotion", 2), input.env);
+    await waitForPath(lockOwner);
+    const heartbeat = runChild(
+      [promoteScript, "--lease-heartbeat", ...leaseBinding]
+        .map((part) => `'${part.replaceAll("'", "'\\''")}'`)
+        .join(" "),
+      input.env,
+    );
+    const orphanRecovery = runChild(
+      [
+        promoteScript,
+        "--lease-recover-orphaned",
+        ...leaseBinding,
+        "--recovery-approval-id",
+        "release-governor:orphan-recovery:approved",
+        "--activity-proof",
+        path.join(input.runtimeHome, "unused-proof.json"),
+        "--github-repo",
+        "SnowBelt/openclaw",
+        "--reason",
+        "owner-heartbeat-stale",
+      ]
+        .map((part) => `'${part.replaceAll("'", "'\\''")}'`)
+        .join(" "),
+      input.env,
+    );
+    const [heartbeatResult, recoveryResult] = await Promise.all([heartbeat, orphanRecovery]);
+    for (const contender of [heartbeatResult, recoveryResult]) {
+      expect(contender.status).toBe(75);
+      expect(contender.stderr).toContain("lifecycle operation is active");
+    }
+    const lease = JSON.parse(readFileSync(leasePath, "utf8"));
+    expect(lease).toMatchObject({ heartbeatSequence: 0, state: "acquired" });
+
+    const held = await holder;
+    expect(held.status, held.stderr).toBe(0);
   });
 
   it("invalidates certification only through an approved typed emergency receipt", () => {

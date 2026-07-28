@@ -524,11 +524,13 @@ custom_runtime_certification_lease() {
     "${OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR:-}" "$$" <<'PY'
 import datetime as dt
 import getpass
+import hashlib
 import json
 import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
 
 (
@@ -553,9 +555,12 @@ receipts_dir = os.path.join(runtime_home, "receipts")
 sha_pattern = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
 identity_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
 reason_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
+github_repo_pattern = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 allowed_operation_classes = {"human-usability-finalization", "release-certification"}
 allowed_states = {"acquired", "promotion-authorized", "promoted"}
 max_ttl_seconds = 86400
+orphan_stale_seconds = 1800
+activity_proof_max_age_seconds = 300
 now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
 actor = actor or getpass.getuser()
 try:
@@ -634,9 +639,16 @@ def load_lease():
     if stat.S_IMODE(os.stat(lease_path).st_mode) & 0o077:
         fail("lease permissions are unsafe")
     try:
-        with open(lease_path, encoding="utf-8") as handle:
-            lease = json.load(handle)
-    except (OSError, json.JSONDecodeError):
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lease_path, flags)
+        lease_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(lease_stat.st_mode) or stat.S_IMODE(lease_stat.st_mode) & 0o077:
+            os.close(descriptor)
+            fail("lease is missing or unsafe")
+        with os.fdopen(descriptor, "rb") as handle:
+            lease_bytes = handle.read()
+        lease = json.loads(lease_bytes)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         fail("lease is malformed")
     if not isinstance(lease, dict):
         fail("lease is malformed")
@@ -670,7 +682,115 @@ def load_lease():
         if not isinstance(campaign_path, str) or not os.path.isabs(campaign_path):
             fail("usability campaign path is missing or invalid")
         validate_identity(campaign_id, "usability campaign ID")
-    return lease, created_at, expires_at
+    return lease, created_at, expires_at, hashlib.sha256(lease_bytes).hexdigest()
+
+
+def load_heartbeat(lease, created_at):
+    if lease.get("heartbeatRequired") is not True:
+        return None
+    heartbeat_at = parse_time(lease.get("heartbeatAt"), "heartbeat time")
+    sequence = lease.get("heartbeatSequence")
+    if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+        fail("heartbeat sequence is missing or invalid")
+    if heartbeat_at < created_at:
+        fail("heartbeat time predates lease creation")
+    if heartbeat_at > now + dt.timedelta(seconds=60):
+        fail("heartbeat time is in the future")
+    return heartbeat_at, sequence
+
+
+def load_orphan_activity_proof(lease):
+    proof_path = os.environ.get("OPENCLAW_CERTIFICATION_ORPHAN_ACTIVITY_PROOF", "")
+    if not proof_path or not os.path.isabs(proof_path):
+        fail("orphan activity proof path is missing or invalid", 64)
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(proof_path, flags)
+        proof_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(proof_stat.st_mode) or stat.S_IMODE(proof_stat.st_mode) & 0o077:
+            os.close(descriptor)
+            fail("orphan activity proof is missing or unsafe")
+        with os.fdopen(descriptor, "rb") as handle:
+            proof_bytes = handle.read()
+        proof = json.loads(proof_bytes)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        fail("orphan activity proof is malformed")
+    if not isinstance(proof, dict):
+        fail("orphan activity proof is malformed")
+    if proof.get("schema") != "openclaw.custom-runtime-certification-orphan-proof.v1":
+        fail("orphan activity proof schema is invalid")
+    expected = {
+        "activeSha": lease["activeSha"],
+        "candidateSha": lease["candidateSha"],
+        "invocationId": lease["invocationId"],
+        "owner": lease["owner"],
+    }
+    for field, expected_value in expected.items():
+        if proof.get(field) != expected_value:
+            fail(f"orphan activity proof {field} does not match the lease")
+    if proof.get("checksActive") is not False:
+        fail("orphan activity proof does not confirm inactive checks", 75)
+    if proof.get("ownerActivityActive") is not False:
+        fail("orphan activity proof does not confirm inactive owner activity", 75)
+    if proof.get("ownerPidLive") is not False:
+        fail("orphan activity proof does not confirm a dead owner PID", 75)
+    observed_at = parse_time(proof.get("observedAt"), "orphan proof observation time")
+    if observed_at > now + dt.timedelta(seconds=60):
+        fail("orphan activity proof observation is in the future")
+    if (now - observed_at).total_seconds() > activity_proof_max_age_seconds:
+        fail("orphan activity proof is stale", 75)
+    _, _, _, lease_digest = load_lease()
+    if proof.get("leaseSha256") != lease_digest:
+        fail("orphan activity proof lease digest does not match")
+    return hashlib.sha256(proof_bytes).hexdigest()
+
+
+def verify_no_active_candidate_checks(lease):
+    github_repo = os.environ.get("OPENCLAW_CERTIFICATION_ORPHAN_GITHUB_REPO", "")
+    if not github_repo_pattern.fullmatch(github_repo):
+        fail("GitHub repository identity is missing or invalid", 64)
+    command = [
+        "gh",
+        "run",
+        "list",
+        "--repo",
+        github_repo,
+        "--commit",
+        lease["candidateSha"],
+        "--limit",
+        "100",
+        "--json",
+        "headSha,status",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail("exact-candidate GitHub check query failed", 75)
+    if result.returncode != 0:
+        fail("exact-candidate GitHub check query failed", 75)
+    try:
+        runs = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        fail("exact-candidate GitHub check query was malformed", 75)
+    if not isinstance(runs, list):
+        fail("exact-candidate GitHub check query was malformed", 75)
+    for run in runs:
+        if not isinstance(run, dict):
+            fail("exact-candidate GitHub check query was malformed", 75)
+        if run.get("headSha") != lease["candidateSha"]:
+            fail("exact-candidate GitHub check query returned an ambiguous identity", 75)
+        status = run.get("status")
+        if not isinstance(status, str):
+            fail("exact-candidate GitHub check query was malformed", 75)
+        if status != "completed":
+            fail("exact-candidate GitHub checks are active", 75)
+    return github_repo, hashlib.sha256(result.stdout.encode()).hexdigest()
 
 
 def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=None):
@@ -1099,6 +1219,16 @@ def require_live(lease, expires_at, require_usability=True):
         require_usability_campaign(lease, {"passed", "ready", "running"})
 
 
+def process_is_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def require_requested_binding():
     validate_binding(active_sha, candidate_sha, owner, operation_class)
     for field, value in (
@@ -1158,11 +1288,21 @@ def replace_lease(lease):
 
 
 if action == "status":
-    lease, _, expires_at = load_lease()
+    lease, created_at, expires_at, _ = load_lease()
     if lease["operationClass"] == "human-usability-finalization":
         require_live(lease, expires_at)
     output = dict(lease)
     output["validity"] = "expired" if expires_at <= now else "active"
+    heartbeat = load_heartbeat(lease, created_at)
+    if heartbeat is None:
+        output["heartbeatValidity"] = "unsupported"
+    else:
+        heartbeat_at, _ = heartbeat
+        heartbeat_age = max(0, int((now - heartbeat_at).total_seconds()))
+        output["heartbeatAgeSeconds"] = heartbeat_age
+        output["heartbeatValidity"] = (
+            "stale" if heartbeat_age >= orphan_stale_seconds else "fresh"
+        )
     print(json.dumps(output, sort_keys=True))
     raise SystemExit(0)
 
@@ -1175,7 +1315,7 @@ if action == "acquire":
     if ttl_seconds < 300 or ttl_seconds > max_ttl_seconds:
         fail("TTL must be between 300 and 86400 seconds", 64)
     if os.path.lexists(lease_path):
-        _, _, expires_at = load_lease()
+        _, _, expires_at, _ = load_lease()
         validity = "expired" if expires_at <= now else "unexpired"
         fail(f"{validity} lease already exists; recover or release it explicitly", 75)
     if load_pointer_sha() != active_sha:
@@ -1201,6 +1341,9 @@ if action == "acquire":
         "candidateSha": candidate_sha,
         "createdAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "expiresAt": (now + dt.timedelta(seconds=ttl_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "heartbeatAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "heartbeatRequired": True,
+        "heartbeatSequence": 0,
         "invocationId": invocation_id,
         "operationClass": operation_class,
         "operationId": operation_id,
@@ -1217,8 +1360,14 @@ if action == "acquire":
     print(lease_path)
     raise SystemExit(0)
 
-if action in {"authorize-promotion", "release", "recover-expired"}:
-    lease, _, expires_at = load_lease()
+if action in {
+    "authorize-promotion",
+    "heartbeat",
+    "recover-expired",
+    "recover-orphaned",
+    "release",
+}:
+    lease, created_at, expires_at, original_lease_digest = load_lease()
     require_exact_binding(lease)
     if action == "recover-expired":
         if expires_at > now:
@@ -1228,6 +1377,52 @@ if action in {"authorize-promotion", "release", "recover-expired"}:
         print(receipt)
         raise SystemExit(0)
     require_live(lease, expires_at, require_usability=action != "release")
+    if action == "heartbeat":
+        heartbeat = load_heartbeat(lease, created_at)
+        if heartbeat is None:
+            fail("lease does not support owner heartbeats")
+        _, sequence = heartbeat
+        lease["heartbeatAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        lease["heartbeatPid"] = caller_pid
+        lease["heartbeatSequence"] = sequence + 1
+        replace_lease(lease)
+        print(write_receipt("heartbeat", lease))
+        raise SystemExit(0)
+    if action == "recover-orphaned":
+        if lease["state"] != "acquired":
+            fail("only an acquired lease can be recovered as orphaned", 75)
+        if "promotionAuthorizedAt" in lease or "promotedAt" in lease:
+            fail("promotion activity prevents orphan recovery", 75)
+        heartbeat = load_heartbeat(lease, created_at)
+        if heartbeat is None:
+            fail("lease does not support bounded orphan recovery")
+        heartbeat_at, _ = heartbeat
+        if (now - created_at).total_seconds() < orphan_stale_seconds:
+            fail("lease is too new for orphan recovery", 75)
+        if (now - heartbeat_at).total_seconds() < orphan_stale_seconds:
+            fail("lease heartbeat is too recent for orphan recovery", 75)
+        if process_is_alive(lease["pid"]):
+            fail("lease owner PID is still active", 75)
+        recovery_approval = os.environ.get("OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID", "")
+        if not identity_pattern.fullmatch(recovery_approval):
+            fail("orphan recovery approval identity is missing or invalid", 78)
+        if not reason_pattern.fullmatch(reason):
+            fail("orphan recovery reason is missing or invalid", 64)
+        proof_digest = load_orphan_activity_proof(lease)
+        github_repo, github_checks_digest = verify_no_active_candidate_checks(lease)
+        _, _, _, current_lease_digest = load_lease()
+        if current_lease_digest != original_lease_digest:
+            fail("lease changed during orphan recovery", 75)
+        lease["orphanGitHubChecksObservedAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        lease["orphanGitHubChecksRepo"] = github_repo
+        lease["orphanGitHubChecksSha256"] = github_checks_digest
+        lease["orphanActivityProofSha256"] = proof_digest
+        lease["orphanRecoveredAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        lease["orphanRecoveredByApprovalId"] = recovery_approval
+        receipt = write_receipt("orphaned-recovered", lease, reason)
+        os.unlink(lease_path)
+        print(receipt)
+        raise SystemExit(0)
     if action == "authorize-promotion":
         if lease["state"] != "acquired":
             fail("promotion authorization requires an acquired lease")
@@ -1253,7 +1448,7 @@ if not os.path.lexists(lease_path):
         raise SystemExit(0)
     fail("lease is missing")
 
-lease, _, expires_at = load_lease()
+lease, _, expires_at, _ = load_lease()
 if expires_at <= now:
     fail("lease is expired; recover it explicitly")
 
