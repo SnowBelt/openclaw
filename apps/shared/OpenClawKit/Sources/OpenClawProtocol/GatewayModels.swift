@@ -7883,6 +7883,768 @@ public struct PccPlansGenerateResult: Codable, Sendable {
     }
 }
 
+public struct PccPlanningRun: Codable, Sendable {
+    public let schemaversion: Double
+    public let id: String
+    public let requestfingerprint: String
+    public let surface: AnyCodable
+    public let status: AnyCodable
+    public let stage: AnyCodable
+    public let model: String
+    public let effort: AnyCodable
+    public let createdat: String
+    public let updatedat: String
+    public let startedat: String?
+    public let endedat: String?
+    public let error: String?
+    public let plan: [String: AnyCodable]?
+
+    public init(
+        schemaversion: Double,
+        id: String,
+        requestfingerprint: String,
+        surface: AnyCodable,
+        status: AnyCodable,
+        stage: AnyCodable,
+        model: String,
+        effort: AnyCodable,
+        createdat: String,
+        updatedat: String,
+        startedat: String?,
+        endedat: String?,
+        error: String?,
+        plan: [String: AnyCodable]?)
+    {
+        self.schemaversion = schemaversion
+        self.id = id
+        self.requestfingerprint = requestfingerprint
+        self.surface = surface
+        self.status = status
+        self.stage = stage
+        self.model = model
+        self.effort = effort
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.startedat = startedat
+        self.endedat = endedat
+        self.error = error
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaversion = "schemaVersion"
+        case id
+        case requestfingerprint = "requestFingerprint"
+        case surface
+        case status
+        case stage
+        case model
+        case effort
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case startedat = "startedAt"
+        case endedat = "endedAt"
+        case error
+        case plan
+    }
+}
+
+public struct PccPlansStartParams: Codable, Sendable {
+    public let surface: AnyCodable
+    public let description: String
+    public let existingtitle: String?
+    public let existinggoal: String?
+    public let desiredoutcome: String?
+    public let constraints: [String]?
+    public let preferredtemplateid: AnyCodable?
+    public let depth: AnyCodable?
+
+    public init(
+        surface: AnyCodable,
+        description: String,
+        existingtitle: String?,
+        existinggoal: String?,
+        desiredoutcome: String?,
+        constraints: [String]?,
+        preferredtemplateid: AnyCodable?,
+        depth: AnyCodable?)
+    {
+        self.surface = surface
+        self.description = description
+        self.existingtitle = existingtitle
+        self.existinggoal = existinggoal
+        self.desiredoutcome = desiredoutcome
+        self.constraints = constraints
+        self.preferredtemplateid = preferredtemplateid
+        self.depth = depth
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case surface
+        case description
+        case existingtitle = "existingTitle"
+        case existinggoal = "existingGoal"
+        case desiredoutcome = "desiredOutcome"
+        case constraints
+        case preferredtemplateid = "preferredTemplateId"
+        case depth
+    }
+}
+
+public struct PccPlansStartResult: Codable, Sendable {
+    public let run: PccPlanningRun
+
+    public init(
+        run: PccPlanningRun)
+    {
+        self.run = run
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case run
+    }
+}
+
+public struct PccPlansGetParams: Codable, Sendable {
+    public let runid: String
+
+    public init(
+        runid: String)
+    {
+        self.runid = runid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runid = "runId"
+    }
+}
+
+public struct PccPlansGetResult: Codable, Sendable {
+    public let run: PccPlanningRun
+
+    public init(
+        run: PccPlanningRun)
+    {
+        self.run = run
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case run
+    }
+}
+
+public struct PccPlansCancelParams: Codable, Sendable {
+    public let runid: String
+
+    public init(
+        runid: String)
+    {
+        self.runid = runid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case runid = "runId"
+    }
+}
+
+public struct PccPlansCancelResult: Codable, Sendable {
+    public let run: PccPlanningRun
+
+    public init(
+        run: PccPlanningRun)
+    {
+        self.run = run
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case run
+    }
+}
+
+public struct PccAttachment: Codable, Sendable {
+    public let id: String
+    public let logicalid: String
+    public let version: Int
+    public let projectid: String
+    public let milestoneid: String?
+    public let submilestoneid: String?
+    public let originalname: String
+    public let title: String
+    public let mimetype: String
+    public let sizebytes: Int
+    public let sha256: String
+    public let role: AnyCodable
+    public let scope: AnyCodable
+    public let instructions: String
+    public let clarifiedinstructions: String?
+    public let instructionprovenance: [String: AnyCodable]?
+    public let modelaccess: AnyCodable
+    public let sensitivity: AnyCodable
+    public let status: AnyCodable
+    public let createdat: String
+    public let updatedat: String
+    public let sourceuploadkey: String?
+
+    public init(
+        id: String,
+        logicalid: String,
+        version: Int,
+        projectid: String,
+        milestoneid: String?,
+        submilestoneid: String?,
+        originalname: String,
+        title: String,
+        mimetype: String,
+        sizebytes: Int,
+        sha256: String,
+        role: AnyCodable,
+        scope: AnyCodable,
+        instructions: String,
+        clarifiedinstructions: String?,
+        instructionprovenance: [String: AnyCodable]?,
+        modelaccess: AnyCodable,
+        sensitivity: AnyCodable,
+        status: AnyCodable,
+        createdat: String,
+        updatedat: String,
+        sourceuploadkey: String?)
+    {
+        self.id = id
+        self.logicalid = logicalid
+        self.version = version
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.submilestoneid = submilestoneid
+        self.originalname = originalname
+        self.title = title
+        self.mimetype = mimetype
+        self.sizebytes = sizebytes
+        self.sha256 = sha256
+        self.role = role
+        self.scope = scope
+        self.instructions = instructions
+        self.clarifiedinstructions = clarifiedinstructions
+        self.instructionprovenance = instructionprovenance
+        self.modelaccess = modelaccess
+        self.sensitivity = sensitivity
+        self.status = status
+        self.createdat = createdat
+        self.updatedat = updatedat
+        self.sourceuploadkey = sourceuploadkey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case logicalid = "logicalId"
+        case version
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case submilestoneid = "subMilestoneId"
+        case originalname = "originalName"
+        case title
+        case mimetype = "mimeType"
+        case sizebytes = "sizeBytes"
+        case sha256
+        case role
+        case scope
+        case instructions
+        case clarifiedinstructions = "clarifiedInstructions"
+        case instructionprovenance = "instructionProvenance"
+        case modelaccess = "modelAccess"
+        case sensitivity
+        case status
+        case createdat = "createdAt"
+        case updatedat = "updatedAt"
+        case sourceuploadkey = "sourceUploadKey"
+    }
+}
+
+public struct PccAttachmentUsageReceipt: Codable, Sendable {
+    public let id: String
+    public let attachmentid: String
+    public let projectid: String
+    public let milestoneid: String?
+    public let runid: String?
+    public let model: String?
+    public let purpose: String
+    public let outcome: String?
+    public let usedat: String
+
+    public init(
+        id: String,
+        attachmentid: String,
+        projectid: String,
+        milestoneid: String?,
+        runid: String?,
+        model: String?,
+        purpose: String,
+        outcome: String?,
+        usedat: String)
+    {
+        self.id = id
+        self.attachmentid = attachmentid
+        self.projectid = projectid
+        self.milestoneid = milestoneid
+        self.runid = runid
+        self.model = model
+        self.purpose = purpose
+        self.outcome = outcome
+        self.usedat = usedat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case attachmentid = "attachmentId"
+        case projectid = "projectId"
+        case milestoneid = "milestoneId"
+        case runid = "runId"
+        case model
+        case purpose
+        case outcome
+        case usedat = "usedAt"
+    }
+}
+
+public struct PccAttachmentsUploadBeginParams: Codable, Sendable {
+    public let projectid: String
+    public let originalname: String
+    public let mimetype: String
+    public let sizebytes: Int
+    public let sha256: String?
+    public let role: AnyCodable
+    public let scope: AnyCodable
+    public let milestoneid: String?
+    public let submilestoneid: String?
+    public let instructions: String?
+    public let clarifiedinstructions: String?
+    public let instructionprovenance: [String: AnyCodable]?
+    public let modelaccess: AnyCodable?
+    public let sensitivity: AnyCodable?
+    public let idempotencykey: String?
+
+    public init(
+        projectid: String,
+        originalname: String,
+        mimetype: String,
+        sizebytes: Int,
+        sha256: String?,
+        role: AnyCodable,
+        scope: AnyCodable,
+        milestoneid: String?,
+        submilestoneid: String?,
+        instructions: String?,
+        clarifiedinstructions: String?,
+        instructionprovenance: [String: AnyCodable]?,
+        modelaccess: AnyCodable?,
+        sensitivity: AnyCodable?,
+        idempotencykey: String?)
+    {
+        self.projectid = projectid
+        self.originalname = originalname
+        self.mimetype = mimetype
+        self.sizebytes = sizebytes
+        self.sha256 = sha256
+        self.role = role
+        self.scope = scope
+        self.milestoneid = milestoneid
+        self.submilestoneid = submilestoneid
+        self.instructions = instructions
+        self.clarifiedinstructions = clarifiedinstructions
+        self.instructionprovenance = instructionprovenance
+        self.modelaccess = modelaccess
+        self.sensitivity = sensitivity
+        self.idempotencykey = idempotencykey
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case originalname = "originalName"
+        case mimetype = "mimeType"
+        case sizebytes = "sizeBytes"
+        case sha256
+        case role
+        case scope
+        case milestoneid = "milestoneId"
+        case submilestoneid = "subMilestoneId"
+        case instructions
+        case clarifiedinstructions = "clarifiedInstructions"
+        case instructionprovenance = "instructionProvenance"
+        case modelaccess = "modelAccess"
+        case sensitivity
+        case idempotencykey = "idempotencyKey"
+    }
+}
+
+public struct PccAttachmentsUploadBeginResult: Codable, Sendable {
+    public let uploadid: String
+    public let offset: Int
+    public let expiresat: String
+
+    public init(
+        uploadid: String,
+        offset: Int,
+        expiresat: String)
+    {
+        self.uploadid = uploadid
+        self.offset = offset
+        self.expiresat = expiresat
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case offset
+        case expiresat = "expiresAt"
+    }
+}
+
+public struct PccAttachmentsUploadChunkParams: Codable, Sendable {
+    public let uploadid: String
+    public let offset: Int
+    public let database64: String
+
+    public init(
+        uploadid: String,
+        offset: Int,
+        database64: String)
+    {
+        self.uploadid = uploadid
+        self.offset = offset
+        self.database64 = database64
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case offset
+        case database64 = "dataBase64"
+    }
+}
+
+public struct PccAttachmentsUploadChunkResult: Codable, Sendable {
+    public let uploadid: String
+    public let offset: Int
+
+    public init(
+        uploadid: String,
+        offset: Int)
+    {
+        self.uploadid = uploadid
+        self.offset = offset
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case offset
+    }
+}
+
+public struct PccAttachmentsUploadCommitParams: Codable, Sendable {
+    public let uploadid: String
+    public let sha256: String?
+
+    public init(
+        uploadid: String,
+        sha256: String?)
+    {
+        self.uploadid = uploadid
+        self.sha256 = sha256
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case uploadid = "uploadId"
+        case sha256
+    }
+}
+
+public struct PccAttachmentsUploadCommitResult: Codable, Sendable {
+    public let attachment: PccAttachment
+
+    public init(
+        attachment: PccAttachment)
+    {
+        self.attachment = attachment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachment
+    }
+}
+
+public struct PccAttachmentsListParams: Codable, Sendable {
+    public let projectid: String
+    public let includetombstoned: Bool?
+
+    public init(
+        projectid: String,
+        includetombstoned: Bool?)
+    {
+        self.projectid = projectid
+        self.includetombstoned = includetombstoned
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case includetombstoned = "includeTombstoned"
+    }
+}
+
+public struct PccAttachmentsListResult: Codable, Sendable {
+    public let attachments: [PccAttachment]
+
+    public init(
+        attachments: [PccAttachment])
+    {
+        self.attachments = attachments
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachments
+    }
+}
+
+public struct PccAttachmentsReadParams: Codable, Sendable {
+    public let attachmentid: String
+    public let offset: Int?
+    public let maxbytes: Int?
+
+    public init(
+        attachmentid: String,
+        offset: Int?,
+        maxbytes: Int?)
+    {
+        self.attachmentid = attachmentid
+        self.offset = offset
+        self.maxbytes = maxbytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachmentid = "attachmentId"
+        case offset
+        case maxbytes = "maxBytes"
+    }
+}
+
+public struct PccAttachmentsReadResult: Codable, Sendable {
+    public let attachmentid: String
+    public let offset: Int
+    public let nextoffset: Int
+    public let totalbytes: Int
+    public let database64: String
+    public let eof: Bool
+
+    public init(
+        attachmentid: String,
+        offset: Int,
+        nextoffset: Int,
+        totalbytes: Int,
+        database64: String,
+        eof: Bool)
+    {
+        self.attachmentid = attachmentid
+        self.offset = offset
+        self.nextoffset = nextoffset
+        self.totalbytes = totalbytes
+        self.database64 = database64
+        self.eof = eof
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachmentid = "attachmentId"
+        case offset
+        case nextoffset = "nextOffset"
+        case totalbytes = "totalBytes"
+        case database64 = "dataBase64"
+        case eof
+    }
+}
+
+public struct PccAttachmentsUpdateParams: Codable, Sendable {
+    public let attachmentid: String
+    public let title: String?
+    public let role: AnyCodable?
+    public let scope: AnyCodable?
+    public let milestoneid: AnyCodable?
+    public let submilestoneid: AnyCodable?
+    public let instructions: String?
+    public let clarifiedinstructions: String?
+    public let modelaccess: AnyCodable?
+    public let sensitivity: AnyCodable?
+    public let tombstone: Bool?
+
+    public init(
+        attachmentid: String,
+        title: String?,
+        role: AnyCodable?,
+        scope: AnyCodable?,
+        milestoneid: AnyCodable?,
+        submilestoneid: AnyCodable?,
+        instructions: String?,
+        clarifiedinstructions: String?,
+        modelaccess: AnyCodable?,
+        sensitivity: AnyCodable?,
+        tombstone: Bool?)
+    {
+        self.attachmentid = attachmentid
+        self.title = title
+        self.role = role
+        self.scope = scope
+        self.milestoneid = milestoneid
+        self.submilestoneid = submilestoneid
+        self.instructions = instructions
+        self.clarifiedinstructions = clarifiedinstructions
+        self.modelaccess = modelaccess
+        self.sensitivity = sensitivity
+        self.tombstone = tombstone
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachmentid = "attachmentId"
+        case title
+        case role
+        case scope
+        case milestoneid = "milestoneId"
+        case submilestoneid = "subMilestoneId"
+        case instructions
+        case clarifiedinstructions = "clarifiedInstructions"
+        case modelaccess = "modelAccess"
+        case sensitivity
+        case tombstone
+    }
+}
+
+public struct PccAttachmentsUpdateResult: Codable, Sendable {
+    public let attachment: PccAttachment
+
+    public init(
+        attachment: PccAttachment)
+    {
+        self.attachment = attachment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachment
+    }
+}
+
+public struct PccAttachmentsClarifyParams: Codable, Sendable {
+    public let originalname: String
+    public let role: AnyCodable
+    public let instructions: String
+
+    public init(
+        originalname: String,
+        role: AnyCodable,
+        instructions: String)
+    {
+        self.originalname = originalname
+        self.role = role
+        self.instructions = instructions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case originalname = "originalName"
+        case role
+        case instructions
+    }
+}
+
+public struct PccAttachmentsClarifyResult: Codable, Sendable {
+    public let clarifiedinstructions: String
+    public let provenance: [String: AnyCodable]
+
+    public init(
+        clarifiedinstructions: String,
+        provenance: [String: AnyCodable])
+    {
+        self.clarifiedinstructions = clarifiedinstructions
+        self.provenance = provenance
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case clarifiedinstructions = "clarifiedInstructions"
+        case provenance
+    }
+}
+
+public struct PccAttachmentUsageRecordParams: Codable, Sendable {
+    public let attachmentid: String
+    public let milestoneid: String?
+    public let runid: String?
+    public let model: String?
+    public let purpose: String
+    public let outcome: String?
+
+    public init(
+        attachmentid: String,
+        milestoneid: String?,
+        runid: String?,
+        model: String?,
+        purpose: String,
+        outcome: String?)
+    {
+        self.attachmentid = attachmentid
+        self.milestoneid = milestoneid
+        self.runid = runid
+        self.model = model
+        self.purpose = purpose
+        self.outcome = outcome
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case attachmentid = "attachmentId"
+        case milestoneid = "milestoneId"
+        case runid = "runId"
+        case model
+        case purpose
+        case outcome
+    }
+}
+
+public struct PccAttachmentUsageRecordResult: Codable, Sendable {
+    public let receipt: PccAttachmentUsageReceipt
+
+    public init(
+        receipt: PccAttachmentUsageReceipt)
+    {
+        self.receipt = receipt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case receipt
+    }
+}
+
+public struct PccAttachmentUsageListParams: Codable, Sendable {
+    public let projectid: String
+    public let attachmentid: String?
+
+    public init(
+        projectid: String,
+        attachmentid: String?)
+    {
+        self.projectid = projectid
+        self.attachmentid = attachmentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectid = "projectId"
+        case attachmentid = "attachmentId"
+    }
+}
+
+public struct PccAttachmentUsageListResult: Codable, Sendable {
+    public let receipts: [PccAttachmentUsageReceipt]
+
+    public init(
+        receipts: [PccAttachmentUsageReceipt])
+    {
+        self.receipts = receipts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case receipts
+    }
+}
+
 public struct PccPlanningPolicyGetParams: Codable, Sendable {}
 
 public struct PccPlanningPolicyGetResult: Codable, Sendable {
