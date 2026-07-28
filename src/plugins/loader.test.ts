@@ -2144,10 +2144,15 @@ describe("loadOpenClawPlugins", () => {
     },
     {
       label:
-        "keeps sendSessionAttachment callable after register closes while blocking registration-only APIs",
+        "keeps runtime session APIs callable after register closes while blocking registration-only APIs",
       run: () => {
         const registerGatewayMethod = vi.fn();
         const registerSessionExtension = vi.fn();
+        const enqueueNextTurnInjection = vi.fn(async (injection) => ({
+          enqueued: true,
+          id: "injection-late",
+          sessionKey: injection.sessionKey,
+        }));
         const sendSessionAttachment = vi.fn(async () => ({
           ok: true as const,
           channel: "proofchat",
@@ -2174,6 +2179,7 @@ describe("loadOpenClawPlugins", () => {
           resolvePath: (input) => input,
           handlers: {
             emitAgentEvent,
+            enqueueNextTurnInjection,
             registerGatewayMethod,
             registerSessionExtension,
             sendSessionAttachment,
@@ -2193,6 +2199,14 @@ describe("loadOpenClawPlugins", () => {
         ).toBeUndefined();
         expect(registerGatewayMethod).toHaveBeenCalledTimes(1);
 
+        const injectionParams = {
+          sessionKey: "agent:main:main",
+          text: "late context",
+          idempotencyKey: "late-context",
+        };
+        const lateInjectionResult = capturedApi?.enqueueNextTurnInjection(injectionParams);
+        const lateWorkflowInjectionResult =
+          capturedApi?.session?.workflow.enqueueNextTurnInjection(injectionParams);
         const attachmentParams = {
           sessionKey: "agent:main:main",
           files: [{ path: "./proof-report.txt" }],
@@ -2213,6 +2227,10 @@ describe("loadOpenClawPlugins", () => {
           description: "late extension should stay blocked",
         });
 
+        expect(lateInjectionResult).toBe(enqueueNextTurnInjection.mock.results[0]?.value);
+        expect(lateWorkflowInjectionResult).toBe(enqueueNextTurnInjection.mock.results[1]?.value);
+        expect(enqueueNextTurnInjection).toHaveBeenCalledTimes(2);
+        expect(enqueueNextTurnInjection).toHaveBeenCalledWith(injectionParams);
         expect(lateResult).toBe(sendSessionAttachment.mock.results[0]?.value);
         expect(lateWorkflowResult).toBe(sendSessionAttachment.mock.results[1]?.value);
         expect(sendSessionAttachment).toHaveBeenCalledWith({
