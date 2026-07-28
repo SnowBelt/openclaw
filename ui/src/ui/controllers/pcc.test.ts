@@ -2334,6 +2334,87 @@ describe("PCC CRUD controller", () => {
     );
   });
 
+  it("creates a project when Best available Codex will resolve at its future checkpoint", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "pcc.projects.upsert") {
+        return { project, summary };
+      }
+      if (method === "pcc.milestones.upsert") {
+        return { milestone };
+      }
+      if (method === "pcc.permissions.upsert") {
+        return { permission, summary };
+      }
+      if (method === "pcc.projects.list") {
+        return { projects: [summary] };
+      }
+      if (method === "pcc.summary.get") {
+        return { portfolio };
+      }
+      if (method === "pcc.projects.get") {
+        return {
+          project,
+          milestones: [],
+          subMilestones: [],
+          permissions: [],
+          evidence: [],
+          receipts: [],
+          decisions: [],
+          summary,
+        };
+      }
+      return {};
+    });
+    const state = createState({
+      client: { request } as unknown as PccDashboardState["client"],
+      chatModelCatalog: [
+        { ...teamModels[0]! },
+        {
+          ...teamModels[1]!,
+          available: false,
+        },
+      ],
+      pccProjectForm: {
+        ...EMPTY_PCC_PROJECT_FORM,
+        title: "Deferred Codex checkpoint",
+        goal: "Create now and resolve Codex only when a checkpoint is reached.",
+        projectDescription:
+          "Create a project whose reviewed plan uses local workers and future Codex checkpoints.",
+        executionProfile: resolvePccExecutionProfilePreset("balanced"),
+        codexPlanningAllowed: true,
+        intakeAnswers,
+        intakeApproved: true,
+        planPreviewAccepted: true,
+      },
+    });
+
+    await savePccProject(state);
+
+    expect(state.pccActionError).toBeNull();
+    expect(request).toHaveBeenCalledWith(
+      "pcc.projects.upsert",
+      expect.objectContaining({
+        project: expect.objectContaining({
+          metadata: expect.objectContaining({
+            pccExecutionProfile: expect.objectContaining({
+              codexModelId: "best_available",
+              codexPolicyId: "recommended_minimum",
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "pcc.permissions.upsert",
+      expect.objectContaining({
+        permission: expect.objectContaining({
+          status: "granted",
+          target: expect.stringContaining("post-plan checkpoints"),
+        }),
+      }),
+    );
+  });
+
   it("refuses to save a model that the live catalog marks unavailable", async () => {
     const request = vi.fn();
     const state = createState({
