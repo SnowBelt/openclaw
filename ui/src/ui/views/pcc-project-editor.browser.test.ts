@@ -57,8 +57,17 @@ function editorHtml(): string {
           <div style="height: 680px"></div>
         </section>
         <footer>
-          <button class="btn pcc-editor-primary-action" type="button">
-            Generate project plan with Codex
+          <button
+            class="btn pcc-editor-primary-action pcc-editor-primary-action--generate"
+            data-pcc-create-review-plan
+            type="button"
+          >
+            <span class="pcc-editor-primary-action__mark" aria-hidden="true">✦</span>
+            <span class="pcc-editor-primary-action__copy">
+              <strong>Generate project plan</strong>
+              <small>Next: review the milestones before anything is created</small>
+            </span>
+            <span class="pcc-editor-primary-action__arrow" aria-hidden="true">→</span>
           </button>
           <button class="btn btn--subtle" type="button">Cancel</button>
         </footer>
@@ -117,21 +126,43 @@ describeBrowserLayout("PCC project-creation layout", () => {
       const primary = await page.locator(".pcc-editor-primary-action").evaluate((button) => {
         const rect = button.getBoundingClientRect();
         const style = getComputedStyle(button);
+        const parseRgb = (value: string) =>
+          value
+            .match(/\d+(?:\.\d+)?/gu)
+            ?.slice(0, 3)
+            .map(Number) ?? [0, 0, 0];
+        const luminance = (rgb: number[]) => {
+          const channels = rgb.map((value) => {
+            const normalized = value / 255;
+            return normalized <= 0.04045
+              ? normalized / 12.92
+              : Math.pow((normalized + 0.055) / 1.055, 2.4);
+          });
+          return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+        };
+        const foreground = luminance(parseRgb(style.color));
+        const background = luminance(parseRgb(style.backgroundColor));
+        const contrast =
+          (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
         return {
           bottom: rect.bottom,
+          contrast,
           height: rect.height,
           left: rect.left,
           right: rect.right,
           background: style.backgroundColor,
+          boxShadow: style.boxShadow,
           opacity: style.opacity,
         };
       });
 
-      expect(primary.height).toBeGreaterThanOrEqual(48);
+      expect(primary.height).toBeGreaterThanOrEqual(64);
       expect(primary.left).toBeGreaterThanOrEqual(0);
       expect(primary.right).toBeLessThanOrEqual(viewport.width);
       expect(primary.bottom).toBeLessThanOrEqual(viewport.height);
       expect(primary.background).not.toBe("rgba(0, 0, 0, 0)");
+      expect(primary.boxShadow).not.toBe("none");
+      expect(primary.contrast).toBeGreaterThanOrEqual(4.5);
       expect(primary.opacity).toBe("1");
     } finally {
       await page.close().catch(() => {});

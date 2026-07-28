@@ -936,33 +936,99 @@
   z-index: 5;
 }
 
-.pcc-editor-primary-action {
+.pcc-editor--project > footer .btn.pcc-editor-primary-action {
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 24%, transparent);
   color: var(--primary-foreground);
   flex: 1 1 320px;
   font-size: 0.92rem;
   font-weight: 800;
   min-height: 48px;
   padding-inline: 20px;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
-.pcc-editor-primary-action:hover:not(:disabled) {
+.pcc-editor--project > footer .btn.pcc-editor-primary-action:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  box-shadow: 0 8px 24px var(--accent-glow);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 34%, transparent);
+  transform: translateY(-1px);
 }
 
-.pcc-editor-primary-action:focus-visible {
-  box-shadow: var(--focus-ring);
+.pcc-editor--project > footer .btn.pcc-editor-primary-action:active:not(:disabled) {
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 24%, transparent);
+  transform: translateY(0);
 }
 
-.pcc-editor-primary-action:disabled {
-  background: color-mix(in srgb, var(--accent) 42%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  color: color-mix(in srgb, var(--primary-foreground) 78%, var(--muted));
+.pcc-editor--project > footer .btn.pcc-editor-primary-action:focus-visible {
+  box-shadow:
+    var(--focus-ring),
+    0 10px 26px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.pcc-editor--project > footer .btn.pcc-editor-primary-action:disabled {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: none;
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
   cursor: not-allowed;
   opacity: 1;
+}
+
+.pcc-editor--project > footer .btn.pcc-editor-primary-action--generate {
+  align-items: center;
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 64px;
+  padding: 11px 18px;
+  text-align: left;
+}
+
+.pcc-editor-primary-action__mark {
+  align-items: center;
+  background: color-mix(in srgb, var(--primary-foreground) 18%, transparent);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 1rem;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.pcc-editor-primary-action__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pcc-editor-primary-action__copy strong {
+  font-size: 0.96rem;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.pcc-editor-primary-action__copy small {
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.25;
+  opacity: 0.86;
+}
+
+.pcc-editor-primary-action__arrow {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.pcc-editor-primary-action--generate:disabled .pcc-editor-primary-action__mark {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .pcc-create-flow,
