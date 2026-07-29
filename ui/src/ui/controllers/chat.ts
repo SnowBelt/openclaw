@@ -12,6 +12,7 @@ import {
 import { extractText } from "../chat/message-extract.ts";
 import {
   buildChatGoalContinuationPrompt,
+  isChatPursueGoalFlow,
   resolveCurrentChatGoal,
   type ChatGoalActionState,
   type ChatGoalControlAction,
@@ -500,7 +501,10 @@ type ChatGoalFlowResponse = {
 
 type ChatGoalFlowsResponse = {
   flows?: ChatGoalFlowSummary[];
+  nextCursor?: string;
 };
+
+type ChatGoalRefreshResult = "authoritative" | "fallback" | "failed";
 
 function requireConnectedChatClient(state: ChatState): GatewayBrowserClient {
   if (!state.client || !state.connected) {
@@ -531,6 +535,29 @@ function setChatGoalError(state: ChatState, err: unknown): void {
   state.chatGoalUpdatedAt = Date.now();
 }
 
+async function listPaginatedChatGoals(
+  client: GatewayBrowserClient,
+  sessionKey: string,
+): Promise<ChatGoalFlowSummary[]> {
+  const goals: ChatGoalFlowSummary[] = [];
+  const visitedCursors = new Set<string>();
+  let cursor: string | undefined;
+  while (true) {
+    const page = await client.request<ChatGoalFlowsResponse>("taskFlows.list", {
+      sessionKey,
+      limit: 500,
+      ...(cursor ? { cursor } : {}),
+    });
+    goals.push(...(page.flows ?? []).filter(isChatPursueGoalFlow));
+    const nextCursor = normalizeOptionalText(page.nextCursor);
+    if (!nextCursor || visitedCursors.has(nextCursor)) {
+      return goals;
+    }
+    visitedCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+}
+
 export async function loadChatProjects(state: ChatState): Promise<void> {
   if (!state.client || !state.connected) {
     return;
@@ -557,30 +584,41 @@ export async function loadChatProjects(state: ChatState): Promise<void> {
   }
 }
 
-export async function loadChatGoals(state: ChatState): Promise<void> {
+export async function loadChatGoals(state: ChatState): Promise<ChatGoalRefreshResult> {
   if (!state.client || !state.connected) {
-    return;
+    return "failed";
   }
   state.chatGoalLoading = true;
   try {
-    const res =
-      isGatewayMethodAdvertised(state, "executionState.get") === true
-        ? await state.client.request<ExecutionStateSnapshot>("executionState.get", {
-            sessionKey: state.sessionKey,
-            includeTerminal: true,
-          })
-        : await state.client.request<ChatGoalFlowsResponse>("taskFlows.list", {
-            sessionKey: state.sessionKey,
-            limit: 20,
-          });
-    state.chatGoalFlows = Array.isArray(res.flows) ? res.flows : [];
-    if ("snapshotRevision" in res) {
-      state.chatExecutionState = res;
+    let refreshResult: ChatGoalRefreshResult = "authoritative";
+    if (isGatewayMethodAdvertised(state, "executionState.get") === true) {
+      const [snapshotResult, goalsResult] = await Promise.allSettled([
+        state.client.request<ExecutionStateSnapshot>("executionState.get", {
+          sessionKey: state.sessionKey,
+          includeTerminal: true,
+        }),
+        listPaginatedChatGoals(state.client, state.sessionKey),
+      ]);
+      if (snapshotResult.status === "fulfilled") {
+        state.chatExecutionState = snapshotResult.value;
+      }
+      if (goalsResult.status === "fulfilled") {
+        state.chatGoalFlows = goalsResult.value;
+      } else if (snapshotResult.status === "fulfilled") {
+        state.chatGoalFlows = (snapshotResult.value.flows ?? []).filter(isChatPursueGoalFlow);
+        refreshResult = "fallback";
+      } else {
+        throw goalsResult.reason;
+      }
+    } else {
+      state.chatGoalFlows = await listPaginatedChatGoals(state.client, state.sessionKey);
     }
     state.chatGoalError = null;
     state.chatGoalUpdatedAt = Date.now();
+    return refreshResult;
   } catch (err) {
     setChatGoalError(state, err);
+    return "failed";
   } finally {
     state.chatGoalLoading = false;
   }
@@ -631,6 +669,25 @@ type ChatGoalControlResponse = {
   flow?: ChatGoalFlowSummary;
 };
 
+async function requestChatGoalControl(params: {
+  client: GatewayBrowserClient;
+  flowId: string;
+  sessionKey: string;
+  action: ChatGoalControlAction;
+  idempotencyKey: string;
+  expectedRevision?: number;
+  goal?: string;
+}): Promise<ChatGoalControlResponse> {
+  return await params.client.request<ChatGoalControlResponse>("taskFlows.control", {
+    flowId: params.flowId,
+    sessionKey: params.sessionKey,
+    action: params.action,
+    idempotencyKey: params.idempotencyKey,
+    ...(params.expectedRevision !== undefined ? { expectedRevision: params.expectedRevision } : {}),
+    ...(params.goal ? { goal: params.goal } : {}),
+  });
+}
+
 function optimisticGoalControl(
   flow: ChatGoalFlowSummary,
   action: ChatGoalControlAction,
@@ -670,6 +727,7 @@ export async function controlChatGoal(
   state.chatGoalAction = { flowId: normalized, action };
   state.chatGoalError = null;
   const previousFlows = state.chatGoalFlows;
+  let refreshedAfterConflict = false;
   const selected = (state.chatGoalFlows ?? []).find(
     (flow) => flow.id === normalized || flow.flowId === normalized,
   );
@@ -681,14 +739,39 @@ export async function controlChatGoal(
   });
   try {
     const client = requireConnectedChatClient(state);
-    const result = await client.request<ChatGoalControlResponse>("taskFlows.control", {
+    const idempotencyKey = crypto.randomUUID();
+    let result = await requestChatGoalControl({
+      client,
       flowId: normalized,
       sessionKey: currentChatSessionKey(state),
       action,
+      idempotencyKey,
       ...(selected?.revision !== undefined ? { expectedRevision: selected.revision } : {}),
-      idempotencyKey: crypto.randomUUID(),
       ...(normalizedGoal ? { goal: normalizedGoal } : {}),
     });
+    if (!result.applied && result.reason === "revision_conflict") {
+      const refreshResult = await loadChatGoals(state);
+      if (refreshResult === "failed") {
+        throw new Error(state.chatGoalError ?? "Could not refresh the goal after a conflict.");
+      }
+      refreshedAfterConflict = refreshResult === "authoritative";
+      const current = (state.chatGoalFlows ?? []).find(
+        (flow) => flow.id === normalized || flow.flowId === normalized,
+      );
+      if (!current) {
+        throw new Error("Goal changed and is no longer available.");
+      }
+      refreshedAfterConflict = true;
+      result = await requestChatGoalControl({
+        client,
+        flowId: normalized,
+        sessionKey: currentChatSessionKey(state),
+        action,
+        idempotencyKey,
+        ...(current.revision !== undefined ? { expectedRevision: current.revision } : {}),
+        ...(normalizedGoal ? { goal: normalizedGoal } : {}),
+      });
+    }
     if (!result.applied) {
       throw new Error(result.reason ?? `Goal ${action} was not applied.`);
     }
@@ -698,9 +781,17 @@ export async function controlChatGoal(
       );
     }
     await loadChatGoals(state);
-    return result.flow ?? null;
+    return (
+      result.flow ??
+      (state.chatGoalFlows ?? []).find(
+        (flow) => flow.id === normalized || flow.flowId === normalized,
+      ) ??
+      null
+    );
   } catch (err) {
-    state.chatGoalFlows = previousFlows;
+    if (!refreshedAfterConflict) {
+      state.chatGoalFlows = previousFlows;
+    }
     setChatGoalError(state, err);
     return null;
   } finally {

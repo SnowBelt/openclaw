@@ -12,15 +12,40 @@ export type ChatQueueProps = {
   onQueueRemove: (id: string) => void;
 };
 
+export type ChatQueueSummary = {
+  queued: number;
+  working: number;
+  failed: number;
+};
+
+export function summarizeChatQueue(queue: readonly ChatQueueItem[]): ChatQueueSummary {
+  const summary: ChatQueueSummary = { queued: 0, working: 0, failed: 0 };
+  for (const item of queue) {
+    if (item.serverPhase === "failed" || item.sendState === "failed") {
+      summary.failed += 1;
+    } else if (
+      item.serverPhase === "dispatching" ||
+      item.serverPhase === "admitted" ||
+      item.sendState === "sending" ||
+      item.sendState === "waiting-model"
+    ) {
+      summary.working += 1;
+    } else {
+      summary.queued += 1;
+    }
+  }
+  return summary;
+}
+
 function sendStateLabel(item: ChatQueueItem): string | null {
   if (item.serverPhase === "pending") {
-    return "Acknowledged";
+    return "Queued";
   }
   if (item.serverPhase === "dispatching") {
-    return "Admitting";
+    return "Starting";
   }
   if (item.serverPhase === "admitted") {
-    return "Working";
+    return "Running";
   }
   switch (item.sendState) {
     case "waiting-model":
@@ -40,9 +65,15 @@ export function renderChatQueue(props: ChatQueueProps) {
   if (!props.queue.length) {
     return nothing;
   }
+  const summary = summarizeChatQueue(props.queue);
+  const summaryParts = [
+    summary.working > 0 ? `${summary.working} running` : null,
+    summary.queued > 0 ? `${summary.queued} queued` : null,
+    summary.failed > 0 ? `${summary.failed} failed` : null,
+  ].filter((part): part is string => part !== null);
   return html`
     <div class="chat-queue" role="status" aria-live="polite">
-      <div class="chat-queue__title">Queued (${props.queue.length})</div>
+      <div class="chat-queue__title">Queue · ${summaryParts.join(" · ")}</div>
       <div class="chat-queue__list">
         ${props.queue.map((item) => {
           const stateLabel = sendStateLabel(item);

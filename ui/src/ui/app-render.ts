@@ -4975,7 +4975,13 @@ export function renderApp(state: AppViewState) {
                     }
                     requestHostUpdate?.();
                   },
-                  onGoalRefresh: () => loadChatGoals(state),
+                  onGoalRefresh: async () => {
+                    await loadChatGoals(state);
+                  },
+                  onGoalDismissError: () => {
+                    state.chatGoalError = null;
+                    requestHostUpdate?.();
+                  },
                   onProjectPickerToggle: (open) => {
                     state.chatProjectPickerOpen = open;
                     if (open) {

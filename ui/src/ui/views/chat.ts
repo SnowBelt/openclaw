@@ -18,7 +18,7 @@ import {
   isSupportedChatAttachmentFile,
 } from "../chat/attachment-support.ts";
 import { buildChatItems, type BuildChatItemsProps } from "../chat/build-chat-items.ts";
-import { renderChatQueue } from "../chat/chat-queue.ts";
+import { renderChatQueue, summarizeChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState, resolveAssistantDisplayAvatar } from "../chat/chat-welcome.ts";
 import { renderContextNotice } from "../chat/context-notice.ts";
@@ -250,6 +250,7 @@ export type ChatProps = {
   ) => void | Promise<void>;
   onBlockedRetryDraft?: (prompt: string) => void;
   onGoalRefresh?: () => void | Promise<void>;
+  onGoalDismissError?: () => void;
   onProjectPickerToggle?: (open: boolean) => void;
   onProjectAttach?: (projectId: string) => void | Promise<void>;
   onProjectDetach?: () => void | Promise<void>;
@@ -2201,13 +2202,22 @@ function renderQueuePopover(props: ChatProps, canAbort: boolean) {
   if (props.queue.length === 0) {
     return nothing;
   }
+  const queueSummary = summarizeChatQueue(props.queue);
+  const attention = queueSummary.failed > 0;
+  const label =
+    queueSummary.failed > 0
+      ? `${queueSummary.failed} failed`
+      : queueSummary.working > 0
+        ? `${queueSummary.working} running`
+        : `${queueSummary.queued} queued`;
   return html`
-    <details class="chat-queue-popover" data-chat-queue-popover @keydown=${closeDetailsOnEscape}>
-      <summary
-        class="chat-queue-popover__summary"
-        aria-label=${`${props.queue.length} queued items`}
-      >
-        <span>Queue</span><strong>${props.queue.length}</strong>
+    <details
+      class="chat-queue-popover ${attention ? "chat-queue-popover--attention" : ""}"
+      data-chat-queue-popover
+      @keydown=${closeDetailsOnEscape}
+    >
+      <summary class="chat-queue-popover__summary" aria-label=${`Queue: ${label}`}>
+        <span>Queue</span><strong>${label}</strong>
       </summary>
       <div class="chat-queue-popover__panel">
         ${renderChatQueue({
@@ -2935,9 +2945,22 @@ function renderPursueGoal(props: ChatProps) {
             </div>
             ${props.goalError
               ? html`
-                  <div class="callout danger" role="alert">
-                    <strong>Goal status unavailable</strong>
-                    <span>${props.goalError}</span>
+                  <div class="callout danger callout--dismissible" role="alert">
+                    <span class="callout__content">
+                      <strong>Goal status unavailable</strong>
+                      <span>${props.goalError}</span>
+                    </span>
+                    ${props.onGoalDismissError
+                      ? html`<button
+                          class="callout__dismiss"
+                          type="button"
+                          aria-label="Dismiss goal error"
+                          title="Dismiss goal error"
+                          @click=${props.onGoalDismissError}
+                        >
+                          ${icons.x}
+                        </button>`
+                      : nothing}
                   </div>
                 `
               : nothing}

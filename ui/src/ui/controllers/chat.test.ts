@@ -210,11 +210,166 @@ describe("chat pursue goal actions", () => {
 
     expect(request).toHaveBeenCalledWith("taskFlows.list", {
       sessionKey: "main",
-      limit: 20,
+      limit: 500,
     });
     expect(state.chatGoalFlows).toEqual([{ id: "flow-1", goal: "Ship proof", status: "running" }]);
     expect(state.chatGoalError).toBeNull();
     expect(state.chatGoalLoading).toBe(false);
+  });
+
+  it("paginates past unrelated managed flows to find Pursue Goal", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        flows: [
+          {
+            id: "flow-test",
+            controllerId: "tests/runtime-taskflow",
+            goal: "Test flow",
+            status: "queued",
+          },
+        ],
+        nextCursor: "1",
+      })
+      .mockResolvedValueOnce({
+        flows: [
+          {
+            id: "flow-goal",
+            controllerId: "openclaw/pursue-goal-v1",
+            goal: "Ship proof",
+            status: "running",
+          },
+        ],
+      });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [],
+    });
+
+    await loadChatGoals(state);
+
+    expect(state.chatGoalFlows).toEqual([
+      expect.objectContaining({ id: "flow-goal", goal: "Ship proof" }),
+    ]);
+    expect(request).toHaveBeenNthCalledWith(1, "taskFlows.list", {
+      sessionKey: "main",
+      limit: 500,
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "taskFlows.list", {
+      sessionKey: "main",
+      limit: 500,
+      cursor: "1",
+    });
+  });
+
+  it("uses paginated goal records alongside the current execution snapshot", async () => {
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === "executionState.get") {
+        return {
+          schemaVersion: 1,
+          snapshotRevision: "snapshot-1",
+          generatedAt: 1,
+          sessionKey: "main",
+          tasks: [],
+          flows: [],
+          turns: [],
+          health: {
+            activeCount: 0,
+            staleGoalCount: 0,
+            orphanedTurnCount: 0,
+            pendingDeliveryCount: 0,
+            lostWorkerCount: 0,
+            healthy: true,
+          },
+        };
+      }
+      expect(method).toBe("taskFlows.list");
+      expect(params).toEqual({ sessionKey: "main", limit: 500 });
+      return {
+        flows: [
+          {
+            id: "flow-goal",
+            controllerId: "openclaw/pursue-goal-v1",
+            goal: "Older paused goal",
+            status: "paused",
+          },
+        ],
+      };
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read"] },
+        features: {
+          events: [],
+          methods: ["executionState.get", "taskFlows.list"],
+        },
+      },
+    });
+
+    await expect(loadChatGoals(state)).resolves.toBe("authoritative");
+
+    expect(state.chatExecutionState?.snapshotRevision).toBe("snapshot-1");
+    expect(state.chatGoalFlows).toEqual([
+      expect.objectContaining({ id: "flow-goal", status: "paused" }),
+    ]);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to execution snapshot goals when paginated listing is unavailable", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "executionState.get") {
+        return {
+          schemaVersion: 1,
+          snapshotRevision: "snapshot-fallback",
+          generatedAt: 1,
+          sessionKey: "main",
+          tasks: [],
+          flows: [
+            {
+              id: "flow-snapshot",
+              controllerId: "openclaw/pursue-goal-v1",
+              goal: "Snapshot goal",
+              status: "running",
+            },
+          ],
+          turns: [],
+          health: {
+            activeCount: 1,
+            staleGoalCount: 0,
+            orphanedTurnCount: 0,
+            pendingDeliveryCount: 0,
+            lostWorkerCount: 0,
+            healthy: true,
+          },
+        };
+      }
+      throw new Error("taskFlows.list unavailable");
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read"] },
+        features: {
+          events: [],
+          methods: ["executionState.get"],
+        },
+      },
+    });
+
+    await expect(loadChatGoals(state)).resolves.toBe("fallback");
+
+    expect(state.chatExecutionState?.snapshotRevision).toBe("snapshot-fallback");
+    expect(state.chatGoalFlows).toEqual([
+      expect.objectContaining({ id: "flow-snapshot", status: "running" }),
+    ]);
+    expect(state.chatGoalError).toBeNull();
   });
 
   it("creates a goal from the composer draft", async () => {
@@ -268,7 +423,9 @@ describe("chat pursue goal actions", () => {
       chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running" }],
     });
 
-    await expect(controlChatGoal(state, "flow-1", "stop")).resolves.toBeNull();
+    await expect(controlChatGoal(state, "flow-1", "stop")).resolves.toMatchObject({
+      status: "cancelled",
+    });
 
     expect(request).toHaveBeenNthCalledWith(1, "taskFlows.control", {
       flowId: "flow-1",
@@ -278,7 +435,7 @@ describe("chat pursue goal actions", () => {
     });
     expect(request).toHaveBeenNthCalledWith(2, "taskFlows.list", {
       sessionKey: "main",
-      limit: 20,
+      limit: 500,
     });
     expect(state.chatGoalFlows?.[0]?.status).toBe("cancelled");
     expect(state.chatGoalAction).toBeNull();
@@ -304,7 +461,86 @@ describe("chat pursue goal actions", () => {
     request.mockResolvedValueOnce({
       flows: [{ id: "flow-1", goal: "Finish", status: "cancelled" }],
     });
-    await expect(first).resolves.toBeNull();
+    await expect(first).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("refreshes and retries one goal control after a revision conflict", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        found: true,
+        applied: false,
+        action: "pause",
+        reason: "revision_conflict",
+      })
+      .mockResolvedValueOnce({
+        flows: [{ id: "flow-1", goal: "Finish", status: "running", revision: 4 }],
+      })
+      .mockResolvedValueOnce({
+        found: true,
+        applied: true,
+        action: "pause",
+        flow: { id: "flow-1", goal: "Finish", status: "paused", revision: 5 },
+      })
+      .mockResolvedValueOnce({
+        flows: [{ id: "flow-1", goal: "Finish", status: "paused", revision: 5 }],
+      });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [{ id: "flow-1", goal: "Finish", status: "running", revision: 3 }],
+    });
+
+    await expect(controlChatGoal(state, "flow-1", "pause")).resolves.toMatchObject({
+      status: "paused",
+      revision: 5,
+    });
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "taskFlows.control",
+      expect.objectContaining({ expectedRevision: 3 }),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      "taskFlows.control",
+      expect.objectContaining({ expectedRevision: 4 }),
+    );
+    const firstArgs = request.mock.calls[0]?.[1];
+    const retryArgs = request.mock.calls[2]?.[1];
+    expect(firstArgs).toBeDefined();
+    expect(retryArgs).toBeDefined();
+    const firstKey = (firstArgs as { idempotencyKey?: string }).idempotencyKey;
+    const retryKey = (retryArgs as { idempotencyKey?: string }).idempotencyKey;
+    expect(retryKey).toBe(firstKey);
+    expect(state.chatGoalError).toBeNull();
+  });
+
+  it("restores optimistic goal state when conflict refresh fails", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        found: true,
+        applied: false,
+        action: "pause",
+        reason: "revision_conflict",
+      })
+      .mockRejectedValueOnce(new Error("refresh unavailable"));
+    const original = {
+      id: "flow-1",
+      goal: "Finish",
+      status: "running" as const,
+      revision: 3,
+    };
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [original],
+    });
+
+    await expect(controlChatGoal(state, "flow-1", "pause")).resolves.toBeNull();
+
+    expect(state.chatGoalFlows).toEqual([original]);
+    expect(state.chatGoalError).toContain("refresh unavailable");
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it("pauses, resumes, and edits a goal through the canonical control method", async () => {

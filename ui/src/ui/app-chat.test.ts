@@ -50,6 +50,7 @@ let refreshChat: typeof import("./app-chat.ts").refreshChat;
 let refreshChatAvatar: typeof import("./app-chat.ts").refreshChatAvatar;
 let clearPendingQueueItemsForRun: typeof import("./app-chat.ts").clearPendingQueueItemsForRun;
 let removeQueuedMessage: typeof import("./app-chat.ts").removeQueuedMessage;
+let retryQueuedChatMessage: typeof import("./app-chat.ts").retryQueuedChatMessage;
 let markQueuedChatSendsWaitingForReconnect: typeof import("./app-chat.ts").markQueuedChatSendsWaitingForReconnect;
 let retryReconnectableQueuedChatSends: typeof import("./app-chat.ts").retryReconnectableQueuedChatSends;
 let recordChatSendServerTiming: typeof import("./app-chat.ts").recordChatSendServerTiming;
@@ -66,6 +67,7 @@ async function loadChatHelpers(): Promise<void> {
     refreshChatAvatar,
     clearPendingQueueItemsForRun,
     removeQueuedMessage,
+    retryQueuedChatMessage,
     markQueuedChatSendsWaitingForReconnect,
     retryReconnectableQueuedChatSends,
     recordChatSendServerTiming,
@@ -2475,6 +2477,229 @@ describe("handleSendChat", () => {
         id: "turn-1",
         serverRevision: 2,
         kind: "steered",
+      }),
+    ]);
+  });
+
+  it("refreshes and retries a queue mutation once after a revision conflict", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        found: true,
+        applied: false,
+        reason: "revision_conflict",
+      })
+      .mockResolvedValueOnce({
+        turns: [
+          {
+            id: "turn-1",
+            sessionKey: "agent:main",
+            revision: 2,
+            mode: "queue",
+            phase: "pending",
+            message: "change the active work",
+            attachmentCount: 0,
+            admissionOpen: true,
+            lastActivityAt: 110,
+            createdAt: 100,
+            updatedAt: 110,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        found: true,
+        applied: true,
+        turn: {
+          id: "turn-1",
+          sessionKey: "agent:main",
+          revision: 3,
+          mode: "steer",
+          phase: "pending",
+          message: "change the active work",
+          attachmentCount: 0,
+          admissionOpen: true,
+          lastActivityAt: 120,
+          createdAt: 100,
+          updatedAt: 120,
+        },
+      });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatRunId: "active-1",
+      chatQueue: [
+        {
+          id: "turn-1",
+          text: "change the active work",
+          createdAt: 100,
+          sessionKey: "agent:main",
+          serverTurnId: "turn-1",
+          serverRevision: 1,
+          serverPhase: "pending",
+          serverAdmissionOpen: true,
+        },
+      ],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.list", "chat.turns.setMode"],
+        },
+      },
+    });
+
+    await steerQueuedChatMessage(host, "turn-1");
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "chat.turns.setMode",
+      expect.objectContaining({ expectedRevision: 1 }),
+    );
+    expect(request).toHaveBeenNthCalledWith(2, "chat.turns.list", {
+      sessionKey: "agent:main",
+      includeTerminal: true,
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      "chat.turns.setMode",
+      expect.objectContaining({ expectedRevision: 2 }),
+    );
+    const firstArgs = request.mock.calls[0]?.[1];
+    const retryArgs = request.mock.calls[2]?.[1];
+    expect(firstArgs).toBeDefined();
+    expect(retryArgs).toBeDefined();
+    const firstKey = (firstArgs as { idempotencyKey?: string }).idempotencyKey;
+    const retryKey = (retryArgs as { idempotencyKey?: string }).idempotencyKey;
+    expect(retryKey).toBe(firstKey);
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        serverTurnId: "turn-1",
+        serverRevision: 3,
+        kind: "steered",
+        sendError: undefined,
+      }),
+    ]);
+  });
+
+  it("keeps a queue creation failure on the queue item instead of duplicating a sticky alert", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary gateway failure"))
+      .mockResolvedValueOnce({
+        turn: {
+          id: "turn-retried",
+          sessionKey: "agent:main",
+          revision: 1,
+          mode: "queue",
+          phase: "pending",
+          message: "queue this",
+          attachmentCount: 0,
+          admissionOpen: true,
+          lastActivityAt: 200,
+          createdAt: 200,
+          updatedAt: 200,
+        },
+      });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "queue this",
+      chatRunId: "active-1",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    await handleSendChat(host);
+
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        text: "queue this",
+        sendState: "failed",
+        sendError: expect.stringContaining("temporary gateway failure"),
+      }),
+    ]);
+    expect(host.lastError).toBeNull();
+    expect(host.chatError).toBeUndefined();
+
+    await retryQueuedChatMessage(host, host.chatQueue[0]!.id);
+
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "chat.turns.create",
+      expect.objectContaining({ message: "queue this", mode: "queue" }),
+    );
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        id: "turn-retried",
+        serverTurnId: "turn-retried",
+        serverPhase: "pending",
+      }),
+    ]);
+    expect(host.chatQueue[0]?.sendError).toBeUndefined();
+  });
+
+  it("preserves steer mode when retrying a failed durable queue creation", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary gateway failure"))
+      .mockResolvedValueOnce({
+        turn: {
+          id: "turn-steered",
+          sessionKey: "agent:main",
+          revision: 1,
+          mode: "steer",
+          phase: "pending",
+          message: "change the active work",
+          attachmentCount: 0,
+          admissionOpen: true,
+          lastActivityAt: 200,
+          createdAt: 200,
+          updatedAt: 200,
+        },
+      });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "change the active work",
+      chatRunId: "active-1",
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: ["taskFlow"],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    await handleSendChat(host, undefined, { turnMode: "steer" });
+
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        kind: "steered",
+        sendState: "failed",
+      }),
+    ]);
+
+    await retryQueuedChatMessage(host, host.chatQueue[0]!.id);
+
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "chat.turns.create",
+      expect.objectContaining({ message: "change the active work", mode: "steer" }),
+    );
+    expect(host.chatQueue).toEqual([
+      expect.objectContaining({
+        id: "turn-steered",
+        kind: "steered",
+        serverTurnId: "turn-steered",
       }),
     ]);
   });

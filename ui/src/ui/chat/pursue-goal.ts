@@ -10,6 +10,8 @@ export type ChatGoalStatus =
   | "cancelled"
   | "lost";
 
+export const CHAT_PURSUE_GOAL_CONTROLLER_ID = "openclaw/pursue-goal-v1";
+
 export type ChatGoalControlAction = "pause" | "resume" | "retry" | "stop" | "edit";
 
 export type ChatGoalActionState = {
@@ -106,13 +108,19 @@ export function isActiveChatGoal(status: string | undefined): boolean {
   return ACTIVE_GOAL_STATUSES.has(status as ChatGoalStatus);
 }
 
+export function isChatPursueGoalFlow(flow: ChatGoalFlowSummary): boolean {
+  // Older compatible gateways omitted controllerId. Explicit foreign/retired controllers are hidden.
+  return flow.controllerId == null || flow.controllerId === CHAT_PURSUE_GOAL_CONTROLLER_ID;
+}
+
 export function resolveCurrentChatGoal(
   flows: readonly ChatGoalFlowSummary[] | undefined,
 ): ChatGoalFlowSummary | null {
-  if (!flows?.length) {
+  const goals = flows?.filter(isChatPursueGoalFlow);
+  if (!goals?.length) {
     return null;
   }
-  return flows.find((flow) => isActiveChatGoal(flow.status)) ?? flows[0] ?? null;
+  return goals.find((flow) => isActiveChatGoal(flow.status)) ?? goals[0] ?? null;
 }
 
 export function chatGoalStatusLabel(flow: ChatGoalFlowSummary | null | undefined): string {
