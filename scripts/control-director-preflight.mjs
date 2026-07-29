@@ -22,11 +22,9 @@ const REQUIRED_PROOF_SURFACES = [
   "lint",
   "type",
   "build",
-  "browser-desktop",
-  "browser-tablet",
-  "browser-mobile",
-  "workflow-sanity",
-  "non-android-ci",
+  "mac-studio-source-validation",
+  "browser-mac-studio",
+  "local-workflow-sanity",
   "managed-runtime",
   "rollback-restore",
   "soak",
@@ -39,6 +37,10 @@ const EXCLUSIONS = [
   "secrets",
   "unrelated-files",
   "managed-runtime-without-exact-approval",
+  "blacksmith",
+  "testbox",
+  "crabbox",
+  "remote-execution",
 ];
 
 function git(repoRoot, args, allowFailure = false) {
@@ -145,12 +147,12 @@ export function evaluateControlDirectorPreflight(input) {
   );
   addCheck(
     checks,
-    "automatic-ci",
-    input.workflowAutomatic === true,
-    input.workflowAutomatic
-      ? "applicable pull requests automatically run Control Director proof"
-      : "Control Director proof remains manual-only",
-    [".github/workflows/control-director-reliability.yml"],
+    "mac-studio-local-proof-policy",
+    input.macStudioLocalProofPolicy === true,
+    input.macStudioLocalProofPolicy
+      ? "Mac Studio-local exact-source proof is authoritative and remote execution is not required"
+      : "roadmap does not enforce the Mac Studio-local-only proof policy",
+    ["work/control-director/reliability-v1/roadmap.json"],
   );
 
   const lineage = input.lineage;
@@ -248,6 +250,8 @@ export function evaluateControlDirectorPreflight(input) {
         "pnpm control-director:preflight -- --json <exact-lineage-arguments>",
         "pnpm control-director:verify -- --expected-sha <candidate-sha>",
         "pnpm check:workflows",
+        "OPENCLAW_LOCAL_CHECK=1 OPENCLAW_LOCAL_CHECK_MODE=full pnpm check",
+        "OPENCLAW_LOCAL_CHECK=1 OPENCLAW_LOCAL_CHECK_MODE=full pnpm test",
         "pnpm build",
       ],
       exclusions: EXCLUSIONS,
@@ -267,27 +271,20 @@ function main() {
   const baseTipSha = args.baseTipSha ?? "";
   const reviewedBaseSha = args.reviewedBaseSha ?? "";
   let progress;
+  let roadmap;
   let roadmapError;
   try {
-    progress = summarizeControlDirectorProgress(
-      JSON.parse(
-        fs.readFileSync(
-          path.join(repoRoot, "work", "control-director", "reliability-v1", "roadmap.json"),
-          "utf8",
-        ),
+    roadmap = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, "work", "control-director", "reliability-v1", "roadmap.json"),
+        "utf8",
       ),
     );
+    progress = summarizeControlDirectorProgress(roadmap);
   } catch (error) {
     roadmapError = error instanceof Error ? error.message : String(error);
   }
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
-  const workflowPath = path.join(
-    repoRoot,
-    ".github",
-    "workflows",
-    "control-director-reliability.yml",
-  );
-  const workflow = fs.existsSync(workflowPath) ? fs.readFileSync(workflowPath, "utf8") : "";
   const acceptedHeads = args.acceptedHeads.map((entry) => {
     const [name, sha] = splitAssignment(entry, "--accepted-head");
     const isAncestor =
@@ -316,7 +313,9 @@ function main() {
     progress,
     roadmapError,
     packageScripts: Object.keys(packageJson.scripts ?? {}),
-    workflowAutomatic: /pull_request:/u.test(workflow),
+    macStudioLocalProofPolicy:
+      roadmap?.completionPolicy?.executionPlatform === "mac-studio" &&
+      roadmap?.completionPolicy?.remoteExecutionRequired === false,
     lineage: { activeSha, baseTipSha, candidateSha, reviewedBaseSha, rollbackSha },
     activeIsAncestor:
       SHA_PATTERN.test(activeSha) &&

@@ -251,7 +251,7 @@ async function main() {
       proofBadgeInHero:
         root.querySelectorAll("[data-pcc-project-hero] [data-pcc-proof-badge]").length === 1,
       maintenanceHero: root.querySelectorAll("[data-pcc-maintenance-hero]").length === 1,
-      dynamicSearchScope: search?.getAttribute("placeholder")?.includes("All projects") === true,
+      dynamicSearchScope: search?.getAttribute("aria-label")?.includes("All projects") === true,
       needsYouLabel: text.includes("Needs You"),
     };
     const summary = {

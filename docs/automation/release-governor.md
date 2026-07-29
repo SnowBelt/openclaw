@@ -33,8 +33,36 @@ destinations always require explicit approval or remain denied.
 
 The `stage` operation is a local-only, side-effect-suppressed preflight and uses
 its pre-stage gate set. Promotion, restart, and finalization require the complete
-exact-SHA test, Workflow Sanity, immutable-build, staging, browser, rollback,
-Gateway, and ledger-readiness evidence appropriate to the operation.
+exact-SHA test, immutable-build, staging, rollback, Gateway, and
+ledger-readiness evidence appropriate to the selected proof profile.
+
+## Proof profiles
+
+The default `standard` profile preserves exact-SHA Workflow Sanity plus desktop
+and mobile browser evidence. Use it for shared, cross-platform, externally
+distributed, or otherwise general OpenClaw releases.
+
+The `mac_studio_control_director` profile is a narrower local-only PCC profile.
+It replaces remote CI and cross-device browser gates with authenticated,
+error-free Control Director proof captured on the Mac Studio. Release Governor
+selects it automatically for local-only `project-command-center` operations;
+operators may still set the profile explicitly in a hash-bound evidence input.
+It is accepted only when:
+
+- the project is `project-command-center`;
+- the destination is local-only;
+- external disclosure is false;
+- local tests, immutable build identity, capability preservation, staging,
+  Gateway readiness, rollback readiness, and PCC ledger readiness still pass;
+- the Control Director proof names the Mac Studio host class, contains a durable
+  artifact reference, is authenticated, and reports zero console errors.
+
+The profile does not disable shared validation infrastructure or weaken the
+`standard` profile. Blacksmith, Testbox, Crabbox, remote CI, and cross-device
+proof remain available when a release actually targets those environments.
+When source publication is requested, authorize and prove that disclosure
+separately; do not label an external destination as local-only to qualify for
+this profile.
 
 ## Evidence flow
 
@@ -107,8 +135,9 @@ runtime actions, and explicit exclusions.
 ## Health and rollback
 
 Promotion and finalization evaluate Gateway connectivity, required routes, PCC,
-latency, error rate, startup failures, capabilities, desktop/mobile browser
-errors, active-run reconciliation, and PWA integrity where applicable.
+latency, error rate, startup failures, capabilities, applicable browser or
+Control Director errors, active-run reconciliation, and PWA integrity where
+applicable.
 
 A deterministic health failure recommends rollback. Automatic rollback occurs
 only when rollback is already policy-authorized. Otherwise the release is

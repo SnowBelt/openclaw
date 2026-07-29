@@ -1798,6 +1798,14 @@ function renderReleaseGovernance(props: PccDashboardProps) {
               <dd>${status.riskLevel ?? "Unknown"}</dd>
             </div>
             <div>
+              <dt>Proof</dt>
+              <dd>
+                ${status.proofProfile === "mac_studio_control_director"
+                  ? "Mac Studio Control Director"
+                  : "Standard"}
+              </dd>
+            </div>
+            <div>
               <dt>Checks</dt>
               <dd>${passedChecks}/${totalChecks} passed</dd>
             </div>
@@ -4379,7 +4387,7 @@ function renderProjectSearch(
       <input
         type="search"
         aria-label=${`Search ${label} projects`}
-        placeholder=${`Search ${label} projects by title, status, next action, blocker, proof, or owner`}
+        placeholder="Search projects"
         .value=${query}
         @input=${(event: Event) =>
           props.onSetProjectSearchQuery?.((event.target as HTMLInputElement).value)}
@@ -8601,6 +8609,10 @@ function renderProjectEditor(props: PccDashboardProps) {
   const projectSaveBlocked = creating
     ? missingIntake.length > 0 || !form.intakeApproved || !form.planPreviewAccepted
     : false;
+  const projectPlanPromptReady = Boolean(
+    form.projectDescription.trim() || form.title.trim() || form.goal.trim(),
+  );
+  const projectPlanUnavailable = props.planningPolicy?.grant.enabled === false;
   const needsAiDraft = projectIntakeNeedsAiDraft(form);
   const intakeSummary = missingIntake.length
     ? `${missingIntake.length} missing`
@@ -8761,17 +8773,30 @@ function renderProjectEditor(props: PccDashboardProps) {
                 </button>
               `
             : html`<button
-                class="btn pcc-editor-primary-action"
+                class="btn pcc-editor-primary-action pcc-editor-primary-action--generate"
                 type="button"
                 data-pcc-create-review-plan
-                ?disabled=${props.actionBusy ||
-                props.planningPolicy?.grant.enabled === false ||
-                !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}
+                ?disabled=${props.actionBusy || projectPlanUnavailable || !projectPlanPromptReady}
                 @click=${() => props.onGenerateProjectPlan?.()}
               >
-                ${props.actionBusy
-                  ? "Generating project plan…"
-                  : "Generate project plan with Codex"}
+                <span class="pcc-editor-primary-action__mark" aria-hidden="true">✦</span>
+                <span class="pcc-editor-primary-action__copy">
+                  <strong
+                    >${props.actionBusy
+                      ? "Generating your project plan…"
+                      : "Generate project plan"}</strong
+                  >
+                  <small
+                    >${props.actionBusy
+                      ? "Codex is building milestones and sub-steps now"
+                      : projectPlanUnavailable
+                        ? "Refresh models to make Codex planning available"
+                        : !projectPlanPromptReady
+                          ? "Describe what you want to accomplish first"
+                          : "Next: review the milestones before anything is created"}</small
+                  >
+                </span>
+                <span class="pcc-editor-primary-action__arrow" aria-hidden="true">→</span>
               </button>`
           : html`<button
               class="btn pcc-editor-primary-action"

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { closePccLedgerStorageForTest, readPccLedger, withPccLedger } from "../ledger-store.js";
+import { resolveReleaseProofProfile } from "./classifier.js";
 import type {
   ReleaseApprovalGrant,
   ReleaseCandidateFacts,
@@ -12,6 +13,7 @@ import type {
   ReleaseExactApproval,
   ReleaseGovernorEvaluation,
   ReleaseGovernorInput,
+  ReleaseProofProfile,
   ReleaseReview,
 } from "./contracts.js";
 import {
@@ -22,7 +24,7 @@ import {
 } from "./evidence.js";
 import { evaluateReleaseGovernor } from "./governor.js";
 import { recordReleaseEvidenceInPccLedger } from "./ledger.js";
-import { readReleaseGovernorPolicy } from "./policy.js";
+import { readReleaseGovernorPolicy, requiredReleaseChecksForProfile } from "./policy.js";
 
 const NOW = "2026-07-15T12:00:00.000Z";
 const SHA = "a".repeat(40);
@@ -59,8 +61,11 @@ function facts(
   };
 }
 
-function passedChecks(operation: keyof typeof policy.requiredChecks): ReleaseCheck[] {
-  return policy.requiredChecks[operation].map((id) => ({
+function passedChecks(
+  operation: keyof typeof policy.requiredChecks,
+  profile: ReleaseProofProfile = "standard",
+): ReleaseCheck[] {
+  return requiredReleaseChecksForProfile({ policy, operation, profile }).map((id) => ({
     id,
     status: "passed",
     summary: `${id} passed`,
@@ -82,6 +87,32 @@ function reviews(includeControlDirector = false): ReleaseReview[] {
     evidenceIds: ["local-proof"],
     reviewedAt: NOW,
   }));
+}
+
+function telemetryReview(): ReleaseReview {
+  return {
+    role: "telemetry_evaluation_analyst",
+    reviewerId: "telemetry-test",
+    decision: "approve",
+    confidence: 1,
+    summary: "Runtime health passed.",
+    evidenceIds: ["health"],
+    reviewedAt: NOW,
+  };
+}
+
+function healthySample(): NonNullable<ReleaseGovernorInput["health"]> {
+  return {
+    gatewayConnected: true,
+    routes: [{ path: "/pcc", status: 200, latencyMs: 100 }],
+    errorRate: 0,
+    startupFailures: 0,
+    missingCapabilities: [],
+    desktopBrowserErrors: 0,
+    mobileBrowserErrors: 0,
+    activeRunsReconciled: true,
+    serviceWorkerIntegrity: "passed",
+  };
 }
 
 function exactApproval(
@@ -117,7 +148,7 @@ function input(params: {
     activeCapabilityManifest: capabilityManifest(),
     candidateCapabilityManifest: params.candidateManifest ?? capabilityManifest(),
     requiredCapabilityIds: ["runtime:required"],
-    checks: passedChecks(operation),
+    checks: passedChecks(operation, resolveReleaseProofProfile(candidateFacts)),
     reviews: params.reviews ?? reviews(protectedChange),
     exactApprovals: params.approvals ?? [],
     approvalGrants: params.approvalGrants ?? [],
@@ -220,6 +251,124 @@ describe("PCC Release Governor", () => {
       approvalMode: "automatic",
       blockers: [],
     });
+  });
+
+  it("uses authenticated Mac Studio Control Director proof for local-only PCC releases", () => {
+    const releaseInput = input({
+      changedFiles: ["ui/src/ui/views/pcc.ts"],
+      operation: "promotion",
+      facts: { proofProfile: "mac_studio_control_director" },
+      reviews: [...reviews(), telemetryReview()],
+    });
+    releaseInput.health = healthySample();
+    releaseInput.health.mobileBrowserErrors = 7;
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+
+    expect(evaluation.classification).toMatchObject({
+      proofProfile: "mac_studio_control_director",
+      requiredChecks: expect.arrayContaining(["control_director_mac_studio"]),
+    });
+    expect(evaluation.classification.requiredChecks).not.toContain("workflow_sanity");
+    expect(evaluation.classification.requiredChecks).not.toContain("browser_desktop");
+    expect(evaluation.classification.requiredChecks).not.toContain("browser_mobile");
+    expect(evaluation.decision).toMatchObject({ decision: "authorize", blockers: [] });
+
+    const evidenceInput = finalizedBundleInput(evaluation);
+    evidenceInput.facts = releaseInput.facts;
+    evidenceInput.checks = releaseInput.checks;
+    evidenceInput.reviews = releaseInput.reviews;
+    evidenceInput.healthSample = releaseInput.health;
+    evidenceInput.workflowSanity = [];
+    evidenceInput.browserProof = { desktop: null, mobile: null, consoleErrors: 0 };
+    evidenceInput.controlDirectorProof = {
+      host: "mac_studio",
+      artifact: "control-director-pcc.png",
+      authenticated: true,
+      consoleErrors: 0,
+    };
+    const bundle = createReleaseEvidenceBundle(evidenceInput);
+    expect(verifyReleaseEvidenceAuthorization({ bundle, policy, now: NOW })).toEqual([]);
+
+    const missingProof = createReleaseEvidenceBundle({
+      ...evidenceInput,
+      controlDirectorProof: undefined,
+    });
+    expect(
+      verifyReleaseEvidenceAuthorization({ bundle: missingProof, policy, now: NOW }),
+    ).toContain(
+      "Authenticated, error-free Control Director proof from the Mac Studio is required by the selected proof profile.",
+    );
+  });
+
+  it("selects Mac Studio Control Director proof automatically for local-only PCC releases", () => {
+    const releaseInput = input({
+      changedFiles: ["config/release-governor-policy.json"],
+      operation: "promotion",
+      facts: { proofProfile: undefined },
+      reviews: [...reviews(true), telemetryReview()],
+    });
+    releaseInput.health = healthySample();
+
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+
+    expect(evaluation.classification.proofProfile).toBe("mac_studio_control_director");
+    expect(evaluation.classification.requiredChecks).toContain("control_director_mac_studio");
+    expect(evaluation.decision.exactApprovalWording).toContain(
+      "verified local Mac Studio build and Control Director proof",
+    );
+  });
+
+  it("keeps the Mac Studio profile local-only and preserves standard remote proof gates", () => {
+    expect(() =>
+      evaluateReleaseGovernor(
+        input({
+          changedFiles: ["ui/src/ui/views/pcc.ts"],
+          facts: {
+            proofProfile: "mac_studio_control_director",
+            destination: "https://github.com/SnowBelt/openclaw",
+            externalDisclosure: true,
+          },
+        }),
+        policy,
+      ),
+    ).toThrow(/limited to local-only Project Command Center releases/u);
+
+    const standardHealthInput = input({
+      changedFiles: ["ui/src/ui/views/pcc.ts"],
+      operation: "promotion",
+      facts: { proofProfile: "standard" },
+      reviews: [...reviews(), telemetryReview()],
+    });
+    standardHealthInput.health = healthySample();
+    standardHealthInput.health.mobileBrowserErrors = 1;
+    expect(evaluateReleaseGovernor(standardHealthInput, policy).health).toMatchObject({
+      passed: false,
+      blockers: [expect.stringContaining("desktop/mobile browser error")],
+    });
+
+    const releaseInput = input({
+      changedFiles: ["ui/src/ui/views/pcc.ts"],
+      operation: "promotion",
+      facts: { proofProfile: "standard" },
+      reviews: [...reviews(), telemetryReview()],
+    });
+    releaseInput.health = healthySample();
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+    const evidenceInput = finalizedBundleInput(evaluation);
+    evidenceInput.facts = releaseInput.facts;
+    evidenceInput.checks = releaseInput.checks;
+    evidenceInput.reviews = releaseInput.reviews;
+    evidenceInput.healthSample = releaseInput.health;
+    evidenceInput.workflowSanity = [];
+    evidenceInput.browserProof = { desktop: null, mobile: null, consoleErrors: 0 };
+    const bundle = createReleaseEvidenceBundle(evidenceInput);
+    expect(verifyReleaseEvidenceAuthorization({ bundle, policy, now: NOW })).toEqual(
+      expect.arrayContaining([
+        "Exact-SHA Workflow Sanity evidence is required by the selected proof profile.",
+        "Desktop browser proof is required by the selected proof profile.",
+        "Mobile browser proof is required by the selected proof profile.",
+      ]),
+    );
   });
 
   it("requires exact user approval for Release Governor changes and rejects bounded expansion", () => {

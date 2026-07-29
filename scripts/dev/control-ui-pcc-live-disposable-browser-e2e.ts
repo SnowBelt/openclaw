@@ -467,12 +467,17 @@ async function auditPccViewport(params: {
 
         const auditedGroups = [
           ".pcc-view-mode",
+          ".pcc-callout[data-pcc-action-notice]",
+          ".pcc-today__bar",
           ".pcc-project-orientation__facts",
+          ".pcc-project-orientation__crumbs",
           ".pcc-project-snapshot__header",
           ".pcc-project-snapshot__badges",
+          ".pcc-execution-profile-chip",
           ".pcc-primary-action",
           ".pcc-blocker-center__list > li",
           ".pcc-project-focus-bar__top",
+          ".pcc-project-search",
           ".pcc-section-heading",
         ];
         let overlapCount = 0;

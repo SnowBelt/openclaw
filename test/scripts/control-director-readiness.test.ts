@@ -76,7 +76,7 @@ function runtimeProof() {
     ]),
   };
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sigBackgroundEnabled: true,
     lineage: {
       status: "ready",
@@ -85,9 +85,7 @@ function runtimeProof() {
       artifactHash,
       canary: { sourceSha: sha, uiBuildId: artifactHash },
     },
-    desktop: runtimeSurface(),
-    tablet: runtimeSurface(),
-    mobile: runtimeSurface(),
+    macStudioDashboard: runtimeSurface(),
     localModelRouting: runtimeSurface(),
     localModelLatency: runtimeSurface(),
     memory: runtimeSurface(),
