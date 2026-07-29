@@ -1272,6 +1272,25 @@ describe("createFollowupRunner auto fallback primary probes", () => {
 });
 
 describe("createFollowupRunner runtime config", () => {
+  it("passes runtime toolsAllow to queued embedded agent runs", async () => {
+    runEmbeddedAgentMock.mockResolvedValueOnce({
+      payloads: [],
+      meta: { agentMeta: { provider: "anthropic", model: "claude" } },
+    });
+
+    const runner = createFollowupRunner({
+      opts: { toolsAllow: ["message"] },
+      typing: createMockTypingController(),
+      typingMode: "instant",
+      defaultModel: "anthropic/claude",
+    });
+
+    await runner(createQueuedRun());
+
+    const call = requireLastMockCallArg(runEmbeddedAgentMock, "run embedded agent");
+    expect(call.toolsAllow).toEqual(["message"]);
+  });
+
   it("routes queued followups through CLI runtime dispatch when the model selects a CLI backend", async () => {
     const runtimeConfig: OpenClawConfig = {
       agents: {
@@ -1306,6 +1325,7 @@ describe("createFollowupRunner runtime config", () => {
     });
 
     const runner = createFollowupRunner({
+      opts: { toolsAllow: ["message"] },
       typing: createMockTypingController(),
       typingMode: "instant",
       sessionEntry,
@@ -1352,6 +1372,7 @@ describe("createFollowupRunner runtime config", () => {
     expect(call.currentMessageId).toBe("reply-42");
     expect(call.senderId).toBe("sender-42");
     expect(call.senderIsOwner).toBe(true);
+    expect(call.toolsAllow).toEqual(["message"]);
     expect(call).toMatchObject({
       sessionId: "session-cli-followup",
       sessionKey: "main",
