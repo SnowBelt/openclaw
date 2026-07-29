@@ -360,6 +360,47 @@ describe("preemptive-compaction", () => {
     expect(result.shouldCompact).toBe(false);
   });
 
+  it("borrows from reserve for a fixed rendered prompt that compaction cannot reduce", () => {
+    const systemPrompt = "system ".repeat(6_100);
+    const prompt = "respond";
+    const renderedPromptTokens = estimateRenderedLlmBoundaryTokenPressure({
+      systemPrompt,
+      prompt,
+    });
+    expect(renderedPromptTokens).toBeGreaterThan(12_768);
+    expect(renderedPromptTokens).toBeLessThan(32_768);
+
+    const result = shouldPreemptivelyCompactBeforePrompt({
+      messages: [],
+      systemPrompt,
+      prompt,
+      contextTokenBudget: 32_768,
+      reserveTokens: 20_000,
+    });
+
+    expect(result.effectiveReserveTokens).toBe(32_768 - renderedPromptTokens);
+    expect(result.promptBudgetBeforeReserve).toBe(renderedPromptTokens);
+    expect(result.overflowTokens).toBe(0);
+    expect(result.shouldCompact).toBe(false);
+    expect(result.route).toBe("fits");
+  });
+
+  it("still compacts history after reserving enough room for the fixed rendered prompt", () => {
+    const systemPrompt = "system ".repeat(6_100);
+    const prompt = "respond";
+    const result = shouldPreemptivelyCompactBeforePrompt({
+      messages: [makeAssistantHistory("old history ".repeat(2_000))],
+      systemPrompt,
+      prompt,
+      contextTokenBudget: 32_768,
+      reserveTokens: 20_000,
+    });
+
+    expect(result.overflowTokens).toBeGreaterThan(0);
+    expect(result.shouldCompact).toBe(true);
+    expect(result.route).toBe("compact_only");
+  });
+
   it("routes to direct tool-result truncation when recent tool tails can clearly absorb the overflow", () => {
     // If reducible recent tool output covers the overflow, truncation is enough
     // and a full transcript compaction would waste time/context.

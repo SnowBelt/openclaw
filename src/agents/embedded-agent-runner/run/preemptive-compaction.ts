@@ -348,10 +348,19 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
     MIN_PROMPT_BUDGET_TOKENS,
     Math.max(1, Math.floor(contextTokenBudget * MIN_PROMPT_BUDGET_RATIO)),
   );
-  // Keep a minimum prompt budget even when reserveTokens asks for most of the context window.
+  const renderedPromptTokens = estimateRenderedLlmBoundaryTokenPressure({
+    systemPrompt: params.systemPrompt,
+    prompt: params.prompt,
+  });
+  // The rendered system/current prompt cannot be reduced by transcript compaction. Let it
+  // borrow from the reserve before deciding that history or tool results need compaction.
+  const requiredPromptBudget = Math.min(
+    contextTokenBudget,
+    Math.max(minPromptBudget, renderedPromptTokens),
+  );
   const effectiveReserveTokens = Math.min(
     requestedReserveTokens,
-    Math.max(0, contextTokenBudget - minPromptBudget),
+    Math.max(0, contextTokenBudget - requiredPromptBudget),
   );
   const promptBudgetBeforeReserve = Math.max(1, contextTokenBudget - effectiveReserveTokens);
   const overflowTokens = Math.max(0, estimatedPromptTokens - promptBudgetBeforeReserve);
