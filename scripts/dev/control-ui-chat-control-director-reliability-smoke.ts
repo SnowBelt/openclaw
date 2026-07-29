@@ -71,6 +71,7 @@ const controlCalls: Array<{ flowId: string; action: string }> = [];
 const blockedGoal = {
   id: "flow-reliability",
   flowId: "flow-reliability",
+  controllerId: "openclaw/pursue-goal-v1",
   status: "blocked",
   goal: "Ship the dashboard with verified proof",
   currentStep: "Remote proof needs review.",

@@ -108,6 +108,7 @@ let sendCalls = 0;
 const runningGoal = {
   id: "flow-1",
   flowId: "flow-1",
+  controllerId: "openclaw/pursue-goal-v1",
   status: "running",
   goal: "Finish Pursue Goal V1",
   currentStep: "Running local proof.",

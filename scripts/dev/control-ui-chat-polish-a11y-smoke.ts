@@ -271,6 +271,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
       {
         id: "flow-polish",
         flowId: "flow-polish",
+        controllerId: "openclaw/pursue-goal-v1",
         status: "running",
         goal: "Polish the Chat experience",
         currentStep: "Checking accessibility",

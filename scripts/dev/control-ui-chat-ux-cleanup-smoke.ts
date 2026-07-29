@@ -212,6 +212,7 @@ function baseProps(mode, overrides = {}) {
       {
         id: "flow-1",
         flowId: "flow-1",
+        controllerId: "openclaw/pursue-goal-v1",
         status: "running",
         goal: "Make Chat work like Codex",
         currentStep: "Stopping goal.",
