@@ -14,8 +14,17 @@ import {
   releaseChatAttachmentPayloads,
 } from "./chat/attachment-payload-store.ts";
 import {
+  hasReconnectableQueuedChatSends,
+  markQueuedChatSendsWaitingForReconnect,
+  persistQueuedMessagesForSession,
+  readChatQueueForSession,
+  removeQueuedMessageWithoutReleasing,
+  removeVisibleOrScopedQueuedMessageWithoutReleasing,
+  updateQueuedMessageForSession,
+  writeChatQueueForSession,
+} from "./chat/chat-queue-store.ts";
+import {
   INTERRUPTED_MODEL_WAIT_ERROR,
-  persistStoredChatComposerQueue,
   removeStoredChatComposerQueueItem,
 } from "./chat/composer-persistence.ts";
 import {
@@ -98,6 +107,8 @@ import type {
 } from "./ui-types.ts";
 import { generateUUID } from "./uuid.ts";
 import { isRenderableControlUiAvatarUrl } from "./views/agents-utils.ts";
+
+export { hasReconnectableQueuedChatSends, markQueuedChatSendsWaitingForReconnect };
 
 export type ChatHost = ChatInputHistoryState & {
   client: GatewayBrowserClient | null;
@@ -525,27 +536,6 @@ function updateQueuedMessage(
   return updateQueuedMessageForSession(host, host.sessionKey, id, update);
 }
 
-function readChatQueueForSession(host: ChatHost, sessionKey: string): ChatQueueItem[] {
-  return sessionKey === host.sessionKey
-    ? host.chatQueue
-    : (host.chatQueueBySession?.[sessionKey] ?? []);
-}
-
-function writeChatQueueForSession(host: ChatHost, sessionKey: string, queue: ChatQueueItem[]) {
-  if (sessionKey === host.sessionKey) {
-    host.chatQueue = queue;
-    return;
-  }
-  const queueBySession = { ...host.chatQueueBySession };
-  if (queue.length > 0) {
-    queueBySession[sessionKey] = queue;
-  } else {
-    delete queueBySession[sessionKey];
-  }
-  host.chatQueueBySession = queueBySession;
-  host.requestUpdate?.();
-}
-
 type ChatTurnsListResponse = { turns?: ChatTurnSummary[] };
 
 function isExecutionStateSnapshot(
@@ -777,54 +767,6 @@ async function mutateServerChatTurn(
     }));
     return null;
   }
-}
-
-function updateQueuedMessageForSession(
-  host: ChatHost,
-  sessionKey: string,
-  id: string,
-  update: (item: ChatQueueItem) => ChatQueueItem,
-): ChatQueueItem | null {
-  let nextItem: ChatQueueItem | null = null;
-  const nextQueue = readChatQueueForSession(host, sessionKey).map((item) => {
-    if (item.id !== id) {
-      return item;
-    }
-    nextItem = update(item);
-    return nextItem;
-  });
-  writeChatQueueForSession(host, sessionKey, nextQueue);
-  return nextItem;
-}
-
-function persistQueuedMessagesForSession(host: ChatHost, sessionKey: string) {
-  persistStoredChatComposerQueue(host, sessionKey, readChatQueueForSession(host, sessionKey));
-}
-
-function removeQueuedMessageWithoutReleasing(
-  host: ChatHost,
-  id: string,
-  sessionKey = host.sessionKey,
-): ChatQueueItem | null {
-  const queue = readChatQueueForSession(host, sessionKey);
-  const item = queue.find((entry) => entry.id === id) ?? null;
-  writeChatQueueForSession(
-    host,
-    sessionKey,
-    queue.filter((entry) => entry.id !== id),
-  );
-  return item;
-}
-
-function removeVisibleOrScopedQueuedMessageWithoutReleasing(
-  host: ChatHost,
-  id: string,
-  sessionKey: string | undefined,
-): ChatQueueItem | null {
-  return (
-    removeQueuedMessageWithoutReleasing(host, id) ??
-    (sessionKey ? removeQueuedMessageWithoutReleasing(host, id, sessionKey) : null)
-  );
 }
 
 function isRecoverableChatSendError(err: unknown, formattedError: string): boolean {
@@ -1954,56 +1896,6 @@ export function clearPendingQueueItemsForRun(host: ChatHost, runId: string | und
   host.chatQueue = host.chatQueue.filter((item) => item.pendingRunId !== runId);
   for (const item of removed) {
     releaseChatAttachmentPayloads(excludeComposerAttachments(host, item.attachments));
-  }
-}
-
-type ChatQueueStoreHost = {
-  chatQueue: ChatQueueItem[];
-  chatQueueBySession?: Record<string, ChatQueueItem[]>;
-};
-
-function chatQueueCollections(host: ChatQueueStoreHost): ChatQueueItem[][] {
-  return [host.chatQueue, ...Object.values(host.chatQueueBySession ?? {})];
-}
-
-export function hasReconnectableQueuedChatSends(host: ChatQueueStoreHost): boolean {
-  return chatQueueCollections(host).some((queue) =>
-    queue.some((item) => item.sendRunId && item.sendState === "waiting-reconnect"),
-  );
-}
-
-export function markQueuedChatSendsWaitingForReconnect(host: ChatQueueStoreHost) {
-  const markQueue = (queue: ChatQueueItem[]): { changed: boolean; queue: ChatQueueItem[] } => {
-    let changed = false;
-    const nextQueue = queue.map((item) => {
-      if (!item.sendRunId || item.sendState !== "sending") {
-        return item;
-      }
-      changed = true;
-      return {
-        ...item,
-        sendState: "waiting-reconnect" as const,
-      };
-    });
-    return { changed, queue: nextQueue };
-  };
-
-  const active = markQueue(host.chatQueue);
-  if (active.changed) {
-    host.chatQueue = active.queue;
-  }
-
-  let changed = false;
-  const queueBySession = { ...host.chatQueueBySession };
-  for (const [sessionKey, queue] of Object.entries(queueBySession)) {
-    const next = markQueue(queue);
-    if (next.changed) {
-      changed = true;
-      queueBySession[sessionKey] = next.queue;
-    }
-  }
-  if (changed) {
-    host.chatQueueBySession = queueBySession;
   }
 }
 

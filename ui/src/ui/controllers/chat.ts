@@ -10,15 +10,7 @@ import {
   stripHeartbeatTokenForDisplay,
 } from "../chat/heartbeat-display.ts";
 import { extractText } from "../chat/message-extract.ts";
-import {
-  buildChatGoalContinuationPrompt,
-  CHAT_PURSUE_GOAL_CONTROLLER_ID,
-  isChatPursueGoalFlow,
-  resolveCurrentChatGoal,
-  type ChatGoalActionState,
-  type ChatGoalControlAction,
-  type ChatGoalFlowSummary,
-} from "../chat/pursue-goal.ts";
+import type { ChatGoalActionState, ChatGoalFlowSummary } from "../chat/pursue-goal.ts";
 import { reconcileChatRunLifecycle } from "../chat/run-lifecycle.ts";
 import {
   appendChatMessageToCache,
@@ -60,17 +52,36 @@ import type {
   GatewaySessionRow,
   GatewaySessionsDefaults,
   ModelCatalogEntry,
-  ProjectRecord,
   ProjectsListResult,
 } from "../types.ts";
 import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
+import { loadChatGoals } from "./chat-goals.ts";
 import {
   formatMissingOperatorReadScopeMessage,
   isMissingOperatorReadScopeError,
 } from "./scope-errors.ts";
 
 export { isGatewayMethodAdvertised } from "../gateway-methods.ts";
+export {
+  buildCurrentChatGoalContinuationPrompt,
+  cancelChatGoal,
+  controlChatGoal,
+  createChatGoal,
+  editChatGoal,
+  pauseChatGoal,
+  resumeChatGoal,
+  retryChatGoal,
+  stopChatGoal,
+} from "./chat-goals.ts";
+export { loadChatGoals };
+export type { ChatGoalRefreshResult } from "./chat-goals.ts";
+export {
+  attachChatSessionToProject,
+  createChatSessionInProject,
+  detachChatSessionFromProject,
+  loadChatProjects,
+} from "./chat-projects.ts";
 
 const SILENT_REPLY_PATTERN = /^\s*NO_REPLY\s*$/;
 const SYNTHETIC_TRANSCRIPT_REPAIR_RESULT =
@@ -447,37 +458,6 @@ type ChatAgentsListSnapshot = Partial<Omit<AgentsListResult, "agents">> & {
   agents?: Array<{ id: string }>;
 };
 
-type ChatProjectSessionCreateResponse = {
-  ok: true;
-  key?: string;
-};
-
-type ChatPccProjectSummary = {
-  id?: string;
-  title?: string;
-  status?: string;
-  updatedAt?: string;
-};
-
-type ChatPccProjectsListResponse = {
-  projects?: ChatPccProjectSummary[];
-};
-
-function projectRecordFromPccSummary(project: ChatPccProjectSummary): ProjectRecord | null {
-  const id = project.id?.trim();
-  const name = project.title?.trim();
-  if (!id || !name) {
-    return null;
-  }
-  const updatedAt = project.updatedAt ? Date.parse(project.updatedAt) : Number.NaN;
-  return {
-    id,
-    name,
-    archived: project.status === "archived",
-    ...(Number.isFinite(updatedAt) ? { updatedAt } : {}),
-  };
-}
-
 export type ChatHistoryResult = {
   messages?: Array<unknown>;
   offset?: number;
@@ -495,445 +475,6 @@ export type ChatHistoryResult = {
 export type ChatMetadataResult = CommandsListResult & {
   models?: ModelCatalogEntry[];
 };
-
-type ChatGoalFlowResponse = {
-  flow?: ChatGoalFlowSummary;
-};
-
-type ChatGoalFlowsResponse = {
-  flows?: ChatGoalFlowSummary[];
-  nextCursor?: string;
-};
-
-type ChatGoalRefreshResult = "authoritative" | "fallback" | "failed";
-
-function requireConnectedChatClient(state: ChatState): GatewayBrowserClient {
-  if (!state.client || !state.connected) {
-    throw new Error("Gateway is not connected.");
-  }
-  return state.client;
-}
-
-function normalizeOptionalText(value: string | undefined | null): string | undefined {
-  const normalized = value?.trim();
-  return normalized ? normalized : undefined;
-}
-
-function currentChatSessionKey(state: ChatState): string {
-  const normalized = state.sessionKey.trim();
-  if (!normalized) {
-    throw new Error("No active chat session.");
-  }
-  return normalized;
-}
-
-function setChatProjectError(state: ChatState, err: unknown): void {
-  state.chatProjectError = formatConnectError(err);
-}
-
-function setChatGoalError(state: ChatState, err: unknown): void {
-  state.chatGoalError = formatConnectError(err);
-  state.chatGoalUpdatedAt = Date.now();
-}
-
-async function listPaginatedChatGoals(
-  client: GatewayBrowserClient,
-  sessionKey: string,
-  allowLegacyMissingControllerId: boolean,
-): Promise<ChatGoalFlowSummary[]> {
-  const goals: ChatGoalFlowSummary[] = [];
-  const visitedCursors = new Set<string>();
-  let cursor: string | undefined;
-  while (true) {
-    const page = await client.request<ChatGoalFlowsResponse>("taskFlows.list", {
-      sessionKey,
-      limit: 500,
-      ...(cursor ? { cursor } : {}),
-    });
-    for (const flow of page.flows ?? []) {
-      if (isChatPursueGoalFlow(flow)) {
-        goals.push(flow);
-      } else if (allowLegacyMissingControllerId && flow.controllerId == null) {
-        // Only an unadvertised legacy taskFlows.list response may omit the controller id.
-        // Normalize admitted records so downstream goal resolution remains strict.
-        goals.push({ ...flow, controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID });
-      }
-    }
-    const nextCursor = normalizeOptionalText(page.nextCursor);
-    if (!nextCursor || visitedCursors.has(nextCursor)) {
-      return goals;
-    }
-    visitedCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-}
-
-export async function loadChatProjects(state: ChatState): Promise<void> {
-  if (!state.client || !state.connected) {
-    return;
-  }
-  state.projectsLoading = true;
-  try {
-    const res = await state.client.request<ChatPccProjectsListResponse>("pcc.projects.list", {
-      includeArchived: true,
-    });
-    const projects = (res.projects ?? [])
-      .map(projectRecordFromPccSummary)
-      .filter((project): project is ProjectRecord => project !== null);
-    state.projectsList = {
-      ok: true,
-      ts: Date.now(),
-      count: projects.length,
-      projects,
-    };
-    state.chatProjectError = null;
-  } catch (err) {
-    setChatProjectError(state, err);
-  } finally {
-    state.projectsLoading = false;
-  }
-}
-
-export async function loadChatGoals(state: ChatState): Promise<ChatGoalRefreshResult> {
-  if (!state.client || !state.connected) {
-    return "failed";
-  }
-  state.chatGoalLoading = true;
-  try {
-    let refreshResult: ChatGoalRefreshResult = "authoritative";
-    const allowLegacyMissingControllerId =
-      isGatewayMethodAdvertised(state, "taskFlows.list") !== true;
-    if (isGatewayMethodAdvertised(state, "executionState.get") === true) {
-      const [snapshotResult, goalsResult] = await Promise.allSettled([
-        state.client.request<ExecutionStateSnapshot>("executionState.get", {
-          sessionKey: state.sessionKey,
-          includeTerminal: true,
-        }),
-        listPaginatedChatGoals(state.client, state.sessionKey, allowLegacyMissingControllerId),
-      ]);
-      if (snapshotResult.status === "fulfilled") {
-        state.chatExecutionState = snapshotResult.value;
-      }
-      if (goalsResult.status === "fulfilled") {
-        state.chatGoalFlows = goalsResult.value;
-      } else if (snapshotResult.status === "fulfilled") {
-        state.chatGoalFlows = (snapshotResult.value.flows ?? []).filter(isChatPursueGoalFlow);
-        refreshResult = "fallback";
-      } else {
-        throw goalsResult.reason;
-      }
-    } else {
-      state.chatGoalFlows = await listPaginatedChatGoals(
-        state.client,
-        state.sessionKey,
-        allowLegacyMissingControllerId,
-      );
-    }
-    state.chatGoalError = null;
-    state.chatGoalUpdatedAt = Date.now();
-    return refreshResult;
-  } catch (err) {
-    setChatGoalError(state, err);
-    return "failed";
-  } finally {
-    state.chatGoalLoading = false;
-  }
-}
-
-export async function createChatGoal(
-  state: ChatState,
-  goalText?: string,
-): Promise<ChatGoalFlowSummary | null> {
-  const goal =
-    normalizeOptionalText(goalText) ??
-    normalizeOptionalText(state.chatGoalDraft) ??
-    normalizeOptionalText(state.chatMessage);
-  if (!goal) {
-    state.chatGoalError = "Enter a goal first.";
-    state.chatGoalUpdatedAt = Date.now();
-    return null;
-  }
-  state.chatGoalBusy = true;
-  state.chatGoalError = null;
-  try {
-    const client = requireConnectedChatClient(state);
-    const response = await client.request<ChatGoalFlowResponse>("taskFlows.create", {
-      sessionKey: currentChatSessionKey(state),
-      goal,
-      currentStep: "Goal started from Chat.",
-    });
-    if (!response.flow?.id) {
-      throw new Error("Goal was created without an id.");
-    }
-    state.chatGoalDraft = "";
-    state.chatGoalPanelOpen = true;
-    await loadChatGoals(state);
-    return response.flow;
-  } catch (err) {
-    setChatGoalError(state, err);
-    return null;
-  } finally {
-    state.chatGoalBusy = false;
-  }
-}
-
-type ChatGoalControlResponse = {
-  found: boolean;
-  applied: boolean;
-  action: ChatGoalControlAction;
-  reason?: string;
-  flow?: ChatGoalFlowSummary;
-};
-
-async function requestChatGoalControl(params: {
-  client: GatewayBrowserClient;
-  flowId: string;
-  sessionKey: string;
-  action: ChatGoalControlAction;
-  idempotencyKey: string;
-  expectedRevision?: number;
-  goal?: string;
-}): Promise<ChatGoalControlResponse> {
-  return await params.client.request<ChatGoalControlResponse>("taskFlows.control", {
-    flowId: params.flowId,
-    sessionKey: params.sessionKey,
-    action: params.action,
-    idempotencyKey: params.idempotencyKey,
-    ...(params.expectedRevision !== undefined ? { expectedRevision: params.expectedRevision } : {}),
-    ...(params.goal ? { goal: params.goal } : {}),
-  });
-}
-
-function optimisticGoalControl(
-  flow: ChatGoalFlowSummary,
-  action: ChatGoalControlAction,
-  goal?: string,
-): ChatGoalFlowSummary {
-  const now = Date.now();
-  if (action === "stop") {
-    return { ...flow, status: "cancelling", cancelRequestedAt: now };
-  }
-  if (action === "pause") {
-    return { ...flow, status: "paused", currentStep: "Pausing current work…" };
-  }
-  if (action === "resume" || action === "retry") {
-    return { ...flow, status: "queued", currentStep: "Ready to continue." };
-  }
-  return goal ? { ...flow, goal } : flow;
-}
-
-export async function controlChatGoal(
-  state: ChatState,
-  flowId: string,
-  action: ChatGoalControlAction,
-  goal?: string,
-): Promise<ChatGoalFlowSummary | null> {
-  const normalized = flowId.trim();
-  if (!normalized) {
-    return null;
-  }
-  if (state.chatGoalAction?.flowId === normalized) {
-    return null;
-  }
-  const normalizedGoal = normalizeOptionalText(goal);
-  if (action === "edit" && !normalizedGoal) {
-    state.chatGoalError = "Enter a goal first.";
-    return null;
-  }
-  state.chatGoalAction = { flowId: normalized, action };
-  state.chatGoalError = null;
-  const previousFlows = state.chatGoalFlows;
-  let refreshedAfterConflict = false;
-  const selected = (state.chatGoalFlows ?? []).find(
-    (flow) => flow.id === normalized || flow.flowId === normalized,
-  );
-  state.chatGoalFlows = (state.chatGoalFlows ?? []).map((flow) => {
-    if (flow.id !== normalized && flow.flowId !== normalized) {
-      return flow;
-    }
-    return optimisticGoalControl(flow, action, normalizedGoal);
-  });
-  try {
-    const client = requireConnectedChatClient(state);
-    const idempotencyKey = crypto.randomUUID();
-    let result = await requestChatGoalControl({
-      client,
-      flowId: normalized,
-      sessionKey: currentChatSessionKey(state),
-      action,
-      idempotencyKey,
-      ...(selected?.revision !== undefined ? { expectedRevision: selected.revision } : {}),
-      ...(normalizedGoal ? { goal: normalizedGoal } : {}),
-    });
-    if (!result.applied && result.reason === "revision_conflict") {
-      const refreshResult = await loadChatGoals(state);
-      if (refreshResult === "failed") {
-        throw new Error(state.chatGoalError ?? "Could not refresh the goal after a conflict.");
-      }
-      refreshedAfterConflict = refreshResult === "authoritative";
-      const current = (state.chatGoalFlows ?? []).find(
-        (flow) => flow.id === normalized || flow.flowId === normalized,
-      );
-      if (!current) {
-        throw new Error("Goal changed and is no longer available.");
-      }
-      refreshedAfterConflict = true;
-      result = await requestChatGoalControl({
-        client,
-        flowId: normalized,
-        sessionKey: currentChatSessionKey(state),
-        action,
-        idempotencyKey,
-        ...(current.revision !== undefined ? { expectedRevision: current.revision } : {}),
-        ...(normalizedGoal ? { goal: normalizedGoal } : {}),
-      });
-    }
-    if (!result.applied) {
-      throw new Error(result.reason ?? `Goal ${action} was not applied.`);
-    }
-    if (result.flow) {
-      state.chatGoalFlows = (state.chatGoalFlows ?? []).map((flow) =>
-        flow.id === normalized || flow.flowId === normalized ? result.flow! : flow,
-      );
-    }
-    await loadChatGoals(state);
-    return (
-      result.flow ??
-      (state.chatGoalFlows ?? []).find(
-        (flow) => flow.id === normalized || flow.flowId === normalized,
-      ) ??
-      null
-    );
-  } catch (err) {
-    if (!refreshedAfterConflict) {
-      state.chatGoalFlows = previousFlows;
-    }
-    setChatGoalError(state, err);
-    return null;
-  } finally {
-    state.chatGoalAction = null;
-  }
-}
-
-export async function cancelChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "stop")) !== null;
-}
-
-export async function pauseChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "pause")) !== null;
-}
-
-export async function resumeChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "resume")) !== null;
-}
-
-export async function retryChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "retry")) !== null;
-}
-
-export async function editChatGoal(
-  state: ChatState,
-  flowId: string,
-  goal: string,
-): Promise<boolean> {
-  const normalizedGoal = normalizeOptionalText(goal);
-  if (!normalizedGoal) {
-    state.chatGoalError = "Goal is required.";
-    return false;
-  }
-  return (await controlChatGoal(state, flowId, "edit", normalizedGoal)) !== null;
-}
-
-export async function stopChatGoal(state: ChatState, flowId: string): Promise<boolean> {
-  return (await controlChatGoal(state, flowId, "stop")) !== null;
-}
-
-export function buildCurrentChatGoalContinuationPrompt(
-  state: ChatState,
-  flowId: string,
-): string | null {
-  const flow =
-    (state.chatGoalFlows ?? []).find((entry) => entry.id === flowId || entry.flowId === flowId) ??
-    resolveCurrentChatGoal(state.chatGoalFlows);
-  return flow ? buildChatGoalContinuationPrompt(flow) : null;
-}
-
-export async function attachChatSessionToProject(
-  state: ChatState,
-  projectId: string,
-): Promise<boolean> {
-  const normalizedProjectId = projectId.trim();
-  if (!normalizedProjectId) {
-    return false;
-  }
-  state.chatProjectBusy = true;
-  state.chatProjectError = null;
-  try {
-    const client = requireConnectedChatClient(state);
-    await client.request("sessions.patch", {
-      key: currentChatSessionKey(state),
-      projectId: normalizedProjectId,
-    });
-    state.chatProjectPickerOpen = false;
-    await loadChatProjects(state);
-    return true;
-  } catch (err) {
-    setChatProjectError(state, err);
-    return false;
-  } finally {
-    state.chatProjectBusy = false;
-  }
-}
-
-export async function detachChatSessionFromProject(state: ChatState): Promise<boolean> {
-  state.chatProjectBusy = true;
-  state.chatProjectError = null;
-  try {
-    const client = requireConnectedChatClient(state);
-    await client.request("sessions.patch", {
-      key: currentChatSessionKey(state),
-      projectId: null,
-    });
-    state.chatProjectPickerOpen = false;
-    await loadChatProjects(state);
-    return true;
-  } catch (err) {
-    setChatProjectError(state, err);
-    return false;
-  } finally {
-    state.chatProjectBusy = false;
-  }
-}
-
-export async function createChatSessionInProject(
-  state: ChatState,
-  projectId: string,
-): Promise<string | null> {
-  const normalizedProjectId = projectId.trim();
-  if (!normalizedProjectId) {
-    return null;
-  }
-  state.chatProjectBusy = true;
-  state.chatProjectError = null;
-  try {
-    const client = requireConnectedChatClient(state);
-    const response = await client.request<ChatProjectSessionCreateResponse>("sessions.create", {
-      projectId: normalizedProjectId,
-    });
-    const nextSessionKey = response?.key?.trim() ?? "";
-    if (!nextSessionKey) {
-      throw new Error("Project chat was created without a session key.");
-    }
-    state.chatProjectPickerOpen = false;
-    await loadChatProjects(state);
-    return nextSessionKey;
-  } catch (err) {
-    setChatProjectError(state, err);
-    return null;
-  } finally {
-    state.chatProjectBusy = false;
-  }
-}
 
 export async function loadChatWorkTasks(state: ChatState): Promise<void> {
   if (!state.client || !state.connected) {
