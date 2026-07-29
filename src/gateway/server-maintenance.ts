@@ -9,6 +9,7 @@ import {
 import type { ManagedWorktreeOwnerKind } from "../agents/worktrees/types.js";
 import type { HealthSummary } from "../commands/health.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { CronServiceContract } from "../cron/service-contract.js";
 import { sweepStaleRunContexts } from "../infra/agent-events.js";
 import { cleanOldMedia } from "../media/store.js";
 import { startOperationsShadowMonitor } from "../operations/monitor.js";
@@ -102,6 +103,8 @@ export function startGatewayMaintenanceTimers(params: {
   registerSkillUsageTracking?: () => () => void;
   getRuntimeConfig?: () => OpenClawConfig;
   selfImprovementEnv?: NodeJS.ProcessEnv;
+  cron?: CronServiceContract;
+  getCron?: () => CronServiceContract | undefined;
 }): {
   tickInterval: ReturnType<typeof setInterval>;
   healthInterval: ReturnType<typeof setInterval>;
@@ -176,6 +179,8 @@ export function startGatewayMaintenanceTimers(params: {
       : null;
   const operationsCleanup = startOperationsShadowMonitor({
     log: { warn: (message) => (params.logHealth.warn ?? params.logHealth.error)(message) },
+    ...(params.cron ? { cron: params.cron } : {}),
+    ...(params.getCron ? { getCron: params.getCron } : {}),
   });
   // dedupe cache cleanup
   const dedupeCleanup = setInterval(() => {

@@ -158,8 +158,9 @@ content to assistive technology.
 - `operations.snapshot.v2` is authoritative. `operations.snapshot` remains the exact
   backward-compatible V1 response, with fallback behavior defined in Snapshot authority and
   compatibility above.
-- The Gateway runs a 60-second, unref'd shadow monitor using local runtime facts only.
-- The monitor never starts an agent, invokes an LLM, changes config, or kills a process.
+- The Gateway runs a 60-second, unref'd supervisor using local runtime facts.
+- The supervisor may run only registered automatic-repair recipes. Every automatic recipe is
+  bounded, deterministic, reversible, and post-repair verified. It never kills a process.
 - The monitor reconciles host-resource, task, and workflow findings. Snapshot collection reconciles
   the remaining source categories. All findings use the same transition-aware incident ledger so
   first-observed and since-last-visit state survive a Gateway restart.
@@ -226,10 +227,79 @@ The UI never labels an issue as investigating, applying, verifying, or resolved 
 authoritative finding state supports that label. Missing, stale, partial, ambiguous, or unsupported
 state fails closed to **Needs review** and never exposes a generic one-click mutation.
 
+## Automatic remediation
+
+Low-risk issues may be repaired automatically only by one exact registered recipe with a rollback
+point, independent deterministic authoritative read-back verification, and the same authoritative
+read-back verification for rollback.
+
+Medium-risk issues have the same requirements plus recipe confidence of at least 0.90, a bounded
+investigation by local `qwen3.6:27b-q8_0`, and approval by the independent local
+`openclaw-judge-qwen35-27b-q8:latest` Judge. A Judge rejection, malformed response, unavailable model,
+low confidence, ambiguous recipe match, changed precondition, or unavailable evidence makes no
+change and fails closed.
+
+High-risk and security, financial, credential, production-release, destructive, policy-expanding,
+irreversible, novel, or uncertain actions always require explicit operator approval. Codex is an
+escalation path for high-risk, novel, low-confidence, or repeatedly failing cases; it is not in the
+automatic repair loop. Failed or approval-required attempts expose **Review with Codex**, which
+opens a read-only escalation draft with the exact recipe, result, and rollback context; it does not
+send the draft or start work.
+
+The initial approved recipe pauses an enabled, non-running schedule only after its stored state
+confirms at least three consecutive failed runs. It records a rollback point, pauses that exact
+schedule, reads the schedule back to verify it is disabled, and exposes the existing guarded
+**Undo this repair** action to re-enable it. A failed or thrown verification automatically re-enables
+the schedule and verifies the rollback. Automatic rollback is bound to the exact stored schedule
+version created by the repair; if another actor changes the schedule meanwhile, rollback stops
+instead of overwriting that newer change. A failed rollback stays visible and is never silently
+retried. If the Gateway lifecycle interrupts an active attempt, the next supervisor start converts
+that receipt to a visible failed/needs-review result; it does not leave a false in-progress state or
+silently retry an uncertain mutation.
+
+Each attempt is stored as a bounded private receipt. The current issue shows what happened, impact,
+owner, exact repair, repair risk, progress, result, evidence, and rollback or Undo availability.
+Active attempts appear under **OpenClaw is handling**. Terminal attempts appear under **Since your
+last visit**, where **View repair details** preserves the owner, risk, exact repair, result, evidence,
+rollback plan, and guarded Undo availability without crowding the overview. The same finding
+identity is not automatically retried, which prevents repair loops.
+
 The overview labels active managed work as **OpenClaw work**. Separately, the System summary shows
 **Local AI processes: _N_** from host process telemetry. A loaded local model process is not counted
 as an OpenClaw agent or work item and does not prove that an inference is actively generating.
 Local-model RSS remains separate from host memory pressure.
+
+The primary overview presents these two signals together in **What is running**:
+
+- **OpenClaw-managed work** counts live agents attached to managed tasks or workflows.
+- **Independent local AI** counts loaded local-model processes and explicitly says that loaded does
+  not necessarily mean generating.
+
+The header does not repeat a second system-state term. **Now** is the one authoritative primary
+status. The first current finding is labeled **Highest-priority issue** and displays **Who owns this**
+and **What happens next** before its preview. Opening **Preview resolution** makes no change.
+**Close preview — make no changes** closes it explicitly and returns keyboard focus to the preview
+control.
+
+## Owner acceptance in the page
+
+The usability coordinator returns `ownerAcceptanceQuery` only for a ready `owner-mac-studio`
+campaign with one registered anonymous owner. Append that exact query to `/operations`. The
+Operations Room then shows a bounded **Begin 60-second check** control.
+
+The timer does not start when the campaign is created, when chat is delivered, or when the page
+loads. It starts only when the owner clicks **Begin**. The owner identifies the primary status,
+distinguishes OpenClaw work from independent local AI, identifies the highest-priority issue owner
+and next action, opens the real resolution preview, and closes it without changes. **Finish and
+create receipt** creates a machine-readable
+`openclaw.operations-room.owner-ui-attempt.v1` receipt and exposes one-click Copy and Download
+controls.
+
+Import the downloaded receipt with the coordinator's `complete-ui` command. The coordinator accepts
+it only when the campaign, candidate SHA, fixture hash, anonymous participant, timing, and every
+outcome match exactly. A mismatched, late, hinted, unsafe, failed, replayed, or ambiguous attempt
+fails closed. Existing failed campaigns and participant-ledger entries are never rewritten or
+replaced.
 
 ## Addition and update standard
 

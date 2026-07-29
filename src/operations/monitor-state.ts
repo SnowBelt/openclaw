@@ -1,4 +1,4 @@
-// Shared in-process state for the deterministic Operations shadow monitor.
+// Shared in-process state for the deterministic Operations monitor.
 // Keeping this state separate lets the collector read monitor health without
 // creating a collector <-> monitor module cycle.
 
@@ -16,6 +16,7 @@ export type OperationsShadowMonitorState = {
   sweepCount: number;
   lastError: string | null;
   findingIds: string[];
+  autoRemediationEnabled?: boolean;
 };
 
 function initialState(): OperationsShadowMonitorState {
@@ -31,6 +32,7 @@ function initialState(): OperationsShadowMonitorState {
     sweepCount: 0,
     lastError: null,
     findingIds: [],
+    autoRemediationEnabled: false,
   };
 }
 

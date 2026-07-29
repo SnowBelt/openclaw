@@ -1030,6 +1030,7 @@ export type {
   OperationsHostSnapshot,
   OperationsIncidentHistoryEntry,
   OperationsProcessSnapshot,
+  OperationsRemediationRecord,
   OperationsSnapshot,
   OperationsStatus,
   OperationsWorkSummary,

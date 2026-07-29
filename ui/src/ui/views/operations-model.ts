@@ -4,6 +4,7 @@ import type {
   OperationsAgentSnapshot,
   OperationsFinding,
   OperationsIncidentHistoryEntry,
+  OperationsRemediationRecord,
   OperationsSnapshot,
   OperationsWorkSummary,
 } from "../types.ts";
@@ -46,6 +47,12 @@ export type OperationsChangeItem =
       at: number;
       incident: OperationsIncidentHistoryEntry;
       finding?: OperationsFinding;
+    }
+  | {
+      kind: "remediation";
+      id: string;
+      at: number;
+      remediation: OperationsRemediationRecord;
     };
 
 export type OperationsResolutionStage =
@@ -92,6 +99,16 @@ export function operationsInvestigationDraft(finding: OperationsFinding): string
     `Recommended next step: ${next}`,
     `Risk: ${operationsFindingRisk(finding)}`,
     `Finding ID: ${finding.id}`,
+    ...(finding.remediation
+      ? [
+          `Automatic repair status: ${finding.remediation.status}`,
+          `Approved recipe: ${finding.remediation.recipeId}`,
+          `Automatic repair risk: ${finding.remediation.risk}`,
+          `Exact repair attempted: ${finding.remediation.exactRepair}`,
+          `Recorded result: ${finding.remediation.result ?? finding.remediation.progress}`,
+          `Rollback plan: ${finding.remediation.rollback}`,
+        ]
+      : []),
     "",
     "Requirements:",
     "1. Run deterministic checks first and cite the evidence.",
@@ -338,6 +355,21 @@ export function operationsChangesSince(
       at: changedAt,
       incident,
       finding: findingsById.get(incident.id),
+    });
+  }
+  for (const remediation of snapshot.remediationHistory ?? []) {
+    const changedAt = remediation.completedAt ?? remediation.updatedAt;
+    if (
+      changedAt <= boundary ||
+      !["completed", "rolled_back", "failed", "approval_required"].includes(remediation.status)
+    ) {
+      continue;
+    }
+    changes.push({
+      kind: "remediation",
+      id: `remediation:${remediation.id}`,
+      at: changedAt,
+      remediation,
     });
   }
   return changes.toSorted((left, right) => right.at - left.at);
