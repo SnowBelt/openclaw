@@ -152,6 +152,48 @@ describe("buildAgentWorkTreeSnapshot", () => {
     expect(worker?.taskId).toBe("task-worker");
   });
 
+  it("selects the same best task without sorting every session lookup", () => {
+    const tree = buildAgentWorkTreeSnapshot({
+      currentSessionKey: "agent:main:main",
+      sessionsResult: sessions([
+        { key: "agent:main:main" },
+        {
+          key: "agent:main:subagent:worker",
+          label: "Worker",
+          spawnedBy: "agent:main:main",
+        },
+      ]),
+      tasks: [
+        {
+          id: "newest-terminal",
+          sessionKey: "agent:main:subagent:worker",
+          status: "succeeded",
+          updatedAt: 50,
+        },
+        {
+          id: "older-active",
+          sessionKey: "agent:main:subagent:worker",
+          status: "queued",
+          updatedAt: 20,
+        },
+        {
+          id: "newest-active",
+          sessionKey: "agent:main:subagent:worker",
+          status: "running",
+          updatedAt: 30,
+          progressSummary: "Latest active task",
+        },
+      ],
+    });
+
+    const worker = tree.flat.find((node) => node.sessionKey === "agent:main:subagent:worker");
+    expect(worker).toMatchObject({
+      detail: "Latest active task",
+      status: "Running",
+      taskId: "newest-active",
+    });
+  });
+
   it("excludes unrelated subagents", () => {
     const tree = buildAgentWorkTreeSnapshot({
       currentSessionKey: "agent:main:main",

@@ -115,11 +115,17 @@ export function isChatPursueGoalFlow(flow: ChatGoalFlowSummary): boolean {
 export function resolveCurrentChatGoal(
   flows: readonly ChatGoalFlowSummary[] | undefined,
 ): ChatGoalFlowSummary | null {
-  const goals = flows?.filter(isChatPursueGoalFlow);
-  if (!goals?.length) {
-    return null;
+  let firstGoal: ChatGoalFlowSummary | null = null;
+  for (const flow of flows ?? []) {
+    if (!isChatPursueGoalFlow(flow)) {
+      continue;
+    }
+    firstGoal ??= flow;
+    if (isActiveChatGoal(flow.status)) {
+      return flow;
+    }
   }
-  return goals.find((flow) => isActiveChatGoal(flow.status)) ?? goals[0] ?? null;
+  return firstGoal;
 }
 
 export function chatGoalStatusLabel(flow: ChatGoalFlowSummary | null | undefined): string {

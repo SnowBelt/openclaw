@@ -20,8 +20,9 @@ import {
   coalesceStreamRuns,
   deletedChatItemsSignature,
   getExpandedToolCards,
+  getToolExpansionRenderVersion,
   resetChatThreadState,
-  stableBooleanMapSignature,
+  setToolCardExpanded,
   syncToolCardExpansionState,
 } from "../chat-thread.ts";
 import { DeletedMessages } from "../deleted-messages.ts";
@@ -659,8 +660,9 @@ export function renderChatThread(props: ChatThreadProps) {
   });
   syncToolCardExpansionState(props.sessionKey, chatItems, Boolean(props.autoExpandToolCalls));
   const expandedToolCards = getExpandedToolCards(props.sessionKey);
+  const toolExpansionRenderVersion = getToolExpansionRenderVersion(props.sessionKey);
   const toggleToolCardExpanded = (toolCardId: string) => {
-    expandedToolCards.set(toolCardId, !expandedToolCards.get(toolCardId));
+    setToolCardExpanded(props.sessionKey, toolCardId, !expandedToolCards.get(toolCardId));
     requestUpdate();
   };
   const hasRealtimeTalkConversation = (props.realtimeTalkConversation?.length ?? 0) > 0;
@@ -707,7 +709,7 @@ export function renderChatThread(props: ChatThreadProps) {
           [
             chatItems,
             deletedChatItemsSignature(deleted, chatItems),
-            stableBooleanMapSignature(expandedToolCards),
+            toolExpansionRenderVersion,
             getAssistantAttachmentAvailabilityRenderVersion(),
             props.sessionKey,
             props.fullMessageAgentId,
@@ -786,7 +788,8 @@ export function renderChatThread(props: ChatThreadProps) {
                     autoExpandToolCalls: Boolean(props.autoExpandToolCalls),
                     isToolMessageExpanded: (messageId: string) => expandedToolCards.get(messageId),
                     onToggleToolMessageExpanded: (messageId: string, expanded?: boolean) => {
-                      expandedToolCards.set(
+                      setToolCardExpanded(
+                        props.sessionKey,
                         messageId,
                         !(expanded ?? expandedToolCards.get(messageId) ?? false),
                       );
