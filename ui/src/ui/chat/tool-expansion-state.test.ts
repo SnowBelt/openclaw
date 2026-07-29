@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { MessageGroup } from "../types/chat-types.ts";
 import {
   getExpandedToolCards,
+  getToolExpansionRenderVersion,
   resetToolExpansionStateForTest,
+  setToolCardExpanded,
   syncToolCardExpansionState,
 } from "./tool-expansion-state.ts";
 
@@ -38,8 +40,38 @@ describe("tool expansion state", () => {
 
     syncToolCardExpansionState("main", [group], false);
     expect(getExpandedToolCards("main").get("assistant-1:toolcard:0")).toBe(false);
+    expect(getToolExpansionRenderVersion("main")).toBe(1);
 
     syncToolCardExpansionState("main", [group], true);
     expect(getExpandedToolCards("main").get("assistant-1:toolcard:0")).toBe(true);
+    expect(getToolExpansionRenderVersion("main")).toBe(2);
+  });
+
+  it("skips unchanged synchronization work without invalidating the rendered thread", () => {
+    const group = createGroup({
+      role: "tool",
+      content: [{ type: "text", text: "done" }],
+      toolCallId: "call-1",
+    });
+    const items = [group];
+
+    syncToolCardExpansionState("main", items, false);
+    const version = getToolExpansionRenderVersion("main");
+    syncToolCardExpansionState("main", items, false);
+
+    expect(getToolExpansionRenderVersion("main")).toBe(version);
+    expect(getExpandedToolCards("main").get("toolmsg:assistant-1")).toBe(false);
+  });
+
+  it("invalidates the rendered thread only when expansion state changes", () => {
+    setToolCardExpanded("main", "toolmsg:assistant-1", true);
+    expect(getToolExpansionRenderVersion("main")).toBe(1);
+
+    setToolCardExpanded("main", "toolmsg:assistant-1", true);
+    expect(getToolExpansionRenderVersion("main")).toBe(1);
+
+    setToolCardExpanded("main", "toolmsg:assistant-1", false);
+    expect(getToolExpansionRenderVersion("main")).toBe(2);
+    expect(getExpandedToolCards("main").get("toolmsg:assistant-1")).toBe(false);
   });
 });

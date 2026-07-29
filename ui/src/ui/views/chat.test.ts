@@ -184,6 +184,8 @@ vi.mock("../markdown.ts", () => ({
 
 vi.mock("../chat/tool-expansion-state.ts", () => ({
   getExpandedToolCards: () => new Map<string, boolean>(),
+  getToolExpansionRenderVersion: () => 0,
+  setToolCardExpanded: () => undefined,
   syncToolCardExpansionState: () => undefined,
 }));
 
