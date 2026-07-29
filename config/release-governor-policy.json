@@ -1,6 +1,6 @@
 {
   "schema": "openclaw.release-governor-policy.v1",
-  "version": 1,
+  "version": 2,
   "confidenceThreshold": 0.95,
   "reviewConfidenceThreshold": 0.9,
   "classificationRules": [
@@ -163,6 +163,78 @@
       "post_deployment_health",
       "ledger_ready"
     ]
+  },
+  "proofProfiles": {
+    "mac_studio_control_director": {
+      "description": "Local-only PCC releases verified through the authenticated Control Director on the Mac Studio.",
+      "requiredChecks": {
+        "stage": [
+          "candidate_sha",
+          "parent_sha",
+          "worktree_clean",
+          "local_tests",
+          "immutable_build",
+          "build_stamp",
+          "capability_preservation",
+          "rollback_ready"
+        ],
+        "promotion": [
+          "candidate_sha",
+          "parent_sha",
+          "worktree_clean",
+          "local_tests",
+          "immutable_build",
+          "build_stamp",
+          "capability_preservation",
+          "rollback_ready",
+          "staging",
+          "gateway_readiness",
+          "control_director_mac_studio",
+          "ledger_ready"
+        ],
+        "restart": [
+          "candidate_sha",
+          "parent_sha",
+          "worktree_clean",
+          "local_tests",
+          "immutable_build",
+          "build_stamp",
+          "capability_preservation",
+          "rollback_ready",
+          "staging",
+          "gateway_readiness",
+          "control_director_mac_studio",
+          "ledger_ready"
+        ],
+        "rollback": [
+          "candidate_sha",
+          "parent_sha",
+          "rollback_ready",
+          "immutable_build",
+          "build_stamp",
+          "capability_preservation",
+          "staging",
+          "gateway_readiness",
+          "control_director_mac_studio",
+          "ledger_ready"
+        ],
+        "finalize": [
+          "candidate_sha",
+          "parent_sha",
+          "worktree_clean",
+          "local_tests",
+          "immutable_build",
+          "build_stamp",
+          "capability_preservation",
+          "rollback_ready",
+          "staging",
+          "gateway_readiness",
+          "control_director_mac_studio",
+          "post_deployment_health",
+          "ledger_ready"
+        ]
+      }
+    }
   },
   "healthThresholds": {
     "maxRouteLatencyMs": 2500,

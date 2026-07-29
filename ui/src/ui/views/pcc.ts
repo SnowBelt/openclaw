@@ -1798,6 +1798,14 @@ function renderReleaseGovernance(props: PccDashboardProps) {
               <dd>${status.riskLevel ?? "Unknown"}</dd>
             </div>
             <div>
+              <dt>Proof</dt>
+              <dd>
+                ${status.proofProfile === "mac_studio_control_director"
+                  ? "Mac Studio Control Director"
+                  : "Standard"}
+              </dd>
+            </div>
+            <div>
               <dt>Checks</dt>
               <dd>${passedChecks}/${totalChecks} passed</dd>
             </div>

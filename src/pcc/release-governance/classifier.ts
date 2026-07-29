@@ -4,11 +4,29 @@ import type {
   ReleaseChangeClassification,
   ReleaseGovernorPolicy,
   ReleaseProtectedPathFinding,
+  ReleaseProofProfile,
   ReleaseRiskLevel,
 } from "./contracts.js";
+import { requiredReleaseChecksForProfile } from "./policy.js";
 
 const RISK_SCORE: Record<ReleaseRiskLevel, number> = { P0: 4, P1: 3, P2: 2, P3: 1 };
 const GIT_OBJECT_ID = /^[a-f0-9]{40,64}$/iu;
+const PROOF_PROFILES = new Set<ReleaseProofProfile>(["standard", "mac_studio_control_director"]);
+
+export function resolveReleaseProofProfile(facts: ReleaseCandidateFacts): ReleaseProofProfile {
+  if (facts.proofProfile) {
+    return facts.proofProfile;
+  }
+  const destination = facts.destination?.trim() || null;
+  if (
+    facts.project === "project-command-center" &&
+    !facts.externalDisclosure &&
+    [null, "local-only", "local-only runtime state"].includes(destination)
+  ) {
+    return "mac_studio_control_director";
+  }
+  return "standard";
+}
 
 function normalizePath(value: string): string {
   return value
@@ -70,6 +88,20 @@ export function validateReleaseCandidateFacts(facts: ReleaseCandidateFacts): str
   if (typeof facts.scopeCoordinationMaterial !== "boolean") {
     errors.push("Release scope-coordination status must be explicit.");
   }
+  const proofProfile = resolveReleaseProofProfile(facts);
+  if (!PROOF_PROFILES.has(proofProfile)) {
+    errors.push(`Release proof profile is unsupported: ${String(proofProfile)}.`);
+  }
+  if (
+    proofProfile === "mac_studio_control_director" &&
+    (facts.project !== "project-command-center" ||
+      facts.externalDisclosure ||
+      ![null, "local-only", "local-only runtime state"].includes(facts.destination))
+  ) {
+    errors.push(
+      "Mac Studio Control Director proof is limited to local-only Project Command Center releases.",
+    );
+  }
   return errors;
 }
 
@@ -107,6 +139,7 @@ export function classifyReleaseCandidate(params: {
   capabilityDiff: ReleaseCapabilityDiffEntry[];
   operation: keyof ReleaseGovernorPolicy["requiredChecks"];
 }): ReleaseChangeClassification {
+  const proofProfile = resolveReleaseProofProfile(params.facts);
   const destination = params.facts.destination?.trim() || null;
   const externalDisclosure =
     params.facts.externalDisclosure ||
@@ -184,7 +217,12 @@ export function classifyReleaseCandidate(params: {
     riskLevel,
     externalDisclosure,
     externalDestination: destination,
-    requiredChecks: [...params.policy.requiredChecks[params.operation]],
+    proofProfile,
+    requiredChecks: requiredReleaseChecksForProfile({
+      policy: params.policy,
+      operation: params.operation,
+      profile: proofProfile,
+    }),
     approvalRequired,
     ambiguous: ambiguity,
     explanation,

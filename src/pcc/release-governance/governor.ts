@@ -30,7 +30,9 @@ export function evaluateReleaseGovernor(
     capabilityDiff,
     operation: input.operation,
   });
-  const health = input.health ? evaluateReleaseHealth(input.health, policy) : null;
+  const health = input.health
+    ? evaluateReleaseHealth(input.health, policy, classification.proofProfile)
+    : null;
   const decision = decideReleasePolicy({
     policy,
     operation: input.operation,

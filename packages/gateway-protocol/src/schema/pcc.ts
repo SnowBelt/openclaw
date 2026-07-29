@@ -14,6 +14,9 @@ const ReleaseGovernanceStatusSchema = Type.Object(
     policyVersion: Type.Integer({ minimum: 1 }),
     candidateSha: Type.Union([Type.String(), Type.Null()]),
     activeRuntimeSha: Type.Union([Type.String(), Type.Null()]),
+    proofProfile: Type.Optional(
+      Type.Union([Type.Literal("standard"), Type.Literal("mac_studio_control_director")]),
+    ),
     riskLevel: Type.Union([
       Type.Literal("P0"),
       Type.Literal("P1"),

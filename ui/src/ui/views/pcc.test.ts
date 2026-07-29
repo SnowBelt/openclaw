@@ -264,6 +264,7 @@ describe("renderPccDashboard", () => {
           policyVersion: 1,
           candidateSha: "a".repeat(40),
           activeRuntimeSha: "b".repeat(40),
+          proofProfile: "mac_studio_control_director",
           riskLevel: "P1",
           protectedPaths: [
             {
@@ -317,6 +318,7 @@ describe("renderPccDashboard", () => {
     expect(governance?.hasAttribute("open")).toBe(true);
     expect(governance?.textContent).toContain("Explicit approval is required");
     expect(governance?.textContent).toContain("Release policy engine cannot approve itself");
+    expect(governance?.textContent).toContain("Mac Studio Control Director");
     expect(governance?.querySelector("textarea")?.value).toContain("explicitly approve");
   });
 
