@@ -281,12 +281,13 @@ function writeReadyUsabilityCampaign(
           fixtureSha256: campaign.fixtureSha256,
         },
       ],
-      participants: participants.map(({ id, ...participant }) => ({
-        ...participant,
-        campaignId: campaign.campaignId,
-        candidateSha: campaign.candidateSha,
-        participantId: id,
-      })),
+      participants: participants.map(({ id, ...participant }) =>
+        Object.assign(participant, {
+          campaignId: campaign.campaignId,
+          candidateSha: campaign.candidateSha,
+          participantId: id,
+        }),
+      ),
       schema: "openclaw.operations-room.usability-participant-ledger.v1",
       updatedAt: campaign.updatedAt,
     })}\n`,
@@ -600,9 +601,10 @@ describe("custom runtime canary and rollback", () => {
     campaign.participants[0].device = "desktop";
 
     campaign.participants[0].status = "failed";
+    const failedFinishedAt = Date.now();
     campaign.participants[0].attempt = {
       elapsedMs: 61_000,
-      finishedAt: new Date().toISOString(),
+      finishedAt: new Date(failedFinishedAt).toISOString(),
       hintCount: 0,
       observerAttested: true,
       outcomes: {
@@ -612,7 +614,7 @@ describe("custom runtime canary and rollback", () => {
         workingItemIdentified: true,
       },
       passed: false,
-      startedAt: new Date(Date.now() - 61_000).toISOString(),
+      startedAt: new Date(failedFinishedAt - 61_000).toISOString(),
       unsafeActionCount: 0,
     };
     campaign.state = "failed";

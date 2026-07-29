@@ -75,11 +75,200 @@ custom_runtime_wait_for_routes() {
   return 1
 }
 
+# Permit one narrowly scoped policy-version migration without letting a
+# candidate silently replace the trusted active Governor. The private migration
+# record is an additional user-approval artifact; the candidate Governor still
+# verifies the normal operation bundle before any lifecycle mutation.
+custom_runtime_verify_release_governance_policy_migration() {
+  custom_runtime_migration_record=${1:-}
+  custom_runtime_migration_operation=${2:-}
+  custom_runtime_migration_candidate_sha=${3:-}
+  custom_runtime_migration_bundle=${4:-}
+  custom_runtime_migration_active_root=${5:-}
+  custom_runtime_migration_candidate_root=${6:-}
+  python3 - \
+    "$custom_runtime_migration_record" "$custom_runtime_migration_operation" \
+    "$custom_runtime_migration_candidate_sha" "$custom_runtime_migration_bundle" \
+    "$custom_runtime_migration_active_root" "$custom_runtime_migration_candidate_root" \
+    "${OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID:-}" <<'PY'
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import stat
+import sys
+
+(
+    record_path,
+    operation,
+    candidate_sha,
+    bundle_path,
+    active_root,
+    candidate_root,
+    approval_id,
+) = sys.argv[1:]
+sha_pattern = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
+allowed_operations = {"stage", "promotion"}
+now = dt.datetime.now(dt.timezone.utc)
+
+
+def fail(message):
+    print(f"release governance policy migration blocked: {message}", file=sys.stderr)
+    raise SystemExit(78)
+
+
+def safe_file(path, description, private=False):
+    if not os.path.isfile(path) or os.path.islink(path):
+        fail(f"{description} is missing or unsafe")
+    if private and stat.S_IMODE(os.stat(path).st_mode) & 0o077:
+        fail(f"{description} is not private")
+
+
+def read_json(path, description):
+    safe_file(path, description)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        fail(f"{description} is malformed")
+    if not isinstance(value, dict):
+        fail(f"{description} is malformed")
+    return value
+
+
+def parse_time(value, description):
+    if not isinstance(value, str) or not value.endswith("Z"):
+        fail(f"{description} is missing or invalid")
+    try:
+        parsed = dt.datetime.fromisoformat(value[:-1] + "+00:00")
+    except ValueError:
+        fail(f"{description} is missing or invalid")
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def sha256(path, description):
+    safe_file(path, description)
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def policy_version(path, description):
+    value = read_json(path, description).get("version")
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        fail(f"{description} version is invalid")
+    return value
+
+
+if operation not in allowed_operations:
+    fail("operation is not eligible")
+if not sha_pattern.fullmatch(candidate_sha):
+    fail("candidate SHA is invalid")
+if not approval_id:
+    fail("approval identity is missing")
+if not os.path.isdir(active_root) or os.path.islink(active_root):
+    fail("active runtime root is missing or unsafe")
+if not os.path.isdir(candidate_root) or os.path.islink(candidate_root):
+    fail("candidate runtime root is missing or unsafe")
+safe_file(record_path, "migration record", private=True)
+record = read_json(record_path, "migration record")
+bundle = read_json(bundle_path, "evidence bundle")
+pointer_path = os.path.join(
+    os.environ.get("OPENCLAW_CUSTOM_RUNTIME_HOME", os.path.expanduser("~/.openclaw-custom-runtime")),
+    "active-runtime.json",
+)
+pointer = read_json(pointer_path, "active runtime pointer")
+active_sha = pointer.get("sourceSha")
+if not isinstance(active_sha, str) or not sha_pattern.fullmatch(active_sha):
+    fail("active runtime SHA is invalid")
+if os.path.realpath(pointer.get("runtimeRoot", "")) != os.path.realpath(active_root):
+    fail("active runtime root changed")
+
+active_policy = os.path.join(active_root, "config", "release-governor-policy.json")
+candidate_policy = os.path.join(candidate_root, "config", "release-governor-policy.json")
+active_governor = os.path.join(active_root, "dist", "release-governor.js")
+candidate_governor = os.path.join(candidate_root, "dist", "release-governor.js")
+active_capability = os.path.join(active_root, "config", "custom-runtime-capabilities.json")
+candidate_capability = os.path.join(candidate_root, "config", "custom-runtime-capabilities.json")
+active_version = policy_version(active_policy, "active policy")
+candidate_version = policy_version(candidate_policy, "candidate policy")
+if candidate_version != active_version + 1:
+    fail("candidate policy version is not exactly one version newer")
+
+created_at = parse_time(record.get("createdAt"), "migration creation time")
+expires_at = parse_time(record.get("expiresAt"), "migration expiration time")
+if created_at > now + dt.timedelta(seconds=60):
+    fail("migration creation time is in the future")
+if expires_at <= now:
+    fail("migration record expired")
+if expires_at - created_at > dt.timedelta(hours=24):
+    fail("migration record lifetime exceeds 24 hours")
+
+facts = bundle.get("facts")
+decision = bundle.get("evaluation", {}).get("decision")
+classification = bundle.get("evaluation", {}).get("classification")
+if not isinstance(facts, dict) or not isinstance(decision, dict) or not isinstance(classification, dict):
+    fail("evidence bundle release facts are malformed")
+if facts.get("candidateSha") != candidate_sha or decision.get("operation") != operation:
+    fail("evidence bundle is not bound to this operation and candidate")
+if facts.get("project") != "project-command-center":
+    fail("evidence bundle is not for project-command-center")
+if facts.get("externalDisclosure") is not False:
+    fail("evidence bundle is not local-only")
+if facts.get("destination") != "local-only":
+    fail("evidence bundle destination is not local-only")
+if (
+    facts.get("proofProfile") != "mac_studio_control_director"
+    or classification.get("proofProfile") != "mac_studio_control_director"
+    or decision.get("proofProfile") != "mac_studio_control_director"
+    or bundle.get("proofProfile") != "mac_studio_control_director"
+):
+    fail("evidence bundle does not use the Mac Studio Control Director profile")
+
+approvals = bundle.get("approvals")
+if not isinstance(approvals, list) or not any(
+    isinstance(approval, dict)
+    and approval.get("id") == approval_id
+    and approval.get("candidateSha") == candidate_sha
+    and approval.get("proofProfile") == "mac_studio_control_director"
+    and operation in approval.get("operations", [])
+    for approval in approvals
+):
+    fail("evidence bundle does not contain the exact migration approval")
+
+expected = {
+    "schema": "openclaw.release-governance-policy-migration.v1",
+    "activeRuntimeSha": active_sha,
+    "candidateSha": candidate_sha,
+    "operation": operation,
+    "approvalId": approval_id,
+    "activePolicyVersion": active_version,
+    "candidatePolicyVersion": candidate_version,
+    "activePolicySha256": sha256(active_policy, "active policy"),
+    "candidatePolicySha256": sha256(candidate_policy, "candidate policy"),
+    "activeGovernorSha256": sha256(active_governor, "active Release Governor"),
+    "candidateGovernorSha256": sha256(candidate_governor, "candidate Release Governor"),
+    "activeCapabilitySha256": sha256(active_capability, "active capability manifest"),
+    "candidateCapabilitySha256": sha256(candidate_capability, "candidate capability manifest"),
+    "evidenceBundleSha256": sha256(bundle_path, "evidence bundle"),
+}
+for field, value in expected.items():
+    if record.get(field) != value:
+        fail(f"{field} does not match")
+PY
+}
+
 # Resolve the governor from the active immutable runtime whenever possible. A
-# candidate governor is used only for first-install bootstrap; its evidence must
-# still carry an exact policy-authorized decision bound to the candidate SHA.
+# candidate governor is used only for first-install bootstrap or an explicitly
+# approved, one-version, exact-hash-bound policy migration.
 custom_runtime_release_governor_cli() {
   custom_runtime_governor_release=${1:-}
+  custom_runtime_governor_operation=${2:-}
+  custom_runtime_governor_candidate_sha=${3:-}
+  custom_runtime_governor_bundle=${4:-}
   custom_runtime_governor_home=${OPENCLAW_CUSTOM_RUNTIME_HOME:-"$HOME/.openclaw-custom-runtime"}
   custom_runtime_governor_pointer="$custom_runtime_governor_home/active-runtime.json"
   custom_runtime_governor_active_root=
@@ -94,7 +283,57 @@ if isinstance(root, str) and root:
 PY
     ) || return 1
   fi
-  for custom_runtime_governor_root in "$custom_runtime_governor_active_root" "$custom_runtime_governor_release"; do
+  custom_runtime_governor_active_cli=
+  custom_runtime_governor_active_policy=
+  if [ -n "$custom_runtime_governor_active_root" ] && \
+    [ -d "$custom_runtime_governor_active_root" ] && [ ! -L "$custom_runtime_governor_active_root" ]; then
+    custom_runtime_governor_active_cli="$custom_runtime_governor_active_root/dist/release-governor.js"
+    custom_runtime_governor_active_policy="$custom_runtime_governor_active_root/config/release-governor-policy.json"
+    if [ ! -f "$custom_runtime_governor_active_cli" ] || [ -L "$custom_runtime_governor_active_cli" ] || \
+      [ ! -f "$custom_runtime_governor_active_policy" ] || [ -L "$custom_runtime_governor_active_policy" ]; then
+      custom_runtime_governor_active_cli=
+      custom_runtime_governor_active_policy=
+    fi
+  fi
+  custom_runtime_governor_candidate_cli="$custom_runtime_governor_release/dist/release-governor.js"
+  custom_runtime_governor_candidate_policy="$custom_runtime_governor_release/config/release-governor-policy.json"
+  if [ ! -f "$custom_runtime_governor_candidate_cli" ] || [ -L "$custom_runtime_governor_candidate_cli" ] || \
+    [ ! -f "$custom_runtime_governor_candidate_policy" ] || [ -L "$custom_runtime_governor_candidate_policy" ]; then
+    custom_runtime_governor_candidate_cli=
+    custom_runtime_governor_candidate_policy=
+  fi
+
+  if [ -n "$custom_runtime_governor_active_cli" ]; then
+    if [ -n "${OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION:-}" ] && \
+      [ -n "$custom_runtime_governor_candidate_cli" ] && \
+      ! cmp -s "$custom_runtime_governor_active_policy" "$custom_runtime_governor_candidate_policy"; then
+      custom_runtime_verify_release_governance_policy_migration \
+        "$OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION" \
+        "$custom_runtime_governor_operation" "$custom_runtime_governor_candidate_sha" \
+        "$custom_runtime_governor_bundle" "$custom_runtime_governor_active_root" \
+        "$custom_runtime_governor_release" || return $?
+      custom_runtime_governor_migration_active_sha=$(
+        python3 - "$custom_runtime_governor_pointer" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f)
+source_sha = value.get("sourceSha")
+if isinstance(source_sha, str) and source_sha:
+    print(source_sha)
+PY
+      ) || return 1
+      [ -n "$custom_runtime_governor_migration_active_sha" ] || return 1
+      printf '%s\n%s\n%s\n' \
+        "$custom_runtime_governor_candidate_cli" "$custom_runtime_governor_candidate_policy" \
+        "$custom_runtime_governor_migration_active_sha"
+      return 0
+    fi
+    printf '%s\n%s\n' \
+      "$custom_runtime_governor_active_cli" "$custom_runtime_governor_active_policy"
+    return 0
+  fi
+
+  for custom_runtime_governor_root in "$custom_runtime_governor_release"; do
     [ -n "$custom_runtime_governor_root" ] || continue
     [ -d "$custom_runtime_governor_root" ] && [ ! -L "$custom_runtime_governor_root" ] || continue
     custom_runtime_governor_cli="$custom_runtime_governor_root/dist/release-governor.js"
@@ -144,12 +383,19 @@ custom_runtime_require_release_governance() {
     printf '%s\n' "release governance blocked: exact evidence bundle is missing for $custom_runtime_governor_operation at $custom_runtime_governor_candidate_sha" >&2
     return 78
   fi
-  custom_runtime_governor_resolution=$(custom_runtime_release_governor_cli "$custom_runtime_governor_release") || {
+  custom_runtime_governor_resolution=$(
+    custom_runtime_release_governor_cli \
+      "$custom_runtime_governor_release" "$custom_runtime_governor_operation" \
+      "$custom_runtime_governor_candidate_sha" "$custom_runtime_governor_bundle"
+  ) || {
     printf '%s\n' 'release governance blocked: trusted Release Governor is unavailable' >&2
     return 78
   }
   custom_runtime_governor_cli=$(printf '%s\n' "$custom_runtime_governor_resolution" | sed -n '1p')
   custom_runtime_governor_policy=$(printf '%s\n' "$custom_runtime_governor_resolution" | sed -n '2p')
+  custom_runtime_governor_migration_active_sha=$(
+    printf '%s\n' "$custom_runtime_governor_resolution" | sed -n '3p'
+  )
   ${OPENCLAW_NODE_BIN:-node} "$custom_runtime_governor_cli" verify \
     --bundle "$custom_runtime_governor_bundle" \
     --operation "$custom_runtime_governor_operation" \
@@ -170,6 +416,32 @@ custom_runtime_require_release_governance() {
     OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID="custom-runtime:$custom_runtime_governor_operation"
     export OPENCLAW_CUSTOM_RUNTIME_OPERATION_ID
   fi
+}
+
+# A migration is verified before the lifecycle lock exists. Recheck its exact
+# active SHA after acquiring the lock and before any managed-runtime mutation.
+custom_runtime_lifecycle_assert_active_sha() {
+  custom_runtime_expected_active_sha=${1:-}
+  custom_runtime_assert_home=${2:-}
+  [ -n "$custom_runtime_expected_active_sha" ] || return 0
+  python3 - "$custom_runtime_assert_home/active-runtime.json" \
+    "$custom_runtime_expected_active_sha" <<'PY'
+import json
+import os
+import re
+import sys
+
+pointer_path, expected_sha = sys.argv[1:]
+sha_pattern = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
+if not sha_pattern.fullmatch(expected_sha):
+    raise SystemExit("custom runtime lifecycle blocked: expected active SHA is invalid")
+if not os.path.isfile(pointer_path) or os.path.islink(pointer_path):
+    raise SystemExit("custom runtime lifecycle blocked: active runtime pointer is missing or unsafe")
+with open(pointer_path, encoding="utf-8") as handle:
+    pointer = json.load(handle)
+if not isinstance(pointer, dict) or pointer.get("sourceSha") != expected_sha:
+    raise SystemExit("custom runtime lifecycle blocked: active runtime changed before lock acquisition")
+PY
 }
 
 # One private lifecycle lock serializes every managed-runtime mutation. Nested

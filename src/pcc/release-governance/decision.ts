@@ -39,7 +39,11 @@ function approvalWording(facts: ReleaseCandidateFacts, operation: ReleaseOperati
   const disclosure = facts.externalDisclosure
     ? `I understand this will disclose updated workspace code at exact SHA ${facts.candidateSha} from branch ${facts.branch} in repository ${facts.repository} to the externally hosted destination ${destination}, which the execution environment cannot independently verify as trusted. Despite that disclosure risk, `
     : `For project ${facts.project}, `;
-  return `${disclosure}I explicitly approve the ${operation} operation for exact SHA ${facts.candidateSha}, the required exact-SHA CI workflow, verified immutable deployment, Gateway restart when applicable, desktop/mobile browser proof with token redaction, and PCC ledger evidence/receipt update. Do not reboot the Mac Studio, modify SNES Game Creator work, spend money or tokens, trade live funds, alter credentials, add destinations, or perform destructive actions unless separately approved.`;
+  const proof =
+    facts.proofProfile === "mac_studio_control_director"
+      ? "the required exact-SHA local tests, source and test typechecks, policy and capability checks, exact-SHA production build, immutable candidate and rollback verification, Gateway/RPC health, authenticated local Mac Studio production-Chrome Control Director and PCC proof, isolated disposable local PCC browser E2E, post-deployment health, and PCC ledger evidence/receipt update"
+      : "the required exact-SHA CI workflow, verified immutable deployment, Gateway restart when applicable, desktop/mobile browser proof with token redaction, and PCC ledger evidence/receipt update";
+  return `${disclosure}I explicitly approve the ${operation} operation for exact SHA ${facts.candidateSha}, ${proof}. Do not reboot the Mac Studio, modify SNES Game Creator work, spend money or tokens, trade live funds, alter credentials, add destinations, or perform destructive actions unless separately approved.`;
 }
 
 function evaluateRequiredChecks(
@@ -163,6 +167,7 @@ export function decideReleasePolicy(params: {
   if (blockers.length > 0) {
     return {
       operation: params.operation,
+      proofProfile: params.facts.proofProfile,
       decision: "deny",
       approvalMode: approval.mode,
       requiredReviewRoles: requiredReviews,
@@ -176,6 +181,7 @@ export function decideReleasePolicy(params: {
   if (approval.mode === "none") {
     return {
       operation: params.operation,
+      proofProfile: params.facts.proofProfile,
       decision: "escalate",
       approvalMode: "none",
       requiredReviewRoles: requiredReviews,
@@ -188,6 +194,7 @@ export function decideReleasePolicy(params: {
   }
   return {
     operation: params.operation,
+    proofProfile: params.facts.proofProfile,
     decision: "authorize",
     approvalMode: approval.mode,
     requiredReviewRoles: requiredReviews,

@@ -125,6 +125,7 @@ function verify(args: Arguments): void {
     authorized: true,
     candidateSha,
     operation,
+    proofProfile: evidence.facts.proofProfile,
     receiptHash: evidence.receiptHash,
     stored,
   });

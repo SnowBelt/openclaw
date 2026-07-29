@@ -36,6 +36,52 @@ its pre-stage gate set. Promotion, restart, and finalization require the complet
 exact-SHA test, Workflow Sanity, immutable-build, staging, browser, rollback,
 Gateway, and ledger-readiness evidence appropriate to the operation.
 
+## Proof profiles
+
+Policy version 2 adds an explicit `proofProfile` to candidate facts,
+classification, policy decision, evidence, verification output, and stored
+status. Unknown or inconsistent profile values fail closed.
+
+`default` remains the policy for every project, destination, and release unless
+the candidate explicitly satisfies a configured custom profile. It retains
+Workflow Sanity, remote CI where required, and desktop/mobile proof.
+
+`mac_studio_control_director` version 1 is the only custom profile. It is
+restricted to:
+
+- project `project-command-center`;
+- destination `local-only`;
+- no external disclosure;
+- the real Mac Studio running Control Director.
+
+It replaces Workflow Sanity, remote CI, Blacksmith, Testbox, Crabbox, mobile,
+and remote-device proof with:
+
+- exact-SHA targeted local tests;
+- source and test typechecks;
+- Release Governor policy and capability checks;
+- an exact-SHA production build and immutable-candidate verification;
+- capability preservation and rollback readiness;
+- staging plus Gateway/RPC readiness;
+- authenticated local production-Chrome Control Director and PCC proof;
+- isolated disposable local PCC browser E2E;
+- post-deployment health for finalization;
+- PCC ledger readiness.
+
+Every local check except the candidate and parent identity checks must include
+its exact command and a private, regular, non-symlink evidence artifact whose
+SHA-256 matches the canonical check record. Browser evidence must point to the
+same hash-bound artifact as
+`authenticated_local_control_director_pcc_browser`, contain no console errors,
+and must not claim mobile evidence. A passed label without the artifact is not
+proof. Each artifact is an `openclaw.release-local-proof.v1` JSON receipt bound
+to the exact candidate SHA, proof profile, check ID, command, and passed result.
+
+The profile cannot be selected for another project, an external destination, or
+an externally disclosed release. Adding a prohibited remote check does not
+strengthen the profile; it invalidates the evidence. All unrelated Release
+Governor behavior continues to use `default`.
+
 ## Evidence flow
 
 1. Collect exact candidate facts, active and candidate capability manifests,
@@ -81,6 +127,42 @@ Gateway, and ledger-readiness evidence appropriate to the operation.
 Evidence files and status are private state. They must not contain credentials,
 raw tokens, or secrets.
 
+### Policy-version migration
+
+The active immutable runtime remains the default Release Governor authority. A
+candidate cannot select its own Governor merely because it carries a newer
+policy.
+
+When a candidate introduces the next policy version and the active Governor
+cannot evaluate that version, an operator may provide a private
+`openclaw.release-governance-policy-migration.v1` record through
+`OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION`. This exception is fail-closed
+and applies only to `stage` and `promotion`. The migration record must:
+
+- be owner-private and expire within 24 hours;
+- advance the policy by exactly one version;
+- bind the active and candidate runtime SHAs;
+- bind the active and candidate Governor, policy, and capability-manifest
+  SHA-256 hashes;
+- bind the operation-specific evidence-bundle SHA-256 hash and exact approval
+  identity;
+- target the local-only `project-command-center` release using the
+  `mac_studio_control_director` proof profile.
+
+The bundle must carry the same profile in its top-level evidence contract,
+candidate facts, deterministic classification, and policy decision. Profile
+drift, approval mismatch, policy or artifact hash drift, or active-runtime drift
+blocks the migration and release.
+
+After those migration checks pass, the candidate Governor must still verify the
+complete canonical evidence bundle and immutable runtime artifacts. Promotion
+rechecks the migration's active SHA after acquiring the lifecycle lock and
+before changing managed-runtime state. Restart, finalization, rollback,
+unrelated projects, external destinations, wider version jumps, expired
+records, hash drift, and missing approvals remain blocked. Once promotion makes
+the candidate active, normal active-Governor verification resumes and the
+migration record no longer grants authority.
+
 Every lifecycle verification re-hashes the immutable release's Gateway entry,
 Release Governor entry, dashboard surface manifest, Release Governor policy,
 capability manifest, and `dist/build-info.json`. The evidence
@@ -95,9 +177,11 @@ is required for P0, P1, or protected changes. Telemetry and Evaluation review is
 required for promotion, restart, rollback, and finalization. Program Manager
 review is required when schedule or scope coordination is material.
 
-Bounded grants cover only descendants of an approved base SHA within the same
-project, repository, branch, destination, risk, categories, path exclusions,
-expiration, depth, and commit limit. They cannot cover protected paths, policy changes,
+Exact approvals and bounded grants are bound to the selected proof profile.
+Changing profiles requires a new matching approval. Bounded grants cover only
+descendants of an approved base SHA within the same project, repository, branch,
+destination, proof profile, risk, categories, path exclusions, expiration,
+depth, and commit limit. They cannot cover protected paths, policy changes,
 agent or prompt changes, capability weakening, or a new external destination.
 
 When exact approval is needed, PCC shows copyable wording bound to the precise
@@ -107,8 +191,11 @@ runtime actions, and explicit exclusions.
 ## Health and rollback
 
 Promotion and finalization evaluate Gateway connectivity, required routes, PCC,
-latency, error rate, startup failures, capabilities, desktop/mobile browser
-errors, active-run reconciliation, and PWA integrity where applicable.
+latency, error rate, startup failures, capabilities, browser errors, active-run
+reconciliation, and PWA integrity where applicable. The default profile uses
+desktop/mobile browser proof. The Mac Studio Control Director profile uses
+authenticated local production-Chrome Control Director/PCC proof and isolated
+disposable local PCC E2E instead.
 
 A deterministic health failure recommends rollback. Automatic rollback occurs
 only when rollback is already policy-authorized. Otherwise the release is

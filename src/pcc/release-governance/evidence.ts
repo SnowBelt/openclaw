@@ -5,6 +5,7 @@ import { classifyReleaseCandidate, validateReleaseCandidateFacts } from "./class
 import {
   RELEASE_EVIDENCE_SCHEMA,
   RELEASE_GOVERNANCE_STATUS_SCHEMA,
+  RELEASE_LOCAL_PROOF_SCHEMA,
   type ReleaseEvidenceBundle,
   type ReleaseEvidenceBundleInput,
   type ReleaseGovernanceStatus,
@@ -93,6 +94,150 @@ function safeArtifactPath(value: string): boolean {
   );
 }
 
+const NON_ATTESTED_LOCAL_CHECKS = new Set(["candidate_sha", "parent_sha"]);
+const SHA256_PATTERN = /^[a-f0-9]{64}$/iu;
+
+function verifyLocalProofReceipt(params: {
+  bundle: ReleaseEvidenceBundle;
+  checkId: string;
+  command: string;
+  artifact: string;
+}): string | null {
+  try {
+    const value = JSON.parse(fs.readFileSync(params.artifact, "utf8")) as Record<string, unknown>;
+    if (
+      value.schema !== RELEASE_LOCAL_PROOF_SCHEMA ||
+      value.candidateSha !== params.bundle.facts.candidateSha ||
+      value.proofProfile !== params.bundle.facts.proofProfile ||
+      value.checkId !== params.checkId ||
+      value.command !== params.command ||
+      value.result !== "passed"
+    ) {
+      return `Local proof receipt is not bound to the candidate, profile, check, command, and passed result: ${params.checkId}.`;
+    }
+    return null;
+  } catch {
+    return `Local proof receipt is not valid JSON: ${params.checkId}.`;
+  }
+}
+
+function verifyMacStudioControlDirectorProof(params: {
+  bundle: ReleaseEvidenceBundle;
+  policy: ReleaseGovernorPolicy;
+}): string[] {
+  const { bundle, policy } = params;
+  if (bundle.facts.proofProfile !== "mac_studio_control_director") {
+    return [];
+  }
+  const errors: string[] = [];
+  if (
+    bundle.facts.project !== "project-command-center" ||
+    bundle.facts.destination !== "local-only" ||
+    bundle.destination !== "local-only" ||
+    bundle.facts.externalDisclosure
+  ) {
+    errors.push(
+      "The mac_studio_control_director proof profile is restricted to a local-only project-command-center release.",
+    );
+  }
+  if (bundle.workflowSanity.length > 0) {
+    errors.push(
+      "The mac_studio_control_director proof profile must not contain remote workflow evidence.",
+    );
+  }
+  if (bundle.browserProof.mobile !== null) {
+    errors.push(
+      "The mac_studio_control_director proof profile must not claim mobile-device proof.",
+    );
+  }
+  const configuredProfile = policy.proofProfiles.mac_studio_control_director;
+  if (!configuredProfile) {
+    return ["The active policy does not define the mac_studio_control_director proof profile."];
+  }
+  const required = new Set(bundle.evaluation.classification.requiredChecks);
+  const prohibited = new Set(configuredProfile.prohibitedChecks);
+  for (const check of bundle.checks) {
+    if (prohibited.has(check.id)) {
+      errors.push(`The mac_studio_control_director proof profile forbids check ${check.id}.`);
+    }
+  }
+  for (const checkId of required) {
+    if (NON_ATTESTED_LOCAL_CHECKS.has(checkId)) {
+      continue;
+    }
+    const check = bundle.checks.find((candidate) => candidate.id === checkId);
+    if (!check || check.status !== "passed") {
+      continue;
+    }
+    const command = check.command?.trim();
+    if (!command) {
+      errors.push(`Local proof check ${checkId} is missing its exact command.`);
+      continue;
+    }
+    if (!check.artifact?.trim() || !check.artifactSha256?.match(SHA256_PATTERN)) {
+      errors.push(`Local proof check ${checkId} is missing a hash-bound artifact.`);
+      continue;
+    }
+    try {
+      const artifact = fs.lstatSync(check.artifact);
+      if (artifact.isSymbolicLink() || !artifact.isFile()) {
+        errors.push(`Local proof artifact is not a regular non-symlink file: ${checkId}.`);
+        continue;
+      }
+      if ((artifact.mode & 0o077) !== 0) {
+        errors.push(`Local proof artifact is not private: ${checkId}.`);
+      }
+      const actual = createHash("sha256").update(fs.readFileSync(check.artifact)).digest("hex");
+      if (actual !== check.artifactSha256) {
+        errors.push(`Local proof artifact hash mismatch: ${checkId}.`);
+        continue;
+      }
+      const receiptError = verifyLocalProofReceipt({
+        bundle,
+        checkId,
+        command,
+        artifact: check.artifact,
+      });
+      if (receiptError) {
+        errors.push(receiptError);
+      }
+    } catch {
+      errors.push(`Local proof artifact is missing or unreadable: ${checkId}.`);
+    }
+  }
+  const desktopCheck = bundle.checks.find(
+    (check) => check.id === "authenticated_local_control_director_pcc_browser",
+  );
+  if (
+    required.has("authenticated_local_control_director_pcc_browser") &&
+    (!bundle.browserProof.desktop ||
+      !desktopCheck?.artifact ||
+      bundle.browserProof.desktop !== desktopCheck.artifact)
+  ) {
+    errors.push(
+      "Authenticated local production-Chrome Control Director and PCC proof must match its hash-bound artifact.",
+    );
+  }
+  if (
+    required.has("authenticated_local_control_director_pcc_browser") &&
+    bundle.browserProof.consoleErrors !== 0
+  ) {
+    errors.push("Authenticated local production-Chrome proof contains console errors.");
+  }
+  if (required.has("ledger_ready") && !bundle.ledger.ready) {
+    errors.push("PCC ledger readiness is not proven.");
+  }
+  if (
+    required.has("post_deployment_health") &&
+    (!bundle.deployment.postDeploymentHealth ||
+      !bundle.deployment.postDeploymentHealth.passed ||
+      bundle.deployment.postDeploymentHealth.deterministicRollbackTrigger)
+  ) {
+    errors.push("Post-deployment health is not proven.");
+  }
+  return errors;
+}
+
 export function verifyReleaseRuntimeArtifacts(params: {
   bundle: ReleaseEvidenceBundle;
   releaseRoot: string;
@@ -165,6 +310,15 @@ export function verifyReleaseEvidenceAuthorization(params: {
 }): string[] {
   const { bundle, policy } = params;
   const errors = verifyReleaseEvidenceBundle(bundle);
+  if (
+    bundle.proofProfile !== bundle.facts.proofProfile ||
+    bundle.evaluation.classification.proofProfile !== bundle.facts.proofProfile ||
+    bundle.evaluation.decision.proofProfile !== bundle.facts.proofProfile
+  ) {
+    errors.push(
+      "Evidence proof profile does not match candidate facts, classification, and decision.",
+    );
+  }
   const factErrors = validateReleaseCandidateFacts(bundle.facts);
   errors.push(...factErrors);
   if (factErrors.length > 0) {
@@ -232,6 +386,7 @@ export function verifyReleaseEvidenceAuthorization(params: {
   if (Object.keys(bundle.build.artifactHashes).length === 0) {
     errors.push("Immutable build artifact hashes are missing.");
   }
+  errors.push(...verifyMacStudioControlDirectorProof({ bundle, policy }));
   for (const workflow of bundle.workflowSanity) {
     if (workflow.headSha !== bundle.facts.candidateSha || workflow.conclusion !== "success") {
       errors.push(
@@ -254,6 +409,7 @@ export function releaseGovernanceStatusFromBundle(
   return {
     schema: RELEASE_GOVERNANCE_STATUS_SCHEMA,
     policyVersion: bundle.evaluation.decision.policyVersion,
+    proofProfile: bundle.facts.proofProfile,
     candidateSha: bundle.facts.candidateSha,
     activeRuntimeSha: bundle.runtime.activeRuntimeSha,
     riskLevel: bundle.evaluation.classification.riskLevel,
@@ -263,9 +419,9 @@ export function releaseGovernanceStatusFromBundle(
     approvalStatus: bundle.evaluation.decision.approvalMode,
     approvalScope:
       approval && "candidateSha" in approval
-        ? `${approval.repository}:${approval.branch}@${approval.candidateSha} -> ${approval.destination}`
+        ? `${approval.repository}:${approval.branch}@${approval.candidateSha} [${approval.proofProfile}] -> ${approval.destination}`
         : approval
-          ? `${approval.project}:${approval.repository}:${approval.branch} descendants of ${approval.approvedBaseSha} -> ${approval.destination}`
+          ? `${approval.project}:${approval.repository}:${approval.branch} descendants of ${approval.approvedBaseSha} [${approval.proofProfile}] -> ${approval.destination}`
           : null,
     reviews: bundle.reviews,
     rollbackTarget: bundle.deployment.rollbackTarget,
