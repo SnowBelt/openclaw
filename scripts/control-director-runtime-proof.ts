@@ -115,7 +115,11 @@ function validateSurfaceContract(surface: Surface, value: JsonObject): void {
         throw new Error("macStudioDashboard.host must identify an arm64 Mac Studio running macOS.");
       }
       requiredString(host.osVersion, "macStudioDashboard.host.osVersion");
-      if (!SHA256_PATTERN.test(String(host.hostIdentitySha256 ?? ""))) {
+      const hostIdentitySha256 = requiredString(
+        host.hostIdentitySha256,
+        "macStudioDashboard.host.hostIdentitySha256",
+      );
+      if (!SHA256_PATTERN.test(hostIdentitySha256)) {
         throw new Error(
           "macStudioDashboard.host.hostIdentitySha256 must be a 64-character digest.",
         );

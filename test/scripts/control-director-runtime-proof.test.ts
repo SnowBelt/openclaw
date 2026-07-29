@@ -190,6 +190,14 @@ describe("Control Director runtime proof assembler", () => {
       "arm64 Mac Studio running macOS",
     );
 
+    const invalidHostIdentity = input();
+    Object.assign(invalidHostIdentity.surfaces.macStudioDashboard.host, {
+      hostIdentitySha256: {},
+    });
+    expect(() => buildControlDirectorRuntimeProof(invalidHostIdentity)).toThrow(
+      "hostIdentitySha256 requires a non-empty string",
+    );
+
     const short = input();
     short.surfaces.soak.durationMs = 299_999;
     expect(() => buildControlDirectorRuntimeProof(short)).toThrow("at least 300000ms");
