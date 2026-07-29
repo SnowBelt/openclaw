@@ -14,6 +14,7 @@ import {
 } from "./task-flow-registry.js";
 import {
   getInspectableTaskFlowAuditSummary,
+  listTaskFlowRegistryStateFindings,
   previewTaskFlowRegistryMaintenance,
   runTaskFlowRegistryMaintenance,
 } from "./task-flow-registry.maintenance.js";
@@ -140,6 +141,129 @@ describe("task-flow-registry maintenance", () => {
         pruned: 1,
       });
       expect(getTaskFlowById(oldFlow.flowId)).toBeUndefined();
+    });
+  });
+
+  it("removes records created by reserved test controllers", async () => {
+    await withTaskFlowMaintenanceStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/runtime-taskflow",
+        goal: "Test-only flow",
+        status: "queued",
+      });
+
+      expect(listTaskFlowRegistryStateFindings()).toEqual([
+        expect.objectContaining({
+          flowId: flow.flowId,
+          code: "test_controller_state",
+        }),
+      ]);
+      expect(previewTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 0,
+        pruned: 1,
+      });
+
+      expect(await runTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 0,
+        pruned: 1,
+      });
+      expect(getTaskFlowById(flow.flowId)).toBeUndefined();
+    });
+  });
+
+  it("keeps reserved test flows while a linked child task remains active", async () => {
+    await withTaskFlowMaintenanceStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/runtime-taskflow",
+        goal: "Leaked test flow with active child",
+        status: "running",
+      });
+      const child = createRunningTaskRun({
+        runtime: "acp",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        parentFlowId: flow.flowId,
+        childSessionKey: "agent:main:child",
+        runId: "run-leaked-test-child",
+        task: "Finish linked work",
+      });
+
+      expect(previewTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 0,
+        pruned: 0,
+      });
+      expect(await runTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 0,
+        pruned: 0,
+      });
+      expect(getTaskFlowById(flow.flowId)).toBeDefined();
+      expect(child.parentFlowId).toBe(flow.flowId);
+    });
+  });
+
+  it("retires active flows from the superseded Chat goal controller", async () => {
+    await withTaskFlowMaintenanceStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "control-ui-chat",
+        goal: "Legacy goal",
+        status: "running",
+      });
+
+      expect(listTaskFlowRegistryStateFindings()).toEqual([
+        expect.objectContaining({
+          flowId: flow.flowId,
+          code: "retired_chat_goal",
+        }),
+      ]);
+      expect(previewTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 1,
+        pruned: 0,
+      });
+
+      expect(await runTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 1,
+        pruned: 0,
+      });
+      expect(getTaskFlowById(flow.flowId)).toMatchObject({
+        status: "lost",
+        blockedSummary: "This goal predates the durable Pursue Goal controller.",
+      });
+    });
+  });
+
+  it("keeps retired Chat goals nonterminal while a linked child task remains active", async () => {
+    await withTaskFlowMaintenanceStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "control-ui-chat",
+        goal: "Legacy goal with active work",
+        status: "running",
+      });
+      const child = createRunningTaskRun({
+        runtime: "acp",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        parentFlowId: flow.flowId,
+        childSessionKey: "agent:main:legacy-child",
+        runId: "run-legacy-chat-child",
+        task: "Finish legacy work",
+      });
+
+      expect(previewTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 0,
+        pruned: 0,
+      });
+      expect(await runTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 0,
+        pruned: 0,
+      });
+      expect(getTaskFlowById(flow.flowId)).toMatchObject({
+        status: "running",
+      });
+      expect(child.parentFlowId).toBe(flow.flowId);
     });
   });
 

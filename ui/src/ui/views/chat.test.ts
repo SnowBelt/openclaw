@@ -2916,6 +2916,41 @@ describe("chat queue", () => {
 
     expect(onQueueRetry).toHaveBeenCalledWith("failed-1");
   });
+
+  it("reports running, queued, and failed work separately", () => {
+    const container = renderQueue({
+      queue: [
+        {
+          id: "running-1",
+          text: "active work",
+          createdAt: 1,
+          serverPhase: "admitted",
+        },
+        {
+          id: "queued-1",
+          text: "next work",
+          createdAt: 2,
+          serverPhase: "pending",
+        },
+        {
+          id: "failed-1",
+          text: "retry work",
+          createdAt: 3,
+          serverPhase: "failed",
+          sendState: "failed",
+        },
+      ],
+    });
+
+    expect(container.querySelector(".chat-queue__title")?.textContent).toContain(
+      "1 running · 1 queued · 1 failed",
+    );
+    expect(
+      Array.from(container.querySelectorAll(".chat-queue__badge")).map((node) =>
+        node.textContent?.trim(),
+      ),
+    ).toEqual(["Running", "Queued", "Failed"]);
+  });
 });
 
 describe("chat sidebar raw content", () => {
@@ -5558,6 +5593,19 @@ describe("chat Pursue Goal surface", () => {
     expect(cancel.disabled).toBe(true);
     cancel.click();
     expect(onGoalControl).not.toHaveBeenCalled();
+  });
+
+  it("lets the operator dismiss a stale goal error", () => {
+    const onGoalDismissError = vi.fn();
+    const container = renderChatView({
+      goalPanelOpen: true,
+      goalError: "revision conflict",
+      onGoalDismissError,
+    });
+
+    container.querySelector<HTMLButtonElement>('[aria-label="Dismiss goal error"]')?.click();
+
+    expect(onGoalDismissError).toHaveBeenCalledTimes(1);
   });
 
   it("resumes a paused goal and does not claim it is running", () => {

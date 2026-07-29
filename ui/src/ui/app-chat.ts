@@ -159,6 +159,15 @@ function setChatError(host: ChatHost, error: string | null) {
   host.chatError = error;
 }
 
+function clearMatchingChatError(host: ChatHost, prefix: string) {
+  if (host.chatError?.startsWith(prefix)) {
+    host.chatError = null;
+  }
+  if (host.lastError?.startsWith(prefix)) {
+    host.lastError = null;
+  }
+}
+
 type AcceptedChatSendAck = ChatSendAck & { status: "started" | "in_flight" | "ok" };
 type TerminalFailureChatSendAck = ChatSendAck & { status: "timeout" | "error" };
 
@@ -474,6 +483,7 @@ function enqueuePendingSendMessage(
     ? "sending"
     : "waiting-reconnect",
   skillWorkshopRevision?: ChatQueueSkillWorkshopRevision,
+  turnMode: "queue" | "steer" = "queue",
 ): ChatQueueItem | null {
   const trimmed = text.trim();
   const hasAttachments = Boolean(attachments && attachments.length > 0);
@@ -492,6 +502,7 @@ function enqueuePendingSendMessage(
     sendSubmittedAtMs: submittedAtMs,
     sessionKey: host.sessionKey,
     agentId: scopedAgentIdForSession(host, host.sessionKey),
+    ...(turnMode === "steer" ? { kind: "steered" as const } : {}),
     ...(skillWorkshopRevision ? { skillWorkshopRevision } : {}),
   };
   host.chatQueue = [...host.chatQueue, pending];
@@ -650,6 +661,7 @@ export async function loadServerChatTurns(
     for (const item of removed) {
       releaseChatAttachmentPayloads(excludeComposerAttachments(host, item.attachments));
     }
+    clearMatchingChatError(host, "Could not refresh queued turns:");
   } catch (error) {
     // Older or temporarily unavailable gateways keep the browser queue usable.
     setChatError(host, `Could not refresh queued turns: ${formatConnectError(error)}`);
@@ -698,12 +710,12 @@ async function createServerChatTurn(
     }
     return true;
   } catch (error) {
+    const sendError = formatConnectError(error);
     updateQueuedMessageForSession(host, item.sessionKey ?? host.sessionKey, item.id, (entry) => ({
       ...entry,
       sendState: "failed",
-      sendError: formatConnectError(error),
+      sendError,
     }));
-    setChatError(host, `Could not queue the message: ${formatConnectError(error)}`);
     return false;
   }
 }
@@ -717,23 +729,52 @@ async function mutateServerChatTurn(
   if (!host.client || !host.connected || !item.serverTurnId || item.serverRevision == null) {
     return null;
   }
-  try {
-    const response = await host.client.request<ChatTurnMutationResponse>(method, {
-      turnId: item.serverTurnId,
-      sessionKey: item.sessionKey ?? host.sessionKey,
-      expectedRevision: item.serverRevision,
-      idempotencyKey: generateUUID(),
+  const sessionKey = item.sessionKey ?? host.sessionKey;
+  const idempotencyKey = generateUUID();
+  const requestMutation = async (candidate: ChatQueueItem) =>
+    await host.client!.request<ChatTurnMutationResponse>(method, {
+      turnId: candidate.serverTurnId,
+      sessionKey,
+      expectedRevision: candidate.serverRevision,
+      idempotencyKey,
       ...extra,
     });
+  try {
+    let current = item;
+    let response = await requestMutation(current);
     if (response.turn) {
       applyServerTurnToQueue(host, response.turn);
     }
     if (!response.applied && response.reason === "revision_conflict") {
-      await loadServerChatTurns(host, item.sessionKey ?? host.sessionKey);
+      await loadServerChatTurns(host, sessionKey);
+      const refreshed = readChatQueueForSession(host, sessionKey).find(
+        (entry) => entry.serverTurnId === item.serverTurnId,
+      );
+      if (refreshed?.serverRevision != null) {
+        current = refreshed;
+        response = await requestMutation(current);
+        if (response.turn) {
+          applyServerTurnToQueue(host, response.turn);
+        }
+      }
+    }
+    if (!response.applied && response.found !== false) {
+      updateQueuedMessageForSession(host, sessionKey, current.id, (entry) => ({
+        ...entry,
+        sendError: response.reason ?? "Queue action was not applied.",
+      }));
+    } else if (response.applied) {
+      updateQueuedMessageForSession(host, sessionKey, current.id, (entry) => ({
+        ...entry,
+        sendError: undefined,
+      }));
     }
     return response;
   } catch (error) {
-    setChatError(host, formatConnectError(error));
+    updateQueuedMessageForSession(host, sessionKey, item.id, (entry) => ({
+      ...entry,
+      sendError: formatConnectError(error),
+    }));
     return null;
   }
 }
@@ -2018,6 +2059,20 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
     sendError: undefined,
     sendState: host.connected && host.client ? "sending" : "waiting-reconnect",
   }));
+  if (
+    host.connected &&
+    host.client &&
+    isGatewayMethodAdvertised(host as unknown as ChatState, "chat.turns.create") === true
+  ) {
+    const pending = updateQueuedMessage(host, id, (entry) => ({
+      ...entry,
+      sendState: undefined,
+    }));
+    if (pending) {
+      await createServerChatTurn(host, pending, pending.kind === "steered" ? "steer" : "queue");
+    }
+    return;
+  }
   await sendQueuedChatMessage(host, id);
   if (!host.chatRunId) {
     void flushChatQueue(host);
@@ -2143,6 +2198,7 @@ export async function handleSendChat(
       submittedAtMs,
       waitingForModel ? "waiting-model" : undefined,
       skillWorkshopRevision,
+      opts?.turnMode,
     );
     if (!queued) {
       return;

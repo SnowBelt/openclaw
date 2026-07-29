@@ -253,6 +253,33 @@ describe("tasks gateway handlers", () => {
     expect(getTaskFlowById(flow.flowId)?.status).toBe("running");
   });
 
+  it("rejects Pursue Goal controls for unrelated managed flows", async () => {
+    const flow = createManagedTaskFlow({
+      ownerKey: "agent:main:main",
+      controllerId: "tests/unrelated-controller",
+      status: "running",
+      goal: "Unrelated managed work",
+    });
+    if (!flow) {
+      throw new Error("expected managed flow");
+    }
+
+    const result = await runTaskFlowHandler("taskFlows.control", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:main",
+      action: "stop",
+    });
+
+    expect(result.calls[0]?.[0]).toBe(true);
+    expect(result.payload).toMatchObject({
+      found: true,
+      applied: false,
+      action: "stop",
+      reason: "Flow is not a Pursue Goal.",
+    });
+    expect(getTaskFlowById(flow.flowId)?.status).toBe("running");
+  });
+
   it("lists task summaries with SDK-facing statuses and filters", async () => {
     const running = createTaskRecord({
       runtime: "subagent",

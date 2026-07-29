@@ -1763,6 +1763,49 @@ export function resolveDoctorHealthContributions(): DoctorHealthContribution[] {
       run: runStateIntegrityHealth,
     }),
     createDoctorHealthContribution({
+      id: "doctor:task-flow-state",
+      label: "Task-flow state",
+      healthChecks: {
+        id: "core/doctor/task-flow-state",
+        description:
+          "Reserved test TaskFlows and active goals from the retired Chat controller are repaired.",
+        async detect() {
+          const { listTaskFlowRegistryStateFindings } =
+            await import("../tasks/task-flow-registry.maintenance.js");
+          return listTaskFlowRegistryStateFindings().map((finding) => ({
+            checkId: "core/doctor/task-flow-state",
+            severity: "warning" as const,
+            message: finding.message,
+            path: "tasks.flows",
+            target: finding.flowId,
+            requirement: finding.code,
+            fixHint: "Run `openclaw doctor --fix` to repair task-flow state.",
+          }));
+        },
+        async repair(ctx) {
+          const { previewTaskFlowRegistryMaintenance, runTaskFlowRegistryMaintenance } =
+            await import("../tasks/task-flow-registry.maintenance.js");
+          const summary = ctx.dryRun
+            ? previewTaskFlowRegistryMaintenance()
+            : await runTaskFlowRegistryMaintenance();
+          return {
+            status: "repaired" as const,
+            changes: ctx.dryRun
+              ? []
+              : [`Repaired ${summary.reconciled} and pruned ${summary.pruned} task-flow records.`],
+            effects: [
+              {
+                kind: "state" as const,
+                action: ctx.dryRun ? "preview task-flow state repair" : "repair task-flow state",
+                target: "state/openclaw.sqlite",
+                dryRunSafe: true,
+              },
+            ],
+          };
+        },
+      },
+    }),
+    createDoctorHealthContribution({
       id: "doctor:codex-session-routes",
       label: "Codex session routes",
       healthCheckIds: ["core/doctor/codex-session-routes"],

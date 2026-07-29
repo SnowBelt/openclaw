@@ -196,6 +196,10 @@ function isPublicTaskFlow(flow: TaskFlowRecord | undefined): flow is TaskFlowRec
   return Boolean(flow && flow.controllerId !== CHAT_TURN_INBOX_CONTROLLER_ID);
 }
 
+function isPursueGoalTaskFlow(flow: TaskFlowRecord): boolean {
+  return flow.controllerId === PURSUE_GOAL_CONTROLLER_ID && stateForPursueGoalFlow(flow) != null;
+}
+
 function flowMatchesStatusFilter(
   flow: TaskFlowRecord,
   status: TaskFlowsListParams["status"],
@@ -742,6 +746,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
       respond(true, { found: false, applied: false, reason: "Flow not found." });
       return;
     }
+    if (!isPursueGoalTaskFlow(flow)) {
+      respond(true, { found: true, applied: false, reason: "Flow is not a Pursue Goal." });
+      return;
+    }
     const result = await pausePursueGoalFlow({
       flowId: flow.flowId,
       ...(params.expectedRevision !== undefined
@@ -770,6 +778,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
       respond(true, { found: false, applied: false, reason: "Flow not found." });
       return;
     }
+    if (!isPursueGoalTaskFlow(flow)) {
+      respond(true, { found: true, applied: false, reason: "Flow is not a Pursue Goal." });
+      return;
+    }
     const result = await resumePursueGoalFlow({
       flowId: flow.flowId,
       ...(params.expectedRevision !== undefined
@@ -796,6 +808,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
     const flow = getTaskFlowById(params.flowId);
     if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
       respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    if (!isPursueGoalTaskFlow(flow)) {
+      respond(true, { found: true, applied: false, reason: "Flow is not a Pursue Goal." });
       return;
     }
     const result = await editPursueGoalFlow({
@@ -827,6 +843,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
       respond(true, { found: false, applied: false, reason: "Flow not found." });
       return;
     }
+    if (!isPursueGoalTaskFlow(flow)) {
+      respond(true, { found: true, applied: false, reason: "Flow is not a Pursue Goal." });
+      return;
+    }
     const result = await retryPursueGoalFlow({
       flowId: flow.flowId,
       ...(params.expectedRevision !== undefined
@@ -853,6 +873,10 @@ export const tasksHandlers: GatewayRequestHandlers = {
     const flow = getTaskFlowById(params.flowId);
     if (!isPublicTaskFlow(flow) || !flowMatchesOwner(flow, { sessionKey: params.sessionKey })) {
       respond(true, { found: false, applied: false, reason: "Flow not found." });
+      return;
+    }
+    if (!isPursueGoalTaskFlow(flow)) {
+      respond(true, { found: true, applied: false, reason: "Flow is not a Pursue Goal." });
       return;
     }
     const result = await stopPursueGoalFlow({
@@ -885,6 +909,15 @@ export const tasksHandlers: GatewayRequestHandlers = {
         applied: false,
         action: params.action,
         reason: "Flow not found.",
+      });
+      return;
+    }
+    if (!isPursueGoalTaskFlow(flow)) {
+      respond(true, {
+        found: true,
+        applied: false,
+        action: params.action,
+        reason: "Flow is not a Pursue Goal.",
       });
       return;
     }

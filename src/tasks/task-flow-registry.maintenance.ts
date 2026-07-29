@@ -15,11 +15,19 @@ import {
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
 
 const TASK_FLOW_RETENTION_MS = 7 * 24 * 60 * 60_000;
+const RETIRED_CHAT_GOAL_CONTROLLER_ID = "control-ui-chat";
+const LEAKED_RUNTIME_TEST_CONTROLLER_ID = "tests/runtime-taskflow";
 
 /** Counts task-flow registry maintenance actions without exposing individual records. */
 type TaskFlowRegistryMaintenanceSummary = {
   reconciled: number;
   pruned: number;
+};
+
+export type TaskFlowRegistryStateFinding = {
+  flowId: string;
+  code: "test_controller_state" | "retired_chat_goal";
+  message: string;
 };
 
 function isTerminalFlow(flow: TaskFlowRecord): boolean {
@@ -48,6 +56,66 @@ function shouldPruneFlow(flow: TaskFlowRecord, now: number): boolean {
     return false;
   }
   return now - resolveTerminalAt(flow) >= TASK_FLOW_RETENTION_MS;
+}
+
+function taskFlowRegistryStateFinding(flow: TaskFlowRecord): TaskFlowRegistryStateFinding | null {
+  if (flow.controllerId === LEAKED_RUNTIME_TEST_CONTROLLER_ID) {
+    return {
+      flowId: flow.flowId,
+      code: "test_controller_state",
+      message: `TaskFlow ${flow.flowId} was created by reserved test controller ${flow.controllerId}.`,
+    };
+  }
+  if (
+    flow.syncMode === "managed" &&
+    flow.controllerId === RETIRED_CHAT_GOAL_CONTROLLER_ID &&
+    !isTerminalFlow(flow)
+  ) {
+    return {
+      flowId: flow.flowId,
+      code: "retired_chat_goal",
+      message: `TaskFlow ${flow.flowId} uses the retired Chat goal controller.`,
+    };
+  }
+  return null;
+}
+
+export function listTaskFlowRegistryStateFindings(): TaskFlowRegistryStateFinding[] {
+  return listTaskFlowRecords().flatMap((flow) => {
+    const finding = taskFlowRegistryStateFinding(flow);
+    return finding ? [finding] : [];
+  });
+}
+
+function repairRetiredChatGoalFlow(flow: TaskFlowRecord, now: number): boolean {
+  let current = flow;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const finding = taskFlowRegistryStateFinding(current);
+    if (finding?.code !== "retired_chat_goal" || hasActiveLinkedTasks(current.flowId)) {
+      return false;
+    }
+    const result = updateFlowRecordByIdExpectedRevision({
+      flowId: current.flowId,
+      expectedRevision: current.revision,
+      patch: {
+        status: "lost",
+        currentStep: "Legacy Chat goal retired; create a new Pursue Goal.",
+        blockedTaskId: null,
+        blockedSummary: "This goal predates the durable Pursue Goal controller.",
+        waitJson: null,
+        endedAt: now,
+        updatedAt: now,
+      },
+    });
+    if (result.applied) {
+      return true;
+    }
+    if (result.reason === "not_found" || !result.current) {
+      return false;
+    }
+    current = result.current;
+  }
+  return false;
 }
 
 function shouldFinalizeCancelledFlow(flow: TaskFlowRecord): boolean {
@@ -133,6 +201,19 @@ export function previewTaskFlowRegistryMaintenance(): TaskFlowRegistryMaintenanc
   let reconciled = 0;
   let pruned = 0;
   for (const flow of listTaskFlowRecords()) {
+    const stateFinding = taskFlowRegistryStateFinding(flow);
+    if (stateFinding?.code === "test_controller_state") {
+      if (!hasActiveLinkedTasks(flow.flowId)) {
+        pruned += 1;
+      }
+      continue;
+    }
+    if (stateFinding?.code === "retired_chat_goal") {
+      if (!hasActiveLinkedTasks(flow.flowId)) {
+        reconciled += 1;
+      }
+      continue;
+    }
     if (shouldRepairTerminalMirroredFlowTimestamp(flow)) {
       reconciled += 1;
       continue;
@@ -155,6 +236,19 @@ export async function runTaskFlowRegistryMaintenance(): Promise<TaskFlowRegistry
   for (const flow of listTaskFlowRecords()) {
     const current = getTaskFlowById(flow.flowId);
     if (!current) {
+      continue;
+    }
+    const stateFinding = taskFlowRegistryStateFinding(current);
+    if (stateFinding?.code === "test_controller_state") {
+      if (!hasActiveLinkedTasks(current.flowId) && deleteTaskFlowRecordById(current.flowId)) {
+        pruned += 1;
+      }
+      continue;
+    }
+    if (stateFinding?.code === "retired_chat_goal") {
+      if (repairRetiredChatGoalFlow(current, now)) {
+        reconciled += 1;
+      }
       continue;
     }
     if (shouldRepairTerminalMirroredFlowTimestamp(current)) {
