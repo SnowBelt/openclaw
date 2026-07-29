@@ -17,6 +17,7 @@ import {
 import { renderChatQueue } from "../chat/chat-queue.ts";
 import { buildRawSidebarContent } from "../chat/chat-sidebar-raw.ts";
 import { renderWelcomeState } from "../chat/chat-welcome.ts";
+import { CHAT_PURSUE_GOAL_CONTROLLER_ID } from "../chat/pursue-goal.ts";
 import { renderChatSessionSelect } from "../chat/session-controls.ts";
 import type { ExecApprovalRequest } from "../controllers/exec-approval.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
@@ -4854,6 +4855,7 @@ describe("chat Working Now surface", () => {
       goalFlows: [
         {
           id: "flow-1",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           goal: "Finish the dashboard",
           status: "running",
           currentStep: "Waiting for the next continuation",
@@ -4873,6 +4875,7 @@ describe("chat Working Now surface", () => {
       goalFlows: [
         {
           id: "flow-paused",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           goal: "Finish the dashboard",
           status: "paused",
           currentStep: "Paused by user.",
@@ -4892,6 +4895,7 @@ describe("chat Working Now surface", () => {
       goalFlows: [
         {
           id: "flow-blocked",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           goal: "Finish the dashboard",
           status: "blocked",
           blockedSummary: "Remote proof is missing.",
@@ -5516,6 +5520,7 @@ describe("chat Pursue Goal surface", () => {
         {
           id: "flow-1",
           flowId: "flow-1",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           status: "running",
           goal: "Finish Pursue Goal V1",
           currentStep: "Running local proof.",
@@ -5579,6 +5584,7 @@ describe("chat Pursue Goal surface", () => {
         {
           id: "flow-1",
           flowId: "flow-1",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           status: "running",
           goal: "Stop cleanly",
           currentStep: "Stopping work.",
@@ -5613,7 +5619,14 @@ describe("chat Pursue Goal surface", () => {
     const container = renderChatView({
       goalPanelOpen: true,
       goalDraft: "Paused goal",
-      goalFlows: [{ id: "flow-1", status: "paused", goal: "Paused goal" }],
+      goalFlows: [
+        {
+          id: "flow-1",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
+          status: "paused",
+          goal: "Paused goal",
+        },
+      ],
       onGoalControl,
     });
 
@@ -5631,6 +5644,7 @@ describe("chat Pursue Goal surface", () => {
       goalFlows: [
         {
           id: "flow-blocked",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           status: "blocked",
           goal: "Collect remote proof",
           blockedSummary: "Waiting for GitHub Actions result.",
@@ -5653,6 +5667,7 @@ describe("chat Pursue Goal surface", () => {
       goalFlows: [
         {
           id: "flow-cancelled",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           status: "cancelled",
           goal: "Old goal",
           cancelRequestedAt: 1,

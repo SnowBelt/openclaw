@@ -495,6 +495,7 @@ describe("renderApp assistant avatar routing", () => {
             {
               id: "flow-new",
               flowId: "flow-new",
+              controllerId: "openclaw/pursue-goal-v1",
               status: "running",
               goal: "Finish the verified work",
             },
@@ -510,6 +511,7 @@ describe("renderApp assistant avatar routing", () => {
         {
           id: "flow-old",
           flowId: "flow-old",
+          controllerId: "openclaw/pursue-goal-v1",
           status: "blocked",
           goal: "Finish the verified work",
         },

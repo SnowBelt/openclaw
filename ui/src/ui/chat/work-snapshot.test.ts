@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CHAT_PURSUE_GOAL_CONTROLLER_ID } from "./pursue-goal.ts";
 import { buildWorkSurfaceSnapshot } from "./work-snapshot.ts";
 
 const sessionsResult = {
@@ -89,6 +90,7 @@ describe("buildWorkSurfaceSnapshot", () => {
       goals: [
         {
           id: "flow-1",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           goal: "Finish the dashboard",
           status: "running",
           currentStep: "Waiting for the next continuation",
@@ -109,7 +111,14 @@ describe("buildWorkSurfaceSnapshot", () => {
 
   it("labels paused goals without claiming work is running", () => {
     const items = buildWorkSurfaceSnapshot({
-      goals: [{ id: "flow-1", goal: "Finish the dashboard", status: "paused" }],
+      goals: [
+        {
+          id: "flow-1",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
+          goal: "Finish the dashboard",
+          status: "paused",
+        },
+      ],
     });
 
     expect(items[0]?.status).toBe("Goal paused");
@@ -120,6 +129,7 @@ describe("buildWorkSurfaceSnapshot", () => {
       goals: [
         {
           id: "flow-blocked",
+          controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID,
           goal: "Finish the dashboard",
           status: "blocked",
           blockedSummary: "Remote proof is missing.",
