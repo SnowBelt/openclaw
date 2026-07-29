@@ -48,7 +48,7 @@ function usage() {
     "       [--expected-sha <40-char-sha>] [--gate-proof <json>] [--runtime-proof <json>]",
     "",
     "Source readiness requires a clean exact checkout and passing torture/chaos/Chat-stack gate receipts.",
-    "Production readiness additionally requires managed lineage, model, desktop, tablet, mobile, restart, soak, rollback, and live diagnostic proof.",
+    "Production readiness additionally requires exact Mac Studio lineage, local validation, Dashboard, model, restart, soak, rollback, and live diagnostic proof.",
   ].join("\n");
 }
 
@@ -578,7 +578,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     fact(
       "runtime-proof-contract",
       "Managed runtime proof uses the SIG-enabled exact-runtime contract",
-      runtime?.schemaVersion === 2 && runtime?.sigBackgroundEnabled === true,
+      runtime?.schemaVersion === 3 && runtime?.sigBackgroundEnabled === true,
       runtimeSurface,
     ),
   );
@@ -678,9 +678,8 @@ export function buildControlDirectorReadinessScorecard(params) {
     ),
   );
   for (const [key, label] of Object.entries({
-    desktop: "Desktop Dashboard keeps transcript and composer visible",
-    tablet: "Tablet Dashboard keeps transcript and composer visible",
-    mobile: "Mobile Dashboard keeps transcript and composer visible",
+    macStudioDashboard:
+      "Mac Studio Dashboard keeps transcript and composer accessible on the exact managed host",
     localModelRouting: "Local model routing is exact and evidence-backed",
     localModelLatency: "Local model latency meets the accepted runtime threshold",
     memory: "Recent and durable memory retrieval is evidence-backed",
