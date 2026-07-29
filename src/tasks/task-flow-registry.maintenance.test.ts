@@ -234,6 +234,32 @@ describe("task-flow-registry maintenance", () => {
     });
   });
 
+  it("retires blocked flows from the superseded Chat goal controller", async () => {
+    await withTaskFlowMaintenanceStateDir(async () => {
+      const flow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "control-ui-chat",
+        goal: "Blocked legacy goal",
+        status: "blocked",
+      });
+
+      expect(listTaskFlowRegistryStateFindings()).toEqual([
+        expect.objectContaining({
+          flowId: flow.flowId,
+          code: "retired_chat_goal",
+        }),
+      ]);
+      expect(await runTaskFlowRegistryMaintenance()).toEqual({
+        reconciled: 1,
+        pruned: 0,
+      });
+      expect(getTaskFlowById(flow.flowId)).toMatchObject({
+        status: "lost",
+        blockedSummary: "This goal predates the durable Pursue Goal controller.",
+      });
+    });
+  });
+
   it("keeps retired Chat goals nonterminal while a linked child task remains active", async () => {
     await withTaskFlowMaintenanceStateDir(async () => {
       const flow = createManagedTaskFlow({

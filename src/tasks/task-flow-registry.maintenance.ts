@@ -40,6 +40,15 @@ function isTerminalFlow(flow: TaskFlowRecord): boolean {
   );
 }
 
+function isRetiredChatGoalFinal(flow: TaskFlowRecord): boolean {
+  return (
+    flow.status === "succeeded" ||
+    flow.status === "failed" ||
+    flow.status === "cancelled" ||
+    flow.status === "lost"
+  );
+}
+
 function hasActiveLinkedTasks(flowId: string): boolean {
   return listTasksForFlowId(flowId).some(isTaskFlowCancellationPending);
 }
@@ -69,7 +78,7 @@ function taskFlowRegistryStateFinding(flow: TaskFlowRecord): TaskFlowRegistrySta
   if (
     flow.syncMode === "managed" &&
     flow.controllerId === RETIRED_CHAT_GOAL_CONTROLLER_ID &&
-    !isTerminalFlow(flow)
+    !isRetiredChatGoalFinal(flow)
   ) {
     return {
       flowId: flow.flowId,
