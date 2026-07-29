@@ -26,7 +26,7 @@ auth_helper=$(dirname "$0")/custom-runtime-auth.sh
 usage() {
   printf '%s\n' \
     'usage: custom-runtime-promote.sh --release PATH --source-sha SHA [--source-repo PATH --source-branch REF] [--port 18789] [--enable-sig-background]' \
-    '       custom-runtime-promote.sh --lease-acquire|--lease-heartbeat|--lease-authorize-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
+    '       custom-runtime-promote.sh --lease-acquire|--lease-heartbeat|--lease-authorize-promotion|--lease-adopt-active-promotion|--lease-release|--lease-recover-expired --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification|human-usability-finalization --approval-id ID --operation-id ID --invocation-id ID [--ttl-seconds 3600] [--usability-campaign PATH]' \
     '       custom-runtime-promote.sh --lease-recover-orphaned --active-sha SHA --candidate-sha SHA --owner ID --operation-class release-certification --approval-id ID --operation-id ID --invocation-id ID --recovery-approval-id ID --activity-proof PATH --github-repo OWNER/REPO --reason ID' \
     '       custom-runtime-promote.sh --lease-status' >&2
   exit 64
@@ -47,6 +47,7 @@ while [ $# -gt 0 ]; do
     --lease-acquire) [ -z "$lease_action" ] || usage; lease_action=acquire; shift ;;
     --lease-heartbeat) [ -z "$lease_action" ] || usage; lease_action=heartbeat; shift ;;
     --lease-authorize-promotion) [ -z "$lease_action" ] || usage; lease_action=authorize-promotion; shift ;;
+    --lease-adopt-active-promotion) [ -z "$lease_action" ] || usage; lease_action=adopt-active-promotion; shift ;;
     --lease-release) [ -z "$lease_action" ] || usage; lease_action=release; shift ;;
     --lease-recover-expired) [ -z "$lease_action" ] || usage; lease_action=recover-expired; shift ;;
     --lease-recover-orphaned) [ -z "$lease_action" ] || usage; lease_action=recover-orphaned; shift ;;
@@ -88,7 +89,7 @@ if [ -n "$lease_action" ]; then
         [ -n "$lease_activity_proof" ] && [ -n "$lease_github_repo" ] && \
         [ -n "$lease_reason" ] || usage
       ;;
-    heartbeat|authorize-promotion|release|recover-expired)
+    heartbeat|authorize-promotion|adopt-active-promotion|release|recover-expired)
       [ -z "$lease_ttl_seconds" ] && [ -z "$lease_usability_campaign" ] && \
         [ -z "$lease_recovery_approval_id" ] && \
         [ -z "$lease_activity_proof" ] && [ -z "$lease_github_repo" ] && \
