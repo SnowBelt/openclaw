@@ -216,6 +216,50 @@ describe("tasks gateway handlers", () => {
     expect(getTaskFlowById(flow.flowId)?.goal).toBe("Finish the dashboard safely");
   });
 
+  it("returns a canonical revision conflict before applying stale goal controls", async () => {
+    const flow = createManagedTaskFlow({
+      ownerKey: "agent:main:main",
+      controllerId: PURSUE_GOAL_CONTROLLER_ID,
+      status: "running",
+      goal: "Finish the dashboard",
+    });
+    if (!flow) {
+      throw new Error("expected managed flow");
+    }
+    expect(
+      updateFlowRecordByIdExpectedRevision({
+        flowId: flow.flowId,
+        expectedRevision: flow.revision,
+        patch: {
+          stateJson: structuredClone(
+            createPursueGoalControllerState({
+              flowId: flow.flowId,
+              goal: flow.goal,
+              workerAgentId: "program-manager",
+            }),
+          ),
+        },
+      }).applied,
+    ).toBe(true);
+
+    const result = await runTaskFlowHandler("taskFlows.control", {
+      flowId: flow.flowId,
+      sessionKey: "agent:main:main",
+      action: "pause",
+      expectedRevision: flow.revision,
+    });
+
+    expect(result.calls[0]?.[0]).toBe(true);
+    expect(result.payload).toMatchObject({
+      found: true,
+      applied: false,
+      action: "pause",
+      reason: "revision_conflict",
+      flow: { id: flow.flowId, status: "running", revision: flow.revision + 1 },
+    });
+    expect(getTaskFlowById(flow.flowId)?.status).toBe("running");
+  });
+
   it("hides a managed flow from a different session owner", async () => {
     const flow = createManagedTaskFlow({
       ownerKey: "agent:main:main",

@@ -942,6 +942,16 @@ export const tasksHandlers: GatewayRequestHandlers = {
       });
       return;
     }
+    if (params.expectedRevision !== undefined && flow.revision !== params.expectedRevision) {
+      respond(true, {
+        found: true,
+        applied: false,
+        action: params.action,
+        reason: "revision_conflict",
+        flow: mapTaskFlowDetail(flow),
+      });
+      return;
+    }
     const result = await controlPursueGoalFlow({
       action: params.action,
       flow,
