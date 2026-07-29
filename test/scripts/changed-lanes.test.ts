@@ -765,12 +765,25 @@ describe("scripts/changed-lanes", () => {
     expect(command.args).toEqual(["check:no-conflict-markers"]);
   });
 
-  it("delegates local changed gates to Crabbox before running locally", () => {
+  it("runs changed gates locally by default and delegates only by explicit opt-in", () => {
     expect(
       shouldDelegateChangedCheckToCrabbox(["--base", "origin/main"], {
         PATH: "/usr/bin",
       }),
+    ).toBe(false);
+    expect(
+      shouldDelegateChangedCheckToCrabbox(["--base", "origin/main"], {
+        OPENCLAW_CHECK_CHANGED_REMOTE: "1",
+        PATH: "/usr/bin",
+      }),
     ).toBe(true);
+    expect(
+      shouldDelegateChangedCheckToCrabbox(["--base", "origin/main"], {
+        OPENCLAW_CHECK_CHANGED_REMOTE: "1",
+        OPENCLAW_LOCAL_CHECK: "1",
+        PATH: "/usr/bin",
+      }),
+    ).toBe(false);
 
     expect(buildChangedCheckCrabboxArgs(["--base", "origin/main", "--head", "HEAD"])).toEqual([
       "crabbox:run",
@@ -860,12 +873,25 @@ describe("scripts/changed-lanes", () => {
     expect(args.slice(args.indexOf("check:changed") + 1)).toEqual(["--timed", "--no-changes"]);
   });
 
-  it("does not delegate dry-run, CI, or remote-child changed gates", () => {
+  it("does not delegate dry-run, CI, or remote-child changed gates even with remote opt-in", () => {
     expect(shouldDelegateChangedCheckToCrabbox(["--dry-run"], {})).toBe(false);
-    expect(shouldDelegateChangedCheckToCrabbox([], { GITHUB_ACTIONS: "true" })).toBe(false);
-    expect(shouldDelegateChangedCheckToCrabbox([], { CI: "1" })).toBe(false);
     expect(
-      shouldDelegateChangedCheckToCrabbox([], { OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1" }),
+      shouldDelegateChangedCheckToCrabbox([], {
+        GITHUB_ACTIONS: "true",
+        OPENCLAW_CHECK_CHANGED_REMOTE: "1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldDelegateChangedCheckToCrabbox([], {
+        CI: "1",
+        OPENCLAW_CHECK_CHANGED_REMOTE: "1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldDelegateChangedCheckToCrabbox([], {
+        OPENCLAW_CHECK_CHANGED_REMOTE: "1",
+        OPENCLAW_CHECK_CHANGED_REMOTE_CHILD: "1",
+      }),
     ).toBe(false);
   });
 

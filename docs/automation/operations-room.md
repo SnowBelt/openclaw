@@ -254,32 +254,34 @@ it as a live health gate.
 
 ## Milestone and proof map
 
-| ID     | Milestone                      | Required proof                                                                                                                                                      |
-| ------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| OR2-00 | Baseline and approval          | Current screenshots, user journeys, terminology, and approved information map                                                                                       |
-| OR2-01 | Truth contract                 | Additive protocol, separate state axes, exact totals, freshness, and schema tests                                                                                   |
-| OR2-02 | Collector correctness          | Current versus last work, duty, process, count, and owner-invariant tests                                                                                           |
-| OR2-03 | Attention model                | Action, handling, watching, history, ownership, and transition tests                                                                                                |
-| OR2-04 | Summaries and rollups          | Sanitized task summaries and recurring-source grouping tests                                                                                                        |
-| OR2-05 | Overview and navigation        | Briefing, deep-link, URL, focus, and Back and Forward browser proof                                                                                                 |
-| OR2-06 | Agent directory                | Priority grouping, stable sort, search, pins, and collapsed idle groups                                                                                             |
-| OR2-07 | System and capability detail   | Honest memory, model, configured, active, unverified, and process states                                                                                            |
-| OR2-08 | Freshness and change history   | Persistent incident ledger, restart, stale, partial, and since-last-visit tests                                                                                     |
-| OR2-09 | Accessibility and localization | Keyboard, non-color cues, zoom, contrast, motion, responsive, and i18n proof                                                                                        |
-| OR2-10 | Governance and preservation    | Skills, docs, dedicated proof workflow, and both capability registry checks                                                                                         |
-| OR2-11 | Automated release proof        | Targeted tests, DOM smoke, real E2E, typecheck, build, and remote changed gate                                                                                      |
-| OR2-12 | Production and human proof     | Exact-SHA promotion, restart, receipts, persistence, soak, rollback, and every first-use participant completing the zero-instruction protocol in 60 seconds or less |
+| ID     | Milestone                      | Required proof                                                                                                                                                                |
+| ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OR2-00 | Baseline and approval          | Current screenshots, user journeys, terminology, and approved information map                                                                                                 |
+| OR2-01 | Truth contract                 | Additive protocol, separate state axes, exact totals, freshness, and schema tests                                                                                             |
+| OR2-02 | Collector correctness          | Current versus last work, duty, process, count, and owner-invariant tests                                                                                                     |
+| OR2-03 | Attention model                | Action, handling, watching, history, ownership, and transition tests                                                                                                          |
+| OR2-04 | Summaries and rollups          | Sanitized task summaries and recurring-source grouping tests                                                                                                                  |
+| OR2-05 | Overview and navigation        | Briefing, deep-link, URL, focus, and Back and Forward browser proof                                                                                                           |
+| OR2-06 | Agent directory                | Priority grouping, stable sort, search, pins, and collapsed idle groups                                                                                                       |
+| OR2-07 | System and capability detail   | Honest memory, model, configured, active, unverified, and process states                                                                                                      |
+| OR2-08 | Freshness and change history   | Persistent incident ledger, restart, stale, partial, and since-last-visit tests                                                                                               |
+| OR2-09 | Accessibility and localization | Keyboard, non-color cues, zoom, contrast, motion, responsive, and i18n proof                                                                                                  |
+| OR2-10 | Governance and preservation    | Skills, docs, local proof contract, and both capability registry checks                                                                                                       |
+| OR2-11 | Automated release proof        | Targeted tests, DOM smoke, real E2E, typecheck, build, and local exact-source Control Director proof on the Mac Studio                                                        |
+| OR2-12 | Production and owner proof     | Exact-SHA promotion, restart, receipts, persistence, soak, rollback, production Chrome, and Control Director owner acceptance on the managed Mac Studio in 60 seconds or less |
 
-Dispatch `.github/workflows/operations-room-proof.yml` with the candidate branch or tag as
-`target_ref` and the candidate's full commit as `expected_sha`. The workflow rejects an identity
-mismatch before installing dependencies, runs `pnpm operations-room:verify` plus the remote changed
-gate, validates every required browser artifact, and uploads checksummed desktop, mobile,
-machine-readable browser, and exact-SHA workflow receipts.
+Run `pnpm operations-room:verify` and the selected changed lanes through Control Director on the Mac
+Studio with `OPENCLAW_LOCAL_CHECK=1`. Use `OPENCLAW_LOCAL_CHECK_MODE=throttled` or `full`, split broad
+lanes into bounded sequential commands, and bind the resulting receipt to the exact candidate SHA.
+This local exact-source proof is the canonical automated release gate.
 
-When a recovery branch contains the proof workflow before it is registered on the repository's
-default branch, a push to `codex/operations-room-recovery-*` runs the same proof automatically. That
-bootstrap path binds `target_ref` to the pushed branch and `expected_sha` to the immutable push SHA;
-it does not weaken or bypass any receipt, identity, canonical-verification, or changed-gate check.
+`pnpm check:changed` also runs locally by default. Remote delegation requires an explicit user
+request plus `OPENCLAW_CHECK_CHANGED_REMOTE=1`; local mode always wins if both flags are present.
+
+`.github/workflows/operations-room-proof.yml` remains available as an optional supplementary check
+when a maintainer explicitly requests GitHub execution. Its availability or result is not required
+for Operations Room completion and it must not duplicate or replace locally provable Mac Studio
+evidence.
 
 `pnpm ui:smoke:operations-room:dom` is structural proof only.
 `pnpm ui:smoke:operations-room:e2e` is the deterministic browser proof. Neither proves the managed
@@ -297,76 +299,89 @@ The automated proof artifact is valid only when all of these files are present a
 - `desktop-light.png`, `desktop-dark.png`, `mobile-320.png`, `mobile-rtl.png`, and
   `tablet-768-increased-contrast.png` named by that browser receipt;
 - `browser-receipt.sha256` covering `receipt.json`; and
-- `workflow-receipt.json` with schema `openclaw.operations-room.workflow-receipt.v1`, status `passed`,
-  identical expected and checked-out SHAs, target ref, workflow run identity, the canonical and
-  changed-gate commands, the browser-receipt digest, and a SHA-256 digest for every prerequisite
-  artifact uploaded with the workflow receipt.
+- `local-proof-receipt.json` with status `passed`, identical expected and checked-out SHAs, the
+  canonical and changed-lane commands, the browser-receipt digest, and a SHA-256 digest for every
+  prerequisite artifact.
+
+If the optional GitHub workflow is explicitly requested, its separate receipt must bind to the same
+exact candidate SHA. That supplementary receipt does not replace `local-proof-receipt.json`.
 
 The production bundle is separate. It must bind the same landed SHA to the canonical source branch,
-immutable runtime pointer, capability manifest, and Gateway process; include desktop and mobile
-receipts; prove incident-ledger and since-last-visit persistence across restart; record at least five
+immutable runtime pointer, capability manifest, and Gateway process; include automated desktop,
+mobile, accessibility, localization, and responsive-layout receipts plus a real Chrome receipt from
+the managed Mac Studio; prove incident-ledger and since-last-visit persistence across restart; record at least five
 minutes of bounded liveness, RAM, CPU, focus, refresh, and duplicate-transition soak; verify the
 preregistered rollback bundle by restoring the prior runtime and then re-proving the candidate; and
-include the human usability receipt below. A missing field, failed check, identity mismatch, omitted
-attempt, or unverifiable artifact fails closed.
+include the owner acceptance receipt below. A missing field, failed check, identity mismatch, omitted
+attempt, or unverifiable artifact fails closed. Blacksmith, Testbox, Crabbox, and equivalent
+third-party execution environments are optional diagnostics for this product lane, not completion
+gates; their availability must never block Operations Room or Control Director acceptance.
 
-## Zero-instruction 60-second usability protocol
+## Control Director owner acceptance protocol
 
-Use at least five people who have not seen the current Operations Room and have not received a
-walkthrough. Include at least one participant in each of the 7-12, 13-64, and 65-90 age cohorts,
-with guardian consent where required. Cover desktop and mobile, and include keyboard-only or 200%
-zoom in at least one attempt. Use a deterministic safe snapshot containing at least one actionable
-issue and one working item; do not expose mutation controls that can affect production.
+The production acceptance participant is the known Control Director owner who operates OpenClaw on
+the managed Mac Studio. Prior Operations Room experience is allowed because this gate measures
+release fitness for the actual owner and production surface, not first-use discoverability. Use
+Chrome on that Mac Studio and bind the campaign to the exact active candidate SHA and a hash of the
+production snapshot. Consent presence is recorded; names and contact details are not.
 
-Give each participant only this neutral goal, with no explanation of labels, colors, controls, or
-navigation: “Use this screen to tell me whether OpenClaw needs the operator, what it is doing now,
-and show me the most important issue's details.” Start the timer when the rendered Operations Room
-becomes visible. Stop it when the participant has done all four of the following:
+Give the owner this goal without a walkthrough: “Use Operations Room to confirm system health,
+distinguish OpenClaw work from independent local AI, inspect the most important issue, preview
+Resolve, and cancel safely.” Start the timer when the production Operations Room becomes visible.
+Stop it when the owner has done all five of the following:
 
 1. stated the overall system state correctly;
-2. stated whether the operator must act and the actionable-issue count;
-3. identified one currently working agent or work item; and
-4. opened the highest-priority issue's details and identified its owner or next action.
+2. identified one current OpenClaw-managed agent or work item;
+3. distinguished OpenClaw-managed work from independently running local AI model processes;
+4. opened the highest-priority issue and identified its explanation, owner, or recommended next action; and
+5. opened the Resolve preview and canceled without causing a consequential mutation.
 
-An attempt passes only when all four outcomes are correct in 60,000 milliseconds or less, the
-observer provided zero hints or corrective prompts, and the participant triggered no mutating or
-unsafe action. The release gate passes only when every recorded participant passes; do not discard,
-replace, or retry a failed attempt.
+The attempt passes only when all five outcomes are correct in 60,000 milliseconds or less, the
+observer provided zero hints or corrective prompts, and the owner triggered no mutating or unsafe
+action. There is one attempt per exact candidate. Do not discard, replace, or retry a failed attempt;
+correct the product and create a new exact-SHA campaign.
 
-Write one machine-readable usability receipt containing the exact SHA, scenario fixture hash,
-non-identifying participant cohort, device and viewport, accessibility settings, start and finish
-timestamps, elapsed milliseconds, four per-outcome booleans, hint count, unsafe-action count,
-observer attestation, and aggregate result. Store consent separately from the repository and never
-put participant names in the receipt.
+Write one machine-readable owner acceptance receipt containing the exact candidate and active-runtime
+SHA, production snapshot hash, anonymous owner identifier, `control-director` role, `mac-studio`
+device, Chrome browser, viewport, accessibility setting, consent presence, start and finish
+timestamps, elapsed milliseconds, five per-outcome booleans, hint count, unsafe-action count,
+observer attestation, and aggregate result.
 
 The durable coordinator replaces chat-based `READY`/`DONE` handshakes:
 
 ```bash
 pnpm operations-room:usability init \
   --campaign "$OPENCLAW_CUSTOM_RUNTIME_HOME/usability/<campaign>.json" \
-  --campaign-id <id> --candidate-sha <sha> --fixture-sha256 <sha256> \
+  --campaign-id <id> --candidate-sha <sha> --active-runtime-sha <sha> \
+  --fixture-sha256 <production-snapshot-sha256> --policy owner-mac-studio \
   --expires-at <iso-utc>
+
+pnpm operations-room:usability register \
+  --campaign "$OPENCLAW_CUSTOM_RUNTIME_HOME/usability/<campaign>.json" \
+  --participant-id <anonymous-owner-sha256> --device mac-studio --browser chrome \
+  --operator-role control-director --viewport <width>x<height> \
+  --accessibility standard --consent-recorded true
 
 pnpm operations-room:usability status \
   --campaign "$OPENCLAW_CUSTOM_RUNTIME_HOME/usability/<campaign>.json"
 ```
 
-Use `register` once per anonymous SHA-256 participant identifier, then `start` and `complete` for
-the single bounded attempt. The coordinator records consent presence, cohort, device, viewport,
-accessibility mode, timestamps, the four outcomes, hints, unsafe actions, and terminal status. Its
-private participant ledger spans campaigns, so an identifier already registered as trained or
-attempted cannot be presented again as first-use. A failed attempt makes the campaign terminal; it
-cannot be discarded, replaced, or retried through the coordinator.
+Use `start` and `complete` for the single bounded attempt. The coordinator records exact source and
+runtime identity, consent presence, device, browser, role, viewport, accessibility mode, timestamps,
+the five outcomes, hints, unsafe actions, and terminal status. Its private ledger spans campaigns.
+The same owner may perform acceptance for a later exact candidate, but cannot retry or replace an
+attempt for the same exact candidate through a replacement campaign. A failed attempt makes that
+campaign terminal.
 
 Campaign states are `waiting`, `ready`, `running`, `passed`, `failed`, `expired`, and `blocked`.
-Every `status` result includes exact missing coverage and one next valid action. `ready` means all
-five anonymous slots and required cohort, device, and accessibility coverage exist. Only then may
-the finalization lease be acquired. The lease continuously revalidates the campaign rather than
+Every `status` result includes exact missing requirements and one next valid action. `ready` means
+the consented owner, managed Mac Studio, Chrome, Control Director role, exact active candidate, and
+snapshot hash are present. Only then may the finalization lease be acquired. The lease continuously revalidates the campaign rather than
 trusting its stored summary; a failed, expired, malformed, identity-changing, or unsafe campaign
 cannot retain the lease. Explicit exact-binding lease release remains available so invalid human
 evidence cannot wedge the managed runtime.
 
-After all five attempts pass, the coordinator automatically writes one private, machine-readable
+After the owner attempt passes, the coordinator automatically writes one private, machine-readable
 exact-SHA receipt and binds it to the participant-ledger digest. `finalize` revalidates and returns
 that same receipt; it cannot replace it or move it to a different path. The campaign and ledger live below
 `$OPENCLAW_CUSTOM_RUNTIME_HOME/usability`, use owner-only permissions, and must never be committed.
@@ -377,6 +392,7 @@ Run the focused source tests as one Vitest invocation so the shared cache cannot
 
 ```bash
 pnpm test \
+  test/scripts/custom-runtime-usability-coordinator.test.ts \
   packages/gateway-protocol/src/schema/operations.test.ts \
   src/operations/status.test.ts \
   src/operations/compat.test.ts \
@@ -405,12 +421,13 @@ pnpm test \
   ui/src/ui/views/operations-model.test.ts \
   ui/src/ui/views/operations.test.ts \
   ui/src/ui/navigation.test.ts \
+  ui/src/ui/navigation.browser.test.ts \
   ui/src/ui/views/overview.render.test.ts \
   src/pcc/capability-addition-registry.test.ts \
   src/pcc/custom-runtime-capabilities.test.ts
 ```
 
-Then run the static, browser, registry, workflow, and build surfaces:
+Then run the static, browser, registry, and build surfaces:
 
 ```bash
 pnpm tsgo:all
@@ -422,16 +439,15 @@ pnpm ui:smoke:operations-room:e2e
 pnpm ui:i18n:check
 pnpm check:pcc-capabilities
 pnpm check:custom-runtime-capabilities
-pnpm check:workflows
 pnpm build
 ```
 
 The canonical focused source command is `pnpm operations-room:verify`; it runs the exact unit-test
-list and every static, DOM, browser, localization, registry, workflow, and build command above in
-sequence. The exact-SHA workflow invokes this command rather than maintaining a second divergent
-test list.
+list and every static, DOM, browser, localization, registry, and build command above in sequence.
 
-`pnpm ui:smoke:operations-room` runs the DOM and browser smoke commands together. Run the broad
-changed gate in Testbox or CI when it selects shared lanes. The exact-SHA workflow remains the
-canonical automated release proof; managed-runtime restart, persistence, soak, rollback, and
-untrained human usability are later, separate gates.
+`pnpm ui:smoke:operations-room` runs the DOM and browser smoke commands together. Run broad shared
+lanes locally through Control Director with throttled resource settings and split them into bounded
+sequential lanes when needed. Managed-runtime restart, persistence, soak, rollback, real production
+Chrome, and Control Director owner acceptance are later, separate gates. Third-party execution
+providers and hosted CI are optional only when explicitly requested and never replace or block these
+proof surfaces.

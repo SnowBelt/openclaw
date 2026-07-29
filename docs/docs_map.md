@@ -181,7 +181,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Addition and update standard
   - H2: Milestone and proof map
   - H2: Required proof receipts
-  - H2: Zero-instruction 60-second usability protocol
+  - H2: Control Director owner acceptance protocol
   - H2: Focused verification
 
 ## automation/pcc-codex-planning.md

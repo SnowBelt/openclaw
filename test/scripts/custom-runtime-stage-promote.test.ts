@@ -297,6 +297,92 @@ function writeReadyUsabilityCampaign(
   return campaignPath;
 }
 
+function writeReadyOwnerCampaign(input: ReturnType<typeof fixture>) {
+  const usabilityRoot = path.join(input.runtimeHome, "usability");
+  const campaignPath = path.join(usabilityRoot, "or2-owner-proof.json");
+  mkdirSync(usabilityRoot, { recursive: true, mode: 0o700 });
+  const participant = {
+    accessibilityMode: "standard",
+    browser: "chrome",
+    consentRecorded: true,
+    device: "mac-studio",
+    eligible: true,
+    eligibilityReason: "owner-consent-and-device-confirmed",
+    id: createHash("sha256").update("control-director-owner").digest("hex"),
+    operatorRole: "control-director",
+    registeredAt: "2026-07-28T18:00:00.000Z",
+    status: "registered",
+    viewport: "1728x1117",
+  };
+  const campaign = {
+    activeRuntimeSha: input.sourceSha,
+    campaignId: "or2-owner-mac-studio-proof",
+    candidateSha: input.sourceSha,
+    createdAt: "2026-07-28T18:00:00.000Z",
+    expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    fixtureSha256: "c".repeat(64),
+    neutralGoal:
+      "Use Operations Room to confirm system health, distinguish OpenClaw work from independent local AI, inspect the most important issue, preview Resolve, and cancel safely.",
+    participants: [participant],
+    policy: "owner-mac-studio",
+    schema: "openclaw.operations-room.usability-campaign.v1",
+    state: "ready",
+    summary: {
+      coverage: {
+        browser: true,
+        device: true,
+        operatorRole: true,
+      },
+      eligibleParticipantCount: 1,
+      excludedParticipantCount: 0,
+      failedAttemptCount: 0,
+      leaseAllowed: true,
+      nextAction: "Start the owner's timed Mac Studio acceptance attempt.",
+      participantCountValid: true,
+      passedAttemptCount: 0,
+      policy: "owner-mac-studio",
+      remainingParticipantCount: 0,
+      runningAttemptCount: 0,
+      unsafeActionCount: 0,
+    },
+    updatedAt: "2026-07-28T18:05:00.000Z",
+  };
+  writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, { mode: 0o600 });
+  const { id, ...ledgerParticipant } = participant;
+  const ledgerPath = path.join(usabilityRoot, "participant-ledger.json");
+  writeFileSync(
+    ledgerPath,
+    `${JSON.stringify({
+      campaigns: [
+        {
+          activeRuntimeSha: campaign.activeRuntimeSha,
+          campaignId: campaign.campaignId,
+          candidateSha: campaign.candidateSha,
+          createdAt: campaign.createdAt,
+          expiresAt: campaign.expiresAt,
+          fixtureSha256: campaign.fixtureSha256,
+          policy: campaign.policy,
+        },
+      ],
+      participants: [
+        {
+          ...ledgerParticipant,
+          campaignId: campaign.campaignId,
+          candidateSha: campaign.candidateSha,
+          participantId: id,
+          policy: campaign.policy,
+        },
+      ],
+      schema: "openclaw.operations-room.usability-participant-ledger.v1",
+      updatedAt: campaign.updatedAt,
+    })}\n`,
+    { mode: 0o600 },
+  );
+  chmodSync(campaignPath, 0o600);
+  chmodSync(ledgerPath, 0o600);
+  return campaignPath;
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -304,6 +390,72 @@ afterEach(() => {
 });
 
 describe("custom runtime canary and rollback", () => {
+  it("accepts one exact-runtime Control Director owner on Mac Studio", () => {
+    const input = fixture();
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    const leasePath = path.join(input.runtimeHome, "certification-lease.json");
+    const promoteScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-promote.sh",
+    );
+    mkdirSync(input.runtimeHome, { recursive: true });
+    writeFileSync(activePointer, `${JSON.stringify({ sourceSha: input.sourceSha })}\n`);
+    const campaignPath = writeReadyOwnerCampaign(input);
+    const env = {
+      ...process.env,
+      HOME: input.home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+    };
+    const binding = [
+      "--active-sha",
+      input.sourceSha,
+      "--candidate-sha",
+      input.sourceSha,
+      "--owner",
+      "codex:or2-owner-finalization",
+      "--operation-class",
+      "human-usability-finalization",
+      "--approval-id",
+      "user:or2-owner-proof",
+      "--operation-id",
+      "or2:owner-finalization",
+      "--invocation-id",
+      "or2-owner-finalization-20260728",
+    ];
+    const acquired = spawnSync(
+      "sh",
+      [
+        promoteScript,
+        "--lease-acquire",
+        ...binding,
+        "--ttl-seconds",
+        "600",
+        "--usability-campaign",
+        campaignPath,
+      ],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(acquired.status, acquired.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(leasePath, "utf8"))).toMatchObject({
+      activeSha: input.sourceSha,
+      candidateSha: input.sourceSha,
+      usabilityCampaignId: "or2-owner-mac-studio-proof",
+    });
+
+    const campaign = JSON.parse(readFileSync(campaignPath, "utf8"));
+    campaign.activeRuntimeSha = "d".repeat(40);
+    writeFileSync(campaignPath, `${JSON.stringify(campaign)}\n`, { mode: 0o600 });
+    const status = spawnSync("sh", [promoteScript, "--lease-status"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(status.status).toBe(78);
+    expect(status.stderr).toContain("exact active runtime");
+  });
+
   it("retains a finalization lease only while exact human-usability evidence stays valid", () => {
     const input = fixture();
     const activePointer = path.join(input.runtimeHome, "active-runtime.json");

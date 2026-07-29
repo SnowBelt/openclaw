@@ -317,6 +317,7 @@
       "id": "runtime:operations-room",
       "kind": "runtime",
       "requiredPaths": [
+        "AGENTS.md",
         "packages/gateway-protocol/src/index.ts",
         "packages/gateway-protocol/src/schema/protocol-schemas.ts",
         "packages/gateway-protocol/src/schema/types.ts",
@@ -405,8 +406,10 @@
         "scripts/custom-runtime/custom-runtime-auth.sh",
         "scripts/custom-runtime/custom-runtime-promote.sh",
         "scripts/custom-runtime/custom-runtime-usability-coordinator.mjs",
+        "scripts/check-changed.mjs",
         "test/scripts/custom-runtime-stage-promote.test.ts",
         "test/scripts/custom-runtime-usability-coordinator.test.ts",
+        "test/scripts/changed-lanes.test.ts",
         "package.json",
         ".github/workflows/operations-room-proof.yml",
         ".agents/skills/control-ui-e2e/SKILL.md",
