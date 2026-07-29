@@ -113,29 +113,25 @@ Skills own workflows; root owns hard policy and routing.
 
 - Runtime: Node 22.22.3+, 24.15+, or 25.9+; Node 24 recommended. Keep Node + Bun paths working.
 - Package manager/runtime: repo defaults only. No swaps without approval.
-- Install: `pnpm install` (keep Bun lock/patches aligned if touched). Agent dependency installation for tests/builds defaults to the selected remote box; do not reconcile a local Codex worktree just to run validation.
+- Install: `pnpm install` (keep Bun lock/patches aligned if touched).
 - CLI: `pnpm openclaw ...` or `pnpm dev`; build: `pnpm build`.
-- Agent tests default remote through Crabbox, including focused tests. Trusted maintainer code defaults to Blacksmith Testbox. Contributor/fork code remains untrusted unless a maintainer explicitly approves credentialed execution after review; use secretless fork CI or sanitized direct AWS Crabbox, never a credential-hydrated Testbox. Sanitized AWS must launch an installed trusted Crabbox binary from a clean trusted `main` checkout and fetch only the remote PR via `--fresh-pr`; never execute a wrapper, config, or command from the untrusted local checkout. Before warmup, unset `CRABBOX_AWS_INSTANCE_PROFILE` and all `CRABBOX_TAILSCALE*` overrides; fail closed unless resolved `aws.instanceProfile` is empty. Force `--network public --tailscale=false`, clear exit-node/LAN flags, and require `crabbox inspect` to report public networking with no Tailscale state before any script. Upload trusted `scripts/crabbox-untrusted-bootstrap.sh` from clean `main` alongside `--fresh-pr`; it proves the remote IMDSv2 IAM credentials endpoint returns 404, verifies the reviewed head SHA, unsets `NODE_OPTIONS`, installs pinned Node/pnpm, verifies the package-manager pin, isolates `HOME`, installs dependencies, then runs the requested test. Use a newly warmed lease bound to one reviewed head SHA, set `CRABBOX_ENV_ALLOW=CI`, and use `--no-hydrate`. Never reuse a trusted/previously hydrated lease or carry an untrusted lease across head revisions; stop and rewarm when the SHA changes. No repo `OPENCLAW_*` allowlist, existing auth profile, instance role, tailnet/LAN access, moving PR head, or ambient Node preload may reach untrusted execution. When a code task is likely to need tests, classify source trust, pre-warm the safe backend immediately, keep working while it hydrates, reuse trusted leases or same-SHA untrusted leases, then stop before handoff.
-- Test commands (run inside the selected remote box by default): `pnpm test <path-or-filter> [vitest args...]`, `pnpm test:changed`, `pnpm test:serial`, `pnpm test:coverage`; never raw `vitest`.
+- Heavy checks run through Control Director on the Mac Studio with `OPENCLAW_LOCAL_CHECK=1` and `OPENCLAW_LOCAL_CHECK_MODE=throttled|full`.
+- Control Director on the Mac Studio is the exclusive default execution environment. Do not require a remote runner, hosted CI, cloud worker, secondary host, or cross-host proof merely to duplicate a locally provable surface.
+- Test commands: `pnpm test <path-or-filter> [vitest args...]`, `pnpm test:changed`, `pnpm test:serial`, `pnpm test:coverage`; never raw `vitest`.
 - If raw Vitest is unavoidable, use `vitest run ...`; bare `vitest ...` starts local watch mode and will not exit on its own.
-- Local agent test execution is opt-in: only when the user explicitly requests local proof or Testbox is unavailable and the fallback is reported. In a Codex worktree or linked/sparse checkout, the narrow local fallback is `node scripts/run-vitest.mjs <path-or-filter>`; never direct local `pnpm test*`.
-- Checks/lint in a normal source checkout: `pnpm check:changed` delegates to Crabbox/Testbox; lanes: `pnpm changed:lanes --json`; staged/path-scoped: `pnpm check:changed --staged` or `pnpm check:changed -- <files...>`; full `pnpm check`/`pnpm lint` only when required.
-- Checks in a Codex worktree or linked/sparse checkout: avoid direct local `pnpm check*`; use `node scripts/crabbox-wrapper.mjs run ... -- env OPENCLAW_CHECK_CHANGED_REMOTE_CHILD=1 OPENCLAW_CHANGED_LANES_RAW_SYNC=1 corepack pnpm check:changed` so pnpm runs inside the selected remote box, not locally.
+- Targeted edit loops stay local. When `pnpm check:changed`, `pnpm test:changed`, or another gate fans out, inspect the selected lanes, split them into bounded sequential local commands when practical, and use throttled resource settings.
+- `pnpm check:changed` runs locally by default. Remote delegation is allowed only when the user explicitly requests it and `OPENCLAW_CHECK_CHANGED_REMOTE=1` is set.
 - Extension tests: `pnpm test:extensions`, `pnpm test extensions`, `pnpm test extensions/<id>`.
 - Typecheck: `tsgo` lanes only (`pnpm tsgo*`, `pnpm check:test-types`); never add `tsc --noEmit`, `typecheck`, `check:types`.
 - Formatting: `oxfmt`, not Prettier. Use repo wrappers (`pnpm format:*`, `scripts/run-oxlint.mjs`; full `pnpm lint:*` only when scope requires).
-- Build before push when build output, packaging, lazy/module boundaries, dynamic imports, or published surfaces can change; agent builds default to the selected remote box unless platform-specific proof requires another remote host.
+- Build locally before push when build output, packaging, lazy/module boundaries, dynamic imports, or published surfaces can change.
 
 ## Validation
 
-- Use `$openclaw-testing` for test/CI choice and `$crabbox` for remote/full/E2E proof.
-- At task start, if code changes, tests, builds, typechecks, lint fan-out, Docker, packaging, E2E, or live proof are likely, classify source trust and immediately pre-warm the safe Crabbox backend in a background command session. Trusted maintainer code defaults to Blacksmith Testbox; untrusted contributor/fork code uses secretless fork CI or sanitized direct AWS Crabbox under the rule above. Continue inspection/editing while it hydrates; sync the current checkout for every run, reuse the lease, then stop it before handoff.
-- Crabbox request means real scenario proof: install/update/call/repro user path; not just copy tests and run them remotely.
-- Visual proof: use Crabbox, set up like a user, then screenshot-verify. No harness/bypass/shortcut unless explicitly asked.
-- Local agent work is limited to lightweight non-test checks such as `git diff --check`, targeted formatting, and cheap static probes. Tests and computationally intensive work default to the selected remote box.
-- In Codex worktrees, direct local `pnpm test*`, `pnpm check*`, `pnpm crabbox:run`, and `scripts/committer` can trigger pnpm dependency reconciliation or install prompts. Prefer `node` wrappers locally and Crabbox/Testbox for pnpm-gated proof.
-- Full suites, changed gates, builds, typechecks, lint fan-out, Docker/package/E2E/live/cross-OS proof, or anything computationally intensive: Crabbox/Testbox.
-- If an allowed local fallback fans out or becomes expensive, stop it and move the work to the pre-warmed remote box.
+- Use `$openclaw-testing` for test selection and run proof through Control Director on the Mac Studio.
+- Local targeted tests, format checks, lint/type probes, builds, DOM smoke, browser E2E, accessibility, localization, capability checks, preservation checks, and full suites are authoritative when bound to the exact source SHA.
+- Keep broad/shared lanes local, split them into bounded sequential commands, and reduce concurrency when the Mac Studio is under pressure.
+- Replace inherited remote-execution requirements with equivalent or stronger Mac Studio proof. If a claim cannot be proved locally, redesign or split the milestone and obtain user approval; do not restore a remote service as a blocker.
 - Before handoff/push: prove touched surface. Before landing to `main`: issue proof plus appropriate full/broad proof unless scope is clearly narrow.
 - Pre-land/pre-commit code changes: mandatory fresh `$autoreview` until no accepted/actionable findings remain. Do not land code on CI, ClawSweeper, prior review comments, or your own manual review alone unless user explicitly opts out or scope is truly trivial/docs-only. If findings want refactor, refactor; no ugly fixes.
 - If proof is blocked, say exactly what is missing and why.
@@ -162,7 +158,7 @@ Skills own workflows; root owns hard policy and routing.
 - PR review answer: bug/behavior, URL(s), affected surface, provenance for regressions when traceable, best-fix judgment, evidence from code/tests/CI/current or shipped behavior.
 - PR reviewable findings: post them on the PR, not chat-only, so author sees actionable feedback.
 - Issue/PR final answer: last line is the full GitHub URL.
-- PR verification: before merge, post land-ready work done, exact local commands, CI/Testbox run IDs, before/after proof when used, and known proof gaps.
+- PR verification: before merge, post land-ready work done, exact local commands, before/after proof when used, optional CI run IDs when explicitly requested, and known proof gaps.
 - Issue fixed on `main` with proof: comment proof + commit/PR, then close.
 - After landing or requested close/sweep: search duplicates; comment proof + canonical commit/PR/release before closing.
 - After landing/ship final: include 2-5 sentence recap of what landed: behavior change, key files/surface, proof run, issue/PR state. Do not answer with only status/links.
@@ -175,9 +171,9 @@ Skills own workflows; root owns hard policy and routing.
 - PR create/refresh: keep PR branches takeover-ready. Use a branch maintainers can push to, or for fork PRs ensure `maintainer_can_modify` / GitHub's `Allow edits by maintainers` is enabled unless explicitly told otherwise or GitHub's Actions/secrets warning makes that unsafe.
 - GitHub issue/PR create: read `$agent-transcript`; ask about sanitized transcript logs when available.
 - Contributor PRs: parsed context requires authored `What Problem This Solves` and `Evidence` sections. Do not require field-level proof forms; reviewers inspect code, tests, and CI for correctness.
-- PR artifacts/screenshots: attach to PR/comment/external artifact store. Never push screenshots, videos, proof images, or proof assets to OpenClaw or any product repo branch, including temp artifact branches. Use Crabbox artifact publishing plus the manifest URL. Do not commit `.github/pr-assets`.
+- PR artifacts/screenshots: attach to the PR, a comment, or an external artifact store. Never push screenshots, videos, proof images, or proof assets to an OpenClaw product branch, including temp artifact branches. Do not commit `.github/pr-assets`.
 - CI polling: exact SHA, relevant checks only, minimal fields. Skip routine noise (`Auto response`, `Labeler`, docs agents, performance/stale). Logs only after failure/completion or concrete need.
-- Agent PR landing to `main`: use only the repo-native `scripts/pr` wrapper: run `scripts/pr review-init <PR>`, follow its emitted checkout/guard guidance, initialize and complete review artifacts with `scripts/pr review-artifacts-init <PR>`, validate them with `scripts/pr review-validate-artifacts <PR>`, then run `OPENCLAW_TESTBOX=1 scripts/pr prepare-run <PR>` and `scripts/pr merge-run <PR>`. The Testbox flag is mandatory for agents so prepare verifies exact-head hosted CI/Testbox instead of running full gates locally; do not idle on `auto-response` or `check-docs`.
+- Agent PR landing to `main`: use only the repo-native `scripts/pr` wrapper: run `scripts/pr review-init <PR>`, follow its emitted checkout and guard guidance, initialize and complete review artifacts with `scripts/pr review-artifacts-init <PR>`, validate them with `scripts/pr review-validate-artifacts <PR>`, run the selected proof locally through Control Director, then use `scripts/pr prepare-run <PR>` and `scripts/pr merge-run <PR>`.
 
 ## Code
 
@@ -274,8 +270,7 @@ Skills own workflows; root owns hard policy and routing.
 - Mac app permission testing: stable app path + real signing identity required. No `--no-sign`, `SIGN_IDENTITY=-`, or raw debug binary; TCC prompts/listing won't stick.
 - Version bump surfaces live in `$release-openclaw-maintainer`.
 - Parallels: `$openclaw-parallels-smoke`; Discord roundtrip: `$parallels-discord-roundtrip`.
-- Crabbox/WebVNC human demos: keep remote desktop visible/windowed; no fullscreen remote browser unless video/capture-style output.
-- Before sharing WebVNC links, use Crabbox screenshot first; verify real app/path works and target UI is not broken.
+- Human demos use the Mac Studio's local browser or application surface through Control Director and preserve visible window chrome when it is part of usability proof.
 - ClawSweeper ops: `$clawsweeper`. Deployed hook sessions may post one concise `#clawsweeper` note only when surprising/actionable/risky; if using message tool, reply exactly `NO_REPLY`.
 - Generated-media completions wake the requester agent first. Requester visible-reply config decides final text vs message tool; direct media send is fallback/recovery only.
 - `message_tool_only`: normal agent final visible reply = current-source `message(action=send)` only. No `NO_REPLY` prompt/contract; no message call = no source reply. Plugin-owned bound-thread reply = plugin return value; no message tool needed. Never auto-publish private final.

@@ -20,10 +20,15 @@ import { fileURLToPath } from "node:url";
 export const CAMPAIGN_SCHEMA = "openclaw.operations-room.usability-campaign.v1";
 export const FINAL_RECEIPT_SCHEMA = "openclaw.operations-room.usability-receipt.v1";
 export const PARTICIPANT_LEDGER_SCHEMA = "openclaw.operations-room.usability-participant-ledger.v1";
-export const NEUTRAL_GOAL =
+export const FIRST_USE_PANEL_POLICY = "first-use-panel";
+export const OWNER_MAC_STUDIO_POLICY = "owner-mac-studio";
+export const LEGACY_NEUTRAL_GOAL =
   "Use this screen to tell me whether OpenClaw needs the operator, what it is doing now, and show me the most important issue's details.";
+export const OWNER_NEUTRAL_GOAL =
+  "Use Operations Room to confirm system health, distinguish OpenClaw work from independent local AI, inspect the most important issue, preview Resolve, and cancel safely.";
 
 const TERMINAL_STATES = new Set(["passed", "failed", "expired", "blocked"]);
+const POLICIES = new Set([FIRST_USE_PANEL_POLICY, OWNER_MAC_STUDIO_POLICY]);
 const COHORTS = new Set(["7-12", "13-64", "65-90"]);
 const DEVICES = new Set(["desktop", "mobile"]);
 const ACCESSIBILITY_MODES = new Set(["standard", "keyboard-only", "zoom-200"]);
@@ -178,7 +183,37 @@ function loadCampaign(path) {
   if (!campaign || typeof campaign !== "object" || campaign.schema !== CAMPAIGN_SCHEMA) {
     fail("campaign schema is invalid", 78);
   }
+  campaignPolicy(campaign);
   return campaign;
+}
+
+function campaignPolicy(campaign) {
+  const policy = campaign.policy ?? FIRST_USE_PANEL_POLICY;
+  if (!POLICIES.has(policy)) {
+    fail("campaign policy is invalid", 78);
+  }
+  return policy;
+}
+
+function requiredOutcomeKeys(campaign) {
+  return campaignPolicy(campaign) === OWNER_MAC_STUDIO_POLICY
+    ? [
+        "issueDetailsAndOwnerOrNext",
+        "localAiDistinctionCorrect",
+        "overallStateCorrect",
+        "resolvePreviewAndSafeCancel",
+        "workingItemIdentified",
+      ]
+    : [
+        "issueDetailsAndOwnerOrNext",
+        "operatorActionCorrect",
+        "overallStateCorrect",
+        "workingItemIdentified",
+      ];
+}
+
+function failedOutcomes(campaign) {
+  return Object.fromEntries(requiredOutcomeKeys(campaign).map((key) => [key, false]));
 }
 
 function participantLedgerPath(campaignPath) {
@@ -214,6 +249,35 @@ function loadParticipantLedger(campaignPath, now, { create = false } = {}) {
   ) {
     fail("participant ledger schema is invalid", 78);
   }
+  const campaignIds = new Set();
+  for (const campaign of ledger.campaigns) {
+    if (
+      !campaign ||
+      typeof campaign !== "object" ||
+      typeof campaign.campaignId !== "string" ||
+      !ID_PATTERN.test(campaign.campaignId) ||
+      campaignIds.has(campaign.campaignId)
+    ) {
+      fail("participant ledger campaign identity is invalid or duplicated", 78);
+    }
+    campaignIds.add(campaign.campaignId);
+  }
+  const participantKeys = new Set();
+  for (const participant of ledger.participants) {
+    const key = `${participant?.campaignId ?? ""}:${participant?.participantId ?? ""}`;
+    if (
+      !participant ||
+      typeof participant !== "object" ||
+      typeof participant.campaignId !== "string" ||
+      !ID_PATTERN.test(participant.campaignId) ||
+      typeof participant.participantId !== "string" ||
+      !PARTICIPANT_ID_PATTERN.test(participant.participantId) ||
+      participantKeys.has(key)
+    ) {
+      fail("participant ledger participant identity is invalid or duplicated", 78);
+    }
+    participantKeys.add(key);
+  }
   return ledger;
 }
 
@@ -248,8 +312,16 @@ function withCampaignLock(campaignPath, operation) {
   }
 }
 
-function calculateCoverage(participants) {
+function calculateCoverage(campaign) {
+  const participants = campaign.participants;
   const eligible = participants.filter((participant) => participant.eligible);
+  if (campaignPolicy(campaign) === OWNER_MAC_STUDIO_POLICY) {
+    return {
+      browser: eligible.some((participant) => participant.browser === "chrome"),
+      device: eligible.some((participant) => participant.device === "mac-studio"),
+      operatorRole: eligible.some((participant) => participant.operatorRole === "control-director"),
+    };
+  }
   const cohorts = new Set(eligible.map((participant) => participant.cohort));
   const devices = new Set(eligible.map((participant) => participant.device));
   const accessibility = new Set(eligible.map((participant) => participant.accessibilityMode));
@@ -262,13 +334,19 @@ function calculateCoverage(participants) {
 }
 
 function computeSummary(campaign, now) {
+  const policy = campaignPolicy(campaign);
   const eligible = campaign.participants.filter((participant) => participant.eligible);
   const excluded = campaign.participants.filter((participant) => !participant.eligible);
   const passed = eligible.filter((participant) => participant.status === "passed");
   const failed = eligible.filter((participant) => participant.status === "failed");
   const running = eligible.filter((participant) => participant.status === "running");
-  const coverage = calculateCoverage(campaign.participants);
-  const remainingParticipantCount = Math.max(0, 5 - eligible.length);
+  const coverage = calculateCoverage(campaign);
+  const requiredParticipantCount = policy === OWNER_MAC_STUDIO_POLICY ? 1 : 5;
+  const participantCountValid =
+    policy === OWNER_MAC_STUDIO_POLICY
+      ? eligible.length === requiredParticipantCount
+      : eligible.length >= requiredParticipantCount;
+  const remainingParticipantCount = Math.max(0, requiredParticipantCount - eligible.length);
   const coverageComplete = Object.values(coverage).every(Boolean);
   const expired = Date.parse(campaign.expiresAt) <= Date.parse(now);
   let nextAction;
@@ -281,32 +359,52 @@ function computeSummary(campaign, now) {
   } else if (campaign.state === "passed") {
     nextAction = "Generate and attach the exact-SHA final usability receipt.";
   } else if (campaign.state === "running") {
-    nextAction = "Complete the active zero-instruction attempt without hints.";
+    nextAction =
+      policy === OWNER_MAC_STUDIO_POLICY
+        ? "Complete the active owner acceptance attempt without hints."
+        : "Complete the active zero-instruction attempt without hints.";
   } else if (remainingParticipantCount > 0 || !coverageComplete) {
     const requirements = [];
     if (remainingParticipantCount > 0) {
-      requirements.push(`${remainingParticipantCount} additional first-use participant(s)`);
+      requirements.push(
+        policy === OWNER_MAC_STUDIO_POLICY
+          ? "the Control Director owner"
+          : `${remainingParticipantCount} additional first-use participant(s)`,
+      );
     }
-    if (!coverage.ageCohorts) {
+    if (policy === OWNER_MAC_STUDIO_POLICY && !coverage.browser) {
+      requirements.push("Chrome");
+    }
+    if (policy === OWNER_MAC_STUDIO_POLICY && !coverage.device) {
+      requirements.push("the managed Mac Studio");
+    }
+    if (policy === OWNER_MAC_STUDIO_POLICY && !coverage.operatorRole) {
+      requirements.push("the Control Director role");
+    }
+    if (policy === FIRST_USE_PANEL_POLICY && !coverage.ageCohorts) {
       requirements.push("coverage of all age cohorts");
     }
-    if (!coverage.desktop) {
+    if (policy === FIRST_USE_PANEL_POLICY && !coverage.desktop) {
       requirements.push("one desktop participant");
     }
-    if (!coverage.mobile) {
+    if (policy === FIRST_USE_PANEL_POLICY && !coverage.mobile) {
       requirements.push("one mobile participant");
     }
-    if (!coverage.accessibility) {
+    if (policy === FIRST_USE_PANEL_POLICY && !coverage.accessibility) {
       requirements.push("one keyboard-only or 200% zoom participant");
     }
     nextAction = `Register ${requirements.join(", ")}.`;
   } else {
-    nextAction = "Start the next eligible participant's timed attempt.";
+    nextAction =
+      policy === OWNER_MAC_STUDIO_POLICY
+        ? "Start the owner's timed Mac Studio acceptance attempt."
+        : "Start the next eligible participant's timed attempt.";
   }
   const leaseAllowed =
     !expired &&
     failed.length === 0 &&
     remainingParticipantCount === 0 &&
+    participantCountValid &&
     coverageComplete &&
     ["ready", "running", "passed"].includes(campaign.state);
   return {
@@ -316,6 +414,8 @@ function computeSummary(campaign, now) {
     failedAttemptCount: failed.length,
     leaseAllowed,
     nextAction,
+    participantCountValid,
+    policy,
     passedAttemptCount: passed.length,
     remainingParticipantCount,
     runningAttemptCount: running.length,
@@ -327,6 +427,8 @@ function computeSummary(campaign, now) {
 }
 
 function refreshCampaign(campaign, now) {
+  const policy = campaignPolicy(campaign);
+  const requiredParticipantCount = policy === OWNER_MAC_STUDIO_POLICY ? 1 : 5;
   const summary = computeSummary(campaign, now);
   if (!TERMINAL_STATES.has(campaign.state)) {
     if (Date.parse(campaign.expiresAt) <= Date.parse(now)) {
@@ -335,7 +437,9 @@ function refreshCampaign(campaign, now) {
     } else if (summary.failedAttemptCount > 0) {
       campaign.state = "failed";
     } else if (
-      summary.eligibleParticipantCount >= 5 &&
+      (policy === OWNER_MAC_STUDIO_POLICY
+        ? summary.eligibleParticipantCount === requiredParticipantCount
+        : summary.eligibleParticipantCount >= requiredParticipantCount) &&
       Object.values(summary.coverage).every(Boolean)
     ) {
       const eligible = campaign.participants.filter((participant) => participant.eligible);
@@ -374,12 +478,7 @@ function failOvertimeAttempt(campaign, ledger, now) {
     finishedAt: now,
     hintCount: 0,
     observerAttested: false,
-    outcomes: {
-      issueDetailsAndOwnerOrNext: false,
-      operatorActionCorrect: false,
-      overallStateCorrect: false,
-      workingItemIdentified: false,
-    },
+    outcomes: failedOutcomes(campaign),
     passed: false,
     unsafeActionCount: 0,
   };
@@ -399,7 +498,16 @@ function validateParticipantId(value) {
 function initCampaign(options) {
   assertNoUnknownOptions(
     options,
-    new Set(["campaign", "campaign-id", "candidate-sha", "expires-at", "fixture-sha256", "now"]),
+    new Set([
+      "active-runtime-sha",
+      "campaign",
+      "campaign-id",
+      "candidate-sha",
+      "expires-at",
+      "fixture-sha256",
+      "now",
+      "policy",
+    ]),
   );
   const campaignPath = safeCampaignPath(requireOption(options, "campaign"));
   if (existsSync(campaignPath)) {
@@ -408,6 +516,7 @@ function initCampaign(options) {
   const campaignId = requireOption(options, "campaign-id");
   const candidateSha = requireOption(options, "candidate-sha");
   const fixtureSha256 = requireOption(options, "fixture-sha256");
+  const policy = options.policy ?? FIRST_USE_PANEL_POLICY;
   const now = nowFrom(options);
   const expiresAt = parseTimestamp(requireOption(options, "expires-at"), "--expires-at");
   if (!ID_PATTERN.test(campaignId)) {
@@ -415,6 +524,19 @@ function initCampaign(options) {
   }
   if (!SHA_PATTERN.test(candidateSha)) {
     fail("--candidate-sha is invalid");
+  }
+  if (!POLICIES.has(policy)) {
+    fail("--policy must be first-use-panel or owner-mac-studio");
+  }
+  const activeRuntimeSha =
+    policy === OWNER_MAC_STUDIO_POLICY
+      ? requireOption(options, "active-runtime-sha")
+      : options["active-runtime-sha"];
+  if (activeRuntimeSha !== undefined && !SHA_PATTERN.test(activeRuntimeSha)) {
+    fail("--active-runtime-sha is invalid");
+  }
+  if (policy === OWNER_MAC_STUDIO_POLICY && activeRuntimeSha !== candidateSha) {
+    fail("--active-runtime-sha must equal --candidate-sha for owner acceptance");
   }
   if (!/^[a-f0-9]{64}$/u.test(fixtureSha256)) {
     fail("--fixture-sha256 is invalid");
@@ -432,25 +554,29 @@ function initCampaign(options) {
     }
     const campaign = refreshCampaign(
       {
+        activeRuntimeSha,
         schema: CAMPAIGN_SCHEMA,
         campaignId,
         candidateSha,
         createdAt: now,
         expiresAt: expiresAt.value,
         fixtureSha256,
-        neutralGoal: NEUTRAL_GOAL,
+        neutralGoal: policy === OWNER_MAC_STUDIO_POLICY ? OWNER_NEUTRAL_GOAL : LEGACY_NEUTRAL_GOAL,
         participants: [],
+        policy,
         state: "waiting",
         updatedAt: now,
       },
       now,
     );
     ledger.campaigns.push({
+      activeRuntimeSha,
       campaignId,
       candidateSha,
       createdAt: now,
       expiresAt: expiresAt.value,
       fixtureSha256,
+      policy,
     });
     atomicWriteJson(campaignPath, campaign);
     writeParticipantLedger(campaignPath, ledger, now);
@@ -473,7 +599,11 @@ function mutateCampaign(options, allowedOptions, mutation) {
         entry.candidateSha === campaign.candidateSha &&
         entry.fixtureSha256 === campaign.fixtureSha256,
     );
-    if (!campaignRecord) {
+    if (
+      !campaignRecord ||
+      (campaignRecord.policy ?? FIRST_USE_PANEL_POLICY) !== campaignPolicy(campaign) ||
+      campaignRecord.activeRuntimeSha !== campaign.activeRuntimeSha
+    ) {
       fail("campaign is not bound to the participant ledger", 78);
     }
     if (timedOut) {
@@ -493,7 +623,12 @@ function mutateCampaign(options, allowedOptions, mutation) {
 }
 
 function requireLedgerParticipant(ledger, campaign, participantId) {
-  const participant = ledger.participants.find((entry) => entry.participantId === participantId);
+  const participant = ledger.participants.find(
+    (entry) =>
+      entry.participantId === participantId &&
+      entry.campaignId === campaign.campaignId &&
+      entry.candidateSha === campaign.candidateSha,
+  );
   if (
     !participant ||
     participant.campaignId !== campaign.campaignId ||
@@ -509,11 +644,13 @@ function registerParticipant(options) {
     options,
     [
       "accessibility",
+      "browser",
       "cohort",
       "consent-recorded",
       "device",
       "first-use",
       "guardian-consent-recorded",
+      "operator-role",
       "participant-id",
       "viewport",
     ],
@@ -526,80 +663,124 @@ function registerParticipant(options) {
       if (campaign.participants.some((participant) => participant.id === participantId)) {
         fail("participant is already recorded and cannot be recycled", 75);
       }
-      if (ledger.participants.some((participant) => participant.participantId === participantId)) {
+      const policy = campaignPolicy(campaign);
+      if (
+        policy === FIRST_USE_PANEL_POLICY &&
+        ledger.participants.some((participant) => participant.participantId === participantId)
+      ) {
         fail("participant was already recorded in a prior campaign and cannot be recycled", 75);
       }
-      const cohort = requireOption(options, "cohort");
+      if (
+        policy === OWNER_MAC_STUDIO_POLICY &&
+        campaign.participants.some((participant) => participant.eligible)
+      ) {
+        fail("owner acceptance already has its single eligible participant", 75);
+      }
+      if (
+        policy === OWNER_MAC_STUDIO_POLICY &&
+        ledger.participants.some(
+          (participant) =>
+            participant.participantId === participantId &&
+            participant.candidateSha === campaign.candidateSha,
+        )
+      ) {
+        fail("owner was already recorded for this candidate and cannot retry", 75);
+      }
       const device = requireOption(options, "device");
-      const accessibilityMode = requireOption(options, "accessibility");
       const viewport = requireOption(options, "viewport");
-      if (!COHORTS.has(cohort)) {
-        fail("--cohort must be 7-12, 13-64, or 65-90");
-      }
-      if (!DEVICES.has(device)) {
-        fail("--device must be desktop or mobile");
-      }
-      if (!ACCESSIBILITY_MODES.has(accessibilityMode)) {
-        fail("--accessibility must be standard, keyboard-only, or zoom-200");
-      }
       if (!VIEWPORT_PATTERN.test(viewport)) {
         fail("--viewport must use WIDTHxHEIGHT");
       }
-      const firstUse = parseBoolean(requireOption(options, "first-use"), "--first-use");
       const consentRecorded = parseBoolean(
         requireOption(options, "consent-recorded"),
         "--consent-recorded",
       );
-      const guardianConsentRecorded =
-        cohort === "7-12"
-          ? parseBoolean(
-              requireOption(options, "guardian-consent-recorded"),
-              "--guardian-consent-recorded",
-            )
-          : false;
-      const eligible =
-        firstUse && consentRecorded && (cohort !== "7-12" || guardianConsentRecorded);
-      campaign.participants.push({
-        accessibilityMode,
-        cohort,
-        consentRecorded,
-        device,
-        eligible,
-        eligibilityReason: eligible
-          ? "first-use-and-consent-confirmed"
-          : !firstUse
-            ? "previously-trained"
-            : !consentRecorded
-              ? "consent-not-recorded"
-              : "guardian-consent-not-recorded",
-        firstUse,
-        guardianConsentRecorded,
-        id: participantId,
-        registeredAt: now,
-        status: eligible ? "registered" : "excluded",
-        viewport,
-      });
+      let participant;
+      if (policy === OWNER_MAC_STUDIO_POLICY) {
+        const browser = requireOption(options, "browser");
+        const operatorRole = requireOption(options, "operator-role");
+        if (device !== "mac-studio") {
+          fail("--device must be mac-studio for owner acceptance");
+        }
+        if (browser !== "chrome") {
+          fail("--browser must be chrome for owner acceptance");
+        }
+        if (operatorRole !== "control-director") {
+          fail("--operator-role must be control-director for owner acceptance");
+        }
+        if (!consentRecorded) {
+          fail("--consent-recorded must be true for owner acceptance");
+        }
+        const accessibilityMode = options.accessibility ?? "standard";
+        if (!ACCESSIBILITY_MODES.has(accessibilityMode)) {
+          fail("--accessibility must be standard, keyboard-only, or zoom-200");
+        }
+        participant = {
+          accessibilityMode,
+          browser,
+          consentRecorded,
+          device,
+          eligible: consentRecorded,
+          eligibilityReason: consentRecorded
+            ? "owner-consent-and-device-confirmed"
+            : "consent-not-recorded",
+          id: participantId,
+          operatorRole,
+          registeredAt: now,
+          status: consentRecorded ? "registered" : "excluded",
+          viewport,
+        };
+      } else {
+        const cohort = requireOption(options, "cohort");
+        const accessibilityMode = requireOption(options, "accessibility");
+        if (!COHORTS.has(cohort)) {
+          fail("--cohort must be 7-12, 13-64, or 65-90");
+        }
+        if (!DEVICES.has(device)) {
+          fail("--device must be desktop or mobile");
+        }
+        if (!ACCESSIBILITY_MODES.has(accessibilityMode)) {
+          fail("--accessibility must be standard, keyboard-only, or zoom-200");
+        }
+        const firstUse = parseBoolean(requireOption(options, "first-use"), "--first-use");
+        const guardianConsentRecorded =
+          cohort === "7-12"
+            ? parseBoolean(
+                requireOption(options, "guardian-consent-recorded"),
+                "--guardian-consent-recorded",
+              )
+            : false;
+        const eligible =
+          firstUse && consentRecorded && (cohort !== "7-12" || guardianConsentRecorded);
+        participant = {
+          accessibilityMode,
+          cohort,
+          consentRecorded,
+          device,
+          eligible,
+          eligibilityReason: eligible
+            ? "first-use-and-consent-confirmed"
+            : !firstUse
+              ? "previously-trained"
+              : !consentRecorded
+                ? "consent-not-recorded"
+                : "guardian-consent-not-recorded",
+          firstUse,
+          guardianConsentRecorded,
+          id: participantId,
+          registeredAt: now,
+          status: eligible ? "registered" : "excluded",
+          viewport,
+        };
+      }
+      campaign.participants.push(participant);
+      const { id, ...ledgerParticipant } = participant;
       ledger.participants.push({
-        accessibilityMode,
+        ...ledgerParticipant,
         campaignId: campaign.campaignId,
         candidateSha: campaign.candidateSha,
-        cohort,
-        consentRecorded,
-        device,
-        eligibilityReason: eligible
-          ? "first-use-and-consent-confirmed"
-          : !firstUse
-            ? "previously-trained"
-            : !consentRecorded
-              ? "consent-not-recorded"
-              : "guardian-consent-not-recorded",
-        eligible,
-        firstUse,
-        guardianConsentRecorded,
-        participantId,
-        registeredAt: now,
-        status: eligible ? "registered" : "excluded",
-        viewport,
+        participantId: id,
+        policy,
       });
       return campaign;
     },
@@ -643,9 +824,11 @@ function completeAttempt(options) {
     [
       "hint-count",
       "issue-details-and-owner-or-next",
+      "local-ai-distinction-correct",
       "operator-action-correct",
       "overall-state-correct",
       "participant-id",
+      "resolve-preview-and-safe-cancel",
       "unsafe-action-count",
       "working-item-identified",
       "observer-attested",
@@ -666,24 +849,48 @@ function completeAttempt(options) {
       if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
         fail("attempt completion precedes its start", 78);
       }
-      const outcomes = {
-        issueDetailsAndOwnerOrNext: parseBoolean(
-          requireOption(options, "issue-details-and-owner-or-next"),
-          "--issue-details-and-owner-or-next",
-        ),
-        operatorActionCorrect: parseBoolean(
-          requireOption(options, "operator-action-correct"),
-          "--operator-action-correct",
-        ),
-        overallStateCorrect: parseBoolean(
-          requireOption(options, "overall-state-correct"),
-          "--overall-state-correct",
-        ),
-        workingItemIdentified: parseBoolean(
-          requireOption(options, "working-item-identified"),
-          "--working-item-identified",
-        ),
-      };
+      const outcomes =
+        campaignPolicy(campaign) === OWNER_MAC_STUDIO_POLICY
+          ? {
+              issueDetailsAndOwnerOrNext: parseBoolean(
+                requireOption(options, "issue-details-and-owner-or-next"),
+                "--issue-details-and-owner-or-next",
+              ),
+              localAiDistinctionCorrect: parseBoolean(
+                requireOption(options, "local-ai-distinction-correct"),
+                "--local-ai-distinction-correct",
+              ),
+              overallStateCorrect: parseBoolean(
+                requireOption(options, "overall-state-correct"),
+                "--overall-state-correct",
+              ),
+              resolvePreviewAndSafeCancel: parseBoolean(
+                requireOption(options, "resolve-preview-and-safe-cancel"),
+                "--resolve-preview-and-safe-cancel",
+              ),
+              workingItemIdentified: parseBoolean(
+                requireOption(options, "working-item-identified"),
+                "--working-item-identified",
+              ),
+            }
+          : {
+              issueDetailsAndOwnerOrNext: parseBoolean(
+                requireOption(options, "issue-details-and-owner-or-next"),
+                "--issue-details-and-owner-or-next",
+              ),
+              operatorActionCorrect: parseBoolean(
+                requireOption(options, "operator-action-correct"),
+                "--operator-action-correct",
+              ),
+              overallStateCorrect: parseBoolean(
+                requireOption(options, "overall-state-correct"),
+                "--overall-state-correct",
+              ),
+              workingItemIdentified: parseBoolean(
+                requireOption(options, "working-item-identified"),
+                "--working-item-identified",
+              ),
+            };
       const hintCount = parseCount(requireOption(options, "hint-count"), "--hint-count");
       const unsafeActionCount = parseCount(
         requireOption(options, "unsafe-action-count"),
@@ -766,7 +973,9 @@ function campaignStatus(options) {
         (entry) =>
           entry.campaignId === campaign.campaignId &&
           entry.candidateSha === campaign.candidateSha &&
-          entry.fixtureSha256 === campaign.fixtureSha256,
+          entry.fixtureSha256 === campaign.fixtureSha256 &&
+          (entry.policy ?? FIRST_USE_PANEL_POLICY) === campaignPolicy(campaign) &&
+          entry.activeRuntimeSha === campaign.activeRuntimeSha,
       )
     ) {
       fail("campaign is not bound to the participant ledger", 78);
@@ -779,10 +988,12 @@ function campaignStatus(options) {
       ensureFinalReceipt(campaignPath, campaign, ledger, now);
     }
     return {
+      activeRuntimeSha: campaign.activeRuntimeSha,
       campaignId: campaign.campaignId,
       candidateSha: campaign.candidateSha,
       finalReceiptPath: campaign.finalReceiptPath,
       finalReceiptSha256: campaign.finalReceiptSha256,
+      policy: campaignPolicy(campaign),
       schema: CAMPAIGN_SCHEMA,
       state: campaign.state,
       summary: campaign.summary,
@@ -795,10 +1006,22 @@ function receiptPathForCampaign(campaignPath) {
 }
 
 function assertFinalLedgerConsistency(campaign, ledger) {
+  const campaignLedgerParticipants = ledger.participants.filter(
+    (participant) => participant.campaignId === campaign.campaignId,
+  );
+  if (
+    campaignLedgerParticipants.length !== campaign.participants.length ||
+    campaignLedgerParticipants.some(
+      (participant) => participant.candidateSha !== campaign.candidateSha,
+    )
+  ) {
+    fail("participant ledger contains replaced or extraneous campaign evidence", 78);
+  }
   for (const participant of campaign.participants) {
     const ledgerParticipant = requireLedgerParticipant(ledger, campaign, participant.id);
     if (
       ledgerParticipant.accessibilityMode !== participant.accessibilityMode ||
+      ledgerParticipant.browser !== participant.browser ||
       ledgerParticipant.cohort !== participant.cohort ||
       ledgerParticipant.consentRecorded !== participant.consentRecorded ||
       ledgerParticipant.device !== participant.device ||
@@ -806,6 +1029,8 @@ function assertFinalLedgerConsistency(campaign, ledger) {
       ledgerParticipant.eligibilityReason !== participant.eligibilityReason ||
       ledgerParticipant.firstUse !== participant.firstUse ||
       ledgerParticipant.guardianConsentRecorded !== participant.guardianConsentRecorded ||
+      ledgerParticipant.operatorRole !== participant.operatorRole ||
+      (ledgerParticipant.policy ?? FIRST_USE_PANEL_POLICY) !== campaignPolicy(campaign) ||
       ledgerParticipant.status !== participant.status ||
       ledgerParticipant.viewport !== participant.viewport ||
       JSON.stringify(ledgerParticipant.attempt ?? null) !==
@@ -835,7 +1060,9 @@ function validateFinalReceipt(receiptPath, campaign) {
     receipt.schema !== FINAL_RECEIPT_SCHEMA ||
     receipt.campaignId !== campaign.campaignId ||
     receipt.candidateSha !== campaign.candidateSha ||
+    receipt.activeRuntimeSha !== campaign.activeRuntimeSha ||
     receipt.fixtureSha256 !== campaign.fixtureSha256 ||
+    (receipt.policy ?? FIRST_USE_PANEL_POLICY) !== campaignPolicy(campaign) ||
     receipt.result !== "passed" ||
     receiptSha256 !== computedReceiptSha256
   ) {
@@ -863,15 +1090,18 @@ function ensureFinalReceipt(campaignPath, campaign, ledger, now, requestedPath) 
       .map((participant) => ({
         accessibilityMode: participant.accessibilityMode,
         attempt: participant.attempt,
+        browser: participant.browser,
         cohort: participant.cohort,
         consentRecorded: participant.consentRecorded,
         device: participant.device,
         firstUse: participant.firstUse,
         guardianConsentRecorded: participant.guardianConsentRecorded,
+        operatorRole: participant.operatorRole,
         participantId: participant.id,
         viewport: participant.viewport,
       }));
     const receiptInput = {
+      activeRuntimeSha: campaign.activeRuntimeSha,
       campaignId: campaign.campaignId,
       candidateSha: campaign.candidateSha,
       completedAt: now,
@@ -881,6 +1111,7 @@ function ensureFinalReceipt(campaignPath, campaign, ledger, now, requestedPath) 
         .update(readFileSync(participantLedgerPath(campaignPath)))
         .digest("hex"),
       participants,
+      policy: campaignPolicy(campaign),
       result: "passed",
       schema: FINAL_RECEIPT_SCHEMA,
       summary: campaign.summary,

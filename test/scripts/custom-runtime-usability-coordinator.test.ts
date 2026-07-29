@@ -73,6 +73,35 @@ function initialize(input: ReturnType<typeof fixture>, expiresAt = "2026-07-30T0
   );
 }
 
+function initializeOwner(
+  input: ReturnType<typeof fixture>,
+  campaign = input.campaign,
+  campaignId = "or2-owner-mac-studio",
+  ownerCandidateSha = candidateSha,
+) {
+  return expectSuccess(
+    command(input, [
+      "init",
+      "--campaign",
+      campaign,
+      "--campaign-id",
+      campaignId,
+      "--candidate-sha",
+      ownerCandidateSha,
+      "--active-runtime-sha",
+      ownerCandidateSha,
+      "--fixture-sha256",
+      fixtureSha256,
+      "--policy",
+      "owner-mac-studio",
+      "--expires-at",
+      "2026-07-30T00:00:00.000Z",
+      "--now",
+      "2026-07-28T18:00:00.000Z",
+    ]),
+  );
+}
+
 const participantPlans = [
   {
     accessibility: "standard",
@@ -155,6 +184,39 @@ function registerReadyCohort(input: ReturnType<typeof fixture>) {
   }
 }
 
+function registerOwner(
+  input: ReturnType<typeof fixture>,
+  campaign = input.campaign,
+  overrides: {
+    browser?: string;
+    consent?: string;
+    device?: string;
+    operatorRole?: string;
+  } = {},
+) {
+  return command({ ...input, campaign }, [
+    "register",
+    "--campaign",
+    campaign,
+    "--participant-id",
+    participantId(99),
+    "--device",
+    overrides.device ?? "mac-studio",
+    "--browser",
+    overrides.browser ?? "chrome",
+    "--operator-role",
+    overrides.operatorRole ?? "control-director",
+    "--viewport",
+    "1728x1117",
+    "--accessibility",
+    "standard",
+    "--consent-recorded",
+    overrides.consent ?? "true",
+    "--now",
+    "2026-07-28T18:01:00.000Z",
+  ]);
+}
+
 function start(input: ReturnType<typeof fixture>, index: number, minute: number) {
   return command(input, [
     "start",
@@ -199,6 +261,37 @@ function complete(
   ]);
 }
 
+function completeOwner(
+  input: ReturnType<typeof fixture>,
+  overrides: { distinction?: string; preview?: string } = {},
+) {
+  return command(input, [
+    "complete",
+    "--campaign",
+    input.campaign,
+    "--participant-id",
+    participantId(99),
+    "--overall-state-correct",
+    "true",
+    "--working-item-identified",
+    "true",
+    "--local-ai-distinction-correct",
+    overrides.distinction ?? "true",
+    "--issue-details-and-owner-or-next",
+    "true",
+    "--resolve-preview-and-safe-cancel",
+    overrides.preview ?? "true",
+    "--hint-count",
+    "0",
+    "--unsafe-action-count",
+    "0",
+    "--observer-attested",
+    "true",
+    "--now",
+    "2026-07-28T19:00:45.000Z",
+  ]);
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -206,6 +299,195 @@ afterEach(() => {
 });
 
 describe("Operations Room usability coordinator", () => {
+  it("makes one consented Control Director on Mac Studio lease-ready", () => {
+    const input = fixture();
+    initializeOwner(input);
+
+    const initial = expectSuccess(
+      command(input, ["status", "--campaign", input.campaign, "--now", "2026-07-28T18:00:30.000Z"]),
+    );
+    expect(initial).toMatchObject({
+      activeRuntimeSha: candidateSha,
+      policy: "owner-mac-studio",
+      state: "waiting",
+      summary: {
+        leaseAllowed: false,
+        policy: "owner-mac-studio",
+        remainingParticipantCount: 1,
+      },
+    });
+
+    const ready = expectSuccess(registerOwner(input));
+    expect(ready).toMatchObject({
+      policy: "owner-mac-studio",
+      state: "ready",
+      summary: {
+        coverage: {
+          browser: true,
+          device: true,
+          operatorRole: true,
+        },
+        eligibleParticipantCount: 1,
+        leaseAllowed: true,
+        remainingParticipantCount: 0,
+      },
+    });
+    expect(ready.participants[0]).not.toHaveProperty("firstUse");
+    expect(ready.participants[0]).not.toHaveProperty("cohort");
+  });
+
+  it("binds owner acceptance to the exact active candidate and Mac Studio surface", () => {
+    const mismatched = fixture();
+    const initMismatch = command(mismatched, [
+      "init",
+      "--campaign",
+      mismatched.campaign,
+      "--campaign-id",
+      "or2-owner-mismatch",
+      "--candidate-sha",
+      candidateSha,
+      "--active-runtime-sha",
+      "c".repeat(40),
+      "--fixture-sha256",
+      fixtureSha256,
+      "--policy",
+      "owner-mac-studio",
+      "--expires-at",
+      "2026-07-30T00:00:00.000Z",
+      "--now",
+      "2026-07-28T18:00:00.000Z",
+    ]);
+    expect(initMismatch.status).toBe(64);
+    expect(initMismatch.stderr).toContain("must equal --candidate-sha");
+
+    for (const [field, overrides, message] of [
+      ["device", { device: "desktop" }, "--device must be mac-studio"],
+      ["browser", { browser: "safari" }, "--browser must be chrome"],
+      ["operator", { operatorRole: "administrator" }, "--operator-role must be control-director"],
+      ["consent", { consent: "false" }, "--consent-recorded must be true"],
+    ] as const) {
+      const input = fixture();
+      initializeOwner(input, input.campaign, `or2-owner-invalid-${field}`);
+      const result = registerOwner(input, input.campaign, overrides);
+      expect(result.status, field).toBe(64);
+      expect(result.stderr, field).toContain(message);
+    }
+  });
+
+  it("records one owner attempt, permits the owner on later releases, and never permits a retry", () => {
+    const input = fixture();
+    initializeOwner(input);
+    expectSuccess(registerOwner(input));
+    expectSuccess(start(input, 99, 0));
+    expectSuccess(completeOwner(input));
+
+    const finalCampaign = JSON.parse(readFileSync(input.campaign, "utf8"));
+    expect(finalCampaign).toMatchObject({
+      activeRuntimeSha: candidateSha,
+      policy: "owner-mac-studio",
+      state: "passed",
+      summary: {
+        leaseAllowed: true,
+        passedAttemptCount: 1,
+      },
+    });
+    const receipt = expectSuccess(
+      command(input, [
+        "finalize",
+        "--campaign",
+        input.campaign,
+        "--now",
+        "2026-07-28T19:01:00.000Z",
+      ]),
+    );
+    expect(receipt).toMatchObject({
+      activeRuntimeSha: candidateSha,
+      candidateSha,
+      policy: "owner-mac-studio",
+      result: "passed",
+      participants: [
+        expect.objectContaining({
+          browser: "chrome",
+          device: "mac-studio",
+          operatorRole: "control-director",
+        }),
+      ],
+    });
+    expect(start(input, 99, 1).stderr).toContain("campaign state is passed");
+
+    rmSync(input.campaign);
+    const sameCandidateCampaign = path.join(
+      input.runtimeHome,
+      "usability",
+      "same-candidate-owner-retry.json",
+    );
+    initializeOwner(input, sameCandidateCampaign, "or2-owner-same-candidate");
+    expect(registerOwner(input, sameCandidateCampaign).stderr).toContain(
+      "already recorded for this candidate",
+    );
+    rmSync(sameCandidateCampaign);
+
+    const laterCampaign = path.join(input.runtimeHome, "usability", "later-owner-release.json");
+    initializeOwner(input, laterCampaign, "or2-owner-later-release", "e".repeat(40));
+    const reusedOwner = registerOwner(input, laterCampaign);
+    expectSuccess(reusedOwner);
+    const ledger = JSON.parse(
+      readFileSync(path.join(path.dirname(laterCampaign), "participant-ledger.json"), "utf8"),
+    );
+    expect(
+      ledger.participants.filter(
+        (participant: { participantId: string }) => participant.participantId === participantId(99),
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("makes a failed owner acceptance terminal without replacement or retry", () => {
+    const input = fixture();
+    initializeOwner(input);
+    expectSuccess(registerOwner(input));
+    expectSuccess(start(input, 99, 0));
+    expectSuccess(completeOwner(input, { distinction: "false" }));
+    const campaign = JSON.parse(readFileSync(input.campaign, "utf8"));
+    expect(campaign).toMatchObject({
+      state: "failed",
+      summary: {
+        failedAttemptCount: 1,
+        leaseAllowed: false,
+      },
+    });
+    expect(start(input, 99, 1).stderr).toContain("campaign state is failed");
+    expect(registerOwner(input).stderr).toContain("campaign state is failed");
+  });
+
+  it("rejects a second owner participant in the same campaign", () => {
+    const input = fixture();
+    initializeOwner(input);
+    expectSuccess(registerOwner(input));
+    const secondOwner = command(input, [
+      "register",
+      "--campaign",
+      input.campaign,
+      "--participant-id",
+      participantId(98),
+      "--device",
+      "mac-studio",
+      "--browser",
+      "chrome",
+      "--operator-role",
+      "control-director",
+      "--viewport",
+      "1728x1117",
+      "--accessibility",
+      "standard",
+      "--consent-recorded",
+      "true",
+      "--now",
+      "2026-07-28T18:02:00.000Z",
+    ]);
+    expect(secondOwner.status).toBe(75);
+    expect(secondOwner.stderr).toContain("campaign state is ready");
+  });
+
   it("reports exact missing coverage and becomes lease-ready only with five eligible participants", () => {
     const input = fixture();
     initialize(input);

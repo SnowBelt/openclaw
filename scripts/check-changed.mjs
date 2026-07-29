@@ -137,7 +137,10 @@ export function shouldDelegateChangedCheckToCrabbox(argv = [], env = process.env
   if (argv.includes("--dry-run")) {
     return false;
   }
-  return true;
+  if (isTruthyEnvFlag(env.OPENCLAW_LOCAL_CHECK)) {
+    return false;
+  }
+  return isTruthyEnvFlag(env.OPENCLAW_CHECK_CHANGED_REMOTE);
 }
 
 export function buildChangedCheckCrabboxArgs(argv = [], options = {}) {
@@ -245,7 +248,9 @@ export function createShrinkwrapGuardCommand(paths) {
 }
 
 async function runChangedCheckViaCrabbox(argv = [], env = process.env) {
-  console.error("[check:changed] delegating to Blacksmith Testbox via `pnpm crabbox:run`.");
+  console.error(
+    "[check:changed] explicit OPENCLAW_CHECK_CHANGED_REMOTE request: delegating via `pnpm crabbox:run`.",
+  );
   return await runManagedCommand({
     bin: "pnpm",
     args: buildChangedCheckCrabboxArgs(argv),

@@ -698,8 +698,16 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
         fail("usability campaign is malformed")
     if campaign.get("schema") != "openclaw.operations-room.usability-campaign.v1":
         fail("usability campaign schema is invalid")
+    policy = campaign.get("policy", "first-use-panel")
+    if policy not in {"first-use-panel", "owner-mac-studio"}:
+        fail("usability campaign policy is invalid")
     if campaign.get("candidateSha") != expected_candidate_sha:
         fail("usability campaign candidate SHA does not match the lease")
+    if (
+        policy == "owner-mac-studio"
+        and campaign.get("activeRuntimeSha") != expected_candidate_sha
+    ):
+        fail("owner acceptance is not bound to the exact active runtime")
     fixture_sha = campaign.get("fixtureSha256")
     if not isinstance(fixture_sha, str) or not re.fullmatch(r"[0-9a-f]{64}", fixture_sha):
         fail("usability campaign fixture hash is missing or invalid")
@@ -740,35 +748,79 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
         ):
             fail("usability campaign participant identity is missing, invalid, or duplicated")
         participant_ids.add(participant_id)
-        cohort = participant.get("cohort")
-        device = participant.get("device")
         accessibility_mode = participant.get("accessibilityMode")
-        if cohort not in {"7-12", "13-64", "65-90"}:
-            fail("usability campaign participant cohort is invalid")
-        if device not in {"desktop", "mobile"}:
-            fail("usability campaign participant device is invalid")
         if accessibility_mode not in {"standard", "keyboard-only", "zoom-200"}:
             fail("usability campaign participant accessibility mode is invalid")
-        first_use = participant.get("firstUse") is True
         consent = participant.get("consentRecorded") is True
-        guardian_consent = participant.get("guardianConsentRecorded") is True
-        computed_eligible = first_use and consent and (cohort != "7-12" or guardian_consent)
+        if policy == "owner-mac-studio":
+            if (
+                participant.get("device") != "mac-studio"
+                or participant.get("browser") != "chrome"
+                or participant.get("operatorRole") != "control-director"
+            ):
+                fail("owner acceptance is not bound to Control Director on Mac Studio Chrome")
+            if any(
+                field in participant
+                for field in ("cohort", "firstUse", "guardianConsentRecorded")
+            ):
+                fail("owner acceptance contains obsolete first-use participant fields")
+            computed_eligible = consent
+        else:
+            cohort = participant.get("cohort")
+            if cohort not in {"7-12", "13-64", "65-90"}:
+                fail("usability campaign participant cohort is invalid")
+            if participant.get("device") not in {"desktop", "mobile"}:
+                fail("usability campaign participant device is invalid")
+            first_use = participant.get("firstUse") is True
+            guardian_consent = participant.get("guardianConsentRecorded") is True
+            computed_eligible = first_use and consent and (
+                cohort != "7-12" or guardian_consent
+            )
         if participant.get("eligible") is not computed_eligible:
             fail("usability campaign participant eligibility is inconsistent")
         if computed_eligible:
             eligible.append(participant)
+
     eligible_count = len(eligible)
-    cohorts = {participant["cohort"] for participant in eligible}
-    devices = {participant["device"] for participant in eligible}
-    accessibility_modes = {participant["accessibilityMode"] for participant in eligible}
-    computed_coverage = {
-        "accessibility": bool(
-            {"keyboard-only", "zoom-200"}.intersection(accessibility_modes)
-        ),
-        "ageCohorts": {"7-12", "13-64", "65-90"}.issubset(cohorts),
-        "desktop": "desktop" in devices,
-        "mobile": "mobile" in devices,
-    }
+    if policy == "owner-mac-studio":
+        computed_coverage = {
+            "browser": any(participant.get("browser") == "chrome" for participant in eligible),
+            "device": any(participant.get("device") == "mac-studio" for participant in eligible),
+            "operatorRole": any(
+                participant.get("operatorRole") == "control-director"
+                for participant in eligible
+            ),
+        }
+        required_count = 1
+        required_outcomes = (
+            "issueDetailsAndOwnerOrNext",
+            "localAiDistinctionCorrect",
+            "overallStateCorrect",
+            "resolvePreviewAndSafeCancel",
+            "workingItemIdentified",
+        )
+    else:
+        cohorts = {participant["cohort"] for participant in eligible}
+        devices = {participant["device"] for participant in eligible}
+        accessibility_modes = {
+            participant["accessibilityMode"] for participant in eligible
+        }
+        computed_coverage = {
+            "accessibility": bool(
+                {"keyboard-only", "zoom-200"}.intersection(accessibility_modes)
+            ),
+            "ageCohorts": {"7-12", "13-64", "65-90"}.issubset(cohorts),
+            "desktop": "desktop" in devices,
+            "mobile": "mobile" in devices,
+        }
+        required_count = 5
+        required_outcomes = (
+            "issueDetailsAndOwnerOrNext",
+            "operatorActionCorrect",
+            "overallStateCorrect",
+            "workingItemIdentified",
+        )
+
     statuses = [participant.get("status") for participant in eligible]
     if any(status not in {"registered", "running", "passed", "failed"} for status in statuses):
         fail("usability campaign participant status is invalid")
@@ -841,12 +893,7 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
         unsafe_action_count += unsafe_actions
         computed_passed = (
             elapsed_ms <= 60000
-            and all(outcomes.get(key) is True for key in (
-                "issueDetailsAndOwnerOrNext",
-                "operatorActionCorrect",
-                "overallStateCorrect",
-                "workingItemIdentified",
-            ))
+            and all(outcomes.get(key) is True for key in required_outcomes)
             and hints == 0
             and unsafe_actions == 0
             and attempt.get("observerAttested") is True
@@ -855,15 +902,28 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
             fail("usability participant pass result is inconsistent")
         if (status == "passed") is not computed_passed:
             fail("usability participant status conflicts with attempt evidence")
+
     summary = campaign.get("summary")
     if not isinstance(summary, dict):
         fail("usability campaign summary is missing or invalid")
+    if summary.get("policy", policy) != policy:
+        fail("usability campaign summary policy is inconsistent")
     coverage = summary.get("coverage")
     if coverage != computed_coverage or not all(computed_coverage.values()):
         fail("usability campaign coverage is incomplete")
-    if summary.get("eligibleParticipantCount") != eligible_count or eligible_count < 5:
-        fail("usability campaign needs at least five eligible participants")
-    if summary.get("remainingParticipantCount") != max(0, 5 - eligible_count):
+    participant_count_valid = (
+        eligible_count == required_count
+        if policy == "owner-mac-studio"
+        else eligible_count >= required_count
+    )
+    if (
+        summary.get("eligibleParticipantCount") != eligible_count
+        or not participant_count_valid
+    ):
+        fail("usability campaign does not have the required eligible participant count")
+    if summary.get("participantCountValid", True) is not participant_count_valid:
+        fail("usability campaign participant-count validity is inconsistent")
+    if summary.get("remainingParticipantCount") != max(0, required_count - eligible_count):
         fail("usability campaign still has unfilled participant slots")
     if summary.get("failedAttemptCount") != failed_count or failed_count != 0:
         fail("usability campaign contains a failed attempt")
@@ -887,6 +947,7 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
         fail("usability campaign state conflicts with participant evidence")
     if summary.get("leaseAllowed") is not True:
         fail("usability campaign does not allow a finalization lease")
+
     participant_ledger_path = os.path.join(os.path.dirname(resolved), "participant-ledger.json")
     if (
         not os.path.isfile(participant_ledger_path)
@@ -907,45 +968,94 @@ def load_usability_campaign(path, expected_candidate_sha, expected_campaign_id=N
         or not isinstance(participant_ledger.get("participants"), list)
     ):
         fail("usability participant ledger schema is invalid")
-    if not any(
+    matching_campaign_records = [
+        entry
+        for entry in participant_ledger["campaigns"]
+        if (
         isinstance(entry, dict)
         and entry.get("campaignId") == campaign_id
         and entry.get("candidateSha") == expected_candidate_sha
         and entry.get("fixtureSha256") == fixture_sha
-        for entry in participant_ledger["campaigns"]
-    ):
+        and entry.get("policy", "first-use-panel") == policy
+        and entry.get("activeRuntimeSha") == campaign.get("activeRuntimeSha")
+        )
+    ]
+    if len(matching_campaign_records) != 1:
         fail("usability campaign is not registered in the participant ledger")
+
     ledger_participants = {}
     for entry in participant_ledger["participants"]:
-        if not isinstance(entry, dict):
+        if not isinstance(entry, dict) or contains_forbidden_identity(entry):
             fail("usability participant ledger entry is invalid")
         participant_id = entry.get("participantId")
+        entry_campaign_id = entry.get("campaignId")
         if (
             not isinstance(participant_id, str)
             or not re.fullmatch(r"[0-9a-f]{64}", participant_id)
-            or participant_id in ledger_participants
+            or not isinstance(entry_campaign_id, str)
         ):
-            fail("usability participant ledger identity is invalid or duplicated")
-        ledger_participants[participant_id] = entry
-    compared_fields = (
+            fail("usability participant ledger identity is invalid")
+        ledger_key = (entry_campaign_id, participant_id)
+        if ledger_key in ledger_participants:
+            fail("usability participant ledger identity is duplicated within a campaign")
+        ledger_participants[ledger_key] = entry
+
+    campaign_ledger_entries = [
+        entry
+        for entry in participant_ledger["participants"]
+        if entry.get("campaignId") == campaign_id
+    ]
+    if (
+        len(campaign_ledger_entries) != len(participants)
+        or any(
+            entry.get("candidateSha") != expected_candidate_sha
+            for entry in campaign_ledger_entries
+        )
+        or {
+            entry.get("participantId")
+            for entry in campaign_ledger_entries
+        } != participant_ids
+    ):
+        fail("usability participant ledger contains replaced or extraneous campaign evidence")
+    if policy == "owner-mac-studio":
+        owner_id = eligible[0]["id"]
+        if any(
+            entry.get("participantId") == owner_id
+            and entry.get("candidateSha") == expected_candidate_sha
+            and entry.get("campaignId") != campaign_id
+            for entry in participant_ledger["participants"]
+        ):
+            fail("owner acceptance was retried for the same exact candidate")
+
+    compared_fields = [
         ("accessibilityMode", "accessibilityMode"),
         ("campaignId", None),
         ("candidateSha", None),
-        ("cohort", "cohort"),
         ("consentRecorded", "consentRecorded"),
         ("device", "device"),
         ("eligibilityReason", "eligibilityReason"),
         ("eligible", "eligible"),
-        ("firstUse", "firstUse"),
-        ("guardianConsentRecorded", "guardianConsentRecorded"),
         ("registeredAt", "registeredAt"),
         ("status", "status"),
         ("viewport", "viewport"),
-    )
+    ]
+    if policy == "owner-mac-studio":
+        compared_fields.extend((
+            ("browser", "browser"),
+            ("operatorRole", "operatorRole"),
+        ))
+    else:
+        compared_fields.extend((
+            ("cohort", "cohort"),
+            ("firstUse", "firstUse"),
+            ("guardianConsentRecorded", "guardianConsentRecorded"),
+        ))
     for participant in participants:
-        entry = ledger_participants.get(participant["id"])
+        entry = ledger_participants.get((campaign_id, participant["id"]))
         if entry is None:
             fail("usability participant is missing from the durable ledger")
+        if entry.get("policy", "first-use-panel") != policy:
+            fail("usability participant ledger policy is inconsistent")
         for ledger_field, campaign_field in compared_fields:
             expected = (
                 campaign_id

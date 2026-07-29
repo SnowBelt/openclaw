@@ -88,10 +88,12 @@ Long-running exact-SHA certification can additionally bootstrap an expiring free
 Human proof uses the separate `human-usability-finalization` operation class after the candidate is
 already active. Acquisition requires `--usability-campaign` pointing to an owner-only file below
 `$OPENCLAW_CUSTOM_RUNTIME_HOME/usability`. The campaign must be exact-SHA `ready`, contain at least
-five eligible anonymous first-use participants, satisfy every age, device, and accessibility slot,
-and contain no failed or unsafe attempt. Status and lifecycle checks independently recompute those
-facts while the lease exists. An invalid campaign blocks retention, but exact-binding release still
-works so failed human evidence cannot strand the runtime behind a lease.
+one consented anonymous Control Director owner, bind the same exact SHA as both candidate and active
+runtime, identify Chrome on the managed Mac Studio, and contain no failed or unsafe attempt. Status
+and lifecycle checks independently recompute those facts while the lease exists. The same owner may
+accept later exact candidates, but cannot retry within a campaign. An invalid campaign blocks
+retention, but exact-binding release still works so failed owner evidence cannot strand the runtime
+behind a lease.
 
 Promotion, activation, restart, rollback, guard repair, and lease transitions share one private global lifecycle lock. Its receipts bind actor, Release Governor approval identity, operation identity, PID, invocation identity, timestamps, and the exact active/candidate SHA pair. Malformed or conflicting state, unsafe permissions, future creation times, durations above 24 hours, live concurrency, and recently orphaned locks fail closed. A valid dead lock becomes recoverable only after the bounded stale interval and produces a recovery receipt; the guard never deletes lifecycle locks by age alone.
 
@@ -123,7 +125,7 @@ custom-runtime-promote.sh --lease-acquire \
 
 ## Dashboard customization rule
 
-Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, desktop/tablet/mobile acceptance, restart recovery, rollback-and-restore, and soak remain separate truth surfaces.
+Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, automated desktop/tablet/mobile proof, owner acceptance in production Chrome on the managed Mac Studio, restart recovery, rollback-and-restore, and soak remain separate truth surfaces. Blacksmith, Testbox, Crabbox, and equivalent third-party execution environments are optional for Operations Room and Control Director work; their availability is never a completion requirement.
 
 ## Project Command Center status
 
@@ -187,17 +189,19 @@ workflow checks, and the build.
 
 The complete focused unit-test invocation is maintained in
 [Operations Room](/automation/operations-room#focused-verification). The DOM smoke is not browser
-proof. The mocked E2E is not managed-runtime proof. The proof workflow must produce the validated
-browser receipt, five named screenshots including `tablet-768-increased-contrast.png`, their
-checksums, and a passing exact-SHA workflow receipt;
-a green job without that uploaded receipt set is incomplete. Production
+proof. The mocked E2E is not managed-runtime proof. The canonical local exact-source proof must
+produce the validated browser receipt, five named screenshots including
+`tablet-768-increased-contrast.png`, their checksums, and a passing exact-SHA local proof receipt.
+An optional hosted workflow, when explicitly requested, is supplementary and is never a completion
+requirement. Production
 acceptance requires the same exact source SHA in the canonical source branch, immutable candidate,
 active runtime pointer, capability manifest, and Gateway process. After approval, rebuild or restart
-the managed Gateway, capture desktop and mobile Operations Room receipts, prove that incident and
-since-last-visit state survive restart, observe at least five minutes without liveness, memory, CPU,
-focus, refresh, duplicate-transition, or duplicate-change regressions, and keep the preregistered
-rollback bundle verified. Run the zero-instruction usability protocol in
-[Operations Room](/automation/operations-room#zero-instruction-60-second-usability-protocol) and
-retain its exact-SHA receipt; every participant must complete all four outcomes in 60 seconds or
-less without a hint or unsafe action. If any identity or proof surface differs, a receipt is missing,
-or any usability attempt fails, stop and restore the previous immutable runtime.
+the managed Gateway, retain automated desktop and mobile Operations Room receipts, capture the real
+production Chrome receipt on the managed Mac Studio, prove that incident and since-last-visit state
+survive restart, observe at least five minutes without liveness, memory, CPU, focus, refresh,
+duplicate-transition, or duplicate-change regressions, and keep the preregistered rollback bundle
+verified. Run the Control Director owner acceptance protocol in
+[Operations Room](/automation/operations-room#control-director-owner-acceptance-protocol) and retain
+its exact-SHA receipt; the owner must complete all five outcomes in 60 seconds or less without a
+hint or unsafe action. If any identity or proof surface differs, a receipt is missing, or the owner
+attempt fails, stop and restore the previous immutable runtime.
