@@ -138,6 +138,67 @@ const OperationsFindingV1Schema = Type.Object(
   { additionalProperties: false },
 );
 
+const OperationsRemediationRecordSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    findingId: NonEmptyString,
+    findingTitle: Type.String({ minLength: 1, maxLength: 1_000 }),
+    findingCategory: OperationsFindingCategoryV2Schema,
+    findingEntityId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+    impact: Type.String({ minLength: 1, maxLength: 1_000 }),
+    recipeId: NonEmptyString,
+    risk: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]),
+    status: Type.Union([
+      Type.Literal("eligible"),
+      Type.Literal("investigating"),
+      Type.Literal("reviewing"),
+      Type.Literal("applying"),
+      Type.Literal("verifying"),
+      Type.Literal("completed"),
+      Type.Literal("rolled_back"),
+      Type.Literal("failed"),
+      Type.Literal("approval_required"),
+    ]),
+    ownerId: Type.String({ minLength: 1, maxLength: 256 }),
+    exactRepair: Type.String({ minLength: 1, maxLength: 4_000 }),
+    progress: Type.String({ minLength: 1, maxLength: 4_000 }),
+    result: Type.Optional(Type.String({ minLength: 1, maxLength: 4_000 })),
+    evidence: Type.Array(Type.String({ minLength: 1, maxLength: 4_000 }), { maxItems: 20 }),
+    rollback: Type.String({ minLength: 1, maxLength: 4_000 }),
+    undoAvailable: Type.Boolean(),
+    undoAction: Type.Optional(
+      Type.Union([Type.Literal("cron.enable"), Type.Literal("cron.disable")]),
+    ),
+    undoTargetId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+    automatic: Type.Boolean(),
+    startedAt: Type.Number({ minimum: 0 }),
+    updatedAt: Type.Number({ minimum: 0 }),
+    completedAt: Type.Optional(Type.Number({ minimum: 0 })),
+    rolledBackAt: Type.Optional(Type.Number({ minimum: 0 })),
+    judge: Type.Optional(
+      Type.Object(
+        {
+          model: Type.Literal("openclaw-judge-qwen35-27b-q8:latest"),
+          approved: Type.Boolean(),
+          reason: Type.String({ minLength: 1, maxLength: 2_000 }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    investigation: Type.Optional(
+      Type.Object(
+        {
+          model: Type.Literal("qwen3.6:27b-q8_0"),
+          confidence: Type.Number({ minimum: 0, maximum: 1 }),
+          recommendation: Type.String({ minLength: 1, maxLength: 2_000 }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 const OperationsFindingV2Schema = Type.Object(
   {
     id: NonEmptyString,
@@ -159,6 +220,7 @@ const OperationsFindingV2Schema = Type.Object(
     remediationTaskId: Type.Optional(Type.String({ maxLength: 256 })),
     lastProgressAt: Type.Optional(Type.Number({ minimum: 0 })),
     nextCheckAt: Type.Optional(Type.Number({ minimum: 0 })),
+    remediation: Type.Optional(OperationsRemediationRecordSchema),
   },
   { additionalProperties: false },
 );
@@ -786,6 +848,9 @@ export const OperationsSnapshotV2ResultSchema = Type.Object(
       ),
       { maxItems: 200 },
     ),
+    remediationHistory: Type.Optional(
+      Type.Array(OperationsRemediationRecordSchema, { maxItems: 100 }),
+    ),
     incidentLedger: Type.Object(
       {
         overflowCount: Type.Integer({ minimum: 0 }),
@@ -795,7 +860,7 @@ export const OperationsSnapshotV2ResultSchema = Type.Object(
     reconciler: Type.Object(
       {
         mode: Type.Union([Type.Literal("shadow"), Type.Literal("supervised")]),
-        autoRemediationEnabled: Type.Literal(false),
+        autoRemediationEnabled: Type.Boolean(),
         intervalMs: Type.Number({ minimum: 1 }),
         lastAttemptAt: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
         lastSweepAt: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),

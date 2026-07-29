@@ -19,6 +19,52 @@ export type OperationsFindingResponseState =
   | "monitoring"
   | "waiting_for_user"
   | "resolved";
+export type OperationsRemediationRisk = "low" | "medium" | "high";
+export type OperationsRemediationStatus =
+  | "eligible"
+  | "investigating"
+  | "reviewing"
+  | "applying"
+  | "verifying"
+  | "completed"
+  | "rolled_back"
+  | "failed"
+  | "approval_required";
+export type OperationsRemediationRecord = {
+  id: string;
+  findingId: string;
+  findingTitle: string;
+  findingCategory: OperationsFinding["category"];
+  findingEntityId?: string;
+  impact: string;
+  recipeId: string;
+  risk: OperationsRemediationRisk;
+  status: OperationsRemediationStatus;
+  ownerId: string;
+  exactRepair: string;
+  progress: string;
+  result?: string;
+  evidence: string[];
+  rollback: string;
+  undoAvailable: boolean;
+  undoAction?: OperationsActionKind;
+  undoTargetId?: string;
+  automatic: boolean;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  rolledBackAt?: number;
+  judge?: {
+    model: "openclaw-judge-qwen35-27b-q8:latest";
+    approved: boolean;
+    reason: string;
+  };
+  investigation?: {
+    model: "qwen3.6:27b-q8_0";
+    confidence: number;
+    recommendation: string;
+  };
+};
 export type OperationsSourceName =
   | "agents"
   | "tasks"
@@ -76,6 +122,7 @@ export type OperationsFinding = {
   remediationTaskId?: string;
   lastProgressAt?: number;
   nextCheckAt?: number;
+  remediation?: OperationsRemediationRecord;
 };
 
 export type OperationsHostSnapshot = {
@@ -250,7 +297,7 @@ export type OperationsProcessSnapshot = {
 
 export type OperationsReconcilerSnapshot = {
   mode: "shadow" | "supervised";
-  autoRemediationEnabled: false;
+  autoRemediationEnabled: boolean;
   intervalMs: number;
   lastAttemptAt: number | null;
   lastSweepAt: number | null;
@@ -357,6 +404,7 @@ export type OperationsSnapshot = {
   findings: OperationsFinding[];
   activityRollups: OperationsActivityRollup[];
   incidentHistory: OperationsIncidentHistoryEntry[];
+  remediationHistory?: OperationsRemediationRecord[];
   incidentLedger: {
     overflowCount: number;
   };

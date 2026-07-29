@@ -89,6 +89,45 @@ describe("Operations Room presentation model", () => {
     ]);
   });
 
+  it("includes terminal automatic repair results in since-last-visit changes", () => {
+    const snapshot = createOperationsTestSnapshot();
+    const boundary = snapshot.generatedAt - 45_000;
+    snapshot.activityRollups = [];
+    snapshot.incidentHistory = [];
+    snapshot.remediationHistory = [
+      {
+        id: "repair-1",
+        findingId: "cron:one:failure",
+        findingTitle: "Schedule failed",
+        findingCategory: "cron",
+        findingEntityId: "cron-1",
+        impact: "Future runs may fail.",
+        recipeId: "cron.pause-repeated-failures.v1",
+        risk: "medium",
+        status: "completed",
+        ownerId: "OpenClaw",
+        exactRepair: "Pause schedule",
+        progress: "Verified",
+        result: "Schedule paused",
+        evidence: ["Read-back verified"],
+        rollback: "Enable schedule",
+        undoAvailable: true,
+        automatic: true,
+        startedAt: boundary + 1_000,
+        updatedAt: boundary + 2_000,
+        completedAt: boundary + 3_000,
+      },
+    ];
+
+    expect(operationsChangesSince(snapshot, boundary)).toMatchObject([
+      {
+        kind: "remediation",
+        at: boundary + 3_000,
+        remediation: { status: "completed", result: "Schedule paused" },
+      },
+    ]);
+  });
+
   it("keeps all seven agent groups in operational priority order", () => {
     const now = Date.now();
     const snapshot = createSevenGroupOperationsTestSnapshot(now);

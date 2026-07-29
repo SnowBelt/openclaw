@@ -40,6 +40,7 @@ function collectOperationsSnapshot(params: Parameters<typeof collectOperationsSn
   return collectOperationsSnapshotRaw({
     eventLoop: HEALTHY_EVENT_LOOP,
     pluginRegistryAvailable: true,
+    remediationRecords: [],
     ...params,
     monitorState: params.monitorState ?? {
       running: true,
@@ -226,6 +227,86 @@ describe("Operations Room collector", () => {
     expect(snapshot.freshness.sources.processes.status).toBe("omitted");
     expect(snapshot.controls).toMatchObject({ mode: "guarded", previewRequired: true });
     expect(snapshot.reconciler.autoRemediationEnabled).toBe(false);
+  });
+
+  it("projects automatic repair progress into handling and terminal change history", async () => {
+    const now = 450_000;
+    const failedCron = {
+      id: "cron-1",
+      name: "Health sweep",
+      enabled: false,
+      createdAtMs: 1,
+      updatedAtMs: now,
+      schedule: { kind: "every", everyMs: 60_000 },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "work" },
+      state: {
+        lastRunAtMs: now - 1_000,
+        lastRunStatus: "error",
+        lastError: "failed",
+        consecutiveErrors: 3,
+      },
+    } as CronJob;
+    const remediation = {
+      id: "repair-1",
+      findingId: "cron:cron-1:failure",
+      findingTitle: "Scheduled work Health sweep is failing",
+      findingCategory: "cron" as const,
+      findingEntityId: "cron-1",
+      impact: "Future scheduled runs may not produce their intended result.",
+      recipeId: "cron.pause-repeated-failures.v1",
+      risk: "medium" as const,
+      status: "verifying" as const,
+      ownerId: "OpenClaw",
+      exactRepair: "Pause the failing schedule.",
+      progress: "Running deterministic post-repair verification.",
+      evidence: [],
+      rollback: "Re-enable the same schedule.",
+      undoAvailable: true,
+      undoAction: "cron.enable" as const,
+      undoTargetId: "cron-1",
+      automatic: true,
+      startedAt: now - 2_000,
+      updatedAt: now - 500,
+    };
+    const snapshot = await collectOperationsSnapshot({
+      cfg: cfg(),
+      cron: cronService([failedCron]),
+      includeProcesses: false,
+      now,
+      taskRecords: [],
+      flowRecords: [],
+      remediationRecords: [remediation],
+      monitorState: {
+        running: true,
+        autoRemediationEnabled: true,
+        intervalMs: 60_000,
+        startedAt: now - 60_000,
+        lastAttemptAt: now,
+        lastSweepAt: now,
+        nextSweepAt: now + 60_000,
+        lastDurationMs: 1,
+        attemptCount: 1,
+        sweepCount: 1,
+        lastError: null,
+        findingIds: [remediation.findingId],
+      },
+      incidentLedgerOptions: { ledgerPath: ledgerPath() },
+    });
+
+    expect(snapshot.findings[0]).toMatchObject({
+      id: remediation.findingId,
+      disposition: "handling",
+      responseState: "in_progress",
+      ownerId: "OpenClaw",
+      remediation: { status: "verifying" },
+    });
+    expect(snapshot.remediationHistory).toEqual([remediation]);
+    expect(snapshot.reconciler).toMatchObject({
+      mode: "supervised",
+      autoRemediationEnabled: true,
+    });
   });
 
   it("separates current from terminal work, sanitizes display text, and counts before caps", async () => {
