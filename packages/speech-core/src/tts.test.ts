@@ -1,5 +1,6 @@
 // Speech Core tests cover tts behavior.
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { MAX_TIMER_TIMEOUT_MS } from "openclaw/plugin-sdk/number-runtime";
@@ -942,8 +943,17 @@ describe("speech-core native voice-note routing", () => {
 
   it("truncates long TTS text on a UTF-16 boundary", async () => {
     const prefsName = "openclaw-speech-core-utf16-truncate-test";
-    const prefsPath = `/tmp/${prefsName}.json`;
-    const cfg = createTtsConfig(prefsName);
+    const prefsDir = mkdtempSync(path.join(tmpdir(), `${prefsName}-`));
+    const prefsPath = path.join(prefsDir, "prefs.json");
+    const cfg = {
+      messages: {
+        tts: {
+          enabled: true,
+          provider: "mock",
+          prefsPath,
+        },
+      },
+    } satisfies OpenClawConfig;
     setTtsMaxLength(prefsPath, 11);
     setSummarizationEnabled(prefsPath, false);
     let mediaDir: string | undefined;
@@ -962,7 +972,7 @@ describe("speech-core native voice-note routing", () => {
       expect(result.spokenText).toBe(spokenText);
       mediaDir = result.mediaUrl ? path.dirname(result.mediaUrl) : undefined;
     } finally {
-      rmSync(prefsPath, { force: true });
+      rmSync(prefsDir, { recursive: true, force: true });
       if (mediaDir) {
         rmSync(mediaDir, { recursive: true, force: true });
       }

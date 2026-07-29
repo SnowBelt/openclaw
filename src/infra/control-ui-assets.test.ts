@@ -190,6 +190,7 @@ describe("control UI assets helpers (fs-mocked)", () => {
     const root = abs("fixtures/build-failure");
     const argv1 = path.join(root, "src", "index.ts");
     const originalArgv1 = process.argv[1];
+    setFile(path.join(root, "package.json"), JSON.stringify({ name: "fixture" }));
     setFile(path.join(root, "ui", "vite.config.ts"), "export {};\n");
     setFile(path.join(root, "scripts", "ui.js"), "");
     state.runCommandWithTimeout.mockResolvedValueOnce({
