@@ -789,13 +789,17 @@ export async function runRuntimeToolFixture(
       failureRequest: failurePlannedRequest,
     });
   }
-  if (!happyRequest) {
+  // Async runtime tools prove the start call here; completion is covered by
+  // their task lifecycle scenarios.
+  const happyPlannedOnly = Boolean(happyPlannedRequest && !happyPathOutputRequired);
+  if (!happyRequest && !happyPlannedOnly) {
     if (dynamicExposureIntentionallyExcluded) {
       return formatCodexNativeWorkspaceDetails({
         toolName,
         tools,
         reason: metadata.reason,
         happyRequest: happyPlannedRequest,
+        failureRequest: failurePlannedRequest,
       });
     }
     if (isKnownHarnessGap(config.knownHarnessGap)) {
