@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createStorageMock } from "../../test-helpers/storage.ts";
 import type { TerminalGatewayClient } from "./terminal-connection.ts";
 
 type CreateOptions = {
@@ -19,11 +20,17 @@ vi.mock("./terminal-runtime.ts", () => {
 import { OpenClawTerminalPanel } from "./terminal-panel.ts";
 
 describe("OpenClawTerminalPanel", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("sessionStorage", createStorageMock());
+  });
+
   afterEach(() => {
     document.body.replaceChildren();
     localStorage.clear();
     sessionStorage.clear();
     createGhosttyTerminalMock.mockReset();
+    vi.unstubAllGlobals();
   });
 
   it("opens new sessions for the selected agent", async () => {

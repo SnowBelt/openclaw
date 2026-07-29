@@ -371,8 +371,8 @@ function expectResolvedFixturePath(params: {
   fixture: { srcFile: string; distFile: string };
   expected: "src" | "dist";
 }) {
-  expect(params.resolved).toBe(
-    params.expected === "dist" ? params.fixture.distFile : params.fixture.srcFile,
+  expect(fs.realpathSync(params.resolved ?? "")).toBe(
+    fs.realpathSync(params.expected === "dist" ? params.fixture.distFile : params.fixture.srcFile),
   );
 }
 

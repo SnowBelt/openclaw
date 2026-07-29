@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createStorageMock } from "../../test-helpers/storage.ts";
 
 const { realtimeTalkSessionCtor, sessionStart, sessionStop } = vi.hoisted(() => ({
   realtimeTalkSessionCtor: vi.fn(function () {
@@ -42,6 +43,8 @@ function createState(): ChatRealtimeState {
 
 describe("chat realtime microphone selection", () => {
   beforeEach(() => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("sessionStorage", createStorageMock());
     localStorage.clear();
     realtimeTalkSessionCtor.mockClear();
     sessionStart.mockClear();
@@ -56,7 +59,7 @@ describe("chat realtime microphone selection", () => {
   it("keeps the selected input in memory when persistence fails and shares it across panes", async () => {
     const firstPane = createState();
     const secondPane = createState();
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
       throw new DOMException("blocked", "SecurityError");
     });
 

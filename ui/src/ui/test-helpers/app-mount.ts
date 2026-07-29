@@ -115,6 +115,7 @@ export function mountApp(pathname: string) {
 
 export function registerAppMountHooks() {
   beforeEach(async () => {
+    vi.useRealTimers();
     const localStorage = createStorageMock();
     const sessionStorage = createStorageMock();
     const matchMedia = createMatchMediaMock(390);
@@ -156,6 +157,7 @@ export function registerAppMountHooks() {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await cleanupMountedApps();
     window["__OPENCLAW_CONTROL_UI_BASE_PATH__"] = undefined;
     getSafeLocalStorage()?.clear();
