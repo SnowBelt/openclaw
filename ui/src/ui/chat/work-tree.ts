@@ -129,22 +129,34 @@ function taskId(task: WorkSurfaceTaskSummary | undefined): string | undefined {
   return normalizeText(task?.taskId) ?? normalizeText(task?.id);
 }
 
-function taskForSession(
+function taskTimestamp(task: WorkSurfaceTaskSummary): number {
+  return normalizeTimestamp(task.updatedAt) ?? normalizeTimestamp(task.createdAt) ?? 0;
+}
+
+function indexBestTaskBySession(
   tasks: readonly WorkSurfaceTaskSummary[],
-  sessionKey: string,
-): WorkSurfaceTaskSummary | undefined {
-  return tasks
-    .filter((task) => normalizeText(task.sessionKey) === sessionKey)
-    .toSorted((a, b) => {
-      const activeDiff = Number(taskIsActive(b)) - Number(taskIsActive(a));
-      if (activeDiff !== 0) {
-        return activeDiff;
-      }
-      return (
-        (normalizeTimestamp(b.updatedAt) ?? normalizeTimestamp(b.createdAt) ?? 0) -
-        (normalizeTimestamp(a.updatedAt) ?? normalizeTimestamp(a.createdAt) ?? 0)
-      );
-    })[0];
+): Map<string, WorkSurfaceTaskSummary> {
+  const bestBySession = new Map<string, WorkSurfaceTaskSummary>();
+  for (const task of tasks) {
+    const sessionKey = normalizeText(task.sessionKey);
+    if (!sessionKey) {
+      continue;
+    }
+    const current = bestBySession.get(sessionKey);
+    if (!current) {
+      bestBySession.set(sessionKey, task);
+      continue;
+    }
+    const candidateActive = taskIsActive(task);
+    const currentActive = taskIsActive(current);
+    if (
+      Number(candidateActive) > Number(currentActive) ||
+      (candidateActive === currentActive && taskTimestamp(task) > taskTimestamp(current))
+    ) {
+      bestBySession.set(sessionKey, task);
+    }
+  }
+  return bestBySession;
 }
 
 function updatedAt(
@@ -162,10 +174,10 @@ function updatedAt(
 function compareRows(
   left: GatewaySessionRow,
   right: GatewaySessionRow,
-  tasks: readonly WorkSurfaceTaskSummary[],
+  bestTaskBySession: ReadonlyMap<string, WorkSurfaceTaskSummary>,
 ): number {
-  const leftActive = rowIsActive(left, taskForSession(tasks, left.key));
-  const rightActive = rowIsActive(right, taskForSession(tasks, right.key));
+  const leftActive = rowIsActive(left, bestTaskBySession.get(left.key));
+  const rightActive = rowIsActive(right, bestTaskBySession.get(right.key));
   const activeDiff = Number(rightActive) - Number(leftActive);
   if (activeDiff !== 0) {
     return activeDiff;
@@ -208,18 +220,25 @@ function createNode(params: {
 }
 
 function countActiveDescendants(node: AgentWorkTreeNode): number {
-  const childActive = node.children.filter((child) => child.isActive).length;
-  const descendantActive = node.children.reduce(
-    (sum, child) => sum + countActiveDescendants(child),
-    0,
-  );
-  node.activeDescendants = childActive + descendantActive;
+  let activeDescendants = 0;
+  for (const child of node.children) {
+    activeDescendants += Number(child.isActive) + countActiveDescendants(child);
+  }
+  node.activeDescendants = activeDescendants;
   return node.activeDescendants;
 }
 
-function flatten(node: AgentWorkTreeNode, includeRoot: boolean): AgentWorkTreeNode[] {
-  const own = includeRoot ? [node] : [];
-  return [...own, ...node.children.flatMap((child) => flatten(child, true))];
+function flattenInto(
+  node: AgentWorkTreeNode,
+  target: AgentWorkTreeNode[],
+  includeRoot: boolean,
+): void {
+  if (includeRoot) {
+    target.push(node);
+  }
+  for (const child of node.children) {
+    flattenInto(child, target, true);
+  }
 }
 
 export function buildAgentWorkTreeSnapshot(
@@ -232,10 +251,12 @@ export function buildAgentWorkTreeSnapshot(
 
   const rows = input.sessionsResult?.sessions ?? [];
   const tasks = input.tasks ?? [];
-  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const bestTaskBySession = indexBestTaskBySession(tasks);
+  const byKey = new Map<string, GatewaySessionRow>();
   const childKeysByParent = new Map<string, Set<string>>();
 
   for (const row of rows) {
+    byKey.set(row.key, row);
     for (const parentKey of collectParentLinks(row)) {
       if (!childKeysByParent.has(parentKey)) {
         childKeysByParent.set(parentKey, new Set());
@@ -260,7 +281,7 @@ export function buildAgentWorkTreeSnapshot(
     row: rootRow,
     root: true,
     sessionKey: currentSessionKey,
-    task: taskForSession(tasks, currentSessionKey),
+    task: bestTaskBySession.get(currentSessionKey),
   });
 
   const visited = new Set<string>([currentSessionKey]);
@@ -269,11 +290,11 @@ export function buildAgentWorkTreeSnapshot(
       .filter((childKey) => !visited.has(childKey))
       .map((childKey) => byKey.get(childKey))
       .filter((row): row is GatewaySessionRow => Boolean(row))
-      .toSorted((left, right) => compareRows(left, right, tasks));
+      .toSorted((left, right) => compareRows(left, right, bestTaskBySession));
 
     for (const row of childRows) {
       visited.add(row.key);
-      const task = taskForSession(tasks, row.key);
+      const task = bestTaskBySession.get(row.key);
       const child = createNode({
         depth: parent.depth + 1,
         parentSessionKey: parent.sessionKey,
@@ -291,7 +312,8 @@ export function buildAgentWorkTreeSnapshot(
 
   buildChildren(root);
   countActiveDescendants(root);
-  const flat = flatten(root, root.children.length > 0);
+  const flat: AgentWorkTreeNode[] = [];
+  flattenInto(root, flat, root.children.length > 0);
   return {
     activeChildCount: root.activeDescendants,
     childCount: flat.length > 0 ? flat.length - 1 : 0,

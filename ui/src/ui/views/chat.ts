@@ -69,7 +69,12 @@ import {
   renderCompactionIndicator,
   renderFallbackIndicator,
 } from "../chat/status-indicators.ts";
-import { getExpandedToolCards, syncToolCardExpansionState } from "../chat/tool-expansion-state.ts";
+import {
+  getExpandedToolCards,
+  getToolExpansionRenderVersion,
+  setToolCardExpanded,
+  syncToolCardExpansionState,
+} from "../chat/tool-expansion-state.ts";
 import {
   buildWorkSurfaceSnapshot,
   hasActiveWork,
@@ -767,16 +772,6 @@ function deletedChatItemsSignature(
     .filter((key) => deleted.has(key))
     .toSorted();
   return deletedKeys.length === 0 ? "" : deletedKeys.join("\u0000");
-}
-
-function stableBooleanMapSignature(values: ReadonlyMap<string, boolean>): string {
-  if (values.size === 0) {
-    return "";
-  }
-  return Array.from(values)
-    .toSorted(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}:${value ? "1" : "0"}`)
-    .join("\u0000");
 }
 
 /**
@@ -3421,8 +3416,9 @@ export function renderChat(props: ChatProps) {
   });
   syncToolCardExpansionState(props.sessionKey, chatItems, Boolean(props.autoExpandToolCalls));
   const expandedToolCards = getExpandedToolCards(props.sessionKey);
+  const toolExpansionRenderVersion = getToolExpansionRenderVersion(props.sessionKey);
   const toggleToolCardExpanded = (toolCardId: string) => {
-    expandedToolCards.set(toolCardId, !expandedToolCards.get(toolCardId));
+    setToolCardExpanded(props.sessionKey, toolCardId, !expandedToolCards.get(toolCardId));
     requestUpdate();
   };
   const hasRealtimeTalkConversation = (props.realtimeTalkConversation?.length ?? 0) > 0;
@@ -3511,7 +3507,7 @@ export function renderChat(props: ChatProps) {
           [
             chatItems,
             deletedChatItemsSignature(deleted, chatItems),
-            stableBooleanMapSignature(expandedToolCards),
+            toolExpansionRenderVersion,
             getAssistantAttachmentAvailabilityRenderVersion(),
             props.sessionKey,
             props.fullMessageAgentId,
@@ -3600,7 +3596,8 @@ export function renderChat(props: ChatProps) {
                     autoExpandToolCalls: Boolean(props.autoExpandToolCalls),
                     isToolMessageExpanded: (messageId: string) => expandedToolCards.get(messageId),
                     onToggleToolMessageExpanded: (messageId: string, expanded?: boolean) => {
-                      expandedToolCards.set(
+                      setToolCardExpanded(
+                        props.sessionKey,
                         messageId,
                         !(expanded ?? expandedToolCards.get(messageId) ?? false),
                       );

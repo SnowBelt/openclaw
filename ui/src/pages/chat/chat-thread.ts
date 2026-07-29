@@ -62,16 +62,21 @@ type StreamRunRenderItem = {
   parts: Array<Extract<ChatItem, { kind: "stream" } | { kind: "reading-indicator" }>>;
 };
 
+type ToolExpansionState = {
+  autoExpandToolCalls: boolean;
+  expanded: Map<string, boolean>;
+  items: Array<ChatItem | MessageGroup> | null;
+  renderVersion: number;
+};
+
 const chatItemsBySession = new Map<string, CachedChatItems>();
-const expandedToolCardsBySession = new Map<string, Map<string, boolean>>();
-const initializedToolCardsBySession = new Map<string, Set<string>>();
-const lastAutoExpandPrefBySession = new Map<string, boolean>();
+// Keep expansion facts in one LRU entry so eviction cannot split state.
+// The version invalidates Lit without sorting every expanded-card id on each render.
+const toolExpansionStateBySession = new Map<string, ToolExpansionState>();
 
 export function resetChatThreadState(): void {
   chatItemsBySession.clear();
-  expandedToolCardsBySession.clear();
-  initializedToolCardsBySession.clear();
-  lastAutoExpandPrefBySession.clear();
+  toolExpansionStateBySession.clear();
 }
 
 function appendCanvasBlockToAssistantMessage(
@@ -1173,22 +1178,34 @@ export function deletedChatItemsSignature(
   return deletedKeys.length === 0 ? "" : deletedKeys.join("\u0000");
 }
 
-export function stableBooleanMapSignature(values: ReadonlyMap<string, boolean>): string {
-  if (values.size === 0) {
-    return "";
+function getToolExpansionState(sessionKey: string): ToolExpansionState {
+  return getOrCreateSessionCacheValue(toolExpansionStateBySession, sessionKey, () => ({
+    autoExpandToolCalls: false,
+    expanded: new Map(),
+    items: null,
+    renderVersion: 0,
+  }));
+}
+
+export function getExpandedToolCards(sessionKey: string): ReadonlyMap<string, boolean> {
+  return getToolExpansionState(sessionKey).expanded;
+}
+
+export function getToolExpansionRenderVersion(sessionKey: string): number {
+  return getToolExpansionState(sessionKey).renderVersion;
+}
+
+export function setToolCardExpanded(
+  sessionKey: string,
+  toolCardId: string,
+  expanded: boolean,
+): void {
+  const state = getToolExpansionState(sessionKey);
+  if (state.expanded.has(toolCardId) && state.expanded.get(toolCardId) === expanded) {
+    return;
   }
-  return Array.from(values)
-    .toSorted(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}:${value ? "1" : "0"}`)
-    .join("\u0000");
-}
-
-export function getExpandedToolCards(sessionKey: string): Map<string, boolean> {
-  return getOrCreateSessionCacheValue(expandedToolCardsBySession, sessionKey, () => new Map());
-}
-
-function getInitializedToolCards(sessionKey: string): Set<string> {
-  return getOrCreateSessionCacheValue(initializedToolCardsBySession, sessionKey, () => new Set());
+  state.expanded.set(toolCardId, expanded);
+  state.renderVersion++;
 }
 
 export function syncToolCardExpansionState(
@@ -1196,10 +1213,13 @@ export function syncToolCardExpansionState(
   items: Array<ChatItem | MessageGroup>,
   autoExpandToolCalls: boolean,
 ): void {
-  const expanded = getExpandedToolCards(sessionKey);
-  const initialized = getInitializedToolCards(sessionKey);
-  const previousAutoExpand = lastAutoExpandPrefBySession.get(sessionKey) ?? false;
+  const state = getToolExpansionState(sessionKey);
+  if (state.items === items && state.autoExpandToolCalls === autoExpandToolCalls) {
+    return;
+  }
+  const previousAutoExpand = state.autoExpandToolCalls;
   const currentToolCardIds = new Set<string>();
+  let changeCount = 0;
   for (const item of items) {
     if (item.kind !== "group") {
       continue;
@@ -1209,30 +1229,37 @@ export function syncToolCardExpansionState(
       for (let cardIndex = 0; cardIndex < cards.length; cardIndex++) {
         const disclosureId = `${entry.key}:toolcard:${cardIndex}`;
         currentToolCardIds.add(disclosureId);
-        if (initialized.has(disclosureId)) {
+        if (state.expanded.has(disclosureId)) {
           continue;
         }
-        expanded.set(disclosureId, autoExpandToolCalls);
-        initialized.add(disclosureId);
+        state.expanded.set(disclosureId, autoExpandToolCalls);
+        changeCount++;
       }
       if (!isStandaloneToolMessageForDisplay(entry.message)) {
         continue;
       }
       const disclosureId = `toolmsg:${entry.key}`;
       currentToolCardIds.add(disclosureId);
-      if (initialized.has(disclosureId)) {
+      if (state.expanded.has(disclosureId)) {
         continue;
       }
-      expanded.set(disclosureId, autoExpandToolCalls);
-      initialized.add(disclosureId);
+      state.expanded.set(disclosureId, autoExpandToolCalls);
+      changeCount++;
     }
   }
   if (autoExpandToolCalls && !previousAutoExpand) {
     for (const toolCardId of currentToolCardIds) {
-      expanded.set(toolCardId, true);
+      if (state.expanded.get(toolCardId) !== true) {
+        state.expanded.set(toolCardId, true);
+        changeCount++;
+      }
     }
   }
-  lastAutoExpandPrefBySession.set(sessionKey, autoExpandToolCalls);
+  state.autoExpandToolCalls = autoExpandToolCalls;
+  state.items = items;
+  if (changeCount > 0) {
+    state.renderVersion++;
+  }
 }
 
 function messageKey(message: unknown, index: number): string {

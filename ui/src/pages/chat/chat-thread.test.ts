@@ -6,7 +6,9 @@ import {
   buildCachedChatItems,
   buildChatItems,
   getExpandedToolCards,
+  getToolExpansionRenderVersion,
   resetChatThreadState,
+  setToolCardExpanded,
   syncToolCardExpansionState,
   type BuildChatItemsProps,
 } from "./chat-thread.ts";
@@ -1472,9 +1474,39 @@ describe("tool expansion state", () => {
 
     syncToolCardExpansionState("main", [group], false);
     expect(getExpandedToolCards("main").get("assistant-1:toolcard:0")).toBe(false);
+    expect(getToolExpansionRenderVersion("main")).toBe(1);
 
     syncToolCardExpansionState("main", [group], true);
     expect(getExpandedToolCards("main").get("assistant-1:toolcard:0")).toBe(true);
+    expect(getToolExpansionRenderVersion("main")).toBe(2);
+  });
+
+  it("skips unchanged expansion syncs and invalidates only real state changes", () => {
+    resetChatThreadState();
+    const group: MessageGroup = {
+      kind: "group",
+      key: "tool-name-result",
+      role: "tool",
+      messages: [
+        {
+          key: "tool-name-result",
+          message: { role: "assistant", toolName: "bash", content: "Tool output" },
+        },
+      ],
+      timestamp: 1,
+      isStreaming: false,
+    };
+    const items = [group];
+
+    syncToolCardExpansionState("main", items, false);
+    const version = getToolExpansionRenderVersion("main");
+    syncToolCardExpansionState("main", items, false);
+    expect(getToolExpansionRenderVersion("main")).toBe(version);
+
+    setToolCardExpanded("main", "toolmsg:tool-name-result", true);
+    expect(getToolExpansionRenderVersion("main")).toBe(version + 1);
+    setToolCardExpanded("main", "toolmsg:tool-name-result", true);
+    expect(getToolExpansionRenderVersion("main")).toBe(version + 1);
   });
 
   it("auto-expands top-level tool-name result disclosures", () => {
