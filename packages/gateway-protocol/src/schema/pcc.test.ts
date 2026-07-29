@@ -152,6 +152,7 @@ describe("Project Command Center protocol schemas", () => {
           policyVersion: 1,
           candidateSha: "a".repeat(40),
           activeRuntimeSha: "b".repeat(40),
+          proofProfile: "mac_studio_control_director",
           riskLevel: "P1",
           protectedPaths: [],
           capabilityDiff: [],

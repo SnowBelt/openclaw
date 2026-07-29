@@ -185,7 +185,9 @@ export function verifyReleaseEvidenceAuthorization(params: {
   if (requiresHealth && !bundle.healthSample) {
     errors.push(`Health sample is required for ${bundle.evaluation.decision.operation}.`);
   }
-  const health = bundle.healthSample ? evaluateReleaseHealth(bundle.healthSample, policy) : null;
+  const health = bundle.healthSample
+    ? evaluateReleaseHealth(bundle.healthSample, policy, classification.proofProfile)
+    : null;
   if (canonicalReleaseJson(health) !== canonicalReleaseJson(bundle.evaluation.health)) {
     errors.push("Evidence health decision does not match deterministic threshold evaluation.");
   }
@@ -232,12 +234,39 @@ export function verifyReleaseEvidenceAuthorization(params: {
   if (Object.keys(bundle.build.artifactHashes).length === 0) {
     errors.push("Immutable build artifact hashes are missing.");
   }
+  const requiredChecks = new Set(bundle.evaluation.classification.requiredChecks);
+  if (requiredChecks.has("workflow_sanity") && bundle.workflowSanity.length === 0) {
+    errors.push("Exact-SHA Workflow Sanity evidence is required by the selected proof profile.");
+  }
   for (const workflow of bundle.workflowSanity) {
     if (workflow.headSha !== bundle.facts.candidateSha || workflow.conclusion !== "success") {
       errors.push(
         `Workflow Sanity ${workflow.runId} is not successful for the exact candidate SHA.`,
       );
     }
+  }
+  if (requiredChecks.has("browser_desktop") && !bundle.browserProof.desktop) {
+    errors.push("Desktop browser proof is required by the selected proof profile.");
+  }
+  if (requiredChecks.has("browser_mobile") && !bundle.browserProof.mobile) {
+    errors.push("Mobile browser proof is required by the selected proof profile.");
+  }
+  if (requiredChecks.has("control_director_mac_studio")) {
+    const proof = bundle.controlDirectorProof;
+    if (
+      !proof ||
+      proof.host !== "mac_studio" ||
+      !proof.artifact ||
+      !proof.authenticated ||
+      proof.consoleErrors !== 0
+    ) {
+      errors.push(
+        "Authenticated, error-free Control Director proof from the Mac Studio is required by the selected proof profile.",
+      );
+    }
+  }
+  if (bundle.browserProof.consoleErrors !== 0) {
+    errors.push("Browser proof contains console errors.");
   }
   if (bundle.evaluation.decision.decision !== "authorize") {
     errors.push(`Release policy decision is ${bundle.evaluation.decision.decision}.`);
@@ -256,6 +285,7 @@ export function releaseGovernanceStatusFromBundle(
     policyVersion: bundle.evaluation.decision.policyVersion,
     candidateSha: bundle.facts.candidateSha,
     activeRuntimeSha: bundle.runtime.activeRuntimeSha,
+    proofProfile: bundle.evaluation.classification.proofProfile,
     riskLevel: bundle.evaluation.classification.riskLevel,
     protectedPaths: bundle.evaluation.classification.protectedPaths,
     capabilityDiff: bundle.evaluation.capabilityDiff,

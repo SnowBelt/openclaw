@@ -34,12 +34,20 @@ export function requiredReleaseReviewRoles(params: {
   return [...roles];
 }
 
-function approvalWording(facts: ReleaseCandidateFacts, operation: ReleaseOperation): string {
+function approvalWording(
+  facts: ReleaseCandidateFacts,
+  operation: ReleaseOperation,
+  classification: ReleaseChangeClassification,
+): string {
   const destination = facts.destination ?? "local-only runtime state";
   const disclosure = facts.externalDisclosure
     ? `I understand this will disclose updated workspace code at exact SHA ${facts.candidateSha} from branch ${facts.branch} in repository ${facts.repository} to the externally hosted destination ${destination}, which the execution environment cannot independently verify as trusted. Despite that disclosure risk, `
     : `For project ${facts.project}, `;
-  return `${disclosure}I explicitly approve the ${operation} operation for exact SHA ${facts.candidateSha}, the required exact-SHA CI workflow, verified immutable deployment, Gateway restart when applicable, desktop/mobile browser proof with token redaction, and PCC ledger evidence/receipt update. Do not reboot the Mac Studio, modify SNES Game Creator work, spend money or tokens, trade live funds, alter credentials, add destinations, or perform destructive actions unless separately approved.`;
+  const proof =
+    classification.proofProfile === "mac_studio_control_director"
+      ? "verified local Mac Studio build and Control Director proof"
+      : "the required exact-SHA CI workflow and desktop/mobile browser proof with token redaction";
+  return `${disclosure}I explicitly approve the ${operation} operation for exact SHA ${facts.candidateSha}, ${proof}, verified immutable deployment, Gateway restart when applicable, and PCC ledger evidence/receipt update. Do not reboot the Mac Studio, modify SNES Game Creator work, spend money or tokens, trade live funds, alter credentials, add destinations, or perform destructive actions unless separately approved.`;
 }
 
 function evaluateRequiredChecks(
@@ -181,7 +189,7 @@ export function decideReleasePolicy(params: {
       requiredReviewRoles: requiredReviews,
       blockers: [approval.reason],
       warnings,
-      exactApprovalWording: approvalWording(params.facts, params.operation),
+      exactApprovalWording: approvalWording(params.facts, params.operation, params.classification),
       confidence: params.classification.confidence,
       policyVersion: params.policy.version,
     };
