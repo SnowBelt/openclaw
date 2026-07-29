@@ -218,9 +218,14 @@ if facts.get("project") != "project-command-center":
     fail("evidence bundle is not for project-command-center")
 if facts.get("externalDisclosure") is not False:
     fail("evidence bundle is not local-only")
-if facts.get("destination") not in (None, "local-only", "local-only runtime state"):
+if facts.get("destination") != "local-only":
     fail("evidence bundle destination is not local-only")
-if classification.get("proofProfile") != "mac_studio_control_director":
+if (
+    facts.get("proofProfile") != "mac_studio_control_director"
+    or classification.get("proofProfile") != "mac_studio_control_director"
+    or decision.get("proofProfile") != "mac_studio_control_director"
+    or bundle.get("proofProfile") != "mac_studio_control_director"
+):
     fail("evidence bundle does not use the Mac Studio Control Director profile")
 
 approvals = bundle.get("approvals")
@@ -228,6 +233,7 @@ if not isinstance(approvals, list) or not any(
     isinstance(approval, dict)
     and approval.get("id") == approval_id
     and approval.get("candidateSha") == candidate_sha
+    and approval.get("proofProfile") == "mac_studio_control_director"
     and operation in approval.get("operations", [])
     for approval in approvals
 ):

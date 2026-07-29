@@ -340,18 +340,21 @@ describe("custom runtime lifecycle", () => {
             candidateSha,
             id: approvalId,
             operations: ["stage", "promotion"],
+            proofProfile: "mac_studio_control_director",
           },
         ],
         evaluation: {
           classification: { proofProfile: "mac_studio_control_director" },
-          decision: { operation: "stage" },
+          decision: { operation: "stage", proofProfile: "mac_studio_control_director" },
         },
         facts: {
           candidateSha,
           destination: "local-only",
           externalDisclosure: false,
           project: "project-command-center",
+          proofProfile: "mac_studio_control_director",
         },
+        proofProfile: "mac_studio_control_director",
       })}\n`,
       0o600,
     );
@@ -451,17 +454,26 @@ describe("custom runtime lifecycle", () => {
     writeFile(
       bundle,
       `${JSON.stringify({
-        approvals: [{ candidateSha, id: approvalId, operations: ["stage"] }],
+        approvals: [
+          {
+            candidateSha,
+            id: approvalId,
+            operations: ["stage"],
+            proofProfile: "mac_studio_control_director",
+          },
+        ],
         evaluation: {
           classification: { proofProfile: "mac_studio_control_director" },
-          decision: { operation: "stage" },
+          decision: { operation: "stage", proofProfile: "mac_studio_control_director" },
         },
         facts: {
           candidateSha,
           destination: "local-only",
           externalDisclosure: false,
           project: "project-command-center",
+          proofProfile: "mac_studio_control_director",
         },
+        proofProfile: "mac_studio_control_director",
       })}\n`,
       0o600,
     );
