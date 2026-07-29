@@ -81,6 +81,37 @@ Gateway, and ledger-readiness evidence appropriate to the operation.
 Evidence files and status are private state. They must not contain credentials,
 raw tokens, or secrets.
 
+### Policy-version migration
+
+The active immutable runtime remains the default Release Governor authority. A
+candidate cannot select its own Governor merely because it carries a newer
+policy.
+
+When a candidate introduces the next policy version and the active Governor
+cannot evaluate that version, an operator may provide a private
+`openclaw.release-governance-policy-migration.v1` record through
+`OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION`. This exception is fail-closed
+and applies only to `stage` and `promotion`. The migration record must:
+
+- be owner-private and expire within 24 hours;
+- advance the policy by exactly one version;
+- bind the active and candidate runtime SHAs;
+- bind the active and candidate Governor, policy, and capability-manifest
+  SHA-256 hashes;
+- bind the operation-specific evidence-bundle SHA-256 hash and exact approval
+  identity;
+- target the local-only `project-command-center` release using the
+  `mac_studio_control_director` proof profile.
+
+After those migration checks pass, the candidate Governor must still verify the
+complete canonical evidence bundle and immutable runtime artifacts. Promotion
+rechecks the migration's active SHA after acquiring the lifecycle lock and
+before changing managed-runtime state. Restart, finalization, rollback,
+unrelated projects, external destinations, wider version jumps, expired
+records, hash drift, and missing approvals remain blocked. Once promotion makes
+the candidate active, normal active-Governor verification resumes and the
+migration record no longer grants authority.
+
 Every lifecycle verification re-hashes the immutable release's Gateway entry,
 Release Governor entry, dashboard surface manifest, Release Governor policy,
 capability manifest, and `dist/build-info.json`. The evidence
