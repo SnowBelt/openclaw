@@ -109,8 +109,7 @@ export function isActiveChatGoal(status: string | undefined): boolean {
 }
 
 export function isChatPursueGoalFlow(flow: ChatGoalFlowSummary): boolean {
-  // Older compatible gateways omitted controllerId. Explicit foreign/retired controllers are hidden.
-  return flow.controllerId == null || flow.controllerId === CHAT_PURSUE_GOAL_CONTROLLER_ID;
+  return flow.controllerId === CHAT_PURSUE_GOAL_CONTROLLER_ID;
 }
 
 export function resolveCurrentChatGoal(

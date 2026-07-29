@@ -2062,6 +2062,7 @@ export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   if (
     host.connected &&
     host.client &&
+    !item.skillWorkshopRevision &&
     isGatewayMethodAdvertised(host as unknown as ChatState, "chat.turns.create") === true
   ) {
     const pending = updateQueuedMessage(host, id, (entry) => ({

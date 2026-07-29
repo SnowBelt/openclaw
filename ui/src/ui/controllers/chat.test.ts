@@ -212,7 +212,14 @@ describe("chat pursue goal actions", () => {
       sessionKey: "main",
       limit: 500,
     });
-    expect(state.chatGoalFlows).toEqual([{ id: "flow-1", goal: "Ship proof", status: "running" }]);
+    expect(state.chatGoalFlows).toEqual([
+      {
+        id: "flow-1",
+        controllerId: "openclaw/pursue-goal-v1",
+        goal: "Ship proof",
+        status: "running",
+      },
+    ]);
     expect(state.chatGoalError).toBeNull();
     expect(state.chatGoalLoading).toBe(false);
   });
@@ -260,6 +267,46 @@ describe("chat pursue goal actions", () => {
       limit: 500,
       cursor: "1",
     });
+  });
+
+  it("does not treat controller-less task flows as goals on the current gateway", async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      flows: [
+        {
+          id: "flow-task",
+          goal: "Ordinary task flow",
+          status: "running",
+        },
+        {
+          id: "flow-goal",
+          controllerId: "openclaw/pursue-goal-v1",
+          goal: "Ship proof",
+          status: "running",
+        },
+      ],
+    });
+    const state = createState({
+      client: { request } as unknown as ChatState["client"],
+      chatGoalFlows: [],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read"] },
+        features: {
+          events: [],
+          methods: ["taskFlows.list"],
+        },
+      },
+    });
+
+    await loadChatGoals(state);
+
+    expect(state.chatGoalFlows).toEqual([
+      expect.objectContaining({
+        id: "flow-goal",
+        controllerId: "openclaw/pursue-goal-v1",
+      }),
+    ]);
   });
 
   it("uses paginated goal records alongside the current execution snapshot", async () => {

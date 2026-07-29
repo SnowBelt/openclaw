@@ -12,6 +12,7 @@ import {
 import { extractText } from "../chat/message-extract.ts";
 import {
   buildChatGoalContinuationPrompt,
+  CHAT_PURSUE_GOAL_CONTROLLER_ID,
   isChatPursueGoalFlow,
   resolveCurrentChatGoal,
   type ChatGoalActionState,
@@ -538,6 +539,7 @@ function setChatGoalError(state: ChatState, err: unknown): void {
 async function listPaginatedChatGoals(
   client: GatewayBrowserClient,
   sessionKey: string,
+  allowLegacyMissingControllerId: boolean,
 ): Promise<ChatGoalFlowSummary[]> {
   const goals: ChatGoalFlowSummary[] = [];
   const visitedCursors = new Set<string>();
@@ -548,7 +550,15 @@ async function listPaginatedChatGoals(
       limit: 500,
       ...(cursor ? { cursor } : {}),
     });
-    goals.push(...(page.flows ?? []).filter(isChatPursueGoalFlow));
+    for (const flow of page.flows ?? []) {
+      if (isChatPursueGoalFlow(flow)) {
+        goals.push(flow);
+      } else if (allowLegacyMissingControllerId && flow.controllerId == null) {
+        // Only an unadvertised legacy taskFlows.list response may omit the controller id.
+        // Normalize admitted records so downstream goal resolution remains strict.
+        goals.push({ ...flow, controllerId: CHAT_PURSUE_GOAL_CONTROLLER_ID });
+      }
+    }
     const nextCursor = normalizeOptionalText(page.nextCursor);
     if (!nextCursor || visitedCursors.has(nextCursor)) {
       return goals;
@@ -591,13 +601,15 @@ export async function loadChatGoals(state: ChatState): Promise<ChatGoalRefreshRe
   state.chatGoalLoading = true;
   try {
     let refreshResult: ChatGoalRefreshResult = "authoritative";
+    const allowLegacyMissingControllerId =
+      isGatewayMethodAdvertised(state, "taskFlows.list") !== true;
     if (isGatewayMethodAdvertised(state, "executionState.get") === true) {
       const [snapshotResult, goalsResult] = await Promise.allSettled([
         state.client.request<ExecutionStateSnapshot>("executionState.get", {
           sessionKey: state.sessionKey,
           includeTerminal: true,
         }),
-        listPaginatedChatGoals(state.client, state.sessionKey),
+        listPaginatedChatGoals(state.client, state.sessionKey, allowLegacyMissingControllerId),
       ]);
       if (snapshotResult.status === "fulfilled") {
         state.chatExecutionState = snapshotResult.value;
@@ -611,7 +623,11 @@ export async function loadChatGoals(state: ChatState): Promise<ChatGoalRefreshRe
         throw goalsResult.reason;
       }
     } else {
-      state.chatGoalFlows = await listPaginatedChatGoals(state.client, state.sessionKey);
+      state.chatGoalFlows = await listPaginatedChatGoals(
+        state.client,
+        state.sessionKey,
+        allowLegacyMissingControllerId,
+      );
     }
     state.chatGoalError = null;
     state.chatGoalUpdatedAt = Date.now();

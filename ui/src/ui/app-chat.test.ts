@@ -2884,6 +2884,56 @@ describe("handleSendChat", () => {
     expect(userMessage.content).toEqual([{ type: "text", text: "Make the support files 5" }]);
   });
 
+  it("retries failed Skill Workshop revisions through the proposal request RPC", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "skills.proposals.requestRevision") {
+        return { runId: "revision-retry", status: "started" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatQueue: [
+        {
+          id: "revision-queue-item",
+          text: "Add one more example",
+          createdAt: 1,
+          sendRunId: "revision-retry",
+          sendState: "failed",
+          sessionKey: "agent:main",
+          skillWorkshopRevision: {
+            proposalId: "support-file-sampler-20260531-68207b7b7f",
+            agentId: "proposal-owner",
+          },
+        },
+      ],
+      hello: {
+        type: "hello-ok",
+        protocol: 4,
+        auth: { role: "operator", scopes: ["operator.read", "operator.write"] },
+        features: {
+          events: [],
+          methods: ["chat.turns.create", "chat.turns.list"],
+        },
+      },
+    });
+
+    await retryQueuedChatMessage(host, "revision-queue-item");
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith(
+      "skills.proposals.requestRevision",
+      expect.objectContaining({
+        proposalId: "support-file-sampler-20260531-68207b7b7f",
+        agentId: "proposal-owner",
+        instructions: "Add one more example",
+        sessionKey: "agent:main",
+      }),
+    );
+    expect(request).not.toHaveBeenCalledWith("chat.turns.create", expect.anything());
+    expect(host.chatQueue).toStrictEqual([]);
+  });
+
   it("treats slash-like Skill Workshop revision drafts as revision instructions", async () => {
     const sent = createDeferred<unknown>();
     const request = vi.fn((method: string) => {
