@@ -758,6 +758,155 @@ describe("custom runtime canary and rollback", () => {
     expect(readFileSync(released.stdout.trim(), "utf8")).toContain('"result": "released"');
   });
 
+  it("adopts a previously promoted exact active candidate without rewriting rollback state", () => {
+    const input = fixture();
+    const promotedAt = "20260729T153300Z";
+    const activePointer = path.join(input.runtimeHome, "active-runtime.json");
+    const rollbackRegistration = path.join(input.runtimeHome, "active-rollback.json");
+    const promotionReceipt = path.join(
+      input.runtimeHome,
+      "receipts",
+      `promotion-${promotedAt}.json`,
+    );
+    const lifecycleReceipt = path.join(
+      input.runtimeHome,
+      "receipts",
+      `lifecycle-promotion-${promotedAt}-1234.json`,
+    );
+    const promoteScript = path.join(
+      process.cwd(),
+      "scripts",
+      "custom-runtime",
+      "custom-runtime-promote.sh",
+    );
+    mkdirSync(path.dirname(promotionReceipt), { recursive: true });
+    const pointer = {
+      promotedAt,
+      releaseId: "release-new",
+      runtimeRoot: input.release,
+      sourceSha: input.sourceSha,
+    };
+    const rollback = {
+      candidateReleaseId: "release-new",
+      rollbackReleaseId: "release-original",
+      version: 1,
+    };
+    writeFileSync(activePointer, `${JSON.stringify(pointer)}\n`, { mode: 0o600 });
+    writeFileSync(rollbackRegistration, `${JSON.stringify(rollback)}\n`, { mode: 0o600 });
+    const binding = [
+      "--active-sha",
+      input.sourceSha,
+      "--candidate-sha",
+      input.sourceSha,
+      "--owner",
+      "codex:resumed-certification",
+      "--operation-class",
+      "release-certification",
+      "--approval-id",
+      "release-governor:resumed-certification",
+      "--operation-id",
+      "certification:resumed",
+      "--invocation-id",
+      "certification-resumed",
+    ];
+    const env = {
+      ...process.env,
+      HOME: input.home,
+      OPENCLAW_CUSTOM_RUNTIME_HOME: input.runtimeHome,
+    };
+
+    const acquired = spawnSync(
+      "sh",
+      [promoteScript, "--lease-acquire", ...binding, "--ttl-seconds", "600"],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(acquired.status, acquired.stderr).toBe(0);
+
+    const prematureAdoption = spawnSync(
+      "sh",
+      [promoteScript, "--lease-adopt-active-promotion", ...binding],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(prematureAdoption.status).toBe(78);
+    expect(prematureAdoption.stderr).toContain("requires an authorized lease");
+
+    const authorized = spawnSync("sh", [promoteScript, "--lease-authorize-promotion", ...binding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(authorized.status, authorized.stderr).toBe(0);
+
+    writeFileSync(
+      promotionReceipt,
+      `${JSON.stringify({
+        at: promotedAt,
+        release: "release-new",
+        result: "promoted",
+        sourceSha: "0".repeat(40),
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const mismatchedReceipt = spawnSync(
+      "sh",
+      [promoteScript, "--lease-adopt-active-promotion", ...binding],
+      { cwd: process.cwd(), encoding: "utf8", env },
+    );
+    expect(mismatchedReceipt.status).toBe(78);
+    expect(mismatchedReceipt.stderr).toContain("matching prior promotion receipts are missing");
+
+    const receiptBytes = Buffer.from(
+      `${JSON.stringify({
+        at: promotedAt,
+        release: "release-new",
+        result: "promoted",
+        sourceSha: input.sourceSha,
+      })}\n`,
+    );
+    writeFileSync(promotionReceipt, receiptBytes, { mode: 0o600 });
+    const lifecycleReceiptBytes = Buffer.from(
+      `${JSON.stringify({
+        candidateSha: input.sourceSha,
+        exitCode: 0,
+        operation: "promotion",
+        result: "promoted",
+        schema: "openclaw.custom-runtime-lifecycle-receipt.v1",
+      })}\n`,
+    );
+    writeFileSync(lifecycleReceipt, lifecycleReceiptBytes, { mode: 0o600 });
+    const adopted = spawnSync("sh", [promoteScript, "--lease-adopt-active-promotion", ...binding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(adopted.status, adopted.stderr).toBe(0);
+    const adoptionReceipt = JSON.parse(readFileSync(adopted.stdout.trim(), "utf8"));
+    expect(adoptionReceipt).toMatchObject({
+      activeSha: input.sourceSha,
+      candidateSha: input.sourceSha,
+      result: "active-promotion-adopted",
+      lease: {
+        adoptedLifecycleReceipt: path.basename(lifecycleReceipt),
+        adoptedLifecycleReceiptSha256: createHash("sha256")
+          .update(lifecycleReceiptBytes)
+          .digest("hex"),
+        adoptedPromotionReceipt: path.basename(promotionReceipt),
+        adoptedPromotionReceiptSha256: createHash("sha256").update(receiptBytes).digest("hex"),
+        promotedAt,
+        state: "promoted",
+      },
+    });
+    expect(JSON.parse(readFileSync(activePointer, "utf8"))).toEqual(pointer);
+    expect(JSON.parse(readFileSync(rollbackRegistration, "utf8"))).toEqual(rollback);
+
+    const released = spawnSync("sh", [promoteScript, "--lease-release", ...binding], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env,
+    });
+    expect(released.status, released.stderr).toBe(0);
+  });
+
   it("recovers only an expired lease with the exact original binding", () => {
     const input = fixture();
     const activeSha = "1".repeat(40);

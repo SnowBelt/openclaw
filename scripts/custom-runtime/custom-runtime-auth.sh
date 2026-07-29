@@ -1361,6 +1361,7 @@ if action == "acquire":
     raise SystemExit(0)
 
 if action in {
+    "adopt-active-promotion",
     "authorize-promotion",
     "heartbeat",
     "recover-expired",
@@ -1430,6 +1431,136 @@ if action in {
         lease["state"] = "promotion-authorized"
         replace_lease(lease)
         print(write_receipt("promotion-authorized", lease))
+        raise SystemExit(0)
+    if action == "adopt-active-promotion":
+        if lease["state"] != "promotion-authorized":
+            fail("active promotion adoption requires an authorized lease")
+        if lease["activeSha"] != lease["candidateSha"]:
+            fail("active promotion adoption requires an already-active candidate")
+        if not os.path.isfile(pointer_path) or os.path.islink(pointer_path):
+            fail("active runtime pointer is missing or unsafe")
+        try:
+            with open(pointer_path, "rb") as handle:
+                pointer_bytes = handle.read()
+            pointer = json.loads(pointer_bytes)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            fail("active runtime pointer is malformed")
+        if not isinstance(pointer, dict) or pointer.get("sourceSha") != lease["candidateSha"]:
+            fail("active runtime does not match the certified candidate")
+        release_id = pointer.get("releaseId")
+        runtime_root = pointer.get("runtimeRoot")
+        promoted_at = pointer.get("promotedAt")
+        if not isinstance(release_id, str) or not identity_pattern.fullmatch(release_id):
+            fail("active runtime release identity is missing or invalid")
+        if (
+            not isinstance(runtime_root, str)
+            or not os.path.isabs(runtime_root)
+            or not os.path.isdir(runtime_root)
+            or os.path.islink(runtime_root)
+        ):
+            fail("active runtime root is missing or unsafe")
+        releases_root = os.path.realpath(
+            os.environ.get(
+                "OPENCLAW_CUSTOM_RUNTIME_RELEASES",
+                os.path.join(os.path.dirname(runtime_home), ".openclaw-runtime-releases"),
+            )
+        )
+        resolved_runtime_root = os.path.realpath(runtime_root)
+        try:
+            runtime_is_scoped = (
+                os.path.commonpath((resolved_runtime_root, releases_root)) == releases_root
+                and resolved_runtime_root != releases_root
+            )
+        except ValueError:
+            runtime_is_scoped = False
+        if resolved_runtime_root != runtime_root or not runtime_is_scoped:
+            fail("active runtime root is outside the immutable releases root")
+        if not isinstance(promoted_at, str) or not re.fullmatch(r"\d{8}T\d{6}Z", promoted_at):
+            fail("active runtime promotion time is missing or invalid")
+        stamp_path = os.path.join(runtime_root, ".openclaw-production-sha")
+        try:
+            descriptor = os.open(stamp_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            stamp_stat = os.fstat(descriptor)
+            if not stat.S_ISREG(stamp_stat.st_mode):
+                os.close(descriptor)
+                fail("active runtime source stamp is unsafe")
+            with os.fdopen(descriptor, encoding="utf-8") as handle:
+                stamped_sha = handle.read().strip()
+        except (OSError, UnicodeDecodeError):
+            fail("active runtime source stamp is missing or unsafe")
+        if stamped_sha != lease["candidateSha"]:
+            fail("active runtime source stamp conflicts with the certified candidate")
+        promotion_receipt = None
+        promotion_receipt_digest = None
+        lifecycle_receipt = None
+        lifecycle_receipt_digest = None
+        try:
+            receipt_entries = list(os.scandir(receipts_dir))
+        except OSError:
+            fail("promotion receipt directory is unavailable")
+        for entry in receipt_entries:
+            if not entry.name.endswith(".json"):
+                continue
+            try:
+                descriptor = os.open(
+                    entry.path,
+                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                )
+                receipt_stat = os.fstat(descriptor)
+                if not stat.S_ISREG(receipt_stat.st_mode):
+                    os.close(descriptor)
+                    continue
+                with os.fdopen(descriptor, "rb") as handle:
+                    receipt_bytes = handle.read()
+                candidate_receipt = json.loads(receipt_bytes)
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if not isinstance(candidate_receipt, dict):
+                continue
+            if entry.name.startswith("promotion-") and {
+                "at": candidate_receipt.get("at"),
+                "release": candidate_receipt.get("release"),
+                "result": candidate_receipt.get("result"),
+                "sourceSha": candidate_receipt.get("sourceSha"),
+            } == {
+                "at": promoted_at,
+                "release": release_id,
+                "result": "promoted",
+                "sourceSha": lease["candidateSha"],
+            }:
+                promotion_receipt = entry.name
+                promotion_receipt_digest = hashlib.sha256(receipt_bytes).hexdigest()
+            if entry.name.startswith("lifecycle-promotion-") and {
+                "candidateSha": candidate_receipt.get("candidateSha"),
+                "exitCode": candidate_receipt.get("exitCode"),
+                "operation": candidate_receipt.get("operation"),
+                "result": candidate_receipt.get("result"),
+                "schema": candidate_receipt.get("schema"),
+            } == {
+                "candidateSha": lease["candidateSha"],
+                "exitCode": 0,
+                "operation": "promotion",
+                "result": "promoted",
+                "schema": "openclaw.custom-runtime-lifecycle-receipt.v1",
+            }:
+                lifecycle_receipt = entry.name
+                lifecycle_receipt_digest = hashlib.sha256(receipt_bytes).hexdigest()
+        if (
+            promotion_receipt is None
+            or promotion_receipt_digest is None
+            or lifecycle_receipt is None
+            or lifecycle_receipt_digest is None
+        ):
+            fail("matching prior promotion receipts are missing")
+        lease["adoptedActiveAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        lease["adoptedLifecycleReceipt"] = lifecycle_receipt
+        lease["adoptedLifecycleReceiptSha256"] = lifecycle_receipt_digest
+        lease["adoptedPromotionReceipt"] = promotion_receipt
+        lease["adoptedPromotionReceiptSha256"] = promotion_receipt_digest
+        lease["promotedAt"] = promoted_at
+        lease["state"] = "promoted"
+        replace_lease(lease)
+        print(write_receipt("active-promotion-adopted", lease))
         raise SystemExit(0)
     print(write_receipt("released", lease))
     os.unlink(lease_path)
