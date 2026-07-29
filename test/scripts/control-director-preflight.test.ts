@@ -24,7 +24,7 @@ function input() {
       "control-director:runtime-proof",
       "custom-runtime:update-survival",
     ],
-    workflowAutomatic: true,
+    macStudioLocalProofPolicy: true,
     lineage: {
       activeSha: sha("b"),
       candidateSha: sha("a"),
@@ -93,7 +93,7 @@ describe("Control Director one-shot preflight", () => {
     broken.sourceClean = false;
     broken.roadmapError = "roadmap mismatch";
     broken.packageScripts = [];
-    broken.workflowAutomatic = false;
+    broken.macStudioLocalProofPolicy = false;
     broken.lineage.baseTipSha = sha("f");
     broken.activeIsAncestor = false;
     broken.acceptedHeads[0]!.isAncestor = false;
@@ -106,14 +106,13 @@ describe("Control Director one-shot preflight", () => {
       "source-clean",
       "roadmap-schema",
       "command-contract",
-      "automatic-ci",
+      "mac-studio-local-proof-policy",
       "base-tip",
       "active-lineage",
       "accepted-heads",
       "semantic-inventory",
     ]);
     expect(result.remediationManifest.files).toEqual([
-      ".github/workflows/control-director-reliability.yml",
       "package.json",
       "scripts/deadcode-unused-files.allowlist.mjs",
       "work/control-director/reliability-v1/continuation.md",

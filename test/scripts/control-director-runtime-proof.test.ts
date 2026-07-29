@@ -14,11 +14,23 @@ function surface(extra: Record<string, unknown> = {}) {
   };
 }
 
-function deviceSurface(width: number, height: number) {
+function macStudioDashboardSurface(width: number, height: number) {
   return surface({
+    platform: "mac-studio",
+    host: {
+      hardwareClass: "Mac Studio",
+      osName: "macOS",
+      osVersion: "15.6",
+      architecture: "arm64",
+      hostIdentitySha256: "c".repeat(64),
+    },
+    browserName: "Chrome",
+    browserVersion: "140.0.0",
     viewport: { width, height },
     transcriptVisible: true,
     composerVisible: true,
+    keyboardPassed: true,
+    accessibilityPassed: true,
     pccOverlapFree: true,
     truthCompletionOverlapFree: true,
   });
@@ -51,9 +63,7 @@ function input() {
       coveragePassed: true,
     },
     surfaces: {
-      desktop: deviceSurface(1440, 900),
-      tablet: deviceSurface(1024, 768),
-      mobile: deviceSurface(390, 844),
+      macStudioDashboard: macStudioDashboardSurface(1440, 900),
       localModelRouting: surface({
         route: "local",
         modelRef: "ollama/qwen3.6:27b-q8_0",
@@ -147,26 +157,37 @@ function input() {
 describe("Control Director runtime proof assembler", () => {
   it("assembles exact-SHA evidence only after every runtime surface passes", () => {
     expect(buildControlDirectorRuntimeProof(input())).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       sourceSha,
       generatedAt: checkedAt,
       sigBackgroundEnabled: true,
       lineage: { status: "ready", sourceSha },
-      desktop: { passed: true },
-      tablet: { passed: true },
+      macStudioDashboard: {
+        passed: true,
+        platform: "mac-studio",
+        host: { hardwareClass: "Mac Studio", architecture: "arm64" },
+      },
       soak: { durationMs: 300_000 },
     });
   });
 
   it("rejects mismatched, incomplete, or too-short runtime proof", () => {
     const mismatched = input();
-    mismatched.surfaces.mobile.sourceSha = "b".repeat(40);
-    expect(() => buildControlDirectorRuntimeProof(mismatched)).toThrow("mobile sourceSha");
+    mismatched.surfaces.macStudioDashboard.sourceSha = "b".repeat(40);
+    expect(() => buildControlDirectorRuntimeProof(mismatched)).toThrow(
+      "macStudioDashboard sourceSha",
+    );
 
-    const incompleteTablet = input();
-    incompleteTablet.surfaces.tablet.passed = false;
-    expect(() => buildControlDirectorRuntimeProof(incompleteTablet)).toThrow(
-      "tablet evidence has not passed",
+    const incompleteDashboard = input();
+    incompleteDashboard.surfaces.macStudioDashboard.passed = false;
+    expect(() => buildControlDirectorRuntimeProof(incompleteDashboard)).toThrow(
+      "macStudioDashboard evidence has not passed",
+    );
+
+    const wrongHost = input();
+    wrongHost.surfaces.macStudioDashboard.host.hardwareClass = "MacBook Pro";
+    expect(() => buildControlDirectorRuntimeProof(wrongHost)).toThrow(
+      "arm64 Mac Studio running macOS",
     );
 
     const short = input();
@@ -190,9 +211,9 @@ describe("Control Director runtime proof assembler", () => {
     );
 
     const futureSurface = input();
-    futureSurface.surfaces.desktop.checkedAt = "2026-07-18T00:05:01.000Z";
+    futureSurface.surfaces.macStudioDashboard.checkedAt = "2026-07-18T00:05:01.000Z";
     expect(() => buildControlDirectorRuntimeProof(futureSurface)).toThrow(
-      "desktop evidence cannot postdate generatedAt",
+      "macStudioDashboard evidence cannot postdate generatedAt",
     );
   });
 });

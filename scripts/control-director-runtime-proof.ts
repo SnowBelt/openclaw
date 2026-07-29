@@ -8,11 +8,10 @@ import { fileURLToPath } from "node:url";
 import { CONTROL_DIRECTOR_UX_SLOS } from "../src/agents/control-director-slos.js";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const MINIMUM_SOAK_MS = 300_000;
 const SURFACES = [
-  "desktop",
-  "tablet",
-  "mobile",
+  "macStudioDashboard",
   "localModelRouting",
   "localModelLatency",
   "memory",
@@ -103,20 +102,42 @@ function validateLatencySample(
 
 function validateSurfaceContract(surface: Surface, value: JsonObject): void {
   switch (surface) {
-    case "desktop":
-    case "tablet":
-    case "mobile": {
-      const viewport = object(value.viewport, `${surface}.viewport`);
-      if (
-        finiteNonNegative(viewport.width, `${surface}.viewport.width`) <= 0 ||
-        finiteNonNegative(viewport.height, `${surface}.viewport.height`) <= 0
-      ) {
-        throw new Error(`${surface} viewport dimensions must be positive.`);
+    case "macStudioDashboard": {
+      if (value.platform !== "mac-studio") {
+        throw new Error("macStudioDashboard.platform must be mac-studio.");
       }
-      requiredTrue(value.transcriptVisible, `${surface}.transcriptVisible`);
-      requiredTrue(value.composerVisible, `${surface}.composerVisible`);
-      requiredTrue(value.pccOverlapFree, `${surface}.pccOverlapFree`);
-      requiredTrue(value.truthCompletionOverlapFree, `${surface}.truthCompletionOverlapFree`);
+      const host = object(value.host, "macStudioDashboard.host");
+      if (
+        host.hardwareClass !== "Mac Studio" ||
+        host.osName !== "macOS" ||
+        host.architecture !== "arm64"
+      ) {
+        throw new Error("macStudioDashboard.host must identify an arm64 Mac Studio running macOS.");
+      }
+      requiredString(host.osVersion, "macStudioDashboard.host.osVersion");
+      if (!SHA256_PATTERN.test(String(host.hostIdentitySha256 ?? ""))) {
+        throw new Error(
+          "macStudioDashboard.host.hostIdentitySha256 must be a 64-character digest.",
+        );
+      }
+      requiredString(value.browserName, "macStudioDashboard.browserName");
+      requiredString(value.browserVersion, "macStudioDashboard.browserVersion");
+      const viewport = object(value.viewport, "macStudioDashboard.viewport");
+      if (
+        finiteNonNegative(viewport.width, "macStudioDashboard.viewport.width") <= 0 ||
+        finiteNonNegative(viewport.height, "macStudioDashboard.viewport.height") <= 0
+      ) {
+        throw new Error("macStudioDashboard viewport dimensions must be positive.");
+      }
+      requiredTrue(value.transcriptVisible, "macStudioDashboard.transcriptVisible");
+      requiredTrue(value.composerVisible, "macStudioDashboard.composerVisible");
+      requiredTrue(value.keyboardPassed, "macStudioDashboard.keyboardPassed");
+      requiredTrue(value.accessibilityPassed, "macStudioDashboard.accessibilityPassed");
+      requiredTrue(value.pccOverlapFree, "macStudioDashboard.pccOverlapFree");
+      requiredTrue(
+        value.truthCompletionOverlapFree,
+        "macStudioDashboard.truthCompletionOverlapFree",
+      );
       return;
     }
     case "localModelRouting":
@@ -314,7 +335,7 @@ export function buildControlDirectorRuntimeProof(params: {
     }
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sourceSha,
     generatedAt,
     sigBackgroundEnabled: params.surfaces.sig.backgroundEnabled,

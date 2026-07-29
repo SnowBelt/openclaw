@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { CONTROL_DIRECTOR_UX_SLOS } from "../src/agents/control-director-slos.js";
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/u;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const EXPECTED_MILESTONES = Array.from(
   { length: 86 },
   (_, index) => `M${String(index + 1).padStart(2, "0")}`,
@@ -19,13 +20,11 @@ const REQUIRED_TRUTH_SURFACES = [
   "targeted-tests",
   "build",
   "full-tests",
-  "remote-ci",
+  "mac-studio-source-validation",
   "landing",
   "update-survival",
   "managed-runtime",
-  "dashboard-desktop",
-  "dashboard-tablet",
-  "dashboard-mobile",
+  "mac-studio-dashboard",
   "local-model-routing",
   "local-model-latency",
   "memory",
@@ -46,7 +45,7 @@ const REQUIRED_BINDINGS = [
   "sourceProof",
   "updateSurvival",
   "runtimeProof",
-  "remoteProof",
+  "localValidationProof",
   "readiness",
 ];
 const UPDATE_SURVIVAL_COMMANDS = [
@@ -59,9 +58,7 @@ const UPDATE_SURVIVAL_COMMANDS = [
   "pnpm ui:smoke:dashboard --artifact-profile release --artifact-root .artifacts/custom-runtime-update",
 ];
 const RUNTIME_SURFACES = [
-  "desktop",
-  "tablet",
-  "mobile",
+  "macStudioDashboard",
   "localModelRouting",
   "localModelLatency",
   "memory",
@@ -77,6 +74,15 @@ const RUNTIME_SURFACES = [
   "soak",
   "rollback",
   "liveDiagnostic",
+];
+const REQUIRED_LOCAL_VALIDATION_GATES = [
+  "targeted-tests",
+  "source-check",
+  "full-tests",
+  "workflow-sanity",
+  "build",
+  "browser-mac-studio",
+  "independent-review",
 ];
 const MODEL_EVAL_TASK_CLASSES = [
   "conversation",
@@ -149,9 +155,9 @@ const REQUIRED_MILESTONE_BINDINGS = {
   M61: ["sourceProof", "updateSurvival", "runtimeProof", "readiness"],
   M66: ["runtimeProof"],
   M67: ["runtimeProof"],
-  M68: ["sourceProof", "updateSurvival", "runtimeProof", "remoteProof", "readiness"],
+  M68: ["sourceProof", "updateSurvival", "runtimeProof", "localValidationProof", "readiness"],
   M85: ["runtimeProof", "readiness"],
-  M86: ["sourceProof", "updateSurvival", "runtimeProof", "remoteProof", "readiness"],
+  M86: ["sourceProof", "updateSurvival", "runtimeProof", "localValidationProof", "readiness"],
 };
 
 function object(value, label) {
@@ -228,21 +234,44 @@ function validateLatencySample(value, label, substantiveResponseLimitMs) {
 }
 
 function validateRuntimeSurfaceContract(name, surface) {
-  if (["desktop", "tablet", "mobile"].includes(name)) {
-    const viewport = object(surface.viewport, `runtimeProof.${name}.viewport`);
+  if (name === "macStudioDashboard") {
+    if (surface.platform !== "mac-studio") {
+      throw new Error("runtimeProof.macStudioDashboard.platform must be mac-studio.");
+    }
+    const host = object(surface.host, "runtimeProof.macStudioDashboard.host");
     if (
-      finiteNonNegative(viewport.width, `runtimeProof.${name}.viewport.width`) <= 0 ||
-      finiteNonNegative(viewport.height, `runtimeProof.${name}.viewport.height`) <= 0
+      host.hardwareClass !== "Mac Studio" ||
+      host.osName !== "macOS" ||
+      host.architecture !== "arm64"
     ) {
-      throw new Error(`Runtime surface ${name} viewport dimensions must be positive.`);
+      throw new Error(
+        "runtimeProof.macStudioDashboard.host must identify an arm64 Mac Studio running macOS.",
+      );
+    }
+    requiredString(host.osVersion, "runtimeProof.macStudioDashboard.host.osVersion");
+    if (!SHA256_PATTERN.test(String(host.hostIdentitySha256 ?? ""))) {
+      throw new Error(
+        "runtimeProof.macStudioDashboard.host.hostIdentitySha256 must be a 64-character digest.",
+      );
+    }
+    requiredString(surface.browserName, "runtimeProof.macStudioDashboard.browserName");
+    requiredString(surface.browserVersion, "runtimeProof.macStudioDashboard.browserVersion");
+    const viewport = object(surface.viewport, "runtimeProof.macStudioDashboard.viewport");
+    if (
+      finiteNonNegative(viewport.width, "runtimeProof.macStudioDashboard.viewport.width") <= 0 ||
+      finiteNonNegative(viewport.height, "runtimeProof.macStudioDashboard.viewport.height") <= 0
+    ) {
+      throw new Error("Mac Studio Dashboard viewport dimensions must be positive.");
     }
     for (const field of [
       "transcriptVisible",
       "composerVisible",
+      "keyboardPassed",
+      "accessibilityPassed",
       "pccOverlapFree",
       "truthCompletionOverlapFree",
     ]) {
-      requiredTrue(surface[field], `runtimeProof.${name}.${field}`);
+      requiredTrue(surface[field], `runtimeProof.macStudioDashboard.${field}`);
     }
     return;
   }
@@ -450,8 +479,8 @@ function validateMilestoneGraph(milestones) {
 
 export function summarizeControlDirectorProgress(roadmapValue) {
   const roadmap = object(roadmapValue, "roadmap");
-  if (roadmap.schemaVersion !== 2 || roadmap.programId !== "control-director-reliability-v1") {
-    throw new Error("Roadmap identity is not Control Director Reliability V2.");
+  if (roadmap.schemaVersion !== 3 || roadmap.programId !== "control-director-reliability-v1") {
+    throw new Error("Roadmap identity is not Mac Studio Control Director Reliability V3.");
   }
   const progressModel = object(roadmap.progressModel, "progressModel");
   if (
@@ -527,6 +556,9 @@ export function validateControlDirectorRoadmap(params) {
   if (
     completionPolicy.requireAllMilestones !== true ||
     completionPolicy.allowPartialCompletionClaim !== false ||
+    completionPolicy.executionPlatform !== "mac-studio" ||
+    completionPolicy.remoteExecutionRequired !== false ||
+    completionPolicy.remoteExecutionPolicy !== "not-a-certification-surface" ||
     Number(completionPolicy.requiredQualityScore) < 93
   ) {
     throw new Error("Roadmap completion policy is weaker than the required contract.");
@@ -539,6 +571,17 @@ export function validateControlDirectorRoadmap(params) {
   );
   if (missingTruthSurfaces.length > 0) {
     throw new Error(`Roadmap is missing truth surfaces: ${missingTruthSurfaces.join(", ")}.`);
+  }
+  const forbiddenTruthSurfaces = [
+    "remote-ci",
+    "dashboard-desktop",
+    "dashboard-tablet",
+    "dashboard-mobile",
+  ].filter((surface) => truthSurfaces.includes(surface));
+  if (forbiddenTruthSurfaces.length > 0) {
+    throw new Error(
+      `Roadmap retains superseded proof surfaces: ${forbiddenTruthSurfaces.join(", ")}.`,
+    );
   }
   const binding = object(roadmap.evidenceBinding, "evidenceBinding");
   for (const name of REQUIRED_BINDINGS) {
@@ -586,12 +629,6 @@ export function validateControlDirectorRoadmap(params) {
       !evidence.includes("binding:runtimeProof")
     ) {
       throw new Error(`${milestone.id} runtime evidence is not bound to runtimeProof.`);
-    }
-    if (
-      evidence.some((entry) => entry.startsWith("workflow:")) &&
-      !evidence.includes("binding:remoteProof")
-    ) {
-      throw new Error(`${milestone.id} workflow evidence is not bound to remoteProof.`);
     }
     const dependencies = Array.isArray(milestone.dependsOn) ? milestone.dependsOn : [];
     for (const dependency of dependencies) {
@@ -682,8 +719,8 @@ export function validateControlDirectorRoadmap(params) {
   }
   const runtimeProof = object(params.runtimeProof, "runtimeProof");
   exactSha(runtimeProof.sourceSha, sourceSha, "runtimeProof");
-  if (runtimeProof.schemaVersion !== 2 || runtimeProof.sigBackgroundEnabled !== true) {
-    throw new Error("Runtime proof is not the managed SIG-enabled v2 contract.");
+  if (runtimeProof.schemaVersion !== 3 || runtimeProof.sigBackgroundEnabled !== true) {
+    throw new Error("Runtime proof is not the Mac Studio managed SIG-enabled v3 contract.");
   }
   if (!validDate(runtimeProof.generatedAt)) {
     throw new Error("Runtime proof has no valid generatedAt timestamp.");
@@ -783,73 +820,91 @@ export function validateControlDirectorRoadmap(params) {
     throw new Error("At least one model-evaluation quality score is below the roadmap minimum.");
   }
 
-  const remoteProof = object(params.remoteProof, "remoteProof");
-  exactSha(remoteProof.sourceSha, sourceSha, "remoteProof");
+  const localValidationProof = object(params.localValidationProof, "localValidationProof");
+  exactSha(localValidationProof.sourceSha, sourceSha, "localValidationProof");
   if (
-    remoteProof.schema !== "openclaw.control-director-remote-gates.v1" ||
-    remoteProof.passed !== true ||
-    !validDate(remoteProof.generatedAt) ||
-    nonEmptyStrings(remoteProof.evidenceRefs).length === 0
+    localValidationProof.schema !== "openclaw.control-director-mac-studio-local-validation.v1" ||
+    localValidationProof.platform !== "mac-studio" ||
+    localValidationProof.remoteExecutionRequired !== false ||
+    localValidationProof.passed !== true ||
+    !validDate(localValidationProof.generatedAt) ||
+    nonEmptyStrings(localValidationProof.evidenceRefs).length === 0
   ) {
-    throw new Error("Remote proof is not a timestamped evidence-backed v1 pass.");
-  }
-  const remoteGeneratedAt = Date.parse(remoteProof.generatedAt);
-  for (const gate of ["workflowSanity", "nonAndroidCi"]) {
-    const value = object(remoteProof[gate], `remoteProof.${gate}`);
-    const jobs = Array.isArray(value.jobs)
-      ? value.jobs.map((entry) => object(entry, `remoteProof.${gate}.job`))
-      : [];
-    const acceptedJobs = jobs.filter(
-      (job) =>
-        job.status === "completed" &&
-        ["success", "skipped", "neutral"].includes(String(job.conclusion)),
+    throw new Error(
+      "Mac Studio local validation proof is not a timestamped evidence-backed v1 pass.",
     );
-    if (
-      !Number.isInteger(value.runId) ||
-      value.runId <= 0 ||
-      typeof value.runUrl !== "string" ||
-      !value.runUrl.includes(`/actions/runs/${String(value.runId)}`) ||
-      !validDate(value.checkedAt) ||
-      Date.parse(value.checkedAt) > remoteGeneratedAt ||
-      nonEmptyStrings(value.evidenceRefs).length === 0 ||
-      value.status !== "completed" ||
-      value.conclusion !== "success" ||
-      value.headSha !== sourceSha ||
-      jobs.length === 0 ||
-      jobs.some(
-        (job) =>
-          !Number.isInteger(job.id) ||
-          job.id <= 0 ||
-          typeof job.name !== "string" ||
-          !job.name.trim(),
-      ) ||
-      new Set(jobs.map((job) => job.id)).size !== jobs.length ||
-      !jobs.some((job) => job.conclusion === "success") ||
-      value.totalJobs !== jobs.length ||
-      value.acceptedJobs !== acceptedJobs.length ||
-      acceptedJobs.length !== jobs.length
-    ) {
-      throw new Error(`${gate} is not an all-jobs exact-SHA success.`);
-    }
   }
-  const landing = object(remoteProof.landing, "remoteProof.landing");
+  const localValidationGeneratedAt = Date.parse(localValidationProof.generatedAt);
+  const localHost = object(localValidationProof.host, "localValidationProof.host");
+  if (
+    localHost.hardwareClass !== "Mac Studio" ||
+    localHost.osName !== "macOS" ||
+    localHost.architecture !== "arm64" ||
+    !SHA256_PATTERN.test(String(localHost.hostIdentitySha256 ?? ""))
+  ) {
+    throw new Error(
+      "localValidationProof.host must bind a privacy-safe arm64 Mac Studio identity.",
+    );
+  }
+  requiredString(localHost.osVersion, "localValidationProof.host.osVersion");
+  const runtimeHost = object(
+    object(runtimeProof.macStudioDashboard, "runtimeProof.macStudioDashboard").host,
+    "runtimeProof.macStudioDashboard.host",
+  );
+  if (
+    localHost.hostIdentitySha256 !== runtimeHost.hostIdentitySha256 ||
+    localHost.hardwareClass !== runtimeHost.hardwareClass ||
+    localHost.osName !== runtimeHost.osName ||
+    localHost.osVersion !== runtimeHost.osVersion ||
+    localHost.architecture !== runtimeHost.architecture
+  ) {
+    throw new Error(
+      "Mac Studio local validation and managed-runtime proofs bind different host identities.",
+    );
+  }
+  const localGates = Array.isArray(localValidationProof.gates)
+    ? localValidationProof.gates.map((entry) => object(entry, "local validation gate"))
+    : [];
+  const localGateIds = new Set(localGates.map((gate) => gate.id));
+  if (
+    localGates.length !== REQUIRED_LOCAL_VALIDATION_GATES.length ||
+    localGateIds.size !== localGates.length ||
+    REQUIRED_LOCAL_VALIDATION_GATES.some((gate) => !localGateIds.has(gate)) ||
+    localGates.some((gate) => {
+      exactSha(gate.sourceSha, sourceSha, `localValidationProof.${String(gate.id)}`);
+      return (
+        gate.execution !== "mac-studio-local" ||
+        gate.status !== "passed" ||
+        !validDate(gate.checkedAt) ||
+        Date.parse(gate.checkedAt) > localValidationGeneratedAt ||
+        nonEmptyStrings(gate.evidenceRefs).length === 0 ||
+        typeof gate.command !== "string" ||
+        !gate.command.trim()
+      );
+    })
+  ) {
+    throw new Error(
+      "Mac Studio local validation does not contain every exact-SHA all-passed local gate.",
+    );
+  }
+  const landing = object(localValidationProof.landing, "localValidationProof.landing");
   if (
     landing.merged !== true ||
     landing.mergeSha !== sourceSha ||
     !Number.isInteger(landing.pullRequest) ||
     landing.pullRequest <= 0 ||
     !validDate(landing.mergedAt) ||
-    Date.parse(landing.mergedAt) > remoteGeneratedAt ||
+    Date.parse(landing.mergedAt) > localValidationGeneratedAt ||
     nonEmptyStrings(landing.evidenceRefs).length === 0
   ) {
-    throw new Error("Remote landing does not bind the exact source SHA.");
+    throw new Error("Landing does not bind the exact locally validated source SHA.");
   }
   const landingAt = Date.parse(landing.mergedAt);
   if (
-    Date.parse(sourceProof.completedAt) > remoteGeneratedAt ||
-    Date.parse(updateSurvival.checkedAt) > remoteGeneratedAt
+    Date.parse(sourceProof.completedAt) > localValidationGeneratedAt ||
+    Date.parse(updateSurvival.checkedAt) > localValidationGeneratedAt
   ) {
-    throw new Error("Exact-source proof must complete before the remote proof bundle.");
+    throw new Error("Exact-source proof must complete before the local validation bundle.");
   }
   if (
     runtimeGeneratedAt < landingAt ||
@@ -931,7 +986,7 @@ function parseArgs(argv) {
     "source-proof",
     "update-survival",
     "runtime-proof",
-    "remote-proof",
+    "local-validation-proof",
     "readiness",
     "output",
   ]) {
@@ -958,7 +1013,7 @@ function main() {
     sourceProof: path.resolve(args.get("source-proof")),
     updateSurvival: path.resolve(args.get("update-survival")),
     runtimeProof: path.resolve(args.get("runtime-proof")),
-    remoteProof: path.resolve(args.get("remote-proof")),
+    localValidationProof: path.resolve(args.get("local-validation-proof")),
     readiness: path.resolve(args.get("readiness")),
   };
   const roadmap = readJson(roadmapPath);
@@ -972,7 +1027,7 @@ function main() {
     sourceProof,
     updateSurvival: readJson(inputPaths.updateSurvival),
     runtimeProof: readJson(inputPaths.runtimeProof),
-    remoteProof: readJson(inputPaths.remoteProof),
+    localValidationProof: readJson(inputPaths.localValidationProof),
     readiness: readJson(inputPaths.readiness),
   });
   const bindings = object(roadmap.evidenceBinding, "evidenceBinding");
@@ -988,8 +1043,10 @@ function main() {
     throw new Error("output path does not match evidenceBinding.finalReceipt.");
   }
   const receipt = {
-    schema: "openclaw.control-director-final-ledger.v2",
+    schema: "openclaw.control-director-final-ledger.v3",
     sourceSha,
+    executionPlatform: "mac-studio",
+    remoteExecutionRequired: false,
     checkedAt: new Date().toISOString(),
     passed: true,
     ...validation,

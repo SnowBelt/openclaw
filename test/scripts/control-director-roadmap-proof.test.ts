@@ -21,7 +21,7 @@ function roadmap(): Record<string, unknown> {
     sourceProof: ".artifacts/control-director/source-gates-<source-sha>.json",
     updateSurvival: ".artifacts/control-director/update-survival-<source-sha>.json",
     runtimeProof: ".artifacts/control-director/runtime-<source-sha>/runtime-proof.json",
-    remoteProof: ".artifacts/control-director/remote-gates-<source-sha>.json",
+    localValidationProof: ".artifacts/control-director/mac-studio-validation-<source-sha>.json",
     readiness: ".artifacts/control-director/runtime-<source-sha>/readiness.json",
     finalReceipt: ".artifacts/control-director/final-ledger-<source-sha>.json",
   };
@@ -57,7 +57,7 @@ function roadmap(): Record<string, unknown> {
     "binding:sourceProof",
     "binding:updateSurvival",
     "binding:runtimeProof",
-    "binding:remoteProof",
+    "binding:localValidationProof",
     "binding:readiness",
     "runtime:end-to-end-orchestration",
   ];
@@ -76,7 +76,7 @@ function roadmap(): Record<string, unknown> {
     "binding:sourceProof",
     "binding:updateSurvival",
     "binding:runtimeProof",
-    "binding:remoteProof",
+    "binding:localValidationProof",
     "binding:readiness",
     "runtime:final-ledger",
   ];
@@ -166,11 +166,23 @@ function runtimeProof() {
     checkedAt: runtimeCheckedAt,
     evidenceRefs: ["artifact:synthetic"],
   };
-  const deviceSurface = (width: number, height: number) => ({
+  const macStudioDashboardSurface = (width: number, height: number) => ({
     ...surface,
+    platform: "mac-studio",
+    host: {
+      hardwareClass: "Mac Studio",
+      osName: "macOS",
+      osVersion: "15.6",
+      architecture: "arm64",
+      hostIdentitySha256: "e".repeat(64),
+    },
+    browserName: "Chrome",
+    browserVersion: "140.0.0",
     viewport: { width, height },
     transcriptVisible: true,
     composerVisible: true,
+    keyboardPassed: true,
+    accessibilityPassed: true,
     pccOverlapFree: true,
     truthCompletionOverlapFree: true,
   });
@@ -205,7 +217,7 @@ function runtimeProof() {
     })),
   );
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sourceSha,
     generatedAt: runtimeCheckedAt,
     sigBackgroundEnabled: true,
@@ -219,9 +231,7 @@ function runtimeProof() {
       canary: { sourceSha, uiBuildId: "b".repeat(64) },
     },
     artifacts: { lineage: { sha256: "c".repeat(64) } },
-    desktop: deviceSurface(1440, 900),
-    tablet: deviceSurface(1024, 768),
-    mobile: deviceSurface(390, 844),
+    macStudioDashboard: macStudioDashboardSurface(1440, 900),
     localModelRouting: {
       ...surface,
       route: "local",
@@ -336,32 +346,40 @@ function runtimeProof() {
   };
 }
 
-function remoteProof() {
-  const jobs = [
-    { id: 101, name: "required-check", status: "completed", conclusion: "success" },
-    { id: 102, name: "platform-exclusion", status: "completed", conclusion: "skipped" },
-    { id: 103, name: "policy-check", status: "completed", conclusion: "success" },
-  ];
-  const gate = {
-    runId: 12_345,
-    runUrl: "https://github.com/SnowBelt/openclaw/actions/runs/12345",
+function localValidationProof() {
+  const gates = [
+    "targeted-tests",
+    "source-check",
+    "full-tests",
+    "workflow-sanity",
+    "build",
+    "browser-mac-studio",
+    "independent-review",
+  ].map((id) => ({
+    id,
+    sourceSha,
+    execution: "mac-studio-local",
+    command: `local:${id}`,
+    status: "passed",
     checkedAt: "2026-07-21T01:00:00.000Z",
-    evidenceRefs: ["github:run:12345"],
-    status: "completed",
-    conclusion: "success",
-    headSha: sourceSha,
-    acceptedJobs: jobs.length,
-    totalJobs: jobs.length,
-    jobs,
-  };
+    evidenceRefs: [`artifact:${id}`],
+  }));
   return {
-    schema: "openclaw.control-director-remote-gates.v1",
+    schema: "openclaw.control-director-mac-studio-local-validation.v1",
     sourceSha,
     generatedAt: "2026-07-21T01:05:00.000Z",
-    evidenceRefs: ["github:pr:33", "github:run:12345"],
+    platform: "mac-studio",
+    remoteExecutionRequired: false,
+    host: {
+      hardwareClass: "Mac Studio",
+      osName: "macOS",
+      osVersion: "15.6",
+      architecture: "arm64",
+      hostIdentitySha256: "e".repeat(64),
+    },
+    evidenceRefs: ["artifact:mac-studio-local-validation", "github:pr:33"],
     passed: true,
-    workflowSanity: gate,
-    nonAndroidCi: gate,
+    gates,
     landing: {
       merged: true,
       mergeSha: sourceSha,
@@ -395,9 +413,7 @@ function readiness() {
     "runtime-ollama-env",
     "runtime-model-smoke",
     "runtime-model-eval",
-    "runtime-desktop",
-    "runtime-tablet",
-    "runtime-mobile",
+    "runtime-macStudioDashboard",
     "runtime-localModelRouting",
     "runtime-localModelLatency",
     "runtime-memory",
@@ -436,7 +452,7 @@ function validate(value = roadmap()) {
     sourceProof: sourceProof(),
     updateSurvival: updateSurvival(),
     runtimeProof: runtimeProof(),
-    remoteProof: remoteProof(),
+    localValidationProof: localValidationProof(),
     readiness: readiness(),
   });
 }
@@ -489,7 +505,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: staleSource,
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("sourceProof sourceSha");
@@ -503,7 +519,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: weakRuntime,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("quality score");
@@ -517,7 +533,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: staleModelEval,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("runtimeProof.modelEval sourceSha");
@@ -531,7 +547,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: incompleteCoverage,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("missing required cold or warm task coverage");
@@ -545,7 +561,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: weakReadiness,
       }),
     ).toThrow("all-passed fact ledger");
@@ -559,7 +575,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: prematureSource,
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("clean exact-identity v2 pass");
@@ -605,9 +621,9 @@ describe("Control Director final roadmap proof", () => {
     );
   });
 
-  it("rejects abbreviated or unauditable remote-gate evidence", () => {
-    const abbreviatedRemote = remoteProof();
-    abbreviatedRemote.workflowSanity.jobs = [];
+  it("rejects abbreviated or unauditable Mac Studio-local validation evidence", () => {
+    const abbreviatedLocal = localValidationProof();
+    abbreviatedLocal.gates = abbreviatedLocal.gates.filter((gate) => gate.id !== "workflow-sanity");
     expect(() =>
       validateControlDirectorRoadmap({
         roadmap: roadmap(),
@@ -615,12 +631,12 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: abbreviatedRemote,
+        localValidationProof: abbreviatedLocal,
         readiness: readiness(),
       }),
-    ).toThrow("workflowSanity is not an all-jobs exact-SHA success");
+    ).toThrow("does not contain every exact-SHA all-passed local gate");
 
-    const unboundLanding = remoteProof();
+    const unboundLanding = localValidationProof();
     unboundLanding.landing.evidenceRefs = [];
     expect(() =>
       validateControlDirectorRoadmap({
@@ -629,13 +645,38 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: unboundLanding,
+        localValidationProof: unboundLanding,
         readiness: readiness(),
       }),
-    ).toThrow("Remote landing does not bind the exact source SHA");
+    ).toThrow("Landing does not bind the exact locally validated source SHA");
   });
 
-  it("rejects proof assembled out of source, remote, landing, and runtime order", () => {
+  it("rejects remote certification policy and non-Mac-Studio local evidence", () => {
+    const remoteRoadmap = roadmap() as {
+      completionPolicy: { remoteExecutionRequired: boolean; truthSurfaces: string[] };
+    };
+    remoteRoadmap.completionPolicy.remoteExecutionRequired = true;
+    remoteRoadmap.completionPolicy.truthSurfaces.push("remote-ci");
+    expect(() => validate(remoteRoadmap)).toThrow(
+      "Roadmap completion policy is weaker than the required contract",
+    );
+
+    const wrongHost = localValidationProof();
+    wrongHost.host.hardwareClass = "MacBook Pro";
+    expect(() =>
+      validateControlDirectorRoadmap({
+        roadmap: roadmap(),
+        sourceSha,
+        sourceProof: sourceProof(),
+        updateSurvival: updateSurvival(),
+        runtimeProof: runtimeProof(),
+        localValidationProof: wrongHost,
+        readiness: readiness(),
+      }),
+    ).toThrow("privacy-safe arm64 Mac Studio identity");
+  });
+
+  it("rejects proof assembled out of source, local validation, landing, and runtime order", () => {
     const lateSource = sourceProof();
     lateSource.completedAt = "2026-07-21T01:06:00.000Z";
     expect(() =>
@@ -645,19 +686,17 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: lateSource,
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
-    ).toThrow("Exact-source proof must complete before the remote proof bundle");
+    ).toThrow("Exact-source proof must complete before the local validation bundle");
 
     const preLandingRuntime = runtimeProof();
     preLandingRuntime.generatedAt = "2026-07-21T01:03:00.000Z";
     preLandingRuntime.lineage.checkedAt = "2026-07-21T01:03:00.000Z";
     preLandingRuntime.modelEval.evaluatedAt = "2026-07-21T01:03:00.000Z";
     for (const surface of [
-      "desktop",
-      "tablet",
-      "mobile",
+      "macStudioDashboard",
       "localModelRouting",
       "localModelLatency",
       "memory",
@@ -683,7 +722,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: preLandingRuntime,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("Managed-runtime proof must be measured after exact-SHA landing");
@@ -699,7 +738,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: weakened,
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("Update-survival proof");
@@ -715,7 +754,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: abbreviatedSource,
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("protocol-coverage");
@@ -731,7 +770,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: abbreviatedUpdate,
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("exact-parent-update-broker");
@@ -754,7 +793,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: runtimeProof(),
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: weakReadiness,
       }),
     ).toThrow("runtime-update-broker");
@@ -762,7 +801,7 @@ describe("Control Director final roadmap proof", () => {
 
   it("independently rejects fabricated runtime-surface passes", () => {
     const obstructed = runtimeProof();
-    obstructed.mobile.truthCompletionOverlapFree = false;
+    obstructed.macStudioDashboard.truthCompletionOverlapFree = false;
     expect(() =>
       validateControlDirectorRoadmap({
         roadmap: roadmap(),
@@ -770,10 +809,10 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: obstructed,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
-    ).toThrow("runtimeProof.mobile.truthCompletionOverlapFree must be true");
+    ).toThrow("runtimeProof.macStudioDashboard.truthCompletionOverlapFree must be true");
 
     const unsignedJudge = runtimeProof();
     unsignedJudge.judge.signatureVerified = false;
@@ -784,7 +823,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: unsignedJudge,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("runtimeProof.judge.signatureVerified must be true");
@@ -798,7 +837,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: disabledSigBackground,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("runtimeProof.sig.backgroundEnabled must be true");
@@ -812,7 +851,7 @@ describe("Control Director final roadmap proof", () => {
         sourceProof: sourceProof(),
         updateSurvival: updateSurvival(),
         runtimeProof: slowLocalModel,
-        remoteProof: remoteProof(),
+        localValidationProof: localValidationProof(),
         readiness: readiness(),
       }),
     ).toThrow("runtimeProof.localModelLatency.warm.ackMs exceeds");
