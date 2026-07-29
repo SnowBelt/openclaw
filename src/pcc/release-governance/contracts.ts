@@ -4,6 +4,7 @@ export const RELEASE_GOVERNANCE_STATUS_SCHEMA = "openclaw.release-governance-sta
 
 export type ReleaseRiskLevel = "P0" | "P1" | "P2" | "P3";
 export type ReleaseOperation = "stage" | "promotion" | "restart" | "rollback" | "finalize";
+export type ReleaseProofProfile = "standard" | "mac_studio_control_director";
 export type ReleaseDecision = "authorize" | "deny" | "escalate";
 export type ReleaseApprovalMode = "automatic" | "exact" | "bounded_grant" | "none";
 export type ReleaseCheckStatus = "passed" | "failed" | "pending" | "blocked" | "not_applicable";
@@ -41,6 +42,15 @@ export type ReleaseGovernorPolicy = {
   classificationRules: ReleaseClassificationRule[];
   protectedPaths: ReleaseProtectedPathRule[];
   requiredChecks: Record<ReleaseOperation, string[]>;
+  proofProfiles: Partial<
+    Record<
+      Exclude<ReleaseProofProfile, "standard">,
+      {
+        description: string;
+        requiredChecks: Record<ReleaseOperation, string[]>;
+      }
+    >
+  >;
   healthThresholds: {
     maxRouteLatencyMs: number;
     maxErrorRate: number;
@@ -72,6 +82,7 @@ export type ReleaseChangeClassification = {
   riskLevel: ReleaseRiskLevel;
   externalDisclosure: boolean;
   externalDestination: string | null;
+  proofProfile: ReleaseProofProfile;
   requiredChecks: string[];
   approvalRequired: boolean;
   ambiguous: boolean;
@@ -146,6 +157,7 @@ export type ReleaseCandidateFacts = {
   descendantDepth: number;
   commitCount: number;
   scopeCoordinationMaterial: boolean;
+  proofProfile?: ReleaseProofProfile;
 };
 
 export type ReleaseApprovalEvaluation = {
@@ -244,6 +256,12 @@ export type ReleaseEvidenceBundleInput = {
     mobile: string | null;
     consoleErrors: number;
   };
+  controlDirectorProof?: {
+    host: "mac_studio";
+    artifact: string | null;
+    authenticated: boolean;
+    consoleErrors: number;
+  };
   ledger: {
     projectId: string;
     milestoneId: string;
@@ -262,6 +280,7 @@ export type ReleaseGovernanceStatus = {
   policyVersion: number;
   candidateSha: string | null;
   activeRuntimeSha: string | null;
+  proofProfile?: ReleaseProofProfile;
   riskLevel: ReleaseRiskLevel | null;
   protectedPaths: ReleaseProtectedPathFinding[];
   capabilityDiff: ReleaseCapabilityDiffEntry[];

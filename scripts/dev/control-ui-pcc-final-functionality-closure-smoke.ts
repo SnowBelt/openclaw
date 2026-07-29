@@ -247,6 +247,7 @@ async function main() {
     });
     const text = root.textContent?.replace(/\s+/g, " ") ?? "";
     const search = root.querySelector<HTMLInputElement>("[data-pcc-project-search] input");
+    const searchScope = root.querySelector("[data-pcc-project-search-scope]");
     const workspace = root.querySelector("[data-pcc-selected-project-workspace]");
     const today = root.querySelector("[data-pcc-today]");
     const checks = {
@@ -257,7 +258,9 @@ async function main() {
       proofBadgeInHero:
         root.querySelectorAll("[data-pcc-project-hero] [data-pcc-proof-badge]").length === 1,
       maintenanceHero: root.querySelectorAll("[data-pcc-maintenance-hero]").length === 1,
-      dynamicSearchScope: search?.getAttribute("placeholder")?.includes("All projects") === true,
+      dynamicSearchScope:
+        search?.getAttribute("aria-label")?.includes("Search All projects") === true &&
+        searchScope?.textContent?.includes("All") === true,
       noUrgentProjectWorkInPccProduct:
         !text.includes("Needs You Project") || text.includes("outside PCC Product"),
       currentProofOk: text.includes("Current proof: OK"),

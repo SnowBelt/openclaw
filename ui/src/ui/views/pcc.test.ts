@@ -264,6 +264,7 @@ describe("renderPccDashboard", () => {
           policyVersion: 1,
           candidateSha: "a".repeat(40),
           activeRuntimeSha: "b".repeat(40),
+          proofProfile: "mac_studio_control_director",
           riskLevel: "P1",
           protectedPaths: [
             {
@@ -317,6 +318,7 @@ describe("renderPccDashboard", () => {
     expect(governance?.hasAttribute("open")).toBe(true);
     expect(governance?.textContent).toContain("Explicit approval is required");
     expect(governance?.textContent).toContain("Release policy engine cannot approve itself");
+    expect(governance?.textContent).toContain("Mac Studio Control Director");
     expect(governance?.querySelector("textarea")?.value).toContain("explicitly approve");
   });
 
@@ -3127,14 +3129,41 @@ describe("renderPccDashboard", () => {
     expect(
       container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]")?.disabled,
     ).toBe(true);
-    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generate project plan with Codex",
+    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent).toContain(
+      "Generate project plan",
+    );
+    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent).toContain(
+      "Describe what you want to accomplish first",
     );
     expect(
       container
         .querySelector("[data-pcc-create-review-plan]")
         ?.classList.contains("pcc-editor-primary-action"),
     ).toBe(true);
+    expect(
+      container
+        .querySelector("[data-pcc-create-review-plan]")
+        ?.classList.contains("pcc-editor-primary-action--generate"),
+    ).toBe(true);
+  });
+
+  it("makes the project-plan action visually dominant when the goal is ready", () => {
+    const container = renderView(
+      createProps({
+        editorMode: "create-project",
+        projectForm: {
+          ...EMPTY_PCC_PROJECT_FORM,
+          projectDescription: "Build a simple family photo organizer.",
+        },
+      }),
+    );
+
+    const action = container.querySelector<HTMLButtonElement>("[data-pcc-create-review-plan]");
+    expect(action?.disabled).toBe(false);
+    expect(action?.querySelector("strong")?.textContent).toBe("Generate project plan");
+    expect(action?.querySelector("small")?.textContent).toContain(
+      "review the milestones before anything is created",
+    );
   });
 
   it("shows truthful project-planning progress instead of an idle saving state", () => {
@@ -3167,8 +3196,8 @@ describe("renderPccDashboard", () => {
     expect(progress?.textContent).toContain("GPT-5.6 Sol");
     expect(progress?.textContent).toContain("High effort");
     expect(progress?.textContent).toContain("You can leave this screen");
-    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent?.trim()).toBe(
-      "Generating project plan…",
+    expect(container.querySelector("[data-pcc-create-review-plan]")?.textContent).toContain(
+      "Generating your project plan…",
     );
   });
 

@@ -2,11 +2,13 @@ import type {
   ReleaseGovernorPolicy,
   ReleaseHealthDecision,
   ReleaseHealthSample,
+  ReleaseProofProfile,
 } from "./contracts.js";
 
 export function evaluateReleaseHealth(
   sample: ReleaseHealthSample,
   policy: ReleaseGovernorPolicy,
+  proofProfile: ReleaseProofProfile = "standard",
 ): ReleaseHealthDecision {
   const blockers: string[] = [];
   if (!sample.gatewayConnected) {
@@ -35,9 +37,16 @@ export function evaluateReleaseHealth(
       `Required capabilities are unavailable: ${sample.missingCapabilities.join(", ")}.`,
     );
   }
-  const browserErrors = sample.desktopBrowserErrors + sample.mobileBrowserErrors;
+  const browserErrors =
+    proofProfile === "mac_studio_control_director"
+      ? sample.desktopBrowserErrors
+      : sample.desktopBrowserErrors + sample.mobileBrowserErrors;
   if (browserErrors > policy.healthThresholds.maxBrowserErrors) {
-    blockers.push(`${browserErrors} desktop/mobile browser error(s) were observed.`);
+    blockers.push(
+      proofProfile === "mac_studio_control_director"
+        ? `${browserErrors} Control Director browser error(s) were observed.`
+        : `${browserErrors} desktop/mobile browser error(s) were observed.`,
+    );
   }
   if (!sample.activeRunsReconciled) {
     blockers.push("Active-run completion reconciliation failed.");
