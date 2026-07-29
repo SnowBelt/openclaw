@@ -43,6 +43,7 @@ import {
   collectOperationsProcessesResult,
   type OperationsProcessCollectionResult,
 } from "./process-probe.js";
+import { loadOperationsRemediationRecords } from "./remediation-store.js";
 import {
   buildDeterministicOperationsBriefing,
   capOperationsRows,
@@ -65,6 +66,7 @@ import type {
   OperationsFindingResponseState,
   OperationsHealthState,
   OperationsIncidentHistoryEntry,
+  OperationsRemediationRecord,
   OperationsSnapshot,
   OperationsSourceName,
   OperationsSourceObservation,
@@ -272,7 +274,7 @@ function sanitizeDisplayText(value: unknown, maxChars: number, fallback: string)
   return sanitizeTaskStatusText(value, { maxChars }) || fallback;
 }
 
-function buildCronRows(jobs: readonly CronJob[]): OperationsCronSnapshot[] {
+export function buildCronRows(jobs: readonly CronJob[]): OperationsCronSnapshot[] {
   const rows: OperationsCronSnapshot[] = [];
   for (const job of jobs) {
     const row: OperationsCronSnapshot = {
@@ -1119,6 +1121,7 @@ export async function collectOperationsSnapshot(params: {
   activeRuns?: OperationsActiveRun[];
   processCollection?: OperationsProcessCollectionResult;
   monitorState?: OperationsShadowMonitorState;
+  remediationRecords?: OperationsRemediationRecord[];
   incidentLedgerOptions?: OperationsIncidentLedgerOptions;
   pluginRegistryAvailable?: boolean;
 }): Promise<OperationsSnapshot> {
@@ -1312,6 +1315,77 @@ export async function collectOperationsSnapshot(params: {
     incidentOverflowCount = ledger.overflowCount;
   } catch {
     incidentLedgerAvailable = false;
+  }
+
+  let remediationHistory: OperationsRemediationRecord[] = [];
+  let remediationStoreAvailable = true;
+  try {
+    remediationHistory =
+      params.remediationRecords === undefined
+        ? loadOperationsRemediationRecords()
+        : structuredClone(params.remediationRecords);
+  } catch {
+    remediationStoreAvailable = false;
+  }
+  const remediationByFinding = new Map(
+    remediationHistory
+      .toSorted((left, right) => right.updatedAt - left.updatedAt)
+      .map((record) => [record.findingId, record]),
+  );
+  trackedFindings = trackedFindings.map((entry) => {
+    const remediation = remediationByFinding.get(entry.id);
+    if (!remediation) {
+      return entry;
+    }
+    const active = ["eligible", "investigating", "reviewing", "applying", "verifying"].includes(
+      remediation.status,
+    );
+    return {
+      ...entry,
+      remediation,
+      ...(active
+        ? {
+            disposition: "handling" as const,
+            responseState: "in_progress" as const,
+            ownerId: "OpenClaw",
+            lastProgressAt: remediation.updatedAt,
+          }
+        : {}),
+    };
+  });
+  const trackedFindingIds = new Set(trackedFindings.map((entry) => entry.id));
+  for (const remediation of remediationHistory) {
+    if (
+      trackedFindingIds.has(remediation.findingId) ||
+      !["eligible", "investigating", "reviewing", "applying", "verifying"].includes(
+        remediation.status,
+      )
+    ) {
+      continue;
+    }
+    trackedFindings.push({
+      id: remediation.findingId,
+      severity:
+        remediation.risk === "high"
+          ? "critical"
+          : remediation.risk === "medium"
+            ? "warning"
+            : "info",
+      category: remediation.findingCategory,
+      ...(remediation.findingEntityId ? { entityId: remediation.findingEntityId } : {}),
+      title: remediation.findingTitle,
+      detail: remediation.exactRepair,
+      recommendedAction: remediation.exactRepair,
+      firstObservedAt: remediation.startedAt,
+      lastObservedAt: remediation.updatedAt,
+      disposition: "handling",
+      responseState: "in_progress",
+      impact: remediation.impact,
+      ownerId: "OpenClaw",
+      nextAction: remediation.progress,
+      lastProgressAt: remediation.updatedAt,
+      remediation,
+    });
   }
 
   const sourceStatuses: Record<OperationsSourceName, OperationsSourceObservation> = {
@@ -1513,10 +1587,14 @@ export async function collectOperationsSnapshot(params: {
     findings: shownFindings,
     activityRollups: shownRollups,
     incidentHistory,
+    remediationHistory: remediationHistory.slice(0, 50),
     incidentLedger: { overflowCount: incidentOverflowCount },
     reconciler: {
-      mode: "shadow",
-      autoRemediationEnabled: false,
+      mode:
+        monitor.autoRemediationEnabled === true && remediationStoreAvailable
+          ? "supervised"
+          : "shadow",
+      autoRemediationEnabled: monitor.autoRemediationEnabled === true && remediationStoreAvailable,
       intervalMs: monitor.intervalMs || OPERATIONS_SHADOW_INTERVAL_MS,
       lastAttemptAt: monitor.lastAttemptAt,
       lastSweepAt: monitor.lastSweepAt,
@@ -1525,9 +1603,12 @@ export async function collectOperationsSnapshot(params: {
       sweepCount: monitor.sweepCount,
       recommendedActionCount: trackedFindings.filter((entry) => entry.recommendedAction).length,
       ruleCount: 10,
-      note: monitor.running
-        ? "Deterministic shadow monitor active. No model calls and no automatic mutations."
-        : "Deterministic request-time reconciliation. Background monitor is not active in this runtime.",
+      note:
+        monitor.running && monitor.autoRemediationEnabled === true && remediationStoreAvailable
+          ? "Supervised remediation is active. Only approved, bounded, reversible recipes can run automatically."
+          : remediationStoreAvailable
+            ? "Deterministic request-time reconciliation. Automatic remediation is not active in this runtime."
+            : "Automatic remediation is disabled because its evidence store could not be verified.",
       ...(monitor.lastError
         ? {
             lastError: sanitizeDisplayText(monitor.lastError, 240, "Shadow monitor sweep failed."),

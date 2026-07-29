@@ -169,6 +169,7 @@ jobs:
           }
           const requiredChecks = [
             "agentGroupOrder",
+            "automaticRemediationSafety",
             "attentionOwnershipAndResponse",
             "ariaLive",
             "browserHistoryAndFocus",

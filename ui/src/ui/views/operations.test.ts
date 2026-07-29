@@ -76,6 +76,15 @@ describe("Operations Room view", () => {
     expect(
       container.querySelector('.operations-quick-link[href*="section=system"]')?.textContent,
     ).toContain("Local AI processes: 2");
+    expect(container.querySelector(".operations-activity-comparison")?.textContent).toContain(
+      "OpenClaw-managed work",
+    );
+    expect(container.querySelector(".operations-activity-comparison")?.textContent).toContain(
+      "1 working agent",
+    );
+    expect(container.querySelector(".operations-activity-comparison")?.textContent).toContain(
+      "2 model processes loaded",
+    );
     expect(container.querySelector("#operations-working")?.textContent).toContain(
       "OpenClaw-managed tasks and workflows only. Local AI processes appear under System.",
     );
@@ -86,14 +95,20 @@ describe("Operations Room view", () => {
       "polite",
     );
     expect(container.querySelector(".operations-issue")?.textContent).toContain("Warning");
-    expect(
-      container
-        .querySelector(".operations-issue__assignment")
-        ?.textContent?.replace(/\s+/g, " ")
-        .trim(),
-    ).toBe("In progress · Owner: release-ops");
-    expect(container.querySelector(".operations-issue__next-action")?.textContent).toContain(
-      "Next: Install the required local tool.",
+    expect(container.querySelector(".operations-issue--primary")?.textContent).toContain(
+      "Highest-priority issue",
+    );
+    expect(container.querySelector(".operations-issue__handoff")?.textContent).toContain(
+      "Who owns this",
+    );
+    expect(container.querySelector(".operations-issue__handoff")?.textContent).toContain(
+      "release-ops",
+    );
+    expect(container.querySelector(".operations-issue__handoff")?.textContent).toContain(
+      "What happens next",
+    );
+    expect(container.querySelector(".operations-issue__handoff")?.textContent).toContain(
+      "Install the required local tool.",
     );
   });
 
@@ -102,7 +117,11 @@ describe("Operations Room view", () => {
     const resolution = container.querySelector<HTMLDetailsElement>(".operations-resolution");
     const link = resolution?.querySelector<HTMLAnchorElement>('a[href^="/chat?"]');
 
-    expect(resolution?.querySelector("summary")?.textContent).toContain("Resolve");
+    expect(resolution?.querySelector("summary")?.textContent).toContain("Preview resolution");
+    expect(resolution?.textContent?.replace(/\s+/g, " ").trim()).toContain(
+      "Preview only. Nothing has changed.",
+    );
+    expect(resolution?.textContent).toContain("Close preview — make no changes");
     expect(resolution?.textContent).toContain("What happened");
     expect(resolution?.textContent).toContain("Owner");
     expect(resolution?.textContent).toContain("Next action");
@@ -112,7 +131,7 @@ describe("Operations Room view", () => {
     expect(resolution?.textContent).toContain("Progress updates");
     expect(resolution?.textContent).toContain("Undo plan");
     expect(resolution?.textContent).toContain(
-      "OpenClaw will not change anything consequential without your confirmation.",
+      "High-risk, irreversible, security-sensitive, financial, credential, release, destructive, novel, or uncertain changes still require your confirmation.",
     );
     expect(link?.textContent).toContain("Investigate with local AI");
     expect(link?.href).toContain("draft=");
@@ -133,14 +152,14 @@ describe("Operations Room view", () => {
     const container = await renderView({ snapshot });
     const issue = container.querySelector(".operations-issue");
 
-    expect(issue?.querySelector(".operations-issue__assignment")?.textContent).toMatch(
-      /Owner:\s+Unassigned/,
+    expect(issue?.querySelector(".operations-issue__handoff")?.textContent).toMatch(
+      /Who owns this\s+Unassigned/,
     );
     expect(issue?.textContent).toContain(
       "No safe next step is confirmed. Investigate before changing anything.",
     );
-    expect(issue?.querySelector(".operations-issue__assignment")?.textContent).not.toMatch(
-      /Owner:\s+OpenClaw/,
+    expect(issue?.querySelector(".operations-issue__handoff")?.textContent).not.toMatch(
+      /Who owns this\s+OpenClaw/,
     );
   });
 
@@ -228,6 +247,93 @@ describe("Operations Room view", () => {
     expect(issue?.textContent).toContain("Review cancellation");
     expect(issue?.textContent).toContain("Prepare a guarded preview");
     expect(issue?.textContent).not.toContain("Opening the draft does not send it or start work.");
+  });
+
+  it("shows automatic repair progress, evidence, result, rollback, and guarded Undo", async () => {
+    const snapshot = createOperationsTestSnapshot();
+    const finding = snapshot.findings[0]!;
+    snapshot.findings[0] = {
+      ...finding,
+      category: "cron",
+      entityId: "cron-1",
+      disposition: "handling",
+      responseState: "in_progress",
+      remediation: {
+        id: "repair-1",
+        findingId: finding.id,
+        findingTitle: finding.title,
+        findingCategory: "cron",
+        findingEntityId: "cron-1",
+        impact: finding.impact,
+        recipeId: "cron.pause-repeated-failures.v1",
+        risk: "medium",
+        status: "completed",
+        ownerId: "OpenClaw",
+        exactRepair: "Pause the exact failing schedule.",
+        progress: "Repair completed and deterministic verification passed.",
+        result: "Schedule cron-1 is paused after repeated failures.",
+        evidence: ["Schedule cron-1 is paused.", "Read-back verified disabled."],
+        rollback: "Re-enable the same schedule.",
+        undoAvailable: true,
+        undoAction: "cron.enable",
+        undoTargetId: "cron-1",
+        automatic: true,
+        startedAt: snapshot.generatedAt - 10_000,
+        updatedAt: snapshot.generatedAt - 5_000,
+        completedAt: snapshot.generatedAt - 5_000,
+        investigation: {
+          model: "qwen3.6:27b-q8_0",
+          confidence: 0.99,
+          recommendation: "Bounded and safe.",
+        },
+        judge: {
+          model: "openclaw-judge-qwen35-27b-q8:latest",
+          approved: true,
+          reason: "Rollback is verified.",
+        },
+      },
+    };
+    snapshot.remediationHistory = [snapshot.findings[0].remediation!];
+    const onAction = vi.fn();
+    const container = await renderView({ snapshot, onAction });
+    const issue = container.querySelector(".operations-issue");
+
+    expect(issue?.textContent).toContain("Pause the exact failing schedule.");
+    expect(issue?.textContent).toContain("Medium");
+    expect(issue?.textContent).toContain("Local review (99%): Bounded and safe.");
+    expect(issue?.textContent).toContain(
+      "Independent safety review: Approved — Rollback is verified.",
+    );
+    expect(issue?.textContent).toContain("Read-back verified disabled.");
+    expect(issue?.textContent).toContain("Schedule cron-1 is paused after repeated failures.");
+    expect(issue?.textContent).toContain("Re-enable the same schedule.");
+    issue?.querySelector<HTMLButtonElement>(".operations-remediation-undo")?.click();
+    expect(onAction).toHaveBeenCalledWith("cron.enable", "cron-1");
+    expect(issue?.textContent).not.toContain("Investigate with local AI");
+
+    const completedRepair = container.querySelector(".operations-change--remediation");
+    expect(completedRepair?.textContent).toContain("View repair details");
+    expect(completedRepair?.textContent).toContain("Pause the exact failing schedule.");
+    expect(completedRepair?.textContent).toContain("Available through a guarded preview");
+    completedRepair?.querySelector<HTMLButtonElement>(".operations-remediation-undo")?.click();
+    expect(onAction).toHaveBeenCalledTimes(2);
+
+    snapshot.findings[0] = {
+      ...snapshot.findings[0]!,
+      remediation: {
+        ...snapshot.findings[0]!.remediation!,
+        status: "failed",
+        result: "Rollback could not be verified.",
+      },
+    };
+    const failedContainer = await renderView({ snapshot });
+    const escalation = failedContainer.querySelector<HTMLAnchorElement>(
+      ".operations-issue .operations-resolution__actions a",
+    );
+    expect(escalation?.textContent).toContain("Review with Codex");
+    expect(new URL(escalation!.href).searchParams.get("draft")).toContain(
+      "Automatic repair status: failed",
+    );
   });
 
   it("explains agent attention and routes review without implying an automatic fix", async () => {
@@ -645,9 +751,9 @@ describe("Operations Room view", () => {
     stale.overallStatus = "healthy";
     stale.freshness.status = "stale";
     const staleContainer = await renderView({ snapshot: stale });
-    expect(
-      staleContainer.querySelector(".operations-hero .operations-status--unknown")?.textContent,
-    ).toContain("Last known");
+    expect(staleContainer.querySelector(".operations-freshness")?.textContent).toContain(
+      "Last known",
+    );
     expect(
       staleContainer.querySelector("#operations-attention .operations-status--unknown")
         ?.textContent,
@@ -678,9 +784,9 @@ describe("Operations Room view", () => {
     partial.summary.actionableFindings = 0;
     partial.summary.criticalFindings = 0;
     const partialContainer = await renderView({ snapshot: partial });
-    expect(
-      partialContainer.querySelector(".operations-hero .operations-status--unknown")?.textContent,
-    ).toContain("Partial data");
+    expect(partialContainer.querySelector(".callout.warning strong")?.textContent).toContain(
+      "Partial data",
+    );
     expect(partialContainer.textContent).toContain("Unavailable sources: Processes.");
     expect(partialContainer.textContent).toContain("Fallback data sources: Models.");
     expect(partialContainer.textContent).toContain("Attention status cannot be confirmed");

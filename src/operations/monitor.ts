@@ -1,6 +1,6 @@
-// Lightweight Operations Room shadow monitor. This loop observes local facts,
-// persists bounded incident transitions, and never starts agents, invokes
-// models, or mutates runtime configuration.
+// Operations Room supervisor. It observes local facts, persists bounded
+// incident transitions, and runs only approved, reversible repair recipes.
+import type { CronServiceContract } from "../cron/service-contract.js";
 import { getTaskRegistryRestoreFailure, listTaskRecords } from "../tasks/runtime-internal.js";
 import type { TaskFlowRecord } from "../tasks/task-flow-registry.types.js";
 import {
@@ -8,7 +8,11 @@ import {
   listTaskFlowRecords,
 } from "../tasks/task-flow-runtime-internal.js";
 import type { TaskRecord } from "../tasks/task-registry.types.js";
-import { buildOperationsFindings, buildOperationsWorkflowRows } from "./collector.js";
+import {
+  buildCronRows,
+  buildOperationsFindings,
+  buildOperationsWorkflowRows,
+} from "./collector.js";
 import { collectOperationsHostMemory } from "./host-memory-probe.js";
 import {
   reconcileOperationsIncidentLedger,
@@ -21,6 +25,23 @@ import {
   setOperationsShadowMonitorState,
   updateOperationsShadowMonitorState,
 } from "./monitor-state.js";
+import {
+  recoverInterruptedOperationsRemediations,
+  runOperationsRemediationSweep,
+  type OperationsRemediationAiReview,
+  type OperationsRemediationStore,
+  type OperationsRepairRecipe,
+} from "./remediation-engine.js";
+import { createOperationsRemediationLocalAi } from "./remediation-local-ai.js";
+import {
+  createOperationsRemediationContext,
+  createOperationsRepairRecipes,
+  type OperationsRemediationContext,
+} from "./remediation-recipes.js";
+import {
+  loadOperationsRemediationRecords,
+  upsertOperationsRemediationRecord,
+} from "./remediation-store.js";
 import type { OperationsFinding } from "./types.js";
 
 export {
@@ -37,6 +58,7 @@ export type OperationsShadowObservation = {
 
 export async function collectOperationsShadowObservation(
   now = Date.now(),
+  cron?: CronServiceContract,
 ): Promise<OperationsShadowObservation> {
   const hostMemory = await collectOperationsHostMemory();
   let tasks: TaskRecord[];
@@ -58,6 +80,12 @@ export async function collectOperationsShadowObservation(
     flowSourceAvailable = false;
   }
   const workflows = buildOperationsWorkflowRows(tasks, flows, now);
+  const scheduleResult = cron
+    ? await cron
+        .list({ includeDisabled: true })
+        .then((jobs) => ({ jobs: buildCronRows(jobs), available: true as const }))
+        .catch(() => ({ jobs: [], available: false as const }))
+    : { jobs: [], available: false as const };
   const findings = buildOperationsFindings({
     now,
     hostMemoryUsedPercent: hostMemory.memoryUsedPercent,
@@ -65,8 +93,8 @@ export async function collectOperationsShadowObservation(
     taskSourceAvailable,
     workflows,
     workflowSourceAvailable: flowSourceAvailable,
-    cronJobs: [],
-    scheduleSourceAvailable: false,
+    cronJobs: scheduleResult.jobs,
+    scheduleSourceAvailable: scheduleResult.available,
     catalogs: { skills: [], plugins: [] },
     skillSourceAvailable: false,
     pluginSourceAvailable: false,
@@ -76,6 +104,7 @@ export async function collectOperationsShadowObservation(
     authoritativeCategories: [
       "resource",
       ...(taskSourceAvailable && flowSourceAvailable ? (["workflow"] as const) : []),
+      ...(scheduleResult.available ? (["cron"] as const) : []),
     ],
   };
 }
@@ -91,13 +120,30 @@ export function startOperationsShadowMonitor(params: {
   now?: () => number;
   collect?: (now: number) => OperationsShadowObservation | Promise<OperationsShadowObservation>;
   incidentLedgerOptions?: OperationsIncidentLedgerOptions;
+  cron?: CronServiceContract;
+  getCron?: () => CronServiceContract | undefined;
+  remediationAi?: OperationsRemediationAiReview<OperationsRemediationContext>;
+  remediationRecipes?: OperationsRepairRecipe<OperationsRemediationContext>[];
+  remediationStore?: OperationsRemediationStore;
 }): () => void {
   const intervalMs = Math.max(5_000, params.intervalMs ?? OPERATIONS_SHADOW_INTERVAL_MS);
   const now = params.now ?? Date.now;
-  const collect = params.collect ?? collectOperationsShadowObservation;
+  const resolveCron = params.getCron ?? (() => params.cron);
+  const collect =
+    params.collect ??
+    ((observedAt: number) => collectOperationsShadowObservation(observedAt, resolveCron()));
   let stopped = false;
   let sweepInFlight = false;
+  let interruptedRemediationsRecovered = false;
   let knownFindings = new Set<string>();
+  const remediationStore =
+    params.remediationStore ??
+    ({
+      list: () => loadOperationsRemediationRecords(),
+      upsert: (record) => {
+        upsertOperationsRemediationRecord(record);
+      },
+    } satisfies OperationsRemediationStore);
 
   setOperationsShadowMonitorState({
     running: true,
@@ -111,6 +157,7 @@ export function startOperationsShadowMonitor(params: {
     sweepCount: 0,
     lastError: null,
     findingIds: [],
+    autoRemediationEnabled: Boolean(resolveCron()),
   });
 
   const sweep = async () => {
@@ -130,6 +177,24 @@ export function startOperationsShadowMonitor(params: {
         authoritativeCategories: observation.authoritativeCategories,
         ...(params.incidentLedgerOptions ? { options: params.incidentLedgerOptions } : {}),
       });
+      const cron = resolveCron();
+      if (cron) {
+        if (!interruptedRemediationsRecovered) {
+          recoverInterruptedOperationsRemediations({ store: remediationStore, now });
+          interruptedRemediationsRecovered = true;
+        }
+        const context = createOperationsRemediationContext(cron);
+        await runOperationsRemediationSweep({
+          findings: ledger.findings,
+          context,
+          recipes: params.remediationRecipes ?? createOperationsRepairRecipes(),
+          store: remediationStore,
+          ai:
+            params.remediationAi ??
+            createOperationsRemediationLocalAi<OperationsRemediationContext>(),
+          now,
+        });
+      }
       const findingIds = ledger.findings.map((finding) => finding.id).toSorted();
       const nextFindings = new Set(findingIds);
       const recurrenceIds = new Set(
@@ -144,7 +209,7 @@ export function startOperationsShadowMonitor(params: {
       );
       if (newFindings.length > 0) {
         params.log.warn(
-          `operations shadow monitor found: ${newFindings.map((finding) => finding.id).join(", ")}`,
+          `operations monitor found: ${newFindings.map((finding) => finding.id).join(", ")}`,
         );
       }
       knownFindings = nextFindings;
@@ -161,11 +226,12 @@ export function startOperationsShadowMonitor(params: {
         sweepCount: current.sweepCount + 1,
         lastError: null,
         findingIds,
+        autoRemediationEnabled: Boolean(cron),
       });
     } catch (err) {
       if (!stopped) {
         const message = err instanceof Error ? err.message : String(err);
-        params.log.warn(`operations shadow monitor sweep failed: ${message}`);
+        params.log.warn(`operations monitor sweep failed: ${message}`);
         const finishedAt = now();
         const current = getOperationsShadowMonitorState();
         setOperationsShadowMonitorState({
@@ -176,6 +242,7 @@ export function startOperationsShadowMonitor(params: {
           lastDurationMs: Math.max(0, finishedAt - startedAt),
           attemptCount: current.attemptCount + 1,
           lastError: message,
+          autoRemediationEnabled: Boolean(resolveCron()),
         });
       }
     } finally {

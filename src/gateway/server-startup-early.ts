@@ -109,6 +109,8 @@ export async function startGatewayEarlyRuntime(params: {
   getSkillsRefreshTimer: () => ReturnType<typeof setTimeout> | null;
   setSkillsRefreshTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
   getRuntimeConfig: () => OpenClawConfig;
+  cron?: GatewayMaintenanceParams["cron"];
+  getCron?: GatewayMaintenanceParams["getCron"];
   startupTrace?: GatewayStartupTrace;
 }) {
   const bonjourStop = await measureStartup(params.startupTrace, "runtime.early.discovery", () =>
@@ -204,6 +206,8 @@ export async function startGatewayEarlyRuntime(params: {
         nodeSendToSession: params.nodeSendToSession,
         enableSkillCurator: true,
         getRuntimeConfig: params.getRuntimeConfig,
+        ...(params.cron ? { cron: params.cron } : {}),
+        ...(params.getCron ? { getCron: params.getCron } : {}),
         ...(typeof params.mediaCleanupTtlMs === "number"
           ? { mediaCleanupTtlMs: params.mediaCleanupTtlMs }
           : {}),

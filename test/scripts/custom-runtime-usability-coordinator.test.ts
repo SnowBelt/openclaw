@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -439,6 +440,127 @@ describe("Operations Room usability coordinator", () => {
         (participant: { participantId: string }) => participant.participantId === participantId(99),
       ),
     ).toHaveLength(2);
+  });
+
+  it("binds an in-UI timed attempt to the registered owner and exact campaign identity", () => {
+    const input = fixture();
+    initializeOwner(input);
+    expectSuccess(registerOwner(input));
+    const ready = expectSuccess(
+      command(input, ["status", "--campaign", input.campaign, "--now", "2026-07-28T19:00:00.000Z"]),
+    );
+    expect(ready.ownerAcceptanceQuery).toContain("ownerAcceptance=1");
+    expect(ready.ownerAcceptanceQuery).toContain(`candidateSha=${candidateSha}`);
+    expect(ready.ownerAcceptanceQuery).toContain(`fixtureSha256=${fixtureSha256}`);
+    expect(ready.ownerAcceptanceQuery).toContain(`participantId=${participantId(99)}`);
+
+    const uiReceipt = path.join(input.home, "owner-ui-receipt.json");
+    writeFileSync(
+      uiReceipt,
+      `${JSON.stringify(
+        {
+          schema: "openclaw.operations-room.owner-ui-attempt.v1",
+          campaignId: "or2-owner-mac-studio",
+          candidateSha,
+          fixtureSha256,
+          participantId: participantId(99),
+          startedAt: "2026-07-28T19:00:01.000Z",
+          finishedAt: "2026-07-28T19:00:42.000Z",
+          elapsedMs: 41_000,
+          snapshotGeneratedAt: Date.parse("2026-07-28T19:00:00.000Z"),
+          hintCount: 0,
+          unsafeActionCount: 0,
+          ownerAttested: true,
+          outcomes: {
+            issueDetailsAndOwnerOrNext: true,
+            localAiDistinctionCorrect: true,
+            overallStateCorrect: true,
+            resolvePreviewAndSafeCancel: true,
+            workingItemIdentified: true,
+          },
+          result: "passed",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const completed = expectSuccess(
+      command(input, [
+        "complete-ui",
+        "--campaign",
+        input.campaign,
+        "--participant-id",
+        participantId(99),
+        "--ui-receipt",
+        uiReceipt,
+        "--now",
+        "2026-07-28T19:00:43.000Z",
+      ]),
+    );
+    expect(completed).toMatchObject({
+      state: "passed",
+      participants: [
+        {
+          status: "passed",
+          attempt: {
+            evidenceSource: "operations-room-ui",
+            elapsedMs: 41_000,
+            observerAttested: true,
+            passed: true,
+          },
+        },
+      ],
+    });
+    expect(existsSync(input.receipt)).toBe(true);
+  });
+
+  it("fails closed when an owner UI receipt does not match the exact candidate", () => {
+    const input = fixture();
+    initializeOwner(input);
+    expectSuccess(registerOwner(input));
+    const uiReceipt = path.join(input.home, "owner-ui-mismatch.json");
+    writeFileSync(
+      uiReceipt,
+      `${JSON.stringify({
+        schema: "openclaw.operations-room.owner-ui-attempt.v1",
+        campaignId: "or2-owner-mac-studio",
+        candidateSha: "f".repeat(40),
+        fixtureSha256,
+        participantId: participantId(99),
+        startedAt: "2026-07-28T19:00:01.000Z",
+        finishedAt: "2026-07-28T19:00:42.000Z",
+        elapsedMs: 41_000,
+        snapshotGeneratedAt: Date.parse("2026-07-28T19:00:00.000Z"),
+        hintCount: 0,
+        unsafeActionCount: 0,
+        ownerAttested: true,
+        outcomes: {
+          issueDetailsAndOwnerOrNext: true,
+          localAiDistinctionCorrect: true,
+          overallStateCorrect: true,
+          resolvePreviewAndSafeCancel: true,
+          workingItemIdentified: true,
+        },
+        result: "passed",
+      })}\n`,
+    );
+    const result = command(input, [
+      "complete-ui",
+      "--campaign",
+      input.campaign,
+      "--participant-id",
+      participantId(99),
+      "--ui-receipt",
+      uiReceipt,
+      "--now",
+      "2026-07-28T19:00:43.000Z",
+    ]);
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("identity, timing, or outcomes are invalid");
+    expect(JSON.parse(readFileSync(input.campaign, "utf8"))).toMatchObject({
+      state: "ready",
+      participants: [{ status: "registered" }],
+    });
   });
 
   it("makes a failed owner acceptance terminal without replacement or retry", () => {
