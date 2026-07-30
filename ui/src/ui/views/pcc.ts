@@ -1802,6 +1802,14 @@ function renderReleaseGovernance(props: PccDashboardProps) {
               <dd>${passedChecks}/${totalChecks} passed</dd>
             </div>
             <div>
+              <dt>Proof profile</dt>
+              <dd>
+                ${status.proofProfile === "mac_studio_control_director"
+                  ? "Mac Studio · Control Director v1"
+                  : "Default"}
+              </dd>
+            </div>
+            <div>
               <dt>Approval</dt>
               <dd>${status.approvalStatus.replaceAll("_", " ")}</dd>
             </div>

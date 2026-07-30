@@ -66,6 +66,7 @@ export function recordReleaseEvidenceInPccLedger(
           metadata: {
             receiptHash: bundle.receiptHash,
             policyVersion: bundle.evaluation.decision.policyVersion,
+            proofProfile: bundle.facts.proofProfile,
             riskLevel: bundle.evaluation.classification.riskLevel,
             decision: bundle.evaluation.decision.decision,
             approvalMode: bundle.evaluation.decision.approvalMode,

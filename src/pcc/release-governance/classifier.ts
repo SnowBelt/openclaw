@@ -3,12 +3,15 @@ import type {
   ReleaseCapabilityDiffEntry,
   ReleaseChangeClassification,
   ReleaseGovernorPolicy,
+  ReleaseOperation,
   ReleaseProtectedPathFinding,
+  ReleaseProofProfile,
   ReleaseRiskLevel,
 } from "./contracts.js";
 
 const RISK_SCORE: Record<ReleaseRiskLevel, number> = { P0: 4, P1: 3, P2: 2, P3: 1 };
 const GIT_OBJECT_ID = /^[a-f0-9]{40,64}$/iu;
+const PROOF_PROFILES = new Set<ReleaseProofProfile>(["default", "mac_studio_control_director"]);
 
 function normalizePath(value: string): string {
   return value
@@ -70,7 +73,41 @@ export function validateReleaseCandidateFacts(facts: ReleaseCandidateFacts): str
   if (typeof facts.scopeCoordinationMaterial !== "boolean") {
     errors.push("Release scope-coordination status must be explicit.");
   }
+  if (!PROOF_PROFILES.has(facts.proofProfile)) {
+    errors.push("Release proof profile is missing or unsupported.");
+  } else if (
+    facts.proofProfile === "mac_studio_control_director" &&
+    (facts.project !== "project-command-center" ||
+      facts.destination !== "local-only" ||
+      facts.externalDisclosure)
+  ) {
+    errors.push(
+      "The mac_studio_control_director proof profile is restricted to local-only project-command-center releases.",
+    );
+  }
   return errors;
+}
+
+export function requiredChecksForProofProfile(params: {
+  policy: ReleaseGovernorPolicy;
+  facts: ReleaseCandidateFacts;
+  operation: ReleaseOperation;
+}): string[] {
+  if (params.facts.proofProfile === "default") {
+    return [...params.policy.requiredChecks[params.operation]];
+  }
+  const profile = params.policy.proofProfiles[params.facts.proofProfile];
+  if (
+    !profile ||
+    profile.project !== params.facts.project ||
+    profile.destination !== params.facts.destination ||
+    profile.externalDisclosure !== params.facts.externalDisclosure
+  ) {
+    throw new Error(
+      `Release proof profile ${params.facts.proofProfile} is unavailable for this candidate scope.`,
+    );
+  }
+  return [...profile.requiredChecks[params.operation]];
 }
 
 function pathIsUnsafe(value: string): boolean {
@@ -148,6 +185,11 @@ export function classifyReleaseCandidate(params: {
   );
   const confidence = ambiguity ? 0.5 : 1;
   const belowConfidenceThreshold = confidence < params.policy.confidenceThreshold;
+  const requiredChecks = requiredChecksForProofProfile({
+    policy: params.policy,
+    facts: params.facts,
+    operation: params.operation,
+  });
   const approvalRequired =
     riskLevel === "P0" ||
     riskLevel === "P1" ||
@@ -184,11 +226,12 @@ export function classifyReleaseCandidate(params: {
     riskLevel,
     externalDisclosure,
     externalDestination: destination,
-    requiredChecks: [...params.policy.requiredChecks[params.operation]],
+    requiredChecks,
     approvalRequired,
     ambiguous: ambiguity,
     explanation,
     confidence,
     policyVersion: params.policy.version,
+    proofProfile: params.facts.proofProfile,
   };
 }

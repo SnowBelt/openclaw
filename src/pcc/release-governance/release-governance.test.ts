@@ -12,6 +12,7 @@ import type {
   ReleaseExactApproval,
   ReleaseGovernorEvaluation,
   ReleaseGovernorInput,
+  ReleaseOperation,
   ReleaseReview,
 } from "./contracts.js";
 import {
@@ -22,7 +23,7 @@ import {
 } from "./evidence.js";
 import { evaluateReleaseGovernor } from "./governor.js";
 import { recordReleaseEvidenceInPccLedger } from "./ledger.js";
-import { readReleaseGovernorPolicy } from "./policy.js";
+import { parseReleaseGovernorPolicy, readReleaseGovernorPolicy } from "./policy.js";
 
 const NOW = "2026-07-15T12:00:00.000Z";
 const SHA = "a".repeat(40);
@@ -55,6 +56,7 @@ function facts(
     descendantDepth: 1,
     commitCount: 1,
     scopeCoordinationMaterial: false,
+    proofProfile: "default",
     ...overrides,
   };
 }
@@ -66,6 +68,95 @@ function passedChecks(operation: keyof typeof policy.requiredChecks): ReleaseChe
     summary: `${id} passed`,
     recordedAt: NOW,
   }));
+}
+
+function customChecks(operation: ReleaseOperation): ReleaseCheck[] {
+  const profile = policy.proofProfiles.mac_studio_control_director;
+  if (!profile) {
+    throw new Error("Test policy is missing mac_studio_control_director.");
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-local-release-proof-"));
+  fs.chmodSync(root, 0o700);
+  roots.push(root);
+  return profile.requiredChecks[operation].map((id) => {
+    if (["candidate_sha", "parent_sha"].includes(id)) {
+      return {
+        id,
+        status: "passed",
+        summary: `${id} passed`,
+        recordedAt: NOW,
+      };
+    }
+    const artifact = path.join(root, `${id}.json`);
+    const command = `verify-${id} --candidate ${SHA}`;
+    const contents = `${JSON.stringify({
+      schema: "openclaw.release-local-proof.v1",
+      candidateSha: SHA,
+      proofProfile: "mac_studio_control_director",
+      checkId: id,
+      command,
+      result: "passed",
+    })}\n`;
+    fs.writeFileSync(artifact, contents, { mode: 0o600 });
+    return {
+      id,
+      status: "passed",
+      summary: `${id} passed`,
+      command,
+      artifact,
+      artifactSha256: createHash("sha256").update(contents).digest("hex"),
+      recordedAt: NOW,
+    };
+  });
+}
+
+function healthySample(): NonNullable<ReleaseGovernorInput["health"]> {
+  return {
+    gatewayConnected: true,
+    routes: [
+      { path: "/pcc", status: 200, latencyMs: 20 },
+      { path: "/operations", status: 200, latencyMs: 20 },
+    ],
+    errorRate: 0,
+    startupFailures: 0,
+    missingCapabilities: [],
+    desktopBrowserErrors: 0,
+    mobileBrowserErrors: 0,
+    activeRunsReconciled: true,
+    serviceWorkerIntegrity: "passed",
+  };
+}
+
+function customInput(operation: ReleaseOperation): ReleaseGovernorInput {
+  return {
+    ...input({
+      changedFiles: ["docs/release.md"],
+      operation,
+      facts: {
+        destination: "local-only",
+        proofProfile: "mac_studio_control_director",
+      },
+    }),
+    checks: customChecks(operation),
+    reviews: [
+      ...reviews(),
+      ...(["promotion", "restart", "rollback", "finalize"].includes(operation)
+        ? [
+            {
+              role: "telemetry_evaluation_analyst" as const,
+              reviewerId: "telemetry-local-test",
+              decision: "approve" as const,
+              confidence: 1,
+              summary: "Local runtime health is proven.",
+              evidenceIds: ["local-health"],
+              reviewedAt: NOW,
+            },
+          ]
+        : []),
+    ],
+    health: operation === "stage" ? undefined : healthySample(),
+    rollbackAuthorized: operation === "rollback",
+  };
 }
 
 function reviews(includeControlDirector = false): ReleaseReview[] {
@@ -89,6 +180,7 @@ function exactApproval(
 ): ReleaseExactApproval {
   return {
     id: "approval-exact",
+    proofProfile: "default",
     approvingUser: "test-user",
     repository: "SnowBelt/openclaw",
     branch: "codex/release-governor-test",
@@ -133,6 +225,7 @@ function finalizedBundleInput(evaluation: ReleaseGovernorEvaluation): ReleaseEvi
     branch: "codex/release-governor-test",
     sourceRepository: "SnowBelt/openclaw",
     destination: null,
+    proofProfile: "default",
     diffSummary: "Documentation-only release governance test.",
     checks: passedChecks("stage"),
     reviews: reviews(),
@@ -167,6 +260,67 @@ function finalizedBundleInput(evaluation: ReleaseGovernorEvaluation): ReleaseEvi
   };
 }
 
+function customBundleInput(
+  evaluation: ReleaseGovernorEvaluation,
+  checks: ReleaseCheck[],
+): ReleaseEvidenceBundleInput {
+  const browserArtifact =
+    checks.find((check) => check.id === "authenticated_local_control_director_pcc_browser")
+      ?.artifact ?? null;
+  return {
+    evaluation,
+    facts: facts(["docs/release.md"], {
+      destination: "local-only",
+      proofProfile: "mac_studio_control_director",
+    }),
+    branch: "codex/release-governor-test",
+    sourceRepository: "SnowBelt/openclaw",
+    destination: "local-only",
+    proofProfile: "mac_studio_control_director",
+    diffSummary: "Local-only Mac Studio Control Director release.",
+    checks,
+    reviews: evaluation.decision.requiredReviewRoles.map((role) => ({
+      role,
+      reviewerId: `${role}-test`,
+      decision: "approve",
+      confidence: 1,
+      summary: `${role} approved local evidence`,
+      evidenceIds: ["local-proof"],
+      reviewedAt: NOW,
+    })),
+    approvals: [],
+    healthSample: evaluation.health ? healthySample() : null,
+    rollbackAuthorized: evaluation.decision.operation === "rollback",
+    workflowSanity: [],
+    build: {
+      buildInfoPath: "dist/build-info.json",
+      buildStamp: SHA,
+      artifactHashes: { "dist/index.js": "f".repeat(64) },
+    },
+    runtime: {
+      openclawVersion: "2026.7.15",
+      gatewayVersion: "2026.7.15",
+      activeRuntimeSha: PARENT_SHA,
+      candidateRuntimeSha: SHA,
+    },
+    deployment: {
+      deployedAt: evaluation.decision.operation === "stage" ? null : NOW,
+      rollbackTarget: PARENT_SHA,
+      stageResult: "passed",
+      promotionResult: "passed",
+      restartResult: "passed",
+      postDeploymentHealth: {
+        passed: true,
+        deterministicRollbackTrigger: false,
+        blockers: [],
+      },
+    },
+    browserProof: { desktop: browserArtifact, mobile: null, consoleErrors: 0 },
+    ledger: { projectId: "project-command-center", milestoneId: "release-governor", ready: true },
+    createdAt: NOW,
+  };
+}
+
 function writeReleaseArtifacts(root: string): Record<string, string> {
   const contents: Record<string, string> = {
     "dist/index.js": "// gateway\n",
@@ -195,6 +349,187 @@ afterEach(() => {
 });
 
 describe("PCC Release Governor", () => {
+  it("preserves default proof requirements while defining one exact local Mac Studio profile", () => {
+    expect(policy.version).toBe(2);
+    expect(policy.requiredChecks.promotion).toEqual(
+      expect.arrayContaining(["workflow_sanity", "browser_mobile"]),
+    );
+    expect(policy.proofProfiles.mac_studio_control_director).toMatchObject({
+      version: 1,
+      project: "project-command-center",
+      destination: "local-only",
+      externalDisclosure: false,
+      prohibitedChecks: expect.arrayContaining([
+        "workflow_sanity",
+        "remote_ci",
+        "browser_mobile",
+        "remote_device",
+        "blacksmith",
+        "testbox",
+        "crabbox",
+      ]),
+    });
+    const malformed = structuredClone(policy) as unknown as Record<string, unknown>;
+    malformed.proofProfiles = {
+      unknown_profile: {
+        project: "project-command-center",
+        destination: "local-only",
+        externalDisclosure: false,
+        prohibitedChecks: [],
+        requiredChecks: policy.requiredChecks,
+      },
+    };
+    expect(parseReleaseGovernorPolicy(malformed)).toBeNull();
+  });
+
+  it("authorizes complete hash-bound local proof without remote or mobile evidence", () => {
+    const releaseInput = customInput("stage");
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+    expect(evaluation.classification).toMatchObject({
+      proofProfile: "mac_studio_control_director",
+      requiredChecks: expect.arrayContaining([
+        "local_tests",
+        "source_typecheck",
+        "test_typecheck",
+        "policy_checks",
+        "capability_checks",
+        "immutable_candidate",
+      ]),
+    });
+    expect(evaluation.classification.requiredChecks).not.toEqual(
+      expect.arrayContaining(["workflow_sanity", "browser_mobile"]),
+    );
+    expect(evaluation.decision).toMatchObject({
+      decision: "authorize",
+      proofProfile: "mac_studio_control_director",
+    });
+    const bundle = createReleaseEvidenceBundle(customBundleInput(evaluation, releaseInput.checks));
+    expect(verifyReleaseEvidenceAuthorization({ bundle, policy, now: NOW })).toEqual([]);
+  });
+
+  it("fails closed when the local profile is used outside its exact project and destination", () => {
+    for (const overrides of [
+      { project: "other-project" },
+      { destination: "https://github.com/SnowBelt/openclaw", externalDisclosure: true },
+      { destination: null },
+    ] satisfies Array<Partial<ReleaseCandidateFacts>>) {
+      expect(() =>
+        evaluateReleaseGovernor(
+          input({
+            changedFiles: ["docs/release.md"],
+            facts: {
+              proofProfile: "mac_studio_control_director",
+              destination: "local-only",
+              ...overrides,
+            },
+          }),
+          policy,
+        ),
+      ).toThrow(/restricted to local-only project-command-center/u);
+    }
+  });
+
+  it("generates profile-specific approval wording without remote CI or mobile proof", () => {
+    const releaseInput = customInput("stage");
+    releaseInput.facts.changedFiles = ["src/pcc/release-governance/policy.ts"];
+    releaseInput.reviews = reviews(true);
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+    expect(evaluation.decision.decision).toBe("escalate");
+    expect(evaluation.decision.exactApprovalWording).toContain(
+      "authenticated local Mac Studio production-Chrome Control Director and PCC proof",
+    );
+    expect(evaluation.decision.exactApprovalWording).not.toContain("CI workflow");
+    expect(evaluation.decision.exactApprovalWording).not.toContain("desktop/mobile");
+  });
+
+  it("does not reuse an exact approval issued for a different proof profile", () => {
+    const releaseInput = customInput("stage");
+    releaseInput.facts.changedFiles = ["src/pcc/release-governance/policy.ts"];
+    releaseInput.reviews = reviews(true);
+    releaseInput.exactApprovals = [exactApproval("stage")];
+    const mismatch = evaluateReleaseGovernor(releaseInput, policy);
+    expect(mismatch.decision).toMatchObject({ decision: "escalate", approvalMode: "none" });
+
+    releaseInput.exactApprovals = [
+      { ...exactApproval("stage"), proofProfile: "mac_studio_control_director" },
+    ];
+    const matching = evaluateReleaseGovernor(releaseInput, policy);
+    expect(matching.decision).toMatchObject({ decision: "authorize", approvalMode: "exact" });
+  });
+
+  it("rejects fabricated, missing, prohibited, and profile-drifted local proof", () => {
+    const releaseInput = customInput("promotion");
+    const evaluation = evaluateReleaseGovernor(releaseInput, policy);
+    expect(evaluation.decision.decision).toBe("authorize");
+    const validInput = customBundleInput(evaluation, releaseInput.checks);
+
+    const missingBrowser = createReleaseEvidenceBundle({
+      ...validInput,
+      browserProof: { ...validInput.browserProof, desktop: null },
+    });
+    expect(
+      verifyReleaseEvidenceAuthorization({ bundle: missingBrowser, policy, now: NOW }),
+    ).toContain(
+      "Authenticated local production-Chrome Control Director and PCC proof must match its hash-bound artifact.",
+    );
+
+    const workflowEvidence = createReleaseEvidenceBundle({
+      ...validInput,
+      workflowSanity: [
+        { runId: "remote", url: "https://example.invalid", headSha: SHA, conclusion: "success" },
+      ],
+    });
+    expect(
+      verifyReleaseEvidenceAuthorization({ bundle: workflowEvidence, policy, now: NOW }),
+    ).toContain(
+      "The mac_studio_control_director proof profile must not contain remote workflow evidence.",
+    );
+
+    const tamperedChecks = validInput.checks.map((check) =>
+      check.id === "local_tests" ? { ...check, artifactSha256: "0".repeat(64) } : check,
+    );
+    const fabricated = createReleaseEvidenceBundle({ ...validInput, checks: tamperedChecks });
+    expect(verifyReleaseEvidenceAuthorization({ bundle: fabricated, policy, now: NOW })).toContain(
+      "Local proof artifact hash mismatch: local_tests.",
+    );
+
+    const localTestCheck = validInput.checks.find((check) => check.id === "local_tests");
+    if (!localTestCheck?.artifact || !localTestCheck.command) {
+      throw new Error("Test local proof is missing.");
+    }
+    const falseReceiptPath = path.join(path.dirname(localTestCheck.artifact), "false-claim.json");
+    const falseReceipt = `${JSON.stringify({
+      schema: "openclaw.release-local-proof.v1",
+      candidateSha: PARENT_SHA,
+      proofProfile: "mac_studio_control_director",
+      checkId: "local_tests",
+      command: localTestCheck.command,
+      result: "passed",
+    })}\n`;
+    fs.writeFileSync(falseReceiptPath, falseReceipt, { mode: 0o600 });
+    const falseClaimChecks = validInput.checks.map((check) =>
+      check.id === "local_tests"
+        ? {
+            ...check,
+            artifact: falseReceiptPath,
+            artifactSha256: createHash("sha256").update(falseReceipt).digest("hex"),
+          }
+        : check,
+    );
+    const falseClaim = createReleaseEvidenceBundle({
+      ...validInput,
+      checks: falseClaimChecks,
+    });
+    expect(verifyReleaseEvidenceAuthorization({ bundle: falseClaim, policy, now: NOW })).toContain(
+      "Local proof receipt is not bound to the candidate, profile, check, command, and passed result: local_tests.",
+    );
+
+    const drifted = createReleaseEvidenceBundle({ ...validInput, proofProfile: "default" });
+    expect(verifyReleaseEvidenceAuthorization({ bundle: drifted, policy, now: NOW })).toContain(
+      "Evidence proof profile does not match candidate facts, classification, and decision.",
+    );
+  });
+
   it("fails closed on malformed candidate identity or unsafe changed-file paths", () => {
     expect(() =>
       evaluateReleaseGovernor(
@@ -240,6 +575,7 @@ describe("PCC Release Governor", () => {
   it("keeps bounded approvals project, destination, risk, path, depth, commit, and expiry scoped", () => {
     const grant: ReleaseApprovalGrant = {
       id: "grant-docs",
+      proofProfile: "default",
       approvingUser: "test-user",
       project: "project-command-center",
       repository: "SnowBelt/openclaw",

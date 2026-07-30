@@ -4,11 +4,15 @@ import {
   RELEASE_GOVERNOR_POLICY_SCHEMA,
   type ReleaseGovernorPolicy,
   type ReleaseOperation,
+  type ReleaseProofProfile,
   type ReleaseRiskLevel,
 } from "./contracts.js";
 
 const OPERATIONS: ReleaseOperation[] = ["stage", "promotion", "restart", "rollback", "finalize"];
 const RISKS = new Set<ReleaseRiskLevel>(["P0", "P1", "P2", "P3"]);
+const CUSTOM_PROOF_PROFILES = new Set<Exclude<ReleaseProofProfile, "default">>([
+  "mac_studio_control_director",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -89,6 +93,47 @@ export function parseReleaseGovernorPolicy(value: unknown): ReleaseGovernorPolic
     }
     requiredChecks[operation] = checks;
   }
+  const proofProfiles: ReleaseGovernorPolicy["proofProfiles"] = {};
+  const rawProofProfiles = value.proofProfiles ?? {};
+  if (!isRecord(rawProofProfiles)) {
+    return null;
+  }
+  for (const [profileName, rawProfile] of Object.entries(rawProofProfiles)) {
+    if (
+      !CUSTOM_PROOF_PROFILES.has(profileName as Exclude<ReleaseProofProfile, "default">) ||
+      !isRecord(rawProfile) ||
+      rawProfile.version !== 1 ||
+      rawProfile.project !== "project-command-center" ||
+      rawProfile.destination !== "local-only" ||
+      rawProfile.externalDisclosure !== false ||
+      !isRecord(rawProfile.requiredChecks)
+    ) {
+      return null;
+    }
+    const prohibitedChecks = stringArray(rawProfile.prohibitedChecks);
+    if (!prohibitedChecks || new Set(prohibitedChecks).size !== prohibitedChecks.length) {
+      return null;
+    }
+    const profileRequiredChecks = {} as Record<ReleaseOperation, string[]>;
+    for (const operation of OPERATIONS) {
+      const checks = stringArray(rawProfile.requiredChecks[operation]);
+      if (!checks || new Set(checks).size !== checks.length) {
+        return null;
+      }
+      if (checks.some((check) => prohibitedChecks.includes(check))) {
+        return null;
+      }
+      profileRequiredChecks[operation] = checks;
+    }
+    proofProfiles[profileName as Exclude<ReleaseProofProfile, "default">] = {
+      version: 1,
+      project: rawProfile.project,
+      destination: rawProfile.destination,
+      externalDisclosure: false,
+      prohibitedChecks,
+      requiredChecks: profileRequiredChecks,
+    };
+  }
   const thresholds = value.healthThresholds;
   if (
     !finiteNumber(thresholds.maxRouteLatencyMs) ||
@@ -106,6 +151,7 @@ export function parseReleaseGovernorPolicy(value: unknown): ReleaseGovernorPolic
     classificationRules,
     protectedPaths,
     requiredChecks,
+    proofProfiles,
     healthThresholds: {
       maxRouteLatencyMs: thresholds.maxRouteLatencyMs,
       maxErrorRate: thresholds.maxErrorRate,

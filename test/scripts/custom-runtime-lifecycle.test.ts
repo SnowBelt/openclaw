@@ -192,6 +192,7 @@ function sha256(filePath: string): string {
 
 afterEach(() => {
   delete process.env.OPENCLAW_RELEASE_GOVERNANCE_BUNDLE_DIR;
+  delete process.env.OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION;
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { force: true, recursive: true });
   }
@@ -238,6 +239,10 @@ describe("custom runtime lifecycle", () => {
     const candidateMarker = path.join(root, "candidate-governor-called");
     writeCandidateContracts(activeRelease, "a".repeat(64));
     writeCandidateContracts(candidateRelease, sourceSha);
+    writeFile(
+      path.join(candidateRelease, "config", "release-governor-policy.json"),
+      '{"schema":"openclaw.release-governor-policy.v1","version":2}\n',
+    );
     const verifier = (marker: string) =>
       [
         "#!/usr/bin/env node",
@@ -280,6 +285,274 @@ describe("custom runtime lifecycle", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(fs.existsSync(activeMarker)).toBe(true);
     expect(fs.existsSync(candidateMarker)).toBe(false);
+  });
+
+  it("permits an exact one-version policy migration through the candidate Governor", () => {
+    const root = createRoot("openclaw-release-governor-migration-");
+    const runtimeHome = path.join(root, "runtime-home");
+    const activeRelease = path.join(root, "active-release");
+    const candidateRelease = path.join(root, "candidate-release");
+    const activeSha = "a".repeat(64);
+    const candidateSha = "b".repeat(64);
+    const approvalId = "user:exact-policy-migration";
+    const activeMarker = path.join(root, "active-governor-called");
+    const candidateMarker = path.join(root, "candidate-governor-called");
+    writeCandidateContracts(activeRelease, activeSha);
+    writeCandidateContracts(candidateRelease, candidateSha);
+    writeFile(
+      path.join(candidateRelease, "config", "release-governor-policy.json"),
+      '{"schema":"openclaw.release-governor-policy.v1","version":2}\n',
+    );
+    const verifier = (marker: string) =>
+      [
+        "#!/usr/bin/env node",
+        'import fs from "node:fs";',
+        `fs.writeFileSync(${JSON.stringify(marker)}, "called\\n");`,
+        "process.exit(0);",
+        "",
+      ].join("\n");
+    writeFile(
+      path.join(activeRelease, "dist", "release-governor.js"),
+      verifier(activeMarker),
+      0o700,
+    );
+    writeFile(
+      path.join(candidateRelease, "dist", "release-governor.js"),
+      verifier(candidateMarker),
+      0o700,
+    );
+    writeFile(
+      path.join(runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ runtimeRoot: activeRelease, sourceSha: activeSha })}\n`,
+      0o600,
+    );
+    const bundle = path.join(
+      candidateRelease,
+      ".test-release-governance",
+      candidateSha,
+      "stage.json",
+    );
+    writeFile(
+      bundle,
+      `${JSON.stringify({
+        approvals: [
+          {
+            candidateSha,
+            id: approvalId,
+            operations: ["stage", "promotion"],
+            proofProfile: "mac_studio_control_director",
+          },
+        ],
+        evaluation: {
+          classification: { proofProfile: "mac_studio_control_director" },
+          decision: { operation: "stage", proofProfile: "mac_studio_control_director" },
+        },
+        facts: {
+          candidateSha,
+          destination: "local-only",
+          externalDisclosure: false,
+          project: "project-command-center",
+          proofProfile: "mac_studio_control_director",
+        },
+        proofProfile: "mac_studio_control_director",
+      })}\n`,
+      0o600,
+    );
+    const createdAt = new Date(Date.now() - 60_000).toISOString();
+    const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+    const migration = path.join(root, "policy-migration.json");
+    writeFile(
+      migration,
+      `${JSON.stringify({
+        activeCapabilitySha256: sha256(
+          path.join(activeRelease, "config", "custom-runtime-capabilities.json"),
+        ),
+        activeGovernorSha256: sha256(path.join(activeRelease, "dist", "release-governor.js")),
+        activePolicySha256: sha256(
+          path.join(activeRelease, "config", "release-governor-policy.json"),
+        ),
+        activePolicyVersion: 1,
+        activeRuntimeSha: activeSha,
+        approvalId,
+        candidateCapabilitySha256: sha256(
+          path.join(candidateRelease, "config", "custom-runtime-capabilities.json"),
+        ),
+        candidateGovernorSha256: sha256(path.join(candidateRelease, "dist", "release-governor.js")),
+        candidatePolicySha256: sha256(
+          path.join(candidateRelease, "config", "release-governor-policy.json"),
+        ),
+        candidatePolicyVersion: 2,
+        candidateSha,
+        createdAt,
+        evidenceBundleSha256: sha256(bundle),
+        expiresAt,
+        operation: "stage",
+        schema: "openclaw.release-governance-policy-migration.v1",
+      })}\n`,
+      0o600,
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. ${JSON.stringify(path.resolve("scripts/custom-runtime/custom-runtime-auth.sh"))}; custom_runtime_require_release_governance stage ${candidateSha} ${JSON.stringify(candidateRelease)} && [ "$custom_runtime_governor_migration_active_sha" = ${JSON.stringify(activeSha)} ]`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+          OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: approvalId,
+          OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION: migration,
+        },
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.existsSync(activeMarker)).toBe(false);
+    expect(fs.existsSync(candidateMarker)).toBe(true);
+  });
+
+  it("fails closed when a policy migration hash does not match", () => {
+    const root = createRoot("openclaw-release-governor-migration-deny-");
+    const runtimeHome = path.join(root, "runtime-home");
+    const activeRelease = path.join(root, "active-release");
+    const candidateRelease = path.join(root, "candidate-release");
+    const activeSha = "c".repeat(64);
+    const candidateSha = "d".repeat(64);
+    const approvalId = "user:exact-policy-migration";
+    const candidateMarker = path.join(root, "candidate-governor-called");
+    writeCandidateContracts(activeRelease, activeSha);
+    writeCandidateContracts(candidateRelease, candidateSha);
+    writeFile(
+      path.join(candidateRelease, "config", "release-governor-policy.json"),
+      '{"schema":"openclaw.release-governor-policy.v1","version":2}\n',
+    );
+    writeFile(
+      path.join(candidateRelease, "dist", "release-governor.js"),
+      [
+        "#!/usr/bin/env node",
+        'import fs from "node:fs";',
+        `fs.writeFileSync(${JSON.stringify(candidateMarker)}, "called\\n");`,
+        "process.exit(0);",
+        "",
+      ].join("\n"),
+      0o700,
+    );
+    writeFile(
+      path.join(runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ runtimeRoot: activeRelease, sourceSha: activeSha })}\n`,
+      0o600,
+    );
+    const bundle = path.join(
+      candidateRelease,
+      ".test-release-governance",
+      candidateSha,
+      "stage.json",
+    );
+    writeFile(
+      bundle,
+      `${JSON.stringify({
+        approvals: [
+          {
+            candidateSha,
+            id: approvalId,
+            operations: ["stage"],
+            proofProfile: "mac_studio_control_director",
+          },
+        ],
+        evaluation: {
+          classification: { proofProfile: "mac_studio_control_director" },
+          decision: { operation: "stage", proofProfile: "mac_studio_control_director" },
+        },
+        facts: {
+          candidateSha,
+          destination: "local-only",
+          externalDisclosure: false,
+          project: "project-command-center",
+          proofProfile: "mac_studio_control_director",
+        },
+        proofProfile: "mac_studio_control_director",
+      })}\n`,
+      0o600,
+    );
+    const migration = path.join(root, "policy-migration.json");
+    writeFile(
+      migration,
+      `${JSON.stringify({
+        activeCapabilitySha256: sha256(
+          path.join(activeRelease, "config", "custom-runtime-capabilities.json"),
+        ),
+        activeGovernorSha256: sha256(path.join(activeRelease, "dist", "release-governor.js")),
+        activePolicySha256: sha256(
+          path.join(activeRelease, "config", "release-governor-policy.json"),
+        ),
+        activePolicyVersion: 1,
+        activeRuntimeSha: activeSha,
+        approvalId,
+        candidateCapabilitySha256: sha256(
+          path.join(candidateRelease, "config", "custom-runtime-capabilities.json"),
+        ),
+        candidateGovernorSha256: sha256(path.join(candidateRelease, "dist", "release-governor.js")),
+        candidatePolicySha256: "0".repeat(64),
+        candidatePolicyVersion: 2,
+        candidateSha,
+        createdAt: new Date(Date.now() - 60_000).toISOString(),
+        evidenceBundleSha256: sha256(bundle),
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        operation: "stage",
+        schema: "openclaw.release-governance-policy-migration.v1",
+      })}\n`,
+      0o600,
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. ${JSON.stringify(path.resolve("scripts/custom-runtime/custom-runtime-auth.sh"))}; custom_runtime_require_release_governance stage ${candidateSha} ${JSON.stringify(candidateRelease)}`,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          OPENCLAW_CUSTOM_RUNTIME_HOME: runtimeHome,
+          OPENCLAW_RELEASE_GOVERNANCE_APPROVAL_ID: approvalId,
+          OPENCLAW_RELEASE_GOVERNANCE_POLICY_MIGRATION: migration,
+        },
+      },
+    );
+
+    expect(result.status).toBe(78);
+    expect(result.stderr).toContain("candidatePolicySha256 does not match");
+    expect(fs.existsSync(candidateMarker)).toBe(false);
+  });
+
+  it("blocks a migration when the active runtime changes before mutation", () => {
+    const root = createRoot("openclaw-release-governor-migration-active-drift-");
+    const runtimeHome = path.join(root, "runtime-home");
+    const expectedSha = "e".repeat(64);
+    const changedSha = "f".repeat(64);
+    const marker = path.join(root, "mutation-marker");
+    writeFile(
+      path.join(runtimeHome, "active-runtime.json"),
+      `${JSON.stringify({ sourceSha: changedSha })}\n`,
+      0o600,
+    );
+
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. ${JSON.stringify(path.resolve("scripts/custom-runtime/custom-runtime-auth.sh"))}; custom_runtime_lifecycle_assert_active_sha ${expectedSha} ${JSON.stringify(runtimeHome)} && : > ${JSON.stringify(marker)}`,
+      ],
+      { encoding: "utf8", env: { ...process.env } },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("active runtime changed before lock acquisition");
+    expect(fs.existsSync(marker)).toBe(false);
   });
 
   it("stages with copied local auth while suppressing external runtime side effects", () => {

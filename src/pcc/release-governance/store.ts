@@ -61,7 +61,8 @@ export function readReleaseGovernanceStatus(
   }
   try {
     const value = JSON.parse(fs.readFileSync(target, "utf8")) as Partial<ReleaseGovernanceStatus>;
-    return value.schema === RELEASE_GOVERNANCE_STATUS_SCHEMA
+    return value.schema === RELEASE_GOVERNANCE_STATUS_SCHEMA &&
+      (value.proofProfile === "default" || value.proofProfile === "mac_studio_control_director")
       ? (value as ReleaseGovernanceStatus)
       : null;
   } catch {
