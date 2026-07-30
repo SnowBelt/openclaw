@@ -414,11 +414,12 @@ describe("Operations remediation engine", () => {
     const apply = vi.fn(async () => {});
     const { records, store } = memoryStore();
     await runOperationsRemediationSweep({
-      findings: ["one", "two", "three"].map((id) => ({
-        ...finding(),
-        id: `cron:${id}:failure`,
-        entityId: id,
-      })),
+      findings: ["one", "two", "three"].map((id) => {
+        const item = finding();
+        item.id = `cron:${id}:failure`;
+        item.entityId = id;
+        return item;
+      }),
       context: state,
       recipes: [recipe({ apply })],
       store,

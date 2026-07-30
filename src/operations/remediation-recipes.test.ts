@@ -60,20 +60,20 @@ function harness(overrides?: Partial<CronJob>) {
     update,
     updateWithPrecondition,
   } as unknown as CronServiceContract;
-  return { cron, job, update };
+  return { cron, job, update, updateWithPrecondition };
 }
 
 describe("Operations repair recipes", () => {
   const recipe = createOperationsRepairRecipes()[0]!;
 
   it("pauses and verifies only an eligible repeatedly failing schedule", async () => {
-    const { cron, job } = harness();
+    const { cron, job, updateWithPrecondition } = harness();
     const context = createOperationsRemediationContext(cron);
     expect(recipe.matches(finding(), context)).toBe(true);
     await recipe.apply(finding(), context);
     await expect(recipe.verify(finding(), context)).resolves.toMatchObject({ passed: true });
     expect(job.enabled).toBe(false);
-    expect(cron.updateWithPrecondition).toHaveBeenCalledWith(
+    expect(updateWithPrecondition).toHaveBeenCalledWith(
       "job-1",
       { enabled: false },
       expect.any(Function),
@@ -88,15 +88,13 @@ describe("Operations repair recipes", () => {
   });
 
   it("rechecks the schedule under the store lock before mutating", async () => {
-    const { cron, job } = harness();
-    vi.mocked(cron.updateWithPrecondition).mockImplementationOnce(
-      async (_id, _patch, precondition) => {
-        job.state.lastRunStatus = "ok";
-        job.state.consecutiveErrors = 0;
-        await precondition(job, Date.now());
-        return job;
-      },
-    );
+    const { cron, job, updateWithPrecondition } = harness();
+    updateWithPrecondition.mockImplementationOnce(async (_id, _patch, precondition) => {
+      job.state.lastRunStatus = "ok";
+      job.state.consecutiveErrors = 0;
+      await precondition(job, Date.now());
+      return job;
+    });
     await expect(recipe.apply(finding(), createOperationsRemediationContext(cron))).rejects.toThrow(
       /changed before/,
     );

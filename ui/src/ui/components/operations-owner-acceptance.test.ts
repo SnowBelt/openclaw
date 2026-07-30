@@ -158,7 +158,11 @@ describe("Operations Room owner acceptance", () => {
     element.facts = facts;
     Object.defineProperty(globalThis.navigator, "clipboard", {
       configurable: true,
-      value: { writeText: vi.fn(async () => Promise.reject(new Error("unavailable"))) },
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error("unavailable");
+        }),
+      },
     });
     document.body.append(element);
     await element.updateComplete;

@@ -1,18 +1,17 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import {
   loadOperationsRemediationRecords,
   saveOperationsRemediationRecords,
 } from "./remediation-store.js";
 import type { OperationsRemediationRecord } from "./types.js";
 
-const temporaryDirectories: string[] = [];
+const temporaryDirectories = useAutoCleanupTempDirTracker(afterEach);
 
 function temporaryPath(): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "operations-remediation-"));
-  temporaryDirectories.push(directory);
+  const directory = temporaryDirectories.make("operations-remediation-");
   return path.join(directory, "receipts.json");
 }
 
@@ -39,12 +38,6 @@ function record(id: string, updatedAt: number): OperationsRemediationRecord {
     completedAt: updatedAt,
   };
 }
-
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
 
 describe("Operations remediation receipt store", () => {
   it("persists a bounded newest-first store with private permissions", () => {
