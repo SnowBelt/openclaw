@@ -62,6 +62,7 @@ type DeploymentReceipt = {
     launcherVerified: true;
     bundledPluginsVerified: true;
     releaseId: string;
+    snapshotReleaseId: string;
     services: Record<string, true>;
   };
 };
@@ -257,10 +258,11 @@ export function verifyControlDirectorDeploymentConsistency(options: {
     throw new Error("Immutable runtime source stamp mismatch.");
   }
   const snapshot = readObject(requireRegularFile(runtimeRoot, "snapshot.json"), "Runtime snapshot");
-  const releaseId = requireString(snapshot.releaseId, "Runtime release ID");
-  if (requireString(pointer.releaseId, "Pointer release ID") !== releaseId) {
+  const releaseId = requireString(pointer.releaseId, "Pointer release ID");
+  if (releaseId !== path.basename(runtimeRoot)) {
     throw new Error("Active runtime pointer release ID mismatch.");
   }
+  const snapshotReleaseId = requireString(snapshot.releaseId, "Runtime snapshot release ID");
   const snapshotSource = snapshot.source;
   if (
     !isRecord(snapshotSource) ||
@@ -278,7 +280,7 @@ export function verifyControlDirectorDeploymentConsistency(options: {
     throw new Error("Restart receipt is outside the managed receipt directory.");
   }
   const restart = readObject(restartReceiptPath, "Restart receipt");
-  if (restart.result !== "restarted_verified" || restart.release !== releaseId) {
+  if (restart.result !== "restarted_verified" || restart.release !== snapshotReleaseId) {
     throw new Error("Restart receipt is not bound to the active verified release.");
   }
   if (
@@ -307,6 +309,7 @@ export function verifyControlDirectorDeploymentConsistency(options: {
     launcherVerified: true,
     bundledPluginsVerified: true,
     releaseId,
+    snapshotReleaseId,
     services,
   };
   return base;

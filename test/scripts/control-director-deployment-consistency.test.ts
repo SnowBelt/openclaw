@@ -73,7 +73,7 @@ function liveFixture() {
   write(path.join(runtime, ".openclaw-production-sha"), `${sha}\n`);
   write(
     path.join(runtime, "snapshot.json"),
-    `${JSON.stringify({ releaseId: "release-1", source: { commit: sha } })}\n`,
+    `${JSON.stringify({ releaseId: "runtime-snapshot-1", source: { commit: sha } })}\n`,
   );
   const capabilityManifestPath = path.join(runtime, "config/custom-runtime-capabilities.json");
   const capabilityManifestSha256 = createHash("sha256")
@@ -99,7 +99,7 @@ function liveFixture() {
     `${JSON.stringify({
       at: "20260721T200001Z",
       result: "restarted_verified",
-      release: "release-1",
+      release: "runtime-snapshot-1",
     })}\n`,
   );
   return { source, releases, runtime, pointer, restartReceipt };
@@ -143,6 +143,7 @@ describe("Control Director deployment consistency", () => {
       restartReceiptBound: true,
       bundledPluginsVerified: true,
       releaseId: "release-1",
+      snapshotReleaseId: "runtime-snapshot-1",
     });
     expect(Object.values(receipt.runtime?.services ?? {})).toEqual([true, true, true]);
   });
@@ -190,7 +191,7 @@ describe("Control Director deployment consistency", () => {
       `${JSON.stringify({
         at: "20260721T200001Z",
         result: "restarted_verified",
-        release: "release-1",
+        release: "runtime-snapshot-1",
       })}\n`,
     );
     expect(() =>
@@ -204,6 +205,23 @@ describe("Control Director deployment consistency", () => {
         serviceProbe: (label) => label !== "ai.openclaw.custom-runtime.guard",
       }),
     ).toThrow("ai.openclaw.custom-runtime.guard");
+  });
+
+  it("fails closed when the outer immutable release identity is inconsistent", () => {
+    const fixture = liveFixture();
+    const pointer = JSON.parse(fs.readFileSync(fixture.pointer, "utf8")) as Record<string, unknown>;
+    write(fixture.pointer, `${JSON.stringify({ ...pointer, releaseId: "another-release" })}\n`);
+    expect(() =>
+      verifyControlDirectorDeploymentConsistency({
+        sourceRoot: fixture.source,
+        expectedSha: sha,
+        pointerPath: fixture.pointer,
+        releasesRoot: fixture.releases,
+        restartReceiptPath: fixture.restartReceipt,
+        launcherVerify: () => true,
+        serviceProbe: () => true,
+      }),
+    ).toThrow("Active runtime pointer release ID mismatch");
   });
 
   it("fails closed when the managed launcher cannot verify the active release", () => {
