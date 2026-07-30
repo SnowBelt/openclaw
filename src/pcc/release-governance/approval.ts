@@ -39,6 +39,7 @@ export function findExactReleaseApproval(params: {
       candidate.repository === params.facts.repository &&
       candidate.branch === params.facts.branch &&
       candidate.candidateSha === params.facts.candidateSha &&
+      candidate.proofProfile === params.facts.proofProfile &&
       candidate.destination === destination &&
       candidate.operations.includes(params.operation),
   );
@@ -46,7 +47,7 @@ export function findExactReleaseApproval(params: {
     ? {
         mode: "exact",
         approvalId: approval.id,
-        approvalScope: `${approval.repository}:${approval.branch}@${approval.candidateSha} -> ${approval.destination}`,
+        approvalScope: `${approval.repository}:${approval.branch}@${approval.candidateSha} [${approval.proofProfile}] -> ${approval.destination}`,
         reason:
           "An active approval exactly matches the candidate, branch, destination, and operation.",
       }
@@ -93,6 +94,7 @@ export function findBoundedReleaseApproval(params: {
     (candidate) =>
       activeAt(candidate, params.now) &&
       candidate.project === params.facts.project &&
+      candidate.proofProfile === params.facts.proofProfile &&
       candidate.repository === params.facts.repository &&
       candidate.branch === params.facts.branch &&
       candidate.destination === destination &&
@@ -105,7 +107,7 @@ export function findBoundedReleaseApproval(params: {
     ? {
         mode: "bounded_grant",
         approvalId: grant.id,
-        approvalScope: `${grant.project}:${grant.repository}:${grant.branch} descendants of ${grant.approvedBaseSha} -> ${grant.destination}`,
+        approvalScope: `${grant.project}:${grant.repository}:${grant.branch} descendants of ${grant.approvedBaseSha} [${grant.proofProfile}] -> ${grant.destination}`,
         reason:
           "A current bounded grant covers the complete descendant diff without expanding scope.",
       }

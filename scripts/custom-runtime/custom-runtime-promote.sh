@@ -188,8 +188,6 @@ if [ "$(tr -d '[:space:]' < "$stamp_file")" != "$source_sha" ]; then
 fi
 custom_runtime_require_release_governance promotion "$source_sha" "$release"
 mkdir -p "$runtime_home/backups" "$runtime_home/receipts" "$runtime_home/locks"
-custom_runtime_lifecycle_begin "$runtime_home" promotion "" "$source_sha"
-custom_runtime_lifecycle_refresh_provenance "$runtime_home" "" "$source_sha"
 rollback_bundle_tmp=
 promotion_applied=false
 promotion_committed=false
@@ -212,6 +210,10 @@ cleanup_promotion() {
 trap cleanup_promotion EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+custom_runtime_lifecycle_begin "$runtime_home" promotion "" "$source_sha"
+custom_runtime_lifecycle_assert_active_sha \
+  "${custom_runtime_governor_migration_active_sha:-}" "$runtime_home"
+custom_runtime_lifecycle_refresh_provenance "$runtime_home" "" "$source_sha"
 
 active_source_sha=
 if [ -f "$runtime_home/active-runtime.json" ]; then

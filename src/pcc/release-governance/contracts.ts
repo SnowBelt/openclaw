@@ -1,9 +1,11 @@
 export const RELEASE_GOVERNOR_POLICY_SCHEMA = "openclaw.release-governor-policy.v1" as const;
 export const RELEASE_EVIDENCE_SCHEMA = "openclaw.release-evidence.v1" as const;
 export const RELEASE_GOVERNANCE_STATUS_SCHEMA = "openclaw.release-governance-status.v1" as const;
+export const RELEASE_LOCAL_PROOF_SCHEMA = "openclaw.release-local-proof.v1" as const;
 
 export type ReleaseRiskLevel = "P0" | "P1" | "P2" | "P3";
 export type ReleaseOperation = "stage" | "promotion" | "restart" | "rollback" | "finalize";
+export type ReleaseProofProfile = "default" | "mac_studio_control_director";
 export type ReleaseDecision = "authorize" | "deny" | "escalate";
 export type ReleaseApprovalMode = "automatic" | "exact" | "bounded_grant" | "none";
 export type ReleaseCheckStatus = "passed" | "failed" | "pending" | "blocked" | "not_applicable";
@@ -41,6 +43,19 @@ export type ReleaseGovernorPolicy = {
   classificationRules: ReleaseClassificationRule[];
   protectedPaths: ReleaseProtectedPathRule[];
   requiredChecks: Record<ReleaseOperation, string[]>;
+  proofProfiles: Partial<
+    Record<
+      Exclude<ReleaseProofProfile, "default">,
+      {
+        version: 1;
+        project: string;
+        destination: "local-only";
+        externalDisclosure: false;
+        prohibitedChecks: string[];
+        requiredChecks: Record<ReleaseOperation, string[]>;
+      }
+    >
+  >;
   healthThresholds: {
     maxRouteLatencyMs: number;
     maxErrorRate: number;
@@ -78,6 +93,7 @@ export type ReleaseChangeClassification = {
   explanation: string[];
   confidence: number;
   policyVersion: number;
+  proofProfile: ReleaseProofProfile;
 };
 
 export type ReleaseCheck = {
@@ -88,7 +104,17 @@ export type ReleaseCheck = {
   count?: number;
   url?: string;
   artifact?: string;
+  artifactSha256?: string;
   recordedAt: string;
+};
+
+export type ReleaseLocalProofReceipt = {
+  schema: typeof RELEASE_LOCAL_PROOF_SCHEMA;
+  candidateSha: string;
+  proofProfile: ReleaseProofProfile;
+  checkId: string;
+  command: string;
+  result: "passed";
 };
 
 export type ReleaseReview = {
@@ -103,6 +129,7 @@ export type ReleaseReview = {
 
 export type ReleaseExactApproval = {
   id: string;
+  proofProfile: ReleaseProofProfile;
   approvingUser: string;
   repository: string;
   branch: string;
@@ -116,6 +143,7 @@ export type ReleaseExactApproval = {
 
 export type ReleaseApprovalGrant = {
   id: string;
+  proofProfile: ReleaseProofProfile;
   approvingUser: string;
   project: string;
   repository: string;
@@ -146,6 +174,7 @@ export type ReleaseCandidateFacts = {
   descendantDepth: number;
   commitCount: number;
   scopeCoordinationMaterial: boolean;
+  proofProfile: ReleaseProofProfile;
 };
 
 export type ReleaseApprovalEvaluation = {
@@ -175,6 +204,7 @@ export type ReleaseHealthDecision = {
 
 export type ReleasePolicyDecision = {
   operation: ReleaseOperation;
+  proofProfile: ReleaseProofProfile;
   decision: ReleaseDecision;
   approvalMode: ReleaseApprovalMode;
   requiredReviewRoles: ReleaseReviewRole[];
@@ -213,6 +243,7 @@ export type ReleaseEvidenceBundleInput = {
   branch: string;
   sourceRepository: string;
   destination: string | null;
+  proofProfile: ReleaseProofProfile;
   diffSummary: string;
   checks: ReleaseCheck[];
   reviews: ReleaseReview[];
@@ -260,6 +291,7 @@ export type ReleaseEvidenceBundle = ReleaseEvidenceBundleInput & {
 export type ReleaseGovernanceStatus = {
   schema: typeof RELEASE_GOVERNANCE_STATUS_SCHEMA;
   policyVersion: number;
+  proofProfile: ReleaseProofProfile;
   candidateSha: string | null;
   activeRuntimeSha: string | null;
   riskLevel: ReleaseRiskLevel | null;

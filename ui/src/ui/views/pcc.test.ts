@@ -262,6 +262,7 @@ describe("renderPccDashboard", () => {
         releaseGovernance: {
           schema: "openclaw.release-governance-status.v1",
           policyVersion: 1,
+          proofProfile: "default",
           candidateSha: "a".repeat(40),
           activeRuntimeSha: "b".repeat(40),
           riskLevel: "P1",
@@ -317,6 +318,8 @@ describe("renderPccDashboard", () => {
     expect(governance?.hasAttribute("open")).toBe(true);
     expect(governance?.textContent).toContain("Explicit approval is required");
     expect(governance?.textContent).toContain("Release policy engine cannot approve itself");
+    expect(governance?.textContent).toContain("Proof profile");
+    expect(governance?.textContent).toContain("Default");
     expect(governance?.querySelector("textarea")?.value).toContain("explicitly approve");
   });
 
