@@ -1176,6 +1176,7 @@ export async function startGatewayServer(
             runtimeState.skillsRefreshTimer = timer;
           },
           getRuntimeConfig,
+          getCron: () => runtimeState.cronState.cron,
           startupTrace,
         }),
       ),

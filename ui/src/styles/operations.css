@@ -84,6 +84,8 @@
 .operations-panel,
 .operations-empty,
 .operations-briefing,
+.operations-activity-comparison,
+.operations-owner-check,
 .operations-quick-link,
 .operations-agent-group,
 .operations-more {
@@ -94,6 +96,8 @@
 .operations-panel,
 .operations-empty,
 .operations-briefing,
+.operations-activity-comparison,
+.operations-owner-check,
 .operations-more {
   border-radius: 20px;
   padding: 20px;
@@ -215,9 +219,65 @@
   font-size: 13px;
 }
 
+.operations-issue--primary {
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--danger) 9%, transparent);
+}
+
+.operations-issue__priority-label {
+  margin: 0 0 7px !important;
+  color: var(--danger) !important;
+  font-size: 10px !important;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.operations-issue__handoff {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(0, 1.8fr);
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
+.operations-issue__handoff > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--warn) 9%, var(--panel));
+}
+
+.operations-issue__handoff small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.operations-issue__handoff strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .operations-resolution {
   margin-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.operations-resolution__preview-note {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 8px 0 0 !important;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--info) 30%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--info) 7%, var(--panel));
+  color: var(--text) !important;
 }
 
 .operations-resolution > summary {
@@ -261,6 +321,65 @@
   min-height: 44px;
 }
 
+.operations-resolution__evidence {
+  margin: 0;
+  padding-inline-start: 18px;
+}
+
+.operations-resolution__evidence li + li {
+  margin-top: 4px;
+}
+
+.operations-change--remediation {
+  border-inline-start: 3px solid var(--ok);
+}
+
+.operations-change__details {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.operations-change__details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.operations-change__details dl {
+  display: grid;
+  gap: 7px;
+  margin: 4px 0 10px;
+}
+
+.operations-change__details dl > div {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.operations-change__details dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.operations-change__details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.operations-resolution__cancel-preview {
+  border-color: color-mix(in srgb, var(--muted) 46%, var(--border));
+  background: var(--panel);
+  color: var(--text);
+}
+
 .operations-agent-guidance > p {
   margin: 4px 0 0;
 }
@@ -289,6 +408,178 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
+}
+
+.operations-activity-comparison {
+  display: grid;
+  gap: 12px;
+}
+
+.operations-activity-comparison__heading,
+.operations-owner-check__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.operations-activity-comparison h2,
+.operations-owner-check h2 {
+  margin: 0;
+  letter-spacing: -0.025em;
+}
+
+.operations-activity-comparison__heading > span,
+.operations-owner-check__header p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.operations-activity-comparison__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.operations-activity-comparison__grid article {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--bg);
+}
+
+.operations-activity-comparison__grid small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.operations-activity-comparison__grid strong {
+  overflow-wrap: anywhere;
+  font-size: clamp(18px, 3vw, 24px);
+  letter-spacing: -0.02em;
+}
+
+.operations-activity-comparison__grid p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.operations-owner-check {
+  display: grid;
+  gap: 14px;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+}
+
+.operations-owner-check__header > div {
+  min-width: 0;
+}
+
+.operations-owner-check__header p {
+  max-width: 720px;
+  margin: 5px 0 0;
+  line-height: 1.45;
+}
+
+.operations-owner-check__header > .btn,
+.operations-owner-check__finish,
+.operations-owner-check__receipt-actions .btn {
+  min-height: 44px;
+}
+
+.operations-owner-check__timer {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: max-content;
+  padding: 8px 12px;
+  border-radius: 13px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.operations-owner-check__timer strong {
+  min-width: 2ch;
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.operations-owner-check__timer span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.operations-owner-check__questions {
+  display: grid;
+  gap: 12px;
+}
+
+.operations-owner-check fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.operations-owner-check legend {
+  padding: 0 5px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.operations-owner-check__choices,
+.operations-owner-check__receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.operations-owner-check__choice {
+  min-height: 44px;
+  white-space: normal;
+  text-align: start;
+}
+
+.operations-owner-check__choice.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+
+.operations-owner-check__resolve,
+.operations-owner-check__result {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--panel));
+}
+
+.operations-owner-check__resolve.is-done,
+.operations-owner-check__result--passed {
+  border-color: color-mix(in srgb, var(--ok) 42%, var(--border));
+  background: color-mix(in srgb, var(--ok) 8%, var(--panel));
+}
+
+.operations-owner-check__result--failed {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+}
+
+.operations-owner-check__resolve span,
+.operations-owner-check__result span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .operations-quick-link {
@@ -428,6 +719,19 @@
   border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
   border-radius: 14px;
   background: color-mix(in srgb, var(--warn) 7%, var(--panel));
+}
+
+.operations-auto-repair-note {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ok) 8%, var(--panel));
+  color: var(--text);
+  font-size: 12px;
+}
+
+.operations-auto-repair-note strong {
+  margin-inline-end: 4px;
 }
 
 .operations-attention-unknown > div,
@@ -1068,7 +1372,9 @@
 
   .operations-hero,
   .operations-panel__header,
-  .operations-system__heading {
+  .operations-system__heading,
+  .operations-activity-comparison__heading,
+  .operations-owner-check__header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -1092,6 +1398,11 @@
   .operations-quick-nav,
   .operations-system__summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .operations-activity-comparison__grid,
+  .operations-issue__handoff {
+    grid-template-columns: 1fr;
   }
 
   .operations-quick-link {
@@ -1119,6 +1430,7 @@
   }
 
   .operations-issue dl div,
+  .operations-change__details dl > div,
   .operations-agent-row dl div,
   .operations-system__details dl div {
     grid-template-columns: 1fr;

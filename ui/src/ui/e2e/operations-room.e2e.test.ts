@@ -38,6 +38,7 @@ function legacyFinding(finding: OperationsSnapshot["findings"][number]) {
     remediationTaskId: _remediationTaskId,
     lastProgressAt: _lastProgressAt,
     nextCheckAt: _nextCheckAt,
+    remediation: _remediation,
     ...legacy
   } = finding;
   return {
@@ -52,6 +53,7 @@ let proofStartedAt = "";
 
 const proofCheckDefaults = {
   agentGroupOrder: false,
+  automaticRemediationSafety: false,
   attentionOwnershipAndResponse: false,
   ariaLive: false,
   browserHistoryAndFocus: false,
@@ -72,6 +74,7 @@ const proofCheckDefaults = {
   monitorFailClosed: false,
   noFallbackForOperationalErrors: false,
   offlineState: false,
+  ownerAcceptanceInUi: false,
   postActionRefresh: false,
   primaryControls: false,
   processProbeStates: false,
@@ -236,6 +239,48 @@ function issueLaneSnapshot(now = Date.now()): OperationsSnapshot {
     criticalFindings: 1,
   };
   snapshot.collections.findings = { total: 3, shown: 3, truncated: false };
+  return snapshot;
+}
+
+function automaticRemediationSnapshot(now = Date.now()): OperationsSnapshot {
+  const snapshot = issueLaneSnapshot(now);
+  const finding = snapshot.findings[1]!;
+  const remediation = {
+    id: "repair-1",
+    findingId: finding.id,
+    findingTitle: finding.title,
+    findingCategory: "cron" as const,
+    findingEntityId: "cron-1",
+    impact: finding.impact,
+    recipeId: "cron.pause-repeated-failures.v1",
+    risk: "medium" as const,
+    status: "completed" as const,
+    ownerId: "OpenClaw",
+    exactRepair: "Pause the exact failing schedule.",
+    progress: "Repair completed and deterministic verification passed.",
+    result: "Schedule cron-1 is paused after repeated failures.",
+    evidence: ["Schedule cron-1 is paused.", "Read-back verified disabled."],
+    rollback: "Re-enable the same schedule.",
+    undoAvailable: true,
+    undoAction: "cron.enable" as const,
+    undoTargetId: "cron-1",
+    automatic: true,
+    startedAt: now - 10_000,
+    updatedAt: now - 5_000,
+    completedAt: now - 5_000,
+  };
+  snapshot.findings[1] = {
+    ...finding,
+    category: "cron",
+    entityId: "cron-1",
+    remediation,
+  };
+  snapshot.remediationHistory = [remediation];
+  snapshot.reconciler = {
+    ...snapshot.reconciler,
+    mode: "supervised",
+    autoRemediationEnabled: true,
+  };
   return snapshot;
 }
 
@@ -1107,20 +1152,27 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
           scenario.icon,
         );
         expect(await lane.locator(".operations-count").textContent()).toBe("1");
-        expect(
-          await finding
-            .locator(".operations-issue__assignment")
-            .evaluate((element) => element.textContent?.replace(/\s+/g, " ").trim()),
-        ).toBe(`${scenario.response} · Owner: ${scenario.owner}`);
-        expect(await finding.locator(".operations-issue__next-action").textContent()).toContain(
-          `Next: ${scenario.nextAction}`,
+        expect(await finding.locator(".operations-issue__handoff").textContent()).toContain(
+          `Who owns this`,
+        );
+        expect(await finding.locator(".operations-issue__handoff").textContent()).toContain(
+          scenario.owner,
+        );
+        expect(await finding.locator(".operations-issue__handoff").textContent()).toContain(
+          scenario.nextAction,
         );
 
         const details = finding.locator("details");
         await details.locator("summary").focus();
         await page.keyboard.press("Enter");
         expect(await details.getAttribute("open")).not.toBeNull();
-        expect(await details.locator("summary").textContent()).toContain("Resolve");
+        expect(await details.locator("summary").textContent()).toContain("Preview resolution");
+        expect(
+          (await details.locator(".operations-resolution__preview-note").textContent())
+            ?.replace(/\s+/g, " ")
+            .trim(),
+        ).toBe("Preview only. Nothing has changed.");
+        expect(await details.textContent()).toContain("Close preview — make no changes");
         await details.getByText(scenario.owner, { exact: true }).waitFor();
         await details.getByText(scenario.response, { exact: true }).waitFor();
         await details.getByText(scenario.impact, { exact: true }).waitFor();
@@ -1163,6 +1215,103 @@ describeControlUiE2e("Operations Room mocked Gateway E2E", () => {
       "issueLanesAndNonColorCues",
       "keyboardOnlyIssueJourney",
     );
+  });
+
+  it("shows automatic repair progress, evidence, rollback, and recent completion", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 900, width: 1_024 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    const diagnostics = collectDiagnostics(page);
+    const snapshot = automaticRemediationSnapshot();
+    await seedOperationsPreferences(page, snapshot.generatedAt - 30_000);
+    await installOperationsGateway(page, { snapshot });
+
+    try {
+      await page.goto(`${server.baseUrl}operations`);
+      await waitForOperationsRoom(page, snapshot.briefing.text);
+      const issue = page.locator(".operations-issue", {
+        hasText: "OpenClaw is retrying an agent",
+      });
+      await issue.getByText("Preview resolution", { exact: true }).click();
+      await issue.getByText("Pause the exact failing schedule.", { exact: true }).waitFor();
+      await issue.getByText("Read-back verified disabled.", { exact: true }).waitFor();
+      await issue.getByText("Re-enable the same schedule.", { exact: true }).waitFor();
+      await issue.getByRole("button", { name: "Undo this repair" }).waitFor();
+      await page
+        .locator("#operations-changes")
+        .getByText("OpenClaw repaired and verified this issue", { exact: false })
+        .waitFor();
+      const completedRepair = page.locator("#operations-changes .operations-change--remediation");
+      await completedRepair.getByText("View repair details", { exact: true }).click();
+      await completedRepair
+        .getByText("Available through a guarded preview", { exact: true })
+        .waitFor();
+      await completedRepair.getByRole("button", { name: "Undo this repair" }).waitFor();
+      await page
+        .getByText("OpenClaw may run this approved repair automatically", { exact: false })
+        .first()
+        .waitFor();
+    } finally {
+      await closeContext(context, diagnostics);
+    }
+    markChecks("automaticRemediationSafety");
+  });
+
+  it("starts owner acceptance in the Operations Room and generates the receipt on Finish", async () => {
+    const context = await browser.newContext({
+      locale: "en-US",
+      serviceWorkers: "block",
+      viewport: { height: 1_000, width: 1_280 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    const diagnostics = collectDiagnostics(page);
+    const snapshot = issueLaneSnapshot();
+    await installOperationsGateway(page, { snapshot });
+    const params = new URLSearchParams({
+      ownerAcceptance: "1",
+      campaignId: "or2-owner-browser-e2e",
+      candidateSha: "a".repeat(40),
+      fixtureSha256: "b".repeat(64),
+      participantId: "c".repeat(64),
+    });
+
+    try {
+      await page.goto(`${server.baseUrl}operations?${params.toString()}`);
+      await waitForOperationsRoom(page, snapshot.briefing.text);
+      const acceptance = page.locator("operations-owner-acceptance");
+      await acceptance.getByRole("button", { name: "Begin 60-second check" }).click();
+      await acceptance.getByText("seconds left", { exact: true }).waitFor();
+
+      await acceptance.getByRole("button", { name: "Overall: Urgent" }).click();
+      await acceptance
+        .getByRole("button", {
+          name: `OpenClaw: ${snapshot.summary.workingAgents} · Local AI: ${snapshot.host.localModelProcessCount}`,
+        })
+        .click();
+      await acceptance
+        .getByRole("button", {
+          name: "You — Review the release decision.",
+        })
+        .click();
+
+      const primaryIssue = page.locator(".operations-issue--primary");
+      await primaryIssue.getByText("Preview resolution", { exact: true }).click();
+      await primaryIssue.getByRole("button", { name: "Close preview — make no changes" }).click();
+      await acceptance.getByText("Preview opened and safely closed", { exact: true }).waitFor();
+      await acceptance.getByRole("button", { name: "Finish and create receipt" }).click();
+      await acceptance.getByText("Owner check passed", { exact: true }).waitFor();
+      expect(
+        await acceptance.getByRole("link", { name: "Download receipt" }).getAttribute("download"),
+      ).toContain("operations-room-owner-acceptance-aaaaaaaaaaaa.json");
+    } finally {
+      await closeContext(context, diagnostics);
+    }
+    markChecks("ownerAcceptanceInUi");
   });
 
   it("discloses every bounded large-inventory count and keeps source drill-through available", async () => {

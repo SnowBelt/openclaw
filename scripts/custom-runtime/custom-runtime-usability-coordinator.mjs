@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 export const CAMPAIGN_SCHEMA = "openclaw.operations-room.usability-campaign.v1";
 export const FINAL_RECEIPT_SCHEMA = "openclaw.operations-room.usability-receipt.v1";
 export const PARTICIPANT_LEDGER_SCHEMA = "openclaw.operations-room.usability-participant-ledger.v1";
+export const OWNER_UI_ATTEMPT_SCHEMA = "openclaw.operations-room.owner-ui-attempt.v1";
 export const FIRST_USE_PANEL_POLICY = "first-use-panel";
 export const OWNER_MAC_STUDIO_POLICY = "owner-mac-studio";
 export const LEGACY_NEUTRAL_GOAL =
@@ -142,6 +143,32 @@ function safeReceiptPath(input, campaignPath) {
     fail("--receipt must be a different file in the campaign directory");
   }
   return join(root, basename(target));
+}
+
+function loadOwnerUiAttempt(input) {
+  if (!isAbsolute(input)) {
+    fail("--ui-receipt must be an absolute path");
+  }
+  const target = resolve(input);
+  if (!existsSync(target)) {
+    fail("owner UI receipt is missing", 78);
+  }
+  const metadata = lstatSync(target);
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 64 * 1024) {
+    fail("owner UI receipt must be a bounded regular non-symlink file", 78);
+  }
+  try {
+    const receipt = JSON.parse(readFileSync(target, "utf8"));
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
+      fail("owner UI receipt is malformed", 78);
+    }
+    return receipt;
+  } catch (error) {
+    if (error?.exitCode) {
+      throw error;
+    }
+    fail("owner UI receipt is malformed", 78);
+  }
 }
 
 function assertRegularSecureFile(path, label) {
@@ -932,6 +959,88 @@ function completeAttempt(options) {
   );
 }
 
+function completeOwnerUiAttempt(options) {
+  return mutateCampaign(options, ["participant-id", "ui-receipt"], (campaign, now, ledger) => {
+    if (campaignPolicy(campaign) !== OWNER_MAC_STUDIO_POLICY) {
+      fail("UI receipt completion is available only for owner-mac-studio campaigns", 75);
+    }
+    if (campaign.state !== "ready") {
+      fail(`an owner UI attempt cannot complete while campaign state is ${campaign.state}`, 75);
+    }
+    const participantId = requireOption(options, "participant-id");
+    validateParticipantId(participantId);
+    const participant = campaign.participants.find((entry) => entry.id === participantId);
+    if (!participant?.eligible || participant.status !== "registered") {
+      fail("participant is missing, ineligible, or already attempted", 75);
+    }
+    const receipt = loadOwnerUiAttempt(requireOption(options, "ui-receipt"));
+    const startedAt = Date.parse(receipt.startedAt ?? "");
+    const finishedAt = Date.parse(receipt.finishedAt ?? "");
+    const elapsedMs = finishedAt - startedAt;
+    const outcomes = receipt.outcomes;
+    const outcomesValid =
+      outcomes &&
+      typeof outcomes === "object" &&
+      !Array.isArray(outcomes) &&
+      outcomes.issueDetailsAndOwnerOrNext === true &&
+      outcomes.localAiDistinctionCorrect === true &&
+      outcomes.overallStateCorrect === true &&
+      outcomes.resolvePreviewAndSafeCancel === true &&
+      outcomes.workingItemIdentified === true;
+    if (
+      receipt.schema !== OWNER_UI_ATTEMPT_SCHEMA ||
+      receipt.campaignId !== campaign.campaignId ||
+      receipt.candidateSha !== campaign.candidateSha ||
+      receipt.fixtureSha256 !== campaign.fixtureSha256 ||
+      receipt.participantId !== participantId ||
+      receipt.ownerAttested !== true ||
+      receipt.hintCount !== 0 ||
+      receipt.unsafeActionCount !== 0 ||
+      receipt.result !== "passed" ||
+      !outcomesValid ||
+      !Number.isFinite(startedAt) ||
+      !Number.isFinite(finishedAt) ||
+      !Number.isFinite(receipt.elapsedMs) ||
+      receipt.elapsedMs !== elapsedMs ||
+      elapsedMs < 0 ||
+      elapsedMs > 60_000 ||
+      startedAt < Date.parse(campaign.createdAt) ||
+      finishedAt > Date.parse(now) ||
+      finishedAt > Date.parse(campaign.expiresAt) ||
+      !Number.isFinite(receipt.snapshotGeneratedAt) ||
+      receipt.snapshotGeneratedAt <= 0
+    ) {
+      fail("owner UI receipt identity, timing, or outcomes are invalid", 78);
+    }
+    participant.attempt = {
+      evidenceSource: "operations-room-ui",
+      startedAt: receipt.startedAt,
+      finishedAt: receipt.finishedAt,
+      elapsedMs,
+      hintCount: 0,
+      observerAttested: true,
+      outcomes: {
+        issueDetailsAndOwnerOrNext: true,
+        localAiDistinctionCorrect: true,
+        overallStateCorrect: true,
+        resolvePreviewAndSafeCancel: true,
+        workingItemIdentified: true,
+      },
+      passed: true,
+      snapshotGeneratedAt: receipt.snapshotGeneratedAt,
+      unsafeActionCount: 0,
+    };
+    participant.status = "passed";
+    const ledgerParticipant = requireLedgerParticipant(ledger, campaign, participantId);
+    if (ledgerParticipant.status !== "registered" || ledgerParticipant.attempt) {
+      fail("participant ledger already contains an attempt", 75);
+    }
+    ledgerParticipant.attempt = participant.attempt;
+    ledgerParticipant.status = "passed";
+    return campaign;
+  });
+}
+
 function blockCampaign(options) {
   return mutateCampaign(options, ["reason"], (campaign, now) => {
     if (TERMINAL_STATES.has(campaign.state)) {
@@ -987,6 +1096,21 @@ function campaignStatus(options) {
     if (campaign.state === "passed") {
       ensureFinalReceipt(campaignPath, campaign, ledger, now);
     }
+    const registeredOwner =
+      campaignPolicy(campaign) === OWNER_MAC_STUDIO_POLICY
+        ? campaign.participants.find(
+            (participant) => participant.eligible && participant.status === "registered",
+          )
+        : null;
+    const ownerAcceptanceQuery = registeredOwner
+      ? `?${new URLSearchParams({
+          ownerAcceptance: "1",
+          campaignId: campaign.campaignId,
+          candidateSha: campaign.candidateSha,
+          fixtureSha256: campaign.fixtureSha256,
+          participantId: registeredOwner.id,
+        }).toString()}`
+      : null;
     return {
       activeRuntimeSha: campaign.activeRuntimeSha,
       campaignId: campaign.campaignId,
@@ -994,6 +1118,7 @@ function campaignStatus(options) {
       finalReceiptPath: campaign.finalReceiptPath,
       finalReceiptSha256: campaign.finalReceiptSha256,
       policy: campaignPolicy(campaign),
+      ownerAcceptanceQuery,
       schema: CAMPAIGN_SCHEMA,
       state: campaign.state,
       summary: campaign.summary,
@@ -1159,6 +1284,8 @@ export function run(argv) {
       return startAttempt(options);
     case "complete":
       return completeAttempt(options);
+    case "complete-ui":
+      return completeOwnerUiAttempt(options);
     case "block":
       return blockCampaign(options);
     case "expire":
