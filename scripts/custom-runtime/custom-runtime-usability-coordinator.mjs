@@ -167,7 +167,7 @@ function loadOwnerUiAttempt(input) {
     if (error?.exitCode) {
       throw error;
     }
-    fail("owner UI receipt is malformed", 78);
+    return fail("owner UI receipt is malformed", 78);
   }
 }
 
