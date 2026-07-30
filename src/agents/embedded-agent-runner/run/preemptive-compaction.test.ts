@@ -378,20 +378,34 @@ describe("preemptive-compaction", () => {
       reserveTokens: 20_000,
     });
 
-    expect(result.effectiveReserveTokens).toBe(32_768 - renderedPromptTokens);
-    expect(result.promptBudgetBeforeReserve).toBe(renderedPromptTokens);
+    expect(result.effectiveReserveTokens).toBe(32_768 - renderedPromptTokens - 8_000);
+    expect(result.promptBudgetBeforeReserve).toBe(renderedPromptTokens + 8_000);
     expect(result.overflowTokens).toBe(0);
     expect(result.shouldCompact).toBe(false);
     expect(result.route).toBe("fits");
   });
 
-  it("still compacts history after reserving enough room for the fixed rendered prompt", () => {
+  it("keeps room for a post-compaction summary beside the fixed rendered prompt", () => {
     const systemPrompt = "system ".repeat(6_100);
     const prompt = "respond";
     const result = shouldPreemptivelyCompactBeforePrompt({
-      messages: [makeAssistantHistory("old history ".repeat(2_000))],
+      messages: [makeAssistantHistory("compacted summary ".repeat(500))],
       systemPrompt,
       prompt,
+      contextTokenBudget: 32_768,
+      reserveTokens: 20_000,
+    });
+
+    expect(result.overflowTokens).toBe(0);
+    expect(result.shouldCompact).toBe(false);
+    expect(result.route).toBe("fits");
+  });
+
+  it("still compacts large history after reserving room for the fixed rendered prompt", () => {
+    const result = shouldPreemptivelyCompactBeforePrompt({
+      messages: [makeAssistantHistory("old history ".repeat(4_000))],
+      systemPrompt: "system ".repeat(6_100),
+      prompt: "respond",
       contextTokenBudget: 32_768,
       reserveTokens: 20_000,
     });
@@ -399,6 +413,21 @@ describe("preemptive-compaction", () => {
     expect(result.overflowTokens).toBeGreaterThan(0);
     expect(result.shouldCompact).toBe(true);
     expect(result.route).toBe("compact_only");
+  });
+
+  it("does not borrow the minimum generation reserve for a near-context fixed prompt", () => {
+    const result = shouldPreemptivelyCompactBeforePrompt({
+      messages: [],
+      systemPrompt: "system ".repeat(15_000),
+      prompt: "respond",
+      contextTokenBudget: 32_768,
+      reserveTokens: 20_000,
+    });
+
+    expect(result.effectiveReserveTokens).toBe(8_000);
+    expect(result.promptBudgetBeforeReserve).toBe(24_768);
+    expect(result.overflowTokens).toBeGreaterThan(0);
+    expect(result.shouldCompact).toBe(true);
   });
 
   it("routes to direct tool-result truncation when recent tool tails can clearly absorb the overflow", () => {

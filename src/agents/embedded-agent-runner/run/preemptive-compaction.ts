@@ -353,10 +353,11 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
     prompt: params.prompt,
   });
   // The rendered system/current prompt cannot be reduced by transcript compaction. Let it
-  // borrow from the reserve before deciding that history or tool results need compaction.
+  // borrow from the reserve while preserving budgets for a compacted summary and generation.
+  const maximumPromptBudget = Math.max(1, contextTokenBudget - minPromptBudget);
   const requiredPromptBudget = Math.min(
-    contextTokenBudget,
-    Math.max(minPromptBudget, renderedPromptTokens),
+    maximumPromptBudget,
+    Math.max(minPromptBudget, renderedPromptTokens + minPromptBudget),
   );
   const effectiveReserveTokens = Math.min(
     requestedReserveTokens,
