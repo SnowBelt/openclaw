@@ -2922,6 +2922,7 @@ export function renderApp(state: AppViewState) {
                   ? state.operationsRefreshFailedAt
                   : (state.operationsRefreshFailedAt ?? Date.now()),
                 section: state.operationsSection,
+                sessionKey: state.sessionKey,
                 agentQuery: state.operationsAgentQuery,
                 agentSort: state.operationsAgentSort,
                 pinnedAgentIds: state.operationsPinnedAgentIds,
