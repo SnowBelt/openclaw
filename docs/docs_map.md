@@ -171,6 +171,16 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: How they work together
   - H2: Related
 
+## automation/operations-room-architecture.md
+
+- Route: /automation/operations-room-architecture
+- Headings:
+  - H1: Operations Room architecture
+  - H2: Folder structure
+  - H2: Dependency direction
+  - H2: Behavioral compatibility
+  - H2: Change rules
+
 ## automation/operations-room.md
 
 - Route: /automation/operations-room

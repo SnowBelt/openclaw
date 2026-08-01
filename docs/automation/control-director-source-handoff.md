@@ -20,6 +20,11 @@ canonical push remote, pull-request repository, base branch, draft-only mode, an
 mode. A destination approval is a literal match for the policy URL; a GitHub login or a remembered
 remote is not treated as approval.
 
+Implementation boundaries and dependency direction are documented in
+[Operations Room architecture](/automation/operations-room-architecture). The top-level script is a
+stable compatibility facade; policy, Git state, exact PR handling, workflow orchestration, CLI
+parsing, and receipt persistence remain separate modules.
+
 ## One bounded workflow
 
 Run preflight first. It is read-only and records the exact source identity:

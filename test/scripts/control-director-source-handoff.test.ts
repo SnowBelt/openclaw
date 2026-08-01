@@ -5,6 +5,10 @@ import {
   runSourceHandoff,
   SOURCE_HANDOFF_SCHEMA,
 } from "../../scripts/control-director-source-handoff.mjs";
+import {
+  pullRequestCreateArgs,
+  pullRequestQueryArgs,
+} from "../../scripts/control-director-source-handoff/github.mjs";
 
 const sha = "a".repeat(40);
 const policy = normalizeSourceHandoffPolicy({
@@ -72,6 +76,14 @@ function runnerFor({ prs = [], pushStatus = 0, createStatus = 0 } = {}) {
 }
 
 describe("Control Director source handoff", () => {
+  it("uses repository-local branch identity instead of a redirect-prone owner alias", () => {
+    expect(pullRequestQueryArgs(policy, "codex/example")).toContain("codex/example");
+    expect(pullRequestQueryArgs(policy, "codex/example")).not.toContain("SnowBelt:codex/example");
+    expect(pullRequestCreateArgs({ policy, sourceSha: sha, branch: "codex/example" })).toContain(
+      "codex/example",
+    );
+  });
+
   it("passes a clean exact-SHA preflight and names the single next action", () => {
     const result = evaluateSourceHandoffPreflight({
       state: state(),

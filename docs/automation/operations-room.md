@@ -293,6 +293,10 @@ requires a literal destination approval; it is idempotent for an exact existing 
 on any mismatch. The handoff runs outside the managed Gateway, records a private receipt, and never
 starts a release, changes runtime state, merges, or substitutes for local Mac Studio proof.
 
+The stable remediation and handoff entry points delegate to explicit domain, application, and
+infrastructure modules. See [Operations Room architecture](/automation/operations-room-architecture)
+for the folder map, dependency direction, and compatibility rules.
+
 ## Owner acceptance in the page
 
 The usability coordinator returns `ownerAcceptanceQuery` only for a ready `owner-mac-studio`
