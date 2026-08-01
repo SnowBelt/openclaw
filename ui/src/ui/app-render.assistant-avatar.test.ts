@@ -229,6 +229,15 @@ function createState(overrides: Partial<AppViewState> = {}): AppViewState {
   } as unknown as AppViewState;
 }
 
+async function renderChatApp(
+  state: AppViewState,
+  container = document.createElement("div"),
+): Promise<void> {
+  render(renderApp(state), container);
+  await import("./views/chat.ts");
+  render(renderApp(state), container);
+}
+
 beforeEach(async () => {
   await i18n.setLocale("en");
   localStorageValues.clear();
@@ -437,17 +446,15 @@ describe("renderApp assistant avatar routing", () => {
     });
   });
 
-  it("routes chat errors through the chat view instead of the shared header", () => {
+  it("routes chat errors through the chat view instead of the shared header", async () => {
     const container = document.createElement("div");
 
-    render(
-      renderApp(
-        createState({
-          tab: "chat",
-          lastError: "transient tool failure",
-          chatError: "transient tool failure",
-        }),
-      ),
+    await renderChatApp(
+      createState({
+        tab: "chat",
+        lastError: "transient tool failure",
+        chatError: "transient tool failure",
+      }),
       container,
     );
 
@@ -455,17 +462,15 @@ describe("renderApp assistant avatar routing", () => {
     expect(chatProps.current?.error).toBe("transient tool failure");
   });
 
-  it("routes newer global errors through the chat view ahead of stale chat errors", () => {
+  it("routes newer global errors through the chat view ahead of stale chat errors", async () => {
     const container = document.createElement("div");
 
-    render(
-      renderApp(
-        createState({
-          tab: "chat",
-          lastError: "gateway disconnected",
-          chatError: "previous chat failure",
-        }),
-      ),
+    await renderChatApp(
+      createState({
+        tab: "chat",
+        lastError: "gateway disconnected",
+        chatError: "previous chat failure",
+      }),
       container,
     );
 
@@ -519,7 +524,7 @@ describe("renderApp assistant avatar routing", () => {
       handleSendChat,
     });
 
-    renderApp(state);
+    await renderChatApp(state);
     await chatProps.current?.onGoalControl?.("flow-old", "retry");
 
     expect(request).toHaveBeenCalledWith(
