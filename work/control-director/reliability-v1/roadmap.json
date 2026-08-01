@@ -184,7 +184,8 @@
     "readiness": ".artifacts/control-director/runtime-<source-sha>/readiness.json",
     "finalReceipt": ".artifacts/control-director/final-ledger-<source-sha>.json",
     "modelGovernanceProof": ".artifacts/control-director/model-governance-<source-sha>.json",
-    "stabilityProof": ".artifacts/control-director/stability-<source-sha>.json"
+    "stabilityProof": ".artifacts/control-director/stability-<source-sha>.json",
+    "capabilityProof": ".artifacts/control-director/capabilities-<source-sha>.json"
   },
   "milestones": [
     {
@@ -457,7 +458,7 @@
         "M20",
         "M23"
       ],
-      "acceptance": "Mac Studio-local browser tests at supported Mac window sizes prove transcript, composer, controls, keyboard, and accessibility behavior; tablet and mobile checks are optional non-blocking regressions.",
+      "acceptance": "Mac Studio-local authenticated production Chrome tests at supported Mac window sizes prove transcript, composer, controls, keyboard, and accessibility behavior.",
       "evidence": []
     },
     {
@@ -1018,7 +1019,7 @@
       "implementationStatus": "implemented",
       "certificationStatus": "pending",
       "dependsOn": [],
-      "acceptance": "M01 through M86 expose implementation and certification state separately while status remains a validated compatibility mirror of certification state.",
+      "acceptance": "M01 through M106 expose implementation and certification state separately while status remains a validated compatibility mirror of certification state.",
       "evidence": [
         "source:work/control-director/reliability-v1/roadmap.json",
         "test:test/scripts/control-director-roadmap-proof.test.ts"

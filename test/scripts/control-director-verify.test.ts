@@ -5,6 +5,7 @@ import {
   buildControlDirectorSourceConfig,
   buildControlDirectorSourceGateReceipt,
   buildControlDirectorSourceGatePlan,
+  CONTROL_DIRECTOR_CERTIFICATION_MODEL,
   CONTROL_DIRECTOR_VERIFY_REPO_ROOT,
   validateControlDirectorSourceIdentity,
 } from "../../scripts/control-director-verify.mjs";
@@ -31,7 +32,7 @@ describe("control-director-verify", () => {
     ).toEqual({ ok: false, reason: "HEAD is not an immutable 40-character SHA." });
   });
 
-  it("uses the role-scoped Gemma default with a safe selectable local alternative", () => {
+  it("selects the required Qwen certification route without changing role scope", () => {
     const config = buildControlDirectorSourceConfig();
     expect(config.agents.list).toEqual(
       expect.arrayContaining([
@@ -39,15 +40,20 @@ describe("control-director-verify", () => {
           id: "control-director",
           role: "control_director",
           model: {
-            primary: "ollama/openclaw-control-gemma4-31b-q8:latest",
-            fallbacks: ["ollama/qwen3.6:27b-q8_0"],
+            primary: CONTROL_DIRECTOR_CERTIFICATION_MODEL,
+            fallbacks: ["ollama/openclaw-control-gemma4-31b-q8:latest"],
           },
         }),
         { id: "program-manager", role: "program_manager" },
         { id: "independent-judge", role: "judge" },
       ]),
     );
-    expect(config.models.providers.ollama.models).toHaveLength(2);
+    expect(config.models.providers.ollama.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "openclaw-control-qwen25-32b:latest" }),
+      ]),
+    );
+    expect(config.agents.defaults.models).toHaveProperty(CONTROL_DIRECTOR_CERTIFICATION_MODEL);
   });
 
   it("binds the source-gate receipt to the clean exact source identity", () => {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +11,7 @@ import {
   resolveJudgeAgentId,
   resolveProgramManagerRoute,
 } from "../src/agents/agent-scope-config.ts";
+import { buildControlDirectorCacheIdentityEvidence } from "../src/agents/control-director-model-governance-proof.ts";
 import { buildControlDirectorModelRegistry } from "../src/agents/control-director-model-registry.ts";
 import {
   CONTROL_DIRECTOR_DEFAULT_ALIAS,
@@ -45,7 +47,8 @@ const REQUIRED_OLLAMA_ENV = Object.freeze({
 function usage() {
   return [
     "Usage: pnpm control-director:readiness -- [--json] [--source-only] [--config <path>]",
-    "       [--expected-sha <40-char-sha>] [--gate-proof <json>] [--runtime-proof <json>]",
+    "       [--expected-sha <40-char-sha>] [--expected-config-digest <sha256>]",
+    "       [--gate-proof <json>] [--runtime-proof <json>]",
     "",
     "Source readiness requires a clean exact checkout and passing torture/chaos/Chat-stack gate receipts.",
     "Production readiness additionally requires exact Mac Studio lineage, local validation, Dashboard, model, restart, soak, rollback, and live diagnostic proof.",
@@ -58,6 +61,7 @@ function parseArgs(argv) {
     expectedSha: process.env.OPENCLAW_EXPECTED_SOURCE_SHA ?? "",
     gateProofPath: "",
     runtimeProofPath: "",
+    expectedConfigDigest: process.env.OPENCLAW_EXPECTED_CONFIG_DIGEST ?? "",
     json: false,
     sourceOnly: false,
     help: false,
@@ -79,6 +83,8 @@ function parseArgs(argv) {
       args.gateProofPath = argv[++index] ?? "";
     } else if (value === "--runtime-proof") {
       args.runtimeProofPath = argv[++index] ?? "";
+    } else if (value === "--expected-config-digest") {
+      args.expectedConfigDigest = argv[++index] ?? "";
     } else if (value === "--help" || value === "-h") {
       args.help = true;
     } else {
@@ -116,6 +122,21 @@ function immutableSha(value) {
 
 function findControlDirectorAgent(config) {
   return (config.agents?.list ?? []).find((agent) => agent?.role === "control_director");
+}
+
+export function resolveSelectedOllamaModelId(config, agentId) {
+  const agent = findControlDirectorAgent(config);
+  const registry = buildControlDirectorModelRegistry({
+    config,
+    agentId: agentId ?? agent?.id ?? "control-director",
+  });
+  if (registry.selected.status !== "ready") {
+    return "";
+  }
+  const prefix = "ollama/";
+  return registry.selected.effective.startsWith(prefix)
+    ? registry.selected.effective.slice(prefix.length)
+    : "";
 }
 
 export function parseOllamaList(output) {
@@ -578,7 +599,7 @@ export function buildControlDirectorReadinessScorecard(params) {
     fact(
       "runtime-proof-contract",
       "Managed runtime proof uses the SIG-enabled exact-runtime contract",
-      runtime?.schemaVersion === 3 && runtime?.sigBackgroundEnabled === true,
+      runtime?.schemaVersion === 4 && runtime?.sigBackgroundEnabled === true,
       runtimeSurface,
     ),
   );
@@ -620,23 +641,76 @@ export function buildControlDirectorReadinessScorecard(params) {
       runtimeSurface,
     ),
   );
-  const alias = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID);
-  const underlying = params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG);
-  const aliasBaseDigests = params.ollamaModelBases?.get(CONTROL_DIRECTOR_DEFAULT_MODEL_ID) ?? [];
-  const underlyingBaseDigests =
-    params.ollamaModelBases?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG) ?? [];
+  const selectedOllamaModelId = resolveSelectedOllamaModelId(config, agentId);
+  const selectedOllamaModel = params.ollamaModels?.get(selectedOllamaModelId);
+  const selectedBaseDigests = params.ollamaModelBases?.get(selectedOllamaModelId) ?? [];
+  const selectedManifestDigest =
+    typeof params.ollamaResidency?.digest === "string" &&
+    /^[a-f0-9]{64}$/u.test(params.ollamaResidency.digest)
+      ? params.ollamaResidency.digest
+      : "";
+  const selectedModelDigest =
+    selectedManifestDigest && selectedBaseDigests.length > 0
+      ? createHash("sha256")
+          .update(
+            JSON.stringify({
+              manifestDigest: selectedManifestDigest,
+              baseBlobDigests: [...selectedBaseDigests].toSorted((left, right) =>
+                left.localeCompare(right),
+              ),
+            }),
+          )
+          .digest("hex")
+      : "";
+  const selectedIsDefault = selectedOllamaModelId === CONTROL_DIRECTOR_DEFAULT_MODEL_ID;
+  const underlying = selectedIsDefault
+    ? params.ollamaModels?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG)
+    : undefined;
+  const underlyingBaseDigests = selectedIsDefault
+    ? (params.ollamaModelBases?.get(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG) ?? [])
+    : [];
+  const cacheEvidence = (() => {
+    try {
+      return buildControlDirectorCacheIdentityEvidence({
+        selectedModel: selected,
+        modelId: selectedOllamaModelId,
+        modelDigest: selectedModelDigest,
+        manifestDigest: selectedManifestDigest,
+        baseBlobDigests: selectedBaseDigests,
+        kvCacheType: params.ollamaEnv?.OLLAMA_KV_CACHE_TYPE ?? "",
+        residency: params.ollamaResidency ?? {},
+      });
+    } catch {
+      return null;
+    }
+  })();
+  facts.push(
+    fact(
+      "runtime-config-digest",
+      "Managed configuration bytes match the explicitly authorized digest",
+      /^[a-f0-9]{64}$/u.test(params.configDigest ?? "") &&
+        params.configDigest === params.expectedConfigDigest,
+      {
+        ...runtimeSurface,
+        detail: `observed=${params.configDigest || "missing"}; expected=${params.expectedConfigDigest || "missing"}`,
+      },
+    ),
+  );
   facts.push(
     fact(
       "runtime-model-digest",
-      "Gemma control alias exists and matches the immutable underlying Q8 model blobs",
+      "Selected config-derived Ollama model exists and is bound to immutable model blobs",
       Boolean(
-        alias?.digest &&
-        underlying?.digest &&
-        aliasBaseDigests.length > 0 &&
-        aliasBaseDigests.length === underlyingBaseDigests.length &&
-        aliasBaseDigests.every((digest, index) => digest === underlyingBaseDigests[index]),
+        selectedOllamaModelId &&
+        selectedOllamaModel?.digest &&
+        selectedManifestDigest &&
+        selectedBaseDigests.length > 0 &&
+        (!selectedIsDefault ||
+          (underlying?.digest &&
+            selectedBaseDigests.length === underlyingBaseDigests.length &&
+            selectedBaseDigests.every((digest, index) => digest === underlyingBaseDigests[index]))),
       ),
-      runtimeSurface,
+      { ...runtimeSurface, detail: selectedOllamaModelId || "no selected Ollama model" },
     ),
   );
   facts.push(
@@ -652,9 +726,26 @@ export function buildControlDirectorReadinessScorecard(params) {
   facts.push(
     fact(
       "runtime-model-smoke",
-      "Managed Gemma alias answers the deterministic model smoke",
-      params.ollamaChatSmoke?.ok === true,
-      { ...runtimeSurface, detail: params.ollamaChatSmoke?.detail },
+      "Selected config-derived Ollama model answers the deterministic model smoke",
+      params.ollamaChatSmoke?.ok === true &&
+        params.ollamaChatSmoke?.modelId === selectedOllamaModelId,
+      {
+        ...runtimeSurface,
+        detail: `${selectedOllamaModelId || "no selected Ollama model"}; ${params.ollamaChatSmoke?.detail ?? "no smoke result"}`,
+      },
+    ),
+  );
+  facts.push(
+    fact(
+      "runtime-model-residency",
+      "Selected immutable Ollama model is live in the configured KV cache",
+      cacheEvidence !== null,
+      {
+        ...runtimeSurface,
+        detail: cacheEvidence
+          ? `${cacheEvidence.modelId}; cache=${cacheEvidence.cacheDigest}`
+          : "no exact live residency",
+      },
     ),
   );
   const modelEvalTrials = Array.isArray(runtime?.modelEval?.results)
@@ -728,6 +819,22 @@ export function buildControlDirectorReadinessScorecard(params) {
     expectedSha,
     agentId,
     selectedModel: selected || null,
+    configurationDigest: params.configDigest || null,
+    roleIdentities: {
+      controlDirectorAgentId: agent?.id ?? agentId,
+      programManagerAgentId: programManagerAgentId ?? null,
+      judgeAgentId: judgeAgentId ?? null,
+    },
+    modelEvidence: {
+      modelId: selectedOllamaModelId || null,
+      manifestDigest: selectedManifestDigest || null,
+      baseBlobDigests: [...selectedBaseDigests].toSorted((left, right) =>
+        left.localeCompare(right),
+      ),
+      modelDigest: selectedModelDigest || null,
+      smokeModelId: params.ollamaChatSmoke?.modelId ?? null,
+    },
+    cacheEvidence,
     defaultModel: CONTROL_DIRECTOR_DEFAULT_MODEL,
     sourceReady,
     productionReady,
@@ -743,10 +850,22 @@ export function buildControlDirectorReadinessScorecard(params) {
 function resolveOllamaBaseUrl(config) {
   const provider = config.models?.providers?.ollama ?? {};
   const raw = provider.baseUrl ?? provider.baseURL ?? DEFAULT_OLLAMA_BASE_URL;
-  return String(raw).trim().replace(/\/+$/u, "").replace(/\/v1$/iu, "");
+  if (typeof raw !== "string") {
+    throw new Error("Configured Ollama base URL must be a string.");
+  }
+  const baseUrl = new URL(raw.trim().replace(/\/+$/u, "").replace(/\/v1$/iu, ""));
+  if (
+    !["http:", "https:"].includes(baseUrl.protocol) ||
+    !["127.0.0.1", "localhost"].includes(baseUrl.hostname) ||
+    baseUrl.username ||
+    baseUrl.password
+  ) {
+    throw new Error("Control Director readiness requires the loopback Ollama service.");
+  }
+  return baseUrl.toString().replace(/\/$/u, "");
 }
 
-async function runOllamaChatSmoke(baseUrl) {
+async function runOllamaChatSmoke(baseUrl, modelId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CHAT_SMOKE_TIMEOUT_MS);
   try {
@@ -755,16 +874,47 @@ async function runOllamaChatSmoke(baseUrl) {
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        model: CONTROL_DIRECTOR_DEFAULT_MODEL_ID,
+        model: modelId,
         messages: [{ role: "user", content: "Reply exactly: OK" }],
         stream: false,
         think: false,
         options: { num_ctx: 2048, num_predict: 4, temperature: 0 },
       }),
     });
-    return { ok: response.ok, detail: `status=${response.status}` };
+    return { ok: response.ok, modelId, detail: `status=${response.status}` };
   } catch (error) {
-    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      modelId,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readOllamaResidency(baseUrl, modelId) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHAT_SMOKE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/api/ps`, { signal: controller.signal });
+    if (!response.ok) {
+      return {};
+    }
+    const body = await response.json();
+    const model = Array.isArray(body?.models)
+      ? body.models.find((entry) => entry?.name === modelId || entry?.model === modelId)
+      : undefined;
+    return model
+      ? {
+          modelId,
+          digest: typeof model.digest === "string" ? model.digest.trim().toLowerCase() : "",
+          sizeBytes: Number(model.size),
+          vramBytes: Number(model.size_vram),
+        }
+      : {};
+  } catch {
+    return {};
   } finally {
     clearTimeout(timer);
   }
@@ -837,29 +987,44 @@ async function main() {
     throw new Error("A current --gate-proof JSON file is required.");
   }
   const config = readJson(args.configPath);
+  const configDigest = createHash("sha256").update(fs.readFileSync(args.configPath)).digest("hex");
   const sourceState = readSourceState(args.expectedSha);
   const gates = readJson(args.gateProofPath);
   const runtimeProof = args.runtimeProofPath ? readJson(args.runtimeProofPath) : undefined;
   let ollamaModels = new Map();
   let ollamaModelBases = new Map();
   let ollamaEnv = {};
-  let ollamaChatSmoke = { ok: false, detail: "source-only mode" };
+  let ollamaChatSmoke = { ok: false, modelId: "", detail: "source-only mode" };
+  let ollamaResidency = {};
   if (!args.sourceOnly) {
     if (!runtimeProof) {
       throw new Error("Production mode requires --runtime-proof JSON.");
     }
+    if (!/^[a-f0-9]{64}$/u.test(args.expectedConfigDigest)) {
+      throw new Error("Production mode requires --expected-config-digest as lowercase SHA-256.");
+    }
+    const selectedOllamaModelId = resolveSelectedOllamaModelId(config);
+    if (!selectedOllamaModelId) {
+      throw new Error("Configured Control Director model is not a ready Ollama route.");
+    }
     const list = run("ollama", ["list"]);
     ollamaModels = list.ok ? parseOllamaList(list.stdout) : new Map();
+    const inspectedModels = new Set([selectedOllamaModelId]);
+    if (selectedOllamaModelId === CONTROL_DIRECTOR_DEFAULT_MODEL_ID) {
+      inspectedModels.add(CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG);
+    }
     ollamaModelBases = new Map(
-      [CONTROL_DIRECTOR_DEFAULT_MODEL_ID, CONTROL_DIRECTOR_DEFAULT_UNDERLYING_OLLAMA_TAG].map(
-        (modelId) => {
-          const shown = run("ollama", ["show", modelId, "--modelfile"]);
-          return [modelId, shown.ok ? parseOllamaModelfileBaseDigests(shown.stdout) : []];
-        },
-      ),
+      [...inspectedModels].map((modelId) => {
+        const shown = run("ollama", ["show", modelId, "--modelfile"]);
+        return [modelId, shown.ok ? parseOllamaModelfileBaseDigests(shown.stdout) : []];
+      }),
     );
     ollamaEnv = readOllamaEnvironment();
-    ollamaChatSmoke = await runOllamaChatSmoke(resolveOllamaBaseUrl(config));
+    ollamaChatSmoke = await runOllamaChatSmoke(resolveOllamaBaseUrl(config), selectedOllamaModelId);
+    ollamaResidency = await readOllamaResidency(
+      resolveOllamaBaseUrl(config),
+      selectedOllamaModelId,
+    );
   }
   const scorecard = buildControlDirectorReadinessScorecard({
     config,
@@ -871,7 +1036,10 @@ async function main() {
     ollamaModelBases,
     ollamaEnv,
     ollamaChatSmoke,
+    ollamaResidency,
     updateSafety: args.sourceOnly ? undefined : readPccUpdateSafety(),
+    configDigest,
+    expectedConfigDigest: args.expectedConfigDigest,
     sourceOnly: args.sourceOnly,
   });
   if (args.json) {

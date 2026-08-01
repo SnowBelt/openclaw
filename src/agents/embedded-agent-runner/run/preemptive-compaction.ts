@@ -22,6 +22,8 @@ import type { PreemptiveCompactionRoute } from "./preemptive-compaction.types.js
 
 export const PREEMPTIVE_OVERFLOW_ERROR_TEXT =
   "Context overflow: prompt too large for the model (precheck).";
+export const PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT =
+  "Uncompactable prompt: fixed content leaves insufficient generation headroom (precheck).";
 
 const ESTIMATED_CHARS_PER_TOKEN = 4;
 const TOOL_RESULT_CHARS_PER_TOKEN = 2;
@@ -260,17 +262,22 @@ export function estimateLlmBoundaryTokenPressure(params: {
   systemPrompt?: string;
   prompt: string;
 }): number {
-  const historyTokens = params.messages.reduce(
-    (sum, message) => sum + estimateMessageTokenPressure(message),
-    0,
-  );
+  const historyTokens = estimateMessageHistoryTokenPressure(params.messages);
   const systemTokens =
     typeof params.systemPrompt === "string" && params.systemPrompt.trim().length > 0
       ? MESSAGE_BOUNDARY_OVERHEAD_TOKENS + estimateStringTokenPressure(params.systemPrompt)
       : 0;
   const promptTokens =
     MESSAGE_BOUNDARY_OVERHEAD_TOKENS + estimateStringTokenPressure(params.prompt);
-  return Math.max(0, Math.ceil((historyTokens + systemTokens + promptTokens) * SAFETY_MARGIN));
+  return Math.max(0, Math.ceil(historyTokens + (systemTokens + promptTokens) * SAFETY_MARGIN));
+}
+
+function estimateMessageHistoryTokenPressure(messages: AgentMessage[]): number {
+  const historyTokens = messages.reduce(
+    (sum, message) => sum + estimateMessageTokenPressure(message),
+    0,
+  );
+  return Math.max(0, Math.ceil(historyTokens * SAFETY_MARGIN));
 }
 
 /** Estimates only the rendered prompt/system portion when history has already been accounted for. */
@@ -348,10 +355,26 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
     MIN_PROMPT_BUDGET_TOKENS,
     Math.max(1, Math.floor(contextTokenBudget * MIN_PROMPT_BUDGET_RATIO)),
   );
-  const renderedPromptTokens = estimateRenderedLlmBoundaryTokenPressure({
+  const locallyRenderedPromptTokens = estimateRenderedLlmBoundaryTokenPressure({
     systemPrompt: params.systemPrompt,
     prompt: params.prompt,
   });
+  // A provider-boundary estimate may include fixed tool schemas, wrappers, or other
+  // non-history content that transcript compaction cannot reduce. Subtract only the
+  // history pressure we can actually compact and conservatively treat the remainder
+  // as fixed prompt pressure.
+  const boundaryFixedPromptTokens = llmBoundaryTokenPressure
+    ? Math.max(
+        0,
+        llmBoundaryTokenPressure.estimatedPromptTokens -
+          estimateMessageHistoryTokenPressure(params.messages),
+      )
+    : 0;
+  const renderedPromptTokens = Math.max(locallyRenderedPromptTokens, boundaryFixedPromptTokens);
+  const minimumGenerationReserveTokens = Math.min(requestedReserveTokens, minPromptBudget);
+  if (renderedPromptTokens > contextTokenBudget - minimumGenerationReserveTokens) {
+    throw new Error(PREEMPTIVE_UNCOMPACTABLE_PROMPT_ERROR_TEXT);
+  }
   // The rendered system/current prompt cannot be reduced by transcript compaction. Let it
   // borrow from the reserve while preserving budgets for a compacted summary and generation.
   const maximumPromptBudget = Math.max(1, contextTokenBudget - minPromptBudget);

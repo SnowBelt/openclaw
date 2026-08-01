@@ -721,8 +721,8 @@ describe("custom runtime canary and rollback", () => {
       [promoteScript, "--lease-acquire", ...binding, "--ttl-seconds", "600"],
       { cwd: process.cwd(), encoding: "utf8", env },
     );
-    expect(duplicate.status).toBe(75);
-    expect(duplicate.stderr).toContain("unexpired lease already exists");
+    expect(duplicate.status, duplicate.stderr).toBe(0);
+    expect(duplicate.stdout.trim()).toBe(acquired.stdout.trim());
 
     const status = spawnSync("sh", [promoteScript, "--lease-status"], {
       cwd: process.cwd(),
@@ -787,6 +787,7 @@ describe("custom runtime canary and rollback", () => {
         operationId: "certification:pr-41",
         owner: "codex:pr-40",
         pid: process.pid,
+        rollbackSha: activeSha,
         schema: "openclaw.custom-runtime-certification-lease.v2",
         state: "acquired",
       })}\n`,
@@ -914,6 +915,7 @@ describe("custom runtime canary and rollback", () => {
           operationId: "certification:pr-41",
           owner: "codex:pr-40",
           pid: 999_999,
+          rollbackSha: activeSha,
           schema: "openclaw.custom-runtime-certification-lease.v2",
           state: "acquired",
           ...overrides,
@@ -1062,6 +1064,7 @@ describe("custom runtime canary and rollback", () => {
         operationId: "certification:pr-41",
         owner: "codex:other-candidate",
         pid: process.pid,
+        rollbackSha: activeSha,
         schema: "openclaw.custom-runtime-certification-lease.v2",
         state: "acquired",
       })}\n`,

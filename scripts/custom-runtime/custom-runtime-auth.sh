@@ -787,12 +787,17 @@ custom_runtime_certification_lease() {
   custom_runtime_lease_invocation_id=${10:-${OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_INVOCATION_ID:-}}
   custom_runtime_lease_reason=${11:-}
   custom_runtime_lease_usability_campaign=${12:-}
+  custom_runtime_lease_rollback_sha=${13:-}
+  custom_runtime_lease_active_release_id=${14:-}
+  custom_runtime_lease_rollback_release_id=${15:-}
   python3 - "$custom_runtime_lease_action" "$custom_runtime_lease_home" \
     "$custom_runtime_lease_active_sha" "$custom_runtime_lease_candidate_sha" \
     "$custom_runtime_lease_owner" "$custom_runtime_lease_operation_class" \
     "$custom_runtime_lease_ttl_seconds" "$custom_runtime_lease_approval_id" \
     "$custom_runtime_lease_operation_id" "$custom_runtime_lease_invocation_id" \
     "$custom_runtime_lease_reason" "$custom_runtime_lease_usability_campaign" \
+    "$custom_runtime_lease_rollback_sha" "$custom_runtime_lease_active_release_id" \
+    "$custom_runtime_lease_rollback_release_id" \
     "${OPENCLAW_CUSTOM_RUNTIME_LIFECYCLE_ACTOR:-}" "$$" <<'PY'
 import datetime as dt
 import getpass
@@ -818,6 +823,9 @@ import sys
     invocation_id,
     reason,
     usability_campaign_path,
+    rollback_sha,
+    active_release_id,
+    rollback_release_id,
     actor,
     caller_pid_raw,
 ) = sys.argv[1:]
@@ -829,7 +837,7 @@ identity_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
 reason_pattern = re.compile(r"[A-Za-z0-9._:@/+~-]{1,160}")
 github_repo_pattern = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 allowed_operation_classes = {"human-usability-finalization", "release-certification"}
-allowed_states = {"acquired", "promotion-authorized", "promoted"}
+allowed_states = {"acquired", "promotion-authorized", "promoted", "rollback-drill"}
 max_ttl_seconds = 86400
 orphan_stale_seconds = 1800
 activity_proof_max_age_seconds = 300
@@ -886,10 +894,17 @@ def write_json(path, payload):
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, path)
+    directory = os.open(os.path.dirname(path), os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
-def load_pointer_sha():
+def load_pointer():
     if not os.path.isfile(pointer_path) or os.path.islink(pointer_path):
         fail("active runtime pointer is missing or unsafe")
     try:
@@ -902,7 +917,11 @@ def load_pointer_sha():
     source_sha = pointer.get("sourceSha")
     if not isinstance(source_sha, str) or not sha_pattern.fullmatch(source_sha):
         fail("active runtime pointer SHA is missing or invalid")
-    return source_sha
+    return pointer
+
+
+def load_pointer_sha():
+    return load_pointer()["sourceSha"]
 
 
 def load_lease():
@@ -954,6 +973,17 @@ def load_lease():
         if not isinstance(campaign_path, str) or not os.path.isabs(campaign_path):
             fail("usability campaign path is missing or invalid")
         validate_identity(campaign_id, "usability campaign ID")
+    else:
+        bound_rollback_sha = lease.get("rollbackSha")
+        if not isinstance(bound_rollback_sha, str) or not sha_pattern.fullmatch(bound_rollback_sha):
+            fail("rollback SHA is missing or invalid")
+        if bound_rollback_sha == lease["candidateSha"]:
+            fail("rollback SHA must differ from the candidate SHA")
+        if lease["activeSha"] == lease["candidateSha"]:
+            validate_identity(lease.get("activeReleaseId"), "active release ID")
+            validate_identity(lease.get("rollbackReleaseId"), "rollback release ID")
+            if lease["activeReleaseId"] == lease["rollbackReleaseId"]:
+                fail("rollback release must differ from the active release")
     return lease, created_at, expires_at, hashlib.sha256(lease_bytes).hexdigest()
 
 
@@ -1484,7 +1514,13 @@ def require_live(lease, expires_at, require_usability=True):
     if expires_at <= now:
         fail("lease is expired; recover it explicitly")
     pointer_sha = load_pointer_sha()
-    expected_sha = lease["candidateSha"] if lease["state"] == "promoted" else lease["activeSha"]
+    expected_sha = (
+        lease["candidateSha"]
+        if lease["state"] == "promoted"
+        else lease["rollbackSha"]
+        if lease["state"] == "rollback-drill"
+        else lease["activeSha"]
+    )
     if pointer_sha != expected_sha:
         fail("active runtime conflicts with the certification state")
     if require_usability and lease["operationClass"] == "human-usability-finalization":
@@ -1559,6 +1595,72 @@ def replace_lease(lease):
     write_json(lease_path, lease)
 
 
+def transition_receipt(result, lease, from_state):
+    transition_id = hashlib.sha256(
+        (
+            f"{lease['invocationId']}:{result}:{from_state}:{lease['state']}:"
+            f"{lease.get('rollbackSha', '')}:{lease.get('rollbackDrillAt', '')}:"
+            f"{lease.get('restoredAt', '')}"
+        ).encode("utf-8")
+    ).hexdigest()
+    target = os.path.join(
+        receipts_dir,
+        f"certification-lease-{result}-{str(lease['candidateSha'])[:12]}-{transition_id[:20]}.json",
+    )
+    pending = f"{target}.pending"
+    lease["pendingTransition"] = {
+        "fromState": from_state,
+        "receiptPath": target,
+        "result": result,
+        "transitionId": transition_id,
+    }
+    payload = {
+        "activeSha": lease["activeSha"],
+        "actor": actor,
+        "approvalId": lease["approvalId"],
+        "at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "candidateSha": lease["candidateSha"],
+        "invocationId": lease["invocationId"],
+        "lease": lease,
+        "operationId": lease["operationId"],
+        "pid": caller_pid,
+        "result": result,
+        "schema": "openclaw.custom-runtime-certification-lease-receipt.v2",
+        "transitionId": transition_id,
+    }
+    os.makedirs(receipts_dir, mode=0o700, exist_ok=True)
+    write_json(pending, payload)
+    replace_lease(lease)
+    os.replace(pending, target)
+    directory = os.open(receipts_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return target
+
+
+def replay_transition_receipt(lease, result):
+    transition = lease.get("pendingTransition")
+    if not isinstance(transition, dict) or transition.get("result") != result:
+        return None
+    target = transition.get("receiptPath")
+    if not isinstance(target, str) or os.path.dirname(target) != receipts_dir:
+        fail("pending transition receipt path is invalid")
+    pending = f"{target}.pending"
+    if os.path.isfile(target):
+        return target
+    if not os.path.isfile(pending):
+        fail("pending transition receipt is missing")
+    os.replace(pending, target)
+    directory = os.open(receipts_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return target
+
+
 if action == "status":
     lease, created_at, expires_at, _ = load_lease()
     if lease["operationClass"] == "human-usability-finalization":
@@ -1587,10 +1689,22 @@ if action == "acquire":
     if ttl_seconds < 300 or ttl_seconds > max_ttl_seconds:
         fail("TTL must be between 300 and 86400 seconds", 64)
     if os.path.lexists(lease_path):
-        _, _, expires_at, _ = load_lease()
+        existing_lease, _, expires_at, _ = load_lease()
+        if (
+            existing_lease.get("state") == "acquired"
+            and isinstance(existing_lease.get("pendingTransition"), dict)
+            and existing_lease["pendingTransition"].get("result") == "acquired"
+        ):
+            require_exact_binding(existing_lease)
+            require_live(existing_lease, expires_at)
+            replayed = replay_transition_receipt(existing_lease, "acquired")
+            if replayed:
+                print(lease_path)
+                raise SystemExit(0)
         validity = "expired" if expires_at <= now else "unexpired"
         fail(f"{validity} lease already exists; recover or release it explicitly", 75)
-    if load_pointer_sha() != active_sha:
+    pointer = load_pointer()
+    if pointer["sourceSha"] != active_sha:
         fail("active runtime does not match the requested lease")
     usability_campaign = None
     usability_campaign_resolved = None
@@ -1606,6 +1720,26 @@ if action == "acquire":
             fail("usability campaign must be ready before lease acquisition")
     elif usability_campaign_path:
         fail("usability campaign is only valid for human usability finalization")
+    if operation_class == "release-certification":
+        bound_rollback_sha = rollback_sha or (active_sha if active_sha != candidate_sha else "")
+        if not bound_rollback_sha or not sha_pattern.fullmatch(bound_rollback_sha):
+            fail("release certification rollback SHA is missing or invalid", 64)
+        if bound_rollback_sha == candidate_sha:
+            fail("release certification rollback SHA must differ from the candidate", 64)
+        if active_sha == candidate_sha:
+            for field, value in (
+                ("active release ID", active_release_id),
+                ("rollback release ID", rollback_release_id),
+            ):
+                validate_identity(value, field)
+            if active_release_id == rollback_release_id:
+                fail("rollback release must differ from the active release", 64)
+            if pointer.get("releaseId") != active_release_id:
+                fail("active runtime release does not match the requested lease")
+        elif active_release_id or rollback_release_id:
+            fail("release IDs are required only for same-active certification", 64)
+    elif rollback_sha or active_release_id or rollback_release_id:
+        fail("rollback bindings are valid only for release certification", 64)
     lease = {
         "activeSha": active_sha,
         "actor": actor,
@@ -1627,8 +1761,12 @@ if action == "acquire":
     if usability_campaign is not None:
         lease["usabilityCampaignId"] = usability_campaign["campaignId"]
         lease["usabilityCampaignPath"] = usability_campaign_resolved
-    replace_lease(lease)
-    write_receipt("acquired", lease)
+    else:
+        lease["rollbackSha"] = bound_rollback_sha
+        if active_release_id:
+            lease["activeReleaseId"] = active_release_id
+            lease["rollbackReleaseId"] = rollback_release_id
+    transition_receipt("acquired", lease, "absent")
     print(lease_path)
     raise SystemExit(0)
 
@@ -1696,12 +1834,15 @@ if action in {
         print(receipt)
         raise SystemExit(0)
     if action == "authorize-promotion":
+        replayed = replay_transition_receipt(lease, "promotion-authorized")
+        if lease["state"] == "promotion-authorized" and replayed:
+            print(replayed)
+            raise SystemExit(0)
         if lease["state"] != "acquired":
             fail("promotion authorization requires an acquired lease")
         lease["promotionAuthorizedAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         lease["state"] = "promotion-authorized"
-        replace_lease(lease)
-        print(write_receipt("promotion-authorized", lease))
+        print(transition_receipt("promotion-authorized", lease, "acquired"))
         raise SystemExit(0)
     print(write_receipt("released", lease))
     os.unlink(lease_path)
@@ -1711,6 +1852,7 @@ if not os.path.lexists(lease_path):
     if action in {
         "break-emergency",
         "record-promoted",
+        "record-rolled-back",
         "verify-activation",
         "verify-guard-mutation",
         "verify-promotion",
@@ -1724,7 +1866,7 @@ lease, _, expires_at, _ = load_lease()
 if expires_at <= now:
     fail("lease is expired; recover it explicitly")
 
-if action in {"verify-activation", "verify-promotion"}:
+if action == "verify-activation":
     require_live(lease, expires_at)
     if lease["activeSha"] != active_sha:
         fail("active runtime changed after certification began")
@@ -1734,24 +1876,98 @@ if action in {"verify-activation", "verify-promotion"}:
         fail("same-candidate promotion is not owner-authorized yet", 75)
     raise SystemExit(0)
 
+if action == "verify-promotion":
+    require_live(lease, expires_at)
+    if lease["state"] == "rollback-drill":
+        if active_sha != lease["rollbackSha"] or candidate_sha != lease["candidateSha"]:
+            fail("restoration does not match the certified active/candidate pair", 75)
+        raise SystemExit(0)
+    if lease["activeSha"] != active_sha:
+        fail("active runtime changed after certification began")
+    if lease["candidateSha"] != candidate_sha:
+        fail("another candidate owns the active certification lease", 75)
+    if lease["state"] != "promotion-authorized":
+        fail("same-candidate promotion is not owner-authorized yet", 75)
+    raise SystemExit(0)
+
 if action == "record-promoted":
+    if lease["state"] == "promoted":
+        for result in ("restored", "promoted"):
+            replayed = replay_transition_receipt(lease, result)
+            if replayed:
+                print(replayed)
+                raise SystemExit(0)
+    if lease["state"] == "rollback-drill":
+        if active_sha != lease["rollbackSha"] or candidate_sha != lease["candidateSha"]:
+            fail("restoration does not match the certified active/candidate pair", 75)
+        if load_pointer_sha() != lease["candidateSha"]:
+            fail("restored runtime does not match the certified candidate")
+        lease["restoredAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        lease["state"] = "promoted"
+        print(transition_receipt("restored", lease, "rollback-drill"))
+        raise SystemExit(0)
     if lease["state"] != "promotion-authorized":
         fail("promotion completion requires an authorized lease")
     if lease["candidateSha"] != candidate_sha or load_pointer_sha() != candidate_sha:
         fail("promoted runtime does not match the certified candidate")
     lease["promotedAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     lease["state"] = "promoted"
-    replace_lease(lease)
-    print(write_receipt("promoted", lease))
+    print(transition_receipt("promoted", lease, "promotion-authorized"))
     raise SystemExit(0)
 
 if action == "verify-restart":
     require_live(lease, expires_at)
-    if lease["state"] != "promoted" or lease["candidateSha"] != active_sha:
+    expected_restart_sha = (
+        lease["rollbackSha"] if lease["state"] == "rollback-drill" else lease["candidateSha"]
+    )
+    if lease["state"] not in {"promoted", "rollback-drill"} or expected_restart_sha != active_sha:
         fail("restart is frozen until the certified candidate is promoted", 75)
     raise SystemExit(0)
 
-if action in {"verify-rollback", "verify-guard-mutation"}:
+if action == "verify-rollback":
+    require_live(lease, expires_at)
+    if lease["operationClass"] != "release-certification":
+        fail("rollback drill requires a release-certification lease", 75)
+    if lease["state"] != "promoted":
+        fail("rollback drill requires the certified candidate to be promoted", 75)
+    if rollback_sha and rollback_sha != lease["rollbackSha"]:
+        fail("rollback drill SHA does not match the retained lease", 75)
+    if lease.get("activeReleaseId") and (
+        active_release_id != lease["activeReleaseId"]
+        or rollback_release_id != lease["rollbackReleaseId"]
+    ):
+        fail("rollback drill release identities do not match the retained lease", 75)
+    if active_sha != lease["candidateSha"] or candidate_sha != lease["rollbackSha"]:
+        fail("rollback drill does not match the certified active/candidate pair", 75)
+    print(write_receipt("rollback-authorized", lease))
+    raise SystemExit(0)
+
+if action == "record-rolled-back":
+    replayed = replay_transition_receipt(lease, "rolled-back")
+    if lease["state"] == "rollback-drill" and replayed:
+        print(replayed)
+        raise SystemExit(0)
+    if lease["operationClass"] != "release-certification":
+        fail("rollback drill requires a release-certification lease", 75)
+    if lease["state"] != "promoted":
+        fail("rollback drill can be recorded only once", 75)
+    if rollback_sha and rollback_sha != lease["rollbackSha"]:
+        fail("rollback drill SHA does not match the retained lease", 75)
+    if lease.get("activeReleaseId") and (
+        active_release_id != lease["activeReleaseId"]
+        or rollback_release_id != lease["rollbackReleaseId"]
+    ):
+        fail("rollback drill release identities do not match the retained lease", 75)
+    if active_sha != lease["candidateSha"] or candidate_sha != lease["rollbackSha"]:
+        fail("rollback drill does not match the certified active/candidate pair", 75)
+    if load_pointer_sha() != lease["rollbackSha"]:
+        fail("rolled-back runtime does not match the certified active SHA")
+    lease["rollbackDrillAt"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    lease["state"] = "rollback-drill"
+    print(transition_receipt("rolled-back", lease, "promoted"))
+    raise SystemExit(0)
+
+if action == "verify-guard-mutation":
     require_live(lease, expires_at)
     fail("managed-runtime mutation is frozen by active certification", 75)
 

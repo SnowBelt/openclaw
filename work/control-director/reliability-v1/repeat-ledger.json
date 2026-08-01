@@ -1,0 +1,473 @@
+{
+  "schema": "openclaw.control-director-repeat-ledger.v1",
+  "campaign": "control-director-m01-m106-mac-studio-only",
+  "policy": {
+    "automaticAttemptLimit": 2,
+    "requiresUserApprovalBeforeThirdOrLaterAttempt": true,
+    "announcementFormat": "REPEAT ALERT — <step> — attempt <N> — repeated <N-1> times — reason: <reason>",
+    "unverifiedOutcomeCountsAsPassed": false
+  },
+  "summary": {
+    "trackedRepeatedSteps": 14,
+    "historicalMilestone4Attempts": 23,
+    "historicalMilestone4Repeats": 22
+  },
+  "steps": [
+    {
+      "id": "historical-m04-verifier",
+      "milestoneId": "M04",
+      "attempts": 23,
+      "repeats": 22,
+      "passedAttempts": 16,
+      "failedOrInterruptedAttempts": 7,
+      "status": "historical-reconciled",
+      "nextAttemptRequiresApproval": true,
+      "alternative": "Use one exact-SHA evidence-cached eight-gate mapping and reuse valid receipts instead of rerunning the entire milestone."
+    },
+    {
+      "id": "isolated-worktree-creation",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "environment-blocked",
+          "reason": "The sandbox denied the required Git metadata write."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The exact-base worktree was created with the approved outside-sandbox Git operation."
+        }
+      ]
+    },
+    {
+      "id": "candidate-net-diff-import",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "environment-blocked",
+          "reason": "The sandbox denied the required Git metadata write."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The reviewed candidate net diff was imported outside the sandbox and reconciled against the exact active base."
+        }
+      ]
+    },
+    {
+      "id": "independent-judge-targeted-test",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "The first repair changed the legacy invocation metadata shape expected by receipt verification."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "Immutable identities were moved into the signed issuance while preserving the invocation metadata contract; 4 of 4 tests passed."
+        }
+      ]
+    },
+    {
+      "id": "runtime-soak-targeted-test",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "The updated synthetic lease fixture exceeded the existing 24-hour maximum lease duration."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The fixture window was corrected without weakening the 24-hour lease limit; 4 of 4 tests passed."
+        }
+      ]
+    },
+    {
+      "id": "capability-observer-targeted-test",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "passed",
+          "reason": "The capability-specific semantic and browser evidence tests passed before the final issuance-edge lock hardening."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The exact suite was repeated after adding the final lifecycle-lock recheck; 10 of 10 tests passed."
+        }
+      ]
+    },
+    {
+      "id": "focused-preemptive-compaction-test",
+      "attempts": 7,
+      "repeats": 6,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "environment-blocked",
+          "reason": "The package runner rejected a symlinked dependency tree before executing the test."
+        },
+        {
+          "attempt": 2,
+          "outcome": "environment-blocked",
+          "reason": "The package runner normalized dependencies and exited before executing the test."
+        },
+        {
+          "attempt": 3,
+          "outcome": "environment-blocked",
+          "reason": "The sandbox denied creation of the repository heavy-check lock."
+        },
+        {
+          "attempt": 4,
+          "outcome": "unverified",
+          "reason": "The approved outside-sandbox test process completed, but its tool session identifier was not retained and no pass or failure output can be honestly recovered."
+        },
+        {
+          "attempt": 5,
+          "outcome": "failed",
+          "reason": "The focused suite passed 26 of 28 tests and proved two legacy fixtures incorrectly modeled fixed content that could not fit before compaction."
+        },
+        {
+          "attempt": 6,
+          "outcome": "passed",
+          "reason": "The corrected fixtures preserve generation headroom while making history genuinely compactable; all 28 tests passed."
+        },
+        {
+          "attempt": 7,
+          "outcome": "passed",
+          "reason": "All 29 focused preemptive-compaction tests passed, including the non-overflow classification regression."
+        }
+      ]
+    },
+    {
+      "id": "source-integration-test-gate",
+      "attempts": 11,
+      "repeats": 10,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "The first grouped gate exposed stale capability semantic-evidence fixtures and model-evaluation identity fixtures after the fail-closed contract hardening."
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "reason": "The narrowed second gate confirmed the capability fixture also lacked lifecycle-lock evidence and the synthetic lease window exceeded the 24-hour maximum; both defects were repaired without rerunning."
+        },
+        {
+          "attempt": 3,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 71 of 79 tests and exposed six stale lifecycle-actor fixtures, one stale bounded-soak expectation, and one invalid short manifest digest."
+        },
+        {
+          "attempt": 4,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 73 of 79 tests; all remaining failures shared one legacy runtime-pointer fixture that was not semantic JSON. The fixture is repaired without rerunning."
+        },
+        {
+          "attempt": 5,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 70 of 80 tests; four observer fixtures no longer matched the strengthened browser observation window and six capability-proof fixtures carried stale derived evidence bindings."
+        },
+        {
+          "attempt": 6,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 73 of 80 tests; one direct observer fixture still supplied active-phase browser timestamps to a shifted clock, and six proof fixtures still lacked replayable browser route evidence. The approved attempt limit is exhausted."
+        },
+        {
+          "attempt": 7,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 74 of 80 tests; all six failures shared one synthetic dashboard-route response that still did not replay through the production browser-bound derivation."
+        },
+        {
+          "attempt": 8,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 74 of 80 tests and exposed a repair-placement error: the semantic-browser result expression was applied to the adjacent process fixture, causing route to be undefined. The line is corrected in the intended HTTP fixture without rerunning because the approved attempt limit is exhausted."
+        },
+        {
+          "attempt": 9,
+          "outcome": "failed",
+          "reason": "The grouped gate passed 79 of 80 tests; one negative replay fixture was rejected earlier by the stronger exact immutable-evidence binding check instead of reaching its intended runtime-independence digest assertion."
+        },
+        {
+          "attempt": 10,
+          "outcome": "failed",
+          "reason": "The grouped gate passed all 80 tooling tests and 12 of 13 agent tests; one Judge trial fixture lacked the newly required immutable selected-model and cache SHA-256 identities. The approved attempt limit is exhausted."
+        },
+        {
+          "attempt": 11,
+          "outcome": "passed",
+          "reason": "The focused Judge receipt-signer test passed 3 of 3 tests after the approved immutable trial-model and Judge model/cache identity fixture repair; retained attempt-10 and compaction receipts close the grouped source-integration gate."
+        }
+      ]
+    },
+    {
+      "id": "targeted-formatting-gate",
+      "attempts": 8,
+      "repeats": 7,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "Two capability-observer files retained pre-integration formatting."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "All 15 targeted integration files passed the repository formatter and the 41-path diff remained clean."
+        },
+        {
+          "attempt": 3,
+          "outcome": "failed",
+          "reason": "Five authorized files required repository formatting after the browser and identity repairs."
+        },
+        {
+          "attempt": 4,
+          "outcome": "passed",
+          "reason": "All 34 formatter-supported changed files passed after the bounded five-file formatting repair; later source edits make this receipt stale."
+        },
+        {
+          "attempt": 5,
+          "outcome": "failed",
+          "reason": "The final repeated formatter check found one authorized capability-observer module requiring repository formatting."
+        },
+        {
+          "attempt": 6,
+          "outcome": "passed",
+          "reason": "All 34 repository-supported changed files passed the final targeted formatter check after the bounded one-file repair."
+        },
+        {
+          "attempt": 7,
+          "outcome": "passed",
+          "reason": "All matched formatter-supported changed files passed repository formatting, including repeat-ledger.json as valid JSON, after all source and continuation edits."
+        },
+        {
+          "attempt": 8,
+          "outcome": "passed",
+          "reason": "The bounded formatting repair normalized src/agents/control-director-model-eval.ts; the complete matched formatter set, including repeat-ledger.json as valid JSON, then passed."
+        }
+      ]
+    },
+    {
+      "id": "mac-studio-type-gate",
+      "attempts": 7,
+      "repeats": 6,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "passed",
+          "reason": "The full project TypeScript build graph passed after initial model-identity and soak integration."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The graph was repeated after the final lifecycle-lock fixture and production Ollama identity fallback test edits; it passed with no diagnostics."
+        },
+        {
+          "attempt": 3,
+          "outcome": "passed",
+          "reason": "The complete TypeScript project graph passed outside the sandbox before the latest fixture and P1 repairs; those later edits make the receipt stale."
+        },
+        {
+          "attempt": 4,
+          "outcome": "passed",
+          "reason": "The complete TypeScript project graph passed outside the sandbox after the final fixture and P1 repairs."
+        },
+        {
+          "attempt": 5,
+          "outcome": "passed",
+          "reason": "The complete TypeScript project graph passed outside the sandbox after the bounded source-integration fixture repairs."
+        },
+        {
+          "attempt": 6,
+          "outcome": "passed",
+          "reason": "The complete TypeScript project graph passed outside the sandbox after the final Judge receipt-signer fixture edit with no diagnostics."
+        },
+        {
+          "attempt": 7,
+          "outcome": "passed",
+          "reason": "The complete TypeScript project graph passed outside the sandbox after the bounded shared-Judge-type import-cycle repair with no diagnostics."
+        }
+      ]
+    },
+    {
+      "id": "targeted-lint-gate",
+      "attempts": 7,
+      "repeats": 6,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "passed",
+          "reason": "The targeted integration files passed before the final production Ollama identity checks and fixtures were added."
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "reason": "The repeated gate found six static issues in the latest identity and soak integration; all six were repaired without rerunning."
+        },
+        {
+          "attempt": 3,
+          "outcome": "failed",
+          "reason": "Six browser-capture findings required intentional rendered-text handling rather than hidden-text-permitting textContent."
+        },
+        {
+          "attempt": 4,
+          "outcome": "passed",
+          "reason": "The targeted lint set passed with a narrow documented rendered-text boundary; later source edits make this receipt stale."
+        },
+        {
+          "attempt": 5,
+          "outcome": "passed",
+          "reason": "All targeted changed script and core agent files passed the repository lint wrappers after the final source repairs."
+        },
+        {
+          "attempt": 6,
+          "outcome": "passed",
+          "reason": "The changed Control Director scripts and core-agent files passed the repository oxlint wrappers after the final Judge receipt-signer fixture edit."
+        },
+        {
+          "attempt": 7,
+          "outcome": "passed",
+          "reason": "The repaired shared-Judge-type core-agent files passed the repository oxlint wrapper after the import-cycle repair."
+        }
+      ]
+    },
+    {
+      "id": "javascript-syntax-verification",
+      "attempts": 5,
+      "repeats": 4,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "passed",
+          "reason": "The initial changed JavaScript scripts parsed successfully."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The scripts parsed successfully after direct visible-Chrome capture, restored observation chaining, lease liveness, and immutable Ollama residency hardening."
+        },
+        {
+          "attempt": 3,
+          "outcome": "passed",
+          "reason": "All six changed JavaScript modules parsed after credential-safe browser capture."
+        },
+        {
+          "attempt": 4,
+          "outcome": "passed",
+          "reason": "All six modules parsed after the rendered-text helper repair; later source edits make this receipt stale."
+        },
+        {
+          "attempt": 5,
+          "outcome": "passed",
+          "reason": "All six changed JavaScript modules parsed successfully after the final capability evidence repairs."
+        }
+      ]
+    },
+    {
+      "id": "m01-m106-implementation-audit",
+      "attempts": 4,
+      "repeats": 3,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "The command used an unsupported --json flag before reading the script's built-in output contract."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The deterministic audit reported 106 implemented, zero unassessed, and zero blocked milestones; certification remains separately pending."
+        },
+        {
+          "attempt": 3,
+          "outcome": "passed",
+          "reason": "The deterministic audit again reported 106 implemented, zero unassessed, and zero blocked; later P1 repairs require a final committed-candidate audit."
+        },
+        {
+          "attempt": 4,
+          "outcome": "passed",
+          "reason": "The deterministic audit reported 106 implemented, zero unassessed, and zero blocked milestones after the final P1 and bounded fixture repairs; certification remains separately pending."
+        }
+      ]
+    },
+    {
+      "id": "bounded-sidecar-source-review",
+      "attempts": 4,
+      "repeats": 3,
+      "status": "passed",
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "The bounded review found five P1 defects in soak replay, restoration chaining, same-provider Judge identity, lifecycle ownership, and caller-forgeable browser evidence."
+        },
+        {
+          "attempt": 2,
+          "outcome": "failed",
+          "reason": "Four P1 defects were resolved; browser proof still reconstructed expected-marker HTML instead of capturing the visible authenticated DOM. Direct visible-Chrome capture, bounded rendered marker records, visible connected-state evidence, credential redaction, and subprocess environment stripping were then repaired without another review."
+        },
+        {
+          "attempt": 3,
+          "outcome": "failed",
+          "reason": "The review confirmed the original soak, restoration, Judge, and lifecycle defects were resolved but found three P1 gaps in complete environment stripping, browser freshness, and futile uncompactable-prompt recovery."
+        },
+        {
+          "attempt": 4,
+          "outcome": "passed",
+          "reason": "Independent read-only review found no remaining P0 or P1 after environment-wide sanitization, observation-bound browser evidence, test-only injection, and non-overflow uncompactable classification."
+        }
+      ]
+    },
+    {
+      "id": "architecture-gate",
+      "attempts": 2,
+      "repeats": 1,
+      "status": "passed",
+      "nextAttemptRequiresApproval": false,
+      "attemptLog": [
+        {
+          "attempt": 1,
+          "outcome": "failed",
+          "reason": "Madge found one runtime cycle between control-director-model-eval.ts and independent-judge-service.ts after the clean candidate verifier passed."
+        },
+        {
+          "attempt": 2,
+          "outcome": "passed",
+          "reason": "The shared Judge receipt and issuance types were relocated to the authorized signer module; Madge, runtime-cycle, deprecated-API/JSDoc, Kysely, and database-first architecture checks all passed without adding a path."
+        }
+      ]
+    }
+  ]
+}

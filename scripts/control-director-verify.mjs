@@ -14,6 +14,7 @@ const DEFAULT_ARTIFACT_DIR = path.join(
   "control-director",
 );
 const IMMUTABLE_SHA_PATTERN = /^[a-f0-9]{40}$/u;
+export const CONTROL_DIRECTOR_CERTIFICATION_MODEL = "ollama/openclaw-control-qwen25-32b:latest";
 
 const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-format-check.test.ts",
@@ -189,6 +190,7 @@ export function buildControlDirectorSourceConfig() {
         ollama: {
           models: [
             { id: "openclaw-control-gemma4-31b-q8:latest", name: "Gemma 4 31B Q8" },
+            { id: "openclaw-control-qwen25-32b:latest", name: "Qwen 2.5 32B Control" },
             { id: "qwen3.6:27b-q8_0", name: "Qwen 3.6 27B Q8" },
           ],
         },
@@ -200,6 +202,9 @@ export function buildControlDirectorSourceConfig() {
           "ollama/openclaw-control-gemma4-31b-q8:latest": {
             alias: "openclaw-control-gemma4-31b-q8",
           },
+          [CONTROL_DIRECTOR_CERTIFICATION_MODEL]: {
+            alias: "openclaw-control-qwen25-32b",
+          },
           "ollama/qwen3.6:27b-q8_0": { alias: "qwen-control-alternative" },
         },
       },
@@ -208,8 +213,8 @@ export function buildControlDirectorSourceConfig() {
           id: "control-director",
           role: "control_director",
           model: {
-            primary: "ollama/openclaw-control-gemma4-31b-q8:latest",
-            fallbacks: ["ollama/qwen3.6:27b-q8_0"],
+            primary: CONTROL_DIRECTOR_CERTIFICATION_MODEL,
+            fallbacks: ["ollama/openclaw-control-gemma4-31b-q8:latest"],
           },
         },
         { id: "program-manager", role: "program_manager" },
@@ -364,8 +369,14 @@ function runReadiness({ configPath, expectedSha, receiptPath }) {
     );
   }
   const scorecard = JSON.parse(result.stdout);
-  if (scorecard.sourceReady !== true || scorecard.sourceSha !== expectedSha) {
-    throw new Error("Control Director readiness did not return exact-SHA sourceReady=true.");
+  if (
+    scorecard.sourceReady !== true ||
+    scorecard.sourceSha !== expectedSha ||
+    scorecard.selectedModel !== CONTROL_DIRECTOR_CERTIFICATION_MODEL
+  ) {
+    throw new Error(
+      "Control Director readiness did not return exact-SHA sourceReady=true for the required certification model.",
+    );
   }
   return scorecard;
 }

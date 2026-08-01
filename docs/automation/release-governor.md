@@ -193,9 +193,9 @@ runtime actions, and explicit exclusions.
 Promotion and finalization evaluate Gateway connectivity, required routes, PCC,
 latency, error rate, startup failures, capabilities, browser errors, active-run
 reconciliation, and PWA integrity where applicable. The default profile uses
-desktop/mobile browser proof. The Mac Studio Control Director profile uses
-authenticated local production-Chrome Control Director/PCC proof and isolated
-disposable local PCC E2E instead.
+desktop/mobile browser proof. The Mac Studio Control Director profile instead
+uses authenticated local production-Chrome Control Director/PCC proof at
+supported window sizes and isolated disposable local PCC E2E.
 
 A deterministic health failure recommends rollback. Automatic rollback occurs
 only when rollback is already policy-authorized. Otherwise the release is

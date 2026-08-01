@@ -97,7 +97,7 @@ behind a lease.
 
 Promotion, activation, restart, rollback, guard repair, and lease transitions share one private global lifecycle lock. Its receipts bind actor, Release Governor approval identity, operation identity, PID, invocation identity, timestamps, and the exact active/candidate SHA pair. Malformed or conflicting state, unsafe permissions, future creation times, durations above 24 hours, live concurrency, and recently orphaned locks fail closed. A valid dead lock becomes recoverable only after the bounded stale interval and produces a recovery receipt; the guard never deletes lifecycle locks by age alone.
 
-New certification leases also carry an exact-owner heartbeat sequence. The owner must refresh it during remote checks, review waits, and soak:
+New certification leases also carry an exact-owner heartbeat sequence. The owner must refresh it during Mac Studio-local certification, bounded review waits, and soak:
 
 ```bash
 custom-runtime-promote.sh --lease-heartbeat \
@@ -111,13 +111,16 @@ custom-runtime-promote.sh --lease-heartbeat \
 
 Bounded orphan recovery is narrower than emergency invalidation. It is available only for an unexpired lease that is still in `acquired`, has never been promotion-authorized or promoted, is at least 30 minutes old, and has received no heartbeat for at least 30 minutes. Recovery also requires a fresh private activity proof bound to the exact lease digest and identities. That proof must confirm a dead owner PID and no active owner work. While holding the global lifecycle lock, the recovery command independently queries the named GitHub repository for the exact candidate and rejects any queued, waiting, requested, pending, in-progress, malformed, ambiguous, or unqueryable check state. The caller must supply a separate exact Release Governor recovery approval and typed reason. Any ambiguity, recent or future-dated evidence, digest drift, active check, lifecycle concurrency, or state transition blocks recovery without changing the lease.
 
-An active certification lease freezes normal rollback and guard mutation. Emergency rollback remains available only after the normal exact-SHA Release Governor bundle succeeds and the caller supplies a typed reason. Before runtime mutation, that path removes the lease and writes a `certification-invalidated` receipt, so recovery cannot be mistaken for successful certification. The lease is never an approval substitute: every stage, promotion, restart, rollback, and finalization operation still requires its operation-specific Release Governor evidence.
+An active certification lease freezes normal rollback and guard mutation. The sole non-invalidating exception is one exact retained drill whose distinct rollback SHA and active/rollback immutable release IDs were bound when a same-active release-certification lease was acquired. Emergency rollback remains available only after the normal exact-SHA Release Governor bundle succeeds and the caller supplies a typed reason. Before runtime mutation, that path removes the lease and writes a `certification-invalidated` receipt, so recovery cannot be mistaken for successful certification. The lease is never an approval substitute: every stage, promotion, restart, rollback, and finalization operation still requires its operation-specific Release Governor evidence.
 
 Use one stable owner, approval, operation, and certification invocation binding throughout the campaign:
 
 ```bash
 custom-runtime-promote.sh --lease-acquire \
   --active-sha <active-sha> --candidate-sha <candidate-sha> \
+  --rollback-sha <rollback-sha> \
+  --active-release-id <active-release-id> \
+  --rollback-release-id <rollback-release-id> \
   --owner <owner> --operation-class release-certification \
   --approval-id <approval-id> --operation-id <operation-id> \
   --invocation-id <certification-invocation-id> --ttl-seconds 3600
@@ -139,7 +142,7 @@ custom-runtime-promote.sh --lease-acquire \
 
 ## Dashboard customization rule
 
-Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, automated desktop/tablet/mobile proof, owner acceptance in production Chrome on the managed Mac Studio, restart recovery, rollback-and-restore, and soak remain separate truth surfaces. Blacksmith, Testbox, Crabbox, and equivalent third-party execution environments are optional for Operations Room and Control Director work; their availability is never a completion requirement.
+Every Dashboard edit is update-sensitive. The same change must register or update its stable capability and required paths, add or retain deterministic UI proof, align the checked capability standards registry, and pass `pnpm custom-runtime:update-survival`. The Control Director reliability roadmap records this as M61. Source preservation alone is not completion: managed activation, authenticated production Chrome proof at supported window sizes on the real Mac Studio, owner acceptance, restart recovery, rollback-and-restore, and soak remain separate truth surfaces. Blacksmith, Testbox, Crabbox, and equivalent third-party execution environments are not Operations Room or Control Director completion requirements.
 
 ## Project Command Center status
 
@@ -181,7 +184,9 @@ Control Director production readiness independently calls the same status reader
 
 Promotion preregisters a hash-bound rollback bundle containing the previous runtime pointer, Gateway service definition, environment file, and launcher. Failed bootstrap, health, runtime identity, route, WebSocket, RPC, update-scheduler installation, or recovery-guard installation restores the prior control plane and the prior loaded/unloaded state of both auxiliary LaunchAgents. `custom-runtime-rollback.sh --verify-only` can validate the registered rollback before an update window.
 
-Never delete the previous immutable release or rollback bundle until the new runtime passes restart, desktop browser, mobile browser, and bounded soak proof.
+A release-certification lease may retain ownership across one exact rollback-and-restoration drill. The rollback must already be authorized by the Release Governor, target the lease's separately bound rollback SHA and immutable release, and start from its promoted candidate release. A successful rollback moves the lease into a typed `rollback-drill` state, where heartbeats and exact-target restarts remain valid but unrelated lifecycle mutations stay frozen. Re-promoting the same bound candidate records a replayable typed restoration receipt and returns the lease to `promoted`. Any different active SHA, release, rollback target, candidate, or repeated rollback fails closed.
+
+Never delete the previous immutable release or rollback bundle until the new runtime passes restart, authenticated Mac Studio Chrome, and bounded soak proof.
 
 The Operations Room is a required custom runtime capability. Candidate updates must preserve its
 additive protocol, truth and freshness policy, collector, persisted incident history, local probes,
@@ -204,15 +209,17 @@ workflow checks, and the build.
 The complete focused unit-test invocation is maintained in
 [Operations Room](/automation/operations-room#focused-verification). The DOM smoke is not browser
 proof. The mocked E2E is not managed-runtime proof. The canonical local exact-source proof must
-produce the validated browser receipt, five named screenshots including
-`tablet-768-increased-contrast.png`, their checksums, and a passing exact-SHA local proof receipt.
+produce the validated browser receipt, Mac Studio Chrome captures at the supported window sizes and
+accessibility modes, their checksums, and a passing exact-SHA local proof receipt.
 An optional hosted workflow, when explicitly requested, is supplementary and is never a completion
 requirement. Production
 acceptance requires the same exact source SHA in the canonical source branch, immutable candidate,
 active runtime pointer, capability manifest, and Gateway process. After approval, rebuild or restart
-the managed Gateway, retain automated desktop and mobile Operations Room receipts, capture the real
+the managed Gateway, retain automated Mac Studio browser receipts, capture the real authenticated
 production Chrome receipt on the managed Mac Studio, prove that incident and since-last-visit state
-survive restart, observe at least five minutes without liveness, memory, CPU, focus, refresh,
+survive restart, use the initial five-minute runtime-proof soak, then complete at least 30 continuous
+active minutes and 24 continuous passive exact-runtime monitoring hours without liveness, memory,
+CPU, route, capability, focus, refresh,
 duplicate-transition, or duplicate-change regressions, and keep the preregistered rollback bundle
 verified. Run the Control Director owner acceptance protocol in
 [Operations Room](/automation/operations-room#control-director-owner-acceptance-protocol) and retain

@@ -1230,6 +1230,31 @@ describe("custom runtime lifecycle", () => {
         rollbackReleaseId: "previous",
       })}\n`,
     );
+    const now = Date.now();
+    writeFile(
+      path.join(runtimeHome, "certification-lease.json"),
+      `${JSON.stringify({
+        activeSha: previousPointer.sourceSha,
+        actor: os.userInfo().username,
+        approvalId: "release-governor:rollback-drill:test",
+        candidateSha: candidatePointer.sourceSha,
+        rollbackSha: previousPointer.sourceSha,
+        createdAt: new Date(now - 60_000).toISOString(),
+        expiresAt: new Date(now + 10 * 60_000).toISOString(),
+        heartbeatAt: new Date(now - 10_000).toISOString(),
+        heartbeatRequired: true,
+        heartbeatSequence: 1,
+        invocationId: "rollback-drill-test",
+        operationClass: "release-certification",
+        operationId: "certification:rollback-drill:test",
+        owner: "codex:rollback-drill:test",
+        pid: process.pid,
+        promotedAt: new Date(now - 30_000).toISOString(),
+        schema: "openclaw.custom-runtime-certification-lease.v2",
+        state: "promoted",
+      })}\n`,
+      0o600,
+    );
     writeFile(
       path.join(fakeBin, "launchctl"),
       '#!/bin/sh\ncase "${1:-}" in bootout|bootstrap) exit 0;; print) exit 1;; esac\nexit 1\n',
@@ -1284,6 +1309,14 @@ describe("custom runtime lifecycle", () => {
     expect(fs.readFileSync(envFile, "utf8")).toBe("export PREVIOUS=1\n");
     expect(fs.readFileSync(plistPath, "utf8")).toBe("previous plist\n");
     expect(fs.existsSync(path.join(runtimeHome, "active-rollback.json"))).toBe(false);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(runtimeHome, "certification-lease.json"), "utf8")),
+    ).toMatchObject({
+      activeSha: previousPointer.sourceSha,
+      candidateSha: candidatePointer.sourceSha,
+      rollbackSha: previousPointer.sourceSha,
+      state: "rollback-drill",
+    });
     const receipt = fs
       .readdirSync(path.join(runtimeHome, "receipts"))
       .find((entry) => entry.startsWith("custom-runtime-rollback-"));
