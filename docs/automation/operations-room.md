@@ -283,6 +283,16 @@ status. The first current finding is labeled **Highest-priority issue** and disp
 and **What happens next** before its recommendation. Opening **Recommended resolution** makes no
 change. **Not now** defers it explicitly and returns keyboard focus to the recommendation control.
 
+## Source handoff
+
+When a locally verified Operations Room candidate is ready for review, use the deterministic
+[Control Director source handoff](/automation/control-director-source-handoff) workflow. It checks
+the exact SHA, branch, clean worktree, canonical `SnowBelt` remote, and draft pull-request identity
+before any push. **Preflight** is read-only. **Finish** is the only bounded destination action and
+requires a literal destination approval; it is idempotent for an exact existing draft PR and stops
+on any mismatch. The handoff runs outside the managed Gateway, records a private receipt, and never
+starts a release, changes runtime state, merges, or substitutes for local Mac Studio proof.
+
 ## Owner acceptance in the page
 
 The usability coordinator returns `ownerAcceptanceQuery` only for a ready `owner-mac-studio`

@@ -414,6 +414,9 @@
         "ui/src/i18n/locales/en.ts",
         "ui/src/i18n/custom-locale-overlays.ts",
         "ui/src/ui/e2e/operations-room.e2e.test.ts",
+        "scripts/control-director-source-handoff.mjs",
+        "test/scripts/control-director-source-handoff.test.ts",
+        "work/control-director/reliability-v1/source-handoff-policy.json",
         "scripts/dev/control-ui-operations-room-smoke.ts",
         "scripts/custom-runtime/custom-runtime-auth.sh",
         "scripts/custom-runtime/custom-runtime-promote.sh",
@@ -429,6 +432,7 @@
         "docs/docs.json",
         "docs/docs_map.md",
         "docs/automation/operations-room.md",
+        "docs/automation/control-director-source-handoff.md",
         "docs/automation/custom-runtime-update-safety.md"
       ]
     },
@@ -450,6 +454,7 @@
         "scripts/control-director-preflight.mjs",
         "scripts/control-director-readiness.mjs",
         "scripts/control-director-roadmap-proof.mjs",
+        "scripts/control-director-source-handoff.mjs",
         "scripts/control-director-verify.mjs",
         "scripts/custom-runtime/ai.openclaw.custom-runtime.guard.plist",
         "scripts/custom-runtime/ai.openclaw.custom-runtime.update-weekly.plist",
@@ -470,6 +475,7 @@
         "test/scripts/control-director-milestone-audit.test.ts",
         "test/scripts/control-director-preflight.test.ts",
         "test/scripts/control-director-roadmap-proof.test.ts",
+        "test/scripts/control-director-source-handoff.test.ts",
         "test/scripts/control-director-verify.test.ts",
         "test/scripts/custom-runtime-lifecycle.test.ts",
         "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",
@@ -484,7 +490,9 @@
         ".github/workflows/workflow-sanity.yml",
         "work/control-director/reliability-v1/roadmap.json",
         "work/control-director/reliability-v1/continuation.md",
+        "work/control-director/reliability-v1/source-handoff-policy.json",
         "docs/automation/custom-runtime-update-safety.md",
+        "docs/automation/control-director-source-handoff.md",
         "docs/automation/pcc-operational-excellence.md",
         "docs/concepts/control-director.md"
       ]

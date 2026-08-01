@@ -357,6 +357,7 @@ export function collectControlDirectorActiveWiring() {
       typeof packageJson.scripts?.["control-director:chaos"] === "string" &&
       typeof packageJson.scripts?.["control-director:readiness"] === "string" &&
       typeof packageJson.scripts?.["control-director:runtime-proof"] === "string" &&
+      typeof packageJson.scripts?.["control-director:source-handoff"] === "string" &&
       typeof packageJson.scripts?.["control-director:roadmap-proof"] === "string" &&
       typeof packageJson.scripts?.["control-director:verify"] === "string" &&
       typeof packageJson.scripts?.["custom-runtime:update-survival"] === "string",

@@ -24,6 +24,7 @@ const CONTROL_DIRECTOR_TARGETED_TESTS = Object.freeze([
   "test/scripts/control-director-role-config.test.ts",
   "test/scripts/control-director-roadmap-proof.test.ts",
   "test/scripts/control-director-runtime-proof.test.ts",
+  "test/scripts/control-director-source-handoff.test.ts",
   "test/scripts/control-director-verify.test.ts",
   "test/scripts/custom-runtime-lifecycle.test.ts",
   "test/scripts/custom-runtime-lifecycle-arbitration.test.ts",

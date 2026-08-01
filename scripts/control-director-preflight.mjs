@@ -14,6 +14,7 @@ const REQUIRED_SCRIPTS = [
   "control-director:roadmap-proof",
   "control-director:readiness",
   "control-director:runtime-proof",
+  "control-director:source-handoff",
   "custom-runtime:update-survival",
 ];
 const REQUIRED_PROOF_SURFACES = [

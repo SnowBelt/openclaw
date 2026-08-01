@@ -2024,6 +2024,7 @@
     "control-director:roadmap-proof": "node --import tsx scripts/control-director-roadmap-proof.mjs",
     "control-director:subagent-incident-proof": "node --import tsx scripts/control-director-subagent-incident-proof.ts",
     "control-director:runtime-proof": "node --import tsx scripts/control-director-runtime-proof.ts",
+    "control-director:source-handoff": "node scripts/control-director-source-handoff.mjs",
     "control-director:verify": "node --import tsx scripts/control-director-verify.mjs",
     "ui:smoke:dashboard": "node --import tsx scripts/dev/control-ui-dashboard-smoke-suite.ts",
     "ui:smoke:dashboard-codex-plus-apps": "node --import tsx scripts/dev/control-ui-dashboard-codex-plus-apps-smoke.ts",

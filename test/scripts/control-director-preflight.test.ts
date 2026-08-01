@@ -22,6 +22,7 @@ function input() {
       "control-director:roadmap-proof",
       "control-director:readiness",
       "control-director:runtime-proof",
+      "control-director:source-handoff",
       "custom-runtime:update-survival",
     ],
     macStudioLocalProofPolicy: true,

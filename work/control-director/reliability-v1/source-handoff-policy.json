@@ -1,0 +1,12 @@
+{
+  "schema": "openclaw.control-director.source-handoff-policy.v1",
+  "version": 1,
+  "canonicalRemoteName": "SnowBelt",
+  "canonicalRemoteUrl": "https://github.com/SnowBelt/openclaw.git",
+  "canonicalRepository": "mindfire-lab/openclaw",
+  "headOwner": "SnowBelt",
+  "baseBranch": "main",
+  "prMode": "draft",
+  "proofMode": "local-only",
+  "requireExplicitDestinationApproval": true
+}

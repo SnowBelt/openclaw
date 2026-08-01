@@ -323,6 +323,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "ui/src/ui/e2e/operations-room.e2e.test.ts",
       "src/pcc/capability-addition-registry.test.ts",
       "src/pcc/custom-runtime-capabilities.test.ts",
+      "test/scripts/control-director-source-handoff.test.ts",
     ],
     proofSurfaces: [
       "pnpm operations-room:verify",
@@ -331,6 +332,7 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "pnpm ui:i18n:check",
       "pnpm check:pcc-capabilities",
       "pnpm check:custom-runtime-capabilities",
+      "pnpm control-director:source-handoff -- preflight --sha <candidate-sha> --branch <codex-branch>",
       "local exact-source Control Director proof receipt",
       "Control Director owner acceptance receipt from production Chrome on the managed Mac Studio at or below 60 seconds",
     ],
@@ -345,7 +347,11 @@ const CUSTOM_RUNTIME_ADDITIONS: readonly CustomRuntimeAdditionInput[] = [
       "Preserve the additive Operations protocol, collectors, incident history, guarded actions, Control UI, and local exact-source proof contract.",
     rollback:
       "Restore the previous immutable runtime pointer and verify its Operations snapshot, browser receipt, and incident ledger.",
-    docs: ["docs/automation/operations-room.md", "docs/automation/custom-runtime-update-safety.md"],
+    docs: [
+      "docs/automation/operations-room.md",
+      "docs/automation/control-director-source-handoff.md",
+      "docs/automation/custom-runtime-update-safety.md",
+    ],
   },
   {
     id: "runtime:update-safe-customizations",

@@ -58,6 +58,15 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Headings:
   - H2: Related
 
+## automation/control-director-source-handoff.md
+
+- Route: /automation/control-director-source-handoff
+- Headings:
+  - H1: Control Director source handoff
+  - H2: One bounded workflow
+  - H2: Fail-closed states
+  - H2: Proof boundary
+
 ## automation/cron-jobs.md
 
 - Route: /automation/cron-jobs
@@ -179,6 +188,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Guarded controls
   - H2: Resolving an issue
   - H2: Automatic remediation
+  - H2: Source handoff
   - H2: Owner acceptance in the page
   - H2: Addition and update standard
   - H2: Milestone and proof map
@@ -244,7 +254,9 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /automation/release-governor
 - Headings:
   - H2: Risk and trust boundaries
+  - H2: Proof profiles
   - H2: Evidence flow
+  - H3: Policy-version migration
   - H2: Reviews and approval
   - H2: Health and rollback
   - H2: Verification
