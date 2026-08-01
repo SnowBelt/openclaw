@@ -1,5 +1,8 @@
 import type { PccAttachment, PccProject } from "../../packages/gateway-protocol/src/index.js";
-import type { PccLedger } from "./domain/ledger.js";
+
+type PccProjectLedgerView = {
+  projects: readonly PccProject[];
+};
 
 /**
  * PCC's intended operating envelope for a private Mac Studio team.
@@ -64,12 +67,12 @@ export function normalizePccPrivateTeamPolicy(value: unknown): PccPrivateTeamPol
   return DEFAULT_PCC_PRIVATE_TEAM_POLICY;
 }
 
-export function activePccProjectCount(ledger: PccLedger): number {
+export function activePccProjectCount(ledger: PccProjectLedgerView): number {
   return ledger.projects.filter((project) => project.status !== "archived").length;
 }
 
 export function projectCapacityError(
-  ledger: PccLedger,
+  ledger: PccProjectLedgerView,
   project: PccProject | undefined,
   policy: PccPrivateTeamPolicy = DEFAULT_PCC_PRIVATE_TEAM_POLICY,
 ): string | null {
