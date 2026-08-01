@@ -364,6 +364,7 @@ async function clarifyAttachmentFromForm(event: Event, props: PccDashboardProps)
 
 function renderPccProjectFiles(detail: PccProjectDetail, props: PccDashboardProps) {
   const attachments = detail.attachments ?? [];
+  const fileInputId = `pcc-project-file-${detail.project.id}`;
   return html`<section class="pcc-project-files" data-pcc-project-files>
     <header>
       <div>
@@ -391,15 +392,47 @@ function renderPccProjectFiles(detail: PccProjectDetail, props: PccDashboardProp
         data-pcc-attachment-form
         @submit=${(event: Event) => submitPccAttachment(event, props)}
       >
-        <label class="pcc-project-files__file">
+        <div class="pcc-project-files__file">
           <span>Choose a file</span>
+          <div class="pcc-project-files__chooser">
+            <button
+              class="btn pcc-project-files__choose"
+              type="button"
+              ?disabled=${props.actionBusy}
+              data-pcc-attachment-choose
+              @click=${(event: Event) => {
+                const form = (event.currentTarget as HTMLElement).closest("form");
+                form?.querySelector<HTMLInputElement>("[data-pcc-attachment-file]")?.click();
+              }}
+            >
+              Choose file
+            </button>
+            <span data-pcc-attachment-selection aria-live="polite">No file selected</span>
+          </div>
           <input
+            id=${fileInputId}
+            class="pcc-sr-only"
             type="file"
             name="attachmentFile"
             ?disabled=${props.actionBusy}
             data-pcc-attachment-file
+            @change=${(event: Event) => {
+              const input = event.currentTarget as HTMLInputElement;
+              const form = input.closest("form");
+              const selected = input.files?.[0];
+              const status = form?.querySelector<HTMLElement>("[data-pcc-attachment-selection]");
+              const submit = form?.querySelector<HTMLButtonElement>("[data-pcc-attachment-submit]");
+              if (status) {
+                status.textContent = selected
+                  ? `${selected.name} · ${formatAttachmentSize(selected.size)}`
+                  : "No file selected";
+              }
+              if (submit) {
+                submit.disabled = !selected || props.actionBusy;
+              }
+            }}
           />
-        </label>
+        </div>
         <label>
           <span>Use it as</span>
           <select name="attachmentRole" ?disabled=${props.actionBusy}>
@@ -465,7 +498,9 @@ function renderPccProjectFiles(detail: PccProjectDetail, props: PccDashboardProp
             </label>
           </div>
         </details>
-        <button class="btn" type="submit" ?disabled=${props.actionBusy}>Attach to project</button>
+        <button class="btn pcc-action-primary" type="submit" data-pcc-attachment-submit disabled>
+          Attach to project
+        </button>
       </form>
     </details>
     ${attachments.length
@@ -1135,6 +1170,7 @@ function runResolvedProjectPrimaryAction(
   resolved: PccProjectActionResolution,
   detail: PccProjectDetail,
   props: PccDashboardProps,
+  trigger?: HTMLElement,
 ): void {
   if (resolved.primaryActionId === "resume") {
     if (props.onResumeProject) {
@@ -1152,9 +1188,12 @@ function runResolvedProjectPrimaryAction(
     props.onUpdateWorkLoop({ state: "paused", enabled: true });
     return;
   }
+  if (resolved.primaryActionId === "review_permission") {
+    openPccPermissionReview(detail, trigger);
+    return;
+  }
   if (
     resolved.primaryActionId === "view_details" ||
-    resolved.primaryActionId === "review_permission" ||
     resolved.primaryActionId === "review_blocker"
   ) {
     props.onSetViewMode?.("detailed");
@@ -1163,6 +1202,75 @@ function runResolvedProjectPrimaryAction(
   if (resolved.primaryActionId === "work") {
     props.onPrepareNextWorkItem();
   }
+}
+
+const pccPermissionReviewTriggers = new WeakMap<HTMLDialogElement, HTMLElement>();
+
+function pendingPermissionForDetail(detail: PccProjectDetail): PccPermissionGrant | undefined {
+  const currentMilestoneId = currentMilestoneForDetail(detail)?.id;
+  return detail.permissions
+    .filter((permission) => permission.status === "needed")
+    .toSorted((left, right) => {
+      const leftCurrent = left.milestoneId === currentMilestoneId ? 0 : 1;
+      const rightCurrent = right.milestoneId === currentMilestoneId ? 0 : 1;
+      return leftCurrent - rightCurrent || left.createdAt.localeCompare(right.createdAt);
+    })[0];
+}
+
+function permissionReviewDialog(
+  projectId: string,
+  trigger?: HTMLElement,
+): HTMLDialogElement | null {
+  const root = trigger?.getRootNode() as ParentNode | undefined;
+  const scopedDialog = root
+    ? [...root.querySelectorAll<HTMLDialogElement>("[data-pcc-permission-review-dialog]")].find(
+        (dialog) => dialog.dataset.pccPermissionReviewDialog === projectId,
+      )
+    : undefined;
+  return (
+    scopedDialog ??
+    [...document.querySelectorAll<HTMLDialogElement>("[data-pcc-permission-review-dialog]")].find(
+      (dialog) => dialog.dataset.pccPermissionReviewDialog === projectId,
+    ) ??
+    null
+  );
+}
+
+function openPccPermissionReview(detail: PccProjectDetail, trigger?: HTMLElement): void {
+  const dialog = permissionReviewDialog(detail.project.id, trigger);
+  if (!dialog) {
+    return;
+  }
+  if (trigger) {
+    pccPermissionReviewTriggers.set(dialog, trigger);
+  }
+  if (typeof dialog.showModal === "function") {
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+  } else {
+    dialog.setAttribute("open", "");
+  }
+  if (!dialog.open) {
+    dialog.setAttribute("open", "");
+  }
+  queueMicrotask(() =>
+    dialog.querySelector<HTMLButtonElement>("[data-pcc-permission-grant]")?.focus(),
+  );
+}
+
+function closePccPermissionReview(dialog: HTMLDialogElement): void {
+  if (typeof dialog.close === "function") {
+    dialog.close();
+  } else {
+    dialog.removeAttribute("open");
+  }
+  restorePccPermissionReviewFocus(dialog);
+}
+
+function restorePccPermissionReviewFocus(dialog: HTMLDialogElement): void {
+  pccPermissionReviewTriggers.get(dialog)?.focus();
+  pccPermissionReviewTriggers.delete(dialog);
 }
 
 function blockerKindForLine(line: string): string {
@@ -1578,11 +1686,18 @@ function renderPccMobileCommandRail(props: PccDashboardProps) {
             >No action required</span
           >`
         : html`<button
-            class="btn"
+            class="btn pcc-action-primary"
             type="button"
             data-pcc-mobile-primary-action
             ?disabled=${!detail || props.actionBusy}
-            @click=${() => detail && runResolvedProjectPrimaryAction(resolver!, detail, props)}
+            @click=${(event: Event) =>
+              detail &&
+              runResolvedProjectPrimaryAction(
+                resolver!,
+                detail,
+                props,
+                event.currentTarget as HTMLElement,
+              )}
           >
             ${resolver?.primaryLabel ?? "Select Project"}
           </button>`}
@@ -3195,7 +3310,7 @@ function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboar
       </dl>
       <div class="pcc-permission__actions">
         <button
-          class="btn"
+          class="btn pcc-action-primary"
           type="button"
           ?disabled=${props.actionBusy}
           @click=${() => props.onSetPermissionStatus(permission, "granted")}
@@ -3221,6 +3336,128 @@ function renderPermissionCard(permission: PccPermissionGrant, props: PccDashboar
       </div>
     </article>
   `;
+}
+
+function renderPccPermissionReviewDialog(detail: PccProjectDetail, props: PccDashboardProps) {
+  const pending = detail.permissions.filter((permission) => permission.status === "needed");
+  const permission = pendingPermissionForDetail(detail);
+  if (!permission) {
+    return nothing;
+  }
+  const milestone = permission.milestoneId
+    ? detail.milestones.find((item) => item.id === permission.milestoneId)
+    : undefined;
+  const actions = permission.allowedActions.length
+    ? permission.allowedActions.join(", ")
+    : "No action is authorized until this permission is granted.";
+  const forbidden = permission.forbiddenActions?.length
+    ? permission.forbiddenActions.join(", ")
+    : "All unrelated actions remain outside this permission.";
+  return html`<dialog
+    class="pcc-permission-review"
+    data-pcc-permission-review-dialog=${detail.project.id}
+    aria-labelledby="pcc-permission-review-title"
+    @close=${(event: Event) =>
+      restorePccPermissionReviewFocus(event.currentTarget as HTMLDialogElement)}
+    @click=${(event: Event) => {
+      if (event.target === event.currentTarget) {
+        closePccPermissionReview(event.currentTarget as HTMLDialogElement);
+      }
+    }}
+  >
+    <section>
+      <header>
+        <div>
+          <p class="pcc-kicker">
+            Permission ${pending.indexOf(permission) + 1} of ${pending.length}
+          </p>
+          <h3 id="pcc-permission-review-title">${formatStatus(permission.type)}</h3>
+          <p>Review exactly what PCC may do. Nothing outside this permission is approved.</p>
+        </div>
+        <button
+          class="btn btn--icon"
+          type="button"
+          aria-label="Close permission review"
+          @click=${(event: Event) =>
+            closePccPermissionReview(
+              (event.currentTarget as HTMLElement).closest("dialog") as HTMLDialogElement,
+            )}
+        >
+          ×
+        </button>
+      </header>
+      <dl>
+        <div>
+          <dt>Project</dt>
+          <dd>${detail.project.title}</dd>
+        </div>
+        <div>
+          <dt>Step</dt>
+          <dd>${milestone?.title ?? "Whole project"}</dd>
+        </div>
+        <div>
+          <dt>Risk</dt>
+          <dd>${formatStatus(permission.riskLevel)}</dd>
+        </div>
+        <div>
+          <dt>May do</dt>
+          <dd>${actions}</dd>
+        </div>
+        <div>
+          <dt>Still forbidden</dt>
+          <dd>${forbidden}</dd>
+        </div>
+        <div>
+          <dt>Expires</dt>
+          <dd>${permission.expiresAt || "No expiration recorded"}</dd>
+        </div>
+      </dl>
+      <p class="pcc-permission-review__note">
+        ${permission.tokenBudget
+          ? `Token allowance: ${permission.tokenBudget.toLocaleString()} tokens.`
+          : "No hard token allowance is attached. PCC records actual model use instead."}
+      </p>
+      <footer>
+        <button
+          class="btn pcc-action-primary"
+          type="button"
+          data-pcc-permission-grant
+          ?disabled=${props.actionBusy}
+          @click=${(event: Event) => {
+            props.onSetPermissionStatus(permission, "granted");
+            closePccPermissionReview(
+              (event.currentTarget as HTMLElement).closest("dialog") as HTMLDialogElement,
+            );
+          }}
+        >
+          Grant permission
+        </button>
+        <button
+          class="btn btn--subtle"
+          type="button"
+          @click=${(event: Event) =>
+            closePccPermissionReview(
+              (event.currentTarget as HTMLElement).closest("dialog") as HTMLDialogElement,
+            )}
+        >
+          Not now
+        </button>
+        <button
+          class="btn pcc-action-danger"
+          type="button"
+          ?disabled=${props.actionBusy}
+          @click=${(event: Event) => {
+            props.onSetPermissionStatus(permission, "denied");
+            closePccPermissionReview(
+              (event.currentTarget as HTMLElement).closest("dialog") as HTMLDialogElement,
+            );
+          }}
+        >
+          Deny
+        </button>
+      </footer>
+    </section>
+  </dialog>`;
 }
 
 function permissionsForMilestone(detail: PccProjectDetail | null, milestone: PccMilestone) {
@@ -6231,6 +6468,8 @@ function renderBlockerClarityCenter(
         const fixLabel = blockerFixLabelForLine(line);
         const canResume = fixLabel === "Resume Project" && props.onResumeProject;
         const canFixSetup = fixLabel === "Plan Setup with Codex" && props.onPreviewSetupAutofill;
+        const canReviewPermission =
+          fixLabel === "Review Permission" && pendingPermissionForDetail(detail);
         return html`<li>
           <span>${index + 1}</span>
           <div>
@@ -6260,7 +6499,18 @@ function renderBlockerClarityCenter(
                 >
                   Plan Setup with Codex
                 </button>`
-              : html`<span class="pcc-blocker-center__fix">${fixLabel}</span>`}
+              : canReviewPermission
+                ? html`<button
+                    class="btn pcc-action-primary"
+                    type="button"
+                    data-pcc-blocker-review-permission
+                    ?disabled=${props.actionBusy}
+                    @click=${(event: Event) =>
+                      openPccPermissionReview(detail, event.currentTarget as HTMLElement)}
+                  >
+                    Review Permission
+                  </button>`
+                : html`<span class="pcc-blocker-center__fix">${fixLabel}</span>`}
         </li>`;
       })}
     </ol>
@@ -6398,6 +6648,75 @@ function renderPccRecoveryCenter(props: PccDashboardProps) {
     <button class="btn" type="button" ?disabled=${props.loading} @click=${props.onRefresh}>
       Refresh safely
     </button>
+  </section>`;
+}
+
+function formatAttachmentSize(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 ** 2) {
+    return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
+  }
+  return `${(value / 1024 ** 2).toFixed(value < 10 * 1024 ** 2 ? 1 : 0)} MB`;
+}
+
+function compactTokenCount(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function renderProjectAiUsage(detail: PccProjectDetail) {
+  const usage = detail.aiUsage;
+  if (!usage || usage.completedRuns === 0) {
+    return html`<section class="pcc-ai-usage" data-pcc-ai-usage>
+      <div>
+        <span>AI use</span>
+        <strong>No recorded AI runs yet</strong>
+      </div>
+      <small>New model runs appear here without changing project completion.</small>
+    </section>`;
+  }
+  const share = usage.codexSharePercent ?? 0;
+  const coverageNote =
+    usage.tokenCoverage === "complete"
+      ? "Provider-reported tokens"
+      : usage.tokenCoverage === "partial"
+        ? `${usage.missingUsageRuns} run${usage.missingUsageRuns === 1 ? "" : "s"} did not report tokens`
+        : "Token totals were not reported";
+  return html`<section class="pcc-ai-usage" data-pcc-ai-usage>
+    <div>
+      <span>AI use</span>
+      <strong
+        >Codex: ${usage.codexRuns} of ${usage.completedRuns} recorded AI runs (${share}%)</strong
+      >
+    </div>
+    <div class="pcc-ai-usage__tokens">
+      <strong>${compactTokenCount(usage.reportedTokens.codex)}</strong>
+      <span>reported Codex tokens</span>
+    </div>
+    <details>
+      <summary>Usage details</summary>
+      <p>
+        ${usage.localRuns} local AI run${usage.localRuns === 1 ? "" : "s"} ·
+        ${compactTokenCount(usage.reportedTokens.total)} total reported tokens ·
+        ${coverageNote}${usage.recordingStartedAt
+          ? ` · Recording started ${formatVerifiedAt(usage.recordingStartedAt)}`
+          : ""}
+      </p>
+      ${usage.byPurpose.length
+        ? html`<ul>
+            ${usage.byPurpose.map(
+              (item) => html`<li>
+                <span>${formatStatus(item.purpose)}</span>
+                <strong>${item.runs} run${item.runs === 1 ? "" : "s"}</strong>
+              </li>`,
+            )}
+          </ul>`
+        : nothing}
+    </details>
   </section>`;
 }
 
@@ -6543,11 +6862,17 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
       : html`<div class="pcc-primary-action" data-pcc-primary-action>
           <span>Do this next</span>
           <button
-            class="btn"
+            class="btn pcc-action-primary"
             type="button"
             data-pcc-primary-action-id=${resolvedAction.primaryActionId}
             ?disabled=${primaryActionDisabled}
-            @click=${() => runResolvedProjectPrimaryAction(resolvedAction, detail, props)}
+            @click=${(event: Event) =>
+              runResolvedProjectPrimaryAction(
+                resolvedAction,
+                detail,
+                props,
+                event.currentTarget as HTMLElement,
+              )}
           >
             ${primaryAction}
           </button>
@@ -6571,6 +6896,7 @@ function renderProjectSnapshot(detail: PccProjectDetail, props: PccDashboardProp
             milestones complete</span
           >
         </div>`}
+    ${renderProjectAiUsage(detail)}
     ${terminalWithoutConflict || simple
       ? nothing
       : html`
@@ -6983,6 +7309,7 @@ function renderProjectDetail(props: PccDashboardProps) {
         data-pcc-detail-project-id=${detail.project.id}
         data-pcc-detail-project-title=${detail.project.title}
       >
+        ${renderPccPermissionReviewDialog(detail, props)}
         ${mode === "simple" ? nothing : renderProjectOrientation(detail)}
         ${renderProjectSnapshot(detail, props)} ${renderMilestoneJourney(detail, props)}
         ${renderWorkLoopCard(props)}
@@ -8743,7 +9070,7 @@ function renderProjectEditor(props: PccDashboardProps) {
           ? form.planPreviewAccepted
             ? html`
                 <button
-                  class="btn pcc-editor-primary-action"
+                  class="btn pcc-action-primary pcc-editor-primary-action"
                   type="submit"
                   data-pcc-create-project-confirm
                   ?disabled=${props.actionBusy || !form.title.trim() || projectSaveBlocked}
@@ -8769,9 +9096,10 @@ function renderProjectEditor(props: PccDashboardProps) {
                 </button>
               `
             : html`<button
-                class="btn pcc-editor-primary-action"
+                class="btn pcc-action-primary pcc-editor-primary-action"
                 type="button"
                 data-pcc-create-review-plan
+                data-pcc-action-state=${props.actionBusy ? "working" : "ready"}
                 ?disabled=${props.actionBusy ||
                 props.planningPolicy?.grant.enabled === false ||
                 !(form.projectDescription.trim() || form.title.trim() || form.goal.trim())}
@@ -8782,7 +9110,7 @@ function renderProjectEditor(props: PccDashboardProps) {
                   : "Generate project plan with Codex"}
               </button>`
           : html`<button
-              class="btn pcc-editor-primary-action"
+              class="btn pcc-action-primary pcc-editor-primary-action"
               type="submit"
               ?disabled=${props.actionBusy ||
               !form.title.trim() ||
@@ -8946,7 +9274,7 @@ function renderMilestoneEditor(props: PccDashboardProps) {
       </label>
       <footer>
         <button
-          class="btn pcc-editor-primary-action"
+          class="btn pcc-action-primary pcc-editor-primary-action"
           type="submit"
           ?disabled=${props.actionBusy || !form.title.trim() || !form.projectId}
         >

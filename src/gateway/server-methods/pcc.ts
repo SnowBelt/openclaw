@@ -43,6 +43,7 @@ import {
 } from "../../../packages/gateway-protocol/src/index.js";
 import { assessControlDirectorResourceAdmission } from "../../agents/control-director-resource-admission.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { recordPccModelRunReceipt, summarizePccProjectAiUsage } from "../../pcc/ai-usage.js";
 import { clarifyPccAttachmentInstructions } from "../../pcc/attachment-instructions.js";
 import {
   appendPccAttachmentChunk,
@@ -1384,6 +1385,7 @@ function responseForProject(ledger: PccLedger, project: PccProject) {
     receipts: pccIndexedItems(index.receiptsByProjectId, project.id),
     decisions: pccIndexedItems(index.decisionsByProjectId, project.id),
     lastKnownGood: pccIndexedItems(index.lastKnownGoodByProjectId, project.id),
+    aiUsage: summarizePccProjectAiUsage(ledger, project.id),
     summary: summarizeProject(ledger, project, index),
   };
 }
@@ -1584,15 +1586,36 @@ export const pccHandlers: GatewayRequestHandlers = {
       return;
     }
     try {
-      respond(
-        true,
-        await clarifyPccAttachmentInstructions({
-          cfg: context.getRuntimeConfig(),
-          originalName: params.originalName,
-          role: params.role,
-          instructions: params.instructions,
-        }),
+      const ledger = readLedger();
+      if (!projectOrError(ledger, params.projectId)) {
+        respondNotFound(respond, `project ${params.projectId}`);
+        return;
+      }
+      const startedAt = nowIso();
+      const result = await clarifyPccAttachmentInstructions({
+        cfg: context.getRuntimeConfig(),
+        originalName: params.originalName,
+        role: params.role,
+        instructions: params.instructions,
+      });
+      withLedger(
+        (nextLedger) =>
+          recordPccModelRunReceipt(nextLedger, {
+            projectId: params.projectId,
+            sourceRunId: result.runId,
+            executor: "local",
+            purpose: "attachment_instruction_clarification",
+            provider: result.provenance.provider,
+            model: result.provenance.model,
+            status: "succeeded",
+            startedAt,
+            completedAt: result.provenance.generatedAt,
+            ...(result.usage ? { usage: result.usage } : {}),
+            usageSource: result.usage ? "provider_reported" : "unavailable",
+          }),
+        { write: true, auditKind: "pcc.attachments.clarify" },
       );
+      respond(true, result);
     } catch (error) {
       respondUnhandled(respond, error);
     }
@@ -1682,17 +1705,57 @@ export const pccHandlers: GatewayRequestHandlers = {
       respondUnhandled(respond, error);
     }
   },
-  "pcc.projects.upsert": ({ params, respond }) => {
+  "pcc.projects.upsert": async ({ params, respond }) => {
     if (!validatePccProjectsUpsertParams(params)) {
       respondInvalid(respond, "pcc.projects.upsert", validatePccProjectsUpsertParams.errors);
       return;
     }
     try {
+      const planningRun = params.planningRunId
+        ? await readPccPlanningRun(params.planningRunId)
+        : null;
+      if (
+        params.planningRunId &&
+        (!planningRun ||
+          planningRun.status !== "succeeded" ||
+          !planningRun.startedAt ||
+          !planningRun.endedAt)
+      ) {
+        respond(
+          false,
+          undefined,
+          errorShape(
+            ErrorCodes.INVALID_REQUEST,
+            "The planning run is not complete and cannot be bound to this project.",
+          ),
+        );
+        return;
+      }
       const result = withLedger(
         (ledger) => {
           const upsert = upsertProject(ledger, params.project);
           if (upsert.error || !upsert.project) {
             return { error: upsert.error ?? "project upsert failed" };
+          }
+          if (
+            planningRun?.startedAt &&
+            planningRun.endedAt &&
+            planningRun.plan?.provenance.source === "live_codex"
+          ) {
+            recordPccModelRunReceipt(ledger, {
+              projectId: upsert.project.id,
+              sourceRunId: planningRun.id,
+              executor: "codex",
+              purpose: planningRun.surface === "project_creation" ? "planning" : "replan",
+              provider: "openai",
+              model: planningRun.model,
+              effort: planningRun.effort,
+              status: "succeeded",
+              startedAt: planningRun.startedAt,
+              completedAt: planningRun.endedAt,
+              ...(planningRun.usage ? { usage: planningRun.usage } : {}),
+              usageSource: planningRun.usage ? "provider_reported" : "unavailable",
+            });
           }
           return { project: upsert.project, summary: summarizeProject(ledger, upsert.project) };
         },

@@ -27,6 +27,13 @@ describe("PCC local attachment instruction clarification", () => {
           text: "Use this image as the color reference for the selected milestone; preserve its palette and verify the final screen against it.",
         },
       ],
+      usage: {
+        input: 80,
+        output: 30,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 110,
+      },
       timestamp: Date.now(),
     }));
 
@@ -46,6 +53,8 @@ describe("PCC local attachment instruction clarification", () => {
       model: "qwen3.6:30b",
       generatedAt: "2026-07-27T00:00:00.000Z",
     });
+    expect(result.runId).toMatch(/^pcc-attachment-clarification-/u);
+    expect(result.usage?.totalTokens).toBe(110);
     expect(complete).toHaveBeenCalledOnce();
   });
 

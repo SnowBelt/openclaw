@@ -28,6 +28,7 @@ import type {
   PccPlanningRun,
   PccPortfolioSummary,
   PccProject,
+  PccProjectAiUsageSummary,
   PccProjectSummary,
   PccStatus,
   PccSubMilestone,
@@ -44,6 +45,7 @@ export type PccProjectDetail = {
   decisions?: PccDecision[];
   lastKnownGood?: PccLastKnownGood[];
   attachments?: PccAttachment[];
+  aiUsage?: PccProjectAiUsageSummary;
   summary: PccProjectSummary;
 };
 

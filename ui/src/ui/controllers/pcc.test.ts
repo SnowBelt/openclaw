@@ -2035,6 +2035,20 @@ describe("PCC CRUD controller", () => {
     });
     const state = createState({
       client: { request } as unknown as PccDashboardState["client"],
+      pccPlanningRun: {
+        schemaVersion: 1,
+        id: "planning-run-1",
+        requestFingerprint: "fingerprint-1",
+        surface: "project_creation",
+        status: "succeeded",
+        stage: "ready",
+        model: "openai/gpt-5.6-sol",
+        effort: "medium",
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:01:00.000Z",
+        startedAt: "2026-08-01T00:00:00.000Z",
+        endedAt: "2026-08-01T00:01:00.000Z",
+      },
       pccProjectForm: {
         ...EMPTY_PCC_PROJECT_FORM,
         id: null,
@@ -2066,6 +2080,7 @@ describe("PCC CRUD controller", () => {
     await savePccProject(state);
 
     expect(request).toHaveBeenNthCalledWith(1, "pcc.projects.upsert", {
+      planningRunId: "planning-run-1",
       project: expect.objectContaining({
         title: "Project Command Center",
         goal: "Track all projects",

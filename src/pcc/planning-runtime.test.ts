@@ -32,7 +32,15 @@ const response = JSON.stringify({
 
 describe("PCC Codex planning runtime", () => {
   it("uses the native Codex runtime without tools and records exact provenance", async () => {
-    const runAgent = vi.fn(async () => ({ payloads: [{ text: response }] }));
+    const runAgent = vi.fn(async () => ({
+      payloads: [{ text: response }],
+      meta: {
+        agentMeta: {
+          usage: { input: 1_000, output: 250, cacheRead: 100, total: 1_350 },
+        },
+      },
+    }));
+    const onUsage = vi.fn();
     const result = await generatePccPlanWithCodex({
       cfg: { agents: { defaults: { workspace: process.cwd() } } },
       request: {
@@ -40,6 +48,7 @@ describe("PCC Codex planning runtime", () => {
         description: "Design a production release architecture",
       },
       runAgent: runAgent as never,
+      onUsage,
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     expect(runAgent).toHaveBeenCalledWith(
@@ -56,6 +65,13 @@ describe("PCC Codex planning runtime", () => {
       model: "openai/gpt-5.6-sol",
       effort: "high",
       source: "live_codex",
+    });
+    expect(onUsage).toHaveBeenCalledWith({
+      input: 1_000,
+      output: 250,
+      cacheRead: 100,
+      cacheWrite: undefined,
+      totalTokens: 1_350,
     });
   });
 

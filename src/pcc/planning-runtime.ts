@@ -26,6 +26,34 @@ export type PccPlannerRunner = (
   params: Parameters<typeof runEmbeddedAgent>[0],
 ) => Promise<EmbeddedPlannerResult>;
 
+export type PccModelUsage = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+};
+
+function normalizedUsage(
+  usage: NonNullable<EmbeddedPlannerResult["meta"]["agentMeta"]>["usage"],
+): PccModelUsage | undefined {
+  if (!usage) {
+    return undefined;
+  }
+  const finiteCount = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : undefined;
+  const normalized = {
+    input: finiteCount(usage.input),
+    output: finiteCount(usage.output),
+    cacheRead: finiteCount(usage.cacheRead),
+    cacheWrite: finiteCount(usage.cacheWrite),
+    totalTokens: finiteCount(usage.total),
+  };
+  return Object.values(normalized).some((value) => value !== undefined) ? normalized : undefined;
+}
+
 function payloadText(result: EmbeddedPlannerResult): string {
   return (
     result.payloads
@@ -59,6 +87,7 @@ export async function generatePccPlanWithCodex(params: {
   now?: () => Date;
   abortSignal?: AbortSignal;
   onStage?: (stage: "preparing" | "planner_running" | "validating") => void | Promise<void>;
+  onUsage?: (usage: PccModelUsage) => void | Promise<void>;
 }): Promise<PccPlanGenerationResult> {
   await params.onStage?.("preparing");
   const policy = params.policy ?? DEFAULT_PCC_PLANNING_POLICY;
@@ -99,6 +128,10 @@ export async function generatePccPlanWithCodex(params: {
       authProfileFailurePolicy: "local",
       abortSignal: params.abortSignal,
     });
+    const usage = normalizedUsage(result.meta?.agentMeta?.usage);
+    if (usage) {
+      await params.onUsage?.(usage);
+    }
     const text = payloadText(result);
     if (!text) {
       throw new Error("Codex returned no project-plan content.");

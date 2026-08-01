@@ -4,7 +4,7 @@ import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readDurableJsonFile, writeJsonAtomic } from "../infra/json-files.js";
-import type { PccPlannerRunner } from "./planning-runtime.js";
+import type { PccModelUsage, PccPlannerRunner } from "./planning-runtime.js";
 import { generatePccPlanWithCodex } from "./planning-runtime.js";
 import type { PccPlanGenerationRequest, PccPlanGenerationResult } from "./planning.js";
 import type { PccPlanningPolicy } from "./planning.js";
@@ -33,6 +33,7 @@ export type PccPlanningRun = {
   startedAt?: string;
   endedAt?: string;
   error?: string;
+  usage?: PccModelUsage;
   plan?: PccPlanGenerationResult;
 };
 
@@ -183,6 +184,7 @@ export async function startPccPlanningRun(params: {
           now: clock,
           abortSignal: controller.signal,
           onStage: (stage) => update({ stage }),
+          onUsage: (usage) => update({ usage }),
         });
         controller.signal.throwIfAborted();
         await update({

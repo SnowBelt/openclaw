@@ -275,6 +275,8 @@ import {
 } from "./operations.js";
 import {
   PccCompletionReceiptSchema,
+  PccModelRunReceiptSchema,
+  PccProjectAiUsageSummarySchema,
   PccDecisionSchema,
   PccDecisionsAddParamsSchema,
   PccDecisionsAddResultSchema,
@@ -848,6 +850,8 @@ export const ProtocolSchemas = {
   PccPermissionGrant: PccPermissionGrantSchema,
   PccEvidence: PccEvidenceSchema,
   PccCompletionReceipt: PccCompletionReceiptSchema,
+  PccModelRunReceipt: PccModelRunReceiptSchema,
+  PccProjectAiUsageSummary: PccProjectAiUsageSummarySchema,
   PccDecision: PccDecisionSchema,
   PccDecisionsAddParams: PccDecisionsAddParamsSchema,
   PccDecisionsAddResult: PccDecisionsAddResultSchema,

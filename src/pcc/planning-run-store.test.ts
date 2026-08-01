@@ -70,8 +70,9 @@ describe("PCC durable planning runs", () => {
       request: { surface: "project_creation", description: "Build a durable project planner." },
       policy: DEFAULT_PCC_PLANNING_POLICY,
       env,
-      generatePlan: async ({ onStage }) => {
+      generatePlan: async ({ onStage, onUsage }) => {
         await onStage?.("planner_running");
+        await onUsage?.({ input: 900, output: 100, totalTokens: 1_000 });
         await onStage?.("validating");
         return plan();
       },
@@ -82,6 +83,7 @@ describe("PCC durable planning runs", () => {
     expect(completed).toMatchObject({
       status: "succeeded",
       stage: "ready",
+      usage: { input: 900, output: 100, totalTokens: 1_000 },
       plan: { title: "Durable Planning Proof" },
     });
   });

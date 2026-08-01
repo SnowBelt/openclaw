@@ -54,10 +54,26 @@ function editorHtml(): string {
             What do you want to accomplish?
             <textarea>I want to create a clear, reliable project with milestones and proof.</textarea>
           </label>
+          <div class="pcc-editor__grid pcc-editor__grid--two" data-pcc-model-grid>
+            <label>
+              OpenClaw worker model
+              <select data-pcc-local-model>
+                <option>Best configured local model</option>
+              </select>
+              <small>Last refresh: not refreshed in this session · 19 configured models</small>
+            </label>
+            <label>
+              Codex model
+              <select data-pcc-codex-model>
+                <option>Best available from Codex</option>
+              </select>
+              <small>Only configured Codex models appear.</small>
+            </label>
+          </div>
           <div style="height: 680px"></div>
         </section>
         <footer>
-          <button class="btn pcc-editor-primary-action" type="button">
+          <button class="btn pcc-action-primary pcc-editor-primary-action" type="button">
             Generate project plan with Codex
           </button>
           <button class="btn btn--subtle" type="button">Cancel</button>
@@ -132,7 +148,44 @@ describeBrowserLayout("PCC project-creation layout", () => {
       expect(primary.right).toBeLessThanOrEqual(viewport.width);
       expect(primary.bottom).toBeLessThanOrEqual(viewport.height);
       expect(primary.background).not.toBe("rgba(0, 0, 0, 0)");
+      expect(primary.background).toBe("rgb(0, 122, 255)");
       expect(primary.opacity).toBe("1");
+
+      const sticky = await page.locator("[data-pcc-planning-progress]").evaluate((progress) => {
+        const rect = progress.getBoundingClientRect();
+        const style = getComputedStyle(progress);
+        return {
+          top: rect.top,
+          background: style.backgroundColor,
+          opacity: style.opacity,
+          overflow: style.overflow,
+        };
+      });
+      expect(sticky.top).toBeGreaterThanOrEqual(0);
+      expect(sticky.background).not.toContain("rgba");
+      expect(sticky.opacity).toBe("1");
+      expect(sticky.overflow).toBe("hidden");
+
+      await page.locator("[data-pcc-local-model]").focus();
+      const modelLayout = await page.evaluate(() => {
+        const grid = document.querySelector<HTMLElement>("[data-pcc-model-grid]");
+        const local = document.querySelector<HTMLElement>("[data-pcc-local-model]");
+        const codex = document.querySelector<HTMLElement>("[data-pcc-codex-model]");
+        if (!grid || !local || !codex) {
+          throw new Error("Missing model controls");
+        }
+        const gridRect = grid.getBoundingClientRect();
+        const localRect = local.getBoundingClientRect();
+        const codexRect = codex.getBoundingClientRect();
+        return {
+          contained: localRect.left >= gridRect.left && codexRect.right <= gridRect.right,
+          separated: localRect.right <= codexRect.left || localRect.bottom <= codexRect.top,
+          pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
+        };
+      });
+      expect(modelLayout.contained).toBe(true);
+      expect(modelLayout.separated).toBe(true);
+      expect(modelLayout.pageOverflow).toBe(false);
     } finally {
       await page.close().catch(() => {});
       await browser.close().catch(() => {});

@@ -347,6 +347,88 @@ export const PccCompletionReceiptSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const PccModelUsageSchema = Type.Object(
+  {
+    input: Type.Optional(Type.Integer({ minimum: 0 })),
+    output: Type.Optional(Type.Integer({ minimum: 0 })),
+    cacheRead: Type.Optional(Type.Integer({ minimum: 0 })),
+    cacheWrite: Type.Optional(Type.Integer({ minimum: 0 })),
+    totalTokens: Type.Optional(Type.Integer({ minimum: 0 })),
+  },
+  { additionalProperties: false },
+);
+
+const PccModelRunPurposeSchema = Type.Union([
+  Type.Literal("planning"),
+  Type.Literal("replan"),
+  Type.Literal("problem_solving"),
+  Type.Literal("implementation"),
+  Type.Literal("qa"),
+  Type.Literal("final_review"),
+  Type.Literal("attachment_instruction_clarification"),
+]);
+
+export const PccModelRunReceiptSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    projectId: NonEmptyString,
+    milestoneId: Type.Optional(NonEmptyString),
+    subMilestoneId: Type.Optional(NonEmptyString),
+    sourceRunId: NonEmptyString,
+    executor: Type.Union([Type.Literal("local"), Type.Literal("codex")]),
+    purpose: PccModelRunPurposeSchema,
+    provider: NonEmptyString,
+    model: NonEmptyString,
+    effort: Type.Optional(NonEmptyString),
+    status: Type.Union([
+      Type.Literal("succeeded"),
+      Type.Literal("failed"),
+      Type.Literal("cancelled"),
+    ]),
+    startedAt: TimestampSchema,
+    completedAt: TimestampSchema,
+    usage: Type.Optional(PccModelUsageSchema),
+    usageSource: Type.Union([Type.Literal("provider_reported"), Type.Literal("unavailable")]),
+  },
+  { additionalProperties: false },
+);
+
+export const PccProjectAiUsageSummarySchema = Type.Object(
+  {
+    completedRuns: Type.Integer({ minimum: 0 }),
+    codexRuns: Type.Integer({ minimum: 0 }),
+    localRuns: Type.Integer({ minimum: 0 }),
+    codexSharePercent: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+    reportedTokens: Type.Object(
+      {
+        total: Type.Integer({ minimum: 0 }),
+        codex: Type.Integer({ minimum: 0 }),
+        local: Type.Integer({ minimum: 0 }),
+      },
+      { additionalProperties: false },
+    ),
+    missingUsageRuns: Type.Integer({ minimum: 0 }),
+    tokenCoverage: Type.Union([
+      Type.Literal("none"),
+      Type.Literal("partial"),
+      Type.Literal("complete"),
+    ]),
+    recordingStartedAt: Type.Optional(TimestampSchema),
+    byPurpose: Type.Array(
+      Type.Object(
+        {
+          purpose: PccModelRunPurposeSchema,
+          runs: Type.Integer({ minimum: 0 }),
+          codexRuns: Type.Integer({ minimum: 0 }),
+          reportedTokens: Type.Integer({ minimum: 0 }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const PccDecisionSchema = Type.Object(
   {
     id: NonEmptyString,
@@ -464,6 +546,7 @@ export const PccProjectsGetResultSchema = Type.Object(
     receipts: Type.Array(PccCompletionReceiptSchema),
     decisions: Type.Array(PccDecisionSchema),
     lastKnownGood: Type.Array(PccLastKnownGoodSchema),
+    aiUsage: Type.Optional(PccProjectAiUsageSummarySchema),
     summary: PccProjectSummarySchema,
   },
   { additionalProperties: false },
@@ -471,6 +554,7 @@ export const PccProjectsGetResultSchema = Type.Object(
 
 export const PccProjectsUpsertParamsSchema = Type.Object(
   {
+    planningRunId: Type.Optional(NonEmptyString),
     project: Type.Object(
       {
         id: Type.Optional(NonEmptyString),
@@ -661,6 +745,7 @@ export const PccPlanningRunSchema = Type.Object(
     startedAt: Type.Optional(TimestampSchema),
     endedAt: Type.Optional(TimestampSchema),
     error: Type.Optional(Type.String({ maxLength: 4_000 })),
+    usage: Type.Optional(PccModelUsageSchema),
     plan: Type.Optional(PccGeneratedPlanSchema),
   },
   { additionalProperties: false },
@@ -873,6 +958,7 @@ export const PccAttachmentsUpdateResultSchema = Type.Object(
 );
 export const PccAttachmentsClarifyParamsSchema = Type.Object(
   {
+    projectId: NonEmptyString,
     originalName: NonEmptyString,
     role: PccAttachmentRoleSchema,
     instructions: Type.String({ minLength: 1, maxLength: 20_000 }),
@@ -881,7 +967,9 @@ export const PccAttachmentsClarifyParamsSchema = Type.Object(
 );
 export const PccAttachmentsClarifyResultSchema = Type.Object(
   {
+    runId: NonEmptyString,
     clarifiedInstructions: Type.String({ minLength: 1, maxLength: 20_000 }),
+    usage: Type.Optional(PccModelUsageSchema),
     provenance: Type.Object(
       {
         provider: NonEmptyString,

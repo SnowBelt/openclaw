@@ -6,6 +6,7 @@ import type {
   PccAttachment,
   PccAttachmentUsageReceipt,
   PccMilestone,
+  PccModelRunReceipt,
   PccPermissionGrant,
   PccProject,
   PccSubMilestone,
@@ -28,6 +29,7 @@ export type PccLedger = {
   lastKnownGood: PccLastKnownGood[];
   attachments?: PccAttachment[];
   attachmentUsageReceipts?: PccAttachmentUsageReceipt[];
+  modelRunReceipts?: PccModelRunReceipt[];
   settings?: {
     planningPolicy?: PccPlanningPolicy;
   };
